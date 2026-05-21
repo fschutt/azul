@@ -5524,6 +5524,34 @@ define linkonce_odr i64 @__remill_read_memory_64(ptr %memory, i64 %addr) alwaysi
   %v = load i64, ptr %p, align 8, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret i64 %v
 }}
+; M12.7: FP loads (`ldr s/d/q`) lift to __remill_read_memory_f32/f64. Without
+; these definitions they're unresolved imports stubbed to 0 at runtime — which
+; silently corrupts any FP-register-loaded INTEGER data. hashbrown's NEON
+; control-group scan (RawIterRange / match) loads the 8-byte control group via
+; `ldr d` → reads 0 → every byte looks FULL (top-bit 0) → the iterator never
+; terminates (the layout solver's infinite loop). The value only round-trips
+; through memory to a SIMD reg (no FP arithmetic), so a plain typed load
+; preserves the exact bits — no NaN canonicalization.
+define linkonce_odr float @__remill_read_memory_f32(ptr %memory, i64 %addr) alwaysinline {{
+  %p = inttoptr i64 %addr to ptr
+  %v = load float, ptr %p, align 4, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  ret float %v
+}}
+define linkonce_odr double @__remill_read_memory_f64(ptr %memory, i64 %addr) alwaysinline {{
+  %p = inttoptr i64 %addr to ptr
+  %v = load double, ptr %p, align 8, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  ret double %v
+}}
+define linkonce_odr ptr @__remill_write_memory_f32(ptr %memory, i64 %addr, float %val) alwaysinline {{
+  %p = inttoptr i64 %addr to ptr
+  store volatile float %val, ptr %p, align 4, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  ret ptr %memory
+}}
+define linkonce_odr ptr @__remill_write_memory_f64(ptr %memory, i64 %addr, double %val) alwaysinline {{
+  %p = inttoptr i64 %addr to ptr
+  store volatile double %val, ptr %p, align 8, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  ret ptr %memory
+}}
 define linkonce_odr ptr @__remill_write_memory_8(ptr %memory, i64 %addr, i8 %val) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
   store volatile i8 %val, ptr %p, align 1, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
