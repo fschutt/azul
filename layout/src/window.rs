@@ -440,6 +440,10 @@ pub struct LayoutWindow {
     /// (gilrs / GCController / InputDevice) parks per-pad states in the async
     /// channel the layout pass folds in here.
     pub gamepad_manager: crate::managers::gamepad::GamepadManager,
+    /// Safe-area insets (notch / system-UI margins) for this window, in logical
+    /// px. Set by the platform shell (macOS NSScreen.safeAreaInsets, iOS
+    /// UIView.safeAreaInsets, Android WindowInsets); zero where none.
+    pub safe_area_insets: azul_core::window::SafeAreaInsets,
     /// Timers associated with this window
     pub timers: BTreeMap<TimerId, Timer>,
     /// Threads running in the background for this window
@@ -612,6 +616,7 @@ impl LayoutWindow {
             keyring_manager: crate::managers::keyring::KeyringManager::new(),
             sensor_manager: crate::managers::sensors::SensorManager::new(),
             gamepad_manager: crate::managers::gamepad::GamepadManager::new(),
+            safe_area_insets: azul_core::window::SafeAreaInsets::default(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),

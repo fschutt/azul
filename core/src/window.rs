@@ -1440,6 +1440,20 @@ pub struct WaylandTheme {
     pub title_bar_font_size: f32,
 }
 
+/// Safe-area insets (logical px) — the margins where window content is obscured
+/// by system UI or hardware: a phone notch / rounded corners, the macOS
+/// menu-bar notch, Android status / navigation bars. `0` on platforms or
+/// windows with no inset. Read from a callback via
+/// `CallbackInfo::get_safe_area_insets`; lay out interactive content within them.
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Default)]
+#[repr(C)]
+pub struct SafeAreaInsets {
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct WindowSize {

@@ -3150,6 +3150,15 @@ impl CallbackInfo {
         self.get_layout_window().sensor_manager.reading(kind)
     }
 
+    /// The safe-area insets (notch / system-UI margins) for this window, in
+    /// logical px - lay out interactive content within them so it isn't hidden
+    /// by a notch / rounded corners / status bar. Zero where the platform or
+    /// window has no inset. Set by the platform shell (macOS `NSScreen` notch,
+    /// iOS `UIView.safeAreaInsets`, Android `WindowInsets`).
+    pub fn get_safe_area_insets(&self) -> azul_core::window::SafeAreaInsets {
+        self.get_layout_window().safe_area_insets
+    }
+
     /// Get the latest state of the gamepad `id` (button bitset + analog
     /// axes), or `None` if no pad with that id has connected. Kept live by
     /// the controller backend (gilrs / iOS `GCController` / Android

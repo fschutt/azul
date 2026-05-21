@@ -2335,3 +2335,11 @@ Per the user's autofix workflow: `autofix add 'VideoEncoder.*'`/`'VideoDecoder.*
 ### Tick — dedup LayoutWindow construction (2026-05-21)
 
 User: "yeah deduplicate this." LayoutWindow (~40 fields) was constructed at 3 sites (`new`, `new_with_shared_fonts`, `new_paged`) each re-listing every field initializer - they differed only in `font_manager` (and `new_paged`'s `fragmentation_context`). Extracted `LayoutWindow::from_font_manager(fm)` as the single construction point; the 3 public constructors are now thin wrappers (`new` = `from_font_manager(FontManager::new(fc)?)`, etc.). Removes ~140 lines of duplicated init, and adding a field now touches one site (the prerequisite for the safe-area-insets work). Gate GREEN all 7.
+
+### Tick — SUPER_PLAN_1 fix #1: safe-area-insets core (notches) (2026-05-21)
+
+The cross-platform safe-area API (notches / system-UI margins), enabled by the LayoutWindow dedup:
+- `azul_core::window::SafeAreaInsets { top, right, bottom, left: f32 }` (logical px, repr C, Default = 0).
+- `LayoutWindow.safe_area_insets` field (one site now, via `from_font_manager`).
+- `CallbackInfo::get_safe_area_insets() -> SafeAreaInsets` accessor.
+Cross-platform, 0 default everywhere; gate GREEN all 7. NEXT: codegen-expose the type + accessor (autofix), then populate per-platform (macOS `NSScreen.safeAreaInsets` notch + iOS `UIView.safeAreaInsets`; Android WindowInsets) - the platform shell writes `layout_window.safe_area_insets`.
