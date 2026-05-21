@@ -2286,3 +2286,9 @@ Wrote `scripts/PLATFORM_INTEGRATION_AUDIT.md` - a full matrix (13 systems x 5 pl
 - **Stub on ALL platforms** (test-pattern/test-tone workers, no real backend): camera, screencap, video playback, mic capture, AudioSink, video codec.
 - Permission *request* side is TODO on every platform.
 Prioritized desktop-extension plan in the doc (tractable-first: linux sensors via iio; then v4l2 camera, X11/Wayland-dummy screencap, rodio audio, zbus/WinRT geo, gpu-video codec - all per the dlopen cross-compile rule). First extension: linux sensors (next).
+
+### Tick — desktop extension #1: Linux sensors via iio (real) (2026-05-21)
+
+`dll/src/desktop/extra/sensors/linux.rs` - the first real desktop backend from the audit (the user's named "sensors on linux"). Reads `/sys/bus/iio/devices/iio:deviceN/in_{accel,anglvel,magn}_{x,y,z}_raw` * scale once per `poll` and pushes each present sensor's reading into azul-layout's channel (same path CoreMotion/Android feed). Pure sysfs file reads - no system lib, no dlopen, cross-compiles cleanly - and reads nothing gracefully when the host has no iio IMU (most desktops). Magnetometer Gauss->microtesla (x100) to match azul-core units. Wired into `sensors/mod.rs` (linux start + poll, pull API like Apple). Gate GREEN all 7.
+
+Pattern confirmed for desktop backends: a dll-side backend that pushes to the existing layout channel, sysfs/ioctls where no lib is needed, dlopen otherwise. NEXT desktop extensions (substantial, per the audit): linux geolocation (zbus GeoClue2, pure-Rust), v4l2 camera (ioctls + a frame channel like sensors), audio (rodio/cpal behind a feature + dlopen ALSA fork), screencap (X11 dlopen / Wayland dummy), windows sensors (WinRT).

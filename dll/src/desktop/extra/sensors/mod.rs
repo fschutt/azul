@@ -10,7 +10,8 @@
 //! |----------|-----------|------------------|
 //! | iOS / macOS | `CMMotionManager` start*Updates (objc2-core-motion) | update handler block → `push_sensor_reading` |
 //! | Android | `SensorManager.registerListener` (JNI via `AzulSensors`) | `onSensorChanged` → `nativeOnSensorReading` → `push_sensor_reading` |
-//! | desktop Linux / Windows | — (no motion sensors wired) | — |
+//! | Linux | iio sysfs (`/sys/bus/iio/devices`, pull) | `poll` reads raw*scale → `push_sensor_reading` |
+//! | Windows | — (no motion sensors wired yet) | — |
 //!
 //! [`ensure_started`] kicks the subscription exactly once per process from
 //! the layout pass (OnceLock-guarded — registering is a native call, so we
@@ -29,6 +30,8 @@
 pub mod apple;
 #[cfg(target_os = "android")]
 pub mod android;
+#[cfg(target_os = "linux")]
+pub mod linux;
 
 /// Start the device's motion-sensor subscription once per process. Called
 /// from `regenerate_layout` every frame; the OnceLock makes only the first
@@ -44,7 +47,9 @@ fn start() {
     apple::start();
     #[cfg(target_os = "android")]
     android::start();
-    // Other platforms (desktop Linux / Windows): no motion sensors wired —
+    #[cfg(target_os = "linux")]
+    linux::start();
+    // Windows (and other targets): no motion sensors wired yet —
     // `get_sensor_reading` stays `None`.
 }
 
@@ -55,4 +60,6 @@ fn start() {
 pub fn poll() {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     apple::poll();
+    #[cfg(target_os = "linux")]
+    linux::poll();
 }
