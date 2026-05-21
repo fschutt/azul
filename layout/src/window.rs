@@ -1044,7 +1044,15 @@ impl LayoutWindow {
                 .pending_changes
                 .merge(&mut transform_opacity_events);
         }
-        let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
+        // M12.7: in the headless web path the GPU cache is empty (sync skipped),
+        // and `.clone()` of an empty hashbrown table drives RawTable::clone's
+        // RawIterRange — which mis-lifts to wasm and loops forever. Use a fresh
+        // empty cache instead (geometry doesn't use it). Desktop unchanged.
+        let gpu_cache = if self.skip_gpu_sync {
+            GpuValueCache::default()
+        } else {
+            self.gpu_state_manager.get_or_create_cache(dom_id).clone()
+        };
 
         let cursor_is_visible = self.text_edit_manager.should_draw_cursor();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();

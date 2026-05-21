@@ -425,6 +425,13 @@ pub fn set_skip_display_list(skip: bool) {
     SKIP_DISPLAY_LIST.store(skip, core::sync::atomic::Ordering::Relaxed);
 }
 
+// M12.7: keep this out-of-line so the web lift sees it as its own wasm fn
+// (not inlined into layout_dom_recursive). An opt-folded infinite loop in the
+// solver (a mis-lifted loop exit) is otherwise hidden inside the giant inlined
+// layout_dom_recursive; de-inlining lets AZ_FUEL/AZ_WASM_DEBUG name the actual
+// source fn — and may itself prevent the inlining-induced fold. No perf cost on
+// desktop (called once per layout).
+#[inline(never)]
 pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
