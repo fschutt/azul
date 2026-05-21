@@ -134,6 +134,9 @@ impl MacOSWindow {
         // Perform hit testing and update last_hit_test
         self.update_hit_test(position);
 
+        // Feed Wacom/pen pressure+tilt (tablet events arrive as mouse events).
+        self.feed_tablet_pen(event, position, true);
+
         // Use V2 cross-platform event system - it will automatically:
         // - Detect MouseDown event (left/right/middle)
         // - Dispatch to hovered nodes (including CSD buttons with callbacks)
@@ -173,6 +176,9 @@ impl MacOSWindow {
         // Perform hit testing and update last_hit_test
         self.update_hit_test(position);
 
+        // Feed Wacom/pen state on tablet events (pen tip lifted = not in contact).
+        self.feed_tablet_pen(event, position, false);
+
         // Check for right-click context menu (before event processing)
         if button == MouseButton::Right {
             if let Some(hit_node) = self.get_first_hovered_node() {
@@ -188,6 +194,42 @@ impl MacOSWindow {
         // Use V2 cross-platform event system - automatically detects MouseUp
         let result = self.process_window_events(0);
         Self::convert_process_result(result)
+    }
+
+    /// Feed Wacom/pen pressure + tilt into the gesture manager's pen state if
+    /// `event` is a tablet event. macOS delivers tablet input as regular mouse
+    /// events whose subtype is `TabletPoint` (with pressure/tilt/rotation fields
+    /// on the NSEvent). `in_contact` = the pen tip is touching (tip == the mouse
+    /// button). This populates the W3C PointerEvent fields (pressure, tilt,
+    /// tangentialPressure, twist, eraser) so apps can read `get_pen_state()`;
+    /// the cursor + mouse events already drive the pointer. Mirrors the iOS /
+    /// Android pen feed.
+    fn feed_tablet_pen(&mut self, event: &NSEvent, position: LogicalPosition, in_contact: bool) {
+        use objc2_app_kit::{NSEventSubtype, NSPointingDeviceType};
+        if unsafe { event.subtype() } != NSEventSubtype::TabletPoint {
+            return;
+        }
+        let pressure = unsafe { event.pressure() };
+        let tilt = unsafe { event.tilt() }; // NSPoint components in -1.0..=1.0
+        let is_eraser = unsafe { event.pointingDeviceType() } == NSPointingDeviceType::Eraser;
+        let tangential = unsafe { event.tangentialPressure() };
+        let rotation_deg = unsafe { event.rotation() };
+        let device_id = unsafe { event.pointingDeviceID() } as u64;
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            lw.gesture_drag_manager.update_pen_state_full(
+                position,
+                pressure,
+                // NSEvent tilt is a -1..1 fraction; approximate to degrees (±90°).
+                (tilt.x as f32 * 90.0, tilt.y as f32 * 90.0),
+                in_contact,
+                is_eraser,
+                false, // barrel button not reported on the mouse-event path
+                device_id,
+                tangential,
+                rotation_deg * core::f32::consts::PI / 180.0,
+                0,
+            );
+        }
     }
 
     /// Process a mouse move event.
@@ -227,6 +269,10 @@ impl MacOSWindow {
 
         // Update hit test
         self.update_hit_test(position);
+
+        // Feed Wacom/pen state on tablet events (in contact iff the tip/button is down).
+        let pen_in_contact = self.common.current_window_state.mouse_state.left_down;
+        self.feed_tablet_pen(event, position, pen_in_contact);
 
         // Update cursor based on CSS cursor properties
         // This is done BEFORE callbacks so callbacks can override the cursor
