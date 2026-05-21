@@ -2739,6 +2739,11 @@ fn is_proper_table_child(display: LayoutDisplay) -> bool {
 
 // Determines the display type of a node based on its tag and CSS properties.
 // Delegates to getters::get_display_property which uses the compact cache fast path.
+// M12.7: get_display_type → get_display_property_internal returns MultiValue<LayoutDisplay>
+// via the X8/sret path, which mis-lifts (the enum return processing diverges — this is
+// the geometry-chain root). #[inline(never)] (to wrap the call w/ enforce_sp_preservation)
+// did NOT fix it (reverted) — the divergence is inside the enum return decode, not the
+// frame. Needs the remill m12-q-reg-x8-sret fork's enum/sret handling.
 pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     use crate::solver3::getters::get_display_property;
     get_display_property(styled_dom, Some(node_id)).unwrap_or(LayoutDisplay::Inline)
