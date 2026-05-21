@@ -35,6 +35,9 @@ pub mod pdf;
 /// on-device (the stub counts frames). The playback counterpart to
 /// `MicrophoneWidget` (capture). See `audio/mod.rs`.
 pub mod audio;
+/// Camera capture backend registration (v4l2 on Linux via rscam); plugs into
+/// the capture_common seam. See camera/mod.rs.
+pub mod camera;
 /// UDP transport (P8). The `Udp` handle wraps a `std::net::UdpSocket` (no
 /// feature gate - `std::net` is always present, real on every target). The
 /// fault-tolerant packet-sharing primitive for azul-meet. See `udp/mod.rs`.

@@ -130,6 +130,10 @@ zbus = "5"
 # Runtime loader for the Linux ALSA audio backend (audio/alsa.rs dlopen's
 # libasound). Non-optional on linux so the AudioSink backend always compiles.
 libloading = "0.8"
+# v4l2 camera capture for the Linux camera backend (camera/v4l2.rs). Pure-Rust
+# (libc ioctls, no system-lib link, no bindgen — sidesteps the v4l-sys/clang
+# conflict), so it cross-compiles + has the v4l2 ABI right.
+rscam = "0.5"
 
 [target.'cfg(any(target_os = "ios"))'.dependencies]
 objc = { version = "0.2", optional = true }

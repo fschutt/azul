@@ -817,6 +817,10 @@ pub fn regenerate_layout(
     // MicrophoneWidget captures real audio where available; OnceLock-guarded.
     crate::desktop::extra::audio::ensure_mic_backend();
 
+    // Register the platform camera-capture backend once (v4l2 via rscam on
+    // Linux) so CameraWidget shows the real camera where available; guarded.
+    crate::desktop::extra::camera::ensure_camera_backend();
+
     // 7h. Drain motion-sensor readings the platform backend parked since the
     // last pass (CoreMotion / Android SensorManager fire on arbitrary
     // threads with no handle to this LayoutWindow, so they park readings in
