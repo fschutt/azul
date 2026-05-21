@@ -2456,9 +2456,13 @@ fn collect_box_props(
     // M12.7 diag: capture get_display_type's return BEFORE the match. If 0x400D0 reads
     // 0xC0_57<dt> the CALL returned (dt = LayoutDisplay discriminant) and the MATCH below
     // diverges; if it stays 0x56, get_display_type (the enum extraction) itself diverges.
-    let __dt_pad = get_display_type(styled_dom, dom_id);
-    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_005700u32 | ((__dt_pad as u32) & 0xff)); }
-    let unresolved_padding = match __dt_pad {
+    // M12.7 NOTE: get_display_type RETURNS a valid dt here (captured =2), but the code
+    // immediately after diverges — and replacing the `match` below with a branchless
+    // bitmask test did NOT help (so it's NOT the multi-way-branch codegen). So the
+    // get_display_type CALL corrupts the caller frame / control flow (same class as
+    // create_node's return 0→48704), specific to ENUM-returning getters (pixel getters
+    // like get_css_margin_* lift fine). Remill-level. The match is kept (original).
+    let unresolved_padding = match get_display_type(styled_dom, dom_id) {
         LayoutDisplay::TableRow
         | LayoutDisplay::TableRowGroup
         | LayoutDisplay::TableHeaderGroup
