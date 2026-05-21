@@ -97,6 +97,62 @@ public:
         return mem_.tryRead(addr, byte_out);
     }
 
+    // M12.7: jump-table devirtualization. For an indirect JUMP (`br Xn`, e.g. a
+    // `match` lowered to a PC-relative jump table), the arm targets are intra-fn
+    // instructions. remill can't resolve `br Xn` statically (it would emit the
+    // no-op __remill_jump and lose the dispatch). Provide every 4-byte-aligned
+    // address in the enclosing fn's lift range as a candidate target; the lifted
+    // IR's correctly-computed target value selects the right arm via the `switch`
+    // TraceLifter builds from these. Jumps only — an indirect CALL (`blr`) goes to
+    // another fn, not intra-fn, so leave it as __remill_jump/call.
+    void ForEachDevirtualizedTarget(
+        const remill::Instruction &inst,
+        std::function<void(uint64_t, remill::DevirtualizedTargetKind)> func)
+        override {
+        if (inst.category != remill::Instruction::kCategoryIndirectJump ||
+            inst.pc < 4) {
+            return;
+        }
+        // Only the COMPILER JUMP-TABLE pattern: `br Xn` preceded by
+        // `add Xn, Xn, Xm, lsl #2`. Skip other indirect jumps (interpreter
+        // fn-ptr dispatch etc.) to avoid blowing up the lifted IR.
+        bool is_jumptable = false;
+        for (int k = 1; k <= 5 && inst.pc >= static_cast<uint64_t>(4 * k); k++) {
+            uint32_t w = 0;
+            bool got = true;
+            for (int i = 0; i < 4; i++) {
+                uint8_t b = 0;
+                if (!mem_.tryRead(inst.pc - 4 * k + static_cast<uint64_t>(i),
+                                  &b)) { got = false; break; }
+                w |= static_cast<uint32_t>(b) << (8 * i);
+            }
+            if (got && (w >> 24) == 0x8Bu && ((w >> 10) & 0x3Fu) == 2u) {
+                is_jumptable = true;
+                break;
+            }
+        }
+        if (!is_jumptable) {
+            return;
+        }
+        for (const auto &r : mem_.ranges) {
+            if (inst.pc >= r.base && inst.pc < r.base + r.bytes.size()) {
+                if (r.bytes.size() > 12288) {
+                    return;  // skip huge fns (interpreter) — IR blowup
+                }
+                // Bound to a window around the jump (arms are near the dispatch)
+                // so we don't sweep the whole fn per indirect jump (IR blowup).
+                const uint64_t rend = r.base + r.bytes.size();
+                uint64_t lo = (inst.pc > r.base + 256)
+                                  ? ((inst.pc - 256) & ~uint64_t(3)) : r.base;
+                uint64_t hi = (inst.pc + 2048 < rend) ? (inst.pc + 2048) : rend;
+                for (uint64_t a = lo; a < hi; a += 4) {
+                    func(a, remill::DevirtualizedTargetKind::kTraceLocal);
+                }
+                return;
+            }
+        }
+    }
+
     llvm::Function *GetLiftedTraceDefinition(uint64_t addr) override {
         auto it = traces.find(addr);
         if (it != traces.end()) {
