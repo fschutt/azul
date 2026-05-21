@@ -2162,3 +2162,13 @@ NEXT: azul-meet app (mic capture -> Udp.send_to; Udp.recv -> AudioSink.play; + c
 **Binding-usage notes (for demos/docs):** FFI vec construction is ptr-based - `U8Vec::copy_from_ptr(&v[0], len)` / `F32Vec::copy_from_ptr` / `create()` for empty (no `from_vec`). `AzString` = `azul::str::String`, has `From<&str>` (`AzString::from("...")`). Matching `OptionU8Vec::Some(ref bytes)` needs `ref` (Option wrappers impl Drop). `TimerCallbackReturn { should_update, should_terminate }` (both fields). Used the now-safe autofix workflow throughout (0 false-removes).
 
 NEXT: video into azul-meet (camera on_frame -> chunked send; openh264/VideoToolbox codec on-device per vk-video findings) OR the chunking/seq framing. Then P9 (synthetic-event e2e) -> P10 (docs).
+
+### Tick — P9.1 — synthetic-event e2e harness (sensors + gamepad) (2026-05-21)
+
+`layout/tests/synthetic_events.rs` - the P9 harness (user: "generate all the wacom/pen/etc. events synthetically to test the p2-p7 events"). Part 1 covers the P6 input-event paths end-to-end with NO hardware: a synthetic reading/state is injected via the same platform-backend channel a real device uses (`push_sensor_reading` / `push_gamepad_state`), the manager folds it, the `EventProvider` yields the window event, and `event_type_to_filters` routes it. 4 tests, all green (`cargo test --release -p azul-layout --test synthetic_events`):
+- `synthetic_sensor_reading_fires_sensorchanged` (accel reading -> SensorChanged)
+- `synthetic_unchanged_sensor_reading_does_not_refire` (idle sensor doesn't spam)
+- `synthetic_gamepad_state_fires_gamepadinput` (pad state -> GamepadInput)
+- `input_events_route_to_node_and_window_filters` (Hover + Window filters)
+
+NEXT (P9.2+): extend the harness to geolocation (`push_location_fix`), capture/audio frames (AudioFrame/VideoFrame round-trip like azul-meet), and wacom-pen/touch (synthetic SyntheticEvent + the pen EventFilters). Then P10 (docs + mobile packaging).
