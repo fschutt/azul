@@ -1451,10 +1451,33 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         return 3;
     }
 
-    // Headless layout window: empty font cache (no filesystem in wasm;
-    // text measurement degrades to metrics-free, but block/flex box
-    // geometry with explicit CSS sizes is exact).
-    let mut lw = match LayoutWindow::new(FcFontCache::default()) {
+    // Headless layout window. There is no filesystem in wasm, so the disk
+    // font loaders (`PathLoader::load_from_path` → `std::fs::read`) all fail —
+    // and the solver HARD-ERRORS `LayoutError::Text(FontNotFound)` even for a
+    // text-free body. Register one embedded fallback font as an in-MEMORY
+    // source (`with_memory_fonts`): it's matched as the universal fallback and
+    // loaded via `FontBytes::Owned`, never `std::fs::read`. This both unblocks
+    // the bare-body layout AND gives <p>hello</p> real glyph metrics later.
+    const AZ_WEB_FALLBACK_FONT: &[u8] =
+        include_bytes!("../../../doc/fonts/SourceSerifPro-Regular.ttf");
+    let fc_cache = FcFontCache::default();
+    // rust-fontconfig matches family by SUBSTRING (stored.family.contains(query)).
+    // The solver's default FontSelector queries "serif" (text3 default), and DOMs
+    // ask for "serif"/"sans-serif"/"monospace". One stored string containing all
+    // three generics matches every such query → this one font is the universal
+    // fallback. (A specific-name query falls back through its chain to a generic.)
+    fc_cache.with_memory_fonts(vec![(
+        rust_fontconfig::FcPattern {
+            family: Some("sans-serif monospace".to_string()),
+            ..Default::default()
+        },
+        rust_fontconfig::FcFont {
+            bytes: AZ_WEB_FALLBACK_FONT.to_vec(),
+            font_index: 0,
+            id: "az_web_fallback".to_string(),
+        },
+    )]);
+    let mut lw = match LayoutWindow::new(fc_cache) {
         Ok(lw) => lw,
         Err(_) => return 4,
     };
