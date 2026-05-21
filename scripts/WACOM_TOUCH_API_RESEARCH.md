@@ -56,3 +56,26 @@ wl_fixed = signed 24.8 -> f64 = raw/256.0. `frame` is the atomic commit boundary
   - Map: pressure/65535 -> 0..1; tilt_x/y degrees; rotation degrees; `type==eraser` -> eraser; down/up = tip contact. Accumulate per `frame`.
 
 **Flow:** proximity_in -> [down] -> motion/pressure/tilt/... -> frame(commit) -> ... -> [up] -> proximity_out.
+
+## Wayland MARSHALLING FIX SPEC (researched 2026-05-21) — the backend is non-functional
+
+Two research agents (libwayland API + full binding audit) found the wayland shell's request marshalling is broken: it's dead at registry-bind. Fix spec below; apply in ONE pass (partial leaves it dead).
+
+### Marshalling API (real exported symbols, dlsym-able)
+- `wl_proxy_marshal_flags(proxy, opcode:u32, interface:*const wl_interface, version:u32, flags:u32, ...) -> *mut wl_proxy` (libwayland >=1.20; PREFER). flags=0 normally; `WL_MARSHAL_FLAG_DESTROY=1` only on destroy-requests.
+- `wl_proxy_marshal_constructor(proxy, opcode, interface, ...)` + `_constructor_versioned(proxy, opcode, interface, version, ...)` (older; fallback if marshal_flags is NULL).
+- `wl_proxy_marshal(proxy, opcode, ...)` (non-constructor requests). `wl_proxy_get_version(proxy)->u32`. `wl_proxy_add_listener` (already loaded, OK). `wl_proxy_destroy` (OK).
+- INLINE-ONLY (NOT exported; must reimplement via the above): wl_display_get_registry, wl_registry_bind, wl_seat_get_pointer/keyboard/touch, every wl_<iface>_<request>, all xdg_*.
+- Rust can't varargs-via-fn-ptr: transmute the raw marshaller to a CONCRETE per-request signature `(proxy,u32,*const wl_interface,u32,u32, ...args, *mut c_void newid)`. Constructor requests ALWAYS pass a trailing NULL new_id.
+- **APPROACH:** the broken `transmute(...)` wrapper FIELDS in dlopen.rs must become real fns/methods that inject the hardcoded opcode + interface (the fields drop them). Add dlsym of `wl_proxy_marshal_flags`, `wl_proxy_marshal_constructor_versioned`, `wl_proxy_get_version`. Add the missing `wl_interface` globals: wl_surface/pointer/keyboard/touch/callback/region/shm_pool/buffer (+ wl_subsurface), and xdg_surface/toplevel/popup/positioner (xdg ones exported only if the xdg-shell .o is linked — confirm, the shell already loads xdg_wm_base_interface).
+
+### Constructor requests (opcode, returned-interface) — were dropping both:
+wl_registry_bind: op 0, SPECIAL: `marshal_constructor_versioned(reg, 0, iface, version, name:u32, iface->name:string, version:u32, NULL)`. | wl_compositor.create_surface op0 ->wl_surface | .create_region op1 ->wl_region | wl_subcompositor.get_subsurface op1 ->wl_subsurface(NULL,surface,parent) | wl_surface.frame op3 ->wl_callback | xdg_wm_base.get_xdg_surface op2 ->xdg_surface(NULL,surface) | .create_positioner op1 ->xdg_positioner | xdg_surface.get_toplevel op1 ->xdg_toplevel | .get_popup op3 ->xdg_popup(NULL,parent,positioner) | wl_seat.get_pointer op0 ->wl_pointer | .get_keyboard op1 ->wl_keyboard | .get_touch op2 ->wl_touch | wl_shm.create_pool op0 ->wl_shm_pool(NULL,fd,size) | wl_shm_pool.create_buffer op0 ->wl_buffer(NULL,offset,w,h,stride,format).
+
+### Plain requests (wl_proxy_marshal, opcode) — were dropping the opcode:
+wl_surface: destroy0 attach1(buf,x,y) damage2(x,y,w,h) frame3 set_opaque_region4 commit6 | wl_subsurface: destroy0 set_position1(x,y) set_desync5 | xdg_wm_base.pong op3(serial) | xdg_surface.ack_configure op4(serial) | xdg_toplevel: set_title2(str) move5(seat,serial) set_max_size7(w,h) set_min_size8(w,h) set_maximized10 unset_maximized11 set_minimized12 set_fullscreen13(output) unset_fullscreen14 | xdg_positioner: destroy0 set_size1(w,h) set_anchor_rect2(x,y,w,h) set_anchor4 set_gravity5 set_constraint_adjustment6 | xdg_popup: destroy0 grab1(seat,serial) | wl_buffer.destroy0 | wl_shm_pool.destroy1 | wl_region: destroy0(NB audit said 1—verify) add1(x,y,w,h) | wl_pointer.set_cursor op0(serial,surface,hx,hy).
+
+### f64 wl_fixed ABI bug (defines.rs wl_pointer_listener + events.rs handlers): CONFIRMED
+`wl_fixed_t = int32_t` (24.8); listeners receive i32, not f64. Fix wl_pointer_listener.enter/motion `surface_x/y` + axis `value` from f64 -> i32 (wl_fixed_t); in pointer_enter/motion/axis handlers convert `v as f64 / 256.0`. Same rule for wl_touch (down/motion x/y = i32) + tablet tool (motion/tilt/rotation = i32 wl_fixed; pressure/distance = u32 0..65535; slider = i32).
+
+### Then: wl_touch (op via get_touch + wl_touch_interface + listener) + zwp_tablet_v2 (manager get_tablet_seat op0 ->seat(NULL,wl_seat); hand-roll zwp_tablet_*_interface descriptors — NOT in libwayland). Feed -> touch_state / update_pen_state_full, per the protocol section above.
