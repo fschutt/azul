@@ -127,6 +127,9 @@ accesskit_unix = { version = "0.21", optional = true }
 # lib, cross-compiles) and already in the linux graph via accesskit_unix;
 # non-optional so geolocation/linux.rs always compiles on linux.
 zbus = "5"
+# Runtime loader for the Linux ALSA audio backend (audio/alsa.rs dlopen's
+# libasound). Non-optional on linux so the AudioSink backend always compiles.
+libloading = "0.8"
 
 [target.'cfg(any(target_os = "ios"))'.dependencies]
 objc = { version = "0.2", optional = true }

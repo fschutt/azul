@@ -20,6 +20,9 @@ use core::ffi::c_void;
 
 use azul_core::audio::{AudioConfig, AudioFrame};
 
+#[cfg(target_os = "linux")]
+mod alsa;
+
 /// Internal playback state behind the `AudioSink` handle. The stub tracks the
 /// config + how many frames were submitted; the real backend replaces it with
 /// a live output stream + queue.
@@ -27,6 +30,9 @@ struct AudioSinkInner {
     #[allow(dead_code)]
     config: AudioConfig,
     frames_played: u64,
+    /// The live ALSA playback stream on Linux (`None` if ALSA / no device).
+    #[cfg(target_os = "linux")]
+    pcm: Option<alsa::AlsaPcm>,
 }
 
 /// An audio output handle. Open one with [`AudioSink::open`], feed it
@@ -67,9 +73,13 @@ impl AudioSink {
     /// invalid handle (`is_open()` false) on failure. The stub engine always
     /// "opens"; the real rodio / AVAudio backend may fail (no device).
     pub fn open(config: AudioConfig) -> AudioSink {
+        #[cfg(target_os = "linux")]
+        let pcm = alsa::AlsaPcm::open(config.sample_rate, config.channels as u32);
         let inner = Box::new(AudioSinkInner {
             config,
             frames_played: 0,
+            #[cfg(target_os = "linux")]
+            pcm,
         });
         AudioSink {
             ptr: Box::into_raw(inner) as *mut c_void,
@@ -88,7 +98,10 @@ impl AudioSink {
     pub fn play(&self, frame: AudioFrame) {
         if let Some(inner) = unsafe { (self.ptr as *mut AudioSinkInner).as_mut() } {
             inner.frames_played = inner.frames_played.wrapping_add(1);
-            // Real backend: push `frame.samples` to the output stream here.
+            #[cfg(target_os = "linux")]
+            if let Some(pcm) = &inner.pcm {
+                pcm.write(frame.samples.as_ref());
+            }
             let _ = frame;
         }
     }
