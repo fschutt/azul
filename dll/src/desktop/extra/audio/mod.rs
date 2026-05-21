@@ -26,6 +26,8 @@ mod alsa;
 mod cpal_mic;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod cpal_sink;
+#[cfg(target_os = "android")]
+mod aaudio;
 
 /// Internal playback state behind the `AudioSink` handle. The stub tracks the
 /// config + how many frames were submitted; the real backend replaces it with
@@ -40,6 +42,9 @@ struct AudioSinkInner {
     /// The live cpal output stream on macOS/Windows (`None` if no device).
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     sink: Option<cpal_sink::CpalSink>,
+    /// The live AAudio output stream on Android (`None` if no device).
+    #[cfg(target_os = "android")]
+    android_sink: Option<aaudio::AAudioSink>,
 }
 
 /// An audio output handle. Open one with [`AudioSink::open`], feed it
@@ -84,6 +89,8 @@ impl AudioSink {
         let pcm = alsa::AlsaPcm::open(config.sample_rate, config.channels as u32);
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         let sink = cpal_sink::CpalSink::open(config.sample_rate, config.channels);
+        #[cfg(target_os = "android")]
+        let android_sink = aaudio::AAudioSink::open(config.sample_rate, config.channels);
         let inner = Box::new(AudioSinkInner {
             config,
             frames_played: 0,
@@ -91,6 +98,8 @@ impl AudioSink {
             pcm,
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             sink,
+            #[cfg(target_os = "android")]
+            android_sink,
         });
         AudioSink {
             ptr: Box::into_raw(inner) as *mut c_void,
@@ -115,6 +124,10 @@ impl AudioSink {
             }
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             if let Some(sink) = &inner.sink {
+                sink.play(frame.samples.as_ref());
+            }
+            #[cfg(target_os = "android")]
+            if let Some(sink) = &inner.android_sink {
                 sink.play(frame.samples.as_ref());
             }
             let _ = frame;
@@ -179,6 +192,19 @@ pub fn ensure_mic_backend() {
                     open: cpal_mic::mic_open,
                     read: cpal_mic::mic_read,
                     close: cpal_mic::mic_close,
+                },
+            );
+        });
+    }
+    #[cfg(target_os = "android")]
+    {
+        static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        DONE.get_or_init(|| {
+            azul_layout::widgets::capture_common::register_mic_backend(
+                azul_layout::widgets::capture_common::AudioCaptureVTable {
+                    open: aaudio::mic_open,
+                    read: aaudio::mic_read,
+                    close: aaudio::mic_close,
                 },
             );
         });
