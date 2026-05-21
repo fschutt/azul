@@ -711,6 +711,232 @@ pub fn get_text_input_manager_v3_interface() -> &'static wl_interface {
     })).0
 }
 
+// ===== Tablet protocol (zwp_tablet_v2) — opaque objects + hand-rolled wl_interface =====
+// libwayland does NOT export the tablet interfaces, so we build them at runtime
+// (Box::leak, like the text-input builders). All v2. Only new_id ('n') EVENT
+// types are non-NULL (libwayland creates the proxy); 'o'/primitive -> NULL.
+// Data per scripts/WACOM_TOUCH_API_RESEARCH.md. See WACOM research for opcodes.
+#[repr(C)]
+pub struct zwp_tablet_manager_v2 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_tablet_seat_v2 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_tablet_v2 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_tablet_tool_v2 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_tablet_pad_v2 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_tablet_pad_group_v2 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_tablet_pad_ring_v2 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_tablet_pad_strip_v2 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_tablet_pad_dial_v2 {
+    _private: [u8; 0],
+}
+
+fn leak_null_types() -> *const *const wl_interface {
+    let a: &'static [*const wl_interface; 8] = Box::leak(Box::new([std::ptr::null(); 8]));
+    a.as_ptr()
+}
+fn leak_one_type(i: &'static wl_interface) -> *const *const wl_interface {
+    let a: &'static [*const wl_interface; 1] = Box::leak(Box::new([i as *const _]));
+    a.as_ptr()
+}
+
+pub fn get_tablet_pad_ring_v2_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| SyncInterface({
+        let n = leak_null_types();
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"set_feedback\0".as_ptr() as _, signature: b"su\0".as_ptr() as _, types: n },
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"source\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+            wl_message { name: b"angle\0".as_ptr() as _, signature: b"f\0".as_ptr() as _, types: n },
+            wl_message { name: b"stop\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+            wl_message { name: b"frame\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+        ]));
+        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_pad_ring_v2\0".as_ptr() as _, version: 2, method_count: 2, methods: requests.as_ptr(), event_count: 4, events: events.as_ptr() }))
+    })).0
+}
+pub fn get_tablet_pad_strip_v2_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| SyncInterface({
+        let n = leak_null_types();
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"set_feedback\0".as_ptr() as _, signature: b"su\0".as_ptr() as _, types: n },
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"source\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+            wl_message { name: b"position\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+            wl_message { name: b"stop\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+            wl_message { name: b"frame\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+        ]));
+        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_pad_strip_v2\0".as_ptr() as _, version: 2, method_count: 2, methods: requests.as_ptr(), event_count: 4, events: events.as_ptr() }))
+    })).0
+}
+pub fn get_tablet_pad_dial_v2_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| SyncInterface({
+        let n = leak_null_types();
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"set_feedback\0".as_ptr() as _, signature: b"su\0".as_ptr() as _, types: n },
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"delta\0".as_ptr() as _, signature: b"i\0".as_ptr() as _, types: n },
+            wl_message { name: b"frame\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+        ]));
+        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_pad_dial_v2\0".as_ptr() as _, version: 2, method_count: 2, methods: requests.as_ptr(), event_count: 2, events: events.as_ptr() }))
+    })).0
+}
+pub fn get_tablet_pad_group_v2_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| SyncInterface({
+        let n = leak_null_types();
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"buttons\0".as_ptr() as _, signature: b"a\0".as_ptr() as _, types: n },
+            wl_message { name: b"ring\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_tablet_pad_ring_v2_interface()) },
+            wl_message { name: b"strip\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_tablet_pad_strip_v2_interface()) },
+            wl_message { name: b"modes\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+            wl_message { name: b"done\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+            wl_message { name: b"mode_switch\0".as_ptr() as _, signature: b"uuu\0".as_ptr() as _, types: n },
+            wl_message { name: b"dial\0".as_ptr() as _, signature: b"2n\0".as_ptr() as _, types: leak_one_type(get_tablet_pad_dial_v2_interface()) },
+        ]));
+        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_pad_group_v2\0".as_ptr() as _, version: 2, method_count: 1, methods: requests.as_ptr(), event_count: 7, events: events.as_ptr() }))
+    })).0
+}
+pub fn get_tablet_pad_v2_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| SyncInterface({
+        let n = leak_null_types();
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"set_feedback\0".as_ptr() as _, signature: b"usu\0".as_ptr() as _, types: n },
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"group\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_tablet_pad_group_v2_interface()) },
+            wl_message { name: b"path\0".as_ptr() as _, signature: b"s\0".as_ptr() as _, types: n },
+            wl_message { name: b"buttons\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+            wl_message { name: b"done\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+            wl_message { name: b"button\0".as_ptr() as _, signature: b"uuu\0".as_ptr() as _, types: n },
+            wl_message { name: b"enter\0".as_ptr() as _, signature: b"uoo\0".as_ptr() as _, types: n },
+            wl_message { name: b"leave\0".as_ptr() as _, signature: b"uo\0".as_ptr() as _, types: n },
+            wl_message { name: b"removed\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_pad_v2\0".as_ptr() as _, version: 2, method_count: 2, methods: requests.as_ptr(), event_count: 8, events: events.as_ptr() }))
+    })).0
+}
+pub fn get_tablet_v2_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| SyncInterface({
+        let n = leak_null_types();
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"name\0".as_ptr() as _, signature: b"s\0".as_ptr() as _, types: n },
+            wl_message { name: b"id\0".as_ptr() as _, signature: b"uu\0".as_ptr() as _, types: n },
+            wl_message { name: b"path\0".as_ptr() as _, signature: b"s\0".as_ptr() as _, types: n },
+            wl_message { name: b"done\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+            wl_message { name: b"removed\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+            wl_message { name: b"bustype\0".as_ptr() as _, signature: b"2u\0".as_ptr() as _, types: n },
+        ]));
+        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_v2\0".as_ptr() as _, version: 2, method_count: 1, methods: requests.as_ptr(), event_count: 6, events: events.as_ptr() }))
+    })).0
+}
+pub fn get_tablet_tool_v2_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| SyncInterface({
+        let n = leak_null_types();
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"set_cursor\0".as_ptr() as _, signature: b"u?oii\0".as_ptr() as _, types: n },
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"type\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+            wl_message { name: b"hardware_serial\0".as_ptr() as _, signature: b"uu\0".as_ptr() as _, types: n },
+            wl_message { name: b"hardware_id_wacom\0".as_ptr() as _, signature: b"uu\0".as_ptr() as _, types: n },
+            wl_message { name: b"capability\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+            wl_message { name: b"done\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+            wl_message { name: b"removed\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+            wl_message { name: b"proximity_in\0".as_ptr() as _, signature: b"uoo\0".as_ptr() as _, types: n },
+            wl_message { name: b"proximity_out\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+            wl_message { name: b"down\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+            wl_message { name: b"up\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+            wl_message { name: b"motion\0".as_ptr() as _, signature: b"ff\0".as_ptr() as _, types: n },
+            wl_message { name: b"pressure\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+            wl_message { name: b"distance\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+            wl_message { name: b"tilt\0".as_ptr() as _, signature: b"ff\0".as_ptr() as _, types: n },
+            wl_message { name: b"rotation\0".as_ptr() as _, signature: b"f\0".as_ptr() as _, types: n },
+            wl_message { name: b"slider\0".as_ptr() as _, signature: b"i\0".as_ptr() as _, types: n },
+            wl_message { name: b"wheel\0".as_ptr() as _, signature: b"fi\0".as_ptr() as _, types: n },
+            wl_message { name: b"button\0".as_ptr() as _, signature: b"uuu\0".as_ptr() as _, types: n },
+            wl_message { name: b"frame\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
+        ]));
+        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_tool_v2\0".as_ptr() as _, version: 2, method_count: 2, methods: requests.as_ptr(), event_count: 19, events: events.as_ptr() }))
+    })).0
+}
+pub fn get_tablet_seat_v2_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| SyncInterface({
+        let n = leak_null_types();
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"tablet_added\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_tablet_v2_interface()) },
+            wl_message { name: b"tool_added\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_tablet_tool_v2_interface()) },
+            wl_message { name: b"pad_added\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_tablet_pad_v2_interface()) },
+        ]));
+        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_seat_v2\0".as_ptr() as _, version: 2, method_count: 1, methods: requests.as_ptr(), event_count: 3, events: events.as_ptr() }))
+    })).0
+}
+pub fn get_tablet_manager_v2_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| SyncInterface({
+        let n = leak_null_types();
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"get_tablet_seat\0".as_ptr() as _, signature: b"no\0".as_ptr() as _, types: n },
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_manager_v2\0".as_ptr() as _, version: 2, method_count: 2, methods: requests.as_ptr(), event_count: 0, events: std::ptr::null() }))
+    })).0
+}
+
 // XKB Constants
 pub const XKB_CONTEXT_NO_FLAGS: u32 = 0;
 pub const XKB_KEYMAP_FORMAT_TEXT_V1: u32 = 1;
