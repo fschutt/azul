@@ -1,0 +1,23 @@
+[package]
+name = "azul-meet"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    azul-meet - the P8 goal app from SUPER_PLAN_2. Demonstrates the realtime
+    A/V stack end-to-end on desktop: MicrophoneWidget capture -> on_frame hook
+    -> Udp.send_to, and a recv Timer draining Udp.recv -> AudioSink.play. Wired
+    as a loopback (sends to its own bound port) so the full capture -> serialize
+    -> UDP -> deserialize -> playback round-trip runs on one machine. Real peer
+    connection + video + chunking land in follow-up ticks; this shows the
+    Udp / AudioSink / MicrophoneWidget public API working together today.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static"] }
+
+[[bin]]
+name = "azul-meet"
+path = "src/main.rs"

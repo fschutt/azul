@@ -43321,6 +43321,19 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Create a microphone widget for the given capture config."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "config": "AudioConfig"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::microphone::MicrophoneWidget::create(config)"
+                            }
+                        },
                         "functions": {
                             "with_on_frame": {
                                 "doc": [
@@ -43360,6 +43373,22 @@
                                     }
                                 ],
                                 "fn_body": "object.set_on_frame(data, on_frame)"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "Build the widget's DOM: a single invisible node, fed by a background",
+                                    "capture thread started on mount. Place it anywhere in your tree - the",
+                                    "capture lives as long as the node is mounted (unmount stops it)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"

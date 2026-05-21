@@ -2152,3 +2152,13 @@ NEXT: P8 (AzUdp + azul-meet — UDP can ride raw frames first; video codec is a 
 - Codegen-exposed (Udp + OptionU8Vec). **Used the now-safe codegen workflow** (false-remove fix held: bare pass = 0 removals). Had to add `OptionU8Vec` explicitly (recv's return type not auto-traced - same gotcha as AudioFrame). Gate GREEN on all 5.
 
 NEXT: azul-meet app (mic capture -> Udp.send_to; Udp.recv -> AudioSink.play; + camera/video later) OR the chunking/seq framing layer. Then P9 (e2e) -> P10 (docs). (Deferred: apply the accumulated non-destructive drift now that apply <dir> is safe - moves/custom_impl modifies - as a separate verified cleanup.)
+
+### Tick — P8.azul-meet — goal app (loopback A/V stack) + 2 widget API-gap fixes (2026-05-21)
+
+`examples/azul-meet` - the P8 goal app, validating the full realtime-audio stack end-to-end on the PUBLIC API: `MicrophoneWidget` capture -> `on_frame` -> `Udp.send_to`; a recv `Timer` drains `Udp.recv()` -> deserialize -> `AudioSink.play`. Wired as a UDP **loopback** (binds 127.0.0.1:0, sends to its own port) so the whole capture->serialize->UDP->deserialize->playback round-trip runs on one machine. No globals (Udp + AudioSink live in the app State RefAny). `cargo build --release -p azul-meet` clean; gate GREEN on all 5.
+
+**Caught + fixed 2 real API gaps** (the demo, building against the public surface, found them - exactly why the goal-app validation matters): `MicrophoneWidget.create` AND `MicrophoneWidget.dom` were both MISSING from api.json/codegen (the P7.audio.b dance added only with_on_frame/set_on_frame), so the widget was uninstantiable from the bindings. Added both via `autofix add`; codegen + gate GREEN.
+
+**Binding-usage notes (for demos/docs):** FFI vec construction is ptr-based - `U8Vec::copy_from_ptr(&v[0], len)` / `F32Vec::copy_from_ptr` / `create()` for empty (no `from_vec`). `AzString` = `azul::str::String`, has `From<&str>` (`AzString::from("...")`). Matching `OptionU8Vec::Some(ref bytes)` needs `ref` (Option wrappers impl Drop). `TimerCallbackReturn { should_update, should_terminate }` (both fields). Used the now-safe autofix workflow throughout (0 false-removes).
+
+NEXT: video into azul-meet (camera on_frame -> chunked send; openh264/VideoToolbox codec on-device per vk-video findings) OR the chunking/seq framing. Then P9 (synthetic-event e2e) -> P10 (docs).

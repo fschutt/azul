@@ -11,6 +11,7 @@ members = [
     "examples/azul-camera-app", # AzCamera demo (P6 camera widget)
     "examples/azul-screenshare-app", # AzScreenShare demo (P6 screencap widget)
     "examples/azul-video-app", # AzVideo demo (P6 video widget)
+    "examples/azul-meet", # azul-meet demo (SUPER_PLAN_2 P8 goal app: Udp + AudioSink + MicrophoneWidget)
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css
