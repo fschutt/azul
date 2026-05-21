@@ -5524,10 +5524,15 @@ define linkonce_odr ptr @__remill_error(ptr %state, i64 %pc, ptr %memory) always
   ; HOT unlifted instruction can be mapped. __remill_error returns early (no trap), which
   ; silently corrupts the lifted fn's return value — this surfaces which PC hit it.
   %az_epc = trunc i64 %pc to i32
-  %az_em = call ptr @__remill_write_memory_32(ptr %memory, i64 262324, i32 %az_epc)
+  %az_em = call ptr @__remill_write_memory_32(ptr %memory, i64 262384, i32 %az_epc)
   %az_pch = lshr i64 %pc, 32
   %az_epch = trunc i64 %az_pch to i32
-  %az_em2 = call ptr @__remill_write_memory_32(ptr %az_em, i64 262328, i32 %az_epch)
+  %az_em2 = call ptr @__remill_write_memory_32(ptr %az_em, i64 262388, i32 %az_epch)
+  ; M12.7 diag: record the faulting guest PC (0x400F0/F4) and RETURN (don't trap) so the
+  ; lift continues. NOTE: the recorded PC proved unreliable for pinpointing (it points at
+  ; clean-lifting fns — brotli's HuffmanTreeGroupDecode, then get_css_value_fmt — both of
+  ; which lift with 0 errors in isolation). Likely the %pc isn't the true failing addr at
+  ; every __remill_error call-site (a remill inlining/PC-tracking quirk).
   ret ptr %az_em2
 }}
 ; M10-B1.a alias-scope metadata for guest memory ops.
