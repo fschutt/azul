@@ -12,6 +12,8 @@ mod v4l2;
 mod windows;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "objc2-av-foundation"))]
 mod avfoundation;
+#[cfg(all(target_os = "android", feature = "ndk-sys"))]
+mod android;
 
 /// Register the platform camera backend with the capture seam, once. Called
 /// from the per-frame layout pass (like [`super::audio::ensure_mic_backend`]),
@@ -53,6 +55,19 @@ pub fn ensure_camera_backend() {
                     open: avfoundation::open,
                     read: avfoundation::read,
                     close: avfoundation::close,
+                },
+            );
+        });
+    }
+    #[cfg(all(target_os = "android", feature = "ndk-sys"))]
+    {
+        static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        DONE.get_or_init(|| {
+            azul_layout::widgets::capture_common::register_camera_backend(
+                azul_layout::widgets::capture_common::CaptureVTable {
+                    open: android::open,
+                    read: android::read,
+                    close: android::close,
                 },
             );
         });

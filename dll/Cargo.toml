@@ -206,6 +206,10 @@ dispatch2 = { version = "0.3.0", default-features = false, features = ["std", "o
 android-activity = { version = "0.6", default-features = false, features = ["native-activity"], optional = true }
 # `ANativeWindow_lock` / `unlockAndPost` and other NDK primitives.
 ndk = { version = "0.9", default-features = false, optional = true }
+# Raw NDK Camera2 FFI (ACameraManager / AImageReader) for the Android camera
+# backend (camera/android.rs); the safe `ndk` crate doesn't wrap camera.
+# Already transitive via `ndk`.
+ndk-sys = { version = "0.6", optional = true }
 # Optional bridge to logcat for `log` macros — feature-gated.
 android_logger = { version = "0.14", optional = true }
 # Soft-keyboard / IME bridge (Phase 5) — speaks to the Java
@@ -498,6 +502,7 @@ _internal_deps = [
     # target.'cfg' gate above).
     "android-activity",
     "ndk",
+    "ndk-sys",
     # JNI for Rust → Java calls (file picker, soft keyboard, permission
     # prompts). The receiving direction (Java → Rust) is via raw `extern
     # "system"` symbols and doesn't need this dep.
