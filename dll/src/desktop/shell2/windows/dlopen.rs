@@ -423,6 +423,13 @@ pub struct User32Functions {
     pub SetCursor: unsafe extern "system" fn(HCURSOR) -> HCURSOR,
     pub TrackMouseEvent: unsafe extern "system" fn(*mut TRACKMOUSEEVENT) -> BOOL,
 
+    // Pointer input (touch + pen, Windows 8+). Optional — None on older Windows.
+    pub GetPointerType: Option<unsafe extern "system" fn(u32, *mut u32) -> BOOL>,
+    pub GetPointerPenInfo:
+        Option<unsafe extern "system" fn(u32, *mut winapi::um::winuser::POINTER_PEN_INFO) -> BOOL>,
+    pub GetPointerTouchInfo:
+        Option<unsafe extern "system" fn(u32, *mut winapi::um::winuser::POINTER_TOUCH_INFO) -> BOOL>,
+
     // Messages
     pub SendMessageW: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
     pub PostMessageW: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> BOOL,
@@ -683,6 +690,9 @@ impl Win32Libraries {
                 LoadCursorW: user32_dll.get_symbol("LoadCursorW")?,
                 SetCursor: user32_dll.get_symbol("SetCursor")?,
                 TrackMouseEvent: user32_dll.get_symbol("TrackMouseEvent")?,
+                GetPointerType: user32_dll.get_symbol("GetPointerType").ok(),
+                GetPointerPenInfo: user32_dll.get_symbol("GetPointerPenInfo").ok(),
+                GetPointerTouchInfo: user32_dll.get_symbol("GetPointerTouchInfo").ok(),
 
                 // Messages
                 SendMessageW: user32_dll.get_symbol("SendMessageW")?,
