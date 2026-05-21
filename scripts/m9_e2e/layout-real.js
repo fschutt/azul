@@ -213,7 +213,20 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         if ((step & 0xff) === 0x54) console.error('  layout_document: box_props.unpack RETURNED (0x54) → diverges in the margin compare/adjust block');
         if ((step & 0xff) === 0x56) console.error('  layout_document: margin block DONE (0x56) → diverges in the debug block / hint_purge / probe');
         if ((step & 0xff) === 0x55) console.error('  layout_document: got containing-block (0x55) → diverges INSIDE calculate_layout_for_subtree');
-        if ((step & 0xff) === 0x57) console.error('  layout_document: calculate_layout_for_subtree RETURNED (0x57) → diverges in the root-position insert / loop tail');
+        if ((step & 0xff) === 0x57) console.error('  layout_document: calculate_layout_for_subtree returned OK (0x57) → diverges in the root-position insert / loop tail');
+        if ((step & 0xff) === 0x5e) console.error('  layout_document: calculate_layout_for_subtree returned Err (0x5E) but IGNORED → if real rects follow, the Err was SPURIOUS (niche-Result mis-lift); if zero/no rects, calc_layout genuinely failed');
+        // calc_layout internal progress lives at 0x400B0 (separate from 0x400A4 so the
+        // post-call 0x5E write in layout_document doesn't clobber it). DEEPEST reached wins.
+        const clstep = mini.AzStartup_peekU32(0x400B0);
+        console.error('  calc_layout deepest marker (0x400B0) = 0x' + clstep.toString(16));
+        if ((clstep & 0xff) === 0x5f) console.error('  calc_layout: body entered, NO further marker → returns Err in the cache-check block (1977-2075) before hit/miss');
+        if ((clstep & 0xff) === 0x61) console.error('  calc_layout: cache-HIT path (0x61) → recursion over cached child_positions returns Err');
+        if ((clstep & 0xff) === 0x60) console.error('  calc_layout: cache-miss entered (0x60), no 0x62 → prepare_layout_context (calculate_used_size_for_node) returns Err');
+        if ((clstep & 0xff) === 0x62) console.error('  calc_layout: prepare OK (0x62), no 0x64 → layout_formatting_context returns Err');
+        if ((clstep & 0xff) === 0x64) console.error('  calc_layout: layout_formatting_context OK (0x64) → diverges after (Phase 2.5+ / scrollbars / final write)');
+        if ((clstep & 0xff) === 0x60) console.error('  prepare_layout_context: NOT entered past tree.get/warm → tree.get/warm(node_index)=None → Err(InvalidTree) (node_index garbage / Vec-len mis-lift)');
+        if ((clstep & 0xff) === 0x70) console.error('  prepare_layout_context: got node+warm (0x70), no 0x72 → calculate_used_size_for_node returns Err');
+        if ((clstep & 0xff) === 0x72) console.error('  prepare_layout_context: calculate_used_size_for_node OK (0x72) → diverges in prepare Phase 2+ (writing-mode/inner-size)');
         const nlr = mini.AzStartup_peekU32(0x400E4);
         if (((nlr>>>16)&0xff)===0x01) console.error('  body get_node_layout_rect=Some, width=' + (nlr&0xffff) + ' (0 → layout computed 0-wide; >0 → extraction issue)');
         else if (((nlr>>>16)&0xff)===0xff) console.error('  body get_node_layout_rect=None (no calculated position → positioning did not write node 0)');
