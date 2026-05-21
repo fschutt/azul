@@ -1053,6 +1053,11 @@ pub fn reconcile_recursive(
         idx
     };
 
+    // M12.7 diag: 0x400BC = new_node_idx (create_node_from_dom's return value) as
+    // reconcile_recursive sees it. 0 = correct (the first node); 64 (matching the
+    // build-marker root_idx) = the usize return mis-reads here.
+    unsafe { core::ptr::write_volatile(0x400BC as *mut u32, 0xAB00_0000u32 | (new_node_idx as u32 & 0xffff)); }
+
     // CRITICAL: For list-items, create a ::marker pseudo-element as the first child
     // This must be done after the node is created but before processing children
     // Per CSS Lists Module Level 3, ::marker is generated as the first child of list-items

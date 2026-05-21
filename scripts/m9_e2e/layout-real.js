@@ -183,6 +183,8 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         if ((cnpre>>>16)===0xce00) console.error('POST-RC5: create_node_from_dom pre-push index=' + (cnpre&0xffff));
         else console.error('POST-RC5: create_node_from_dom NOT called (0x400B4=0x' + cnpre.toString(16) + ')');
         if ((cnpost>>>16)===0xcf00) console.error('POST-RC5: create_node_from_dom post-push nodes.len()=' + (cnpost&0xffff) + ' → if 1 here but build sees 0, the builder &mut is lost');
+        const nni = mini.AzStartup_peekU32(0x400BC);
+        if ((nni>>>16)===0xab00) console.error('POST-RC5: reconcile_recursive new_node_idx=' + (nni&0xffff) + ' (create_node return; 0=ok, 64=mis-read)');
     }
     console.log('[2] solveLayoutReal rc=0 (real taffy positioning ran in wasm)');
 
