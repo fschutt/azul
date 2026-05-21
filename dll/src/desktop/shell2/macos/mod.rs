@@ -3671,7 +3671,32 @@ impl MacOSWindow {
     /// - The DOM changes (via callbacks)
     /// - Layout callback changes
     pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        // Populate safe-area insets (notch / rounded corners) from the content
+        // view so `CallbackInfo::get_safe_area_insets` + CSS env(safe-area-inset-*)
+        // reflect the display. NSView is main-thread-only, so the read is safe.
+        let safe_area = self
+            .window
+            .contentView()
+            .map(|cv| {
+                let i = cv.safeAreaInsets();
+                (i.top, i.left, i.bottom, i.right)
+            });
         let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
+        if let Some((top, left, bottom, right)) = safe_area {
+            let mk = |v: f64| {
+                if v > 0.5 {
+                    azul_css::OptionPixelValue::Some(azul_css::PixelValue::px(v as f32))
+                } else {
+                    azul_css::OptionPixelValue::None
+                }
+            };
+            layout_window.safe_area_insets = azul_css::system::SafeAreaInsets {
+                top: mk(top),
+                bottom: mk(bottom),
+                left: mk(left),
+                right: mk(right),
+            };
+        }
 
         // Collect debug messages if debug server is enabled
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
