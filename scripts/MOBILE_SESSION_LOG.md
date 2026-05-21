@@ -2275,3 +2275,14 @@ NEXT (user, "then video"): video enc/dec uses the platform-native codec when vk-
 ### Tick — P7/P8.video_codec — VideoEncoder/VideoDecoder + native-per-platform backend (2026-05-21)
 
 `dll/src/desktop/extra/video_codec/` - the video enc/dec API for azul-meet's video leg, with the native-per-platform backend selection the user directed: `VideoEncoder::backend_name()` reports "VideoToolbox" (Apple), "MediaCodec" (Android), "gpu-video" (desktop Linux/Windows), or "none". Handles like AudioSink (ptr+run_destructor): `VideoEncoder::open(w,h,h265,bitrate)/encode(VideoFrame,force_keyframe)->U8Vec`, `VideoDecoder::open(h265)/decode(U8Vec)->OptionVideoFrame`. Stub engine (counts frames; the codec FFI is on-device per platform). Compiles + cross-compiles all 7 targets. NOT codegen-exposed yet (follow-up). This is itself a STUB the desktop audit (below) tracks.
+
+### Tick — THOROUGH platform-integration audit (desktop + mobile) (2026-05-21)
+
+User: "review all platform integrations thoroughly (sensors on linux, decoders, camera, screenshare dummy-on-wayland, etc.) - we focused on mobile, now extend to desktop, check stubs/todos."
+
+Wrote `scripts/PLATFORM_INTEGRATION_AUDIT.md` - a full matrix (13 systems x 5 platforms, real/stub/TODO/missing). Findings:
+- **Solid cross-platform**: UDP, SQLite, PDF, **gamepad** (gilrs all desktop, linux now via the libudev fork).
+- **Real on Apple+Android only**: sensors (CoreMotion/SensorManager), biometric, geolocation - **linux/windows are no-op (sensors/biometric) or TODO stubs (geolocation: zbus/WinRT)**.
+- **Stub on ALL platforms** (test-pattern/test-tone workers, no real backend): camera, screencap, video playback, mic capture, AudioSink, video codec.
+- Permission *request* side is TODO on every platform.
+Prioritized desktop-extension plan in the doc (tractable-first: linux sensors via iio; then v4l2 camera, X11/Wayland-dummy screencap, rodio audio, zbus/WinRT geo, gpu-video codec - all per the dlopen cross-compile rule). First extension: linux sensors (next).
