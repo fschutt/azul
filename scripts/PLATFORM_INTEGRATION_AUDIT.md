@@ -56,3 +56,24 @@ iio are file/ioctl-based (no lib, no dlopen needed); X11/ALSA/etc. dlopen.
 
 ## First extension this pass
 Linux sensors (iio) — real, pure-Rust, cross-compiles, the user's named example.
+
+## Windowing & input — SUPER_PLAN_1 non-mobile review (2026-05-21)
+
+SUPER_PLAN_1 (`SUPER_PLAN.md`) added touch/pen/gestures/orientation for iOS+Android, with safe-area-insets as an iOS stretch goal (Sprint L, line 163). Reviewing whether those extend to **desktop**, plus the desktop-only multi-monitor / multi-window:
+
+| System | macOS | Linux | Windows | Status |
+|---|---|---|---|---|
+| **Multi-monitor** | ✅ CoreGraphics | ✅ XRandR / wayland | ✅ EnumDisplay | real per-platform |
+| **DPI / scale** | ✅ | ✅ | ✅ | real |
+| **Multi-window** | ✅ registry | ✅ | ✅ | window registry (run.rs + per-OS) |
+| **Desktop touch (multi-touch)** | ❌ | ❌ | ❌ | mouse-only; no X11 XInput2 / WM_TOUCH multitouch (mobile has `TouchPointVec`) |
+| **Desktop pen / tablet (Wacom)** | ❌ | ❌ | ❌ | `PenState` exists (mobile) but **not populated on desktop** — no XInput2 valuators / Windows Ink / NSEvent tablet |
+| **Orientation** | n/a | (iio-derivable) | n/a | desktop auto-rotate could derive from the new iio sensor backend |
+| **Notches / safe-area** | ❌ | ❌ | ❌ | **safe-area-insets not implemented anywhere** (MacBook notch, mobile notches) — SUPER_PLAN_1's stretch goal, never done |
+
+**Solid:** multi-monitor, DPI, multi-window. **Gaps:** desktop multi-touch, desktop pen/Wacom, safe-area/notches.
+
+Fix plan (tractable-first, per the established patterns):
+1. **safe-area-insets** — core `SafeAreaInsets` type + window-state field + `CallbackInfo` accessor (cross-platform, 0 default), then macOS notch (`NSScreen.safeAreaInsets`, objc2) + iOS (`UIView.safeAreaInsets`). Addresses "notches", mostly cross-platform.
+2. **Linux Wacom** — XInput2 tablet valuators (pressure/tilt) via dlopen `libXi` -> `PenState` (the user's named ask). Device-tested.
+3. **Desktop multi-touch** — X11 XInput2 touch / Windows WM_TOUCH -> `TouchPointVec`. Device-tested.
