@@ -34,6 +34,7 @@ pub union XEvent {
     pub expose: XExposeEvent,
     pub configure: XConfigureEvent,
     pub client_message: XClientMessageEvent,
+    pub xcookie: XGenericEventCookie,
     pad: [c_long; 24],
 }
 
@@ -490,6 +491,128 @@ pub type XSetWMProtocols = unsafe extern "C" fn(*mut Display, Window, *mut Atom,
 pub type XSelectInput = unsafe extern "C" fn(*mut Display, Window, c_long) -> c_int;
 pub type XPending = unsafe extern "C" fn(*mut Display) -> c_int;
 pub type XNextEvent = unsafe extern "C" fn(*mut Display, *mut XEvent) -> c_int;
+
+// ===== XInput2 (XI2) — touch + pen/tablet. ABI per scripts/WACOM_TOUCH_API_RESEARCH.md =====
+pub const GenericEvent: c_int = 35;
+pub const XI_ButtonPress: c_int = 4;
+pub const XI_ButtonRelease: c_int = 5;
+pub const XI_Motion: c_int = 6;
+pub const XI_TouchBegin: c_int = 18;
+pub const XI_TouchUpdate: c_int = 19;
+pub const XI_TouchEnd: c_int = 20;
+pub const XIAllDevices: c_int = 0;
+pub const XIAllMasterDevices: c_int = 1;
+pub const XIValuatorClass: c_int = 2;
+pub const XITouchClass: c_int = 8;
+pub const XIModeAbsolute: c_int = 1;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XIEventMask {
+    pub deviceid: c_int,
+    pub mask_len: c_int,
+    pub mask: *mut c_uchar,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XIValuatorState {
+    pub mask_len: c_int,
+    pub mask: *mut c_uchar,
+    pub values: *mut f64,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XIButtonState {
+    pub mask_len: c_int,
+    pub mask: *mut c_uchar,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XIModifierState {
+    pub base: c_int,
+    pub latched: c_int,
+    pub locked: c_int,
+    pub effective: c_int,
+}
+pub type XIGroupState = XIModifierState;
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XIAnyClassInfo {
+    pub type_: c_int,
+    pub sourceid: c_int,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XIValuatorClassInfo {
+    pub type_: c_int,
+    pub sourceid: c_int,
+    pub number: c_int,
+    pub label: Atom,
+    pub min: f64,
+    pub max: f64,
+    pub value: f64,
+    pub resolution: c_int,
+    pub mode: c_int,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XIDeviceInfo {
+    pub deviceid: c_int,
+    pub name: *mut c_char,
+    pub use_: c_int,
+    pub attachment: c_int,
+    pub enabled: c_int,
+    pub num_classes: c_int,
+    pub classes: *mut *mut XIAnyClassInfo,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XIDeviceEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: c_int,
+    pub display: *mut Display,
+    pub extension: c_int,
+    pub evtype: c_int,
+    pub time: c_ulong,
+    pub deviceid: c_int,
+    pub sourceid: c_int,
+    pub detail: c_int,
+    pub root: Window,
+    pub event: Window,
+    pub child: Window,
+    pub root_x: f64,
+    pub root_y: f64,
+    pub event_x: f64,
+    pub event_y: f64,
+    pub flags: c_int,
+    pub buttons: XIButtonState,
+    pub valuators: XIValuatorState,
+    pub mods: XIModifierState,
+    pub group: XIGroupState,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XGenericEventCookie {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: c_int,
+    pub display: *mut Display,
+    pub extension: c_int,
+    pub evtype: c_int,
+    pub cookie: c_uint,
+    pub data: *mut c_void,
+}
+
+pub type XIQueryVersion = unsafe extern "C" fn(*mut Display, *mut c_int, *mut c_int) -> c_int;
+pub type XISelectEvents =
+    unsafe extern "C" fn(*mut Display, Window, *mut XIEventMask, c_int) -> c_int;
+pub type XIQueryDevice = unsafe extern "C" fn(*mut Display, c_int, *mut c_int) -> *mut XIDeviceInfo;
+pub type XIFreeDeviceInfo = unsafe extern "C" fn(*mut XIDeviceInfo);
+pub type XGetEventData = unsafe extern "C" fn(*mut Display, *mut XGenericEventCookie) -> c_int;
+pub type XFreeEventData = unsafe extern "C" fn(*mut Display, *mut XGenericEventCookie);
+pub type XQueryExtension =
+    unsafe extern "C" fn(*mut Display, *const c_char, *mut c_int, *mut c_int, *mut c_int) -> c_int;
 pub type XFilterEvent = unsafe extern "C" fn(*mut XEvent, Window) -> c_int;
 pub type XLookupString = unsafe extern "C" fn(
     *mut XKeyEvent,
