@@ -79,20 +79,18 @@ pub fn get_element_font_size(
     dom_id: NodeId,
     node_state: &StyledNodeState,
 ) -> f32 {
-    unsafe { core::ptr::write_volatile(0x400DC as *mut u32, 0xC2_000001u32); } // entered
-    if node_state.is_normal() {
-        unsafe { core::ptr::write_volatile(0x400DC as *mut u32, 0xC2_000002u32); } // is_normal branch
-        let cache = &styled_dom.css_property_cache.ptr;
-        let sizes = cache
-            .resolved_font_sizes_px
-            .get_or_init(|| compute_all_font_sizes_px(styled_dom));
-        unsafe { core::ptr::write_volatile(0x400DC as *mut u32, 0xC2_000003u32); } // after get_or_init
-        if let Some(&fs) = sizes.get(dom_id.index()) {
-            unsafe { core::ptr::write_volatile(0x400DC as *mut u32, 0xC2_000004u32); } // returning cached fs
-            return fs;
-        }
-    }
-    unsafe { core::ptr::write_volatile(0x400DC as *mut u32, 0xC2_000005u32); } // before resolve_font_size_slow
+    // M12.7 FIX: the OnceLock-cached fast path
+    // (`is_normal → resolved_font_sizes_px.get_or_init(|| compute_all_font_sizes_px) →
+    // sizes.get`) MIS-LIFTS to wasm — it diverges (create_node_from_dom never returns →
+    // empty LayoutTree → 0 rects). PROVEN by isolation: skipping it lets
+    // get_element_font_size reach + return via resolve_font_size_slow, and
+    // create_resolution_context completes (sub-step 1→4). resolve_font_size_slow is the
+    // same resolution unmemoized (correct), so we always use it. (Native desktop is
+    // unaffected in correctness; it loses the per-DOM memoization — a minor perf cost
+    // only on the lifted web path's small DOMs. The cache-block lift bug — likely the
+    // compute_all_font_sizes_px closure's control/FP — is documented for a later remill
+    // fix that can restore the fast path.)
+    let _ = compute_all_font_sizes_px; // referenced so other callers / native keep it
     resolve_font_size_slow(styled_dom, dom_id, node_state)
 }
 
