@@ -2201,3 +2201,12 @@ Both ASCII-clean. NEXT (P10.2): a device-input guide (sensors/gamepad/geolocatio
 
 === SUPER_PLAN_2 P4-P10 roadmap: COMPLETE this session ===
 P6 (input events/sensors/gamepad/capture hooks/PDF/MapWidget) + P7 (audio: MicrophoneWidget+AudioSink) + P8 (Udp + azul-meet) + P9 (synthetic-event harness) + P10 (guide docs + mobile packaging). Plus: azul-doc autofix false-remove bug FIXED, vk-video researched (Apple-blocked -> openh264/VideoToolbox), 2 MicrophoneWidget API gaps fixed. Open follow-ups: pen-dispatch wiring (P9.3), video-into-azul-meet (chunking + on-device codec), real on-device backends (AVFoundation/rodio/etc.), maps/PDF/sqlite guides.
+
+### Tick — P9.3 — synthetic pen test + CORRECTED pen finding — P9 COMPLETE (2026-05-21)
+
+**Correction:** my earlier "pen events are filter-only / dead like GeolocationFix" finding was WRONG. Investigating the wacom path showed pen IS handled and used (examples/azul-paint draws pressure-modulated strokes today): pen input is STATE-BASED - the platform backend (or `debug_server`, which already injects synthetic PenDown/Move/Up) populates `PenState` via `GestureAndDragManager::update_pen_state`, and apps react to ordinary pointer events + read the pen detail via `CallbackInfo::get_pen_state` / `get_pen_pressure` / `get_pen_tilt`. The PenDown/Move/Up *filters* exist but are simply unused (apps use the pointer-event + accessor pattern). So there is NO dead-filter gap and NO pen-dispatch wiring needed - that follow-up is CLOSED.
+
+- Added `synthetic_pen_input_populates_penstate` (update_pen_state -> get_pen_state) - 9 tests now, all green.
+- Corrected the inaccurate note in `synthetic_events.rs` + replaced the inaccurate note in `device-input.md` with a proper "Pen / stylus" section (state-based, get_pen_state, the azul-paint pattern).
+
+**P9 COMPLETE**: synthetic-event harness covers all P2-P7 device-event families (sensors/gamepad/geolocation/audio/video/touch/pen) with no hardware. SUPER_PLAN_2 P4-P10 roadmap done; remaining follow-ups are optional (video-into-azul-meet chunking + on-device codec, real platform backends, maps/PDF/sqlite guides).

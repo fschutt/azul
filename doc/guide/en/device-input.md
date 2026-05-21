@@ -114,6 +114,30 @@ if let OptionLocationFix::Some(fix) = info.get_location_fix() {
 `LocationFix` carries latitude/longitude, accuracy, altitude (+ accuracy),
 heading, speed, and a timestamp. See the AzulMaps example for a live readout.
 
+## Pen / stylus
+
+Pen input (Apple Pencil, S-Pen, Wacom) is **state-based**, like sensors: react
+to ordinary pointer events (MouseDown / MouseMove / MouseUp) and read the pen
+detail with `CallbackInfo::get_pen_state` (or `get_pen_pressure` /
+`get_pen_tilt`). `PenState` carries position, pressure, tilt, the contact +
+eraser flags, the barrel button, and the extended axes (tangential pressure,
+barrel roll). The platform backend populates it through the gesture manager;
+`examples/azul-paint` uses exactly this to draw pressure-modulated,
+barrel-roll-oriented strokes.
+
+```rust
+extern "C" fn on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    if let Some(pen) = info.get_pen_state().into_option() {
+        let width = 2.0 + pen.pressure * 10.0; // light touch -> thin line
+        // ... draw with `width`, oriented by pen.barrel_roll, erase if is_eraser
+    }
+    Update::RefreshDom
+}
+```
+
+(The `PenDown`/`Move`/`Up` event *filters* exist but are not the path apps use -
+pointer-event + `get_pen_state` is.)
+
 ## Configurability
 
 - **Sensors**: the manager keeps one reading per `SensorKind`; request rate /
@@ -131,12 +155,8 @@ Every path above is exercised synthetically (no device) by
 same `push_sensor_reading` / `push_gamepad_state` / `push_location_fix` channels
 the real platform backends use, then asserts the manager folds them and the
 `EventProvider` yields `SensorChanged` / `GamepadInput`. See
-[e2e-testing](e2e-testing.md).
-
-> Note: wacom **pen** events (`PenDown`/`Move`/`Up`) currently exist as event
-> filters but are not yet dispatched (no `EventType` + routing), so they cannot
-> be attached to or synthetically exercised yet - tracked for a follow-up that
-> mirrors the sensor/gamepad wiring.
+[e2e-testing](e2e-testing.md). The pen path is exercised via
+`GestureAndDragManager::update_pen_state` -> `get_pen_state`.
 
 ## See also
 

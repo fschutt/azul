@@ -15,6 +15,7 @@ use azul_core::events::{
     WindowEventFilter,
 };
 use azul_core::geolocation::LocationFix;
+use azul_core::geom::LogicalPosition;
 use azul_core::task::Instant;
 use azul_core::video::VideoFrame;
 use azul_css::{F32Vec, U8Vec};
@@ -22,6 +23,7 @@ use azul_layout::managers::geolocation::{drain_location_fixes, push_location_fix
 use azul_layout::managers::gamepad::{
     drain_gamepad_states, push_gamepad_state, GamepadId, GamepadManager, GamepadState,
 };
+use azul_layout::managers::gesture::GestureAndDragManager;
 use azul_layout::managers::sensors::{
     drain_sensor_readings, push_sensor_reading, SensorKind, SensorManager, SensorReading,
 };
@@ -191,13 +193,35 @@ fn synthetic_touch_routes_to_filter() {
     assert!(filters.contains(&EventFilter::Hover(HoverEventFilter::TouchStart)));
 }
 
-// NOTE (P9.3): wacom PEN events (PenDown/Move/Up) are currently FILTER-ONLY -
-// they exist on Hover/Window/Focus EventFilter but have NO `EventType`, so
-// `event_type_to_filters` does not route them and nothing dispatches them
-// (the same dead-filter state GeolocationFix had before). Synthetically
-// exercising pen needs the dispatch wired first - EventType::Pen* + the
-// event_type_to_filters/matcher arms + a wacom EventProvider - mirroring the
-// SensorChanged/GamepadInput wiring (P6.input-events). Tracked for a fix tick.
+/// P2 pen / stylus: pen input is STATE-BASED (not a `PenDown` event). The
+/// platform backend (or `debug_server`, for synthetic injection) populates
+/// `PenState` through the gesture manager; apps react to ordinary pointer
+/// events and read the pen detail via `CallbackInfo::get_pen_state` - exactly
+/// what `examples/azul-paint` does to draw pressure-modulated strokes. Here we
+/// drive that path synthetically.
+#[test]
+fn synthetic_pen_input_populates_penstate() {
+    let mut mgr = GestureAndDragManager::new();
+    mgr.update_pen_state(
+        LogicalPosition::new(100.0, 200.0),
+        0.75,         // pressure
+        (10.0, -5.0), // tilt (x, y) in degrees
+        true,         // in_contact
+        false,        // is_eraser
+        false,        // barrel button
+        1,            // device id
+    );
+    let pen = mgr.get_pen_state().expect("pen state is populated");
+    assert!((pen.pressure - 0.75).abs() < 1e-6);
+    assert!(pen.in_contact);
+    assert!(!pen.is_eraser);
+    assert_eq!(pen.device_id, 1);
+}
+
+// (The PenDown/Move/Up *event filters* exist but are unused: the working pen
+// path is pointer-event + get_pen_state, as above - NOT an EventType-routed
+// PenDown. So pen is not a dead filter like GeolocationFix was; it uses the
+// state-accessor pattern instead of a dedicated event.)
 
 // --- AudioFrame <-> bytes (mirrors the azul-meet UDP framing) ---
 
