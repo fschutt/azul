@@ -455,6 +455,72 @@ pub(super) extern "C" fn registry_global_remove_handler(
 }
 
 // wl_seat listener
+// wl_touch listeners -> touch_state (x/y are wl_fixed_t, /256.0 to logical).
+pub(super) extern "C" fn touch_down_handler(
+    data: *mut c_void,
+    _touch: *mut wl_touch,
+    _serial: u32,
+    _time: u32,
+    _surface: *mut wl_surface,
+    id: i32,
+    x: i32,
+    y: i32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.handle_touch_point(id, x as f64 / 256.0, y as f64 / 256.0);
+}
+pub(super) extern "C" fn touch_up_handler(
+    data: *mut c_void,
+    _touch: *mut wl_touch,
+    _serial: u32,
+    _time: u32,
+    id: i32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.handle_touch_up(id);
+}
+pub(super) extern "C" fn touch_motion_handler(
+    data: *mut c_void,
+    _touch: *mut wl_touch,
+    _time: u32,
+    id: i32,
+    x: i32,
+    y: i32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.handle_touch_point(id, x as f64 / 256.0, y as f64 / 256.0);
+}
+extern "C" fn touch_frame_handler(_data: *mut c_void, _touch: *mut wl_touch) {}
+pub(super) extern "C" fn touch_cancel_handler(data: *mut c_void, _touch: *mut wl_touch) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.handle_touch_cancel();
+}
+extern "C" fn touch_shape_handler(
+    _data: *mut c_void,
+    _touch: *mut wl_touch,
+    _id: i32,
+    _major: i32,
+    _minor: i32,
+) {
+}
+extern "C" fn touch_orientation_handler(
+    _data: *mut c_void,
+    _touch: *mut wl_touch,
+    _id: i32,
+    _orientation: i32,
+) {
+}
+
+static WL_TOUCH_LISTENER: wl_touch_listener = wl_touch_listener {
+    down: touch_down_handler,
+    up: touch_up_handler,
+    motion: touch_motion_handler,
+    frame: touch_frame_handler,
+    cancel: touch_cancel_handler,
+    shape: touch_shape_handler,
+    orientation: touch_orientation_handler,
+};
+
 pub(super) extern "C" fn seat_capabilities_handler(
     data: *mut c_void,
     seat: *mut wl_seat,
@@ -475,6 +541,11 @@ pub(super) extern "C" fn seat_capabilities_handler(
         unsafe {
             (window.wayland.wl_keyboard_add_listener)(keyboard, &WL_KEYBOARD_LISTENER, data)
         };
+    }
+
+    if capabilities & WL_SEAT_CAPABILITY_TOUCH != 0 {
+        let touch = unsafe { (window.wayland.wl_seat_get_touch)(seat) };
+        unsafe { (window.wayland.wl_touch_add_listener)(touch, &WL_TOUCH_LISTENER, data) };
     }
 }
 

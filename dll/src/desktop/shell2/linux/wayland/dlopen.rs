@@ -145,6 +145,9 @@ pub struct Wayland {
         unsafe extern "C" fn(*mut wl_pointer, *const wl_pointer_listener, *mut c_void) -> i32,
     pub wl_keyboard_add_listener:
         unsafe extern "C" fn(*mut wl_keyboard, *const wl_keyboard_listener, *mut c_void) -> i32,
+    pub wl_seat_get_touch: unsafe extern "C" fn(*mut wl_seat) -> *mut wl_touch,
+    pub wl_touch_add_listener:
+        unsafe extern "C" fn(*mut wl_touch, *const wl_touch_listener, *mut c_void) -> i32,
 
     pub wl_shm_create_pool: unsafe extern "C" fn(*mut wl_shm, i32, i32) -> *mut wl_shm_pool,
     pub wl_shm_pool_create_buffer:
@@ -363,6 +366,8 @@ impl Wayland {
             wl_seat_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             wl_pointer_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             wl_keyboard_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
+            wl_seat_get_touch: wl_seat_get_touch_impl,
+            wl_touch_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
 
             wl_shm_create_pool: wl_shm_create_pool_impl,
             wl_shm_pool_create_buffer: wl_shm_pool_create_buffer_impl,
@@ -578,6 +583,12 @@ unsafe extern "C" fn wl_seat_get_keyboard_impl(seat: *mut wl_seat) -> *mut wl_ke
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
         std::mem::transmute(c.marshal_constructor);
     f(seat as *mut wl_proxy, 1, c.wl_keyboard, std::ptr::null_mut()) as *mut wl_keyboard
+}
+unsafe extern "C" fn wl_seat_get_touch_impl(seat: *mut wl_seat) -> *mut wl_touch {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
+        std::mem::transmute(c.marshal_constructor);
+    f(seat as *mut wl_proxy, 2, c.wl_touch, std::ptr::null_mut()) as *mut wl_touch
 }
 unsafe extern "C" fn wl_shm_create_pool_impl(shm: *mut wl_shm, fd: i32, size: i32) -> *mut wl_shm_pool {
     let c = ctx();

@@ -1669,6 +1669,50 @@ impl WaylandWindow {
     }
 
     /// Handle pointer motion event
+    /// Merge a touch point (down/motion) into touch_state by id, then process.
+    /// `x`/`y` are surface-local logical coords (wl_fixed already /256.0).
+    pub fn handle_touch_point(&mut self, id: i32, x: f64, y: f64) {
+        use azul_core::window::{TouchPoint, TouchPointVec};
+        let pos = LogicalPosition::new(x as f32, y as f32);
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        let ts = &mut self.common.current_window_state.touch_state;
+        let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
+        if let Some(p) = pts.iter_mut().find(|p| p.id == id as u64) {
+            p.position = pos;
+        } else {
+            pts.push(TouchPoint {
+                id: id as u64,
+                position: pos,
+                force: 1.0,
+            });
+        }
+        ts.touch_points = TouchPointVec::from_vec(pts);
+        ts.num_touches = ts.touch_points.len();
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+    }
+
+    /// Remove a touch point (up) by id, then process.
+    pub fn handle_touch_up(&mut self, id: i32) {
+        use azul_core::window::{TouchPoint, TouchPointVec};
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        let ts = &mut self.common.current_window_state.touch_state;
+        let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
+        pts.retain(|p| p.id != id as u64);
+        ts.touch_points = TouchPointVec::from_vec(pts);
+        ts.num_touches = ts.touch_points.len();
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+    }
+
+    /// Clear all touch points (cancel — compositor took over the sequence).
+    pub fn handle_touch_cancel(&mut self) {
+        use azul_core::window::TouchPointVec;
+        let ts = &mut self.common.current_window_state.touch_state;
+        ts.touch_points = TouchPointVec::from_vec(Vec::new());
+        ts.num_touches = 0;
+    }
+
     pub fn handle_pointer_motion(&mut self, x: f64, y: f64) {
         let logical_pos = LogicalPosition::new(x as f32, y as f32);
 

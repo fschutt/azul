@@ -54,6 +54,10 @@ pub struct wl_keyboard {
     _private: [u8; 0],
 }
 #[repr(C)]
+pub struct wl_touch {
+    _private: [u8; 0],
+}
+#[repr(C)]
 pub struct wl_shm {
     _private: [u8; 0],
 }
@@ -258,6 +262,31 @@ pub struct wl_pointer_listener {
         extern "C" fn(data: *mut c_void, pointer: *mut wl_pointer, axis: u32, discrete: i32),
 }
 
+/// Listener for `wl_touch` events. x/y are wl_fixed_t (i32, 24.8); /256.0 in the handler.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct wl_touch_listener {
+    pub down: extern "C" fn(
+        data: *mut c_void,
+        touch: *mut wl_touch,
+        serial: u32,
+        time: u32,
+        surface: *mut wl_surface,
+        id: i32,
+        x: i32,
+        y: i32,
+    ),
+    pub up: extern "C" fn(data: *mut c_void, touch: *mut wl_touch, serial: u32, time: u32, id: i32),
+    pub motion:
+        extern "C" fn(data: *mut c_void, touch: *mut wl_touch, time: u32, id: i32, x: i32, y: i32),
+    pub frame: extern "C" fn(data: *mut c_void, touch: *mut wl_touch),
+    pub cancel: extern "C" fn(data: *mut c_void, touch: *mut wl_touch),
+    pub shape:
+        extern "C" fn(data: *mut c_void, touch: *mut wl_touch, id: i32, major: i32, minor: i32),
+    pub orientation:
+        extern "C" fn(data: *mut c_void, touch: *mut wl_touch, id: i32, orientation: i32),
+}
+
 /// Listener for `wl_keyboard` events (keymap, enter, leave, key, modifiers, repeat_info).
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -432,6 +461,7 @@ pub const XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_RESIZE_Y: u32 = 32;
 // Wayland core protocol constants
 pub const WL_SEAT_CAPABILITY_POINTER: u32 = 1;
 pub const WL_SEAT_CAPABILITY_KEYBOARD: u32 = 2;
+pub const WL_SEAT_CAPABILITY_TOUCH: u32 = 4;
 
 pub const WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1: u32 = 1;
 pub const WL_KEYBOARD_KEY_STATE_RELEASED: u32 = 0;
