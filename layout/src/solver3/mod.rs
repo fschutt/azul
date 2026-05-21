@@ -459,6 +459,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // in layout_document returns the rc=5 Err (the error enum can't be captured
     // reliably in the lift). The last value seen = the step that errored next.
     unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0001u32); }
+    // M12.7 diag: reset the __remill_error PC capture (0x400B4/B8) at layout entry so it
+    // captures only the LAYOUT's faulting PC, not the cascade/font-setup path's (e.g.
+    // brotli decompression, which fires its own __remill_error before we get here).
+    unsafe { core::ptr::write_volatile(0x400B4 as *mut u32, 0u32); }
+    unsafe { core::ptr::write_volatile(0x400B8 as *mut u32, 0u32); }
 
     if let Some(msgs) = debug_messages.as_mut() {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -838,7 +843,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // M12.7 diag: 0x55 = about to call calculate_layout_for_subtree (got CB);
             // 0x57 = it RETURNED. If step stays 0x55, calculate_layout_for_subtree diverges.
             unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0055u32); }
-            {
+            // M12.7 diag: capture the Result instead of `?`-propagating it. 0x57 = Ok,
+            // 0x5E = Err. Do NOT propagate (continue to the cache store) so layout-real can
+            // see whether the geometry was computed regardless of a (possibly spurious,
+            // niche-Result-mis-discriminated) Err.
+            let _clr = {
                 let _p = crate::probe::Probe::span("root_layout_pass");
                 cache::calculate_layout_for_subtree(
                     &mut ctx,
@@ -851,9 +860,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     &mut reflow_needed_for_scrollbars,
                     &mut cache.float_cache,
                     cache::ComputeMode::PerformLayout,
-                )?;
-            }
-            unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0057u32); }
+                )
+            };
+            unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, if _clr.is_ok() { 0xDD00_0057u32 } else { 0xDD00_005Eu32 }); }
             crate::probe::sample_peak_rss("rss:after_root_layout");
             crate::probe::sample_phase_peak("rss:peak_during_root_layout");
 
