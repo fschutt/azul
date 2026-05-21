@@ -4761,6 +4761,100 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "AudioSink": {
+                        "external": "azul_dll::desktop::extra::audio::AudioSink",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "open": {
+                                "doc": [
+                                    "Open an audio output for `config` (sample rate + channels). Returns an",
+                                    "invalid handle (`is_open()` false) on failure. The stub engine always",
+                                    "\"opens\"; the real rodio / AVAudio backend may fail (no device)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "config": "AudioConfig"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::desktop::extra::audio::AudioSink::open(config)"
+                            }
+                        },
+                        "functions": {
+                            "is_open": {
+                                "doc": [
+                                    "Whether the sink opened successfully."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_open()"
+                            },
+                            "play": {
+                                "doc": [
+                                    "Queue `frame` for playback. Interleaved `f32` samples in the frame's",
+                                    "format are sent to the output. (Stub: counts the frame; the on-device",
+                                    "backend plays the samples.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "frame": "AudioFrame"
+                                    }
+                                ],
+                                "fn_body": "object.play(frame)"
+                            },
+                            "frames_played": {
+                                "doc": [
+                                    "Number of frames submitted via [`play`](Self::play) so far (`0` if not",
+                                    "open). Mostly a stub progress signal until the real backend lands."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u64"
+                                },
+                                "fn_body": "object.frames_played()"
+                            },
+                            "close": {
+                                "doc": [
+                                    "Stop playback + release the output. (Dropping the handle does this too;",
+                                    "`close` is for explicit/FFI control.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.close()"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },

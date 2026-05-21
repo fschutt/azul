@@ -2121,3 +2121,11 @@ NEXT: AudioWidget (playback — push/pull design TBD) + video enc/dec (vk-video,
 For azul-meet, audio PLAYBACK needs to consume live frames (received over UDP). A widget+pull-hook is awkward (cross-thread feeding from a background playback thread). Cleaner: an **`AudioSink` handle** (like `Db`/`Pdf`) — `AudioSink::open(AudioConfig) -> AudioSink; sink.play(AudioFrame); sink.close()` — held in the app's State (no globals), `play()` queues samples to the platform output (rodio desktop / AVAudioEngine·AAudio mobile = on-device, like the mic capture backend; stub/no-op here). Mirrors the Db handle (ptr + run_destructor).
 
 So P7 audio surface = `MicrophoneWidget` (capture, on_frame hook — DONE) + `AudioSink` (playback handle — NEXT). Then video enc/dec (vk-video, on-device) -> P8 (AzUdp + azul-meet) -> P9 (synthetic-event e2e) -> P10 (docs).
+
+### Tick — P7.audio.c — AudioSink playback handle + clean autofix workflow (2026-05-21)
+
+`AudioSink` (dll/src/desktop/extra/audio/mod.rs) — the playback counterpart to MicrophoneWidget, a handle like `Db`/`Pdf` (`ptr` + `run_destructor`, shallow Clone, null Default, Drop). `AudioSink::open(AudioConfig) -> AudioSink`; `play(AudioFrame)`; `is_open`; `frames_played`; `close`. Held in the app's State (no globals) - the azul-meet receive seam (UDP frame -> `sink.play`). Stub backend (counts frames); real rodio/AVAudio/AAudio output is on-device. Codegen-exposed; gate GREEN on all 5.
+
+**Workflow correction (user):** stop hand-curating patches + python-editing api.json. The right tooling: `autofix debug api <T>` (workspace vs api.json), `autofix list <T>`, `autofix remove <T.method>` (targeted), `autofix apply <specific-file>`. The `.*` add pulled trait-impl methods (`clone`/`default`/`drop`) as api.json functions -> "default should not be used directly" critical error; fixed with `autofix remove AudioSink.{default,clone,drop}` then applied ONLY the `modify_AudioSink` patch (custom_impls Clone/Default/Drop) by filename - NOT a `*Audio*` glob (which had matched + wrongly applied `remove_OnAudioFrame*` false-drift, deleting valid types). Never `autofix apply` the whole patch dir or a broad glob - it includes false-remove drift (OnAudioFrame/MapTileId/etc.).
+
+NEXT: video enc/dec (vk-video, on-device) -> P8 (AzUdp + azul-meet) -> P9 (synthetic-event e2e) -> P10 (docs).

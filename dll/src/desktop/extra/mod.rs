@@ -30,6 +30,11 @@ pub mod map;
 /// with no feature-gating); the `printpdf` engine behind it is opt-in via the
 /// `pdf` feature. Without it, `Pdf::from_dom` / `write_json` return empty.
 pub mod pdf;
+/// Audio playback (P7). The `AudioSink` handle is always present (codegen-
+/// exposed, no feature gating); the real rodio / AVAudio output behind it is
+/// on-device (the stub counts frames). The playback counterpart to
+/// `MicrophoneWidget` (capture). See `audio/mod.rs`.
+pub mod audio;
 pub mod permission;
 /// Motion-sensor subscriptions (P6 feature 5). The dispatcher kicks the
 /// platform subscription once via [`sensors::ensure_started`] (CoreMotion on
