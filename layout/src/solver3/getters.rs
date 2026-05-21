@@ -617,6 +617,10 @@ macro_rules! get_css_property {
             node_state: &StyledNodeState,
         ) -> MultiValue<$return_type> {
             // FAST PATH: compact cache for normal state (O(1) array + bitshift)
+            // NOTE (M12.7): skipping this fast path does NOT fix get_display_type's
+            // divergence — the slow path / the `match get_display_type(...)` on the
+            // LayoutDisplay enum (a niche-discriminant) mis-lifts too. So this isn't the
+            // cache (unlike the font-size fix); it's the deeper niche/enum decode. Kept.
             if node_state.is_normal() {
                 if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
                     return MultiValue::Exact(cc.$compact_method(node_id.index()));
