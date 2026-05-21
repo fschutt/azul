@@ -2331,3 +2331,7 @@ Desktop extensions: #1 sensors (iio), #2 capture seam, #3 geolocation (GeoClue2)
 ### Tick — codegen-expose VideoEncoder/VideoDecoder (api.json) (2026-05-21)
 
 Per the user's autofix workflow: `autofix add 'VideoEncoder.*'`/`'VideoDecoder.*'` -> apply, then loop `autofix` + `normalize` until 0 patches (it auto-adds `custom_impl(Clone/Default/Drop)` + fixes OptionVideoFrame repr), then `autofix difficult remove` the 6 trait methods (`default`/`clone`/`drop` x2) that the `.*` add pulled (the 2 critical "Constructor 'default' should not be used directly" FFI errors). Result: 0 patches, 0 criticals. VideoEncoder = open + backend_name/is_open/encode/frames_encoded/close; VideoDecoder = open + is_open/decode/close; custom_impls [Clone,Default,Drop]. Committing api.json before `codegen all` (per the user).
+
+### Tick — dedup LayoutWindow construction (2026-05-21)
+
+User: "yeah deduplicate this." LayoutWindow (~40 fields) was constructed at 3 sites (`new`, `new_with_shared_fonts`, `new_paged`) each re-listing every field initializer - they differed only in `font_manager` (and `new_paged`'s `fragmentation_context`). Extracted `LayoutWindow::from_font_manager(fm)` as the single construction point; the 3 public constructors are now thin wrappers (`new` = `from_font_manager(FontManager::new(fc)?)`, etc.). Removes ~140 lines of duplicated init, and adding a field now touches one site (the prerequisite for the safe-area-insets work). Gate GREEN all 7.
