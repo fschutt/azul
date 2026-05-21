@@ -553,6 +553,18 @@ pub enum EventType {
     /// Touch cancelled
     TouchCancel,
 
+    // Pen / Stylus Events (W3C PointerEvent, pointerType "pen")
+    /// Pen tip made contact (or pen entered while down)
+    PenDown,
+    /// Pen moved (in contact or hovering in range)
+    PenMove,
+    /// Pen tip lifted
+    PenUp,
+    /// Pen entered hover/sensing range (proximity in)
+    PenEnter,
+    /// Pen left hover/sensing range (proximity out)
+    PenLeave,
+
     // Gesture Events
     /// Long press detected (touch or mouse held down)
     LongPress,
@@ -1163,6 +1175,11 @@ fn matches_hover_filter(
         (TouchMove, EventType::TouchMove) => true,
         (TouchEnd, EventType::TouchEnd) => true,
         (TouchCancel, EventType::TouchCancel) => true,
+        (PenDown, EventType::PenDown) => true,
+        (PenMove, EventType::PenMove) => true,
+        (PenUp, EventType::PenUp) => true,
+        (PenEnter, EventType::PenEnter) => true,
+        (PenLeave, EventType::PenLeave) => true,
         (DragStart, EventType::DragStart) => true,
         (Drag, EventType::Drag) => true,
         (DragEnd, EventType::DragEnd) => true,
@@ -1259,6 +1276,11 @@ fn matches_window_filter(
         (TouchMove, EventType::TouchMove) => true,
         (TouchEnd, EventType::TouchEnd) => true,
         (TouchCancel, EventType::TouchCancel) => true,
+        (PenDown, EventType::PenDown) => true,
+        (PenMove, EventType::PenMove) => true,
+        (PenUp, EventType::PenUp) => true,
+        (PenEnter, EventType::PenEnter) => true,
+        (PenLeave, EventType::PenLeave) => true,
         (FocusReceived, EventType::Focus) => true,
         (FocusLost, EventType::Blur) => true,
         (CloseRequested, EventType::WindowClose) => true,
