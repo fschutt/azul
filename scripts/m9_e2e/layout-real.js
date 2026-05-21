@@ -178,7 +178,11 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         const bld = mini.AzStartup_peekU32(0x400B0);
         if ((bld>>>16)===0xbd00) console.error('POST-RC5: tree built with ' + ((bld>>8)&0xff) + ' nodes, root=' + (bld&0xff) + ' → if >0 but InvalidTree, the get().ok_or()? mis-discriminates Some→None');
         else console.error('POST-RC5: build marker not set (0x400B0=0x' + bld.toString(16) + ')');
-        fail('solveLayoutReal rc=' + rc + ' (see status codes in eventloop.rs)');
+        // 0x400B4 = create_node_from_dom pre-push index; 0x400B8 = post-push nodes.len()
+        const cnpre = mini.AzStartup_peekU32(0x400B4), cnpost = mini.AzStartup_peekU32(0x400B8);
+        if ((cnpre>>>16)===0xce00) console.error('POST-RC5: create_node_from_dom pre-push index=' + (cnpre&0xffff));
+        else console.error('POST-RC5: create_node_from_dom NOT called (0x400B4=0x' + cnpre.toString(16) + ')');
+        if ((cnpost>>>16)===0xcf00) console.error('POST-RC5: create_node_from_dom post-push nodes.len()=' + (cnpost&0xffff) + ' → if 1 here but build sees 0, the builder &mut is lost');
     }
     console.log('[2] solveLayoutReal rc=0 (real taffy positioning ran in wasm)');
 
