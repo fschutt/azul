@@ -1085,6 +1085,18 @@ impl LayoutWindow {
         // drops its transient allocations (intrinsic sizing Vecs, etc.).
         crate::probe::hint_purge_allocator();
 
+        // M12.7: the headless web path only needs the per-node geometry, which
+        // `layout_document` has already written to `layout_cache.calculated_positions`
+        // (what AzStartup_solveLayoutReal reads). Everything below — scrollbar
+        // TransformKey registration, GPU-cache opacity/transform sync,
+        // update_scrollbar_transforms — is webrender/display-list bookkeeping
+        // that web doesn't use, and it contains an ARM loop whose lift to wasm
+        // never terminates (an opt-folded `br self`; routing value resolves to a
+        // webrender code pointer). Skip it for headless; desktop unchanged.
+        if self.skip_gpu_sync {
+            return Ok(());
+        }
+
         // Optional memory-breakdown print for the CSS property cache.
         // Gated on AZUL_MEM_BREAKDOWN=1; off costs one env-var read on
         // the first call (`OnceLock`-cached) and nothing after.

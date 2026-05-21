@@ -797,6 +797,13 @@ impl ScrollManager {
 
     /// Returns all scroll positions for nodes in a specific DOM
     pub fn get_scroll_states_for_dom(&self, dom_id: DomId) -> BTreeMap<NodeId, ScrollPosition> {
+        // M12.7: iterating an EMPTY hashbrown map (RawIterRange) mis-lifts to
+        // wasm and loops forever (same class as the font-id / GPU-cache loops).
+        // For the headless web path `states` is empty; guard it (len-based, no
+        // iteration). Desktop unchanged.
+        if self.states.is_empty() {
+            return BTreeMap::new();
+        }
         self.states
             .iter()
             .filter(|((d, _), _)| *d == dom_id)
