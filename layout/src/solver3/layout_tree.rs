@@ -1940,6 +1940,10 @@ impl LayoutTreeBuilder {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> usize {
         let index = self.nodes.len();
+        // M12.7 diag: 0x400B4 = create_node_from_dom's pre-push index (= nodes.len()
+        // as IT sees it). If this is 0 but build() sees 0 nodes, the push is lost
+        // between here and build (builder &mut threading); if garbage, len mis-reads.
+        unsafe { core::ptr::write_volatile(0x400B4 as *mut u32, 0xCE00_0000u32 | (index as u32 & 0xffff)); }
         let parent_fc =
             parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context.clone()));
         let collected = collect_box_props(styled_dom, dom_id, debug_messages, self.viewport_size);
@@ -2001,6 +2005,8 @@ impl LayoutTreeBuilder {
             self.nodes[p].children.push(index);
         }
         self.dom_to_layout.entry(dom_id).or_default().push(index);
+        // M12.7 diag: 0x400B8 = nodes.len() AFTER the push (should be index+1).
+        unsafe { core::ptr::write_volatile(0x400B8 as *mut u32, 0xCF00_0000u32 | (self.nodes.len() as u32 & 0xffff)); }
         index
     }
 
