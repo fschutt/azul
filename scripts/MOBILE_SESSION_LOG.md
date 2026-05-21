@@ -2402,3 +2402,22 @@ The playback counterpart to the cpal mic. `audio/cpal_sink.rs`: `CpalSink::open`
 ### Tick — Android audio (mic + AudioSink) via AAudio (ndk-sys) (2026-05-21)
 
 `audio/aaudio.rs`: the NDK AAudio C API (ndk-sys) for both mic capture (input stream, blocking `AAudioStream_read` -> f32 -> the seam) and AudioSink playback (output stream, blocking `AAudioStream_write`). PCM_FLOAT, no async callbacks (cleaner than Camera2). Wired into `ensure_mic_backend` + `AudioSinkInner` (cfg android), reusing the ndk-sys dep from the camera (no new dep). Android cross-check clean. **Audio (mic + playback) now real on 4/5: linux (ALSA) + macОS + Windows (cpal) + Android (AAudio).** Only iOS remains (cpal's coreaudio-sys won't cross-compile to ios -> needs objc2 AVAudioEngine). NEXT: iOS audio (objc2 AVAudioEngine, mic + sink), then wacom/touch.
+
+### CHECKPOINT — autonomous run summary + the remaining intricate tier (2026-05-21)
+
+**DONE this run** (per-platform capture/audio backends, all cross-compile-verified on the 7-target gate + pushed):
+- **Camera 5/5**: linux `rscam`, windows `nokhwa`, macОS+iOS objc2 AVFoundation (shared avfoundation.rs), android `ndk-sys` Camera2 (YUV420->RGBA).
+- **Mic 4/5**: linux ALSA (dlopen), macОS+windows `cpal`, android AAudio (ndk-sys, blocking read).
+- **AudioSink 4/5**: same 4 (cpal output stream + AAudio write).
+- Pattern: each backend is crate/bindings-backed + gated to its target so the gate stays green. cpal's `coreaudio-sys` bindgen does NOT cross-compile to iOS -> iOS excluded from cpal.
+
+**REMAINING — the intricate/device-tested tier** (each multi-turn, lower autonomous confidence; recommend user prioritization / device-in-the-loop):
+- **iOS audio (mic + AudioSink)** — lone audio holdout. PLAN: mic = AVCaptureSession + AVCaptureDeviceInput(AVMediaTypeAudio) + AVCaptureAudioDataOutput + a `define_class!` delegate (SAME `captureOutput:didOutputSampleBuffer:` as the camera) -> `CMSampleBufferGetDataBuffer` -> `CMBlockBufferGetDataPointer` -> f32. Format: read ASBD (`CMSampleBufferGetFormatDescription` + `CMAudioFormatDescriptionGetStreamBasicDescription`, needs objc2-core-audio-types) OR force f32 via an audioSettings NSDictionary (AVFormatIDKey=lpcm / bitdepth 32 / IsFloat). Add objc2-av-foundation feature `AVCaptureAudioDataOutput` + objc2-core-media `CMBlockBuffer` to the ios section. Sink = AVAudioEngine playerNode (objc2-avf-audio, separate). Mirror camera/avfoundation.rs; gate cfg(ios).
+- **wacom/touch (desktop)** — XInput2 (linux) / WM_TOUCH (windows) / NSEvent tablet (macos); x11 shell uses core events so XI2 is from scratch.
+- **screencap** — linux x11rb GetImage / macОS ScreenCaptureKit / windows DXGI Desktop Duplication; `register_screen_backend` seam is ready.
+- **video codec FFI** — VideoToolbox / MediaCodec / desktop encoder.
+- **windows sensors + geolocation** — WinRT (windows crate, async).
+- **biometric linux + windows** — PAM / Windows Hello.
+- **permission request-side** — TCC (macОS) / runtime perms (mobile).
+
+NEXT tick: iOS mic per the plan above (mirror the camera).
