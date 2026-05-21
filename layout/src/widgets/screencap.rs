@@ -21,7 +21,8 @@ use azul_core::task::{ThreadId, ThreadReceiver};
 use azul_core::video::VideoFrame;
 
 use super::capture_common::{
-    invoke_on_frame, present_frame, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
+    invoke_on_frame, present_frame, screen_backend, OnVideoFrame, OnVideoFrameCallback,
+    OptionOnVideoFrame,
 };
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{
@@ -133,7 +134,7 @@ extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo)
         Thread::create(
             RefAny::new(()),
             data.clone(),
-            ThreadCallback::new(screencap_test_worker),
+            ThreadCallback::new(screencap_worker),
         ),
     );
     Update::DoNothing
@@ -141,7 +142,35 @@ extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo)
 
 /// Background worker (test pattern): a downward-moving white band on dark grey,
 /// ~30×/s. Replaced by the real ScreenCaptureKit / MediaProjection worker.
-extern "C" fn screencap_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
+extern "C" fn screencap_worker(_init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
+    // Real platform capture if the dll registered a screen backend
+    // (ScreenCaptureKit / X11 / DXGI; Wayland stays a dummy); else the test pattern.
+    if let Some(backend) = screen_backend() {
+        let handle = (backend.open)(0, DEFAULT_W as u32, DEFAULT_H as u32);
+        if handle != 0 {
+            let mut buf: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
+            loop {
+                let (fw, fh) = (backend.read)(handle, &mut buf);
+                if fw == 0 || fh == 0 {
+                    break;
+                }
+                let frame = VideoFrame {
+                    width: fw,
+                    height: fh,
+                    bytes: buf.clone().into(),
+                };
+                if !sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
+                    WriteBackCallback::new(screencap_writeback),
+                    RefAny::new(frame),
+                ))) {
+                    break;
+                }
+            }
+            (backend.close)(handle);
+            return;
+        }
+    }
+
     let (w, h) = (DEFAULT_W as usize, DEFAULT_H as usize);
     let mut tick: u32 = 0;
     loop {

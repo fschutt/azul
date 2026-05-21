@@ -27,7 +27,8 @@ use azul_core::task::{ThreadId, ThreadReceiver};
 use azul_core::video::VideoFrame;
 
 use super::capture_common::{
-    invoke_on_frame, present_frame, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
+    camera_backend, invoke_on_frame, present_frame, OnVideoFrame, OnVideoFrameCallback,
+    OptionOnVideoFrame,
 };
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{
@@ -153,7 +154,7 @@ extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) ->
                 height: dims.1,
             }),
             data.clone(),
-            ThreadCallback::new(test_pattern_worker),
+            ThreadCallback::new(camera_worker),
         ),
     );
     Update::DoNothing
@@ -161,11 +162,40 @@ extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) ->
 
 /// Background worker (test pattern): a colour-cycling solid frame ~30x/s until
 /// the widget unmounts. The real AVFoundation/Camera2 capture loop replaces it.
-extern "C" fn test_pattern_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
+extern "C" fn camera_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     let (w, h) = init
         .downcast_ref::<CameraThreadInit>()
         .map(|i| (i.width, i.height))
         .unwrap_or((640, 480));
+
+    // Real platform capture if the dll registered a camera backend (v4l2 /
+    // AVFoundation / Media Foundation); otherwise the colour-cycle test pattern.
+    if let Some(backend) = camera_backend() {
+        let handle = (backend.open)(0, w, h);
+        if handle != 0 {
+            let mut buf: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
+            loop {
+                let (fw, fh) = (backend.read)(handle, &mut buf);
+                if fw == 0 || fh == 0 {
+                    break;
+                }
+                let frame = VideoFrame {
+                    width: fw,
+                    height: fh,
+                    bytes: buf.clone().into(),
+                };
+                if !sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
+                    WriteBackCallback::new(camera_writeback),
+                    RefAny::new(frame),
+                ))) {
+                    break;
+                }
+            }
+            (backend.close)(handle);
+            return;
+        }
+    }
+
     let px = (w as usize) * (h as usize);
     let mut tick: u32 = 0;
     loop {

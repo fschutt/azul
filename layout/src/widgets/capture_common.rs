@@ -142,3 +142,49 @@ pub fn upload_rgba(gl: &GlContextPtr, texture_id: u32, frame: &VideoFrame) {
         OptionU8VecRef::Some(U8VecRef::from(frame.bytes.as_ref())),
     );
 }
+
+/// A platform frame-capture backend (camera / screen), registered by the dll at
+/// startup so the cross-platform capture widgets can pull **real** frames
+/// instead of their built-in test pattern. The dll provides one per OS (v4l2 on
+/// Linux, AVFoundation on macOS, Media Foundation on Windows, ScreenCaptureKit /
+/// PipeWire / DXGI for screens, ...). These are plain Rust fn pointers - the dll
+/// links azul-layout statically, so registering + calling is a Rust-to-Rust
+/// call, no `extern "C"`/trait-object dance.
+#[derive(Clone, Copy)]
+pub struct CaptureVTable {
+    /// Open source `index` (camera device / display index) at the requested
+    /// `width` x `height`. Returns an opaque handle, or `0` on failure (the
+    /// worker then falls back to the test pattern).
+    pub open: fn(index: u32, width: u32, height: u32) -> u64,
+    /// Block for the next frame, writing tightly-packed RGBA8 into `out`
+    /// (resized as needed). Returns the actual frame `(width, height)`, or
+    /// `(0, 0)` on end-of-stream / error (the worker then stops + closes).
+    pub read: fn(handle: u64, out: &mut alloc::vec::Vec<u8>) -> (u32, u32),
+    /// Close + free the source.
+    pub close: fn(handle: u64),
+}
+
+static CAMERA_BACKEND: std::sync::OnceLock<CaptureVTable> = std::sync::OnceLock::new();
+static SCREEN_BACKEND: std::sync::OnceLock<CaptureVTable> = std::sync::OnceLock::new();
+
+/// Register the platform **camera** capture backend (called once by the dll at
+/// startup; the first registration wins). Without it, `CameraWidget` shows its
+/// test pattern.
+pub fn register_camera_backend(vtable: CaptureVTable) {
+    let _ = CAMERA_BACKEND.set(vtable);
+}
+
+/// Register the platform **screen** capture backend (for `ScreenCaptureWidget`).
+pub fn register_screen_backend(vtable: CaptureVTable) {
+    let _ = SCREEN_BACKEND.set(vtable);
+}
+
+/// The registered camera backend, if the dll provided one for this platform.
+pub fn camera_backend() -> Option<CaptureVTable> {
+    CAMERA_BACKEND.get().copied()
+}
+
+/// The registered screen-capture backend, if any.
+pub fn screen_backend() -> Option<CaptureVTable> {
+    SCREEN_BACKEND.get().copied()
+}
