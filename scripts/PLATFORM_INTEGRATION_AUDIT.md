@@ -7,18 +7,24 @@ Android) backends got the focus; this audit extends the lens to desktop
 Legend: ✅ real native backend · 🔶 stub (test-pattern / no real backend) ·
 📝 TODO (file exists, not implemented) · ❌ missing (no-op fallthrough).
 
+> **Progress (this session):** landed Linux **sensors** (iio sysfs), Linux
+> **geolocation** (GeoClue2/zbus), and the **capture seam** (camera+screencap
+> pull frames from a registered platform backend, test-pattern fallback) — plus
+> the libudev-sys dlopen fork (cross-compile unblock) + the `video_codec` API.
+> The matrix reflects these.
+
 | System (P#) | macOS | Linux | Windows | iOS | Android | Backend / notes |
 |---|---|---|---|---|---|---|
 | **UDP** (P8) | ✅ | ✅ | ✅ | ✅ | ✅ | `std::net::UdpSocket` — portable, no gaps |
 | **SQLite `Db`** (P4) | ✅ | ✅ | ✅ | ✅ | ✅ | rusqlite, behind `db-sqlite` feature |
 | **PDF** (P5) | ✅ | ✅ | ✅ | ✅ | ✅ | printpdf, behind `pdf` feature |
 | **Gamepad** (P6) | ✅ gilrs | ✅ gilrs | ✅ gilrs | 🔶 | 🔶 | desktop real (linux now cross-compiles via the libudev-sys dlopen fork); apple/android `GCController`/`InputDevice` are no-op stubs |
-| **Geolocation** (P3) | ✅ CoreLocation | 📝 zbus/GeoClue2 | 📝 WinRT Geolocator | ✅ | ✅ | linux/windows are TODO stubs (return no fix) |
-| **Sensors** (P6) | ✅ CoreMotion | ❌ no-op | ❌ no-op | ✅ CoreMotion | ✅ SensorManager | **linux/windows have no backend** — `ensure_started`/`poll` fall through to nothing |
+| **Geolocation** (P3) | ✅ CoreLocation | ✅ GeoClue2 (zbus) | 📝 WinRT Geolocator | ✅ | ✅ | windows still a TODO stub (returns no fix) |
+| **Sensors** (P6) | ✅ CoreMotion | ✅ iio sysfs | ❌ no-op | ✅ CoreMotion | ✅ SensorManager | windows still has no backend (`poll` falls through) |
 | **Biometric** (P6) | ✅ LocalAuthentication | ❌ no-op | ❌ no-op | ✅ | ✅ | linux/windows missing (no PAM / Windows Hello) |
 | **Permission** (P1) | 📝 TODO | 📝 TODO | 📝 TODO | 📝 TODO | ~partial | the *request* side is TODO on every platform; status read-back works |
-| **Camera** (P6) | 🔶 | 🔶 | 🔶 | 🔶 | 🔶 | `camera.rs` test-pattern worker on ALL platforms; real AVFoundation / Camera2 / v4l2 / MediaFoundation not written |
-| **Screen capture** (P6) | 🔶 | 🔶 | 🔶 | 🔶 | 🔶 | `screencap.rs` test-pattern; real ScreenCaptureKit / PipeWire / DXGI / MediaProjection not written (Wayland may stay a dummy — needs xdg portal + PipeWire) |
+| **Camera** (P6) | 🔶→seam | 🔶→seam | 🔶→seam | 🔶→seam | 🔶→seam | **capture seam landed** (worker pulls from a registered `CaptureVTable`, test-pattern fallback); per-OS backends (AVFoundation / Camera2 / v4l2 / MediaFoundation) plug in — not yet written |
+| **Screen capture** (P6) | 🔶→seam | 🔶→seam | 🔶→seam | 🔶→seam | 🔶→seam | **capture seam landed**; per-OS backends (ScreenCaptureKit / X11 / DXGI; **Wayland dummy** per the user) plug in — not yet written |
 | **Video playback** (P6) | 🔶 | 🔶 | 🔶 | 🔶 | 🔶 | `video.rs` SMPTE-bars test pattern; real vk-video/native decode not written |
 | **Mic capture** (P7) | 🔶 | 🔶 | 🔶 | 🔶 | 🔶 | `microphone.rs` 440 Hz test tone; real AVAudioEngine / cpal / AAudio not written |
 | **Audio playback `AudioSink`** (P7) | 🔶 | 🔶 | 🔶 | 🔶 | 🔶 | stub (counts frames); real rodio / AVAudioEngine / AAudio not written |
