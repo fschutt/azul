@@ -2421,3 +2421,7 @@ The playback counterpart to the cpal mic. `audio/cpal_sink.rs`: `CpalSink::open`
 - **permission request-side** — TCC (macОS) / runtime perms (mobile).
 
 NEXT tick: iOS mic per the plan above (mirror the camera).
+
+### Tick — iOS mic via objc2 AVFoundation — MICROPHONE 5/5 (2026-05-21)
+
+The iOS mic, mirroring the camera's `AVCaptureSession` + `define_class!` delegate (cpal can't cross-compile to iOS). `audio/avfoundation_mic.rs`: AVCaptureSession + AVCaptureDeviceInput(AVMediaTypeAudio) + AVCaptureAudioDataOutput + a `define_class!` AVCaptureAudioDataOutputSampleBufferDelegate (SAME `captureOutput:didOutputSampleBuffer:` as the camera) -> `sample_buffer.data_buffer()` -> `CMBlockBufferGetDataPointer` -> f32 (iOS HAL is Float32, no conversion) -> shared slot -> `mic_read` drains (push->pull). Added objc2-av-foundation `AVCaptureAudioDataOutput` + objc2-core-media `CMBlockBuffer` features (replace_all, both apple sections - harmless on macos). iOS cross-check clean **first try** (the camera-mirror paid off); macОS host re-verified. **MICROPHONE now complete on all 5 platforms** (linux ALSA + macОS/windows cpal + android AAudio + iOS AVFoundation). AudioSink playback still 4/5 (iOS holdout - needs AVAudioEngine playerNode, separate from capture). NEXT: iOS AudioSink (AVAudioEngine), then wacom/touch.

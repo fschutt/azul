@@ -28,6 +28,8 @@ mod cpal_mic;
 mod cpal_sink;
 #[cfg(target_os = "android")]
 mod aaudio;
+#[cfg(target_os = "ios")]
+mod avfoundation_mic;
 
 /// Internal playback state behind the `AudioSink` handle. The stub tracks the
 /// config + how many frames were submitted; the real backend replaces it with
@@ -205,6 +207,19 @@ pub fn ensure_mic_backend() {
                     open: aaudio::mic_open,
                     read: aaudio::mic_read,
                     close: aaudio::mic_close,
+                },
+            );
+        });
+    }
+    #[cfg(target_os = "ios")]
+    {
+        static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        DONE.get_or_init(|| {
+            azul_layout::widgets::capture_common::register_mic_backend(
+                azul_layout::widgets::capture_common::AudioCaptureVTable {
+                    open: avfoundation_mic::mic_open,
+                    read: avfoundation_mic::mic_read,
+                    close: avfoundation_mic::mic_close,
                 },
             );
         });

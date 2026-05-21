@@ -181,12 +181,14 @@ objc2-av-foundation = { version = "0.3.0", default-features = false, optional = 
     "AVCaptureOutput",
     "AVCaptureOutputBase",
     "AVCaptureVideoDataOutput",
+    "AVCaptureAudioDataOutput",
     "AVMediaFormat",
 ] }
 objc2-core-media = { version = "0.3.0", default-features = false, optional = true, features = [
     "std",
     "objc2-core-video",
     "CMSampleBuffer",
+    "CMBlockBuffer",
     "CMFormatDescription",
 ] }
 objc2-core-video = { version = "0.3.0", default-features = false, optional = true, features = [
@@ -304,12 +306,14 @@ objc2-av-foundation = { version = "0.3.0", default-features = false, optional = 
     "AVCaptureOutput",
     "AVCaptureOutputBase",
     "AVCaptureVideoDataOutput",
+    "AVCaptureAudioDataOutput",
     "AVMediaFormat",
 ] }
 objc2-core-media = { version = "0.3.0", default-features = false, optional = true, features = [
     "std",
     "objc2-core-video",
     "CMSampleBuffer",
+    "CMBlockBuffer",
     "CMFormatDescription",
 ] }
 objc2-core-video = { version = "0.3.0", default-features = false, optional = true, features = [
