@@ -494,18 +494,23 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     crate::probe::sample_peak_rss("rss:enter_layout_document");
 
-    // --- Step 0: Pointer-identity fast path ---
-    // If the exact same StyledDom reference is passed with the same viewport,
-    // skip reconcile entirely and return the cached display list.
+    // --- Step 0: record DOM pointer / viewport for diagnostics only ---
+    //
+    // NOTE: there is intentionally NO pointer-identity fast path here.
+    // Comparing `new_dom as *const StyledDom as usize` against a stored
+    // pointer is UNSOUND across layout passes: each `regenerate_layout`
+    // builds a fresh `StyledDom`, and after the previous one is dropped
+    // (e.g. `layout_and_generate_display_list` calls `layout_results.clear()`
+    // before re-laying out), the allocator/stack frequently hands the new,
+    // *different* StyledDom the SAME address. A pointer match therefore does
+    // NOT prove the content is unchanged — it would return the previous
+    // frame's display list for a structurally different DOM (e.g. an image
+    // removed from the tree would still appear in `scan_used_images`,
+    // breaking resource GC). The Step 1.1 structural-identity cache below
+    // (root `subtree_hash` + viewport) is the correct, content-based skip;
+    // it costs one ~600 µs reconcile pass but cannot be fooled by address
+    // reuse.
     let dom_ptr = new_dom as *const StyledDom as usize;
-    if dom_ptr == cache.prev_dom_ptr
-        && viewport == cache.prev_viewport
-        && cache.cached_display_list.is_some()
-    {
-        let _p = crate::probe::Probe::span("dom_ptr_cache_hit");
-        let (_, _, cached_dl) = cache.cached_display_list.as_ref().unwrap();
-        return Ok(cached_dl.clone());
-    }
     cache.prev_dom_ptr = dom_ptr;
     cache.prev_viewport = viewport;
 

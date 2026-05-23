@@ -2468,6 +2468,18 @@ fn layout_ifc<T: ParsedFontTrait>(
 
     if inline_content.is_empty() {
         debug_warning!(ctx, "inline_content is empty, returning default output!");
+        // The node has no inline-level content this pass (e.g. its only
+        // inline child — a text run or an inline image — was removed by a
+        // relayout). Any `inline_layout_result` left over from a previous
+        // frame is now stale: the display-list generator paints inline
+        // objects (images, inline-block shapes) straight out of this cached
+        // layout (see display_list.rs `paint_inline_*`), so a leftover entry
+        // would re-emit the removed content AND index `styled_nodes` with a
+        // `source_node_id` that no longer exists in the new DOM (OOB panic).
+        // Clear it so the empty IFC renders nothing.
+        if let Some(warm_node) = tree.warm_mut(node_index) {
+            warm_node.inline_layout_result = None;
+        }
         return Ok(LayoutOutput::default());
     }
 
