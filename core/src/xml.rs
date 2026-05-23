@@ -2321,6 +2321,18 @@ pub fn tag_to_node_type(tag: &str) -> NodeType {
         "rp" => NodeType::Rp,
         "data" => NodeType::Data,
         // Embedded content
+        // `<img>` becomes a replaced `NodeType::Image`. The `src` attribute is not
+        // available here, so a placeholder `NullImage` (0x0, empty tag) is created;
+        // `xml_node_to_dom_fast` overrides it with a `NullImage` whose `tag` carries
+        // the `src` bytes so a renderer (e.g. printpdf) can resolve the actual image.
+        "img" => NodeType::Image(azul_css::css::BoxOrStatic::heap(
+            crate::resources::ImageRef::null_image(
+                0,
+                0,
+                crate::resources::RawImageFormat::RGBA8,
+                alloc::vec::Vec::new(),
+            ),
+        )),
         "canvas" => NodeType::Canvas,
         "object" => NodeType::Object,
         "param" => NodeType::Param,
@@ -4621,6 +4633,33 @@ fn xml_node_to_dom_fast<'a>(
     let node_type = tag_to_node_type(&component_name);
     let mut dom = Dom::create_node(node_type);
 
+    // `<img src="...">`: rebuild the placeholder Image node so its `NullImage`
+    // carries the `src` string (as UTF-8 bytes in `tag`). The bytes are NOT
+    // resolved here — a downstream renderer (printpdf, the compositor, ...) uses
+    // the tag to look up and embed the actual image. Optional `width`/`height`
+    // attributes set the intrinsic size used for layout (CSS still overrides).
+    if component_name == "img" {
+        if let Some(src) = xml_node.attributes.get_key("src") {
+            let width = xml_node
+                .attributes
+                .get_key("width")
+                .and_then(|w| w.as_str().trim().trim_end_matches("px").trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            let height = xml_node
+                .attributes
+                .get_key("height")
+                .and_then(|h| h.as_str().trim().trim_end_matches("px").trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            let image_ref = crate::resources::ImageRef::null_image(
+                width,
+                height,
+                crate::resources::RawImageFormat::RGBA8,
+                src.as_str().as_bytes().to_vec(),
+            );
+            dom.root.set_node_type(NodeType::Image(azul_css::css::BoxOrStatic::heap(image_ref)));
+        }
+    }
+
     // Set id and class attributes
     let mut ids_and_classes = Vec::new();
     if let Some(id_str) = xml_node.attributes.get_key("id") {
@@ -4942,6 +4981,31 @@ fn xml_node_to_fast_dom<'a>(
     let component_name = normalize_casing(&xml_node.node_type);
     let node_type = tag_to_node_type(&component_name);
     let mut node_data = NodeData::create_node(node_type);
+
+    // `<img src="...">`: rebuild the placeholder Image node so its `NullImage`
+    // carries the `src` string (UTF-8 bytes in `tag`). The bytes are resolved
+    // downstream (e.g. printpdf) via the tag. Mirrors `xml_node_to_dom_fast`.
+    if component_name == "img" {
+        if let Some(src) = xml_node.attributes.get_key("src") {
+            let width = xml_node
+                .attributes
+                .get_key("width")
+                .and_then(|w| w.as_str().trim().trim_end_matches("px").trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            let height = xml_node
+                .attributes
+                .get_key("height")
+                .and_then(|h| h.as_str().trim().trim_end_matches("px").trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            let image_ref = crate::resources::ImageRef::null_image(
+                width,
+                height,
+                crate::resources::RawImageFormat::RGBA8,
+                src.as_str().as_bytes().to_vec(),
+            );
+            node_data.set_node_type(NodeType::Image(azul_css::css::BoxOrStatic::heap(image_ref)));
+        }
+    }
 
     // Set id and class attributes
     let mut ids_and_classes = Vec::new();
@@ -6170,5 +6234,56 @@ mod tests {
         assert_eq!(span.children.as_ref()[0].as_text(), Some("inline"));
 
         println!("Test passed: XmlNode structure preserves text nodes correctly");
+    }
+
+    #[test]
+    fn test_img_tag_becomes_image_node_with_src_tag() {
+        // `<img src="cat.jpg" width="300" height="169">` must become a
+        // `NodeType::Image` whose `NullImage` carries the `src` string as its
+        // `tag` (so a renderer can resolve the bytes later), plus the declared
+        // intrinsic size.
+        use crate::resources::DecodedImage;
+        use crate::window::{AzStringPair, StringPairVec};
+
+        let img_node = XmlNode {
+            node_type: "img".into(),
+            attributes: XmlAttributeMap::from(StringPairVec::from_vec(alloc::vec![
+                AzStringPair { key: "src".into(), value: "cat.jpg".into() },
+                AzStringPair { key: "width".into(), value: "300".into() },
+                AzStringPair { key: "height".into(), value: "169".into() },
+            ])),
+            children: alloc::vec::Vec::new().into(),
+        };
+
+        let component_map = ComponentMap::default();
+        let dom = super::xml_node_to_dom_fast(&img_node, &component_map, false)
+            .expect("xml_node_to_dom_fast for <img> should succeed");
+
+        match dom.root.get_node_type() {
+            NodeType::Image(image_ref) => match image_ref.as_ref().get_data() {
+                DecodedImage::NullImage { tag, width, height, .. } => {
+                    assert_eq!(
+                        core::str::from_utf8(tag).unwrap(),
+                        "cat.jpg",
+                        "image tag must carry the src string"
+                    );
+                    assert_eq!(*width, 300, "width attribute should set intrinsic width");
+                    assert_eq!(*height, 169, "height attribute should set intrinsic height");
+                }
+                other => panic!("expected NullImage carrying the src tag, got {:?}", other),
+            },
+            other => panic!("expected NodeType::Image for <img>, got {:?}", other),
+        }
+
+        println!("Test passed: <img src=\"cat.jpg\"> -> NodeType::Image tagged \"cat.jpg\"");
+    }
+
+    #[test]
+    fn test_tag_to_node_type_img_is_image() {
+        // The bare tag mapping should also yield an Image (placeholder, empty tag).
+        match tag_to_node_type("img") {
+            NodeType::Image(_) => {}
+            other => panic!("tag_to_node_type(\"img\") should be Image, got {:?}", other),
+        }
     }
 }
