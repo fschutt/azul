@@ -2619,3 +2619,12 @@ Run 26333448552 (first mobile-ios-android push) revealed the full failure set + 
   - azul-mobile layout/Cargo.toml allsorts-azul pin → **0.16.4**.
 - **allsorts_no_std 0.5.3 PUBLISHED** (courtesy, wezm/YesLogic PR #1): repository/homepage → fschutt/allsorts-azul (was yeslogic), README fork banner so issues route here not upstream (yeslogic#49). Replied on PR #1.
 - **REMAINING CI BLOCKER:** printpdf [patch] local-path. Per the user's plan, the chain is now: (#17) merge the other agent's azul remill/web work (../azul `layout-debug-clean`, +46) into mobile-ios-android → (#18) CI remill version-lock + 2 libazul variants → (#19) release azul-layout to crates.io → (#20-22) printpdf switch allsorts→allsorts-azul 0.16.4 + new azul-layout, make branch master, source review/merge PRs, major release → drop both [patch] lines → push → CI green.
+
+### CI-GREEN tick 6 (2026-05-23) — web/remill backend MERGED into mobile-ios-android (task #17)
+- Integrated azul/`layout-debug-clean` (the other agent's M12.7 web/remill work) via **rebase** (true history, linear): replayed **125 commits** onto mobile tip `d47182e69` with `-X theirs`, + 1 merge-fixup commit. mobile-ios-android now at **2c65d789f**.
+- **Tags bracket the block:** `web-backend-start` (d47182e69) .. `web-backend-end` (2c65d789f) = 126 commits.
+- Scope: 35 files — mostly `dll/src/web` (remill, feature-gated) + scripts + `third_party/remill` submodule (uninitialized pointer → version-lock in task #18) + ~12 M12.x layout/core bug fixes (auto-merged).
+- **1 real conflict, resolved:** `layout/src/window.rs` — kept mobile's deduplicated constructor refactor (single `from_font_manager` init) + folded the agent's `skip_gpu_sync` field in there (3-way merge-file, take-ours).
+- **CI de-timing re-applied:** the M12.x debug commits reintroduced profiling `std::time::Instant::now()` in styled_dom.rs; re-stripped (xml/paged_layout came out clean). Remaining `std::time::Instant::now()` in window.rs are all `#[cfg(feature="std")]`-gated.
+- **Validated:** `cargo check -p azul-core` + `-p azul-layout` PASS (allsorts-azul 0.16.4 resolves). Working tree clean. dll default build not yet checked (web/remill isolated + feature-gated in dll/src/web; validate in preflight).
+- NEXT: task #18 (remill version-lock + 2 libazul variants in CI) → #19 release azul-layout → #20–22 printpdf → drop [patch] → push → CI green.
