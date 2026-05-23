@@ -12,19 +12,19 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
             (
                 "windows",
                 vec!["--no-default-features", "--features", "build-dll"],
-                "azul_dll.dll",
+                "azul.dll",
                 "azul.dll",
             ),
             (
                 "windows",
                 vec!["--no-default-features", "--features", "build-dll"],
-                "azul_dll.dll.lib",
+                "azul.dll.lib",
                 "azul.dll.lib",
             ),
             (
                 "windows",
                 vec!["--no-default-features", "--features", "build-dll"],
-                "azul_dll.lib",
+                "azul.lib",
                 "azul.lib",
             ),
         ]);
@@ -33,7 +33,7 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
             all_configs.push((
                 "windows",
                 vec!["--no-default-features", "--features", "python-extension"],
-                "libazul_dll.dll",
+                "libazul.dll",
                 "azul.pyd",
             ));
         }
@@ -44,13 +44,13 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
             (
                 "linux",
                 vec!["--no-default-features", "--features", "build-dll"],
-                "libazul_dll.so",
+                "libazul.so",
                 "libazul.so",
             ),
             (
                 "linux",
                 vec!["--no-default-features", "--features", "build-dll"],
-                "libazul_dll.a",
+                "libazul.a",
                 "libazul.linux.a",
             ),
         ]);
@@ -59,7 +59,7 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
             all_configs.push((
                 "linux",
                 vec!["--no-default-features", "--features", "python-extension"],
-                "libazul_dll.so",
+                "libazul.so",
                 "azul.cpython.so",
             ));
         }
@@ -70,13 +70,13 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
             (
                 "macos",
                 vec!["--no-default-features", "--features", "build-dll"],
-                "libazul_dll.dylib",
+                "libazul.dylib",
                 "libazul.dylib",
             ),
             (
                 "macos",
                 vec!["--no-default-features", "--features", "build-dll"],
-                "libazul_dll.a",
+                "libazul.a",
                 "libazul.macos.a",
             ),
         ]);
@@ -85,7 +85,7 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
             all_configs.push((
                 "macos",
                 vec!["--no-default-features", "--features", "python-extension"],
-                "libazul_dll.dylib",
+                "libazul.dylib",
                 "azul.so",
             ));
         }
@@ -98,13 +98,13 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
     // and kept out of the normal ~25 MB deploy. Emitted as `*.remill.*`.
     if cfg.build_remill {
         if cfg.build_windows {
-            all_configs.push(("windows", vec!["--no-default-features", "--features", "build-dll,web-transpiler-static"], "azul_dll.dll", "azul.remill.dll"));
+            all_configs.push(("windows", vec!["--no-default-features", "--features", "build-dll,web-transpiler-static"], "azul.dll", "azul.remill.dll"));
         }
         if cfg.build_linux {
-            all_configs.push(("linux", vec!["--no-default-features", "--features", "build-dll,web-transpiler-static"], "libazul_dll.so", "libazul.remill.so"));
+            all_configs.push(("linux", vec!["--no-default-features", "--features", "build-dll,web-transpiler-static"], "libazul.so", "libazul.remill.so"));
         }
         if cfg.build_macos {
-            all_configs.push(("macos", vec!["--no-default-features", "--features", "build-dll,web-transpiler-static"], "libazul_dll.dylib", "libazul.remill.dylib"));
+            all_configs.push(("macos", vec!["--no-default-features", "--features", "build-dll,web-transpiler-static"], "libazul.dylib", "libazul.remill.dylib"));
         }
     }
 
