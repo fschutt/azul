@@ -1016,7 +1016,6 @@ impl StyledDom {
         static CASCADE_BREAKDOWN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         let cascade_dbg = *CASCADE_BREAKDOWN.get_or_init(crate::profile::memory_enabled);
 
-        let t0 = std::time::Instant::now();
         let node_count = compact_dom.len();
 
         let non_leaf_nodes = compact_dom
@@ -1056,7 +1055,6 @@ impl StyledDom {
             &non_leaf_nodes,
             &html_tree.as_ref(),
         );
-        let restyle_ms = t_restyle.elapsed().as_secs_f64() * 1000.0;
 
         // Drop the CSS object now — selectors/declarations are no longer needed
         // after restyle has populated css_props. This frees ~500 KiB of stylesheet

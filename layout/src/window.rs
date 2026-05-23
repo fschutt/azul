@@ -579,10 +579,13 @@ impl LayoutWindow {
     /// Create a new layout window with empty caches.
     ///
     /// For full initialization with WindowInternal compatibility, use `new_full()`.
-    pub fn new(fc_cache: FcFontCache) -> Result<Self, crate::solver3::LayoutError> {
-        Ok(Self {
+    /// The single place every `LayoutWindow` field is initialized; the public
+    /// constructors below are thin wrappers over this (deduplicated 2026-05-21,
+    /// so adding a field touches one site instead of three).
+    fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
+        Self {
+            // M12.7 web/headless GPU-sync skip (default false → desktop unaffected)
             skip_gpu_sync: false,
-            // Default width, will be updated on first layout
             #[cfg(feature = "pdf")]
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
             layout_cache: Solver3LayoutCache {
@@ -680,72 +683,10 @@ impl LayoutWindow {
         fc_cache: FcFontCache,
         parsed_fonts: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<rust_fontconfig::FontId, FontRef>>>,
     ) -> Result<Self, crate::solver3::LayoutError> {
-        Ok(Self {
-            skip_gpu_sync: false,
-            #[cfg(feature = "pdf")]
-            fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
-            layout_cache: Solver3LayoutCache {
-                tree: None,
-                calculated_positions: Vec::new(),
-                viewport: None,
-                scroll_ids: HashMap::new(),
-                scroll_id_to_node_id: HashMap::new(),
-                counters: HashMap::new(),
-                float_cache: HashMap::new(),
-                cache_map: Default::default(),
-                previous_positions: Vec::new(),
-                cached_display_list: None,
-                prev_dom_ptr: 0,
-                prev_viewport: LogicalRect::zero(),
-            },
-            text_cache: TextLayoutCache::new(),
-            font_manager: FontManager::from_arc_shared(fc_cache, parsed_fonts)?,
-            image_cache: ImageCache::default(),
-            layout_results: BTreeMap::new(),
-            scroll_manager: ScrollManager::new(),
-            gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
-            focus_manager: crate::managers::focus_cursor::FocusManager::new(),
-            text_edit_manager: crate::managers::text_edit::TextEditManager::new(),
-            file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
-            clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
-            drag_drop_manager: crate::managers::drag_drop::DragDropManager::new(),
-            hover_manager: crate::managers::hover::HoverManager::new(),
-            virtual_view_manager: VirtualViewManager::new(),
-            gpu_state_manager: GpuStateManager::new(
-                default_duration_500ms(),
-                default_duration_200ms(),
-            ),
-            a11y_manager: crate::managers::a11y::A11yManager::new(),
-            timers: BTreeMap::new(),
-            threads: BTreeMap::new(),
-            renderer_resources: RendererResources::default(),
-            renderer_type: None,
-            previous_window_state: None,
-            current_window_state: FullWindowState::default(),
-            document_id: new_document_id(),
-            id_namespace: new_id_namespace(),
-            epoch: Epoch::new(),
-            gl_texture_cache: GlTextureCache::default(),
-            currently_dragging_thumb: None,
-            text_input_manager: crate::managers::text_input::TextInputManager::new(),
-            undo_redo_manager: crate::managers::undo_redo::UndoRedoManager::new(),
-            text_constraints_cache: TextConstraintsCache {
-                constraints: BTreeMap::new(),
-            },
-            dirty_text_nodes: BTreeMap::new(),
-            pending_virtual_view_updates: BTreeMap::new(),
-            pending_lifecycle_events: Vec::new(),
-            pending_unmount_invocations: Vec::new(),
-            system_style: None,
-            monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
-            font_stacks_hash: 0,
-            pre_preedit_content: None,
-            input_interpreter: azul_core::events::InputInterpreterCallback::default(),
-            post_filter: azul_core::events::PostFilterCallback::default(),
-            routes: azul_core::resources::RouteVec::from_const_slice(&[]),
-            #[cfg(feature = "icu")]
-            icu_localizer: IcuLocalizerHandle::default(),
-        })
+        Ok(Self::from_font_manager(FontManager::from_arc_shared(
+            fc_cache,
+            parsed_fonts,
+        )?))
     }
 
     /// Create a new layout window for paged media (PDF generation).
