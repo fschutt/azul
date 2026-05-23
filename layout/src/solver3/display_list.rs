@@ -342,7 +342,21 @@ impl DisplayList {
                         *glyphs = new_glyphs_by_run[run_idx].clone();
                         let bounds = *clip_rect.inner();
                         damage = Some(match damage {
-                            Some(d) => crate::cpurender::union_rect(&d, &bounds),
+                            Some(d) => {
+                                // rect union (was crate::cpurender::union_rect, which
+                                // is gated behind the `cpurender` feature; inlined here
+                                // so display-list damage tracking works without it / on WASM)
+                                let x = d.origin.x.min(bounds.origin.x);
+                                let y = d.origin.y.min(bounds.origin.y);
+                                let right = (d.origin.x + d.size.width)
+                                    .max(bounds.origin.x + bounds.size.width);
+                                let bottom = (d.origin.y + d.size.height)
+                                    .max(bounds.origin.y + bounds.size.height);
+                                LogicalRect {
+                                    origin: LogicalPosition { x, y },
+                                    size: LogicalSize { width: right - x, height: bottom - y },
+                                }
+                            }
                             None => bounds,
                         });
                         run_idx += 1;

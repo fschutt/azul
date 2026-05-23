@@ -7,7 +7,7 @@
 
 [package]
 name = "azul-layout"
-version = "0.0.8"
+version = "0.0.9"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MPL-2.0"
 description = "Layout solver + font and image loader the Azul GUI framework"
@@ -174,7 +174,10 @@ text_layout_hyphenation = ["text_layout", "dep:hyphenation"]
 pdf = ["text_layout"]
 
 # System font discovery (rust-fontconfig minimal, no parsing)
-font_loading = ["dep:rust-fontconfig", "rust-fontconfig/std", "rust-fontconfig/parsing", "rust-fontconfig/mmapio"]
+# NOTE: includes rust-fontconfig/async-registry because FontManager's `registry`
+# field + lib.rs re-export use `rust_fontconfig::registry::FcFontRegistry`
+# unconditionally (that module is gated behind async-registry upstream).
+font_loading = ["dep:rust-fontconfig", "rust-fontconfig/std", "rust-fontconfig/parsing", "rust-fontconfig/mmapio", "rust-fontconfig/async-registry"]
 
 # Multithreading for font cache building (faster on desktop, not available on WASM)
 font_loading_multithreaded = ["font_loading", "rust-fontconfig/multithreading"]
