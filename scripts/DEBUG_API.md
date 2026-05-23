@@ -7,8 +7,8 @@ debugging and inspection.
 ## Quick Start
 
 ```bash
-# Start your Azul application with the `AZUL_DEBUG` env var
-AZUL_DEBUG=8765 ./your_app
+# Start your Azul application with the `AZ_DEBUG` env var
+AZ_DEBUG=8765 ./your_app
 # Check that the server is running
 curl http://localhost:8765/
 # Send commands via POST
@@ -489,7 +489,7 @@ The `selector` parameter in `click` and related events supports full CSS path ma
 
 ### Server not responding
 
-- Ensure `AZUL_DEBUG` environment variable is set
+- Ensure `AZ_DEBUG` environment variable is set
 - Check the port is not in use
 - Application must have an open window
 

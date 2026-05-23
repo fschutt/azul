@@ -351,7 +351,7 @@ Local stdin still works; whichever input arrives first wins.
 
 | Source | Vars / Path |
 |--------|-------------|
-| Env vars | `AZUL_DOC_TG_TOKEN` + `AZUL_DOC_TG_CHAT_ID` (also `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`) |
+| Env vars | `AZ_DOC_TG_TOKEN` + `AZ_DOC_TG_CHAT_ID` (also `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`) |
 | File | `~/.config/azul-doc/telegram.toml` (created by `telegram-setup`, mode `0600`) |
 
 **Disable per run:** add `--no-telegram` to the `apply-midlevel` invocation.

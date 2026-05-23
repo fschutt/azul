@@ -3,7 +3,7 @@
 # test_export_code.sh — E2E test for the debug server's code export API
 #
 # 1. Builds hello-world.c against the DLL
-# 2. Launches it with AZUL_DEBUG on a free port
+# 2. Launches it with AZ_DEBUG on a free port
 # 3. Uses the API to request a Rust code export
 # 4. Writes the exported files to an output directory
 # 5. Prints the filepath of main.rs
@@ -27,8 +27,8 @@ cc -o "$HELLO_BIN" \
 echo "  -> Built: $HELLO_BIN"
 
 echo ""
-echo "=== Step 2: Launch with AZUL_DEBUG=$PORT ==="
-AZUL_DEBUG=$PORT "$HELLO_BIN" &>/dev/null &
+echo "=== Step 2: Launch with AZ_DEBUG=$PORT ==="
+AZ_DEBUG=$PORT "$HELLO_BIN" &>/dev/null &
 APP_PID=$!
 
 cleanup() {

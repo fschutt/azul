@@ -81,7 +81,7 @@ wget -O https://azul.rs/release/1.0.0-alpha1/libazul.so
 wget -O https://azul.rs/release/1.0.0-alpha1/libazul.dylib
 ```
 
-In the latter case, you then have to export `AZUL_LINK_PATH=/path/to/libazul.dylib` (or `.so` / `.dll`):
+In the latter case, you then have to export `AZ_LINK_PATH=/path/to/libazul.dylib` (or `.so` / `.dll`):
 
 ```sh
 # note: lenient DLL path discovery by build.rs
@@ -90,7 +90,7 @@ In the latter case, you then have to export `AZUL_LINK_PATH=/path/to/libazul.dyl
 # auto-discovers .a vs .dylib artifacts (prefers the latter)
 # 
 # build.rs defaults to system-installed libazul if unset
-export AZUL_LINK_PATH=/my/path/to/libazul.so
+export AZ_LINK_PATH=/my/path/to/libazul.so
 ```
 
 Now, you only have to add the main crate (the API bindings) to your project:

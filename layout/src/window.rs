@@ -1055,7 +1055,7 @@ impl LayoutWindow {
         }
 
         // Optional memory-breakdown print for the CSS property cache.
-        // Gated on AZUL_MEM_BREAKDOWN=1; off costs one env-var read on
+        // Gated on AZ_MEM_BREAKDOWN=1; off costs one env-var read on
         // the first call (`OnceLock`-cached) and nothing after.
         static MEM_BREAKDOWN_ENABLED: std::sync::OnceLock<bool> =
             std::sync::OnceLock::new();

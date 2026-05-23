@@ -8,5 +8,5 @@ source 'https://rubygems.org'
 
 # Path is relative to this Gemfile. The generated gem (gemspec + lib/azul.rb)
 # is expected to live under target/codegen/v2/ruby/ once the orchestrator
-# wires it up. Override AZUL_GEM_PATH if your output dir differs.
-gem 'azul', path: ENV.fetch('AZUL_GEM_PATH', '../../target/codegen/v2/ruby')
+# wires it up. Override AZ_GEM_PATH if your output dir differs.
+gem 'azul', path: ENV.fetch('AZ_GEM_PATH', '../../target/codegen/v2/ruby')

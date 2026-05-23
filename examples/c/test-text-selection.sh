@@ -1,6 +1,6 @@
 #!/bin/bash
 # Test script for text selection and contenteditable
-# Uses AZUL_DEBUG API to interact with the app and take screenshots
+# Uses AZ_DEBUG API to interact with the app and take screenshots
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -21,8 +21,8 @@ cc -o text-selection-test text-selection-test.c \
 echo "Built successfully."
 
 # Start the app in background with debug server
-echo "=== Starting app with AZUL_DEBUG=$PORT ==="
-AZUL_DEBUG=$PORT ./text-selection-test &
+echo "=== Starting app with AZ_DEBUG=$PORT ==="
+AZ_DEBUG=$PORT ./text-selection-test &
 APP_PID=$!
 sleep 2
 

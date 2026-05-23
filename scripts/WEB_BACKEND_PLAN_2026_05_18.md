@@ -363,7 +363,7 @@ When all of M1–M9 land, the validation script:
 ```bash
 # Build the C hello-world against the web-transpiler-enabled libazul.
 cd examples/c
-make hello-world.bin AZUL_FEATURES="web web-transpiler cabi_internal"
+make hello-world.bin AZ_FEATURES="web web-transpiler cabi_internal"
 
 # Run with the web backend.
 AZ_BACKEND=web://127.0.0.1:8080 ./hello-world.bin &

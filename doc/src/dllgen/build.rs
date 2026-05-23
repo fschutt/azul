@@ -11,19 +11,19 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
         all_configs.extend_from_slice(&[
             (
                 "windows",
-                vec!["--no-default-features", "--features", "desktop-cdylib"],
+                vec!["--no-default-features", "--features", "build-dll"],
                 "azul_dll.dll",
                 "azul.dll",
             ),
             (
                 "windows",
-                vec!["--no-default-features", "--features", "desktop-cdylib"],
+                vec!["--no-default-features", "--features", "build-dll"],
                 "azul_dll.dll.lib",
                 "azul.dll.lib",
             ),
             (
                 "windows",
-                vec!["--no-default-features", "--features", "desktop-staticlib"],
+                vec!["--no-default-features", "--features", "build-dll"],
                 "azul_dll.lib",
                 "azul.lib",
             ),
@@ -43,13 +43,13 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
         all_configs.extend_from_slice(&[
             (
                 "linux",
-                vec!["--no-default-features", "--features", "desktop-cdylib"],
+                vec!["--no-default-features", "--features", "build-dll"],
                 "libazul_dll.so",
                 "libazul.so",
             ),
             (
                 "linux",
-                vec!["--no-default-features", "--features", "desktop-staticlib"],
+                vec!["--no-default-features", "--features", "build-dll"],
                 "libazul_dll.a",
                 "libazul.linux.a",
             ),
@@ -69,13 +69,13 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
         all_configs.extend_from_slice(&[
             (
                 "macos",
-                vec!["--no-default-features", "--features", "desktop-cdylib"],
+                vec!["--no-default-features", "--features", "build-dll"],
                 "libazul_dll.dylib",
                 "libazul.dylib",
             ),
             (
                 "macos",
-                vec!["--no-default-features", "--features", "desktop-staticlib"],
+                vec!["--no-default-features", "--features", "build-dll"],
                 "libazul_dll.a",
                 "libazul.macos.a",
             ),
@@ -88,6 +88,23 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
                 "libazul_dll.dylib",
                 "azul.so",
             ));
+        }
+    }
+
+    // EXCEPTIONAL, opt-in (`deploy --with-remill`): also build the ~130 MB
+    // libazul with the remill x86->WASM transpiler statically linked (web
+    // backend). This is a ~30 min C++ build and needs third_party/remill-install
+    // populated first (`bash scripts/build_remill.sh`), so it is OFF by default
+    // and kept out of the normal ~25 MB deploy. Emitted as `*.remill.*`.
+    if cfg.build_remill {
+        if cfg.build_windows {
+            all_configs.push(("windows", vec!["--no-default-features", "--features", "build-dll,web-transpiler-static"], "azul_dll.dll", "azul.remill.dll"));
+        }
+        if cfg.build_linux {
+            all_configs.push(("linux", vec!["--no-default-features", "--features", "build-dll,web-transpiler-static"], "libazul_dll.so", "libazul.remill.so"));
+        }
+        if cfg.build_macos {
+            all_configs.push(("macos", vec!["--no-default-features", "--features", "build-dll,web-transpiler-static"], "libazul_dll.dylib", "libazul.remill.dylib"));
         }
     }
 

@@ -128,7 +128,7 @@ Since you cannot get the filename from the binary, you have to use a **Hybrid Ap
 
 ### The Strategy
 
-Since you are running a "Debug Server" / DOM inspector, it is safe to assume the user is running the app from their project root (or you can allow them to set an env var like `AZUL_SRC`).
+Since you are running a "Debug Server" / DOM inspector, it is safe to assume the user is running the app from their project root (or you can allow them to set an env var like `AZ_SRC`).
 
 Here is the robust Rust implementation that handles both cases.
 

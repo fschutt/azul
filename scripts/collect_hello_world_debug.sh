@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts hello-world with AZUL_DEBUG, collects all debug API data via curl,
+# Starts hello-world with AZ_DEBUG, collects all debug API data via curl,
 # saves each response to individual JSON files + a combined dump.
 set -euo pipefail
 
@@ -29,7 +29,7 @@ sleep 0.3
 
 # ── 3. Start hello-world with debug API ──────────────────────────────────
 echo "[*] Starting hello-world on port ${PORT} ..."
-AZUL_DEBUG=${PORT} "$HELLO" &
+AZ_DEBUG=${PORT} "$HELLO" &
 APP_PID=$!
 
 # Wait for the debug server to come up

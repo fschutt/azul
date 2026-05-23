@@ -66,8 +66,7 @@ impl CompositorMode {
 /// AZ_BACKEND=headless  CPU rendering without any window (for E2E tests)
 /// ```
 ///
-/// The old env vars (`AZUL_HEADLESS`, `AZUL_RENDERER`) are still
-/// recognised for backward compatibility but `AZ_BACKEND` takes priority.
+/// `AZ_BACKEND` fully replaces those older variables; they are no longer read.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[derive(Default)]
 #[allow(missing_copy_implementations)] // `Web(WebConfig)` carries non-Copy fields

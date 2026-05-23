@@ -172,7 +172,7 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
 /// Parse XML directly into FastDom + extracted CSS, ready for StyledDom.
 pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
     // Optional per-phase RSS/timing breakdown.
-    // Gated on AZUL_MEM_BREAKDOWN=1 — prints
+    // Gated on AZ_MEM_BREAKDOWN=1 — prints
     //   [XML] tokenize+fast_dom       : +XX MiB in YY ms
     //   [XML] css attach              : +XX MiB in YY ms
     //   [XML] create_from_fast_dom    : +XX MiB in YY ms

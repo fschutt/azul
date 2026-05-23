@@ -132,7 +132,7 @@ std::thread_local! {
 }
 
 /// Drain the per-thread CSS cascade-walk counter populated by
-/// [`CssPropertyCache::get_property`] when `AZUL_PROP_COUNT=1` is set
+/// [`CssPropertyCache::get_property`] when `AZ_PROP_COUNT=1` is set
 /// in the environment. Returns `(property_label, count)` pairs
 /// sorted by count descending. Layout-side instrumentation calls
 /// this after each `layout_document` to print which properties
@@ -704,7 +704,7 @@ pub struct CssPropertyCache {
     /// index by `NodeId::index()`.
     ///
     /// Motivation: `get_font_size` is called ~730× per node per
-    /// layout pass (see `AZUL_PROP_COUNT=1` report — 329 629
+    /// layout pass (see `AZ_PROP_COUNT=1` report — 329 629
     /// cascade walks on excel.html alone). Each resolution
     /// recursively reads the parent's font-size (for `em`) plus
     /// the root's font-size (for `rem`), multiplying the walk
@@ -748,7 +748,7 @@ impl CssPropertyCacheBreakdown {
 impl CssPropertyCache {
     /// Approximate heap bytes retained by this cache, broken out by
     /// subfield. Used by `StyledDom::memory_breakdown` + the
-    /// `AZUL_MEM_BREAKDOWN=1` reporter. Sums capacity × element size
+    /// `AZ_MEM_BREAKDOWN=1` reporter. Sums capacity × element size
     /// for each Vec and adds a coarse allowance for the inner Vec
     /// headers inside `computed_values`.
     ///
@@ -1867,7 +1867,7 @@ impl CssPropertyCache {
     ) -> Option<&CssProperty> {
         // Thread-local counter of cascade walks, broken down by
         // property type. Drain with `drain_css_prop_counts` (free
-        // fn below) when `AZUL_PROP_COUNT=1` is set to see which
+        // fn below) when `AZ_PROP_COUNT=1` is set to see which
         // properties dominate the cold layout path.
         //
         // Env check is read ONCE at process start and cached in a
@@ -1904,12 +1904,12 @@ impl CssPropertyCache {
         // Intern Debug-format labels under a mutex-guarded map so
         // we leak at most one `&'static str` per distinct
         // `CssPropertyType` variant (bounded at ≤ 178 total). Only
-        // triggered when `AZUL_PROP_COUNT=1`, so zero cost normally.
+        // triggered when `AZ_PROP_COUNT=1`, so zero cost normally.
         use std::sync::{Mutex, OnceLock};
         static TABLE: OnceLock<Mutex<std::collections::HashMap<CssPropertyType, &'static str>>> =
             OnceLock::new();
         let m = TABLE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-        let mut g = m.lock().expect("AZUL_PROP_COUNT label table poisoned");
+        let mut g = m.lock().expect("AZ_PROP_COUNT label table poisoned");
         if let Some(s) = g.get(t) {
             return *s;
         }

@@ -8,8 +8,8 @@ cd /Users/fschutt/Development/azul/examples/c
 pkill -f "async" 2>/dev/null || true
 sleep 0.5
 
-echo "Starting async example with AZUL_DEBUG=$PORT..."
-AZUL_DEBUG=$PORT ./async &
+echo "Starting async example with AZ_DEBUG=$PORT..."
+AZ_DEBUG=$PORT ./async &
 APP_PID=$!
 sleep 2
 

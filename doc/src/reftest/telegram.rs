@@ -7,8 +7,8 @@
 //! local stdin. Whichever input arrives first wins.
 //!
 //! Configuration: `~/.config/azul-doc/telegram.toml` (mode 0600), populated
-//! by the `telegram-setup` subcommand. Env vars `AZUL_DOC_TG_TOKEN` /
-//! `AZUL_DOC_TG_CHAT_ID` (and the more standard `TELEGRAM_BOT_TOKEN` /
+//! by the `telegram-setup` subcommand. Env vars `AZ_DOC_TG_TOKEN` /
+//! `AZ_DOC_TG_CHAT_ID` (and the more standard `TELEGRAM_BOT_TOKEN` /
 //! `TELEGRAM_CHAT_ID`) override the file.
 
 use std::fs;
@@ -36,10 +36,10 @@ pub struct TelegramConfig {
 
 impl TelegramConfig {
     pub fn from_env() -> Option<Self> {
-        let token = std::env::var("AZUL_DOC_TG_TOKEN")
+        let token = std::env::var("AZ_DOC_TG_TOKEN")
             .or_else(|_| std::env::var("TELEGRAM_BOT_TOKEN"))
             .ok()?;
-        let chat_id = std::env::var("AZUL_DOC_TG_CHAT_ID")
+        let chat_id = std::env::var("AZ_DOC_TG_CHAT_ID")
             .or_else(|_| std::env::var("TELEGRAM_CHAT_ID"))
             .ok()?;
         let chat_id = chat_id.parse::<i64>().ok()?;

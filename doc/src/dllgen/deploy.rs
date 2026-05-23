@@ -472,6 +472,11 @@ pub struct Config {
     pub build_linux: bool,
     pub build_macos: bool,
     pub build_python: bool,
+    /// EXCEPTIONAL, opt-in (`--with-remill`): also build the ~130 MB libazul
+    /// with the remill x86->WASM transpiler statically linked (web backend).
+    /// Off by default — it's a ~30 min C++ build that needs
+    /// `bash scripts/build_remill.sh` to populate third_party/remill-install.
+    pub build_remill: bool,
     pub open: bool,
     pub apply_patch: bool,
     pub print_imports: bool,
@@ -495,6 +500,9 @@ impl Config {
         if self.build_python {
             v.push("python=true".to_string());
         }
+        if self.build_remill {
+            v.push("with-remill=true".to_string());
+        }
         if self.open {
             v.push("open=true".to_string());
         }
@@ -515,6 +523,7 @@ impl Config {
             build_linux: false,
             build_macos: false,
             build_python: false,
+            build_remill: false,
             open: false,
             apply_patch: false,
             print_imports: false,
@@ -529,6 +538,11 @@ impl Config {
 
             if arg == "--open" {
                 config.open = true;
+                continue;
+            }
+
+            if arg == "--with-remill" {
+                config.build_remill = true;
                 continue;
             }
 
@@ -878,7 +892,7 @@ pub fn create_git_repository(version: &str, output_dir: &Path, lib_rs: &str) -> 
     // dynamically link azul.dll
     #[cfg(all(feature = "link-dynamic", not(feature = "link-static")))]
     {
-        println!("cargo:rustc-link-search={}", env!("AZUL_LINK_PATH")); /* path to folder with azul.dll / libazul.so */
+        println!("cargo:rustc-link-search={}", env!("AZ_LINK_PATH")); /* path to folder with azul.dll / libazul.so */
     }
 }
 "#,
@@ -1089,7 +1103,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                   <p style='color:black;font-family:monospace;'>git = \"https://azul.rs/{version}.git\"</p>
                   <br/>
                   <p style='color:grey;font-family:monospace;'># Dynamic linking:</p>
-                  <p style='color:grey;font-family:monospace;'># export AZUL_LINK_PATH=/path/to/azul.dll</p>
+                  <p style='color:grey;font-family:monospace;'># export AZ_LINK_PATH=/path/to/azul.dll</p>
                   <p style='color:grey;font-family:monospace;'># features = ['link-dynamic']</p>
               </div>
           </div>

@@ -558,7 +558,7 @@ jobs:
           LD_LIBRARY_PATH: ${{ github.workspace }}/target/debug
           DYLD_LIBRARY_PATH: ${{ github.workspace }}/target/debug
           ASAN_OPTIONS: detect_leaks=0,abort_on_error=1
-          AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
+          AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: ${{ matrix.timeout_cmd }} 30 ./hello-world-asan || [ $? -eq 124 ]
 
       - name: Run Miri on azul-dll

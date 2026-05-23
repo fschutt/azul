@@ -183,10 +183,10 @@ fn implementation_preamble(builder: &mut CodeBuilder) {
     builder.line("   Try each platform-conventional filename in turn so the binding");
     builder.line("   loads on Linux, macOS, and Windows without manual configuration.");
     builder.line("   The first match wins; failures are silenced (logged via stderr).");
-    builder.line("   Users can override the search by setting AZUL_DYLIB. *)");
+    builder.line("   Users can override the search by setting AZ_DYLIB. *)");
     builder.line("let () =");
     builder.indent();
-    builder.line("let candidates = match Sys.getenv_opt \"AZUL_DYLIB\" with");
+    builder.line("let candidates = match Sys.getenv_opt \"AZ_DYLIB\" with");
     builder.indent();
     builder.line("| Some p when String.length p > 0 -> [p]");
     builder.line("| _ -> [\"libazul.dylib\"; \"libazul.so\"; \"azul.dll\"; \"./libazul.dylib\"; \"./libazul.so\"]");

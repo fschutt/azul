@@ -27,7 +27,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${PROJECT_ROOT}"
 
 # Configuration
-DEBUG_PORT="${AZUL_DEBUG_PORT:-8767}"
+DEBUG_PORT="${AZ_DEBUG_PORT:-8767}"
 OUTPUT_DIR="${PROJECT_ROOT}/target/debug_inspection"
 EXAMPLE_BINARY="./target/release/hello_world_window"
 
@@ -47,8 +47,8 @@ fi
 mkdir -p "$OUTPUT_DIR"
 
 # Start the example with debug server enabled
-echo -e "${YELLOW}Starting $EXAMPLE_BINARY with AZUL_DEBUG=$DEBUG_PORT...${NC}"
-AZUL_DEBUG=$DEBUG_PORT $EXAMPLE_BINARY &
+echo -e "${YELLOW}Starting $EXAMPLE_BINARY with AZ_DEBUG=$DEBUG_PORT...${NC}"
+AZ_DEBUG=$DEBUG_PORT $EXAMPLE_BINARY &
 APP_PID=$!
 echo "Started with PID $APP_PID"
 

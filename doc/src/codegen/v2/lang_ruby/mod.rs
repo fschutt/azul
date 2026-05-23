@@ -73,11 +73,11 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // refuses to load by bare name when launched from a non-system
     // path and the lib isn't on the default search path, so we also
     // try absolute paths next to this script and against
-    // AZUL_LIB_DIR (override for explicit placement). The flat list is
+    // AZ_LIB_DIR (override for explicit placement). The flat list is
     // tried in order; first hit wins, missing entries are ignored.
     builder.line("_azul_lib_candidates = ['azul', 'libazul.so', 'libazul.dylib', 'azul.dll']");
     builder.line("_here = File.expand_path(File.dirname(__FILE__))");
-    builder.line("[ENV['AZUL_LIB_DIR'], _here].compact.each do |dir|");
+    builder.line("[ENV['AZ_LIB_DIR'], _here].compact.each do |dir|");
     builder.indent();
     builder.line("%w[libazul.dylib libazul.so azul.dll].each do |name|");
     builder.indent();

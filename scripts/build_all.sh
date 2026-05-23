@@ -66,7 +66,7 @@ run_build "Generate all codegen files" "cargo run -p azul-doc -- codegen all" ||
 # Step 2: Build DLL in static mode
 # ============================================
 echo -e "\n${BLUE}--- Step 2: Build DLL (Static Linking Mode) ---${NC}"
-run_build "azul-dll with rust-api feature" "cargo build -p azul-dll --features rust-api" || true
+run_build "azul-dll with rust-api feature" "cargo build -p azul-dll --features rust_api" || true
 
 # ============================================
 # Step 3: Build DLL with Python extension

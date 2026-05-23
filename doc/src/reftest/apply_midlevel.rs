@@ -147,7 +147,7 @@ pub fn run(config: Config) -> Result<(), String> {
     let project_root = config.project_root.clone();
 
     // Stage the current azul-doc binary in a location that survives `cargo
-    // clean`. The agent will invoke this via $AZUL_DOC_BIN instead of
+    // clean`. The agent will invoke this via $AZ_DOC_BIN instead of
     // `cargo run -p azul-doc -- ...`, which would trigger a ~45s rebuild
     // every time it runs `cargo clean` (and then has to re-run azul-doc).
     let azul_doc_bin = stage_binary(&project_root)?;
@@ -1891,7 +1891,7 @@ impl std::fmt::Display for ClaudeError {
 /// Stderr is tee'd to the parent's stderr AND scanned for the specific
 /// "Session ID X is already in use" message so the caller can retry.
 ///
-/// `extra_env` allows callers to pass additional env vars (like `AZUL_DOC_BIN`).
+/// `extra_env` allows callers to pass additional env vars (like `AZ_DOC_BIN`).
 fn spawn_claude_streaming(
     args: &[&str],
     stdin_bytes: &[u8],
@@ -2415,7 +2415,7 @@ fn run_apply_agent(
 
         match spawn_claude_streaming(
             &cmd_args, prompt.as_bytes(), project_root, &path_with_rustup,
-            Some(&[("AZUL_DOC_BIN", azul_doc_bin.as_path())]),
+            Some(&[("AZ_DOC_BIN", azul_doc_bin.as_path())]),
         ) {
             Ok(_out) => break,
             Err(ClaudeError::SessionInUse) if attempt < max_retries => {
@@ -2703,24 +2703,24 @@ fn build_agent_prompt(
     p.push_str("and do NOT 'fix' imaginary problems in the code. Real compile errors name\n");
     p.push_str("specific files / line numbers in YOUR diff.\n\n");
     p.push_str("IMPORTANT: the azul-doc binary you need for these steps is already built\n");
-    p.push_str("and available as `$AZUL_DOC_BIN` in your environment. Invoke it directly:\n\n");
-    p.push_str("    \"$AZUL_DOC_BIN\" autofix\n\n");
+    p.push_str("and available as `$AZ_DOC_BIN` in your environment. Invoke it directly:\n\n");
+    p.push_str("    \"$AZ_DOC_BIN\" autofix\n\n");
     p.push_str("NOT `cargo run -r -p azul-doc -- autofix` — the cargo form would rebuild\n");
-    p.push_str("azul-doc after any `cargo clean` you do. `$AZUL_DOC_BIN` is the exact\n");
+    p.push_str("azul-doc after any `cargo clean` you do. `$AZ_DOC_BIN` is the exact\n");
     p.push_str("release binary of the CLI that spawned you, so it's guaranteed current.\n\n");
     p.push_str("  (a) Run autofix + apply in a LOOP until autofix reports\n");
     p.push_str("      `Generated 0 patches`. One pass is not enough — applying patches\n");
     p.push_str("      can surface new inconsistencies that autofix then needs to fix too.\n\n");
     p.push_str("      Loop:\n");
-    p.push_str("          \"$AZUL_DOC_BIN\" autofix\n");
+    p.push_str("          \"$AZ_DOC_BIN\" autofix\n");
     p.push_str("          # if the above printed `Generated 0 patches` → break out of loop\n");
-    p.push_str("          \"$AZUL_DOC_BIN\" patch safe target/autofix/patches\n");
-    p.push_str("          \"$AZUL_DOC_BIN\" patch      target/autofix/patches\n");
+    p.push_str("          \"$AZ_DOC_BIN\" patch safe target/autofix/patches\n");
+    p.push_str("          \"$AZ_DOC_BIN\" patch      target/autofix/patches\n");
     p.push_str("          # loop back to `autofix`\n\n");
     p.push_str("      Only proceed once autofix produces zero patches.\n\n");
     p.push_str("  (b) Then run the normalize + codegen pass ONCE:\n\n");
-    p.push_str("          \"$AZUL_DOC_BIN\" normalize\n");
-    p.push_str("          \"$AZUL_DOC_BIN\" codegen all\n\n");
+    p.push_str("          \"$AZ_DOC_BIN\" normalize\n");
+    p.push_str("          \"$AZ_DOC_BIN\" codegen all\n\n");
     p.push_str("After these, if `git status --porcelain` shows changes in YOUR scope\n");
     p.push_str("(see the Concurrent-agents note up top — ignore changes in lang_* and\n");
     p.push_str("examples/), drop any .md, stage your scope, and amend the commit:\n\n");

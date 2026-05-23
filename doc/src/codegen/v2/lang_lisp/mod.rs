@@ -152,14 +152,14 @@ fn emit_library_load(builder: &mut CodeBuilder) {
     builder.line(";; CFFI's default search uses the OS dynamic loader, which on macOS's");
     builder.line(";; hardened-runtime mode refuses to honour relative paths even with");
     builder.line(";; DYLD_LIBRARY_PATH. Prepend the directory containing this .lisp file");
-    builder.line(";; plus AZUL_LIB_DIR to *foreign-library-directories* so abs-path lookup");
+    builder.line(";; plus AZ_LIB_DIR to *foreign-library-directories* so abs-path lookup");
     builder.line(";; works alongside the system search path.");
     builder.line(";; -----------------------------------------------------------------------------");
     builder.line("(let ((dir (and *load-pathname*");
     builder.line("                (make-pathname :directory (pathname-directory *load-pathname*)))))");
     builder.line("  (when dir");
     builder.line("    (pushnew dir cffi:*foreign-library-directories* :test #'equal)))");
-    builder.line("(let ((env (uiop:getenv \"AZUL_LIB_DIR\")))");
+    builder.line("(let ((env (uiop:getenv \"AZ_LIB_DIR\")))");
     builder.line("  (when (and env (not (string= env \"\")))");
     builder.line("    (pushnew (pathname (concatenate 'string env \"/\"))");
     builder.line("             cffi:*foreign-library-directories* :test #'equal)))");

@@ -2472,7 +2472,7 @@ pub fn get_debug_server() -> Option<Arc<DebugServerHandle>> {
 /// Check if the debug timer should be registered.
 ///
 /// Returns `true` when either `AZ_DEBUG=<port>` started the HTTP
-/// server **or** `AZUL_RUN_E2E_TESTS` queued tests.
+/// server **or** `AZ_E2E_TEST` queued tests.
 #[cfg(feature = "std")]
 pub fn is_debug_enabled() -> bool {
     DEBUG_ENABLED.load(Ordering::SeqCst) || E2E_ACTIVE.load(Ordering::SeqCst)
@@ -2704,7 +2704,7 @@ pub fn start_debug_server(
 
 /// Create a debug channel without starting the HTTP server.
 ///
-/// Used for E2E-only mode (`AZUL_RUN_E2E_TESTS` without `AZ_DEBUG`).
+/// Used for E2E-only mode (`AZ_E2E_TEST` without `AZ_DEBUG`).
 /// Creates the `spmc` channel, stores a minimal `DebugServerHandle` in
 /// `DEBUG_SERVER`, and returns the receiver for window timers.
 #[cfg(feature = "std")]

@@ -7,7 +7,7 @@
 # 2. Checks headers are present
 # 3. Creates target/examples-temp/<example>/ with DLL + headers
 # 4. Compiles the example in that folder
-# 5. Runs it with AZUL_DEBUG in background
+# 5. Runs it with AZ_DEBUG in background
 # 6. Waits for startup
 # 7. Tests if app is running and port is listening
 # 8. Takes screenshot and saves it
@@ -242,8 +242,8 @@ if [ -n "$existing_pid" ]; then
 fi
 log_success "Port $PORT is free"
 
-# Step 6: Run example with AZUL_DEBUG
-log_step 6 "Starting example with AZUL_DEBUG=$PORT..."
+# Step 6: Run example with AZ_DEBUG
+log_step 6 "Starting example with AZ_DEBUG=$PORT..."
 
 cd "$TEMP_DIR"
 
@@ -255,7 +255,7 @@ ls -la "$TEMP_DIR" | head -20
 if is_windows; then
     # On Windows, ensure DLL is findable - add temp dir to PATH
     export PATH="$TEMP_DIR:$PATH"
-    log_info "Running: AZUL_DEBUG=$PORT ./$EXAMPLE_NAME.exe"
+    log_info "Running: AZ_DEBUG=$PORT ./$EXAMPLE_NAME.exe"
     log_info "PATH includes: $TEMP_DIR"
     # Check if DLL exists
     if [ -f "$TEMP_DIR/azul.dll" ]; then
@@ -263,17 +263,17 @@ if is_windows; then
     else
         log_error "azul.dll NOT found in temp dir!"
     fi
-    AZUL_DEBUG=$PORT "./$EXAMPLE_NAME.exe" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
+    AZ_DEBUG=$PORT "./$EXAMPLE_NAME.exe" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
 elif is_linux; then
     # Use xvfb-run on Linux if DISPLAY is not set (CI environment)
     if [ -z "$DISPLAY" ]; then
         log_info "No DISPLAY set, using xvfb-run..."
-        xvfb-run -a env AZUL_DEBUG=$PORT "./$EXAMPLE_NAME" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
+        xvfb-run -a env AZ_DEBUG=$PORT "./$EXAMPLE_NAME" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
     else
-        AZUL_DEBUG=$PORT "./$EXAMPLE_NAME" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
+        AZ_DEBUG=$PORT "./$EXAMPLE_NAME" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
     fi
 else
-    AZUL_DEBUG=$PORT "./$EXAMPLE_NAME" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
+    AZ_DEBUG=$PORT "./$EXAMPLE_NAME" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
 fi
 APP_PID=$!
 

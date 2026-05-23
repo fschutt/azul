@@ -65,7 +65,7 @@ use crate::{
 /// `Vec<f32>`); every subsequent call is a single Vec index.
 /// Non-normal state falls through to [`resolve_font_size_slow`].
 ///
-/// Motivation: `AZUL_PROP_COUNT=1` measured 329 629 `font-size`
+/// Motivation: `AZ_PROP_COUNT=1` measured 329 629 `font-size`
 /// cascade walks per cold layout on excel.html (~730 per node).
 /// With this cache that collapses to ~500 total (one per node,
 /// once), and subsequent layouts hit the Vec directly.

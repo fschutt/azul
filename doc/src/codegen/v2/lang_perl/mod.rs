@@ -143,10 +143,10 @@ fn emit_header(builder: &mut CodeBuilder) {
     builder.line("# Library lookup: FFI::CheckLib::find_lib only searches the system");
     builder.line("# loader's path by default, which on macOS's hardened runtime won't");
     builder.line("# honour DYLD_LIBRARY_PATH for non-system processes. Look at");
-    builder.line("# AZUL_LIB_DIR and the directory containing this .pm file first so");
+    builder.line("# AZ_LIB_DIR and the directory containing this .pm file first so");
     builder.line("# absolute-path lookup works alongside the system search path.");
     builder.line("my @_azul_lib_dirs;");
-    builder.line("if (my $env = $ENV{AZUL_LIB_DIR}) { push @_azul_lib_dirs, $env if length $env; }");
+    builder.line("if (my $env = $ENV{AZ_LIB_DIR}) { push @_azul_lib_dirs, $env if length $env; }");
     builder.line("{");
     builder.indent();
     builder.line("require File::Basename;");

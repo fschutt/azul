@@ -5,15 +5,15 @@
 //!
 //! # Headless Mode
 //!
-//! Set `AZUL_HEADLESS=1` to run without a display server. The application
+//! Set `AZ_BACKEND=headless` to run without a display server. The application
 //! still processes layout, callbacks, and timers — but no window is created
 //! and rendering is a no-op. Useful for:
 //! - E2E testing in CI (no GPU needed)
-//! - Debugging with `AZUL_DEBUG=1` for remote DOM inspection
+//! - Debugging with `AZ_DEBUG=1` for remote DOM inspection
 //! - Benchmarking layout/callback performance
 //!
 //! ```bash
-//! AZUL_HEADLESS=1 AZUL_DEBUG=1 ./my_app
+//! AZ_BACKEND=headless AZ_DEBUG=1 ./my_app
 //! ```
 //!
 //! # E2E Test Runner
@@ -61,8 +61,8 @@ fn e2e_test_file() -> Option<String> {
 /// to start its window (real or headless) and the debug timer processes
 /// the queued event.  The three systems are independent:
 ///
-/// - **Headless mode** (`AZUL_HEADLESS`) → StubWindow instead of real window
-/// - **Debug server** (`AZUL_DEBUG=<port>`) → HTTP API on that port
+/// - **Headless mode** (`AZ_BACKEND=headless`) → StubWindow instead of real window
+/// - **Debug server** (`AZ_DEBUG=<port>`) → HTTP API on that port
 /// - **E2E runner** (`AZ_E2E=<file>`) → one event on the queue
 fn setup_e2e_runner(test_file: &str) {
     // Read the test file — exit immediately on error
@@ -175,7 +175,7 @@ fn setup_e2e_runner(test_file: &str) {
 
 /// Create a `HeadlessWindow` and run its blocking event loop.
 ///
-/// Called when `AZ_BACKEND=headless` (or legacy `AZUL_HEADLESS=1`).
+/// Called when `AZ_BACKEND=headless` (or legacy `AZ_BACKEND=headless`).
 /// The loop blocks on a condvar (zero CPU when idle) and behaves
 /// identically to a real platform window — layout, callbacks, timers
 /// all work — but without a GPU context or native window handle.

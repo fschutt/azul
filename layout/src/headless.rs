@@ -80,7 +80,7 @@
 //! Or combined with the debug server for remote inspection:
 //!
 //! ```bash
-//! AZUL_HEADLESS=1 AZUL_DEBUG=1 ./my_azul_app
+//! AZUL_HEADLESS=1 AZ_DEBUG=1 ./my_azul_app
 //! ```
 
 use std::collections::BTreeMap;

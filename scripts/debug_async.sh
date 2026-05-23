@@ -27,8 +27,8 @@ cd examples/c
 gcc -o async async.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release 2>&1 | grep -v "warning:" || true
 
 # Start the app
-echo "[3] Starting async example with AZUL_DEBUG=$PORT..."
-AZUL_DEBUG=$PORT ./async 2>"$LOGFILE" &
+echo "[3] Starting async example with AZ_DEBUG=$PORT..."
+AZ_DEBUG=$PORT ./async 2>"$LOGFILE" &
 APP_PID=$!
 echo "    PID: $APP_PID"
 
