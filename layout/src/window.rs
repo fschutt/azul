@@ -1686,26 +1686,26 @@ impl LayoutWindow {
     /// Get the size of a laid-out node
     pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
         // M12.7 diag (0x400EC): pin which `?` returns None for the body size.
-        unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_000001u32 | ((self.layout_results.len() as u32 & 0xff) << 8)); }
+        { let _ = (0xE6_000001u32 | ((self.layout_results.len() as u32 & 0xff) << 8)); }
         let layout_result = match self.layout_results.get(&node_id.dom) {
             Some(r) => r,
-            None => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_0000FAu32); } return None; }
+            None => { { let _ = (0xE6_0000FAu32); } return None; }
         };
         let nid = node_id.node.into_crate_internal()?;
-        unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_000002u32 | ((layout_result.layout_tree.dom_to_layout.len() as u32 & 0xfff) << 8)); }
+        { let _ = (0xE6_000002u32 | ((layout_result.layout_tree.dom_to_layout.len() as u32 & 0xfff) << 8)); }
         // Use dom_to_layout mapping since layout tree indices differ from DOM indices
         let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&nid) {
             Some(x) => x,
-            None => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_0000FBu32); } return None; }
+            None => { { let _ = (0xE6_0000FBu32); } return None; }
         };
         let layout_index = *layout_indices.first()?;
         let layout_node = match layout_result.layout_tree.get(layout_index) {
             Some(n) => n,
-            None => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_0000FCu32); } return None; }
+            None => { { let _ = (0xE6_0000FCu32); } return None; }
         };
         match layout_node.used_size {
-            Some(s) => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_000004u32 | (((s.width as u32) & 0xffff) << 8)); } Some(s) }
-            None => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_0000FDu32); } None }
+            Some(s) => { { let _ = (0xE6_000004u32 | (((s.width as u32) & 0xffff) << 8)); } Some(s) }
+            None => { { let _ = (0xE6_0000FDu32); } None }
         }
     }
 
@@ -2854,21 +2854,21 @@ impl LayoutWindow {
         // Get the layout tree from cache
         let layout_tree = self.layout_cache.tree.as_ref()?;
         // M12.7 diag (0x400E8): which `?` returns None for the body rect?
-        unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_000002u32 | ((layout_tree.nodes.len() as u32 & 0xff) << 8)); }
+        { let _ = (0xE5_000002u32 | ((layout_tree.nodes.len() as u32 & 0xff) << 8)); }
 
         // Find the layout node index corresponding to this DOM node
         // Convert NodeHierarchyItemId to Option<NodeId> for comparison
         let target_node_id = node_id.node.into_crate_internal();
         let layout_idx = match layout_tree.nodes.iter().position(|node| node.dom_node_id == target_node_id) {
             Some(i) => i,
-            None => { unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_0000FFu32); } return None; }
+            None => { { let _ = (0xE5_0000FFu32); } return None; }
         };
-        unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_000003u32 | ((self.layout_cache.calculated_positions.len() as u32 & 0xfff) << 8)); }
+        { let _ = (0xE5_000003u32 | ((self.layout_cache.calculated_positions.len() as u32 & 0xfff) << 8)); }
 
         // Get the calculated layout position from cache (already in logical units)
         let calc_pos = match self.layout_cache.calculated_positions.get(layout_idx) {
             Some(p) => p,
-            None => { unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_0000FEu32); } return None; }
+            None => { { let _ = (0xE5_0000FEu32); } return None; }
         };
 
         // Get the layout node for size information
@@ -2877,9 +2877,9 @@ impl LayoutWindow {
         // Get the used size (the actual laid-out size)
         let used_size = match layout_node.used_size {
             Some(s) => s,
-            None => { unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_0000FDu32); } return None; }
+            None => { { let _ = (0xE5_0000FDu32); } return None; }
         };
-        unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_000004u32); }
+        { let _ = (0xE5_000004u32); }
 
         // Convert size to logical coordinates
         let hidpi_factor = self

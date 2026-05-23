@@ -458,7 +458,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // M12.7 diag: progress marker at 0x400A4 (0xDD00_000N) — pinpoints WHICH `?`
     // in layout_document returns the rc=5 Err (the error enum can't be captured
     // reliably in the lift). The last value seen = the step that errored next.
-    unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0001u32); }
+    { let _ = (0xDD00_0001u32); }
 
     if let Some(msgs) = debug_messages.as_mut() {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -513,7 +513,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     crate::probe::reset_peak();
     let (mut new_tree, mut recon_result) =
         cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?;
-    unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0002u32); }
+    { let _ = (0xDD00_0002u32); }
     crate::probe::sample_peak_rss("rss:after_reconcile");
     crate::probe::sample_phase_peak("rss:peak_during_reconcile");
 
@@ -733,7 +733,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     }
 
     // M12.7 diag: step 3 = passed Step 1.5 (early-exit), entering Step 2.
-    unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0003u32); }
+    { let _ = (0xDD00_0003u32); }
 
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
     let mut calculated_positions = cache.calculated_positions.clone();
@@ -765,7 +765,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         crate::probe::sample_phase_peak("rss:peak_during_intrinsic");
         // M12.7 diag: calculate_intrinsic_sizes returned (step 5). If step stays 3, the
         // divergence is inside calculate_intrinsic_sizes (the SIMD/text intrinsic pass).
-        unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0005u32); }
+        { let _ = (0xDD00_0005u32); }
 
         for &root_idx in &recon_result.layout_roots {
             let (cb_pos, cb_size) = get_containing_block_for_node(
@@ -778,7 +778,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // M12.7 diag: 0x53 = get_containing_block_for_node RETURNED. If step stays
             // 0x05, the divergence is INSIDE get_containing_block_for_node (or the for-loop
             // entry); if 0x53 but not 0x55, it's the margin logic / box_props.unpack below.
-            unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0053u32); }
+            { let _ = (0xDD00_0053u32); }
 
             // For ROOT nodes (no parent), we need to account for their margin.
             // The containing block position from viewport is (0, 0), but the root's
@@ -786,7 +786,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // We pass margin-adjusted position so calculate_content_box_pos works correctly.
             let root_node = &new_tree.nodes[root_idx];
             let root_bp = root_node.box_props.unpack();
-            unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0054u32); }
+            { let _ = (0xDD00_0054u32); }
 
             let is_root_with_margin = root_node.parent.is_none()
                 && (root_bp.margin.left != 0.0 || root_bp.margin.top != 0.0);
@@ -799,7 +799,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             } else {
                 cb_pos
             };
-            unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0056u32); }
+            { let _ = (0xDD00_0056u32); }
 
             // DEBUG: Log containing block info for this root
             if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
@@ -837,7 +837,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             crate::probe::reset_peak();
             // M12.7 diag: 0x55 = about to call calculate_layout_for_subtree (got CB);
             // 0x57 = it RETURNED. If step stays 0x55, calculate_layout_for_subtree diverges.
-            unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0055u32); }
+            { let _ = (0xDD00_0055u32); }
             // M12.7 diag: capture the Result instead of `?`-propagating it. 0x57 = Ok,
             // 0x5E = Err. Do NOT propagate (continue to the cache store) so layout-real can
             // see whether the geometry was computed regardless of a (possibly spurious,
@@ -857,7 +857,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     cache::ComputeMode::PerformLayout,
                 )
             };
-            unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, if _clr.is_ok() { 0xDD00_0057u32 } else { 0xDD00_005Eu32 }); }
+            { let _ = (if _clr.is_ok() { 0xDD00_0057u32 } else { 0xDD00_005Eu32 }); }
             crate::probe::sample_peak_rss("rss:after_root_layout");
             crate::probe::sample_phase_peak("rss:peak_during_root_layout");
 
@@ -910,7 +910,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         }
         // M12.7 diag: the per-root layout pass (calculate_layout_for_subtree) finished
         // (step 6). If step stays 5, the divergence is in calculate_layout_for_subtree.
-        unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0006u32); }
+        { let _ = (0xDD00_0006u32); }
 
         {
             let _p = crate::probe::Probe::span("reposition_clean_subtrees");
@@ -1041,7 +1041,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cache.scroll_id_to_node_id = scroll_id_to_node_id;
     // M12.7 diag: layout_document reached the cache store (tree + positions). 0xDD00_0004
     // + calculated_positions.len in the low bits. If step stays 3, it diverged earlier.
-    unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0004u32 | ((cache.calculated_positions.len() as u32 & 0xfff) << 4)); }
+    { let _ = (0xDD00_0004u32 | ((cache.calculated_positions.len() as u32 & 0xfff) << 4)); }
     cache.counters = counter_values;
     cache.cache_map = cache_map_back;
     crate::probe::sample_peak_rss("rss:after_layout_document");

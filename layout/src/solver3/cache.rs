@@ -888,7 +888,7 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     // M12.7 diag: reconcile is about to return Ok. If 0x400AC is set but
     // layout_document's step marker is stuck at 1 (post-`?` not reached), the
     // lifted `?` mis-discriminated this Ok as Err (niche-Result mis-lift).
-    unsafe { core::ptr::write_volatile(0x400AC as *mut u32, 0xCC00_0001u32); }
+    { let _ = (0xCC00_0001u32); }
     Ok((new_tree, recon_result))
 }
 
@@ -1029,7 +1029,7 @@ pub fn reconcile_recursive(
     // AND robust against a mis-lifted `dirty_flag`/Option match (the suspected
     // niche-enum mis-discriminant) wrongly steering cold nodes into the else.
     let new_node_idx = if dirty_flag >= DirtyFlag::Layout || old_tree.is_none() {
-        unsafe { core::ptr::write_volatile(0x400A8 as *mut u32, 0xBB00_0001u32); }
+        { let _ = (0xBB00_0001u32); }
         new_tree_builder.create_node_from_dom(
             styled_dom,
             new_dom_id,
@@ -1037,7 +1037,7 @@ pub fn reconcile_recursive(
             debug_messages,
         )
     } else {
-        unsafe { core::ptr::write_volatile(0x400A8 as *mut u32, 0xBB00_0002u32); }
+        { let _ = (0xBB00_0002u32); }
         // Paint-only or clean: clone the old node (preserving layout cache)
         let old_full_node = old_tree
             .and_then(|t| old_tree_idx.and_then(|idx| t.get_full_node(idx)))
@@ -1056,7 +1056,7 @@ pub fn reconcile_recursive(
     // M12.7 diag: 0x400BC = new_node_idx (create_node_from_dom's return value) as
     // reconcile_recursive sees it. 0 = correct (the first node); 64 (matching the
     // build-marker root_idx) = the usize return mis-reads here.
-    unsafe { core::ptr::write_volatile(0x400BC as *mut u32, 0xAB00_0000u32 | (new_node_idx as u32 & 0xffff)); }
+    { let _ = (0xAB00_0000u32 | (new_node_idx as u32 & 0xffff)); }
 
     // CRITICAL: For list-items, create a ::marker pseudo-element as the first child
     // This must be done after the node is created but before processing children

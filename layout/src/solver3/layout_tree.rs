@@ -1943,16 +1943,16 @@ impl LayoutTreeBuilder {
         // M12.7 diag: 0x400B4 = create_node_from_dom's pre-push index (= nodes.len()
         // as IT sees it). If this is 0 but build() sees 0 nodes, the push is lost
         // between here and build (builder &mut threading); if garbage, len mis-reads.
-        unsafe { core::ptr::write_volatile(0x400B4 as *mut u32, 0xCE00_0000u32 | (index as u32 & 0xffff)); }
+        { let _ = (0xCE00_0000u32 | (index as u32 & 0xffff)); }
         let parent_fc =
             parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context.clone()));
         // M12.7 diag: 0x400CC = parent.and_then done (Option<usize> discriminant). If
         // this is reached but step A is NOT, collect_box_props diverges; if this is
         // NOT reached, the parent Option discriminant mis-lifts (None→Some garbage).
-        unsafe { core::ptr::write_volatile(0x400CC as *mut u32, 0xCD00_0001u32 | ((parent_fc.is_some() as u32) << 8)); }
+        { let _ = (0xCD00_0001u32 | ((parent_fc.is_some() as u32) << 8)); }
         let collected = collect_box_props(styled_dom, dom_id, debug_messages, self.viewport_size);
         // M12.7 diag: 0x400C0 = collect_box_props returned (step A).
-        unsafe { core::ptr::write_volatile(0x400C0 as *mut u32, 0xCA00_0001u32); }
+        { let _ = (0xCA00_0001u32); }
         self.nodes.push(LayoutNode {
             // ── HOT ──
             box_props: collected.resolved,
@@ -2008,13 +2008,13 @@ impl LayoutTreeBuilder {
             ifc_id: None,
         });
         // M12.7 diag: 0x400C4 = LayoutNode literal + self.nodes.push done (step B).
-        unsafe { core::ptr::write_volatile(0x400C4 as *mut u32, 0xCB00_0001u32 | ((self.nodes.len() as u32 & 0xff) << 8)); }
+        { let _ = (0xCB00_0001u32 | ((self.nodes.len() as u32 & 0xff) << 8)); }
         if let Some(p) = parent {
             self.nodes[p].children.push(index);
         }
         self.dom_to_layout.entry(dom_id).or_default().push(index);
         // M12.7 diag: 0x400B8 = nodes.len() AFTER the push (should be index+1).
-        unsafe { core::ptr::write_volatile(0x400B8 as *mut u32, 0xCF00_0000u32 | (self.nodes.len() as u32 & 0xffff)); }
+        { let _ = (0xCF00_0000u32 | (self.nodes.len() as u32 & 0xffff)); }
         index
     }
 
@@ -2068,12 +2068,7 @@ impl LayoutTreeBuilder {
         // discriminant). If len>0 but calculate_intrinsic_recursive's
         // `tree.get(root).ok_or(InvalidTree)?` still errors, that `?`/null-check
         // mis-discriminates Some→None. If len==0, build's input was empty.
-        unsafe {
-            core::ptr::write_volatile(
-                0x400B0 as *mut u32,
-                0xBD00_0000u32 | (((hot_nodes.len() as u32) & 0xff) << 8) | (root_idx as u32 & 0xff),
-            );
-        }
+        { let _ = (0xBD00_0000u32 | (((hot_nodes.len() as u32) & 0xff) << 8) | (root_idx as u32 & 0xff),); }
 
         LayoutTree {
             nodes: hot_nodes,
@@ -2306,7 +2301,7 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
 
 /// Helper function to get element's computed font-size
 fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
-    unsafe { core::ptr::write_volatile(0x400E0 as *mut u32, 0xC3_000001u32); } // 2-arg wrapper entered
+    { let _ = (0xC3_000001u32); } // 2-arg wrapper entered
     let node_state = styled_dom
         .styled_nodes
         .as_container()
@@ -2314,7 +2309,7 @@ fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
         .map(|n| &n.styled_node_state)
         .cloned()
         .unwrap_or_default();
-    unsafe { core::ptr::write_volatile(0x400E0 as *mut u32, 0xC3_000002u32); } // after node_state (clone); next = 3-arg call
+    { let _ = (0xC3_000002u32); } // after node_state (clone); next = 3-arg call
 
     crate::solver3::getters::get_element_font_size(styled_dom, dom_id, &node_state)
 }
@@ -2343,13 +2338,13 @@ fn create_resolution_context(
     containing_block_size: Option<azul_css::props::basic::PhysicalSize>,
     viewport_size: LogicalSize,
 ) -> azul_css::props::basic::ResolutionContext {
-    unsafe { core::ptr::write_volatile(0x400D8 as *mut u32, 0xC1_000001u32); } // create_resolution_context entered
+    { let _ = (0xC1_000001u32); } // create_resolution_context entered
     let element_font_size = get_element_font_size(styled_dom, dom_id);
-    unsafe { core::ptr::write_volatile(0x400D8 as *mut u32, 0xC1_000002u32); } // after get_element_font_size
+    { let _ = (0xC1_000002u32); } // after get_element_font_size
     let parent_font_size = get_parent_font_size(styled_dom, dom_id);
-    unsafe { core::ptr::write_volatile(0x400D8 as *mut u32, 0xC1_000003u32); } // after get_parent_font_size
+    { let _ = (0xC1_000003u32); } // after get_parent_font_size
     let root_font_size = get_root_font_size(styled_dom);
-    unsafe { core::ptr::write_volatile(0x400D8 as *mut u32, 0xC1_000004u32); } // after get_root_font_size
+    { let _ = (0xC1_000004u32); } // after get_root_font_size
 
     ResolutionContext {
         element_font_size,
@@ -2383,7 +2378,7 @@ fn collect_box_props(
     use crate::solver3::getters::*;
     // M12.7 diag: collect_box_props sub-step markers (0xC0_0N). The last one set
     // before create_node step A is the diverging call.
-    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000001u32); } // entered
+    { let _ = (0xC0_000001u32); } // entered
 
     let node_data = &styled_dom.node_data.as_container()[dom_id];
 
@@ -2395,17 +2390,17 @@ fn collect_box_props(
         .map(|n| &n.styled_node_state)
         .cloned()
         .unwrap_or_default();
-    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000002u32); } // after node_state (clone)
+    { let _ = (0xC0_000002u32); } // after node_state (clone)
 
     // Create resolution context for this element
     // Note: containing_block_size is None here because we don't have it yet
     // This is fine for initial resolution - will be re-resolved during layout
     let context = create_resolution_context(styled_dom, dom_id, None, viewport_size);
-    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000003u32); } // after create_resolution_context
+    { let _ = (0xC0_000003u32); } // after create_resolution_context
 
     // Read margin values from styled_dom
     let margin_top_mv = get_css_margin_top(styled_dom, dom_id, &node_state);
-    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000004u32); } // after get_css_margin_top
+    { let _ = (0xC0_000004u32); } // after get_css_margin_top
     let margin_right_mv = get_css_margin_right(styled_dom, dom_id, &node_state);
     let margin_bottom_mv = get_css_margin_bottom(styled_dom, dom_id, &node_state);
     let margin_left_mv = get_css_margin_left(styled_dom, dom_id, &node_state);
@@ -2426,7 +2421,7 @@ fn collect_box_props(
         bottom: to_unresolved_margin(&margin_bottom_mv),
         left: to_unresolved_margin(&margin_left_mv),
     };
-    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000005u32); } // after margin block
+    { let _ = (0xC0_000005u32); } // after margin block
 
     // Read padding values
     let padding_top_mv = get_css_padding_top(styled_dom, dom_id, &node_state);
@@ -2449,7 +2444,7 @@ fn collect_box_props(
         bottom: to_pixel_value(padding_bottom_mv),
         left: to_pixel_value(padding_left_mv),
     };
-    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000056u32); } // after padding getters+values, before get_display_type
+    { let _ = (0xC0_000056u32); } // after padding getters+values, before get_display_type
 
     // +spec:table-layout:038f9d - padding does not apply to table-row-group, table-header-group, table-footer-group, table-row, table-column-group, table-column
     // Non-cell internal table elements (rows, row groups, columns, column groups) do not have padding.
@@ -2476,7 +2471,7 @@ fn collect_box_props(
         },
         _ => unresolved_padding,
     };
-    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000006u32); } // after padding block
+    { let _ = (0xC0_000006u32); } // after padding block
 
     // Read border values
     let border_top_mv = get_css_border_top_width(styled_dom, dom_id, &node_state);
@@ -2534,7 +2529,7 @@ fn collect_box_props(
         bottom: if style_zeroes_width(bs_bottom) { PixelValue::const_px(0) } else { to_pixel_value(border_bottom_mv) },
         left: if style_zeroes_width(bs_left) { PixelValue::const_px(0) } else { to_pixel_value(border_left_mv) },
     };
-    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000007u32); } // after border block (incl is_normal/compact_cache fast-path)
+    { let _ = (0xC0_000007u32); } // after border block (incl is_normal/compact_cache fast-path)
 
     // +spec:box-model:8538a9 - Internal table elements do not have margins (CSS 2.2 §17.5)
     // "These boxes have content and borders and cells have padding as well.
