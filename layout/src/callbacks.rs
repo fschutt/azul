@@ -27,7 +27,7 @@ use azul_core::{
     impl_callback,
     menu::Menu,
     refany::{OptionRefAny, RefAny},
-    resources::{ImageCache, ImageMask, ImageRef, RendererResources},
+    resources::{ImageCache, ImageMask, ImageRef, LoadedFont, LoadedFontVec, RendererResources},
     selection::{Selection, SelectionRange, SelectionRangeVec, SelectionState, TextCursor},
     styled_dom::{NodeHierarchyItemId, NodeHierarchyItemIdVec, StyledDom},
     task::{self, GetSystemTimeCallback, Instant, ThreadId, ThreadIdVec, TimerId, TimerIdVec},
@@ -41,7 +41,7 @@ use azul_css::{
         property::{CssProperty, CssPropertyType, CssPropertyVec},
     },
     system::SystemStyle,
-    AzString, StringVec,
+    AzString, OptionU8Vec, StringVec, U8Vec,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -2833,6 +2833,92 @@ impl CallbackInfo {
     /// Useful for custom rendering or screenshot functionality.
     pub fn get_renderer_resources(&self) -> &RendererResources {
         unsafe { (*self.ref_data).renderer_resources }
+    }
+
+    // Font Cache Introspection
+    //
+    // These let a callback discover and retrieve the fonts the layout engine
+    // has actually loaded into its font cache, without having to pass them in
+    // up-front. The primary use case is "embed every font the layout actually
+    // used" from a callback (e.g. a printpdf consumer correlating
+    // `DisplayListItem::Text.font_hash` glyph runs with the loaded font bytes).
+    //
+    // IMAGE GAP (deferred): there is no analogous `get_loaded_image_*` here yet.
+    // Unlike fonts (whose cache lives in `LayoutWindow.font_manager`, reachable
+    // via `get_layout_window()`), the live image cache with the actual
+    // `ImageRef` bytes is owned by the windowing shell (`common.image_cache`)
+    // and is only passed *by reference* into the layout pass - it is not stored
+    // on the `LayoutWindow` (its `image_cache` field is initialised empty and
+    // never populated) and is not part of `CallbackInfoRefData`. Exposing image
+    // bytes here therefore requires threading `&ImageCache` into
+    // `CallbackInfoRefData` and through `invoke_single_callback` /
+    // `run_single_timer` / `run_all_threads` and all their per-platform callers
+    // (macOS / Wayland / X11 / Windows). `RendererResources.currently_registered_images`
+    // is reachable via `get_renderer_resources()` but only carries the WebRender
+    // key + `ImageDescriptor`, not the pixel bytes.
+
+    /// Enumerate every font the layout engine currently has loaded in its font
+    /// cache.
+    ///
+    /// Returns one [`LoadedFont`](azul_core::resources::LoadedFont) descriptor
+    /// per loaded face. The `font_hash` field of each descriptor is identical
+    /// to the `font_hash` carried by `DisplayListItem::Text` glyph runs, so a
+    /// callback can correlate a loaded font with the text that uses it and then
+    /// pull the raw bytes via [`get_loaded_font_bytes`](Self::get_loaded_font_bytes).
+    ///
+    /// The list includes fallback faces that were resolved during layout, not
+    /// just the families named in the source CSS.
+    #[cfg(feature = "text_layout")]
+    pub fn get_loaded_fonts(&self) -> LoadedFontVec {
+        let font_manager = &self.get_layout_window().font_manager;
+        let guard = match font_manager.parsed_fonts.lock() {
+            Ok(g) => g,
+            Err(_) => return Vec::new().into(),
+        };
+        // BTreeMap-style stable iteration is not guaranteed here (HashMap), so
+        // we collect then sort by font_hash for a deterministic order.
+        let mut out: Vec<LoadedFont> = guard
+            .values()
+            .map(|font_ref| {
+                let parsed = crate::font_ref_to_parsed_font(font_ref);
+                let family_name = parsed
+                    .font_name
+                    .as_ref()
+                    .map(|s| AzString::from(s.clone()))
+                    .unwrap_or_default();
+                LoadedFont {
+                    font_hash: parsed.hash,
+                    family_name,
+                    num_glyphs: parsed.num_glyphs as u32,
+                    has_bytes: parsed.source_bytes_for_subset().is_some(),
+                }
+            })
+            .collect();
+        out.sort_by(|a, b| a.font_hash.cmp(&b.font_hash));
+        out.into()
+    }
+
+    /// Retrieve the raw source bytes (TTF / OTF / TTC, etc.) for a loaded font,
+    /// looked up by the `font_hash` returned from
+    /// [`get_loaded_fonts`](Self::get_loaded_fonts) (or carried on a
+    /// `DisplayListItem::Text` glyph run).
+    ///
+    /// Returns `None` if no loaded font matches `font_hash`, or if the matching
+    /// font did not retain its source bytes (e.g. a test-only font; production
+    /// fonts loaded from disk retain an mmap-backed handle and always succeed).
+    /// The returned bytes can be embedded directly into a generated document.
+    #[cfg(feature = "text_layout")]
+    pub fn get_loaded_font_bytes(&self, font_hash: u64) -> OptionU8Vec {
+        let font_manager = &self.get_layout_window().font_manager;
+        let font_ref = match font_manager.get_font_by_hash(font_hash) {
+            Some(f) => f,
+            None => return OptionU8Vec::None,
+        };
+        let parsed = crate::font_ref_to_parsed_font(&font_ref);
+        match parsed.source_bytes_for_subset() {
+            Some(bytes) => OptionU8Vec::Some(U8Vec::from_vec(bytes.as_slice().to_vec())),
+            None => OptionU8Vec::None,
+        }
     }
 
     // Screenshot API

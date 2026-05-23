@@ -125,6 +125,61 @@ impl_vec_ord!(NamedFont, NamedFontVec);
 impl_vec_hash!(NamedFont, NamedFontVec);
 impl_vec_clone!(NamedFont, NamedFontVec, NamedFontVecDestructor);
 
+/// Descriptor for a font that the layout engine currently has loaded in its
+/// font cache.
+///
+/// Returned by `CallbackInfo::get_loaded_fonts()`. The `font_hash` field is
+/// the same `u64` carried by `DisplayListItem::Text` glyph runs, so a callback
+/// can correlate a loaded font with the text runs that use it and then fetch
+/// the raw bytes via `CallbackInfo::get_loaded_font_bytes(font_hash)` (e.g. to
+/// embed every font the layout actually used into a generated PDF).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LoadedFont {
+    /// Stable hash of the parsed font, identical to the `font_hash` stored on
+    /// `DisplayListItem::Text` glyph runs. Use this to look up the bytes with
+    /// `CallbackInfo::get_loaded_font_bytes`.
+    pub font_hash: u64,
+    /// PostScript / family name from the font's `name` table, or an empty
+    /// string if the font did not provide one.
+    pub family_name: AzString,
+    /// Total number of glyphs in the font (from the `maxp` table).
+    pub num_glyphs: u32,
+    /// `true` if the source font bytes are retained and can be retrieved with
+    /// `CallbackInfo::get_loaded_font_bytes(font_hash)`. Fonts loaded on the
+    /// production (lazy mmap) path retain their bytes; some test-only fonts do
+    /// not.
+    pub has_bytes: bool,
+}
+
+impl_option!(
+    LoadedFont,
+    OptionLoadedFont,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+impl LoadedFont {
+    pub fn new(font_hash: u64, family_name: AzString, num_glyphs: u32, has_bytes: bool) -> Self {
+        Self {
+            font_hash,
+            family_name,
+            num_glyphs,
+            has_bytes,
+        }
+    }
+}
+
+impl_vec!(LoadedFont, LoadedFontVec, LoadedFontVecDestructor, LoadedFontVecDestructorType, LoadedFontVecSlice, OptionLoadedFont);
+impl_vec_mut!(LoadedFont, LoadedFontVec);
+impl_vec_debug!(LoadedFont, LoadedFontVec);
+impl_vec_partialeq!(LoadedFont, LoadedFontVec);
+impl_vec_eq!(LoadedFont, LoadedFontVec);
+impl_vec_partialord!(LoadedFont, LoadedFontVec);
+impl_vec_ord!(LoadedFont, LoadedFontVec);
+impl_vec_hash!(LoadedFont, LoadedFontVec);
+impl_vec_clone!(LoadedFont, LoadedFontVec, LoadedFontVecDestructor);
+
 /// Configuration for how fonts should be loaded at app startup.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]

@@ -9713,6 +9713,55 @@
                                     "type": "SafeAreaInsets"
                                 },
                                 "fn_body": "object.get_safe_area_insets()"
+                            },
+                            "get_loaded_fonts": {
+                                "doc": [
+                                    "Enumerate every font the layout engine currently has loaded in its font",
+                                    "cache.",
+                                    "",
+                                    "Returns one [`LoadedFont`](azul_core::resources::LoadedFont) descriptor",
+                                    "per loaded face. The `font_hash` field of each descriptor is identical",
+                                    "to the `font_hash` carried by `DisplayListItem::Text` glyph runs, so a",
+                                    "callback can correlate a loaded font with the text that uses it and then",
+                                    "pull the raw bytes via [`get_loaded_font_bytes`](Self::get_loaded_font_bytes).",
+                                    "",
+                                    "The list includes fallback faces that were resolved during layout, not",
+                                    "just the families named in the source CSS."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LoadedFontVec"
+                                },
+                                "fn_body": "object.get_loaded_fonts()"
+                            },
+                            "get_loaded_font_bytes": {
+                                "doc": [
+                                    "Retrieve the raw source bytes (TTF / OTF / TTC, etc.) for a loaded font,",
+                                    "looked up by the `font_hash` returned from",
+                                    "[`get_loaded_fonts`](Self::get_loaded_fonts) (or carried on a",
+                                    "`DisplayListItem::Text` glyph run).",
+                                    "",
+                                    "Returns `None` if no loaded font matches `font_hash`, or if the matching",
+                                    "font did not retain its source bytes (e.g. a test-only font; production",
+                                    "fonts loaded from disk retain an mmap-backed handle and always succeed).",
+                                    "The returned bytes can be embedded directly into a generated document."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "font_hash": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionU8Vec"
+                                },
+                                "fn_body": "object.get_loaded_font_bytes(font_hash)"
                             }
                         },
                         "repr": "C"
@@ -58302,6 +58351,54 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "LoadedFont": {
+                        "external": "azul_core::resources::LoadedFont",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "font_hash": {
+                                    "type": "u64"
+                                },
+                                "family_name": {
+                                    "type": "String"
+                                },
+                                "num_glyphs": {
+                                    "type": "u32"
+                                },
+                                "has_bytes": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "fn_args": [
+                                    {
+                                        "font_hash": "u64"
+                                    },
+                                    {
+                                        "family_name": "String"
+                                    },
+                                    {
+                                        "num_glyphs": "u32"
+                                    },
+                                    {
+                                        "has_bytes": "bool"
+                                    }
+                                ],
+                                "fn_body": "azul_core::resources::LoadedFont::new(font_hash, family_name, num_glyphs, has_bytes)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -80451,6 +80548,210 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "LoadedFontVec": {
+                        "external": "azul_core::resources::LoadedFontVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "LoadedFont",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "LoadedFontVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `LoadedFontVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "LoadedFontVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `LoadedFontVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LoadedFontVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "loaded_font_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "loaded_font_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "loaded_font_vec.is_empty()"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionLoadedFont"
+                                },
+                                "fn_body": "loaded_font_vec.c_get(index).into()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `LoadedFontVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "LoadedFont"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LoadedFontVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `LoadedFontVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const LoadedFont"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LoadedFontVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "LoadedFontVecDestructorType": {
+                        "external": "azul_core::resources::LoadedFontVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "LoadedFontVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "LoadedFontVecDestructor": {
+                        "external": "azul_core::resources::LoadedFontVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "LoadedFontVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LoadedFontVecSlice": {
+                        "external": "azul_core::resources::LoadedFontVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "LoadedFont",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -84828,6 +85129,27 @@
                                 "None": {},
                                 "Some": {
                                     "type": "VideoFrame"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionLoadedFont": {
+                        "external": "azul_core::resources::OptionLoadedFont",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "LoadedFont"
                                 }
                             }
                         ],
