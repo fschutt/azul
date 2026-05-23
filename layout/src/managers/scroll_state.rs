@@ -732,7 +732,10 @@ impl ScrollManager {
     ) {
         let key = (dom_id, node_id);
         let state = self.states.entry(key).or_insert_with(|| {
-            AnimatedScrollState::new(std::time::Instant::now().into())
+            // AzInstant (System on std, safe Tick on no-clock targets) — not the
+            // WASM-panicking std::time::Instant::now(). (A refinement would thread
+            // the window's get_system_time_fn callback through for hookability.)
+            AnimatedScrollState::new(azul_core::task::Instant::now())
         });
         state.virtual_scroll_size = Some(virtual_scroll_size);
         state.virtual_scroll_offset = virtual_scroll_offset;

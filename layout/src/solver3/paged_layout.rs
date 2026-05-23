@@ -147,8 +147,6 @@ where
         usize,
     ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
-    let t_layout_start = std::time::Instant::now();
-
     // Font Resolution And Loading
     {
         use crate::solver3::getters::{
@@ -244,7 +242,6 @@ where
     // Paged Layout
 
     // Perform layout with fragmentation context (layout only, no display list)
-    let t_compute = std::time::Instant::now();
     let _result = compute_layout_with_fragmentation(
         cache,
         text_cache,
@@ -257,7 +254,6 @@ where
         get_system_time_fn,
         print_timing,
     )?;
-    let compute_ms = t_compute.elapsed().as_secs_f64() * 1000.0;
 
     // Get the layout tree and positions
     let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
@@ -318,7 +314,6 @@ where
     };
 
     // Step 1: Generate ONE complete display list (infinite canvas)
-    let t_displist = std::time::Instant::now();
     let full_display_list = generate_display_list(
         &mut ctx,
         tree,
@@ -330,7 +325,6 @@ where
         id_namespace,
         dom_id,
     )?;
-    let displist_ms = t_displist.elapsed().as_secs_f64() * 1000.0;
 
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -360,18 +354,10 @@ where
     };
 
     // Step 3: Paginate with CSS break property support
-    let t_paginate = std::time::Instant::now();
     let pages = paginate_display_list_with_slicer_and_breaks(
         full_display_list,
         &slicer_config,
     )?;
-    let paginate_ms = t_paginate.elapsed().as_secs_f64() * 1000.0;
-
-    let total_layout_ms = t_layout_start.elapsed().as_secs_f64() * 1000.0;
-    if print_timing {
-        eprintln!("  [layout_document_paged] compute_layout={:.1}ms display_list={:.1}ms paginate={:.1}ms total={:.1}ms pages={}",
-            compute_ms, displist_ms, paginate_ms, total_layout_ms, pages.len());
-    }
 
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -401,7 +387,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     image_cache: &azul_core::resources::ImageCache,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
-    print_timing: bool,
+    _print_timing: bool,
 ) -> Result<FragmentationLayoutResult> {
     use crate::solver3::cache;
 
@@ -428,7 +414,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     };
 
     // --- Step 1: Tree Building & Invalidation ---
-    let t_tree_build = std::time::Instant::now();
     let is_fresh_dom = cache.tree.is_none();
     let (mut new_tree, mut recon_result) = if is_fresh_dom {
         // Fast path: no old tree to diff against — build tree directly.
@@ -443,7 +428,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         // Incremental path: diff old tree vs new DOM
         cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?
     };
-    let tree_build_ms = t_tree_build.elapsed().as_secs_f64() * 1000.0;
 
     // Step 1.2: Clear Taffy Caches for Dirty Nodes
     for &node_idx in &recon_result.intrinsic_dirty {
@@ -502,7 +486,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     }
 
     // --- Step 2: Incremental Layout Loop ---
-    let t_layout_loop = std::time::Instant::now();
     let mut calculated_positions = cache.calculated_positions.clone();
     let mut loop_count = 0;
     loop {
@@ -592,8 +575,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     }
 
     // --- Step 3: Adjust Positions ---
-    let layout_loop_ms = t_layout_loop.elapsed().as_secs_f64() * 1000.0;
-    let t_position = std::time::Instant::now();
     crate::solver3::positioning::adjust_relative_positions(
         &mut ctx,
         &new_tree,
@@ -607,13 +588,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         &mut calculated_positions,
         viewport,
     )?;
-    let position_ms = t_position.elapsed().as_secs_f64() * 1000.0;
-
-    if print_timing {
-        eprintln!("  [compute_layout] tree_build={:.1}ms layout_loop={:.1}ms positioning={:.1}ms dom_nodes={} layout_nodes={}",
-            tree_build_ms, layout_loop_ms, position_ms,
-            new_dom.node_data.as_container().len(), new_tree.nodes.len());
-    }
 
     // --- Step 3.75: Compute Stable Scroll IDs ---
     use crate::window::LayoutWindow;

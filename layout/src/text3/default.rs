@@ -133,17 +133,10 @@ impl FontManager<FontRef> {
             Ok(p) => p,
             Err(_) => return 0,
         };
-        let now = match std::time::Instant::now()
-            .checked_duration_since(std::time::Instant::now() - idle)
-        {
-            Some(d) => d,
-            None => return 0,
-        };
         // We compare against the same monotonic clock the font's
         // `last_used` is sampled from. `last_used == 0` means
         // "never touched" -> eligible. Otherwise we only evict if
         // `now_nanos - last_used >= idle.as_nanos()`.
-        let _ = now;
         let cutoff = idle.as_nanos() as u64;
         let now_nanos = crate::font::parsed::monotonic_now_nanos();
         let mut evicted = 0usize;
