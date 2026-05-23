@@ -1,6 +1,6 @@
 [package]
 name = "azul-test"
-version = "0.0.7"
+version = "0.0.8"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = "Runs azul integration tests"
@@ -13,7 +13,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-azul-layout = { version = "0.0.7", path = "../layout", default-features = false, features = ["std", "xml", "text_layout", "font_loading", "cpurender"]}
-azul-core = { version = "0.0.7", path = "../core", default-features = false, features = ["std"]}
-azul-css = { version = "0.0.7", path = "../css", default-features = false, features = ["parser"]}
-azul-dll = { version = "0.0.7", path = "../dll", default-features = false }
+azul-layout = { version = "0.0.8", path = "../layout", default-features = false, features = ["std", "xml", "text_layout", "font_loading", "cpurender"]}
+azul-core = { version = "0.0.8", path = "../core", default-features = false, features = ["std"]}
+azul-css = { version = "0.0.8", path = "../css", default-features = false, features = ["parser"]}
+azul-dll = { version = "0.0.8", path = "../dll", default-features = false }

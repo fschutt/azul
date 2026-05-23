@@ -1,6 +1,6 @@
 [package]
 name = "azul-dll"
-version = "0.0.7"
+version = "0.0.8"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MPL-2.0"
 description = "C-API of Azul GUI"
@@ -18,9 +18,9 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 # Core crates - only needed for build-dll and link-static, NOT for link-dynamic
-azul-core = { path = "../core", version = "0.0.7", default-features = false, optional = true }
-azul-css = { path = "../css", version = "0.0.7", default-features = false, optional = true }
-azul-layout = { path = "../layout", version = "0.0.7", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender"], optional = true }
+azul-core = { path = "../core", version = "0.0.8", default-features = false, optional = true }
+azul-css = { path = "../css", version = "0.0.8", default-features = false, optional = true }
+azul-layout = { path = "../layout", version = "0.0.8", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender"], optional = true }
 
 # Logging
 log = { version = "0.4.17", default-features = false, optional = true }
@@ -42,7 +42,7 @@ ext-php-rs = { version = "0.15", default-features = false, optional = true }
 # it has no equivalent on Android/iOS (no native modal API from a Rust
 # crate) and its 0.1.0 release uses an older `jni` API that doesn't
 # cross-compile for android targets. Declared per-target below.
-rust-fontconfig = { version = "4.3.0", default-features = false, features = ["std", "parsing", "async-registry", "cache"], optional = true }
+rust-fontconfig = { version = "4.4.0", default-features = false, features = ["std", "parsing", "async-registry", "cache"], optional = true }
 gl-context-loader = { version ="0.1.8", default-features = false, optional = true }
 webrender = { path = "../webrender/core", default-features = false, optional = true }
 once_cell = { version = "1.17.1", optional = true }

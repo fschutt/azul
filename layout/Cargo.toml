@@ -7,7 +7,7 @@
 
 [package]
 name = "azul-layout"
-version = "0.0.7"
+version = "0.0.8"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MPL-2.0"
 description = "Layout solver + font and image loader the Azul GUI framework"
@@ -20,13 +20,13 @@ resolver = "2"
 autoexamples = true
 
 [dependencies]
-azul-css                = { version = "0.0.7", path = "../css", default-features = false, features = ["parser"] }
-azul-core               = { version = "0.0.7", path = "../core", default-features = false }
+azul-css                = { version = "0.0.8", path = "../css", default-features = false, features = ["parser"] }
+azul-core               = { version = "0.0.8", path = "../core", default-features = false }
 image                   = { version = "0.25", default-features = false, optional = true }
 # Explicit override to disable SIMD features that were broken in older versions
 # See: https://github.com/image-rs/image/issues/2705
 zune-jpeg               = { version = "0.5", default-features = false, features = ["std"], optional = true }
-rust-fontconfig = { version = "4.3.0", default-features = false, optional = true }
+rust-fontconfig = { version = "4.4.0", default-features = false, optional = true }
 libc                    = { version = "0.2", default-features = false, optional = true }
 serde                   = { version = "1.0", features = ["derive"] }
 brotli-decompressor     = { version = "5", default-features = false, features = ["std"], optional = true }
