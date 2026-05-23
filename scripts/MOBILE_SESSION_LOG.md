@@ -2609,3 +2609,13 @@ Run 26333448552 (first mobile-ios-android push) revealed the full failure set + 
   Until both are on crates.io, these paths break `cargo metadata` on CI exactly like td did. (libudev-sys = forks/ in-repo + azul-* = css/core/layout in-repo are fine.)
 - Other (downstream of deps / separate, after workspace-load works): link-dynamic codegen (Az*_*WithCtx externs in dll_api_external.rs); example AzCallback API drift (async/hello-world/widgets examples pass bare fn where AzCallback expected — build_binaries `cargo check --examples`); patch_format.rs VariantDef missing `ref_kind`.
 - BLOCKED on the user's rust-fontconfig + printpdf crates.io releases.
+
+### CI-GREEN tick 5 (2026-05-23) — dep-release chain: allsorts + rust-fontconfig DONE
+- **rust-fontconfig 4.3.0 PUBLISHED** to crates.io; azul-mobile bumped (b58462373); [patch] line removed.
+- **allsorts-azul 0.16.4 PUBLISHED** (was 0.16.2):
+  - Cherry-picked the 7 stdlib dep-drops from PR #134 / `reduce-deps` (**Option B**: kept bitflags/FeatureMask + pathfinder, NO enumflags2 churn → public API unchanged, azul-layout untouched). 23→16 direct deps: dropped libc, byteorder, crc32fast, lazy_static(→std OnceLock), bitreader, itertools, num-traits. pathfinder KEPT (publicly re-exported via `pub use pathfinder_geometry`, used by azul-layout outline path; dropping it would break azul-layout).
+  - 0.16.3 = dep-drop; 0.16.4 = README fork banner. Tags v0.16.3/v0.16.4 pushed.
+  - GitHub repo RENAMED fschutt/allsorts → **fschutt/allsorts-azul** (remote + Cargo.toml URLs updated).
+  - azul-mobile layout/Cargo.toml allsorts-azul pin → **0.16.4**.
+- **allsorts_no_std 0.5.3 PUBLISHED** (courtesy, wezm/YesLogic PR #1): repository/homepage → fschutt/allsorts-azul (was yeslogic), README fork banner so issues route here not upstream (yeslogic#49). Replied on PR #1.
+- **REMAINING CI BLOCKER:** printpdf [patch] local-path. Per the user's plan, the chain is now: (#17) merge the other agent's azul remill/web work (../azul `layout-debug-clean`, +46) into mobile-ios-android → (#18) CI remill version-lock + 2 libazul variants → (#19) release azul-layout to crates.io → (#20-22) printpdf switch allsorts→allsorts-azul 0.16.4 + new azul-layout, make branch master, source review/merge PRs, major release → drop both [patch] lines → push → CI green.
