@@ -2599,3 +2599,13 @@ Run 26333448552 (first mobile-ios-android push) revealed the full failure set + 
 - Feature-Matrix link-dynamic: SEPARATE codegen bug — Az*_*WithCtx extern decls missing in target/codegen/dll_api_external.rs (doc/src/codegen generates the WithCtx wrappers + a per-WithCtx extern at lang_rust.rs:2990 / lang_c.rs:938, but the link-dynamic import block omits them). Fix once td is unblocked.
 - Heavy/Miri + Coverage failed on the SAME cargo-metadata(td) error — should clear once td is fixed; re-verify after.
 - The no-Instant fix IS pushed + correct; it just can't be reached on CI until the autofix step's cargo-metadata works.
+
+### CI-GREEN tick 4 (2026-05-23) — external-dep cleanup
+- **td: INLINED** -> dll/src/desktop/extra/map/mvt.rs (crates.io proj4rs 0.1.10 + mvt-reader 2.1.0 + geo-types; geojson/serde_json already). Dropped the local-path `td` dep. map/mod.rs uses self::mvt::. Both default + map-tiles builds compile. Committed 0f90d8b0a. (TileCoord/Extent got `Copy` for the dll's missing_copy_implementations deny.)
+- **printpdf perf-timing: REMOVED** — reverted bb6928e (the `print_timing` option) in /Users/fschutt/Development/printpdf -> commit e85c2d2 (branch azul-mobile-parsedfont-compat). azul `pdf` build compiles via the [patch].
+- **STILL-BLOCKING the CI (root [patch.crates-io] external local paths — need crates.io RELEASES):**
+  1. `rust-fontconfig = { path = /Users/fschutt/Development/rust-fontconfig }` — local is **12 commits ahead of origin** (iOS/Android system-font discovery), not in crates.io 4.2.1. USER is releasing a new version. THEN: drop the [patch] line + bump dll's `rust-fontconfig = "<new>"`.
+  2. `printpdf = { path = /Users/fschutt/Development/printpdf }` — fork (perf-timing now removed). Needs RE-PUBLISH to crates.io (with bumped rust-fontconfig dep). THEN: drop the [patch] line + bump dll's `printpdf = "<new>"`.
+  Until both are on crates.io, these paths break `cargo metadata` on CI exactly like td did. (libudev-sys = forks/ in-repo + azul-* = css/core/layout in-repo are fine.)
+- Other (downstream of deps / separate, after workspace-load works): link-dynamic codegen (Az*_*WithCtx externs in dll_api_external.rs); example AzCallback API drift (async/hello-world/widgets examples pass bare fn where AzCallback expected — build_binaries `cargo check --examples`); patch_format.rs VariantDef missing `ref_kind`.
+- BLOCKED on the user's rust-fontconfig + printpdf crates.io releases.
