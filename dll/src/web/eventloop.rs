@@ -1050,23 +1050,6 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // actually runs and returns a value. Capture the heap pointer
     // so JS can observe + read the internal Vec lengths.
     //
-    // Drop semantics: if a downstream drop_in_place bails, the
-    // Box::into_raw assignment may still race. We store the marker
-    // BEFORE the cascade and the ptr AFTER, so JS can distinguish
-    // "cascade never returned" (marker only) from "cascade
-    // returned, drop bailed" (marker + ptr).
-    // M12 WORKAROUND for X-reg clobber in cascade.
-    // hydrate-side: #[inline(never)] helpers (fixed_store/fixed_load/
-    // finalize_hydrate) avoid caching state in a single X-reg across
-    // the cascade. The heap ptr survives.
-    // Internals issue: the cascade's sret writes (via X20 = sret-dest
-    // saved from X8) go to wrong addresses when X20 gets clobbered by
-    // transitive sub-callees. So the boxed heap region is mostly
-    // zero. PROPER fix is remill X-reg preservation (M12 plan
-    // PHASE 3); for now, gate accepts node_data.len() == 0 with a
-    // KNOWN-issue annotation.
-    let state_u32 = state;
-    fixed_store(state_u32);
     // Run the cascade on the layout-cb's real Dom (`dom_ref`, the AzDom
     // the lifted layout fn deposited via X8 hidden-return). Same
     // `StyledDom::create` the desktop App.run uses; with an empty Css the
@@ -1075,8 +1058,7 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let styled = StyledDom::create(dom_ref, Css::empty());
     let boxed = Box::new(styled);
     let ptr_val = Box::into_raw(boxed) as usize as u32;
-    let recovered = fixed_load();
-    finalize_hydrate(recovered, ptr_val);
+    finalize_hydrate(state, ptr_val);
     0
 }
 
@@ -1089,66 +1071,6 @@ unsafe extern "C" fn finalize_hydrate(state_u32: u32, styled_ptr: u32) {
     }
     let s = &mut *(state_u32 as usize as *mut EventloopState);
     s.current_dom_styled_ptr = styled_ptr;
-    // M12.5c: dump first 80 bytes of cascade-output struct into a
-    // fixed wasm region (0x40300..0x40350) that JS can peek. The
-    // dump runs in finalize_hydrate's fresh frame (x-regs reset)
-    // to avoid any register-clobber issues from the cascade path.
-    // First also write known sentinel constants to 0x40400 to verify
-    // the wasm store path itself works.
-    core::ptr::write_volatile(0x40400_usize as *mut u32, 0x11111111_u32);
-    core::ptr::write_volatile(0x40404_usize as *mut u32, 0x22222222_u32);
-    core::ptr::write_volatile(0x40408_usize as *mut u32, styled_ptr);
-    core::ptr::write_volatile(0x4040C_usize as *mut u32, state_u32);
-    if styled_ptr != 0 {
-        let mut off = 0usize;
-        let p_src = styled_ptr as usize as *const u32;
-        while off < 80 {
-            let v = core::ptr::read_volatile(p_src.add(off / 4));
-            core::ptr::write_volatile(
-                (0x40300_usize + off) as *mut u32, v);
-            off += 4;
-        }
-    }
-}
-
-#[inline(never)]
-#[no_mangle]
-unsafe extern "C" fn fixed_store(v: u32) {
-    core::ptr::write_volatile(0x40020_usize as *mut u32, v);
-}
-
-#[inline(never)]
-#[no_mangle]
-unsafe extern "C" fn fixed_load() -> u32 {
-    core::ptr::read_volatile(0x40020_usize as *const u32)
-}
-
-/// M12 cascade probe helper — never inlined so each call site
-/// gets its own register-allocation scope. Writes to BOTH:
-///   - state.last_layout_status (state-relative write)
-///   - a fixed wasm linear memory address `0x40000` (state-FREE write)
-/// This lets JS distinguish: if BOTH writes work, the cascade is fine.
-/// If only the fixed-address write works, state pointer was corrupted.
-/// If neither works, probe_set itself isn't being called.
-#[inline(never)]
-#[no_mangle]
-pub unsafe extern "C" fn probe_set(state_u32: u32, value: u32) {
-    // State-FREE write: direct to a fixed wasm linear memory address.
-    // JS reads via getProbeRaw().
-    let raw_p = 0x40000_usize as *mut u32;
-    core::ptr::write_volatile(raw_p, value);
-    if state_u32 == 0 {
-        return;
-    }
-    let s = &mut *(state_u32 as usize as *mut EventloopState);
-    core::ptr::write_volatile(&mut s.last_layout_status as *mut u32, value);
-}
-
-/// Reads the raw probe value at fixed wasm memory address 0x40000.
-/// JS-callable: confirms whether `probe_set` was called at all.
-#[no_mangle]
-pub unsafe extern "C" fn AzStartup_getProbeRaw() -> u32 {
-    core::ptr::read_volatile(0x40000_usize as *const u32)
 }
 
 /// Read [`EventloopState::current_dom_hydrated`] without
@@ -1207,16 +1129,6 @@ pub unsafe extern "C" fn AzStartup_getStyledDomPtr(state: u32) -> u32 {
     }
     let s = &*(state as usize as *mut EventloopState);
     s.current_dom_styled_ptr
-}
-
-/// M12.5c DIAG: peek a u32 at any wasm-linear-memory address.
-/// JS-callable so we can inspect what the cascade actually wrote.
-#[no_mangle]
-pub unsafe extern "C" fn AzStartup_peekU32(addr: u32) -> u32 {
-    if addr == 0 {
-        return 0;
-    }
-    core::ptr::read_volatile(addr as usize as *const u32)
 }
 
 // =====================================================================
@@ -1509,59 +1421,10 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // `layout_and_generate_display_list`, whose tail does virtual-view
     // scanning + scrollbar GPU registration we don't need on web).
     // Positions land in `layout_cache.calculated_positions`.
-    if let Err(e) = lw.layout_dom_recursive(styled, &ws, &rr, &sc, &mut dbg) {
-        // M12.7 ROBUST diag: read the RAW discriminant byte (the `match` below
-        // may mis-discriminate in the lift — load_from_path is never called yet
-        // we "see" FontNotFound, a contradiction). 0x4009C=0xDA70_<outer_tag>
-        // (solver3: 0=InvalidTree 1=Sizing 2=Positioning 3=DisplayList 4=Text);
-        // 0x400A0=0xDA71_<inner_tag> (text3: 0=Bidi 1=Shaping 2=FontNotFound
-        // 3=InvalidText 4=Hyphenation), only for the Text variant.
-        unsafe {
-            let outer_tag = *(&e as *const azul_layout::solver3::LayoutError as *const u8);
-            core::ptr::write_volatile(0x4009C as *mut u32, 0xDA70_0000u32 | outer_tag as u32);
-        }
-        if let azul_layout::solver3::LayoutError::Text(ref te) = e {
-            unsafe {
-                let inner_tag = *(te as *const azul_layout::text3::cache::LayoutError as *const u8);
-                core::ptr::write_volatile(0x400A0 as *mut u32, 0xDA71_0000u32 | inner_tag as u32);
-            }
-        }
-        // M12.7 diag: record WHICH LayoutError to 0x40080 (0x4c45_000N) so the
-        // gate can peek it (no stderr in lifted wasm).
-        let code: u32 = match e {
-            azul_layout::solver3::LayoutError::InvalidTree => 1,
-            azul_layout::solver3::LayoutError::SizingFailed => 2,
-            azul_layout::solver3::LayoutError::PositioningFailed => 3,
-            azul_layout::solver3::LayoutError::DisplayListFailed => 4,
-            azul_layout::solver3::LayoutError::Text(te) => {
-                use azul_layout::text3::cache::LayoutError as TE;
-                let inner: u32 = match te {
-                    TE::BidiError(_) => 1,
-                    TE::ShapingError(_) => 2,
-                    TE::FontNotFound(sel) => {
-                        // capture the requested family string to 0x40084(len)+0x40088(bytes)
-                        let fam = sel.family.as_bytes();
-                        let n = fam.len().min(60);
-                        unsafe {
-                            core::ptr::write_volatile(0x40084 as *mut u32, n as u32);
-                            for i in 0..n {
-                                core::ptr::write_volatile((0x40088 + i) as *mut u8, fam[i]);
-                            }
-                        }
-                        3
-                    }
-                    TE::InvalidText(_) => 4,
-                    TE::HyphenationError(_) => 5,
-                };
-                5 | (inner << 8)
-            }
-        };
-        unsafe {
-            core::ptr::write_volatile(0x40080 as *mut u32, 0x4c45_0000 | code);
-        }
-        // The font error is EARLY (before the block geometry — proven: rects
-        // come back all-zero when we fall through), so there's no partial
-        // geometry to salvage. Must resolve the font instead.
+    if let Err(_e) = lw.layout_dom_recursive(styled, &ws, &rr, &sc, &mut dbg) {
+        // The layout error is EARLY (before block geometry — rects come back
+        // all-zero when we fall through), so there's no partial geometry to
+        // salvage. Surface a non-zero status so the caller can react.
         return 5;
     }
 
@@ -1589,19 +1452,12 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         // dom_to_layout mapping (the correct, populated location).
         match (lw.get_node_position(node_id), lw.get_node_size(node_id)) {
             (Some(p), Some(sz)) => {
-                if i == 0 {
-                    let w = sz.width.max(0.0) as u32;
-                    unsafe { core::ptr::write_volatile(0x400E4 as *mut u32, 0xE4_010000u32 | (w & 0xffff)); }
-                }
                 lane[0] = p.x.max(0.0).round() as u32;
                 lane[1] = p.y.max(0.0).round() as u32;
                 lane[2] = sz.width.max(0.0).round() as u32;
                 lane[3] = sz.height.max(0.0).round() as u32;
             }
             _ => {
-                if i == 0 {
-                    unsafe { core::ptr::write_volatile(0x400E4 as *mut u32, 0xE4_FF0000u32); }
-                }
                 lane.fill(0);
             }
         }

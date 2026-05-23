@@ -310,18 +310,6 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             args: vec![Pcs::Wreg { state_byte_offset: X0 }],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
-        // No-arg getter — returns a u32.
-        "AzStartup_getProbeRaw" => Some(CallbackSignature {
-            kind: name.to_string(),
-            args: vec![],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
-        }),
-        // M12.5c probe: (addr: u32) -> u32 — peek a u32 from wasm memory.
-        "AzStartup_peekU32" => Some(CallbackSignature {
-            kind: name.to_string(),
-            args: vec![Pcs::Wreg { state_byte_offset: X0 }],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
-        }),
         // M11 Sprint 5 — VirtualView setters (state, u32) -> ().
         "AzStartup_setAutoVirtualizeThreshold"
         | "AzStartup_setVirtualViewProvider"
@@ -4549,9 +4537,10 @@ fn inject_fuel(opt_ir: &str) -> (String, u32) {
 /// unique id by inserting `store volatile i64 (0x554e0000|id), ptr
 /// inttoptr(0x40050)` immediately before it. `store volatile` survives
 /// llc (not DCE'd), and the store executes just before the trap — so a
-/// post-trap `AzStartup_peekU32(0x40050)` returns `0x554e0000|id` of the
-/// LIVE (taken) unreachable. Map `id = peek & 0xffff` to the Nth
+/// post-trap read of wasm memory at 0x40050 returns `0x554e0000|id` of the
+/// LIVE (taken) unreachable. Map `id = value & 0xffff` to the Nth
 /// `unreachable` in the saved `.untag.ll` to locate the opt-folded trap.
+/// Opt-in via the `AZ_TAG_UNREACHABLE` env var.
 fn inject_unreachable_tagging(opt_ir: &str) -> (String, u32) {
     let mut out = String::with_capacity(opt_ir.len() + 4096);
     let mut id: u32 = 0;

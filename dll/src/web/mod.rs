@@ -59,7 +59,6 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_getLastLayoutStatus",
     "AzStartup_getCascadeProbe",
     "AzStartup_pokeLastLayout",
-    "AzStartup_getProbeRaw",
     // M9-4: WASM-side hit-test (stub, returns last registered cb node).
     "AzStartup_registerCbNode",
     "AzStartup_hitTest",
@@ -78,7 +77,6 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_getDomNodeCount",
     "AzStartup_getStyledDomNodeCount",
     "AzStartup_getStyledDomPtr",
-    "AzStartup_peekU32",
     // M11 Sprint 1.C / Sprint 2: layout solver + positioned-rect
     // cache. AzStartup_hitTest now consumes the cache for real
     // bbox-walk dispatch.
