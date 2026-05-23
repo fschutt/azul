@@ -51,6 +51,6 @@ rustls-rustcrypto = "0.0.2-alpha"
 webpki-roots = "1.0"
 libc = "0.2"
 nanospinner = "0.3"
-rust-fontconfig = { version = "4.2.1", default-features = false, features = ["std", "parsing", "async-registry"] }
+rust-fontconfig = { version = "4.3.0", default-features = false, features = ["std", "parsing", "async-registry"] }
 tungstenite = "0.24"
 sha2 = "0.10"
