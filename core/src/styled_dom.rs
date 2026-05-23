@@ -1016,10 +1016,8 @@ impl StyledDom {
         static CASCADE_BREAKDOWN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         let cascade_dbg = *CASCADE_BREAKDOWN.get_or_init(crate::profile::memory_enabled);
 
-        let t0 = std::time::Instant::now();
         let node_count = compact_dom.len();
 
-        let t_prep = std::time::Instant::now();
         let non_leaf_nodes = compact_dom
             .node_hierarchy
             .as_ref()
@@ -1049,9 +1047,7 @@ impl StyledDom {
             .collect::<Vec<_>>();
 
         let non_leaf_nodes: ParentWithNodeDepthVec = non_leaf_nodes.into();
-        let prep_ms = t_prep.elapsed().as_secs_f64() * 1000.0;
 
-        let t_restyle = std::time::Instant::now();
         let _restyle_tag_ids = css_property_cache.restyle(
             &mut css,
             &compact_dom.node_data.as_ref(),
@@ -1059,7 +1055,6 @@ impl StyledDom {
             &non_leaf_nodes,
             &html_tree.as_ref(),
         );
-        let restyle_ms = t_restyle.elapsed().as_secs_f64() * 1000.0;
 
         // Drop the CSS object now — selectors/declarations are no longer needed
         // after restyle has populated css_props. This frees ~500 KiB of stylesheet
@@ -1079,7 +1074,6 @@ impl StyledDom {
             compact_dom.node_data.as_ref().internal,
         );
 
-        let t_inherit_compact = std::time::Instant::now();
         let prev_font_hashes: Vec<u64> = css_property_cache.compact_cache
             .as_ref()
             .map(|c| c.prev_font_hashes.clone())
@@ -1101,22 +1095,16 @@ impl StyledDom {
                 pre.cascaded_props_bytes / 1024, post.cascaded_props_bytes / 1024,
                 (pre.total_bytes().saturating_sub(post.total_bytes())) / 1024);
         }
-        let inherit_compact_ms = t_inherit_compact.elapsed().as_secs_f64() * 1000.0;
 
-        let t_tags = std::time::Instant::now();
         let tag_ids = css_property_cache.generate_tag_ids(
             &compact_dom.node_data.as_ref(),
             &node_hierarchy,
         );
-        let tags_ms = t_tags.elapsed().as_secs_f64() * 1000.0;
-
-        let _total_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
         if cascade_dbg {
             let bd = css_property_cache.memory_breakdown();
-            eprintln!("[CASCADE] {} nodes, prep={:.1}ms restyle={:.1}ms compact={:.1}ms tags={:.1}ms total={:.1}ms",
-                node_count, prep_ms, restyle_ms, inherit_compact_ms, tags_ms, _total_ms);
-            eprintln!("[CASCADE]   cascaded_props={} KiB  css_props={} KiB  compact={} KiB  computed={} KiB  total={} KiB",
+            eprintln!("[CASCADE] {} nodes  cascaded_props={} KiB  css_props={} KiB  compact={} KiB  computed={} KiB  total={} KiB",
+                node_count,
                 bd.cascaded_props_bytes / 1024, bd.css_props_bytes / 1024,
                 bd.compact_cache_bytes / 1024, bd.computed_values_bytes / 1024,
                 bd.total_bytes() / 1024);

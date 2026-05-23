@@ -2566,3 +2566,23 @@ Wired the Linux biometric backend (fprintd over D-Bus via zbus — already a dep
 The azul-vault "fix": investigated examples/azul-vault — it ALREADY uses only the public azul:: api.json surface (azul::prelude, azul::misc::{BiometricPrompt, Db, DbValue}, azul::error::BiometricResult, CallbackInfo::request_biometric_auth/get_biometric_result, Db::open/query/execute). Verified: `cargo check -p azul-vault` clean (1.11s); ALL its functions are present in api.json (request_biometric_auth, get_biometric_result, BiometricPrompt, BiometricResult, Db, DbValue, open/query/execute). **No code change needed — the vault was already correct.** The biometric backends wired this session (Windows Hello + Linux fprintd, atop macОS LAContext) make the vault's biometric unlock FUNCTIONAL on all desktop platforms (was Unavailable on Windows/Linux before).
 
 **Task #10 DONE. ALL deferred desktop backends complete: motion-sensors (Win), keyring (Win+Linux), biometric (Win+Linux) + azul-vault verified — the whole user directive done, all 7-target gate green throughout.**
+
+### CI-GREEN PENDING — loop directive (2026-05-21)
+
+GOAL: GitHub Actions pipeline (.github/workflows/rust.yml) GREEN for a 0.2.0 vertical-slice release. Push to **mobile-ios-android ONLY (never master)**. rust.yml trigger changed to run on EVERY push (branches: '**') + per-ref concurrency.
+
+**Master-red root causes (from run 22769097954):**
+- Lint "Check for uncommitted changes after autofix" = autofix drift → FIXED on this branch (autofix = 0 drift, verified).
+- Feature Matrix: `cargo check -p azul-dll --no-default-features --features "link-static,logging,a11y"` → unresolved `azul_layout::{json,icu,http}`. TODO: fix feature-gating (dll uses those layout modules without enabling the layout features that provide them).
+- FFI Safety (macos) failed — drill after the above.
+
+**no-Instant::now() gate (user directive: REMOVE profiling timing; functional sites use AzInstant via `system_callbacks.get_system_time_fn.cb()` — hookable, clock-less-safe; core/task.rs:859 GetSystemTimeCallback):**
+- core/src/styled_dom.rs — DONE (5 profiling calls removed; memory-breakdown logging kept; compiles).
+- layout/src/xml/mod.rs:184/196/223 — TODO: remove t0/t1/t2; the [XML] eprintlns are mem_on memory profiling — keep MiB, drop " in {ms}" + the t_X.elapsed() arg.
+- layout/src/solver3/paged_layout.rs:247/321/363/431/505/596 (+ t_layout_start + the *_ms vars + the 2 timing eprintlns ~372 & ~613) — REMOVE entirely (pure timing = the pdf-slowness debug the user said to delete).
+- layout/src/managers/scroll_state.rs:735 (AnimatedScrollState::new) + layout/src/text3/default.rs:136-137 (evict_unused) — FUNCTIONAL: replace std::time::Instant::now() with AzInstant from system_callbacks.get_system_time_fn.cb() (thread the callback in) or remove if non-essential.
+- Re-run the CI's exact no-Instant gate (rust.yml lint_and_check) → 0 ungated.
+
+**Preflight before each push:** azul-doc autofix (0 drift), codegen all (no drift), cargo check css/core/layout + dll (CI feature sets), the no-Instant gate. Then the full pipeline reveals: feature_matrix, cross_compile_check, test_heavy (miri+reftests), ffi_safety (ASan+miri), build_binaries, packages, website.
+
+**Stub-audit backlog (subagent — for the HANDOFF, NOT CI-blocking):** iOS/macОS permission-request no-op (permission/ios.rs:28, macos.rs:31); 6 Android features lack Java glue (AzulBiometric/Keyring/Sensors/Geolocation/Gamepad/Permissions.java missing — only AzulFilePicker.java exists; AzulActivity.java lacks onRequestPermissionsResult); PDF export rect-only (pdf/mod.rs:155); libsql remote DB absent (sqlite/mod.rs); Windows geolocation stub (geolocation/windows.rs:22); video_codec stub all platforms. This session's desktop sensors/keyring/biometric are REAL/verified.

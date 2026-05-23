@@ -8,9 +8,12 @@
 name: build
 
 on:
+  # Run the full pipeline on every pushed commit (any branch) — we only push
+  # debugged candidates, so each push is worth a full CI run. Tags still match
+  # for release builds; PRs and the manual deploy trigger are unchanged.
   push:
     branches:
-      - 'master'
+      - '**'
     tags:
       - '[0-9]+.[0-9]+.[0-9]+*'
   pull_request:
@@ -31,8 +34,12 @@ permissions:
   pages: write
   id-token: write
 
+# Per-ref concurrency: a new push to the SAME branch/PR cancels its own
+# in-progress run (re-run on the latest commit), but different branches run
+# independently — so pushing branch A doesn't cancel branch B's pipeline.
+# (The Pages deploy is serialized by the github-pages environment regardless.)
 concurrency:
-  group: "pages"
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
