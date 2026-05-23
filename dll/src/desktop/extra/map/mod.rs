@@ -22,7 +22,9 @@
 //! `MapWidget` internals; steps 4-5 land in later ticks.
 
 #[cfg(feature = "map-tiles")]
-pub use td::{parse_mvt_tile, TileCoord};
+mod mvt;
+#[cfg(feature = "map-tiles")]
+pub use mvt::{parse_mvt_tile, TileCoord};
 
 #[cfg(feature = "map-tiles")]
 mod svg;
@@ -47,7 +49,7 @@ pub fn decode_mvt_tile(
         x: tile.x,
         y: tile.y,
     };
-    td::parse_mvt_tile(bytes, &coord).map_err(|e| alloc::format!("{e:?}"))
+    mvt::parse_mvt_tile(bytes, &coord).map_err(|e| alloc::format!("{e:?}"))
 }
 
 /// Build the `https://host/{z}/{x}/{y}.pbf` URL for a tile, expanding

@@ -91,12 +91,13 @@ goblin = { version = "0.10", optional = true }
 mimalloc = { version = "0.1", default-features = false, optional = true }
 tikv-jemallocator = { version = "0.6", default-features = false, optional = true }
 
-# tile-downloader (`td`) — MVT/PBF decode + Web-Mercator math for
-# `MapWidget`'s tile-content pipeline. Owned by user at
-# /Users/fschutt/Development/tile-downloader; pulls in mvt-reader,
-# proj4rs, geojson. Opt-in via `feature = "map-tiles"` so default
-# mobile builds stay light.
-td = { path = "/Users/fschutt/Development/tile-downloader", optional = true }
+# MVT/PBF decode + proj4rs Web-Mercator math for `MapWidget`'s tile pipeline.
+# Inlined into `dll/src/desktop/extra/map/mvt.rs` (was the local-path `td`
+# crate); proj4rs is the crates.io release. Opt-in via `feature = "map-tiles"`
+# so default mobile builds stay light.
+mvt-reader = { version = "2.1.0", features = ["wasm"], optional = true }
+geo-types = { version = "0.7", optional = true }
+proj4rs = { version = "0.1", optional = true }
 # `geojson` re-export so callers can name `geojson::Feature` in the
 # `decode_mvt_tile` return type without going through `td`'s private
 # graph. Same gate as `td`.
@@ -694,7 +695,7 @@ json = ["azul-layout", "azul-layout/json"]
 # `geo-types`, `geojson` which would inflate the mobile cargo-check.
 # Desktop builds that actually fetch and decode tiles enable this via
 # `--features map-tiles`.
-map-tiles = ["dep:td", "dep:geojson", "http"]
+map-tiles = ["dep:mvt-reader", "dep:geo-types", "dep:proj4rs", "dep:geojson", "serde_json", "http"]
 
 # JSON serialization for RefAny (enables RefAny::new_serde<T>)
 # Requires T: serde::Serialize + serde::de::DeserializeOwned
