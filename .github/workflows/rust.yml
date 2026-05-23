@@ -1196,7 +1196,7 @@ jobs:
           # macOS
           find artifacts-macos -name "libazul.dylib" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           find artifacts-macos -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.macos.a" \; 2>/dev/null || true
-          find artifacts-macos -name "azul.so" -exec cp {} "$RELEASE_DIR/azul.macos.so" \; 2>/dev/null || true
+          find artifacts-macos -name "azul.so" -exec cp {} "$RELEASE_DIR/azul.so" \; 2>/dev/null || true
           
           # Windows
           find artifacts-windows -name "azul.dll" ! -name "*.lib" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
