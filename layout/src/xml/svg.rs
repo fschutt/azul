@@ -2285,6 +2285,10 @@ pub fn svg_root(s: &ParsedSvg) -> ParsedSvgXmlNode {
 }
 
 /// Render a ParsedSvg to a RawImage using the agg-rust pipeline.
+///
+/// Requires the `cpurender` feature (the agg-rust + png rasterization pipeline).
+/// Without it, SVG parsing/layout still work but rasterizing yields `None`.
+#[cfg(feature = "cpurender")]
 pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
     use azul_core::resources::RawImageData;
 
@@ -2314,6 +2318,14 @@ pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> 
         premultiplied_alpha: false,
         data_format: RawImageFormat::RGBA8,
     })
+}
+
+/// `cpurender`-less stub: SVG rasterization needs the agg-rust pipeline, so
+/// without that feature there is nothing to render to. Parsing and layout are
+/// unaffected — only the raster output is unavailable.
+#[cfg(not(feature = "cpurender"))]
+pub fn svg_render(_s: &ParsedSvg, _options: SvgRenderOptions) -> Option<RawImage> {
+    None
 }
 
 pub fn svg_to_string(s: &ParsedSvg, _options: SvgXmlOptions) -> String {

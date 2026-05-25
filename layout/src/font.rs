@@ -717,7 +717,17 @@ pub mod parsed {
             // `from_bytes` keeps the eager-LocaGlyf behaviour for the
             // small number of callers (mainly tests) that don't have
             // an `Arc<[u8]>` to keep alive for the lazy path.
-            Self::from_bytes_internal(font_bytes, font_index, warnings, false)
+            let mut font = Self::from_bytes_internal(font_bytes, font_index, warnings, false)?;
+            // Retain an owned copy of the source bytes so the face can later be
+            // subset/embedded (PDF export, save->parse roundtrips). Callers pass a
+            // borrowed slice that may not outlive us, so we own it here. Mirrors
+            // `from_bytes_shared`, which retains the caller's `Arc<FontBytes>`.
+            if font.original_bytes.is_none() {
+                font.original_bytes = Some(std::sync::Arc::new(
+                    rust_fontconfig::FontBytes::Owned(std::sync::Arc::from(font_bytes.to_vec())),
+                ));
+            }
+            Some(font)
         }
 
         /// Shared implementation of `from_bytes` / `from_bytes_shared`.

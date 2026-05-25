@@ -93,3 +93,22 @@ fn loaded_font_enumerate_and_retrieve_bytes() {
         "unknown hash must not resolve to a font"
     );
 }
+
+/// Invariant: `ParsedFont::from_bytes` must retain the source bytes so the face
+/// can be subset/embedded later (PDF export, save->parse roundtrips). Before the
+/// fix only `from_bytes_shared` populated `original_bytes`; bare `from_bytes`
+/// left it `None`, so fonts loaded through the direct API silently failed to
+/// embed (printpdf's `test_custom_font_roundtrip` found no font resource).
+#[test]
+fn from_bytes_retains_source_bytes_for_embedding() {
+    let font = ParsedFont::from_bytes(KOHO_LIGHT, 0, &mut Vec::new())
+        .expect("KoHo-Light should parse via from_bytes");
+    let retrieved = font
+        .source_bytes_for_subset()
+        .expect("from_bytes must retain source bytes for subsetting/embedding");
+    assert_eq!(
+        retrieved.as_slice(),
+        KOHO_LIGHT,
+        "retained source bytes must equal the original font file"
+    );
+}
