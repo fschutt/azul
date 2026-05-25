@@ -58399,6 +58399,32 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "LoadedFontVecSlice": {
+                        "external": "azul_core::resources::LoadedFontVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "LoadedFont",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -80694,6 +80720,40 @@
                                     "type": "LoadedFontVec"
                                 },
                                 "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `LoadedFontVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LoadedFontVecSlice"
+                                },
+                                "fn_body": "loaded_font_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LoadedFontVecSlice"
+                                },
+                                "fn_body": "loaded_font_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
@@ -80726,32 +80786,6 @@
                             }
                         ],
                         "repr": "C, u8"
-                    },
-                    "LoadedFontVecSlice": {
-                        "external": "azul_core::resources::LoadedFontVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "LoadedFont",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
                     }
                 }
             },
