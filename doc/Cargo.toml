@@ -18,6 +18,10 @@ serde_derive = { version = "1", default-features = false }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 anyhow = "1.0"
 brotli = "8"
+# FONT const → brotli-compressed to target/codegen/material_icons.ttf.br, which
+# azul-dll include_bytes!s. Depended on directly so the bytes are always present
+# at codegen time (the old filesystem search for the unpacked crate skipped on CI).
+material-icons = "0.3"
 indexmap = { version = "2.12", features = ["serde"] } # For ordered maps
 cargo-license = "0.7.0"
 cargo_metadata = "0.21"

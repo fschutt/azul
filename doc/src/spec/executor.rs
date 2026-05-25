@@ -2488,8 +2488,17 @@ pub fn parse_taken_pid(content: &str) -> Option<u32> {
     None
 }
 
+#[cfg(unix)]
 pub fn is_pid_alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+}
+
+#[cfg(not(unix))]
+pub fn is_pid_alive(_pid: u32) -> bool {
+    // The `libc::kill(pid, 0)` liveness probe is Unix-only. azul-doc's executor
+    // (the LLM debug runner) isn't used on Windows CI — stub it so the binary
+    // still compiles there, which is all the bindings-codegen step needs.
+    true
 }
 
 pub fn scan_prompts_dir(

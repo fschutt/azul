@@ -487,40 +487,13 @@ fn generate_compressed_api_json(project_root: &Path) -> Result<()> {
 /// This lets the linker DCE the raw 348KB `material_icons::FONT` constant
 /// since nothing references it directly.
 fn compress_material_icons_font(project_root: &Path) -> Result<()> {
-    // Try local development path first, then cargo registry
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_default();
-
-    let local = project_root.join("../material-icons/assets/MaterialIcons-Regular.ttf");
-    let font_path = if local.exists() {
-        local
-    } else {
-        // Search cargo registry
-        let registry_base = Path::new(&home).join(".cargo/registry/src");
-        let mut found = None;
-        if registry_base.exists() {
-            if let Ok(entries) = std::fs::read_dir(&registry_base) {
-                for entry in entries.flatten() {
-                    let candidate = entry.path()
-                        .join("material-icons-0.3.0/assets/MaterialIcons-Regular.ttf");
-                    if candidate.exists() {
-                        found = Some(candidate);
-                        break;
-                    }
-                }
-            }
-        }
-        match found {
-            Some(p) => p,
-            None => {
-                println!("[SKIP] Material Icons font not found, skipping compression");
-                return Ok(());
-            }
-        }
-    };
-
-    let raw = std::fs::read(&font_path)?;
+    // Pull the font bytes straight from the `material-icons` crate's `FONT`
+    // const (a build-time `include_bytes!` of `MaterialIcons-Regular.ttf`).
+    // The previous filesystem search for `material-icons-0.3.0/assets/...` in
+    // the cargo registry silently `[SKIP]`ped on CI: azul-doc does not pull
+    // `material-icons` transitively, so that crate's source was never unpacked
+    // and no `.br` was written — which then broke azul-dll's `include_bytes!`.
+    let raw: &[u8] = material_icons::FONT;
     let mut compressed = Vec::new();
     let params = brotli::enc::BrotliEncoderParams {
         quality: 11,
