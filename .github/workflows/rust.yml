@@ -384,9 +384,10 @@ jobs:
         shell: bash
         run: |
           if [ ! -d rust9x ]; then
-            git clone --depth 1 --branch rust9x https://github.com/nickelc/rust.git rust9x || \
-            git clone --depth 1 --branch rust9x https://github.com/nickelc/rust9x.git rust9x || \
-            git clone --depth 1 --branch rust9x https://github.com/nickelc/rust.git rust9x
+            # Upstream rust9x compiler fork. (The old nickelc/* mirrors were removed,
+            # which made CI prompt for credentials and exit 128.) GIT_TERMINAL_PROMPT=0
+            # makes a bad URL fail fast instead of hanging on a credential prompt.
+            GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch rust9x https://github.com/rust9x/rust.git rust9x
           fi
           cd rust9x
           if [ ! -f build/x86_64-pc-windows-msvc/stage1/bin/rustc.exe ]; then
