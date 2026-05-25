@@ -36,15 +36,16 @@ gleam = "0.15.1"
 # cross-compiles to hosts without libudev (e.g. `--target x86_64-unknown-linux-gnu`
 # from macOS). gilrs itself is unmodified. See forks/libudev-sys/src/lib.rs.
 libudev-sys = { path = "forks/libudev-sys" }
-# Single azul-layout in the dll: point printpdf's azul-* (= 0.0.7) at OUR
-# local crates, and use the local printpdf checkout (branch
-# `azul-mobile-parsedfont-compat`) whose font.rs is updated to our current
-# `ParsedFont` API (get_or_decode_glyph + original_bytes: Option<Arc<FontBytes>>).
-# PR-pending upstream; switch back to the crates.io printpdf once released.
+# Single azul-layout in the dll: point printpdf's azul-* at OUR local workspace
+# crates, and pull printpdf from its GitHub branch (whose font.rs targets our
+# current `ParsedFont` API: get_or_decode_glyph + original_bytes: Option<Arc<FontBytes>>).
+# NOTE: must NOT be an absolute local path — that breaks CI / `cargo metadata`
+# (azul-doc codegen). Switch back to a crates.io printpdf once a compatible
+# version is released. printpdf's own [patch] is ignored here (non-root).
 azul-css = { path = "css" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
-printpdf = { path = "/Users/fschutt/Development/printpdf" }
+printpdf = { git = "https://github.com/fschutt/printpdf", branch = "azul-0.0.9-html" }
 
 [profile.release]
 opt-level = 3
