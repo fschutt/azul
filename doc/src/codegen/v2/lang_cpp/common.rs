@@ -770,10 +770,11 @@ pub fn generate_args_signature_ex(
 pub fn generate_call_args(
     args: &[FunctionArg],
     ir: &CodegenIR,
+    config: &CodegenConfig,
     is_method: bool,
     class_name: &str,
 ) -> String {
-    generate_call_args_ex(args, ir, is_method, class_name, false)
+    generate_call_args_ex(args, ir, config, is_method, class_name, false)
 }
 
 /// Returns true when the function has at least one `String` (wrapper) argument
@@ -859,6 +860,7 @@ pub fn generate_call_args_sv_overload(
 pub fn generate_call_args_ex(
     args: &[FunctionArg],
     ir: &CodegenIR,
+    config: &CodegenConfig,
     is_method: bool,
     class_name: &str,
     substitute_callbacks: bool,
@@ -873,11 +875,23 @@ pub fn generate_call_args_ex(
 
         let escaped_name = escape_cpp_keyword(&arg.name);
 
-        // Check if this is a callback wrapper type that should be passed directly
+        // A callback-wrapper argument is exposed as the raw `...Type` fn-ptr in
+        // the C++ signature (ergonomics). How it is forwarded to the C ABI must
+        // mirror exactly what lang_c emits for that argument:
+        //   * `HOST_INVOKER_KINDS` wrappers get a raw fn-ptr C-ABI variant (the
+        //     M2.5 pair pattern in lang_c) — pass the pointer straight through.
+        //   * every other callback wrapper is taken by value as the wrapper
+        //     struct, so rebuild it from the fn-ptr via `az_detail_wrap_cb`
+        //     (the `FooCallbackType` typedef -> the `AzFooCallback` struct).
         if substitute_callbacks {
-            if get_callback_typedef_name(&arg.type_name, ir).is_some() {
-                // Callback types are raw function pointers, pass directly
-                result.push(escaped_name);
+            if let Some(cb_typedef) = get_callback_typedef_name(&arg.type_name, ir) {
+                if super::super::managed_host_invoker::is_callback_wrapper(&arg.type_name) {
+                    result.push(escaped_name);
+                } else {
+                    let wrapper_struct = config
+                        .apply_prefix(cb_typedef.strip_suffix("Type").unwrap_or(&cb_typedef));
+                    result.push(format!("az_detail_wrap_cb<{}>({})", wrapper_struct, escaped_name));
+                }
                 continue;
             }
         }
@@ -1055,6 +1069,17 @@ pub fn generate_includes(standard: CppStandard) -> String {
     }
 
     code.push_str("\r\n");
+
+    // Rebuild a callback *wrapper struct* from the raw `...Type` function pointer.
+    // Callback-taking methods expose the bare fn-ptr in their C++ signature for
+    // ergonomics, but the C ABI functions take the wrapper struct (`{ cb, ... }`).
+    // This sets `cb` and value-initialises any extra fields (e.g. `ctx`). Valid
+    // C++03 through C++23 (templates + value-init + member assignment) — note a
+    // braced temporary (`W{f}`) is not a valid rvalue in C++03, hence the helper.
+    code.push_str(
+        "template<class W, class F> inline W az_detail_wrap_cb(F f) { W w = W(); w.cb = f; return w; }\r\n\r\n",
+    );
+
     code
 }
 

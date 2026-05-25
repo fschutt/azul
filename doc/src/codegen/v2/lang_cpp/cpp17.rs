@@ -258,7 +258,7 @@ impl CppDialect for Cpp17Generator {
             let substitute = should_substitute_callbacks(func);
             let cpp_args =
                 generate_args_signature_ex(&func.args, ir, config, false, class_name, substitute);
-            let call_args = generate_call_args_ex(&func.args, ir, false, class_name, substitute);
+            let call_args = generate_call_args_ex(&func.args, ir, config, false, class_name, substitute);
 
             code.push_str(&format!(
                 "inline {} {}::{}({}) {{\r\n",
@@ -301,7 +301,7 @@ impl CppDialect for Cpp17Generator {
             let substitute = should_substitute_callbacks(func);
             let cpp_args =
                 generate_args_signature_ex(&func.args, ir, config, false, class_name, substitute);
-            let call_args = generate_call_args_ex(&func.args, ir, false, class_name, substitute);
+            let call_args = generate_call_args_ex(&func.args, ir, config, false, class_name, substitute);
 
             code.push_str(&format!(
                 "inline {} {}::{}({}) {{\r\n",
@@ -352,7 +352,7 @@ impl CppDialect for Cpp17Generator {
             let substitute = should_substitute_callbacks(func);
             let cpp_args =
                 generate_args_signature_ex(&func.args, ir, config, true, class_name, substitute);
-            let call_args = generate_call_args_ex(&func.args, ir, true, class_name, substitute);
+            let call_args = generate_call_args_ex(&func.args, ir, config, true, class_name, substitute);
 
             let full_call_args = if has_self {
                 let self_is_value = func
