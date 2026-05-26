@@ -352,70 +352,84 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-  # rust9x: Build azul for Windows 98/XP using the rust9x fork.
-  # Builds the rust9x compiler from source, then compiles azul with it.
-  # Only runs on deploy mode (compiler build takes ~30-60 min).
+  # rust9x: Build azul for Windows 98/XP using the rust9x fork (i686).
+  #
+  # The rust9x COMPILER is built+cached separately by the
+  # `rust9x-compiler.yml` workflow (~90 min, run manually/weekly). This job
+  # only RESTORES that cache (read-only) and builds azul against it in minutes,
+  # so it can run on every push. If the cache is empty (never primed, or
+  # evicted), the job warns and skips the azul build instead of doing the
+  # expensive compiler build inline. Always `continue-on-error` — this is an
+  # experimental legacy-Windows target and must never block the pipeline.
   build_rust9x:
     name: Build rust9x (Win98/XP experimental)
-    if: github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
     runs-on: windows-2022
-    continue-on-error: true
+    # Non-blocking on normal push/CI (experimental target). On a DEPLOY it is a
+    # hard gate: a release must ship the Win98/XP binary, so a missing compiler
+    # cache or a build failure fails the run (prime via the rust9x-compiler
+    # workflow first).
+    continue-on-error: ${{ github.event.inputs.run_mode != 'deploy' }}
     steps:
       - name: Checkout azul
         uses: actions/checkout@v4
         with:
           path: azul
 
-      - name: Install Rust (for bootstrap)
+      - name: Install Rust (for bootstrap + rustup)
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
 
-      - name: Install Python (for x.py)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Cache rust9x compiler build
-        uses: actions/cache@v4
-        with:
-          path: rust9x/build
-          key: rust9x-compiler-${{ hashFiles('rust9x/src/version') }}
-          restore-keys: rust9x-compiler-
-
-      - name: Clone and build rust9x compiler
+      - name: Clone rust9x source (for std + toolchain link)
         shell: bash
         run: |
-          if [ ! -d rust9x ]; then
-            # Upstream rust9x compiler fork. (The old nickelc/* mirrors were removed,
-            # which made CI prompt for credentials and exit 128.) GIT_TERMINAL_PROMPT=0
-            # makes a bad URL fail fast instead of hanging on a credential prompt.
-            GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch rust9x https://github.com/rust9x/rust.git rust9x
+          # Source only — the compiler binary comes from the cache below. The
+          # checkout is needed to link the toolchain and (if used) build-std.
+          # GIT_TERMINAL_PROMPT=0 fails fast on a bad URL instead of hanging.
+          GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch rust9x https://github.com/rust9x/rust.git rust9x
+
+      - name: Restore cached rust9x compiler (stage1)
+        id: rust9x_cache
+        uses: actions/cache/restore@v4
+        with:
+          # Must match rust9x-compiler.yml's cache path + key exactly.
+          path: rust9x/build/x86_64-pc-windows-msvc/stage1
+          key: rust9x-stage1-${{ hashFiles('rust9x/src/version') }}
+          restore-keys: rust9x-stage1-
+
+      - name: Handle empty compiler cache (fail on deploy, skip otherwise)
+        if: steps.rust9x_cache.outputs.cache-matched-key == ''
+        shell: bash
+        run: |
+          if [ "${{ github.event.inputs.run_mode }}" = "deploy" ]; then
+            echo "::error::rust9x compiler cache is empty on a deploy — the release would omit the Win98/XP binary. Run the 'rust9x compiler (cache primer)' workflow, then re-deploy."
+            exit 1
           fi
-          cd rust9x
-          if [ ! -f build/x86_64-pc-windows-msvc/stage1/bin/rustc.exe ]; then
-            cp bootstrap.rust9x.toml bootstrap.toml 2>/dev/null || true
-            python x.py build --stage 1
-          fi
-          # Link as a rustup toolchain
-          rustup toolchain link rust9x "$(pwd)/build/x86_64-pc-windows-msvc/stage1"
-        timeout-minutes: 90
+          echo "::warning::rust9x compiler cache is empty — run the 'rust9x compiler (cache primer)' workflow to enable the Win98/XP build. Skipping for this push."
+
+      - name: Link rust9x toolchain
+        if: steps.rust9x_cache.outputs.cache-matched-key != ''
+        shell: bash
+        run: rustup toolchain link rust9x "$(pwd)/rust9x/build/x86_64-pc-windows-msvc/stage1"
 
       - name: Generate DLL API bindings
+        if: steps.rust9x_cache.outputs.cache-matched-key != ''
         working-directory: azul
         run: cargo run -r -p azul-doc codegen all
 
       - name: Build azul with rust9x (i686, WinXP+)
+        if: steps.rust9x_cache.outputs.cache-matched-key != ''
         working-directory: azul
         shell: bash
         run: |
           cargo +rust9x build --release \
             --target i686-rust9x-windows-msvc \
-            -p azul-dll --features="build-dll" || echo "rust9x build failed (experimental)"
+            -p azul-dll --features="build-dll"
 
       - name: Upload rust9x artifact
+        if: steps.rust9x_cache.outputs.cache-matched-key != ''
         uses: actions/upload-artifact@v4
-        if: success()
         with:
           name: azul-windows-i686-rust9x
           path: |
