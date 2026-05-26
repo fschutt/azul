@@ -48,7 +48,7 @@ pub fn get_clipboard_content() -> Option<String> {
 }
 
 /// Write string to Wayland clipboard
-pub fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
+pub(crate) fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
     let clipboard = Clipboard::new().map_err(|_| ClipboardError::InitFailed)?;
 
     clipboard
@@ -77,7 +77,7 @@ fn read_from_clipboard() -> Result<String, ClipboardError> {
 }
 
 #[derive(Debug)]
-pub enum ClipboardError {
+pub(crate) enum ClipboardError {
     InitFailed,
     WriteFailed,
     ReadFailed,
