@@ -223,6 +223,12 @@ impl HttpRequestConfig {
         http_get_with_config(url.as_str(), &config).into()
     }
 
+    /// Stub: `http` feature disabled.
+    #[cfg(not(feature = "http"))]
+    pub fn http_get_default(_url: AzString) -> ResultHttpResponseHttpError {
+        ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
+    }
+
     /// HTTP GET request using this configuration
     /// 
     /// # Arguments
@@ -233,6 +239,12 @@ impl HttpRequestConfig {
     #[cfg(feature = "http")]
     pub fn http_get(&self, url: AzString) -> ResultHttpResponseHttpError {
         http_get_with_config(url.as_str(), self).into()
+    }
+
+    /// Stub: `http` feature disabled.
+    #[cfg(not(feature = "http"))]
+    pub fn http_get(&self, _url: AzString) -> ResultHttpResponseHttpError {
+        ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
     /// Download URL to bytes with default configuration
@@ -247,6 +259,12 @@ impl HttpRequestConfig {
         download_bytes(url.as_str()).into()
     }
 
+    /// Stub: `http` feature disabled.
+    #[cfg(not(feature = "http"))]
+    pub fn download_bytes_default(_url: AzString) -> ResultU8VecHttpError {
+        ResultU8VecHttpError::Err(HttpError::other("http feature not enabled".into()))
+    }
+
     /// Download URL to bytes using this configuration
     /// 
     /// # Arguments
@@ -259,6 +277,12 @@ impl HttpRequestConfig {
         download_bytes_with_config(url.as_str(), self).into()
     }
 
+    /// Stub: `http` feature disabled.
+    #[cfg(not(feature = "http"))]
+    pub fn download_bytes(&self, _url: AzString) -> ResultU8VecHttpError {
+        ResultU8VecHttpError::Err(HttpError::other("http feature not enabled".into()))
+    }
+
     /// Check if a URL is reachable (HEAD request)
     /// 
     /// # Arguments
@@ -269,6 +293,12 @@ impl HttpRequestConfig {
     #[cfg(feature = "http")]
     pub fn is_url_reachable(url: AzString) -> bool {
         is_url_reachable(url.as_str())
+    }
+
+    /// Stub: `http` feature disabled.
+    #[cfg(not(feature = "http"))]
+    pub fn is_url_reachable(_url: AzString) -> bool {
+        false
     }
 }
 
@@ -352,12 +382,24 @@ pub fn http_get(url: &str) -> HttpResult<HttpResponse> {
     http_get_with_config(url, &HttpRequestConfig::default())
 }
 
+/// Stub: `http` feature disabled.
+#[cfg(not(feature = "http"))]
+pub fn http_get(_url: &str) -> HttpResult<HttpResponse> {
+    Err(HttpError::other("http feature not enabled".into()))
+}
+
 /// HTTP GET request with TLS verification disabled
 #[cfg(feature = "http")]
 pub fn http_get_no_verify(url: &str) -> HttpResult<HttpResponse> {
     let mut config = HttpRequestConfig::default();
     config.disable_tls_cert_verification = true;
     http_get_with_config(url, &config)
+}
+
+/// Stub: `http` feature disabled.
+#[cfg(not(feature = "http"))]
+pub fn http_get_no_verify(_url: &str) -> HttpResult<HttpResponse> {
+    Err(HttpError::other("http feature not enabled".into()))
 }
 
 /// HTTP GET request with custom configuration
@@ -495,6 +537,12 @@ pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult
     })
 }
 
+/// Stub: `http` feature disabled.
+#[cfg(not(feature = "http"))]
+pub fn http_get_with_config(_url: &str, _config: &HttpRequestConfig) -> HttpResult<HttpResponse> {
+    Err(HttpError::other("http feature not enabled".into()))
+}
+
 /// Download a URL to bytes (convenience wrapper with default config)
 /// 
 /// # Arguments
@@ -505,6 +553,12 @@ pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult
 #[cfg(feature = "http")]
 pub fn download_bytes(url: &str) -> HttpResult<U8Vec> {
     download_bytes_with_config(url, &HttpRequestConfig::default())
+}
+
+/// Stub: `http` feature disabled.
+#[cfg(not(feature = "http"))]
+pub fn download_bytes(_url: &str) -> HttpResult<U8Vec> {
+    Err(HttpError::other("http feature not enabled".into()))
 }
 
 /// Download a URL to bytes with custom configuration
@@ -530,6 +584,12 @@ pub fn download_bytes_with_config(url: &str, config: &HttpRequestConfig) -> Http
     Ok(response.body)
 }
 
+/// Stub: `http` feature disabled.
+#[cfg(not(feature = "http"))]
+pub fn download_bytes_with_config(_url: &str, _config: &HttpRequestConfig) -> HttpResult<U8Vec> {
+    Err(HttpError::other("http feature not enabled".into()))
+}
+
 /// Check if a URL is reachable (HEAD request)
 /// 
 /// # Arguments
@@ -548,6 +608,12 @@ pub fn is_url_reachable(url: &str) -> bool {
         }
         Err(_) => false,
     }
+}
+
+/// Stub: `http` feature disabled.
+#[cfg(not(feature = "http"))]
+pub fn is_url_reachable(_url: &str) -> bool {
+    false
 }
 
 #[cfg(test)]

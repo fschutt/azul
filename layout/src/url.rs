@@ -144,8 +144,24 @@ impl Url {
             .map_err(|e| UrlParseError {
                 message: AzString::from(e.to_string()),
             })?;
-        
+
         Self::parse(joined.as_str())
+    }
+
+    /// Stub: `http` feature disabled (the `url` crate is gated behind `http`).
+    #[cfg(not(feature = "http"))]
+    pub fn parse(_s: &str) -> Result<Self, UrlParseError> {
+        Err(UrlParseError {
+            message: AzString::from("http feature not enabled".to_string()),
+        })
+    }
+
+    /// Stub: `http` feature disabled (the `url` crate is gated behind `http`).
+    #[cfg(not(feature = "http"))]
+    pub fn join(&self, _path: &str) -> Result<Self, UrlParseError> {
+        Err(UrlParseError {
+            message: AzString::from("http feature not enabled".to_string()),
+        })
     }
 }
 

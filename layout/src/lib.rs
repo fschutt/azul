@@ -104,10 +104,8 @@ pub use fluent::{
     FluentSyntaxError, FluentZipLoadResult, LayoutCallbackInfoFluentExt,
 };
 
-/// URL parsing (RFC 3986 compliant).
-#[cfg(feature = "http")]
+/// URL parsing (RFC 3986 compliant). Pure-Rust, always present (no TLS deps).
 pub mod url;
-#[cfg(feature = "http")]
 pub use url::{Url, UrlParseError, ResultUrlUrlParseError};
 
 /// File system operations (C-compatible wrappers for `std::fs`).
@@ -121,9 +119,8 @@ pub use file::{
 };
 
 /// HTTP client: GET/POST requests with pure-Rust TLS.
-#[cfg(feature = "http")]
+/// API surface always present (stub when off); ureq/rustls only pulled in with `http`.
 pub mod http;
-#[cfg(feature = "http")]
 pub use http::{
     download_bytes, download_bytes_with_config, http_get,
     http_get_with_config, is_url_reachable, HttpError, HttpHeader,
