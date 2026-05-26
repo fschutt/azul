@@ -61,27 +61,27 @@ for _ in $(seq 1 50); do
   sleep 0.2
 done
 
-# --- 3. ordered page list: top-level guides first, then nested (internals/…) ---
+# --- 3. plan the three-book structure -------------------------------------
+# The planner buckets pages into the three trees the website uses (Getting
+# Started / Advanced / Contributor — see guide.rs classify_tree), orders each,
+# writes a cover + per-book title+index page into <deploy>/_pdf/, and prints
+# the final ordered URL list (cover, book-1 index, book-1 pages, book-2 …).
 TMP="$(mktemp -d)"
-# Top-level guides first, then nested (internals/…). Portable to bash 3.2
-# (macOS default) — no mapfile.
-PAGES=()
-while IFS= read -r line; do [ -n "$line" ] && PAGES+=("$line"); done < <( { ls "$DEPLOY"/guide/*.html 2>/dev/null; find "$DEPLOY/guide" -mindepth 2 -name '*.html' | sort; } )
-echo "==> Rendering ${#PAGES[@]} guide pages via one persistent Chrome (CDP)..."
-
-# Render with ONE persistent headless Chrome driven over CDP (like reftest's
-# ChromeCdp). Per-page `--print-to-pdf` hangs on Chrome 148 headless=new, so
-# instead the Node driver does Page.navigate -> Page.printToPDF over a single
-# WebSocket. Build the ordered URL list; the driver writes <TMP>/NNNN.pdf.
 URLS=()
-for page in "${PAGES[@]}"; do
-  URLS+=("http://localhost:$PORT/${page#$DEPLOY/}")
-done
+while IFS= read -r u; do [ -n "$u" ] && URLS+=("$u"); done < <(
+  node "$ROOT/scripts/docs_pdf_book.mjs" "$DEPLOY" "http://localhost:$PORT" "$ROOT/doc/guide/en"
+)
+[ "${#URLS[@]}" -gt 0 ] || { echo "ERROR: planner produced no pages." >&2; exit 1; }
+echo "==> Rendering ${#URLS[@]} pages (cover + 3 books) via one persistent Chrome (CDP)..."
+
+# ONE persistent headless Chrome over CDP (like reftest's ChromeCdp) — per-page
+# `--print-to-pdf` hangs on Chrome 148 headless=new. The driver writes
+# <TMP>/NNNN.pdf in URL order.
 node "$ROOT/scripts/docs_pdf_cdp.mjs" "$CHROME" "$TMP" "${URLS[@]}"
 
-# collect produced PDFs in page order
+# collect produced PDFs in order
 PDFS=()
-for ((i = 0; i < ${#PAGES[@]}; i++)); do
+for ((i = 0; i < ${#URLS[@]}; i++)); do
   f="$(printf '%s/%04d.pdf' "$TMP" "$i")"
   [ -s "$f" ] && PDFS+=("$f")
 done
