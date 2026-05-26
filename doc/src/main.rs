@@ -9,6 +9,7 @@ use serde::Serialize;
 
 pub mod api;
 pub mod autofix;
+pub mod autotest;
 pub mod codegen;
 pub mod dllgen;
 pub mod docgen;
@@ -121,6 +122,14 @@ fn main() -> anyhow::Result<()> {
             let output_dir = project_root.join("target").join("autofix");
             let api_data = load_api_json(&api_path)?;
             autofix::autofix_api(&api_data, &project_root, &output_dir, true)?;
+            return Ok(());
+        }
+        ["autotest", rest @ ..] => {
+            // Adversarial-test-generation harness: enumerate + categorize functions,
+            // emit per-function strategies + a subagent task manifest.
+            // Usage: autotest [--crate <name>] [--file <relpath>] [--out <dir>]
+            let opts = autotest::AutotestOptions::parse(rest)?;
+            autotest::run(&project_root, &opts)?;
             return Ok(());
         }
         ["discover"] => {
