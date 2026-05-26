@@ -87731,7 +87731,7 @@
                         "repr": "C"
                     },
                     "App": {
-                        "external": "azul_dll::desktop::app::App",
+                        "external": "azul_dll::unified::app::App",
                         "custom_impls": [
                             "Default",
                             "Drop"
@@ -87763,7 +87763,7 @@
                                         "app_config": "AppConfig"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::app::App::create(initial_data, app_config)"
+                                "fn_body": "azul_dll::unified::app::App::create(initial_data, app_config)"
                             }
                         },
                         "functions": {

@@ -11,6 +11,7 @@
 //! The api.json `external` paths point here (`azul_dll::unified::<mod>::<Type>`)
 //! so the generated C-ABI bindings resolve on every target.
 
+pub mod app;
 pub mod audio;
 pub mod pdf;
 pub mod sqlite;

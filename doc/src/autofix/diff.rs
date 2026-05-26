@@ -448,17 +448,29 @@ fn resolve_api_type_name(
 /// Paths are only equivalent if they are exactly the same.
 /// We DO want to catch crate renames (e.g., azul_dll -> azul_layout).
 fn paths_are_equivalent(path1: &str, path2: &str) -> bool {
-    path1 == path2 || canonicalize_facade(path1) == canonicalize_facade(path2)
+    if path1 == path2 {
+        return true;
+    }
+    // `azul_dll::unified::*` is a pure re-export façade: it exists only so the
+    // desktop-backed public types (App, and the `extra::*` feature handles —
+    // audio, sqlite, …) have a target-stable path that also resolves on wasm,
+    // where `desktop` is `#[cfg(not(wasm32))]`. Off-wasm every `unified::…::T`
+    // is a plain `pub use` of the real `T`, so it denotes the same type the
+    // indexer found at its canonical def site. The indexer resolves types by
+    // their (unique) name, so matching crate-root + leaf type name is exact —
+    // autofix must not "fix" an api.json `unified::` path back to its source.
+    if path1.contains("::unified::") || path2.contains("::unified::") {
+        return crate_root_and_leaf(path1) == crate_root_and_leaf(path2);
+    }
+    false
 }
 
-/// Resolve the `azul_dll::unified::*` re-export façade to its real source
-/// location. `unified` exists only so the `extra::*` feature handles (audio,
-/// sqlite, …) have a target-stable path that also resolves on wasm (where
-/// `desktop` is gated off). Off-wasm it is a plain `pub use` of
-/// `desktop::extra::*`, so the two paths denote the same type — autofix must
-/// not "fix" an api.json `unified::` path back to `desktop::extra::`.
-fn canonicalize_facade(path: &str) -> String {
-    path.replace("::unified::", "::desktop::extra::")
+/// `(first path segment, last path segment)` — the crate root and leaf type
+/// name, used to match a `unified::` façade path to its real source location.
+fn crate_root_and_leaf(path: &str) -> (&str, &str) {
+    let root = path.split("::").next().unwrap_or("");
+    let leaf = path.rsplit("::").next().unwrap_or("");
+    (root, leaf)
 }
 
 // az-prefix handling
