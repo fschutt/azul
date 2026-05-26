@@ -448,7 +448,17 @@ fn resolve_api_type_name(
 /// Paths are only equivalent if they are exactly the same.
 /// We DO want to catch crate renames (e.g., azul_dll -> azul_layout).
 fn paths_are_equivalent(path1: &str, path2: &str) -> bool {
-    path1 == path2
+    path1 == path2 || canonicalize_facade(path1) == canonicalize_facade(path2)
+}
+
+/// Resolve the `azul_dll::unified::*` re-export façade to its real source
+/// location. `unified` exists only so the `extra::*` feature handles (audio,
+/// sqlite, …) have a target-stable path that also resolves on wasm (where
+/// `desktop` is gated off). Off-wasm it is a plain `pub use` of
+/// `desktop::extra::*`, so the two paths denote the same type — autofix must
+/// not "fix" an api.json `unified::` path back to `desktop::extra::`.
+fn canonicalize_facade(path: &str) -> String {
+    path.replace("::unified::", "::desktop::extra::")
 }
 
 // az-prefix handling
