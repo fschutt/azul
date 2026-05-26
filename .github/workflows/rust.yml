@@ -60,6 +60,9 @@ jobs:
         with:
           toolchain: 1.88.0
 
+      - name: Install dependencies (Ubuntu)
+        run: sudo apt-get update && sudo apt-get install -y libv4l-dev
+
       - name: Run autofix and normalize
         run: |
           cargo run -r -p azul-doc autofix
@@ -530,7 +533,7 @@ jobs:
 
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y clang lldb
+        run: sudo apt-get update && sudo apt-get install -y clang lldb libv4l-dev
 
       - name: Install dependencies (macOS)
         if: matrix.os == 'macos-14'
@@ -707,7 +710,7 @@ jobs:
 
       - name: Install clang (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev xvfb
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev xvfb libv4l-dev
 
       - name: Install MinGW (Windows)
         if: matrix.os == 'windows-2022'
