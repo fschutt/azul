@@ -526,8 +526,12 @@ _internal_deps = [
     "icu_windows",
     # Fluent localization support
     "fluent",
-    # HTTP client support (pulls in ring via rustls — requires C compiler for cross-compilation)
-    "http",
+    # NOTE: `http` (rustls + rustls-rustcrypto + the elliptic-curve/getrandom
+    # crypto stack) is deliberately NOT in the shared gate. Like db-sqlite/pdf
+    # it belongs to build-dll only, so the `link-static` mobile/cross gate — and
+    # wasm32-unknown-unknown — stay free of the crypto stack and cross-compile
+    # cleanly. Consumers that need HTTPS enable the `http` feature explicitly
+    # (e.g. azul-doc).
     # ZIP file manipulation
     "zip_support",
     # JSON support
