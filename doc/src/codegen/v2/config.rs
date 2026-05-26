@@ -666,6 +666,9 @@ impl CodegenConfig {
                 "use core::ffi::c_void;".into(),
                 "use core::ffi::c_int;".into(),
                 "use core::mem::transmute;".into(),
+                // memtest exercises SvgMultiPolygon::tessellate_fill/stroke, which
+                // are trait methods — the trait must be in scope (as dll_internal does).
+                "use azul_layout::xml::svg::SvgMultiPolygonTessellation;".into(),
             ],
             type_filter: None,
             type_exclude: BTreeSet::new(),

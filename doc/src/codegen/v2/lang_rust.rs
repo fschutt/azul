@@ -3314,17 +3314,32 @@ impl RustGenerator {
                 | FunctionKind::Method
                 | FunctionKind::MethodMut
         );
-        let args = if should_substitute_callbacks {
-            self.format_function_args_for_cabi(func, ir, config)
-        } else {
-            self.format_function_args(func, config)
-        };
         let return_str = func
             .return_type
             .as_ref()
             .map(|r| format!(" -> {}", config.apply_prefix(r)))
             .unwrap_or_default();
 
+        // Pair-pattern: a callback-wrapper arg makes the internal bindings emit
+        // a raw + `WithCtx` C-ABI pair. The external (link-dynamic) bindings
+        // must DECLARE both, otherwise references to `Az*_*WithCtx` fail to
+        // resolve (E0425) under `--features link-dynamic`.
+        if should_substitute_callbacks && Self::has_callback_wrapper_arg(func) {
+            let args_raw = self.format_function_args_for_cabi_pair_raw(func, config);
+            builder.line(&format!("pub fn {}({}){};", func.c_name, args_raw, return_str));
+            let args_ctx = self.format_function_args_for_cabi_pair_with_ctx(func, config);
+            builder.line(&format!(
+                "pub fn {}WithCtx({}){};",
+                func.c_name, args_ctx, return_str
+            ));
+            return;
+        }
+
+        let args = if should_substitute_callbacks {
+            self.format_function_args_for_cabi(func, ir, config)
+        } else {
+            self.format_function_args(func, config)
+        };
         builder.line(&format!("pub fn {}({}){};", func.c_name, args, return_str));
     }
 
