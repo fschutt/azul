@@ -13,7 +13,7 @@
 
 use std::{
     cell::{Cell, RefCell},
-    ffi::{CStr, CString, c_ulong, c_void},
+    ffi::{CStr, CString, c_char, c_ulong, c_void},
     rc::Rc,
 };
 
@@ -288,7 +288,7 @@ impl ImeManager {
     pub(super) fn lookup_string(&self, event: &mut XKeyEvent) -> (Option<String>, Option<KeySym>) {
         let mut keysym: KeySym = 0;
         let mut status: i32 = 0;
-        let mut buffer: [i8; 32] = [0; 32];
+        let mut buffer: [c_char; 32] = [0; 32];
 
         let count = unsafe {
             (self.xlib.XmbLookupString)(

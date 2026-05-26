@@ -1,7 +1,7 @@
 //! Wayland event handling and IME support.
 
 use std::{
-    ffi::{c_void, CStr},
+    ffi::{c_char, c_void, CStr},
     os::unix::io::FromRawFd,
 };
 
@@ -136,8 +136,8 @@ extern "C" fn wl_output_geometry_handler(
     _physical_width: i32,
     _physical_height: i32,
     _subpixel: i32,
-    make: *const i8,
-    model: *const i8,
+    make: *const c_char,
+    model: *const c_char,
     _transform: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
@@ -261,7 +261,7 @@ pub(super) extern "C" fn registry_global_handler(
     data: *mut c_void,
     registry: *mut wl_registry,
     name: u32,
-    interface: *const i8,
+    interface: *const c_char,
     version: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
@@ -444,7 +444,7 @@ pub(super) extern "C" fn registry_global_handler(
                     u32,
                     *const wl_interface,
                     u32,
-                    *const i8,
+                    *const c_char,
                     u32,
                     *const std::ffi::c_void,
                 ) -> *mut wl_proxy;
@@ -455,7 +455,7 @@ pub(super) extern "C" fn registry_global_handler(
                     0,                // wl_registry.bind opcode
                     std::ptr::null(), // No interface definition for KDE extension
                     name,
-                    b"org_kde_kwin_blur_manager\0".as_ptr() as *const i8,
+                    b"org_kde_kwin_blur_manager\0".as_ptr() as *const c_char,
                     1u32, // version
                     std::ptr::null::<std::ffi::c_void>(),
                 ) as *mut org_kde_kwin_blur_manager
@@ -590,9 +590,9 @@ static ZWP_TABLET_SEAT_LISTENER: zwp_tablet_seat_v2_listener = zwp_tablet_seat_v
 };
 
 // zwp_tablet_v2 descriptive events — ignored (the pen comes via the tool).
-extern "C" fn tablet_noop_name(_d: *mut c_void, _t: *mut zwp_tablet_v2, _n: *const i8) {}
+extern "C" fn tablet_noop_name(_d: *mut c_void, _t: *mut zwp_tablet_v2, _n: *const c_char) {}
 extern "C" fn tablet_noop_id(_d: *mut c_void, _t: *mut zwp_tablet_v2, _v: u32, _p: u32) {}
-extern "C" fn tablet_noop_path(_d: *mut c_void, _t: *mut zwp_tablet_v2, _p: *const i8) {}
+extern "C" fn tablet_noop_path(_d: *mut c_void, _t: *mut zwp_tablet_v2, _p: *const c_char) {}
 extern "C" fn tablet_noop_done(_d: *mut c_void, _t: *mut zwp_tablet_v2) {}
 extern "C" fn tablet_noop_removed(_d: *mut c_void, _t: *mut zwp_tablet_v2) {}
 extern "C" fn tablet_noop_bustype(_d: *mut c_void, _t: *mut zwp_tablet_v2, _b: u32) {}
@@ -721,7 +721,7 @@ pub(super) extern "C" fn seat_capabilities_handler(
 pub(super) extern "C" fn seat_name_handler(
     _data: *mut c_void,
     _seat: *mut wl_seat,
-    _name: *const i8,
+    _name: *const c_char,
 ) {
 }
 
@@ -1037,7 +1037,7 @@ extern "C" fn keyboard_repeat_info_handler(
 pub(super) fn keysym_to_virtual_keycode(keysym: xkb_keysym_t) -> Option<VirtualKeyCode> {
     // Re-use the X11 keysym mapping as they are identical
     use super::super::x11::events::keysym_to_virtual_keycode as x11_map;
-    x11_map(keysym as u64)
+    x11_map(keysym as super::super::x11::defines::KeySym)
 }
 
 // ============================================================

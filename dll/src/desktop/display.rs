@@ -597,7 +597,7 @@ mod linux {
 
         // XRandR function pointers
         type XRRGetScreenResourcesCurrentFn =
-            unsafe extern "C" fn(*mut c_void, u64) -> XRRScreenResources;
+            unsafe extern "C" fn(*mut c_void, std::os::raw::c_ulong) -> XRRScreenResources;
         type XRRFreeScreenResourcesFn = unsafe extern "C" fn(XRRScreenResources);
         type XRRGetCrtcInfoFn =
             unsafe extern "C" fn(*mut c_void, XRRScreenResources, RRCrtc) -> XRRCrtcInfo;

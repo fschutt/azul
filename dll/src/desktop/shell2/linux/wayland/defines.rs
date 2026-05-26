@@ -201,7 +201,7 @@ pub struct wl_registry_listener {
         data: *mut c_void,
         registry: *mut wl_registry,
         name: u32,
-        interface: *const i8,
+        interface: *const c_char,
         version: u32,
     ),
     pub global_remove: extern "C" fn(data: *mut c_void, registry: *mut wl_registry, name: u32),
@@ -212,7 +212,7 @@ pub struct wl_registry_listener {
 #[derive(Copy, Clone)]
 pub struct wl_seat_listener {
     pub capabilities: extern "C" fn(data: *mut c_void, seat: *mut wl_seat, capabilities: u32),
-    pub name: extern "C" fn(data: *mut c_void, seat: *mut wl_seat, name: *const i8),
+    pub name: extern "C" fn(data: *mut c_void, seat: *mut wl_seat, name: *const c_char),
 }
 
 /// Listener for `wl_pointer` events (enter, leave, motion, button, axis).

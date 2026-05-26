@@ -1017,7 +1017,7 @@ pub fn run(
     // Get window ID for registration
     let (window_id, display_ptr) = unsafe {
         match &*window_ptr {
-            LinuxWindow::X11(x11_window) => (x11_window.window, x11_window.display),
+            LinuxWindow::X11(x11_window) => (x11_window.window as u64, x11_window.display),
             LinuxWindow::Wayland(wayland_window) => {
                 // Use wl_surface pointer as window ID (unique per window).
                 // wl_display is a process-global singleton and would collide.
@@ -1120,7 +1120,7 @@ pub fn run(
                                     // Get the X11 window ID for registration
                                     let new_window_id = unsafe {
                                         if let LinuxWindow::X11(ref w) = *new_window_ptr {
-                                            w.window
+                                            w.window as u64
                                         } else {
                                             unreachable!()
                                         }

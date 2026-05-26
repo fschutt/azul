@@ -100,7 +100,7 @@ pub struct Wayland {
         unsafe extern "C" fn(*mut xdg_wm_base, *mut wl_surface) -> *mut xdg_surface,
     pub xdg_surface_get_toplevel: unsafe extern "C" fn(*mut xdg_surface) -> *mut xdg_toplevel,
     pub xdg_surface_ack_configure: unsafe extern "C" fn(*mut xdg_surface, u32),
-    pub xdg_toplevel_set_title: unsafe extern "C" fn(*mut xdg_toplevel, *const i8),
+    pub xdg_toplevel_set_title: unsafe extern "C" fn(*mut xdg_toplevel, *const c_char),
     pub xdg_toplevel_set_minimized: unsafe extern "C" fn(*mut xdg_toplevel),
     pub xdg_toplevel_set_maximized: unsafe extern "C" fn(*mut xdg_toplevel),
     pub xdg_toplevel_unset_maximized: unsafe extern "C" fn(*mut xdg_toplevel),
@@ -680,8 +680,9 @@ unsafe extern "C" fn xdg_surface_ack_configure_impl(xs: *mut xdg_surface, serial
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32) = std::mem::transmute(ctx().marshal);
     f(xs as *mut wl_proxy, 4, serial);
 }
-unsafe extern "C" fn xdg_toplevel_set_title_impl(t: *mut xdg_toplevel, title: *const i8) {
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const i8) = std::mem::transmute(ctx().marshal);
+unsafe extern "C" fn xdg_toplevel_set_title_impl(t: *mut xdg_toplevel, title: *const c_char) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const c_char) =
+        std::mem::transmute(ctx().marshal);
     f(t as *mut wl_proxy, 2, title);
 }
 unsafe extern "C" fn xdg_toplevel_set_minimized_impl(t: *mut xdg_toplevel) {

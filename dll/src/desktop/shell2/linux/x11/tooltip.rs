@@ -16,9 +16,9 @@ use azul_core::{geom::LogicalPosition, resources::DpiScaleFactor};
 use super::{defines::*, dlopen::Xlib};
 
 // Tooltip appearance constants
-const TOOLTIP_BG_COLOR: u64 = 0xFFFFF0; // Light yellow
-const TOOLTIP_BORDER_COLOR: u64 = 0x000000; // Black
-const TOOLTIP_TEXT_COLOR: u64 = 0x000000; // Black
+const TOOLTIP_BG_COLOR: std::os::raw::c_ulong = 0xFFFFF0; // Light yellow
+const TOOLTIP_BORDER_COLOR: std::os::raw::c_ulong = 0x000000; // Black
+const TOOLTIP_TEXT_COLOR: std::os::raw::c_ulong = 0x000000; // Black
 const TOOLTIP_INITIAL_WIDTH: u32 = 200;
 const TOOLTIP_INITIAL_HEIGHT: u32 = 30;
 const TOOLTIP_BORDER_WIDTH: u32 = 1;

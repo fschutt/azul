@@ -21,8 +21,8 @@ pub fn start_timerfd(
             libc::TFD_NONBLOCK | libc::TFD_CLOEXEC,
         );
         if fd >= 0 {
-            let secs = (interval_ms / 1000) as i64;
-            let nsecs = ((interval_ms % 1000) * 1_000_000) as i64;
+            let secs = (interval_ms / 1000) as libc::time_t;
+            let nsecs = ((interval_ms % 1000) * 1_000_000) as libc::c_long;
             let spec = libc::itimerspec {
                 it_interval: libc::timespec {
                     tv_sec: secs,

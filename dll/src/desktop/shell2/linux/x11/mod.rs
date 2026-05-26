@@ -26,7 +26,7 @@ pub mod tooltip;
 use std::{
     cell::RefCell,
     ffi::{c_void, CStr, CString},
-    os::raw::c_int,
+    os::raw::{c_char, c_int},
     rc::Rc,
     sync::{Arc, Condvar, Mutex},
 };
@@ -73,7 +73,7 @@ use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 use super::super::common::CSS_BREAKPOINTS;
 
 /// Fallback background color (blue) used when CPU rendering is not available.
-const CPU_FALLBACK_BG_COLOR: u64 = 0x0000FF;
+const CPU_FALLBACK_BG_COLOR: std::os::raw::c_ulong = 0x0000FF;
 
 /// X11 error handler to prevent application crashes
 ///
@@ -1277,7 +1277,7 @@ impl X11Window {
                     Ok(menu_manager) => {
                         // Try to set window properties for GNOME Shell integration
                         match menu_manager
-                            .set_window_properties(window.window, display as *mut _)
+                            .set_window_properties(window.window as u64, display as *mut _)
                         {
                             Ok(_) => {
                                 super::gnome_menu::debug_log(&format!(
@@ -2562,12 +2562,12 @@ impl X11Window {
             // Get the _NET_WM_WINDOW_OPACITY atom
             let opacity_atom = (self.xlib.XInternAtom)(
                 self.display,
-                b"_NET_WM_WINDOW_OPACITY\0".as_ptr() as *const i8,
+                b"_NET_WM_WINDOW_OPACITY\0".as_ptr() as *const c_char,
                 0, // create if doesn't exist
             );
 
             let cardinal_atom =
-                (self.xlib.XInternAtom)(self.display, b"CARDINAL\0".as_ptr() as *const i8, 0);
+                (self.xlib.XInternAtom)(self.display, b"CARDINAL\0".as_ptr() as *const c_char, 0);
 
             // Set the opacity property
             (self.xlib.XChangeProperty)(
@@ -2711,7 +2711,7 @@ impl PlatformWindow for X11Window {
 
     fn get_raw_window_handle(&self) -> RawWindowHandle {
         RawWindowHandle::Xlib(XlibHandle {
-            window: self.window,
+            window: self.window as u64,
             display: self.display as *mut c_void,
         })
     }
@@ -2725,7 +2725,7 @@ impl PlatformWindow for X11Window {
         event::InvokeSingleCallbackBorrows {
             layout_window,
             window_handle: RawWindowHandle::Xlib(XlibHandle {
-                window: self.window,
+                window: self.window as u64,
                 display: self.display as *mut c_void,
             }),
             gl_context_ptr: &self.common.gl_context_ptr,
@@ -2942,7 +2942,7 @@ impl Drop for X11Window {
         }
 
         // Unregister from global registry before closing
-        super::registry::unregister_window(self.window);
+        super::registry::unregister_window(self.window as u64);
         self.close();
     }
 }
@@ -2972,14 +2972,14 @@ impl X11Window {
                     let xic = ime_mgr.get_xic();
                     let nested = (self.xlib.XVaCreateNestedList)(
                         0,
-                        defines::XN_SPOT_LOCATION.as_ptr() as *const i8,
+                        defines::XN_SPOT_LOCATION.as_ptr() as *const c_char,
                         &spot as *const XPoint,
                         std::ptr::null::<i8>(),
                     );
                     if !nested.is_null() {
                         (self.xlib.XSetICValues)(
                             xic,
-                            defines::XN_PREEDIT_ATTRIBUTES.as_ptr() as *const i8,
+                            defines::XN_PREEDIT_ATTRIBUTES.as_ptr() as *const c_char,
                             nested,
                             std::ptr::null::<i8>(),
                         );
@@ -3014,7 +3014,7 @@ impl X11Window {
     /// `atom2_name`: optional second atom (used for maximize vert+horz).
     unsafe fn send_wm_state_change(
         &self,
-        action: i64,
+        action: std::os::raw::c_long,
         atom1_name: &[u8],
         atom2_name: Option<&[u8]>,
     ) {
@@ -3026,16 +3026,18 @@ impl X11Window {
         event.window = self.window;
         event.message_type = (self.xlib.XInternAtom)(
             self.display,
-            b"_NET_WM_STATE\0".as_ptr() as *const i8,
+            b"_NET_WM_STATE\0".as_ptr() as *const c_char,
             0,
         );
         event.format = 32;
         event.data.l[0] = action;
         event.data.l[1] =
-            (self.xlib.XInternAtom)(self.display, atom1_name.as_ptr() as *const i8, 0) as i64;
+            (self.xlib.XInternAtom)(self.display, atom1_name.as_ptr() as *const c_char, 0)
+                as std::os::raw::c_long;
         if let Some(a2) = atom2_name {
             event.data.l[2] =
-                (self.xlib.XInternAtom)(self.display, a2.as_ptr() as *const i8, 0) as i64;
+                (self.xlib.XInternAtom)(self.display, a2.as_ptr() as *const c_char, 0)
+                    as std::os::raw::c_long;
         }
         event.data.l[3] = 1;
 
@@ -3064,12 +3066,12 @@ impl X11Window {
         unsafe {
             // Get _NET_WM_STATE atom
             let net_wm_state =
-                (self.xlib.XInternAtom)(self.display, b"_NET_WM_STATE\0".as_ptr() as *const i8, 0);
+                (self.xlib.XInternAtom)(self.display, b"_NET_WM_STATE\0".as_ptr() as *const c_char, 0);
 
             // Get _NET_WM_STATE_ABOVE atom
             let net_wm_state_above = (self.xlib.XInternAtom)(
                 self.display,
-                b"_NET_WM_STATE_ABOVE\0".as_ptr() as *const i8,
+                b"_NET_WM_STATE_ABOVE\0".as_ptr() as *const c_char,
                 0,
             );
 
@@ -3092,8 +3094,8 @@ impl X11Window {
                 // First, get current state
                 let mut actual_type: Atom = 0;
                 let mut actual_format: i32 = 0;
-                let mut nitems: u64 = 0;
-                let mut bytes_after: u64 = 0;
+                let mut nitems: std::os::raw::c_ulong = 0;
+                let mut bytes_after: std::os::raw::c_ulong = 0;
                 let mut prop: *mut u8 = std::ptr::null_mut();
 
                 let result = (self.xlib.XGetWindowProperty)(

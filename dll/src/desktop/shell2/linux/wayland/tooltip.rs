@@ -198,7 +198,7 @@ impl TooltipWindow {
         }
 
         unsafe {
-            if libc::ftruncate(fd, size as i64) < 0 {
+            if libc::ftruncate(fd, size as libc::off_t) < 0 {
                 libc::close(fd);
                 return Err("Failed to resize shared memory".to_string());
             }

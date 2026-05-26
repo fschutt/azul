@@ -3,7 +3,7 @@
 //! are re-exported by the Wayland subsystem.
 
 use std::{
-    ffi::{c_void, CStr, CString},
+    ffi::{c_char, c_void, CStr, CString},
     rc::Rc,
 };
 
@@ -298,7 +298,7 @@ pub struct Xkb {
     pub xkb_keymap_new_from_names:
         unsafe extern "C" fn(*mut xkb_context, *const xkb_rule_names, u32) -> *mut xkb_keymap,
     pub xkb_keymap_new_from_string:
-        unsafe extern "C" fn(*mut xkb_context, *const i8, u32, u32) -> *mut xkb_keymap,
+        unsafe extern "C" fn(*mut xkb_context, *const c_char, u32, u32) -> *mut xkb_keymap,
     pub xkb_keymap_unref: unsafe extern "C" fn(keymap: *mut xkb_keymap),
     pub xkb_state_new: unsafe extern "C" fn(keymap: *mut xkb_keymap) -> *mut xkb_state,
     pub xkb_state_unref: unsafe extern "C" fn(state: *mut xkb_state),
