@@ -323,24 +323,28 @@ impl<'de> Deserialize<'de> for DisplayListWithCache {
                 Debug::Iframe(v) => Real::Iframe(v),
                 Debug::PushReferenceFrame(v) => Real::PushReferenceFrame(v),
                 Debug::SetFilterOps(filters) => {
+                    let filter_count = filters.len();
                     payload.filters.extend(filters);
-                    Real::SetFilterOps
+                    Real::SetFilterOps { filter_count }
                 }
                 Debug::SetFilterData(filter_data) => {
                     payload.filter_data.push(filter_data);
                     Real::SetFilterData
                 }
                 Debug::SetFilterPrimitives(filter_primitives) => {
+                    let primitive_count = filter_primitives.len();
                     payload.filter_primitives.extend(filter_primitives);
-                    Real::SetFilterPrimitives
+                    Real::SetFilterPrimitives { primitive_count }
                 }
                 Debug::SetGradientStops(stops) => {
+                    let stop_count = stops.len();
                     payload.stops.extend(stops);
-                    Real::SetGradientStops
+                    Real::SetGradientStops { stop_count }
                 }
                 Debug::SetPoints(points) => {
+                    let point_count = points.len();
                     payload.points.extend(points);
-                    Real::SetPoints
+                    Real::SetPoints { point_count }
                 }
                 Debug::RectClip(v) => Real::RectClip(v),
                 Debug::RoundedRectClip(v) => Real::RoundedRectClip(v),
@@ -652,7 +656,7 @@ impl BuiltDisplayList {
                     Debug::ClipChain(v, item.iter.cur_clip_chain_items.iter().copied().collect())
                 }
                 Real::Text(v) => Debug::Text(v, item.iter.cur_glyphs.iter().cloned().collect()),
-                Real::SetFilterOps => {
+                Real::SetFilterOps { .. } => {
                     Debug::SetFilterOps(item.iter.cur_filters.iter().cloned().collect())
                 }
                 Real::SetFilterData => {
@@ -675,13 +679,13 @@ impl BuiltDisplayList {
                         a_values: filter_data.a_values.clone(),
                     })
                 }
-                Real::SetFilterPrimitives => Debug::SetFilterPrimitives(
+                Real::SetFilterPrimitives { .. } => Debug::SetFilterPrimitives(
                     item.iter.cur_filter_primitives.iter().cloned().collect(),
                 ),
-                Real::SetGradientStops => {
+                Real::SetGradientStops { .. } => {
                     Debug::SetGradientStops(item.iter.cur_stops.iter().cloned().collect())
                 }
-                Real::SetPoints => Debug::SetPoints(item.iter.cur_points.iter().copied().collect()),
+                Real::SetPoints { .. } => Debug::SetPoints(item.iter.cur_points.iter().copied().collect()),
                 Real::RectClip(v) => Debug::RectClip(v),
                 Real::RoundedRectClip(v) => Debug::RoundedRectClip(v),
                 Real::ImageMaskClip(v) => Debug::ImageMaskClip(v),
