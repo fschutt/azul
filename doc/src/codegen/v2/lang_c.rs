@@ -13,6 +13,11 @@ use super::ir::*;
 
 /// C++ reserved keywords that need to be escaped in C headers for C++ compatibility
 const CPP_RESERVED_KEYWORDS: &[&str] = &[
+    // gcc/clang predefine `linux`/`unix` as macros (=1) on those platforms, so a
+    // field/arg named `linux` expands to `1` and breaks C compilation. Escaping
+    // to `linux_`/`unix_` is safe — field NAMES don't affect the C ABI.
+    "linux",
+    "unix",
     "alignas",
     "alignof",
     "and",
@@ -569,7 +574,7 @@ impl CGenerator {
                     let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(&field.ref_kind);
                     builder.line(&format!(
                         "{}{}{} {};",
-                        ptr_prefix, c_type, ptr_suffix, field.name
+                        ptr_prefix, c_type, ptr_suffix, escape_cpp_keyword_for_c(&field.name)
                     ));
                 }
                 builder.dedent();
@@ -658,7 +663,7 @@ impl CGenerator {
 
                 builder.line(&format!(
                     "{}{}{} {}{};",
-                    ptr_prefix, c_type, ptr_suffix, field.name, array_suffix
+                    ptr_prefix, c_type, ptr_suffix, escape_cpp_keyword_for_c(&field.name), array_suffix
                 ));
             }
 
@@ -782,7 +787,7 @@ impl CGenerator {
                 EnumVariantKind::Struct(fields) if !fields.is_empty() => {
                     for field in fields {
                         let c_type = self.rust_type_to_c_with_prefix(&field.type_name, config);
-                        builder.line(&format!("{} {};", c_type, field.name));
+                        builder.line(&format!("{} {};", c_type, escape_cpp_keyword_for_c(&field.name)));
                     }
                 }
                 _ => {}

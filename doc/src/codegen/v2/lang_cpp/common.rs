@@ -11,6 +11,10 @@ use super::super::ir::*;
 
 /// C++ reserved keywords that need to be escaped by appending underscore
 pub const CPP_RESERVED_KEYWORDS: &[&str] = &[
+    // gcc/clang predefine `linux`/`unix` as macros on those platforms — escape so
+    // a field named `linux` doesn't expand to `1` (kept in sync with lang_c).
+    "linux",
+    "unix",
     "alignas",
     "alignof",
     "and",
