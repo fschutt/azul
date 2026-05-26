@@ -1,0 +1,9 @@
+# `cross` configuration.
+#
+# Forward CC_FORCE_DISABLE into the cross build container. `aegis` (pulled by
+# turso → db-sqlite) compiles C AES via the `cc` crate by default; the i686 /
+# armv7 cross images have no usable C cross-compiler for it, so the build script
+# fails. CC_FORCE_DISABLE=1 makes aegis use its portable pure-Rust fallback, so
+# the dll cross-compiles everywhere (matches the "compile everywhere" rule).
+[build.env]
+passthrough = ["CC_FORCE_DISABLE"]

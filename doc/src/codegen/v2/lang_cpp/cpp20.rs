@@ -809,12 +809,12 @@ fn emit_method_declarations(
         let cpp_return_type = get_cpp_return_type(func.return_type.as_deref(), ir);
         let substitute = should_substitute_callbacks(func);
 
-        // C++23 deducing-`this` form for builder methods (`with_*` /
-        // `_with_*`). The declaration goes here; the matching template
-        // definition is emitted out-of-class in
-        // `generate_method_implementations_shared` (parameter types may be
-        // forward-declared at this point, so the body can't be parsed yet).
-        if standard >= CppStandard::Cpp23 && is_builder_method(func) {
+        // C++23 deducing-`this` (`this Self&&`) needs clang-18+ / very recent
+        // toolchains; the CI's clang rejects it ("expected parameter
+        // declarator"). Keep it OFF and emit the normal builder-method form even
+        // for C++23 so the generated header compiles everywhere.
+        let use_deducing_this = false;
+        if use_deducing_this && standard >= CppStandard::Cpp23 && is_builder_method(func) {
             let cpp_args = generate_args_signature_ex(
                 &func.args, ir, config, true, class_name, substitute,
             );
@@ -916,10 +916,10 @@ fn generate_method_implementations_shared(
         .filter(|f| f.class_name == *class_name)
         .filter(|f| !is_constructor_or_default(f))
     {
-        // C++23 deducing-`this` builder methods get an out-of-class template
-        // definition matching the `template<class Self>` declaration emitted
-        // by `emit_method_declarations`.
-        if dialect.standard() >= CppStandard::Cpp23 && is_builder_method(func) {
+        // Deducing-this kept OFF (see emit_method_declarations — needs clang-18+),
+        // so C++23 uses the normal builder-method definition path below.
+        let use_deducing_this = false;
+        if use_deducing_this && dialect.standard() >= CppStandard::Cpp23 && is_builder_method(func) {
             let cpp_fn_name = escape_method_name(&func.method_name);
             let cpp_return_type = get_cpp_return_type(func.return_type.as_deref(), ir);
             let substitute = should_substitute_callbacks(func);
