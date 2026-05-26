@@ -1,3 +1,4 @@
+mod agentic;
 mod apidocs;
 pub mod blog;
 pub mod donate;
@@ -88,6 +89,18 @@ pub fn generate_docs(
 
     // Generate blog index page
     docs.insert("blog.html".to_string(), blog::generate_blog_index());
+
+    // Agentic release bundle: artefacts that let a coding agent write
+    // high-quality azul apps. Built from the same guide list + api_data so
+    // they stay in sync with the rest of the site.
+    docs.insert("llms.txt".to_string(), agentic::generate_llms_txt(api_data));
+    docs.insert(
+        "llms-full.txt".to_string(),
+        agentic::generate_llms_full_txt(),
+    );
+    let skill = agentic::generate_skill_md(api_data);
+    docs.insert("skill.md".to_string(), skill.clone());
+    docs.insert(".well-known/azul-skill.md".to_string(), skill);
 
     Ok(docs)
 }
