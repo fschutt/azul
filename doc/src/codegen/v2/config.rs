@@ -657,7 +657,13 @@ impl CodegenConfig {
     pub fn memtest() -> Self {
         Self {
             target_lang: TargetLang::Rust,
-            cabi_functions: CAbiFunctionMode::InternalBindings { export_feature: "cabi_export".into() },
+            // memtest is include!d into the dll lib alongside dll_api_internal.rs,
+            // which already #[no_mangle]-exports every C-ABI fn under `cabi_export`.
+            // If memtest re-exported them too, `cargo test` (cabi_export on via the
+            // default link-static) would hit "symbol `Az..._...` is already defined".
+            // Gate memtest's fns on a NEVER-enabled feature so they stay plain `pub`
+            // (callable by the generated layout #[test]s) but not #[no_mangle].
+            cabi_functions: CAbiFunctionMode::InternalBindings { export_feature: "__memtest_no_export".into() },
             struct_mode: StructMode::Prefixed,
             trait_impl_mode: TraitImplMode::UsingCAPI,
             type_prefix: "Az".into(),

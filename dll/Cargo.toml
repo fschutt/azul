@@ -388,6 +388,11 @@ getrandom = { version = "0.2", features = ["js"] }
 # =============================================================================
 
 [features]
+# Sentinel: never enabled. memtest gates its (otherwise-duplicate) C-ABI fns on
+# this so they are not #[no_mangle] (avoids symbol clash with dll_api_internal in
+# `cargo test`). See doc CodegenConfig::memtest.
+__memtest_no_export = []
+
 # Default: Build with static linking (for Rust applications)
 # Use --features "build-dll" when building the shared library itself
 default = [
