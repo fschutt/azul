@@ -1066,7 +1066,10 @@ pub fn generate_includes(standard: CppStandard) -> String {
         code.push_str("#include <string_view>\r\n");
     }
     if standard.has_expected() {
-        code.push_str("#include <expected>\r\n");
+        // <expected> (C++23 library) may be absent even when the -std flag is
+        // accepted; the toStdExpected()/operator std::expected members are
+        // guarded by the same macro, so only pull the header when present.
+        code.push_str("#if defined(__has_include)\r\n#if __has_include(<expected>)\r\n#include <expected>\r\n#endif\r\n#endif\r\n");
     }
     if standard.has_std_function() {
         code.push_str("#include <functional>\r\n");

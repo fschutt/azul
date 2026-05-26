@@ -668,6 +668,11 @@ fn emit_cpp23_result_extras(
     };
     let c_type_name = config.apply_prefix(&struct_def.name);
 
+    // `std::expected` is C++23 library support, which lags the `-std=c++23`
+    // language flag (e.g. the CI clang accepts `-std=c++2b` but ships no
+    // <expected>). Guard the conversions on the feature-test macro so the
+    // header still compiles on a toolchain that lacks the type.
+    code.push_str("#if defined(__cpp_lib_expected)\r\n");
     code.push_str(&format!(
         "    std::expected<{ok}, {err}> toStdExpected() && {{\r\n        if (isOk()) {{\r\n            {ok} v = inner_.Ok.payload;\r\n            inner_ = {{}};\r\n            return std::expected<{ok}, {err}>(std::move(v));\r\n        }} else {{\r\n            {err} e = inner_.Err.payload;\r\n            inner_ = {{}};\r\n            return std::expected<{ok}, {err}>(std::unexpected<{err}>(std::move(e)));\r\n        }}\r\n    }}\r\n",
         ok = c_ok,
@@ -678,6 +683,7 @@ fn emit_cpp23_result_extras(
         ok = c_ok,
         err = c_err,
     ));
+    code.push_str("#endif // __cpp_lib_expected\r\n");
     let _ = c_type_name;
 }
 

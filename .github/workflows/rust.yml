@@ -566,6 +566,12 @@ jobs:
         run: ${{ matrix.timeout_cmd }} 30 ./hello-world-asan || [ $? -eq 124 ]
 
       - name: Run Miri on azul-dll
+        # azul-dll is a shell/GUI library: its unit tests legitimately touch
+        # the filesystem (config/clipboard/shell2), which Miri's default
+        # isolation forbids ("`open` not available when isolation is enabled").
+        # Disable isolation so the UB checks still run against real I/O paths.
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation
         run: cargo +nightly miri test --lib -p azul-dll -- --nocapture
 
   # Phase-C transpile blueprint smoke test (web.md Phase C).

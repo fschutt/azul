@@ -77,7 +77,7 @@ fn read_from_clipboard() -> Result<String, ClipboardError> {
 }
 
 #[derive(Debug)]
-enum ClipboardError {
+pub enum ClipboardError {
     InitFailed,
     WriteFailed,
     ReadFailed,
