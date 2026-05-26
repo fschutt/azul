@@ -4763,7 +4763,7 @@
                         "repr": "C"
                     },
                     "AudioSink": {
-                        "external": "azul_dll::desktop::extra::audio::AudioSink",
+                        "external": "azul_dll::unified::audio::AudioSink",
                         "custom_impls": [
                             "Clone",
                             "Default",
@@ -4792,7 +4792,7 @@
                                         "config": "AudioConfig"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::audio::AudioSink::open(config)"
+                                "fn_body": "azul_dll::unified::audio::AudioSink::open(config)"
                             }
                         },
                         "functions": {
@@ -57460,7 +57460,7 @@
                         "repr": "C"
                     },
                     "VideoEncoder": {
-                        "external": "azul_dll::desktop::extra::video_codec::VideoEncoder",
+                        "external": "azul_dll::unified::video_codec::VideoEncoder",
                         "custom_impls": [
                             "Clone",
                             "Default",
@@ -57498,7 +57498,7 @@
                                         "bitrate_kbps": "u32"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::video_codec::VideoEncoder::open(width, height, h265, bitrate_kbps)"
+                                "fn_body": "azul_dll::unified::video_codec::VideoEncoder::open(width, height, h265, bitrate_kbps)"
                             }
                         },
                         "functions": {
@@ -57511,7 +57511,7 @@
                                 "returns": {
                                     "type": "String"
                                 },
-                                "fn_body": "azul_dll::desktop::extra::video_codec::VideoEncoder::backend_name().into()"
+                                "fn_body": "azul_dll::unified::video_codec::VideoEncoder::backend_name().into()"
                             },
                             "is_open": {
                                 "doc": [
@@ -57579,7 +57579,7 @@
                         "repr": "C"
                     },
                     "VideoDecoder": {
-                        "external": "azul_dll::desktop::extra::video_codec::VideoDecoder",
+                        "external": "azul_dll::unified::video_codec::VideoDecoder",
                         "custom_impls": [
                             "Clone",
                             "Default",
@@ -57607,7 +57607,7 @@
                                         "h265": "bool"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::video_codec::VideoDecoder::open(h265)"
+                                "fn_body": "azul_dll::unified::video_codec::VideoDecoder::open(h265)"
                             }
                         },
                         "functions": {
@@ -89652,7 +89652,7 @@
                         "repr": "C"
                     },
                     "Db": {
-                        "external": "azul_dll::desktop::extra::sqlite::Db",
+                        "external": "azul_dll::unified::sqlite::Db",
                         "custom_impls": [
                             "Clone",
                             "Default",
@@ -89684,7 +89684,7 @@
                                         "path": "String"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::sqlite::Db::open(path)"
+                                "fn_body": "azul_dll::unified::sqlite::Db::open(path)"
                             }
                         },
                         "functions": {
@@ -89795,7 +89795,7 @@
                         "repr": "C"
                     },
                     "Pdf": {
-                        "external": "azul_dll::desktop::extra::pdf::Pdf",
+                        "external": "azul_dll::unified::pdf::Pdf",
                         "custom_impls": [
                             "Default"
                         ],
@@ -89818,7 +89818,7 @@
                                     "Construct the PDF API handle."
                                 ],
                                 "fn_args": [],
-                                "fn_body": "azul_dll::desktop::extra::pdf::Pdf::new()"
+                                "fn_body": "azul_dll::unified::pdf::Pdf::new()"
                             }
                         },
                         "functions": {
@@ -90244,7 +90244,7 @@
                         "repr": "C"
                     },
                     "Udp": {
-                        "external": "azul_dll::desktop::extra::udp::Udp",
+                        "external": "azul_dll::unified::udp::Udp",
                         "custom_impls": [
                             "Clone",
                             "Default",
@@ -90274,7 +90274,7 @@
                                         "local_addr": "String"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::udp::Udp::bind(local_addr)"
+                                "fn_body": "azul_dll::unified::udp::Udp::bind(local_addr)"
                             }
                         },
                         "functions": {

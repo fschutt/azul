@@ -1091,6 +1091,23 @@ fn collect_rust_files(files: &mut Vec<(String, PathBuf)>, crate_name: &str, dir:
 
 // file parsing
 /// Parse a single file and extract type definitions
+/// True if the item is gated behind `#[cfg(target_arch = "wasm32")]` — i.e. a
+/// platform stub that mirrors a real (non-wasm) type. The indexer skips these so
+/// they don't collide with the canonical definition as a "duplicate type name".
+fn is_wasm32_only(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|a| {
+        if !a.path().is_ident("cfg") {
+            return false;
+        }
+        if let syn::Meta::List(list) = &a.meta {
+            let s = list.tokens.to_string();
+            s.contains("target_arch") && s.contains("wasm32")
+        } else {
+            false
+        }
+    })
+}
+
 fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDefinition>, String> {
     let content = fs::read_to_string(file_path)
         .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
@@ -1108,14 +1125,22 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
             Item::Use(_) => continue,
 
             Item::Struct(s) => {
-                if let Some(typedef) = extract_struct(crate_name, &module_path, file_path, s) {
-                    types.push(typedef);
+                // Skip wasm-only platform stubs (e.g. dll/src/unified/* for the
+                // desktop-extra types): they intentionally mirror a real type by
+                // name + repr-C layout, so indexing them would raise a false
+                // "duplicate type name" against the canonical (non-wasm) def.
+                if !is_wasm32_only(&s.attrs) {
+                    if let Some(typedef) = extract_struct(crate_name, &module_path, file_path, s) {
+                        types.push(typedef);
+                    }
                 }
             }
 
             Item::Enum(e) => {
-                if let Some(typedef) = extract_enum(crate_name, &module_path, file_path, e) {
-                    types.push(typedef);
+                if !is_wasm32_only(&e.attrs) {
+                    if let Some(typedef) = extract_enum(crate_name, &module_path, file_path, e) {
+                        types.push(typedef);
+                    }
                 }
             }
 

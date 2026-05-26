@@ -127,6 +127,12 @@ extern crate azul_layout;
 #[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
 pub mod desktop;
 
+// Target-stable home for the `extra::*` feature handles (audio, video_codec,
+// sqlite, pdf, udp). Off-wasm it re-exports the real `desktop::extra::*` types;
+// on wasm it provides repr-C-identical stubs so the generated C-ABI bindings
+// resolve everywhere. UNGATED on purpose (the path must exist on every target).
+pub mod unified;
+
 // Web backend: serve the app as HTML over HTTP (AZ_BACKEND=web://ip:port)
 #[cfg(all(
     feature = "web",
