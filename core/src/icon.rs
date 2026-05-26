@@ -48,7 +48,65 @@ use core::fmt;
 use std::sync::Mutex;
 
 #[cfg(not(feature = "std"))]
-use spin::Mutex;
+use self::nostd_lock::Mutex;
+
+/// Minimal `no_std` spinlock that mirrors the slice of the `std::sync::Mutex`
+/// API actually used by this module (`new` + `lock` returning a `Result`).
+#[cfg(not(feature = "std"))]
+mod nostd_lock {
+    use core::cell::UnsafeCell;
+    use core::ops::{Deref, DerefMut};
+    use core::sync::atomic::{AtomicBool, Ordering};
+
+    pub struct Mutex<T> {
+        locked: AtomicBool,
+        data: UnsafeCell<T>,
+    }
+
+    unsafe impl<T: Send> Send for Mutex<T> {}
+    unsafe impl<T: Send> Sync for Mutex<T> {}
+
+    pub struct MutexGuard<'a, T> {
+        lock: &'a Mutex<T>,
+    }
+
+    impl<T> Mutex<T> {
+        pub fn new(data: T) -> Self {
+            Mutex { locked: AtomicBool::new(false), data: UnsafeCell::new(data) }
+        }
+
+        /// Returns `Ok(guard)` to mirror `std::sync::Mutex::lock`. Never poisons.
+        pub fn lock(&self) -> Result<MutexGuard<'_, T>, core::convert::Infallible> {
+            while self
+                .locked
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_err()
+            {
+                core::hint::spin_loop();
+            }
+            Ok(MutexGuard { lock: self })
+        }
+    }
+
+    impl<'a, T> Deref for MutexGuard<'a, T> {
+        type Target = T;
+        fn deref(&self) -> &T {
+            unsafe { &*self.lock.data.get() }
+        }
+    }
+
+    impl<'a, T> DerefMut for MutexGuard<'a, T> {
+        fn deref_mut(&mut self) -> &mut T {
+            unsafe { &mut *self.lock.data.get() }
+        }
+    }
+
+    impl<'a, T> Drop for MutexGuard<'a, T> {
+        fn drop(&mut self) {
+            self.lock.locked.store(false, Ordering::Release);
+        }
+    }
+}
 
 use azul_css::{AzString, system::SystemStyle};
 
@@ -525,7 +583,7 @@ fn apply_multi_node_replacement(
     
     if replacement_len > 1 {
         // TODO: Full subtree splicing requires inserting nodes into arrays
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, feature = "std"))]
         eprintln!(
             "Warning: Icon replacement has {} nodes, only root node used.",
             replacement_len

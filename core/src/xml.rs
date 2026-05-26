@@ -5575,9 +5575,9 @@ impl CssMatcher {
     fn get_hash(&self) -> u64 {
         use core::hash::Hash;
 
-        use std::hash::Hasher;
+        use core::hash::Hasher;
 
-        let mut hasher = std::hash::DefaultHasher::new();
+        let mut hasher = crate::hash::DefaultHasher::new();
         for p in self.path.iter() {
             p.hash(&mut hasher);
         }

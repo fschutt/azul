@@ -464,8 +464,8 @@ impl ::core::fmt::Debug for StyleFontFamilyHash {
 impl StyleFontFamilyHash {
     /// Computes a 64-bit hash of a font family for cache lookups.
     pub fn new(family: &StyleFontFamily) -> Self {
-        use std::hash::Hasher;
-        let mut hasher = std::hash::DefaultHasher::new();
+        use core::hash::Hasher;
+        let mut hasher = crate::hash::DefaultHasher::new();
         family.hash(&mut hasher);
         Self(hasher.finish())
     }
@@ -484,8 +484,8 @@ impl ::core::fmt::Debug for StyleFontFamiliesHash {
 impl StyleFontFamiliesHash {
     /// Computes a 64-bit hash of multiple font families for cache lookups.
     pub fn new(families: &[StyleFontFamily]) -> Self {
-        use std::hash::Hasher;
-        let mut hasher = std::hash::DefaultHasher::new();
+        use core::hash::Hasher;
+        let mut hasher = crate::hash::DefaultHasher::new();
         for f in families.iter() {
             f.hash(&mut hasher);
         }
@@ -1013,7 +1013,7 @@ impl StyledDom {
     ) -> Self {
         use crate::dom::EventFilter;
 
-        static CASCADE_BREAKDOWN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        static CASCADE_BREAKDOWN: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
         let cascade_dbg = *CASCADE_BREAKDOWN.get_or_init(crate::profile::memory_enabled);
 
         let node_count = compact_dom.len();
@@ -1090,10 +1090,13 @@ impl StyledDom {
         css_property_cache.prune_compact_normal_props();
         if let Some(pre) = pre_prune {
             let post = css_property_cache.memory_breakdown();
+            #[cfg(feature = "std")]
             eprintln!("[PRUNE] css_props {} → {} KiB  cascaded {} → {} KiB  (saved {} KiB)",
                 pre.css_props_bytes / 1024, post.css_props_bytes / 1024,
                 pre.cascaded_props_bytes / 1024, post.cascaded_props_bytes / 1024,
                 (pre.total_bytes().saturating_sub(post.total_bytes())) / 1024);
+            #[cfg(not(feature = "std"))]
+            let _ = post;
         }
 
         let tag_ids = css_property_cache.generate_tag_ids(
@@ -1103,11 +1106,14 @@ impl StyledDom {
 
         if cascade_dbg {
             let bd = css_property_cache.memory_breakdown();
+            #[cfg(feature = "std")]
             eprintln!("[CASCADE] {} nodes  cascaded_props={} KiB  css_props={} KiB  compact={} KiB  computed={} KiB  total={} KiB",
                 node_count,
                 bd.cascaded_props_bytes / 1024, bd.css_props_bytes / 1024,
                 bd.compact_cache_bytes / 1024, bd.computed_values_bytes / 1024,
                 bd.total_bytes() / 1024);
+            #[cfg(not(feature = "std"))]
+            let _ = bd;
         }
 
         // Collect callback/dataset nodes in a single pass (avoids 3 separate 50K scans).

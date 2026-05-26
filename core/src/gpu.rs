@@ -19,7 +19,10 @@
 //! update events to send to the GPU.
 
 use alloc::vec::Vec;
+#[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::collections::BTreeMap as HashMap;
 use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use azul_css::props::style::StyleTransformOrigin;

@@ -710,7 +710,7 @@ pub struct CssPropertyCache {
     /// the root's font-size (for `rem`), multiplying the walk
     /// count. Caching the pre-resolved pixel value collapses that
     /// to a single `Vec<f32>` indexed lookup.
-    pub resolved_font_sizes_px: std::sync::OnceLock<Vec<f32>>,
+    pub resolved_font_sizes_px: crate::sync::OnceLock<Vec<f32>>,
 }
 
 /// Heap-size breakdown of a `CssPropertyCache`, produced by
@@ -824,6 +824,8 @@ impl CssPropertyCache {
     pub fn prune_compact_normal_props(&mut self) {
         use azul_css::dynamic_selector::PseudoStateType;
 
+        #[cfg(feature = "std")]
+        {
         static PRUNE_DBG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         let dbg = *PRUNE_DBG.get_or_init(crate::profile::memory_enabled);
         if dbg {
@@ -854,6 +856,7 @@ impl CssPropertyCache {
             }
             eprintln!("[PRUNE] css_props: norm+compact={} norm+other={} nonnorm={} SSP={}B | cascaded: total={} norm+compact={}",
                 normal_compact, normal_noncompact, nonnormal, ssp_sz, casc_total, casc_normal_compact);
+        }
         }
 
         // The compact cache stores SENTINEL for pixel-valued properties whose inner
@@ -1701,7 +1704,7 @@ impl CssPropertyCache {
             computed_values: Vec::new(),
             compact_cache: None,
             global_css_props: Vec::new(),
-            resolved_font_sizes_px: std::sync::OnceLock::new(),
+            resolved_font_sizes_px: crate::sync::OnceLock::new(),
         }
     }
 
@@ -1711,7 +1714,7 @@ impl CssPropertyCache {
     /// [`crate::styled_dom::StyledDom::resolved_font_size_px`] call
     /// repopulates via a single bottom-up tree walk.
     pub fn invalidate_resolved_font_sizes(&mut self) {
-        self.resolved_font_sizes_px = std::sync::OnceLock::new();
+        self.resolved_font_sizes_px = crate::sync::OnceLock::new();
     }
 
     pub fn append(&mut self, other: &mut Self) {
@@ -1722,7 +1725,7 @@ impl CssPropertyCache {
 
         self.node_count += other.node_count;
         // Indices shifted — invalidate the font-size cache too.
-        self.resolved_font_sizes_px = std::sync::OnceLock::new();
+        self.resolved_font_sizes_px = crate::sync::OnceLock::new();
 
         // Invalidate compact cache since node IDs shifted
         self.compact_cache = None;
@@ -1878,20 +1881,26 @@ impl CssPropertyCache {
         // the naive check added ~70 ms of pure noise to every
         // single layout, regardless of whether the env var was set.
         // Using a one-time cached bool removes that overhead.
-        static PROP_COUNT_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let enabled = *PROP_COUNT_ENABLED.get_or_init(crate::profile::cascade_enabled);
-        if enabled {
-            // `try_with` (not `with`): the lifted-to-wasm web backend has no
-            // real TLS, so `with` would hit `panic_access_error` (the layout
-            // path reads CSS props via these getters → would trap). `try_with`
-            // returns Err and we skip the profiling-only increment (and its
-            // inner Mutex-guarded label table). Desktop behaviour unchanged —
-            // when the env var is unset the whole block is gated off anyway.
-            let _ = PROP_COUNTS.try_with(|c| {
-                *c.borrow_mut()
-                    .entry(Self::css_prop_type_label(css_property_type))
-                    .or_insert(0) += 1;
-            });
+        //
+        // `no_std` builds have no thread-locals / env, so the profiling
+        // counter is compiled out entirely.
+        #[cfg(feature = "std")]
+        {
+            static PROP_COUNT_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            let enabled = *PROP_COUNT_ENABLED.get_or_init(crate::profile::cascade_enabled);
+            if enabled {
+                // `try_with` (not `with`): the lifted-to-wasm web backend has no
+                // real TLS, so `with` would hit `panic_access_error` (the layout
+                // path reads CSS props via these getters → would trap). `try_with`
+                // returns Err and we skip the profiling-only increment (and its
+                // inner Mutex-guarded label table). Desktop behaviour unchanged —
+                // when the env var is unset the whole block is gated off anyway.
+                let _ = PROP_COUNTS.try_with(|c| {
+                    *c.borrow_mut()
+                        .entry(Self::css_prop_type_label(css_property_type))
+                        .or_insert(0) += 1;
+                });
+            }
         }
 
         // Always use full cascade resolution.
@@ -1900,6 +1909,7 @@ impl CssPropertyCache {
         self.get_property_slow(node_data, node_id, node_state, css_property_type)
     }
 
+    #[cfg(feature = "std")]
     fn css_prop_type_label(t: &CssPropertyType) -> &'static str {
         // Intern Debug-format labels under a mutex-guarded map so
         // we leak at most one `&'static str` per distinct

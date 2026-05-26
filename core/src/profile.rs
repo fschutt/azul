@@ -50,6 +50,7 @@
 //!   available. The probe module detects WASM at compile time and
 //!   forces the no-op impl.
 
+#[cfg(feature = "std")]
 use std::sync::OnceLock;
 
 /// Set of active `AZ_PROFILE` tokens. Parsed once from the env var.
@@ -86,6 +87,7 @@ impl ProfileFlags {
     }
 }
 
+#[cfg(feature = "std")]
 #[inline]
 pub fn flags() -> ProfileFlags {
     static FLAGS: OnceLock<ProfileFlags> = OnceLock::new();
@@ -96,13 +98,29 @@ pub fn flags() -> ProfileFlags {
     })
 }
 
+/// `no_std` builds have no environment; profiling is always off.
+#[cfg(not(feature = "std"))]
+#[inline]
+pub fn flags() -> ProfileFlags {
+    let _ = ProfileFlags::parse;
+    ProfileFlags::default()
+}
+
 /// `AZ_PROFILE_OUT=<path>` — destination for JSONL heap probes.
 /// Returns `None` if unset. Cached on first access.
+#[cfg(feature = "std")]
 #[inline]
 pub fn out_path() -> Option<&'static str> {
     static PATH: OnceLock<Option<String>> = OnceLock::new();
     PATH.get_or_init(|| std::env::var("AZ_PROFILE_OUT").ok())
         .as_deref()
+}
+
+/// `no_std` builds have no environment; no output path.
+#[cfg(not(feature = "std"))]
+#[inline]
+pub fn out_path() -> Option<&'static str> {
+    None
 }
 
 #[inline]

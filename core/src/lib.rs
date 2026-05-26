@@ -55,6 +55,172 @@ pub mod debug;
 pub mod db;
 /// Unified `AZ_PROFILE` gate for memory and CPU profiling instrumentation.
 pub mod profile;
+/// `no_std`-friendly synchronization primitives.
+///
+/// In `std` builds these re-export the matching `std::sync` types. In
+/// `no_std` builds they provide minimal spinlock-backed equivalents
+/// implementing only the API surface azul-core relies on.
+pub mod sync {
+    #[cfg(feature = "std")]
+    pub use std::sync::OnceLock;
+
+    #[cfg(not(feature = "std"))]
+    pub use self::nostd::OnceLock;
+
+    #[cfg(not(feature = "std"))]
+    mod nostd {
+        use core::cell::UnsafeCell;
+        use core::sync::atomic::{AtomicU8, Ordering};
+
+        const UNINIT: u8 = 0;
+        const BUSY: u8 = 1;
+        const READY: u8 = 2;
+
+        /// Minimal `no_std` `OnceLock` mirroring the slice of the std API used
+        /// by azul-core (`new`, `get`, `get_or_init`).
+        pub struct OnceLock<T> {
+            state: AtomicU8,
+            value: UnsafeCell<Option<T>>,
+        }
+
+        unsafe impl<T: Send + Sync> Sync for OnceLock<T> {}
+        unsafe impl<T: Send> Send for OnceLock<T> {}
+
+        impl<T> OnceLock<T> {
+            pub const fn new() -> Self {
+                OnceLock { state: AtomicU8::new(UNINIT), value: UnsafeCell::new(None) }
+            }
+
+            pub fn get(&self) -> Option<&T> {
+                if self.state.load(Ordering::Acquire) == READY {
+                    unsafe { (*self.value.get()).as_ref() }
+                } else {
+                    None
+                }
+            }
+
+            pub fn get_or_init<F: FnOnce() -> T>(&self, f: F) -> &T {
+                if let Some(v) = self.get() {
+                    return v;
+                }
+                // Contend for the right to initialize.
+                while self
+                    .state
+                    .compare_exchange(UNINIT, BUSY, Ordering::Acquire, Ordering::Acquire)
+                    .is_err()
+                {
+                    if self.state.load(Ordering::Acquire) == READY {
+                        return self.get().expect("OnceLock ready");
+                    }
+                    core::hint::spin_loop();
+                }
+                unsafe {
+                    *self.value.get() = Some(f());
+                }
+                self.state.store(READY, Ordering::Release);
+                self.get().expect("OnceLock initialized")
+            }
+        }
+
+        impl<T> Default for OnceLock<T> {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        impl<T: core::fmt::Debug> core::fmt::Debug for OnceLock<T> {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_tuple("OnceLock").field(&self.get()).finish()
+            }
+        }
+
+        impl<T: Clone> Clone for OnceLock<T> {
+            fn clone(&self) -> Self {
+                let new = OnceLock::new();
+                if let Some(v) = self.get() {
+                    let _ = new.get_or_init(|| v.clone());
+                }
+                new
+            }
+        }
+
+        impl<T: PartialEq> PartialEq for OnceLock<T> {
+            fn eq(&self, other: &Self) -> bool {
+                self.get() == other.get()
+            }
+        }
+    }
+}
+
+/// `no_std`-friendly default hasher used for change-detection hashing.
+///
+/// In `std` builds this re-exports `std::hash::DefaultHasher` so behaviour
+/// is unchanged. In `no_std` builds it provides a small deterministic
+/// `FxHasher`-style hasher implementing `core::hash::Hasher`. The values are
+/// only required to be stable within a single process run (they back diffing /
+/// change detection), not to match `std`'s SipHash output.
+pub mod hash {
+    #[cfg(feature = "std")]
+    pub use std::hash::DefaultHasher;
+
+    #[cfg(not(feature = "std"))]
+    pub use self::nostd::DefaultHasher;
+
+    #[cfg(not(feature = "std"))]
+    mod nostd {
+        use core::hash::Hasher;
+
+        const SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+        const ROTATE: u32 = 5;
+
+        /// FxHasher-style `no_std` hasher. Not DoS-resistant; used purely for
+        /// in-process change detection.
+        #[derive(Default)]
+        pub struct DefaultHasher {
+            hash: u64,
+        }
+
+        impl DefaultHasher {
+            pub fn new() -> Self {
+                DefaultHasher { hash: 0 }
+            }
+
+            #[inline]
+            fn add(&mut self, word: u64) {
+                self.hash = (self.hash.rotate_left(ROTATE) ^ word).wrapping_mul(SEED);
+            }
+        }
+
+        impl Hasher for DefaultHasher {
+            #[inline]
+            fn finish(&self) -> u64 {
+                self.hash
+            }
+
+            #[inline]
+            fn write(&mut self, bytes: &[u8]) {
+                for chunk in bytes.chunks(8) {
+                    let mut buf = [0u8; 8];
+                    buf[..chunk.len()].copy_from_slice(chunk);
+                    self.add(u64::from_le_bytes(buf));
+                }
+            }
+
+            #[inline]
+            fn write_u8(&mut self, i: u8) {
+                self.add(i as u64);
+            }
+            #[inline]
+            fn write_u64(&mut self, i: u64) {
+                self.add(i);
+            }
+            #[inline]
+            fn write_usize(&mut self, i: usize) {
+                self.add(i as u64);
+            }
+        }
+    }
+}
 /// Callback types: layout, event, timer, thread, and focus handling.
 #[macro_use]
 pub mod callbacks;

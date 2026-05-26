@@ -2587,8 +2587,8 @@ impl NodeData {
     /// ```
     #[inline]
     pub fn set_key<K: core::hash::Hash>(&mut self, key: K) {
-        use std::hash::Hasher;
-        let mut hasher = std::hash::DefaultHasher::new();
+        use core::hash::Hasher;
+        let mut hasher = crate::hash::DefaultHasher::new();
         key.hash(&mut hasher);
         self.extra
             .get_or_insert_with(|| Box::new(NodeDataExt::default()))
@@ -2733,8 +2733,8 @@ impl NodeData {
 
     /// Calculates a deterministic node hash for this node.
     pub fn calculate_node_data_hash(&self) -> DomNodeHash {
-        use std::hash::Hasher;
-        let mut hasher = std::hash::DefaultHasher::new();
+        use core::hash::Hasher;
+        let mut hasher = crate::hash::DefaultHasher::new();
         self.hash(&mut hasher);
         let h = hasher.finish();
         DomNodeHash { inner: h }
@@ -2752,10 +2752,10 @@ impl NodeData {
     /// This allows a Text("Hello") node to match Text("Hello World") during reconciliation,
     /// preserving cursor position and selection state.
     pub fn calculate_structural_hash(&self) -> DomNodeHash {
-        use std::hash::Hasher;
+        use core::hash::Hasher;
         use core::hash::Hasher as StdHasher;
 
-        let mut hasher = std::hash::DefaultHasher::new();
+        let mut hasher = crate::hash::DefaultHasher::new();
 
         // Hash node type discriminant only, not content
         // This means Text("A") and Text("B") have the same structural hash

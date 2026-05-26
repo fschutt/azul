@@ -75,8 +75,8 @@ impl Menu {
     /// This is used to detect changes in menu structure for caching and optimization.
     #[must_use]
     pub fn get_hash(&self) -> u64 {
-        use std::hash::Hasher;
-        let mut hasher = std::hash::DefaultHasher::new();
+        use core::hash::Hasher;
+        let mut hasher = crate::hash::DefaultHasher::new();
         self.hash(&mut hasher);
         hasher.finish()
     }

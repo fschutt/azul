@@ -16,7 +16,8 @@ use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
 use azul_css::props::layout::flex::LayoutFlexBasis;
 use azul_css::props::layout::position::LayoutZIndex;
 use core::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
+use alloc::vec::Vec;
+use crate::hash::DefaultHasher;
 
 impl CssPropertyCache {
     /// Build a CompactLayoutCache from the current property cache state.

@@ -10,6 +10,7 @@
 //! These types are consumed by `layout/src/managers/a11y.rs` and mapped to
 //! platform accessibility backends in `dll/src/desktop/shell2/`.
 
+use alloc::vec::Vec;
 use azul_css::{
     AzString, OptionF32, OptionString,
     props::basic::length::FloatValue,

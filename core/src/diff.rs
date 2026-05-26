@@ -12,7 +12,7 @@
 //! 5. **Structural Hash Match:** For text nodes, match by structural hash (ignoring content).
 //! 6. **Fallback:** Anything not matched is a `Mount` (new) or `Unmount` (old leftovers).
 
-use alloc::{collections::BTreeMap, collections::VecDeque, string::String, vec::Vec};
+use alloc::{collections::BTreeMap, collections::VecDeque, string::{String, ToString}, vec::Vec};
 use core::hash::Hash;
 
 use azul_css::props::property::{CssPropertyType, RelayoutScope};
@@ -190,9 +190,9 @@ pub fn compute_node_changes(
         (NodeType::Image(old_img), NodeType::Image(new_img)) => {
             // Use Hash-based comparison (pointer identity for decoded images,
             // callback identity for callback images)
-            use std::hash::Hasher;
+            use core::hash::Hasher;
             let hash_img = |img: &crate::resources::ImageRef| -> u64 {
-                let mut h = std::hash::DefaultHasher::new();
+                let mut h = crate::hash::DefaultHasher::new();
                 img.hash(&mut h);
                 h.finish()
             };
@@ -343,14 +343,14 @@ pub fn calculate_reconciliation_key(
     // Priority 2: CSS ID
     for attr in node.attributes().as_ref().iter() {
         if let Some(id) = attr.as_id() {
-            let mut hasher = std::hash::DefaultHasher::new();
+            let mut hasher = crate::hash::DefaultHasher::new();
             id.hash(&mut hasher);
             return hasher.finish();
         }
     }
 
     // Priority 3: Structural key = (node type, classes, nth-of-type, parent key)
-    let mut hasher = std::hash::DefaultHasher::new();
+    let mut hasher = crate::hash::DefaultHasher::new();
 
     core::mem::discriminant(node.get_node_type()).hash(&mut hasher);
     for attr in node.attributes().as_ref().iter() {
@@ -843,7 +843,7 @@ pub fn calculate_contenteditable_key(
     hierarchy: &[crate::styled_dom::NodeHierarchyItem],
     node_id: NodeId,
 ) -> u64 {
-    use std::hash::Hasher;
+    use core::hash::Hasher;
     
     let node = &node_data[node_id.index()];
     
@@ -855,14 +855,14 @@ pub fn calculate_contenteditable_key(
     // Priority 2: CSS ID
     for attr in node.attributes().as_ref().iter() {
         if let Some(id) = attr.as_id() {
-            let mut hasher = std::hash::DefaultHasher::new(); // Different seed for ID keys
+            let mut hasher = crate::hash::DefaultHasher::new(); // Different seed for ID keys
             hasher.write(id.as_bytes());
             return hasher.finish();
         }
     }
     
     // Priority 3: Structural key = (nth-of-type, classes, parent_key)
-    let mut hasher = std::hash::DefaultHasher::new(); // Different seed for structural keys
+    let mut hasher = crate::hash::DefaultHasher::new(); // Different seed for structural keys
     
     // Get parent and calculate its key recursively
     let parent_key = if let Some(parent_id) = hierarchy.get(node_id.index()).and_then(|h| h.parent_id()) {
@@ -1437,19 +1437,19 @@ impl Default for NodeDataFingerprint {
 impl NodeDataFingerprint {
     /// Compute a fingerprint from a node's data and styled state.
     pub fn compute(node: &NodeData, styled_state: Option<&StyledNodeState>) -> Self {
-        use std::hash::Hasher;
+        use core::hash::Hasher;
         use core::hash::Hash;
 
         // Content hash
         let content_hash = {
-            let mut h = std::hash::DefaultHasher::new();
+            let mut h = crate::hash::DefaultHasher::new();
             node.get_node_type().hash(&mut h);
             h.finish()
         };
 
         // State hash
         let state_hash = {
-            let mut h = std::hash::DefaultHasher::new();
+            let mut h = crate::hash::DefaultHasher::new();
             if let Some(state) = styled_state {
                 state.hash(&mut h);
             }
@@ -1460,7 +1460,7 @@ impl NodeDataFingerprint {
         // CssPropertyWithConditions::hash that hashed both property and the
         // condition vec length).
         let inline_css_hash = {
-            let mut h = std::hash::DefaultHasher::new();
+            let mut h = crate::hash::DefaultHasher::new();
             for (prop, conds) in node.style.iter_inline_properties() {
                 prop.hash(&mut h);
                 conds.as_slice().len().hash(&mut h);
@@ -1470,7 +1470,7 @@ impl NodeDataFingerprint {
 
         // IDs and classes hash (now stored in attributes)
         let ids_classes_hash = {
-            let mut h = std::hash::DefaultHasher::new();
+            let mut h = crate::hash::DefaultHasher::new();
             for attr in node.attributes().as_ref().iter() {
                 match attr {
                     crate::dom::AttributeType::Id(s) => {
@@ -1487,7 +1487,7 @@ impl NodeDataFingerprint {
 
         // Callbacks hash
         let callbacks_hash = {
-            let mut h = std::hash::DefaultHasher::new();
+            let mut h = crate::hash::DefaultHasher::new();
             for cb in node.callbacks.as_ref().iter() {
                 cb.event.hash(&mut h);
                 cb.callback.hash(&mut h);
@@ -1497,7 +1497,7 @@ impl NodeDataFingerprint {
 
         // Attributes hash
         let attrs_hash = {
-            let mut h = std::hash::DefaultHasher::new();
+            let mut h = crate::hash::DefaultHasher::new();
             node.is_contenteditable().hash(&mut h);
             node.flags.hash(&mut h);
             node.get_dataset().hash(&mut h);
