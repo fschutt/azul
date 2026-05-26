@@ -28,7 +28,12 @@ mod xml_compilation_tests {
         // Check that output contains expected Rust code patterns
         assert!(rust_code.contains("fn main()"));
         assert!(rust_code.contains("pub fn render() -> Dom"));
-        assert!(rust_code.contains("use azul::dom::Dom"));
+        // Invariant: the generated code imports `Dom` from azul's `dom`
+        // module. The generator emits a grouped `use azul::{ .., dom::Dom, .. }`
+        // (idiomatic) rather than a flat `use azul::dom::Dom;`, so assert the
+        // import path that holds for both forms.
+        assert!(rust_code.contains("use azul::"));
+        assert!(rust_code.contains("dom::Dom"));
         // Text content will be in Dom::create_text() calls
         assert!(rust_code.contains("Dom::text") || rust_code.contains("Hello World"));
     }

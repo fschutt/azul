@@ -237,12 +237,18 @@ const fn translate_log_level(log_level: AppLogLevel) -> log::LevelFilter {
 /// - Windows: `shell2/windows/system_style.rs` (LoadLibrary + User32/Dwmapi)
 /// - Linux: `shell2/linux/system_style.rs` (D-Bus + gsettings)
 pub(crate) fn discover_system_style() -> azul_css::system::SystemStyle {
-    #[cfg(target_os = "macos")]
+    // Under Miri the platform `discover()` paths spawn external tools
+    // (gsettings / dlopen AppKit / LoadLibrary), which Miri cannot emulate
+    // ("can't call foreign function ..."). Fall back to the pure-Rust default
+    // so `App::create` — and every test that builds an App — works under Miri.
+    #[cfg(miri)]
+    { azul_css::system::SystemStyle::detect() }
+    #[cfg(all(not(miri), target_os = "macos"))]
     { crate::desktop::shell2::macos::system_style::discover() }
-    #[cfg(target_os = "windows")]
+    #[cfg(all(not(miri), target_os = "windows"))]
     { crate::desktop::shell2::windows::system_style::discover() }
-    #[cfg(target_os = "linux")]
+    #[cfg(all(not(miri), target_os = "linux"))]
     { crate::desktop::shell2::linux::system_style::discover() }
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    #[cfg(all(not(miri), not(any(target_os = "macos", target_os = "windows", target_os = "linux"))))]
     { azul_css::system::SystemStyle::detect() }
 }
