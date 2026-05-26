@@ -46,6 +46,16 @@ azul-css = { path = "css" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
 printpdf = { git = "https://github.com/fschutt/printpdf", branch = "azul-0.0.9-html" }
+# turso (SQLite engine for db-sqlite) pulls io-uring on Linux, which has no
+# prebuilt bindings for i686/armv7/s390x. Fork gates io-uring to 64-bit Linux
+# (falls back to UnixIO elsewhere); upstream "io-uring optional" later. All six
+# workspace crates share one git source. branch=no-io-uring-optional.
+turso = { git = "https://github.com/fschutt/turso", branch = "no-io-uring-optional" }
+turso_core = { git = "https://github.com/fschutt/turso", branch = "no-io-uring-optional" }
+turso_ext = { git = "https://github.com/fschutt/turso", branch = "no-io-uring-optional" }
+turso_macros = { git = "https://github.com/fschutt/turso", branch = "no-io-uring-optional" }
+turso_parser = { git = "https://github.com/fschutt/turso", branch = "no-io-uring-optional" }
+turso_sqlite3_parser = { git = "https://github.com/fschutt/turso", branch = "no-io-uring-optional" }
 
 [profile.release]
 opt-level = 3
