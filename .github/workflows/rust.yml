@@ -42,13 +42,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# `aegis` (via turso → db-sqlite) compiles C AES with the `cc` crate by default,
-# which breaks cross-builds (i686/armv7 have no usable C cross-compiler for it).
-# Force its pure-Rust fallback for all jobs; Cross.toml passes this into the
-# cross build containers too.
-env:
-  CC_FORCE_DISABLE: "1"
-
 jobs:
   # =============================================================================
   # CI Jobs - Run on push, PR, or manual 'ci' mode
