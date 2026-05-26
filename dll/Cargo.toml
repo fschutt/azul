@@ -371,6 +371,13 @@ brotli = "8"
 # no-ops when that's off.
 cc = { version = "1.0", optional = true }
 
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+# A transitive getrandom 0.2 (via uuid / fluent / rand etc.) `compile_error!`s on
+# wasm32-unknown-unknown unless its `js` backend is enabled. Pull it in here with
+# `js` so feature-unification turns it on and azul-dll cross-checks for the web
+# target. (Runtime uses the JS Crypto API in the browser.)
+getrandom = { version = "0.2", features = ["js"] }
+
 # =============================================================================
 # Features
 # =============================================================================
