@@ -517,7 +517,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // CSS stylesheet with :dragging and :drag-over pseudo-class selectors.
     // These verify that the CSS parser handles drag pseudo-classes and that
     // the StyledNodeState.dragging / .drag_over flags drive CSS property resolution.
-    AzCss css = AzCss_fromString(AZ_STR(
+    AzString css_str = AZ_STR(
         ".drag-box:dragging { "
         "  background: #2563eb; "
         "  opacity: 0.75; "
@@ -528,9 +528,9 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "  border-color: #34d399; "
         "  color: #6ee7b7; "
         "} "
-    ));
+    );
 
-    return AzDom_style(body, css);
+    return AzDom_withCss(body, css_str);
 }
 
 // ── Main ────────────────────────────────────────────────────────────────

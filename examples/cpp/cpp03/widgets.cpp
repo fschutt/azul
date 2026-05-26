@@ -30,7 +30,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.add_child(title);
     body.add_child(button);
 
-    return body.style(Css::empty()).release();
+    return body.release();
 }
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {

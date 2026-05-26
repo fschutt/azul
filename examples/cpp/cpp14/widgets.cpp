@@ -39,7 +39,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.add_child(std::move(title));
     body.add_child(std::move(button));
 
-    return body.style(Css::empty()).release();
+    return std::move(body);
 }
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {

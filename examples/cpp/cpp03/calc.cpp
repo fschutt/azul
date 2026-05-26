@@ -74,7 +74,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.add_child(display);
     body.add_child(buttons);
     
-    return body.style(Css::empty()).release();
+    return body.release();
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {

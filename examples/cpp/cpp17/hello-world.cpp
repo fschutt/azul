@@ -42,8 +42,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         .with_child(Button::create("Increase counter"sv)
             .with_button_type(AzButtonType_Primary)
             .with_on_click(RefAny(on_click_data), on_click)
-            .dom())
-        .style(Css::empty());
+            .dom());
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {

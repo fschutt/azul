@@ -31,7 +31,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "th, td { border: 1px solid #ccc; padding: 4px 8px; }"
         "li { margin-left: 20px; }"
     );
-    AzCss css = AzCss_fromString(css_str);
 
     AzDom body = AzDom_createBody();
 
@@ -208,7 +207,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&body, section);
     }
 
-    return AzDom_style(body, css);
+    return AzDom_withCss(body, css_str);
 }
 
 int main() {

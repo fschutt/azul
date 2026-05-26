@@ -33,9 +33,9 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     if (!d) return AzDom_createBody();
 
     auto homepage = parse_homepage_url();
-    Css css = Css::from_string(homepage.has_value()
+    String css = homepage.has_value()
         ? String(R"(body { background-color: #efefef; })")
-        : String(R"(body { background-color: #ffaaaa; })"));
+        : String(R"(body { background-color: #ffaaaa; })");
 
     // Deducing-`this`: every `with_*` method is a member template
     // `auto with_xxx(this Self&& self, …)`. Same one method body works on
@@ -50,7 +50,8 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         .with_button_type(AzButtonType_Primary)
         .with_on_click(data_wrapper.clone(), on_click)
         .dom());
-    return body.style(std::move(css)).release();
+    body = body.with_css(std::move(css));
+    return std::move(body);
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {

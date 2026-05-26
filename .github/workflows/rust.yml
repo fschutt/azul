@@ -563,6 +563,7 @@ jobs:
           DYLD_LIBRARY_PATH: ${{ github.workspace }}/target/debug
           ASAN_OPTIONS: detect_leaks=0,abort_on_error=1
           AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
+          AZ_BACKEND: headless
         run: ${{ matrix.timeout_cmd }} 30 ./hello-world-asan || [ $? -eq 124 ]
 
       - name: Run Miri on azul-dll
@@ -754,7 +755,10 @@ jobs:
         run: |
           cd examples/c
           for example in *.c; do
-            [ -f "$example" ] && clang -fsyntax-only -std=c99 -I../../target/codegen "$example" && echo "✓ $example"
+            [ -f "$example" ] || continue
+            clang -fsyntax-only -std=c99 -I../../target/codegen "$example" \
+              || { echo "FAIL $example"; exit 1; }
+            echo "✓ $example"
           done
 
       - name: Compile C++ examples (syntax check)
@@ -767,7 +771,10 @@ jobs:
             if [ -d "examples/cpp/$dir" ]; then
               cd "examples/cpp/$dir"
               for example in *.cpp; do
-                [ -f "$example" ] && clang++ -fsyntax-only -std=$flag -I../../../target/codegen "$example" && echo "✓ $dir/$example"
+                [ -f "$example" ] || continue
+                clang++ -fsyntax-only -std=$flag -I../../../target/codegen "$example" \
+                  || { echo "FAIL $dir/$example"; exit 1; }
+                echo "✓ $dir/$example"
               done
               cd ../../..
             fi
@@ -905,6 +912,138 @@ jobs:
             target/codegen/azul23.hpp
           retention-days: 30
           if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Native AZ_E2E click/counter test.
+  #
+  # Builds each genuinely-working language's hello-world and runs it under the
+  # libazul-native E2E runner:
+  #
+  #   AZ_E2E=<spec.json> AZ_BACKEND=headless ./hello-world
+  #
+  # The runner starts headless, executes the JSON scenario
+  # (tests/e2e/hello_world_counter.json), prints cargo-test-style output, and
+  # exits 0 (all pass) / 1 (any fail). We assert on that exit code.
+  #
+  # Every step is `continue-on-error: true` for now — these are INFORMATIONAL
+  # until verified green in CI. To promote a language to a hard gate, simply
+  # remove its `continue-on-error: true`. The non-C/Rust languages are guarded
+  # by a tool-availability check so a missing toolchain is a clean skip, not a
+  # red X.
+  # ---------------------------------------------------------------------------
+  e2e_native:
+    name: Native AZ_E2E (${{ matrix.os }})
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+          - os: macos-14
+    runs-on: ${{ matrix.os }}
+    env:
+      AZ_E2E: ${{ github.workspace }}/tests/e2e/hello_world_counter.json
+      AZ_BACKEND: headless
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Build azul-dll (release, dynamic)
+        run: cargo build --release -p azul-dll --features build-dll
+
+      - name: Resolve dynamic library path
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "macos-14" ]; then
+            echo "AZ_LIB=$PWD/target/release/libazul.dylib" >> "$GITHUB_ENV"
+            echo "DYLD_LIBRARY_PATH=$PWD/target/release" >> "$GITHUB_ENV"
+          else
+            echo "AZ_LIB=$PWD/target/release/libazul.so" >> "$GITHUB_ENV"
+            echo "LD_LIBRARY_PATH=$PWD/target/release" >> "$GITHUB_ENV"
+          fi
+
+      - name: E2E - C hello-world
+        continue-on-error: true
+        shell: bash
+        run: |
+          cp target/codegen/azul.h examples/c/
+          cd examples/c
+          if [ "${{ matrix.os }}" = "macos-14" ]; then
+            clang -g -O0 -I. hello-world.c -L../../target/release -lazul \
+              -framework AppKit -framework OpenGL -framework CoreGraphics \
+              -framework CoreText -framework CoreFoundation -o hello-world-e2e
+          else
+            clang -g -O0 -I. hello-world.c -L../../target/release -lazul \
+              -lpthread -lm -ldl -o hello-world-e2e
+          fi
+          ./hello-world-e2e
+
+      - name: E2E - Rust hello-world
+        continue-on-error: true
+        shell: bash
+        run: |
+          cargo build --release -p azul-examples --example hello-world
+          ./target/release/examples/hello-world
+
+      - name: E2E - Lua hello-world
+        continue-on-error: true
+        shell: bash
+        run: |
+          BIN="$(command -v luajit || command -v lua || true)"
+          [ -n "$BIN" ] || { echo "lua not installed - skipping"; exit 0; }
+          cp target/codegen/azul.lua examples/lua/ 2>/dev/null || true
+          cd examples/lua && "$BIN" hello-world.lua
+
+      - name: E2E - Node hello-world
+        continue-on-error: true
+        shell: bash
+        run: |
+          command -v node >/dev/null || { echo "node not installed - skipping"; exit 0; }
+          cp target/codegen/azul.js examples/node/ 2>/dev/null || true
+          cd examples/node && node hello-world.js
+
+      - name: E2E - Ruby hello-world
+        continue-on-error: true
+        shell: bash
+        run: |
+          command -v ruby >/dev/null || { echo "ruby not installed - skipping"; exit 0; }
+          cp target/codegen/azul.rb examples/ruby/ 2>/dev/null || true
+          cd examples/ruby && ruby hello-world.rb
+
+      - name: E2E - C# hello-world
+        continue-on-error: true
+        shell: bash
+        run: |
+          command -v dotnet >/dev/null || { echo "dotnet not installed - skipping"; exit 0; }
+          cp target/codegen/azul.cs examples/csharp/ 2>/dev/null || true
+          cd examples/csharp && dotnet run -c Release
+
+      - name: E2E - Java hello-world
+        continue-on-error: true
+        shell: bash
+        run: |
+          command -v mvn >/dev/null || { echo "maven not installed - skipping"; exit 0; }
+          cp target/codegen/Azul.java examples/java/ 2>/dev/null || true
+          cd examples/java && mvn -q package && mvn -q exec:java
+
+      - name: E2E - Kotlin hello-world
+        continue-on-error: true
+        shell: bash
+        run: |
+          command -v gradle >/dev/null || { echo "gradle not installed - skipping"; exit 0; }
+          cd examples/kotlin && gradle run
 
   build_linux_packages:
     name: Build Linux Packages (.deb/.rpm)

@@ -90,7 +90,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     }
     
     AppStateRef_delete(&state);
-    return AzDom_style(body, AzCss_empty());
+    return body;
 }
 
 // Start Button Click Handler

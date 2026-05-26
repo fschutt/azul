@@ -34,9 +34,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     return Dom::create_body()
         .with_child(std::move(label))
-        .with_child(button.dom())
-        .style(Css::empty())
-        .release();
+        .with_child(button.dom());
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {

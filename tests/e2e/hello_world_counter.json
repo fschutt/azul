@@ -1,0 +1,12 @@
+[
+  {
+    "name": "hello_world_counter_increment",
+    "description": "Click the counter button once and verify the displayed counter increments",
+    "steps": [
+      { "op": "get_state" },
+      { "op": "click", "text": "Increase counter" },
+      { "op": "wait", "ms": 300 },
+      { "op": "get_state" }
+    ]
+  }
+]

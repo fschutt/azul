@@ -112,7 +112,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ));
     AzDom_addChild(&body, image);
     
-    return AzDom_style(body, AzCss_empty());
+    return body;
 }
 
 AzImageRef render_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
@@ -204,7 +204,7 @@ AzUpdate on_startup(AzRefAny data, AzCallbackInfo info) {
     
     // Start animation timer
     AzGetSystemTimeCallback time_fn = AzCallbackInfo_getSystemTimeFn(&info);
-    AzTimer timer = AzTimer_create(AzRefAny_clone(&data), (AzTimerCallbackType)animate, time_fn);
+    AzTimer timer = AzTimer_create(AzRefAny_clone(&data), (AzTimerCallback){ .cb = animate, .ctx = AzOptionRefAny_none() }, time_fn);
     
     // Create Duration
     AzSystemTimeDiff interval_diff = AzSystemTimeDiff_fromMillis(16); // ~60 FPS

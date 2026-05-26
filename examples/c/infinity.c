@@ -78,7 +78,6 @@ AzVirtualViewReturn render_rows(AzRefAny data, AzVirtualViewCallbackInfo info) {
         AzDom_addChild(&container, row);
     }
 
-    container = AzDom_style(container, AzCss_empty());
 
     // --- sizes reported back to the layout engine ---
     // scroll_size: how large is the chunk we actually rendered?
@@ -146,7 +145,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         0, 75);
     AzDom_setCss(&body, body_style);
 
-    return AzDom_style(body, AzCss_empty());
+    return body;
 }
 
 // ---------------------------------------------------------------------------

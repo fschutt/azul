@@ -89,7 +89,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         0, 75);
     AzDom_setCss(&body, body_style);
 
-    return AzDom_style(body, AzCss_empty());
+    return body;
 }
 
 int main(void) {

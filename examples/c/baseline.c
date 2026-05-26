@@ -47,8 +47,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     AzDom_addChild(&root, para);
     
-    AzCss css = AzCss_empty();
-    return AzDom_style(root, css);
+    return root;
 }
 
 int main() {

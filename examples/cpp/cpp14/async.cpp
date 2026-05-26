@@ -73,7 +73,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         .with_child(std::move(title))
         .with_child(std::move(content));
 
-    return body.style(Css::empty()).release();
+    return std::move(body);
 }
 
 AzUpdate start_connection(AzRefAny data, AzCallbackInfo info) {

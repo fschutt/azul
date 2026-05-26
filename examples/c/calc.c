@@ -267,7 +267,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, display);
     AzDom_addChild(&body, buttons);
 
-    return AzDom_style(body, AzCss_empty());
+    return body;
 }
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {

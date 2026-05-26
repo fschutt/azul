@@ -328,7 +328,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&pie_section, pie_container);
     AzDom_addChild(&body, pie_section);
 
-    return AzDom_style(body, AzCss_empty());
+    return body;
 }
 
 int main(void) {

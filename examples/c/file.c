@@ -142,8 +142,8 @@ void demo_file_operations(void) {
     AzString_delete(&test_dir_str);
     
     // Create directory (will succeed or already exists)
-    AzResultVoidFileError dir_result = AzFilePath_createDirAll(&test_dir);
-    if (dir_result.Ok.tag == AzResultVoidFileError_Tag_Ok) {
+    AzResultEmptyStructFileError dir_result = AzFilePath_createDirAll(&test_dir);
+    if (dir_result.Ok.tag == AzResultEmptyStructFileError_Tag_Ok) {
         printf("  Directory created successfully\n");
     } else {
         printf("  Directory creation failed (may already exist)\n");
@@ -157,8 +157,8 @@ void demo_file_operations(void) {
     const char* content = "Hello from Azul!\nThis is a test file.\nLine 3.";
     AzU8Vec data = AzU8Vec_copyFromBytes((const uint8_t*)content, 0, strlen(content));
     
-    AzResultVoidFileError write_result = AzFilePath_writeBytes(&file_path, data);
-    if (write_result.Ok.tag == AzResultVoidFileError_Tag_Ok) {
+    AzResultEmptyStructFileError write_result = AzFilePath_writeBytes(&file_path, data);
+    if (write_result.Ok.tag == AzResultEmptyStructFileError_Tag_Ok) {
         printf("  Successfully wrote %zu bytes\n", strlen(content));
     } else {
         WITH_CSTR(write_result.Err.payload.message, err, {
@@ -300,8 +300,8 @@ void demo_directory_listing(void) {
     
     // Clean up - delete all files and directory
     printf("\nCleaning up test directory...\n");
-    AzResultVoidFileError del_result = AzFilePath_removeDirAll(&test_dir);
-    if (del_result.Ok.tag == AzResultVoidFileError_Tag_Ok) {
+    AzResultEmptyStructFileError del_result = AzFilePath_removeDirAll(&test_dir);
+    if (del_result.Ok.tag == AzResultEmptyStructFileError_Tag_Ok) {
         printf("  Cleanup successful\n");
     } else {
         printf("  Cleanup failed (files may remain)\n");
@@ -383,8 +383,8 @@ void demo_error_handling(void) {
     AzFilePath_delete(&fpath);
     
     // Try to delete directory (not recursive)
-    AzResultVoidFileError del_result = AzFilePath_removeDir(&test_dir);
-    if (del_result.Err.tag == AzResultVoidFileError_Tag_Err) {
+    AzResultEmptyStructFileError del_result = AzFilePath_removeDir(&test_dir);
+    if (del_result.Err.tag == AzResultEmptyStructFileError_Tag_Err) {
         printf("  Expected error: DirectoryNotEmpty\n");
         printf("  Got error kind: ");
         switch (del_result.Err.payload.kind) {

@@ -24,9 +24,7 @@ auto layout(AzRefAny data, AzLayoutCallbackInfo info) -> AzDom {
         .with_child(Button::create("Increase counter")
             .with_button_type(AzButtonType_Primary)
             .with_on_click(data_wrapper.clone(), on_click)
-            .dom())
-        .style(Css::empty())
-        .release();
+            .dom());
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {

@@ -223,7 +223,7 @@ void demo_language_packs(void) {
     AzFilePath cache_dir = AzFilePath_joinStr(&temp, az_str("azul_lang_cache"));
     
     // Create cache directory
-    AzResultVoidFileError dir_result = AzFilePath_createDirAll(&cache_dir);
+    AzResultEmptyStructFileError dir_result = AzFilePath_createDirAll(&cache_dir);
     (void)dir_result; // Ignore if already exists
     
     AzString cache_path_str = AzFilePath_asString(&cache_dir);
@@ -310,7 +310,7 @@ void demo_language_packs(void) {
             );
             
             // Write to cache
-            AzResultVoidFileError write_result = AzFilePath_writeBytes(&pack_path, content_bytes);
+            AzResultEmptyStructFileError write_result = AzFilePath_writeBytes(&pack_path, content_bytes);
             (void)write_result;
             
             // Load into localizer

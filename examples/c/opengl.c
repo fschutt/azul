@@ -323,7 +323,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     AzDom_addChild(&body, image);
     
-    return AzDom_style(body, AzCss_empty());
+    return body;
 }
 
 // Render texture callback - mirrors render_my_texture() in Rust
@@ -441,7 +441,7 @@ AzUpdate startup_window(AzRefAny data, AzCallbackInfo info) {
     // Add timer for animation (like Rust: info.add_timer(...))
     AzTimerId timer_id = AzTimerId_unique();
     AzGetSystemTimeCallback time_fn = AzCallbackInfo_getSystemTimeFn(&info);
-    AzTimer timer = AzTimer_create(AzRefAny_clone(&data), (AzTimerCallbackType)animate, time_fn);
+    AzTimer timer = AzTimer_create(AzRefAny_clone(&data), (AzTimerCallback){ .cb = animate, .ctx = AzOptionRefAny_none() }, time_fn);
     
     AzSystemTimeDiff interval = AzSystemTimeDiff_fromMillis(16);
     AzDuration duration = { .System = { .tag = AzDuration_Tag_System, .payload = interval } };

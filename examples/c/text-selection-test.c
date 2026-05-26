@@ -24,7 +24,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         ".editable { border: 1px solid #999; padding: 10px; margin-top: 20px; min-height: 40px; }"
         ".label { margin-bottom: 10px; color: #666; font-size: 14px; }"
     );
-    AzCss css = AzCss_fromString(css_str);
 
     AzDom body = AzDom_createBody();
 
@@ -52,7 +51,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&editable, AzDom_createText(AZ_STR("Click here and type to edit this text.")));
     AzDom_addChild(&body, editable);
 
-    return AzDom_style(body, css);
+    return AzDom_withCss(body, css_str);
 }
 
 int main() {
