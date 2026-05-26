@@ -1686,37 +1686,48 @@ impl LayoutWindow {
     /// Get the size of a laid-out node
     pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
         // M12.7 diag (0x400EC): pin which `?` returns None for the body size.
-        { let _ = (0xE6_000001u32 | ((self.layout_results.len() as u32 & 0xff) << 8)); }
+        unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_000001u32 | ((self.layout_results.len() as u32 & 0xff) << 8)); }
         let layout_result = match self.layout_results.get(&node_id.dom) {
             Some(r) => r,
-            None => { { let _ = (0xE6_0000FAu32); } return None; }
+            None => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_0000FAu32); } return None; }
         };
         let nid = node_id.node.into_crate_internal()?;
-        { let _ = (0xE6_000002u32 | ((layout_result.layout_tree.dom_to_layout.len() as u32 & 0xfff) << 8)); }
+        unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_000002u32 | ((layout_result.layout_tree.dom_to_layout.len() as u32 & 0xfff) << 8)); }
         // Use dom_to_layout mapping since layout tree indices differ from DOM indices
         let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&nid) {
             Some(x) => x,
-            None => { { let _ = (0xE6_0000FBu32); } return None; }
+            None => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_0000FBu32); } return None; }
         };
         let layout_index = *layout_indices.first()?;
         let layout_node = match layout_result.layout_tree.get(layout_index) {
             Some(n) => n,
-            None => { { let _ = (0xE6_0000FCu32); } return None; }
+            None => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_0000FCu32); } return None; }
         };
         match layout_node.used_size {
-            Some(s) => { { let _ = (0xE6_000004u32 | (((s.width as u32) & 0xffff) << 8)); } Some(s) }
-            None => { { let _ = (0xE6_0000FDu32); } None }
+            Some(s) => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_000004u32 | (((s.width as u32) & 0xffff) << 8)); } Some(s) }
+            None => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_0000FDu32); } None }
         }
     }
 
     /// Get the position of a laid-out node
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
-        let layout_result = self.layout_results.get(&node_id.dom)?;
+        // M12.7 diag (0x400E8): pin which `?` returns None for the body position.
+        let layout_result = match self.layout_results.get(&node_id.dom) {
+            Some(r) => r,
+            None => { unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_0000FAu32); } return None; }
+        };
         let nid = node_id.node.into_crate_internal()?;
         // Use dom_to_layout mapping since layout tree indices differ from DOM indices
-        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&nid)?;
+        let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&nid) {
+            Some(x) => x,
+            None => { unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_0000FBu32 | ((layout_result.layout_tree.dom_to_layout.len() as u32 & 0xfff) << 8)); } return None; }
+        };
         let layout_index = *layout_indices.first()?;
-        let position = layout_result.calculated_positions.get(layout_index)?;
+        let position = match layout_result.calculated_positions.get(layout_index) {
+            Some(p) => p,
+            None => { unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_0000FEu32 | ((layout_result.calculated_positions.len() as u32 & 0xfff) << 8)); } return None; }
+        };
+        unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_000004u32); }
         Some(*position)
     }
 

@@ -1,6 +1,6 @@
 //! Layout tree construction from a styled DOM, including anonymous box generation
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     hash::{Hash, Hasher},
     sync::{
         atomic::{AtomicU32, Ordering},
@@ -754,7 +754,12 @@ pub struct LayoutTree {
     /// Root node index
     pub root: usize,
     /// Mapping from DOM node IDs to layout node indices
-    pub dom_to_layout: HashMap<NodeId, Vec<usize>>,
+    // BTreeMap (not HashMap): std HashMap's RandomState hasher needs an RNG seed
+    // that isn't available in the remill-lifted wasm (no getrandom), so inserts
+    // silently no-op there — dom_to_layout came back empty (node mapping lost,
+    // get_node_size/position returned None → 0-rects). BTreeMap is deterministic,
+    // matches the rest of azul-core, and lifts reliably (M12.7).
+    pub dom_to_layout: BTreeMap<NodeId, Vec<usize>>,
     /// Flat arena holding all children indices contiguously.
     pub children_arena: Vec<usize>,
     /// Per-node (start, len) into `children_arena`. Indexed by node index.
@@ -1169,7 +1174,7 @@ fn compute_subtree_needs_intrinsic(
 /// as required by CSS 2.2 §9.2.1.1 (inline wrappers) and §17.2.1 (table fixup).
 pub struct LayoutTreeBuilder {
     nodes: Vec<LayoutNode>,
-    dom_to_layout: HashMap<NodeId, Vec<usize>>,
+    dom_to_layout: BTreeMap<NodeId, Vec<usize>>,
     viewport_size: LogicalSize,
 }
 
@@ -1177,7 +1182,7 @@ impl LayoutTreeBuilder {
     pub fn new(viewport_size: LogicalSize) -> Self {
         Self {
             nodes: Vec::new(),
-            dom_to_layout: HashMap::new(),
+            dom_to_layout: BTreeMap::new(),
             viewport_size,
         }
     }
@@ -2068,7 +2073,10 @@ impl LayoutTreeBuilder {
         // discriminant). If len>0 but calculate_intrinsic_recursive's
         // `tree.get(root).ok_or(InvalidTree)?` still errors, that `?`/null-check
         // mis-discriminates Some→None. If len==0, build's input was empty.
-        { let _ = (0xBD00_0000u32 | (((hot_nodes.len() as u32) & 0xff) << 8) | (root_idx as u32 & 0xff),); }
+        // 0x40110 = 0xBD_<d2l_len>_<nodes_len>_<root> — dom_to_layout.len at BUILD time
+        // (pre-clone). Compare with get_node_size's post-clone dom_to_layout.len (0x400EC):
+        // if build>0 but get_node_size sees 0, the tree.clone() (hashbrown) drops the map.
+        unsafe { core::ptr::write_volatile(0x40110 as *mut u32, 0xBD000000u32 | (((self.dom_to_layout.len() as u32) & 0xff) << 16) | (((hot_nodes.len() as u32) & 0xff) << 8) | (root_idx as u32 & 0xff)); }
 
         LayoutTree {
             nodes: hot_nodes,

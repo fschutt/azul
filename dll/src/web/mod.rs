@@ -87,6 +87,9 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_isLayoutSolved",
     "AzStartup_getPositionedRectsLen",
     "AzStartup_getPositionedRectsPtr",
+    // M12.7 debug: peek a u32 from wasm linear memory (reads the diag
+    // markers the layout solver writes via write_volatile).
+    "AzStartup_peekU32",
     // M11 Sprint 3: relayout + generalized patch builder for
     // SetText / SetAttr / SetInlineStyle / RemoveNode / InsertNode.
     // The JS decoder switches on kind.

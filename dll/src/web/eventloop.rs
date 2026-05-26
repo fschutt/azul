@@ -1662,6 +1662,19 @@ pub unsafe extern "C" fn AzStartup_buildPatch(
     total
 }
 
+/// **M12.7 debug** — peek a `u32` from wasm linear memory at `addr`
+/// (reads the diagnostic markers the layout solver writes via
+/// `core::ptr::write_volatile`, e.g. `0x400EC` get_node_size,
+/// `0x40110` tree-build dom_to_layout.len). Returns 0 for a null
+/// address. Exported so the e2e gates can read markers directly.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_peekU32(addr: u32) -> u32 {
+    if addr == 0 {
+        return 0;
+    }
+    core::ptr::read_volatile(addr as usize as *const u32)
+}
+
 /// Re-run the layout callback against the current refany, writing
 /// the new AzDom blob into a fresh wasm-allocated buffer. The old
 /// buffer's wasm offset moves to `state.prev_dom_ptr`; the new

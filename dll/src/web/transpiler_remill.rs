@@ -287,9 +287,11 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
         | "AzStartup_getStyledDomPtr"
         | "AzStartup_isLayoutSolved"
         | "AzStartup_getPositionedRectsLen"
-        | "AzStartup_getPositionedRectsPtr" => Some(CallbackSignature {
+        | "AzStartup_getPositionedRectsPtr"
+        // M12.7 debug: peek(addr: u32) -> u32 — same 1-arg ABI.
+        | "AzStartup_peekU32" => Some(CallbackSignature {
             kind: name.to_string(),
-            // (state: u32) -> u32
+            // (state_or_addr: u32) -> u32
             args: vec![Pcs::Wreg { state_byte_offset: X0 }],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
@@ -5507,16 +5509,25 @@ define linkonce_odr ptr @__remill_jump(ptr %state, i64 %pc, ptr %memory) alwaysi
 }}
 define linkonce_odr ptr @__remill_missing_block(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
   ; NOTE: must RETURN (not trap) — the cascade/hydration path has hot missing_blocks
-  ; (unresolved computed branches) that return-and-continue; trapping here breaks the
-  ; cascade (hit-test + layout-real both trapped in AzStartup_hydrateStyledDom).
-  ret ptr %memory
+  ; that return-and-continue. M12.7 diag (non-trapping): record LAST missing_block PC
+  ; @0x400F8 (262392) + count @0x400FC (262396), then ret. Cascade-safe.
+  %mbp = trunc i64 %pc to i32
+  %mbm1 = call ptr @__remill_write_memory_32(ptr %memory, i64 262392, i32 %mbp)
+  %mbc = call i32 @__remill_read_memory_32(ptr %mbm1, i64 262396)
+  %mbc1 = add i32 %mbc, 1
+  %mbm2 = call ptr @__remill_write_memory_32(ptr %mbm1, i64 262396, i32 %mbc1)
+  ret ptr %mbm2
 }}
 define linkonce_odr ptr @__remill_error(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
-  ; NOTE: returns (not traps). A hot __remill_error here silently corrupts the lifted fn's
-  ; return value (Result→Err, rc=0). The layout hits one (the cascade does not — baselines
-  ; stay green when this traps), but PC-capture of %pc proved unreliable for pinpointing
-  ; (it lands on clean-lifting fns). See memory m12_cascade_neon_blocker.md.
-  ret ptr %memory
+  ; NOTE: returns (not traps). M12.7 diag (non-trapping): record LAST __remill_error PC
+  ; @0x400F0 (262384) + count @0x400F4 (262388), then ret. The PC is the SYNTH addr of the
+  ; unlifted instruction (otool libazul @ native = pc - 0x110000 + image1_native_base).
+  %erp = trunc i64 %pc to i32
+  %erm1 = call ptr @__remill_write_memory_32(ptr %memory, i64 262384, i32 %erp)
+  %erc = call i32 @__remill_read_memory_32(ptr %erm1, i64 262388)
+  %erc1 = add i32 %erc, 1
+  %erm2 = call ptr @__remill_write_memory_32(ptr %erm1, i64 262388, i32 %erc1)
+  ret ptr %erm2
 }}
 ; M10-B1.a alias-scope metadata for guest memory ops.
 ;
