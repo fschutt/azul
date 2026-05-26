@@ -1723,6 +1723,29 @@ impl RustGenerator {
         // The snake_case class name is used as the self parameter name in C-ABI
         let self_param_name = to_snake_case(&func.class_name);
 
+        // rust_public_api / ergonomic-method path: callback-wrapper args
+        // are typed as their raw fn-ptr typedef (matching the C/C++ API and
+        // the C-ABI raw variant `Az<Class>_setOnX(.., fn_ptr)`), so the
+        // examples can pass a bare `extern "C" fn`. This is scoped to the
+        // public-Rust simple mode ONLY — managed-FFI bindings (Lua/Ruby/…)
+        // keep the wrapper-struct shape. See `RustGenerator::generate`
+        // line ~33 for the same predicate.
+        let is_simple_mode = config.module_wrapper.is_none() && config.type_prefix.is_empty();
+
+        // Only API functions (Constructor/StaticMethod/Method/MethodMut)
+        // get the C-ABI raw-fn-ptr pair on the export side, so only they
+        // may rewrite a callback-wrapper arg to its raw fn-ptr. Trait
+        // functions (Delete/DeepCopy/PartialEq/…) take the wrapper struct
+        // itself by reference and must keep the wrapper type.
+        let rewrite_cb_to_fnptr = is_simple_mode
+            && matches!(
+                func.kind,
+                FunctionKind::Constructor
+                    | FunctionKind::StaticMethod
+                    | FunctionKind::Method
+                    | FunctionKind::MethodMut
+            );
+
         for arg in &func.args {
             // An argument is "self" if:
             // 1. Its name is "self", OR
@@ -1742,6 +1765,32 @@ impl RustGenerator {
                 self_arg = Some(self_str);
                 call_args.push("self".to_string());
             } else {
+                // In the public-Rust ergonomic path, rewrite a
+                // callback-wrapper arg to its raw fn-ptr typedef so the
+                // method accepts a bare `extern "C" fn`. The raw C-ABI
+                // export `<c_name>(.., fn_ptr)` takes exactly this fn-ptr,
+                // so the body passes it through unchanged (no wrapping,
+                // no `Into`, no WithCtx dispatch).
+                if rewrite_cb_to_fnptr {
+                    if let Some((cb_typedef, _cb_field, _ctx_field)) =
+                        callback_wrappers.get(arg.type_name.as_str()).copied()
+                    {
+                        let raw_ty = config.apply_prefix(cb_typedef);
+                        let arg_str = match arg.ref_kind {
+                            ArgRefKind::Owned => format!("{}: {}", arg.name, raw_ty),
+                            ArgRefKind::Ref | ArgRefKind::Ptr => {
+                                format!("{}: &{}", arg.name, raw_ty)
+                            }
+                            ArgRefKind::RefMut | ArgRefKind::PtrMut => {
+                                format!("{}: &mut {}", arg.name, raw_ty)
+                            }
+                        };
+                        args.push(arg_str);
+                        call_args.push(arg.name.clone());
+                        continue;
+                    }
+                }
+
                 let arg_type = config.apply_prefix(&arg.type_name);
 
                 // Historically, callback-wrapper-typed args were rewritten
@@ -1841,7 +1890,12 @@ impl RustGenerator {
                 | FunctionKind::Method
                 | FunctionKind::MethodMut
         );
-        let cb_dispatch: Vec<(String, String, String)> = if is_api_function {
+        // In the public-Rust ergonomic path the callback-wrapper args were
+        // already rewritten to raw fn-ptrs above and the body calls the raw
+        // C-ABI export directly, so the WithCtx struct-destructuring dispatch
+        // must NOT run here (it would try to `ptr::read` a fn-ptr as a
+        // wrapper struct). Managed-FFI / non-simple modes still dispatch.
+        let cb_dispatch: Vec<(String, String, String)> = if is_api_function && !is_simple_mode {
             func.args
                 .iter()
                 .filter_map(|arg| {
