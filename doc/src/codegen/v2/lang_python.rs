@@ -2069,6 +2069,28 @@ extern "C" fn invoke_py_layout_callback(
             if type_alias.target.contains("*const") || type_alias.target.contains("*mut") {
                 return true;
             }
+            // A type alias to a generic instantiation (e.g.
+            // `BoxOrStaticStyleBoxShadow` => `BoxOrStatic<StyleBoxShadow>`)
+            // inherits sendability from its underlying generic type. The
+            // generic `BoxOrStatic<T>` stores `*const T` / `*mut T`, so it is
+            // NOT sendable. Resolve through to the target type so that any
+            // pyclass embedding such an alias is correctly marked unsendable.
+            if type_alias.target != type_name
+                && self.field_type_needs_unsendable(&type_alias.target, ir)
+            {
+                return true;
+            }
+            // The generic arguments of the instantiation also contribute to
+            // sendability: `StyleBoxShadowValue` =>
+            // `CssPropertyValue<BoxOrStaticStyleBoxShadow>` is unsendable
+            // because the *argument* (`BoxOrStatic<StyleBoxShadow>`) holds raw
+            // pointers, even though `CssPropertyValue<T>` itself only sees the
+            // generic parameter `T`.
+            for arg in &type_alias.generic_args {
+                if arg != type_name && self.field_type_needs_unsendable(arg, ir) {
+                    return true;
+                }
+            }
         }
 
         // Check if it's a struct - use is_send_safe flag
@@ -2101,7 +2123,18 @@ extern "C" fn invoke_py_layout_callback(
             for variant in &enum_def.variants {
                 match &variant.kind {
                     crate::codegen::v2::ir::EnumVariantKind::Tuple(types) => {
-                        for (ty, _ref_kind) in types {
+                        for (ty, ref_kind) in types {
+                            // A variant that holds the payload behind a raw
+                            // pointer (e.g. `BoxOrStatic::Boxed(*mut T)`) is
+                            // not sendable, regardless of the payload type
+                            // name (which may be a bare generic param `T`).
+                            if matches!(
+                                ref_kind,
+                                crate::codegen::v2::ir::FieldRefKind::Ptr
+                                    | crate::codegen::v2::ir::FieldRefKind::PtrMut
+                            ) {
+                                return true;
+                            }
                             if self.field_type_needs_unsendable(ty, ir) {
                                 return true;
                             }
@@ -2334,6 +2367,21 @@ extern "C" fn invoke_py_layout_callback(
         ];
         if GENERIC_TYPE_ALIASES.contains(&type_name) {
             return false;
+        }
+
+        // Generalized version of GENERIC_TYPE_ALIASES: any type alias whose
+        // target is a generic instantiation (e.g. `BoxOrStaticString` =>
+        // `BoxOrStatic<AzString>`) resolves to a generic FFI type that has
+        // neither a `.inner`-bearing pyclass wrapper nor a FromPyObject impl.
+        // Treat these the same as the hardcoded generic aliases above so the
+        // variants / arguments that reference them are skipped structurally
+        // rather than emitting broken `v.inner` / pyo3-arg code.
+        if let Some(type_alias) = ir.find_type_alias(type_name) {
+            if !type_alias.generic_args.is_empty()
+                || (type_alias.target.contains('<') && type_alias.target.contains('>'))
+            {
+                return false;
+            }
         }
 
         // Skip type aliases for CssPropertyValue<T> (they end with "Value" and are not "PixelValue")
