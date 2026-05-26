@@ -38,6 +38,7 @@ for c in \
 done
 [ -z "$CHROME" ] && { echo "ERROR: Google Chrome / Chromium not found." >&2; exit 1; }
 command -v pdfunite >/dev/null || { echo "ERROR: pdfunite not found (brew install poppler)." >&2; exit 1; }
+command -v node >/dev/null || { echo "ERROR: node not found (drives Chrome over CDP; Node 18+)." >&2; exit 1; }
 
 # --- 1. generate the HTML site (debug = root-relative URLs for local serving) ---
 if [ "$SKIP_DEPLOY" -eq 1 ] && [ -d "$DEPLOY/guide" ]; then
@@ -66,43 +67,31 @@ TMP="$(mktemp -d)"
 # (macOS default) — no mapfile.
 PAGES=()
 while IFS= read -r line; do [ -n "$line" ] && PAGES+=("$line"); done < <( { ls "$DEPLOY"/guide/*.html 2>/dev/null; find "$DEPLOY/guide" -mindepth 2 -name '*.html' | sort; } )
-echo "==> Rendering ${#PAGES[@]} guide pages to PDF via headless Chrome..."
+echo "==> Rendering ${#PAGES[@]} guide pages via one persistent Chrome (CDP)..."
 
-# Render in parallel (each Chrome needs its own --user-data-dir). The doc pages
-# are static (server-side markdown + syntect highlight), so a short virtual-time
-# budget is plenty — it only needs to cover web-font load.
-render_one() {
-  "$CHROME" --headless=new --disable-gpu --no-sandbox \
-    --no-pdf-header-footer \
-    --virtual-time-budget=3000 \
-    --run-all-compositor-stages-before-draw \
-    --user-data-dir="$(mktemp -d)" \
-    --print-to-pdf="$1" "$2" >/dev/null 2>&1 || true
-}
-MAXJOBS="${MAXJOBS:-6}"
-i=0
-PDFS=()
+# Render with ONE persistent headless Chrome driven over CDP (like reftest's
+# ChromeCdp). Per-page `--print-to-pdf` hangs on Chrome 148 headless=new, so
+# instead the Node driver does Page.navigate -> Page.printToPDF over a single
+# WebSocket. Build the ordered URL list; the driver writes <TMP>/NNNN.pdf.
+URLS=()
 for page in "${PAGES[@]}"; do
-  rel="${page#$DEPLOY/}"               # e.g. guide/internals/dom.html
-  out="$(printf '%s/%04d.pdf' "$TMP" "$i")"
-  PDFS+=("$out")                        # keep page order for the merge
-  render_one "$out" "http://localhost:$PORT/$rel" &
-  printf '  [%3d/%d] %s\n' "$((i+1))" "${#PAGES[@]}" "$rel"
-  i=$((i+1))
-  while [ "$(jobs -rp | wc -l)" -ge "$MAXJOBS" ]; do sleep 0.1; done
+  URLS+=("http://localhost:$PORT/${page#$DEPLOY/}")
 done
-wait
-# keep only pages that actually produced a non-empty PDF, in order
-_kept=()
-for p in "${PDFS[@]}"; do [ -s "$p" ] && _kept+=("$p"); done
-PDFS=("${_kept[@]}")
+node "$ROOT/scripts/docs_pdf_cdp.mjs" "$CHROME" "$TMP" "${URLS[@]}"
+
+# collect produced PDFs in page order
+PDFS=()
+for ((i = 0; i < ${#PAGES[@]}; i++)); do
+  f="$(printf '%s/%04d.pdf' "$TMP" "$i")"
+  [ -s "$f" ] && PDFS+=("$f")
+done
 
 # --- 4. merge -------------------------------------------------------------
 [ "${#PDFS[@]}" -gt 0 ] || { echo "ERROR: no pages rendered." >&2; exit 1; }
 mkdir -p "$ROOT/target"
 echo "==> Merging ${#PDFS[@]} pages -> $OUT"
 pdfunite "${PDFS[@]}" "$OUT"
-rm -rf "$TMP" "$PROFILE"
+rm -rf "$TMP"
 
 echo "==> Done: $OUT ($(du -h "$OUT" | cut -f1))"
 [ "$OPEN" -eq 1 ] && command -v open >/dev/null && open "$OUT" || true
