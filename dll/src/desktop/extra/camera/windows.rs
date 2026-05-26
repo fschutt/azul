@@ -1,7 +1,7 @@
 //! Windows camera capture backend via `nokhwa` (which wraps Media Foundation).
 //! Used only on Windows - the "difficult" platform, where hand-rolling COM /
 //! Media Foundation is fragile; nokhwa owns that ABI and hands back a clean
-//! pull API + RGBA decode. macOS uses objc2/AVFoundation, linux uses rscam;
+//! pull API + RGBA decode. macOS uses objc2/AVFoundation, linux uses libv4l2;
 //! all three feed the same `capture_common` seam.
 
 use nokhwa::{

@@ -2,7 +2,7 @@
 //! *push* API (a sample-buffer delegate), so a `define_class!` delegate parks
 //! the latest frame (converted to RGBA) in a shared slot; the seam's `read`
 //! drains it (push -> pull). Plugs into `capture_common::register_camera_backend`
-//! like rscam (linux) + nokhwa (windows).
+//! like libv4l2 (linux) + nokhwa (windows).
 //!
 //! We request 32-BGRA from the data output (a single `videoSettings` dict), so
 //! the delegate's pixel buffer is always BGRA8 -> a cheap channel swap to RGBA.

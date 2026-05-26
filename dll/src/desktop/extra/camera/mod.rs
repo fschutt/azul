@@ -2,9 +2,10 @@
 //! (`azul_layout::widgets::capture_common`) calls the registered backend;
 //! without one, `CameraWidget` shows a test pattern.
 //!
-//! Linux registers a v4l2 backend (via `rscam` - libc ioctls, cross-compiles).
-//! macOS (AVFoundation) / Windows (Media Foundation) / mobile (Camera2) plug in
-//! the same way later.
+//! Linux registers a v4l2 backend (libv4l2 dlopen'd at runtime - no static
+//! link, so it cross-compiles and only fails gracefully at runtime if libv4l2
+//! is absent). macOS (AVFoundation) / Windows (Media Foundation) / mobile
+//! (Camera2) plug in the same way later.
 
 #[cfg(target_os = "linux")]
 mod v4l2;
@@ -17,7 +18,7 @@ mod android;
 
 /// Register the platform camera backend with the capture seam, once. Called
 /// from the per-frame layout pass (like [`super::audio::ensure_mic_backend`]),
-/// guarded by a `OnceLock`. Linux registers the v4l2 (`rscam`) backend; a no-op
+/// guarded by a `OnceLock`. Linux registers the v4l2 (libv4l2) backend; a no-op
 /// elsewhere until a per-OS backend lands (the widget keeps its test pattern).
 pub fn ensure_camera_backend() {
     #[cfg(target_os = "linux")]

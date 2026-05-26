@@ -4,7 +4,7 @@
 //! create a capture session, and repeat a preview request. State callbacks are
 //! no-ops (None) - for a simple preview the calls return usable handles and the
 //! callbacks only signal async state/errors. `read` pulls the latest image and
-//! converts YUV_420_888 -> RGBA into the seam. Mirrors rscam (linux) / nokhwa
+//! converts YUV_420_888 -> RGBA into the seam. Mirrors libv4l2 (linux) / nokhwa
 //! (windows) / AVFoundation (apple) into the same capture seam.
 
 use std::os::raw::c_char;
