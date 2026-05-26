@@ -254,6 +254,7 @@ pub use text3::cache::{FontContext, FontManager, TextShapingCache};
 /// Backwards-compat alias for the old `TextLayoutCache` name.
 /// Will be dropped at the next API revision; new code should use
 /// [`TextShapingCache`] directly.
+#[cfg(feature = "text_layout")]
 pub use text3::cache::TextShapingCache as TextLayoutCache;
 #[cfg(feature = "font_async_registry")]
 pub use rust_fontconfig::registry::FcFontRegistry;

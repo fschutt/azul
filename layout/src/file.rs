@@ -320,6 +320,88 @@ pub fn file_metadata(path: &str) -> Result<FileMetadata, FileError> {
     })
 }
 
+// ----------------------------------------------------------------------------
+// no_std stubs: keep the file API surface present without std::fs.
+// ----------------------------------------------------------------------------
+
+/// Error returned by file stubs when the `std` feature is disabled.
+#[cfg(not(feature = "std"))]
+fn no_std_file_error() -> FileError {
+    FileError::new(FileErrorKind::Other, "file IO requires the `std` feature")
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn file_read(_path: &str) -> Result<U8Vec, FileError> {
+    Err(no_std_file_error())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn file_read_string(_path: &str) -> Result<AzString, FileError> {
+    Err(no_std_file_error())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn file_write(_path: &str, _data: &[u8]) -> Result<EmptyStruct, FileError> {
+    Err(no_std_file_error())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn file_write_string(_path: &str, _data: &str) -> Result<EmptyStruct, FileError> {
+    Err(no_std_file_error())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn file_append(_path: &str, _data: &[u8]) -> Result<EmptyStruct, FileError> {
+    Err(no_std_file_error())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn file_copy(_from: &str, _to: &str) -> Result<u64, FileError> {
+    Err(no_std_file_error())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn file_rename(_from: &str, _to: &str) -> Result<EmptyStruct, FileError> {
+    Err(no_std_file_error())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn file_delete(_path: &str) -> Result<EmptyStruct, FileError> {
+    Err(no_std_file_error())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn path_exists(_path: &str) -> bool {
+    false
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn path_is_file(_path: &str) -> bool {
+    false
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn path_is_dir(_path: &str) -> bool {
+    false
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn file_metadata(_path: &str) -> Result<FileMetadata, FileError> {
+    Err(no_std_file_error())
+}
+
 // ============================================================================
 // Directory operations
 // ============================================================================
@@ -386,6 +468,36 @@ pub fn dir_list(path: &str) -> Result<DirEntryVec, FileError> {
     Ok(DirEntryVec::from_vec(result))
 }
 
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn dir_create(_path: &str) -> Result<EmptyStruct, FileError> {
+    Err(no_std_file_error())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn dir_create_all(_path: &str) -> Result<EmptyStruct, FileError> {
+    Err(no_std_file_error())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn dir_delete(_path: &str) -> Result<EmptyStruct, FileError> {
+    Err(no_std_file_error())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn dir_delete_all(_path: &str) -> Result<EmptyStruct, FileError> {
+    Err(no_std_file_error())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn dir_list(_path: &str) -> Result<DirEntryVec, FileError> {
+    Err(no_std_file_error())
+}
+
 // ============================================================================
 // Path operations
 // ============================================================================
@@ -434,6 +546,42 @@ pub fn path_canonicalize(path: &str) -> Result<AzString, FileError> {
 #[cfg(feature = "std")]
 pub fn temp_dir() -> AzString {
     AzString::from(std::env::temp_dir().to_string_lossy().to_string())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn path_join(_base: &str, _path: &str) -> AzString {
+    AzString::from_const_str("")
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn path_parent(_path: &str) -> Option<AzString> {
+    None
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn path_file_name(_path: &str) -> Option<AzString> {
+    None
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn path_extension(_path: &str) -> Option<AzString> {
+    None
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn path_canonicalize(_path: &str) -> Result<AzString, FileError> {
+    Err(no_std_file_error())
+}
+
+/// Stub: `std` feature disabled.
+#[cfg(not(feature = "std"))]
+pub fn temp_dir() -> AzString {
+    AzString::from_const_str("")
 }
 
 // ============================================================================
