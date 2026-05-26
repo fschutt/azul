@@ -45,9 +45,12 @@ jobs:
       - name: Clone rust9x compiler source
         shell: bash
         run: |
+          # FULL clone (no --depth): rust's bootstrap (x.py) reads git history
+          # (HEAD^1, merge-base) while computing config — a shallow clone makes
+          # it panic with "fatal: ambiguous argument 'HEAD^1'".
           # GIT_TERMINAL_PROMPT=0 makes a bad URL fail fast rather than hang on
           # a credential prompt.
-          GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch rust9x \
+          GIT_TERMINAL_PROMPT=0 git clone --branch rust9x \
             https://github.com/rust9x/rust.git rust9x
 
       # Same path + key as the consumer in rust.yml so the cache matches. Keyed
