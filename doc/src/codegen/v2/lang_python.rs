@@ -33,8 +33,9 @@ use super::config::{CodegenConfig, PythonConfig};
 use super::generator::CodeBuilder;
 use super::generator::LanguageGenerator;
 use super::ir::{
-    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef,
-    TypeCategory,
+    ArgRefKind, CallbackArgInfo, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind,
+    FunctionDef, FunctionKind,
+    StructDef, TypeCategory,
 };
 use super::lang_rust::RustGenerator;
 use crate::utils::analyze::analyze_type;
@@ -62,6 +63,44 @@ const CAPI_TYPE_ALIASES: &[&str] = &[
 /// Check if a type is a C-API type alias (no .inner field)
 fn is_capi_type_alias(type_name: &str) -> bool {
     CAPI_TYPE_ALIASES.contains(&type_name)
+}
+
+/// Replace `Name::` path prefixes inside a fn_body with their fully-qualified
+/// external paths. Only replaces an occurrence when the `Name` is not preceded
+/// by an identifier character (so `DomId::` is not corrupted while replacing
+/// `Dom::`). `replacements` should be sorted longest-pattern-first.
+fn replace_type_paths(body: &str, replacements: &[(String, String)]) -> String {
+    let mut out = String::with_capacity(body.len());
+    let bytes = body.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let mut matched = false;
+        // Only attempt a match at an identifier boundary.
+        let prev_is_ident = i > 0
+            && {
+                let c = bytes[i - 1];
+                // `:` guards against re-qualifying a name already part of a
+                // fully-qualified path (e.g. `azul_core::icon::IconHandle::`).
+                c == b'_' || c == b':' || c.is_ascii_alphanumeric()
+            };
+        if !prev_is_ident {
+            for (pat, rep) in replacements {
+                if body[i..].starts_with(pat.as_str()) {
+                    out.push_str(rep);
+                    i += pat.len();
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if !matched {
+            // Push one full UTF-8 char to keep boundaries valid.
+            let ch = body[i..].chars().next().unwrap();
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
 }
 
 // ============================================================================
@@ -129,6 +168,13 @@ impl PythonGenerator {
         builder.line("use pyo3::gc::{PyVisit, PyTraverseError};");
         builder.line("use pyo3::conversion::IntoPyObject;");
         builder.line("use pyo3::Borrowed;");
+        // Bring extension traits into scope so fn_body calls that dispatch to
+        // trait methods (e.g. `SvgMultiPolygon::tessellate_fill`, defined on the
+        // `SvgMultiPolygonTessellation` trait rather than the type itself)
+        // resolve. The `#[allow(unused_imports)]` keeps builds warning-clean when
+        // no method in this file uses the trait.
+        builder.line("#[allow(unused_imports)]");
+        builder.line("use azul_layout::xml::svg::SvgMultiPolygonTessellation;");
         builder.blank();
     }
 
@@ -490,10 +536,10 @@ pub struct PyObjectWrapper {
 /// It checks for a custom `__az_to_json__` method first, then falls back
 /// to using Python's `json.dumps()`.
 extern "C" fn py_serialize_refany_trampoline(
-    refany: azul_core::refany::RefAny
+    mut refany: azul_core::refany::RefAny
 ) -> azul_layout::json::Json {
     use azul_layout::json::Json;
-    
+
     // Get the PyDataWrapper from RefAny
     let wrapper_opt = refany.downcast_ref::<PyDataWrapper>();
     let wrapper = match wrapper_opt {
@@ -507,8 +553,8 @@ extern "C" fn py_serialize_refany_trampoline(
     };
     
     Python::with_gil(|py| {
-        let py_obj = py_data.as_ref(py);
-        
+        let py_obj = py_data.bind(py);
+
         // Try custom __az_to_json__ method first
         if let Ok(method) = py_obj.getattr("__az_to_json__") {
             if let Ok(result) = method.call0() {
@@ -611,6 +657,19 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 continue;
             }
             if callback.args.iter().any(|a| a.type_name.contains("*")) {
+                continue;
+            }
+
+            // The trampoline reaches the stored Python callable via `get_ctx()` on
+            // a non-RefAny, non-primitive arg. Without such an arg (e.g.
+            // DatasetMergeCallback `(RefAny, RefAny) -> RefAny`) the callable is
+            // unreachable, so emitting the trampoline would reference an undefined
+            // `py_callable`. Skip these (the consuming method is skipped too).
+            if !callback
+                .args
+                .iter()
+                .any(|a| a.type_name != "RefAny" && !is_primitive_type(&a.type_name))
+            {
                 continue;
             }
 
@@ -1178,14 +1237,14 @@ extern "C" fn invoke_py_layout_callback(
             if !self.should_include_struct(struct_def, config) {
                 continue;
             }
-            self.generate_struct_pymethods(builder, struct_def, ir, prefix);
+            self.generate_struct_pymethods(builder, struct_def, ir, prefix, config);
         }
 
         for enum_def in &ir.enums {
             if !self.should_include_enum(enum_def, config) {
                 continue;
             }
-            self.generate_enum_pymethods(builder, enum_def, ir, prefix);
+            self.generate_enum_pymethods(builder, enum_def, ir, prefix, config);
         }
 
         Ok(())
@@ -1197,6 +1256,7 @@ extern "C" fn invoke_py_layout_callback(
         struct_def: &StructDef,
         ir: &CodegenIR,
         prefix: &str,
+        config: &PythonConfig,
     ) {
         let name = format!("{}{}", prefix, struct_def.name);
         let c_api_type = format!("__dll_api_inner::dll::{}{}", prefix, struct_def.name);
@@ -1217,6 +1277,9 @@ extern "C" fn invoke_py_layout_callback(
 
         for func in class_functions {
             if self.function_has_unsupported_args(func, ir) {
+                continue;
+            }
+            if self.function_refs_excluded_type(func, ir, config) {
                 continue;
             }
             // Skip constructors for callback types - Python uses PyAny + trampoline instead
@@ -1245,6 +1308,7 @@ extern "C" fn invoke_py_layout_callback(
         enum_def: &EnumDef,
         ir: &CodegenIR,
         prefix: &str,
+        config: &PythonConfig,
     ) {
         let name = format!("{}{}", prefix, enum_def.name);
         let c_api_type = format!("__dll_api_inner::dll::{}{}", prefix, enum_def.name);
@@ -1278,6 +1342,9 @@ extern "C" fn invoke_py_layout_callback(
                 EnumVariantKind::Tuple(types) => {
                     if let Some((ty, _ref_kind)) = types.first() {
                         if !self.is_python_compatible_type(ty, ir) {
+                            continue;
+                        }
+                        if self.type_is_excluded(ty, ir, config) {
                             continue;
                         }
                         let py_type = self.rust_type_to_python(ty, prefix, ir);
@@ -1489,26 +1556,34 @@ extern "C" fn invoke_py_layout_callback(
             .replace("Self {", &format!("{} {{", external_path))
             .replace("Self(", &format!("{}(", external_path));
 
-        // Replace type constructors with fully qualified paths
-        // Only replace if it's at the start of fn_body (e.g., "TypeName::method(args)")
+        // Replace type constructors with fully qualified paths wherever they
+        // appear as a path prefix (e.g. "TypeName::method"), not just at the
+        // start of fn_body. Bodies like `unsafe { U32Vec::copy_from_ptr(...) }`
+        // reference the type after an `unsafe {` / `(` token, so a `starts_with`
+        // check missed them and left the bare (undeclared) type name.
+        //
+        // To avoid clobbering substrings (e.g. `Dom::` inside `DomId::`) we
+        // process longer type names first and only replace occurrences where
+        // the `Name::` is not preceded by an identifier character.
+        let mut ctor_replacements: Vec<(String, String)> = Vec::new();
         for struct_def in &ir.structs {
             if let Some(ref ext_path) = struct_def.external_path {
-                let pattern = format!("{}::", struct_def.name);
-                if transformed_body.starts_with(&pattern) {
-                    let replacement = format!("{}::", ext_path);
-                    transformed_body = replacement + &transformed_body[pattern.len()..];
-                }
+                ctor_replacements.push((
+                    format!("{}::", struct_def.name),
+                    format!("{}::", ext_path),
+                ));
             }
         }
         for enum_def in &ir.enums {
             if let Some(ref ext_path) = enum_def.external_path {
-                let pattern = format!("{}::", enum_def.name);
-                if transformed_body.starts_with(&pattern) {
-                    let replacement = format!("{}::", ext_path);
-                    transformed_body = replacement + &transformed_body[pattern.len()..];
-                }
+                ctor_replacements
+                    .push((format!("{}::", enum_def.name), format!("{}::", ext_path)));
             }
         }
+        // Longest pattern first so `DomIdVec::` wins over `Dom::`.
+        ctor_replacements.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        transformed_body =
+            replace_type_paths(&transformed_body, &ctor_replacements);
 
         // Convert self to external type if needed.
         // Use `to_snake_case` so compound class names (e.g. `DomVec`)
@@ -1516,42 +1591,93 @@ extern "C" fn invoke_py_layout_callback(
         // `domvec` — otherwise the fn_body substitutions below would
         // leave `dom_vec.len()` untouched and a stale `dom_vec` would
         // shadow `__cloned` in the generated body.
+        // The fn_body refers to the receiver by an arg name that api.json
+        // derives from the class name. Two conventions exist in api.json:
+        // the snake_case form (`raw_image`, `dom_vec`) and the all-lowercase
+        // no-underscore form (`rawimage`, `domvec`). Build candidates for both
+        // (longest first) so whichever the body uses gets rewritten to
+        // `__cloned`.
         let self_var = to_snake_case(&func.class_name);
+        let self_var_lower = func.class_name.to_lowercase();
+        let mut self_vars: Vec<String> = vec![self_var.clone()];
+        if self_var_lower != self_var {
+            self_vars.push(self_var_lower);
+        }
+        self_vars.sort_by(|a, b| b.len().cmp(&a.len()));
         let is_method_mut = func.kind == FunctionKind::MethodMut;
+
+        // Does the receiver type implement Clone? If not, `_self.clone()` would
+        // silently resolve to `Clone for &T` (yielding `&T`), which then fails
+        // to compile for by-value consuming methods like `CameraWidget::dom(self)`
+        // ("cannot move out of `*__cloned`"). For such types we must move the
+        // owned inner value out with `core::ptr::read` instead of cloning.
+        let class_is_clone = ir
+            .find_struct(&func.class_name)
+            .map(|s| self.struct_supports_clone(s))
+            .or_else(|| {
+                ir.find_enum(&func.class_name)
+                    .map(|e| self.enum_supports_clone(e))
+            })
+            .unwrap_or(true);
         if takes_self {
             builder.line(&format!(
                 "let _self: &{} = core::mem::transmute(&self.inner);",
                 external_path
             ));
-            // Clone self so methods can consume it (mut for methods that mutate)
-            builder.line("let mut __cloned = _self.clone();");
+            // Clone self so methods can consume it (mut for methods that mutate).
+            // For non-Clone types, bitwise-move the owned inner out instead.
+            if class_is_clone {
+                builder.line("let mut __cloned = _self.clone();");
+            } else {
+                builder.line(&format!(
+                    "let mut __cloned: {} = core::ptr::read(_self as *const {});",
+                    external_path, external_path
+                ));
+            }
 
             // Replace self references in fn_body
             // First replace method calls (with dot)
             transformed_body = transformed_body
                 .replace("self.", "__cloned.")
-                .replace(&format!("{}.", self_var), "__cloned.")
                 .replace("object.", "__cloned.");
+            for sv in &self_vars {
+                transformed_body =
+                    transformed_body.replace(&format!("{}.", sv), "__cloned.");
+            }
 
             // Then replace standalone variable references (as function arguments)
             // Handle various contexts: (var, ...), (var), var, ..., etc.
-            // For MethodMut, use &mut __cloned; for Method, use &__cloned
+            // The self arg (named after the class) records its ref_kind: a
+            // by-value `self` (ArgRefKind::Owned) must be moved (`__cloned`),
+            // while `&self`/`&mut self` are passed by reference. Free functions
+            // like `json_deserialize_to_refany(json: Json, ...)` consume self by
+            // value, so `&__cloned` would be a type error.
+            let self_is_by_value = func
+                .args
+                .iter()
+                .find(|a| self_vars.iter().any(|sv| sv == &a.name))
+                .map(|a| a.ref_kind == ArgRefKind::Owned)
+                .unwrap_or(false);
             let self_ref = if is_method_mut {
                 "&mut __cloned"
+            } else if self_is_by_value {
+                "__cloned"
             } else {
                 "&__cloned"
             };
-            transformed_body = transformed_body
-                .replace(&format!("({},", self_var), &format!("({},", self_ref))
-                .replace(&format!("({}, ", self_var), &format!("({}, ", self_ref))
-                .replace(&format!("({})", self_var), &format!("({})", self_ref))
-                .replace(&format!(", {},", self_var), ", __cloned,")
-                .replace(&format!(", {}, ", self_var), ", __cloned, ")
-                .replace(&format!(", {})", self_var), ", __cloned)")
-                .replace(&format!("&mut {},", self_var), "&mut __cloned,")
-                .replace(&format!("&mut {})", self_var), "&mut __cloned)")
-                .replace(&format!("&{},", self_var), "&__cloned,")
-                .replace(&format!("&{})", self_var), "&__cloned)");
+            for sv in &self_vars {
+                transformed_body = transformed_body
+                    .replace(&format!("({},", sv), &format!("({},", self_ref))
+                    .replace(&format!("({}, ", sv), &format!("({}, ", self_ref))
+                    .replace(&format!("({})", sv), &format!("({})", self_ref))
+                    .replace(&format!(", {},", sv), ", __cloned,")
+                    .replace(&format!(", {}, ", sv), ", __cloned, ")
+                    .replace(&format!(", {})", sv), ", __cloned)")
+                    .replace(&format!("&mut {},", sv), "&mut __cloned,")
+                    .replace(&format!("&mut {})", sv), "&mut __cloned)")
+                    .replace(&format!("&{},", sv), "&__cloned,")
+                    .replace(&format!("&{})", sv), "&__cloned)");
+            }
         }
 
         // Convert arguments to external types
@@ -1581,7 +1707,7 @@ extern "C" fn invoke_py_layout_callback(
                 ));
                 // Use create_py_refany_with_json for callable wrappers too
                 builder.line(&format!(
-                    "let __py_{}_refany = create_py_refany_with_json(PyDataWrapper {{ _py_data: __py_{}_wrapper._py_callable.clone() }});",
+                    "let __py_{}_refany = create_py_refany_with_json(PyDataWrapper {{ _py_data: __py_{}_wrapper._py_callable.as_ref().map(|c| c.clone_ref(py)) }});",
                     arg.name, arg.name
                 ));
 
@@ -1590,22 +1716,57 @@ extern "C" fn invoke_py_layout_callback(
                     .find_external_path(&cb_info.callback_wrapper_name, ir)
                     .unwrap_or_else(|| format!("crate::{}", cb_info.callback_wrapper_name));
 
-                // Create the callback wrapper with trampoline + callable using the INTERNAL type
-                // Use the SAME name as the parameter so fn_body can use it unchanged
-                // The .into() in fn_body will accept this callback struct
+                // Look up the actual wrapper struct definition to discover its real
+                // field names. The function-pointer field is usually "cb" but may be
+                // named differently (e.g. "resolver"); the foreign-callable storage
+                // field is the OptionRefAny field, named "ctx" or "callable".
+                let wrapper_struct =
+                    ir.structs.iter().find(|s| s.name == cb_info.callback_wrapper_name);
+                let (fn_ptr_field, callable_field) = match wrapper_struct {
+                    Some(sd) => {
+                        let callable = sd
+                            .fields
+                            .iter()
+                            .find(|f| f.type_name == "OptionRefAny")
+                            .map(|f| f.name.clone());
+                        let fn_ptr = sd
+                            .fields
+                            .iter()
+                            .find(|f| f.type_name != "OptionRefAny")
+                            .map(|f| f.name.clone())
+                            .unwrap_or_else(|| "cb".to_string());
+                        (fn_ptr, callable)
+                    }
+                    None => ("cb".to_string(), Some("ctx".to_string())),
+                };
+
+                // Build the wrapper using the generated FFI inner type
+                // (`__dll_api_inner::dll::Az...`), whose field names are derived
+                // from the same api.json as the IR, so the field literal always
+                // matches. The real external struct may name its OptionRefAny
+                // field differently (e.g. `ctx` vs `callable`) but is ABI/layout
+                // compatible, so we transmute the FFI value to the external type.
+                let wrapper_ffi = format!(
+                    "__dll_api_inner::dll::{}{}",
+                    prefix, cb_info.callback_wrapper_name
+                );
+                builder.line(&format!("let __{}_ffi: {} = {} {{", arg.name, wrapper_ffi, wrapper_ffi));
                 builder.line(&format!(
-                    "let {}: {} = {} {{",
-                    arg.name, wrapper_external, wrapper_external
+                    "    {}: core::mem::transmute({} as usize),",
+                    fn_ptr_field, cb_info.trampoline_name
                 ));
-                builder.line(&format!(
-                    "    cb: core::mem::transmute({} as usize),",
-                    cb_info.trampoline_name
-                ));
-                builder.line(&format!(
-                    "    ctx: azul_core::refany::OptionRefAny::Some(__py_{}_refany),",
-                    arg.name
-                ));
+                if let Some(ref cf) = callable_field {
+                    builder.line(&format!(
+                        "    {}: core::mem::transmute(azul_core::refany::OptionRefAny::Some(__py_{}_refany)),",
+                        cf, arg.name
+                    ));
+                }
                 builder.line("};");
+                // Use the SAME name as the parameter so fn_body can use it unchanged.
+                builder.line(&format!(
+                    "let {}: {} = core::mem::transmute(__{}_ffi);",
+                    arg.name, wrapper_external, arg.name
+                ));
                 // No fn_body replacement needed - we used the same variable name as the parameter
                 continue;
             }
@@ -1624,10 +1785,26 @@ extern "C" fn invoke_py_layout_callback(
                     }
                 });
 
+            // A type alias to a primitive (e.g. `ScanCode = u32`) is emitted as a
+            // bare primitive in the FFI layer, so the pyfn arg has no `.inner`
+            // field. Transmute the value directly to the external newtype.
+            let prim_alias_target = ir
+                .type_aliases
+                .iter()
+                .find(|ta| ta.name == arg.type_name && ta.generic_args.is_empty())
+                .map(|ta| ta.target.clone())
+                .filter(|t| is_primitive_type(t));
+
             if is_primitive_type(&arg.type_name) {
                 // Primitive types - use directly, no conversion needed
                 // The parameter already has the correct type
                 // No shadowing needed for primitives
+            } else if let Some(_target) = prim_alias_target {
+                // Alias-to-primitive: the param is the bare primitive, transmute it.
+                builder.line(&format!(
+                    "let {}: {} = core::mem::transmute({});",
+                    arg.name, arg_external, arg.name
+                ));
             } else if arg.type_name == "String" {
                 // String args: convert to AzString, shadow the parameter
                 builder.line(&format!(
@@ -2105,6 +2282,18 @@ extern "C" fn invoke_py_layout_callback(
             }
             // Recursively check fields
             for field in &struct_def.fields {
+                // A field stored behind a raw pointer (e.g. the `ptr: *mut
+                // c_void` of a Box wrapper like `ComponentFieldTypeBox`) makes
+                // the struct unsendable even when the pointee type name is a
+                // primitive — the ref_kind, not the type_name, carries the
+                // pointer-ness.
+                if matches!(
+                    field.ref_kind,
+                    crate::codegen::v2::ir::FieldRefKind::Ptr
+                        | crate::codegen::v2::ir::FieldRefKind::PtrMut
+                ) {
+                    return true;
+                }
                 if self.field_type_needs_unsendable(&field.type_name, ir) {
                     return true;
                 }
@@ -2195,7 +2384,13 @@ extern "C" fn invoke_py_layout_callback(
                 continue;
             }
 
-            // Skip raw pointer types
+            // Skip raw pointer types. The pointer-ness is carried in `ref_kind`
+            // (parse_type_ref_kind strips `*const`/`*mut` from `type_name`), so
+            // a string `.contains` check alone misses e.g. `copy_from_ptr`'s
+            // `ptr: *const ListViewRow` — Python cannot supply a raw pointer.
+            if matches!(arg.ref_kind, ArgRefKind::Ptr | ArgRefKind::PtrMut) {
+                return true;
+            }
             if arg.type_name.contains("*const") || arg.type_name.contains("*mut") {
                 return true;
             }
@@ -2240,6 +2435,119 @@ extern "C" fn invoke_py_layout_callback(
             }
         }
 
+        false
+    }
+
+    /// Returns true if `type_name` names a struct/enum that is NOT emitted as
+    /// a pyclass wrapper (because `should_include_*` excludes it, e.g. the
+    /// `Xml`/`XmlNodeChild` family in `config.skip_types`). Methods that take or
+    /// return such a type cannot compile, because the type only exists in the
+    /// raw `__dll_api_inner` module and lacks the `PyClass`/`FromPyObject`
+    /// impls the pymethod signature needs.
+    fn type_is_excluded(&self, type_name: &str, ir: &CodegenIR, config: &PythonConfig) -> bool {
+        if let Some(struct_def) = ir.find_struct(type_name) {
+            return !self.should_include_struct(struct_def, config);
+        }
+        if let Some(enum_def) = ir.find_enum(type_name) {
+            return !self.should_include_enum(enum_def, config);
+        }
+        false
+    }
+
+    /// Returns true if a Python callable passed for this callback arg can be
+    /// bridged to Rust. This requires BOTH:
+    /// 1. A trampoline `extern "C"` fn is generated for the callback typedef
+    ///    (mirrors the gating in `generate_callback_trampolines`), and
+    /// 2. The wrapper struct exists and has an `OptionRefAny` field to store the
+    ///    Python callable.
+    /// When either is false there is no way to store/invoke the Python callable,
+    /// so the consuming method must be skipped.
+    fn callback_arg_is_bridgeable(&self, cb_info: &CallbackArgInfo, ir: &CodegenIR) -> bool {
+        // (2) wrapper struct must exist and have an OptionRefAny callable slot.
+        let wrapper = match ir.structs.iter().find(|s| s.name == cb_info.callback_wrapper_name) {
+            Some(s) => s,
+            None => return false,
+        };
+        if !wrapper.fields.iter().any(|f| f.type_name == "OptionRefAny") {
+            return false;
+        }
+
+        // (1) a trampoline must be generated for the callback typedef. The
+        // typedef name is the wrapper name + "Type" by convention; verify it
+        // satisfies the same gating used in `generate_callback_trampolines`.
+        let typedef = ir.callback_typedefs.iter().find(|c| {
+            c.name == format!("{}Type", cb_info.callback_wrapper_name)
+        });
+        let typedef = match typedef {
+            Some(t) => t,
+            None => return false,
+        };
+        if typedef.name.ends_with("DestructorType")
+            || typedef.name.ends_with("CloneCallbackType")
+            || typedef.name.ends_with("DestructorCallbackType")
+            || typedef.name == "LayoutCallbackType"
+        {
+            return false;
+        }
+        if typedef.args.is_empty() || typedef.args[0].type_name != "RefAny" {
+            return false;
+        }
+        if typedef.args.iter().any(|a| a.type_name.contains("*")) {
+            return false;
+        }
+        let return_type = typedef.return_type.as_deref().unwrap_or("()");
+        if return_type == "ImageRef" {
+            return false;
+        }
+        // The trampoline locates the Python callable by calling `get_ctx()` on a
+        // non-RefAny, non-primitive argument (e.g. CallbackInfo). If every arg is
+        // RefAny/primitive (e.g. DatasetMergeCallback `(RefAny, RefAny) -> RefAny`)
+        // there is no way for the extern "C" trampoline to reach the stored
+        // callable, so the method cannot be bridged.
+        let has_ctx_source = typedef
+            .args
+            .iter()
+            .any(|a| a.type_name != "RefAny" && !is_primitive_type(&a.type_name));
+        if !has_ctx_source {
+            return false;
+        }
+        true
+    }
+
+    /// Skip a function if any of its (non-callback, non-primitive) arg types or
+    /// its return type is an excluded pyclass type. See `type_is_excluded`.
+    fn function_refs_excluded_type(
+        &self,
+        func: &FunctionDef,
+        ir: &CodegenIR,
+        config: &PythonConfig,
+    ) -> bool {
+        for arg in &func.args {
+            // Callback args become Py<PyAny>, but only if we can actually bridge
+            // them: a trampoline must be generated AND the wrapper struct must have
+            // an OptionRefAny field to store the Python callable. Callbacks like
+            // GetSystemTimeCallback (no callable storage) or IconResolverCallback
+            // (no wrapper struct / no RefAny-first-arg trampoline) cannot be
+            // bridged, so the method must be skipped entirely.
+            if let Some(ref cb_info) = arg.callback_info {
+                if !self.callback_arg_is_bridgeable(cb_info, ir) {
+                    return true;
+                }
+                continue;
+            }
+            // RefAny args become Py<PyAny>, never a pyclass arg.
+            if arg.type_name == "RefAny" {
+                continue;
+            }
+            if self.type_is_excluded(&arg.type_name, ir, config) {
+                return true;
+            }
+        }
+        if let Some(ret) = &func.return_type {
+            if self.type_is_excluded(ret, ir, config) {
+                return true;
+            }
+        }
         false
     }
 
