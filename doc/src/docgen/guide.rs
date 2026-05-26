@@ -487,6 +487,32 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             font-weight: bold;
             font-size: 1.1em;
         }
+        /* Print / PDF (azul-doc → Chrome --print-to-pdf): drop the nav chrome,
+           use the full page width, WRAP long code lines (on-screen they
+           overflow-x:auto, which would clip them in a PDF), keep the dark
+           syntax-highlight backgrounds/colors via print-color-adjust, and keep
+           figures/screenshots/tables from being split across page breaks. */
+        @media print {
+            @page { margin: 1.4cm; }
+            aside, nav, footer, #azul-search-mount { display: none !important; }
+            body, .center, main { display: block !important; margin: 0 !important; padding: 0 !important; max-width: none !important; }
+            #guide { max-width: 100% !important; width: 100% !important; font-size: 11pt; line-height: 1.5; }
+            h1, h2, h3, h4 { text-shadow: none !important; cursor: auto !important; break-after: avoid; }
+            #guide pre, #guide pre code {
+                white-space: pre-wrap !important;
+                word-break: break-word;
+                overflow: visible !important;
+                font-size: 8.5pt;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            #guide img, .azul-window, .azul-screenshot, table, figure, .markdown-alert-warning {
+                break-inside: avoid;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            a { color: inherit; text-decoration: underline; }
+        }
     ";
 
     format!(
