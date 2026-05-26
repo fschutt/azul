@@ -1,0 +1,81 @@
+# Primes the GitHub Actions cache with a prebuilt rust9x compiler (stage1).
+#
+# rust9x (https://github.com/rust9x/rust) is a Rust fork that targets legacy
+# Windows (95/98/ME/NT/2000/XP/Vista) via i586/i686-rust9x-windows-msvc. There
+# is NO prebuilt toolchain — it must be built from source (~90 min). Building
+# it on every CI run is wasteful, so this workflow builds it ONCE and caches it
+# under a stable key. The main `rust.yml` `build_rust9x` job then restores this
+# cache (read-only) and builds azul against it in minutes.
+#
+# Run this manually (Actions → "rust9x compiler (cache primer)" → Run workflow)
+# whenever rust9x updates or the cache was evicted. It also rebuilds yearly to
+# pick up compiler drift. It does NOT need to run often for cache warmth: the
+# consumer job in rust.yml RESTORES this cache on every push, which resets
+# GitHub's 7-day unused-cache eviction timer, so it stays warm as long as CI
+# runs at least weekly.
+name: rust9x compiler (cache primer)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Yearly (Jan 1, 04:00 UTC) — only to pick up rust9x compiler updates;
+    # warmth is maintained by the consumer's per-push restores (see above).
+    - cron: "0 4 1 1 *"
+
+permissions:
+  contents: read
+  actions: write # required to write the cache
+
+jobs:
+  build-rust9x-compiler:
+    name: Build + cache rust9x compiler (stage1)
+    runs-on: windows-2022
+    timeout-minutes: 150
+    steps:
+      - name: Install bootstrap Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Install Python (for x.py)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Clone rust9x compiler source
+        shell: bash
+        run: |
+          # GIT_TERMINAL_PROMPT=0 makes a bad URL fail fast rather than hang on
+          # a credential prompt.
+          GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch rust9x \
+            https://github.com/rust9x/rust.git rust9x
+
+      # Same path + key as the consumer in rust.yml so the cache matches. Keyed
+      # on rust9x's `src/version` (stable across most commits); restore-keys
+      # prefix lets the consumer fall back to the latest cached stage1.
+      - name: Cache rust9x stage1
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: rust9x/build/x86_64-pc-windows-msvc/stage1
+          key: rust9x-stage1-${{ hashFiles('rust9x/src/version') }}
+          restore-keys: rust9x-stage1-
+
+      - name: Build rust9x stage1 (skipped on exact cache hit)
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        working-directory: rust9x
+        run: |
+          cp bootstrap.rust9x.toml bootstrap.toml 2>/dev/null || true
+          python x.py build --stage 1
+        timeout-minutes: 140
+
+      - name: Report
+        shell: bash
+        run: |
+          if [ -f rust9x/build/x86_64-pc-windows-msvc/stage1/bin/rustc.exe ]; then
+            echo "rust9x stage1 present — cache will be saved under key rust9x-stage1-*"
+          else
+            echo "::error::rust9x stage1 build produced no rustc.exe"
+            exit 1
+          fi
