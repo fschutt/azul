@@ -60,7 +60,10 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-#[cfg(feature = "allocator_jemalloc")]
+// jemalloc has no Windows-MSVC support, so on Windows the `allocator_jemalloc`
+// feature falls through to the system allocator instead of failing — keeps the
+// feature cross-platform (runtime-adaptable) rather than a hard build break.
+#[cfg(all(feature = "allocator_jemalloc", not(target_os = "windows")))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 

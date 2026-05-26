@@ -3,6 +3,19 @@ use std::{env, fs, path::{Path, PathBuf}, process::Command};
 fn main() {
     let target = env::var("TARGET").unwrap_or_default();
 
+    // Fail fast on mutually-exclusive *config* — NOT a platform gate. Platform
+    // features (camera, etc.) dlopen at runtime and must never fail the build so
+    // cross-compilation always works; but two global allocators cannot coexist.
+    if env::var("CARGO_FEATURE_ALLOCATOR_MIMALLOC").is_ok()
+        && env::var("CARGO_FEATURE_ALLOCATOR_JEMALLOC").is_ok()
+    {
+        panic!(
+            "azul-dll: features `allocator_mimalloc` and `allocator_jemalloc` are \
+             mutually exclusive — enable at most one global allocator (and do not \
+             use `--all-features`, which turns on both)."
+        );
+    }
+
     check_generated_files();
     compress_debugger_assets();
 

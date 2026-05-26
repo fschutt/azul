@@ -771,7 +771,7 @@ jobs:
         run: cargo build --profile prod-release -p azul-dll --features="build-dll"
 
       - name: Build Rust examples
-        run: cargo check --verbose --examples --all-features
+        run: cargo check --verbose --examples
 
       - name: Take screenshots (Linux)
         if: matrix.os == 'ubuntu-22.04'
