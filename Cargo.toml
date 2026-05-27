@@ -58,10 +58,12 @@ turso_parser = { git = "https://github.com/fschutt/turso", branch = "no-io-uring
 turso_sqlite3_parser = { git = "https://github.com/fschutt/turso", branch = "no-io-uring-optional" }
 # tfd (native file dialogs, via azul-layout) used the `windows` crate 0.48 on
 # Windows, whose bundled import lib (windows.0.48.5.lib) the i686-rust9x target
-# can't resolve. Fork (v0.1.1) drops the `windows` crate entirely and links the
-# Win95/98-era comdlg32/shell32/user32 dialog APIs via raw extern "system" +
-# #[link], so azul builds for legacy Windows. Drop the patch once 0.1.1 is on
-# crates.io.
+# can't resolve. Fork (v0.1.2) drops the `windows` crate and resolves the
+# Win95/98-era comdlg32/shell32/user32/ole32 dialog APIs at RUNTIME via
+# LoadLibraryW + GetProcAddress (transmuted fn ptrs). The only link-time Win32
+# dependency is kernel32, whose import lib is always present — so azul links on
+# every Windows target, including legacy i686-rust9x. Drop the patch once 0.1.2
+# is on crates.io.
 tfd = { git = "https://github.com/fschutt/tfd" }
 
 [profile.release]

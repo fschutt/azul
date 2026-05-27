@@ -401,8 +401,9 @@ jobs:
   # only RESTORES that cache (read-only) and builds azul against it in minutes,
   # so it can run on every push. If the cache is empty (never primed, or
   # evicted), the job warns and skips the azul build instead of doing the
-  # expensive compiler build inline. Always `continue-on-error` — this is an
-  # experimental legacy-Windows target and must never block the pipeline.
+  # expensive compiler build inline. BLOCKING when the cache is present (see
+  # `continue-on-error: false` below); the cache-empty path gates out the build
+  # steps, so an un-primed/evicted cache can't false-fail the run.
   build_rust9x:
     name: Build rust9x (Win98/XP experimental)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
@@ -466,8 +467,10 @@ jobs:
         run: |
           # The only legacy-Windows link blocker was tfd pulling the `windows`
           # 0.48 import lib (windows.0.48.5.lib); the [patch.crates-io] tfd fork
-          # (v0.1.1) removes that, so build the full dll. accesskit_windows uses
-          # windows 0.62 (raw-dylib, no import lib) and the rest is pure Rust.
+          # (v0.1.2) drops it and resolves the dialog APIs at runtime via
+          # LoadLibraryW+GetProcAddress (kernel32 is the only link-time Win32
+          # dep), so build the full dll. accesskit_windows uses windows 0.62
+          # (raw-dylib, no import lib) and the rest is pure Rust.
           cargo +rust9x build --release \
             --target i686-rust9x-windows-msvc \
             -p azul-dll --features="build-dll"
