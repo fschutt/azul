@@ -65,16 +65,16 @@ This installs `libazul.{so,dylib,dll}` plus the family of `azul<NN>.hpp` wrapper
 
 ```sh
 # wrapper for the C++ standard you target
-wget -O azul17.hpp https://azul.rs/release/1.0.0-alpha1/azul17.hpp
+wget -O azul17.hpp https://azul.rs/release/0.2.0/azul17.hpp
 # also: azul03.hpp, azul11.hpp, azul14.hpp, azul20.hpp, azul23.hpp
 # C++20+ users also get a sibling azul.cppm for import azul; support.
 
 # windows
-iex -O https://azul.rs/release/1.0.0-alpha1/azul.dll
+iex -O https://azul.rs/release/0.2.0/azul.dll
 # linux
-wget -O https://azul.rs/release/1.0.0-alpha1/libazul.so
+wget -O https://azul.rs/release/0.2.0/libazul.so
 # macos
-wget -O https://azul.rs/release/1.0.0-alpha1/libazul.dylib
+wget -O https://azul.rs/release/0.2.0/libazul.dylib
 ```
 
 You then either install both into a system path or pass `-I` and `-L` to the compiler.

@@ -11,7 +11,7 @@
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const [deployDir, baseUrl, guideSrc, version = '1.0.0-alpha1'] = process.argv.slice(2);
+const [deployDir, baseUrl, guideSrc, version = '0.2.0'] = process.argv.slice(2);
 
 // --- collect guide pages + frontmatter ------------------------------------
 function walk(dir, base = '') {

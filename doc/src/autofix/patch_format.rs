@@ -657,7 +657,7 @@ use crate::{
 };
 
 /// Current API version - should match what's in api.json
-pub const API_VERSION: &str = "1.0.0-alpha1";
+pub const API_VERSION: &str = "0.2.0";
 
 impl AutofixPatch {
     /// Convert this patch to the legacy ApiPatch format that can be applied

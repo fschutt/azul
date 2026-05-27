@@ -74,11 +74,11 @@ Alternatively, download prebuilt DLL for your OS from the [/releases](/releases)
 
 ```sh
 # windows
-iex -O https://azul.rs/release/1.0.0-alpha1/azul.dll
+iex -O https://azul.rs/release/0.2.0/azul.dll
 # linux
-wget -O https://azul.rs/release/1.0.0-alpha1/libazul.so
+wget -O https://azul.rs/release/0.2.0/libazul.so
 # macos
-wget -O https://azul.rs/release/1.0.0-alpha1/libazul.dylib
+wget -O https://azul.rs/release/0.2.0/libazul.dylib
 ```
 
 In the latter case, you then have to export `AZ_LINK_PATH=/path/to/libazul.dylib` (or `.so` / `.dll`):

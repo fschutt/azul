@@ -61,14 +61,14 @@ This installs `libazul.{so,dylib,dll}` plus the `azul.h` header into the standar
 
 ```sh
 # header (same file on every platform)
-wget -O azul.h https://azul.rs/release/1.0.0-alpha1/azul.h
+wget -O azul.h https://azul.rs/release/0.2.0/azul.h
 
 # windows
-iex -O https://azul.rs/release/1.0.0-alpha1/azul.dll
+iex -O https://azul.rs/release/0.2.0/azul.dll
 # linux
-wget -O https://azul.rs/release/1.0.0-alpha1/libazul.so
+wget -O https://azul.rs/release/0.2.0/libazul.so
 # macos
-wget -O https://azul.rs/release/1.0.0-alpha1/libazul.dylib
+wget -O https://azul.rs/release/0.2.0/libazul.dylib
 ```
 
 You then either install both into a system path or pass `-I` and `-L` to the compiler.

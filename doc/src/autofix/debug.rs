@@ -945,7 +945,7 @@ pub fn show_wrong_module_types(api_data: &ApiData) {
 
     println!("\n=== Wrong Module Analysis ===\n");
 
-    let version = "1.0.0-alpha1".to_string();
+    let version = "0.2.0".to_string();
     let version_data = match api_data.0.get(&version) {
         Some(v) => v,
         None => {

@@ -52,7 +52,7 @@ impl ApiClassification {
 ///
 /// ```text
 /// {
-///   "1.0.0-alpha1": {                  // version
+///   "0.2.0": {                  // version
 ///     "api": {
 ///       "app":      { "classes": { ... } },     // module
 ///       "callbacks":{ "classes": { ... } },
