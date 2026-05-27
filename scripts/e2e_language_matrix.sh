@@ -233,7 +233,11 @@ pass_in_log() {
   [ -f "$f" ] || return 1
   local clean
   clean="$(strip_ansi < "$f")"
-  echo "$clean" | grep -q "test result: ok" && echo "$clean" | grep -q "0 failed"
+  # here-strings, NOT `echo | grep -q`: grep -q exits on first match and closes
+  # the pipe, so on a large log `echo` takes EPIPE and (under `set -o pipefail`)
+  # the pipeline returns non-zero even though the pattern matched — which would
+  # mark a genuinely-passing language as FAILS.
+  grep -q "test result: ok" <<< "$clean" && grep -q "0 failed" <<< "$clean"
 }
 
 # record <lang> <status> <note>
@@ -270,13 +274,13 @@ finish() {
     local reason="$fail_note"
     if [ -f "$f" ]; then
       local sniff; sniff="$(strip_ansi < "$f" | grep -v '^+ ' || true)"
-      if echo "$sniff" | grep -qiE "command not found|not installed|No such file|cannot open shared object|Could not open library|Failed to load shared library"; then
+      if grep -qiE "command not found|not installed|No such file|cannot open shared object|Could not open library|Failed to load shared library" <<< "$sniff"; then
         reason="lib/tool not found at runtime (see log)"
-      elif echo "$sniff" | grep -qiE "test result: FAILED|[1-9][0-9]* failed"; then
+      elif grep -qiE "test result: FAILED|[1-9][0-9]* failed" <<< "$sniff"; then
         reason="ran but counter test FAILED"
-      elif echo "$sniff" | grep -qiE "Segmentation fault|SIGSEGV|SIGABRT|panicked|EAccessViolation|core dumped|Abort trap"; then
+      elif grep -qiE "Segmentation fault|SIGSEGV|SIGABRT|panicked|EAccessViolation|core dumped|Abort trap" <<< "$sniff"; then
         reason="crash at runtime"
-      elif echo "$sniff" | grep -qiE "error:|error\[|fatal error|compilation failed|undefined reference|BUILD FAILURE|cannot find|Compilation error|Syntax error"; then
+      elif grep -qiE "error:|error\[|fatal error|compilation failed|undefined reference|BUILD FAILURE|cannot find|Compilation error|Syntax error" <<< "$sniff"; then
         reason="compile/link error (see log)"
       else
         reason="no 'test result: ok' (see log)"
