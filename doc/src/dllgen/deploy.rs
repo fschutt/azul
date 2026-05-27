@@ -276,6 +276,39 @@ impl BinaryAsset {
             description: "Linux ARMv7 .a (Raspberry Pi)",
             platform: Platform::Linux,
         },
+        // Exotic Linux arches (experimental, big-endian + RISC-V) — match the
+        // azul-linux-{ppc64,s390x,riscv64} artifacts the cross_build_binaries
+        // job produces and the deploy lays out as libazul.linux-<arch>.{so,a}.
+        BinaryAsset {
+            filename: "libazul.linux-ppc64.so",
+            description: "Linux PowerPC64 .so (big-endian)",
+            platform: Platform::Linux,
+        },
+        BinaryAsset {
+            filename: "libazul.linux-ppc64.a",
+            description: "Linux PowerPC64 .a (big-endian)",
+            platform: Platform::Linux,
+        },
+        BinaryAsset {
+            filename: "libazul.linux-s390x.so",
+            description: "Linux s390x .so (IBM Z, big-endian)",
+            platform: Platform::Linux,
+        },
+        BinaryAsset {
+            filename: "libazul.linux-s390x.a",
+            description: "Linux s390x .a (IBM Z, big-endian)",
+            platform: Platform::Linux,
+        },
+        BinaryAsset {
+            filename: "libazul.linux-riscv64.so",
+            description: "Linux RISC-V 64 .so",
+            platform: Platform::Linux,
+        },
+        BinaryAsset {
+            filename: "libazul.linux-riscv64.a",
+            description: "Linux RISC-V 64 .a",
+            platform: Platform::Linux,
+        },
         // Windows cross-arch
         BinaryAsset {
             filename: "azul.i686.dll",
@@ -902,6 +935,32 @@ pub fn create_git_repository(version: &str, output_dir: &Path, lib_rs: &str) -> 
     Ok(())
 }
 
+/// Render an unconditional `<li>` link into the per-release artifact dir
+/// (`https://azul.rs/release/{version}/{filename}`).
+///
+/// Unlike [`generate_asset_li`], this does NOT probe the filesystem: it always
+/// emits a live link. The release page is built by the website-skeleton job
+/// (with placeholder binaries) and is NOT regenerated after CI merges the real
+/// artifacts — only file sizes are patched in place. So artifacts that aren't
+/// placeholdered (Linux .deb/.rpm packages, the PDF guide, exotic-arch DLLs)
+/// would never appear if we filtered on presence at generation time. For this
+/// comprehensive "every artifact we ship" download index we therefore link
+/// them unconditionally; a not-yet-built artifact 404s rather than vanishing.
+fn release_link_li(version: &str, filename: &str, description: &str) -> String {
+    format!(
+        "<li><a href='https://azul.rs/release/{version}/{filename}'>{description} \
+         ({filename})</a></li>",
+        version = version,
+        filename = filename,
+        description = description
+    )
+}
+
+/// Render an unconditional external `<li>` link (full URL, no release-dir prefix).
+fn external_link_li(url: &str, label: &str) -> String {
+    format!("<li><a href='{url}'>{label}</a></li>", url = url, label = label)
+}
+
 /// Generate a single asset list item HTML
 fn generate_asset_li(version: &str, asset: &AssetInfo) -> String {
     if asset.is_present {
@@ -992,21 +1051,91 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         .collect::<Vec<_>>()
         .join("\n                ");
 
-    // Generate cross-arch section (only shown if any cross-arch artifacts exist)
-    let cross_arch_section = if cross_arch_assets.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "\n              <br/>\n              \
-             <strong>Additional Architectures (experimental):</strong>\n              \
-             <ul>\n                {}\n              </ul>",
-            cross_arch_assets
-        )
-    };
+    let _ = cross_arch_assets;
+
+    // Exotic / cross-arch native libraries. Rendered unconditionally from the
+    // static CROSS_ARCH_ASSETS list (NOT the present-only `assets.cross_arch`)
+    // so every architecture we ship is linked on this comprehensive index even
+    // though the skeleton build doesn't placeholder these files. Spans x86 →
+    // riscv: i686/aarch64/armv7, ppc64/s390x/riscv64 (big-endian + RISC-V),
+    // Windows i686, macOS Intel, and rust9x (Win98/XP).
+    let cross_arch_assets: String = BinaryAsset::CROSS_ARCH_ASSETS
+        .iter()
+        .map(|a| release_link_li(version, a.filename, a.description))
+        .collect::<Vec<_>>()
+        .join("\n                ");
+    let cross_arch_section = format!(
+        "\n              <br/>\n              \
+         <strong>Additional &amp; exotic architectures (experimental, x86 → \
+         RISC-V):</strong>\n              <ul>\n                {}\n              </ul>",
+        cross_arch_assets
+    );
 
     // Generate API/examples links
     let api_json_link = generate_asset_li(version, &assets.api_json);
     let examples_zip_link = generate_asset_li(version, &assets.examples_zip);
+
+    // ---- Linux packages (.deb / .rpm) ----------------------------------
+    // nfpm conventional filenames: deb = `name_version_arch.deb`,
+    // rpm = `name-version.arch.rpm`. The amd64 packages are built by
+    // build_linux_packages; per-arch (arm64/ppc64/s390x/riscv64) are
+    // experimental. nfpm maps the deb arch straight through (amd64/arm64/…)
+    // and maps the rpm arch (amd64→x86_64, arm64→aarch64; ppc64/s390x/riscv64
+    // pass through). The deploy copies them flat into release/{version}/.
+    let package_links: String = [
+        ("azul_{V}_amd64.deb", "Debian/Ubuntu package (x86-64)"),
+        ("azul-{V}.x86_64.rpm", "RPM package (Fedora/RHEL/openSUSE, x86-64)"),
+        ("azul_{V}_arm64.deb", "Debian/Ubuntu package (ARM64, experimental)"),
+        ("azul-{V}.aarch64.rpm", "RPM package (ARM64, experimental)"),
+        ("azul_{V}_ppc64.deb", "Debian/Ubuntu package (PowerPC64, experimental)"),
+        ("azul-{V}.ppc64.rpm", "RPM package (PowerPC64, experimental)"),
+        ("azul_{V}_s390x.deb", "Debian/Ubuntu package (s390x, experimental)"),
+        ("azul-{V}.s390x.rpm", "RPM package (s390x, experimental)"),
+        ("azul_{V}_riscv64.deb", "Debian/Ubuntu package (RISC-V 64, experimental)"),
+        ("azul-{V}.riscv64.rpm", "RPM package (RISC-V 64, experimental)"),
+    ]
+    .iter()
+    .map(|(fname, desc)| release_link_li(version, &fname.replace("{V}", version), desc))
+    .collect::<Vec<_>>()
+    .join("\n                ");
+
+    // ---- PDF guide -------------------------------------------------------
+    // The docs_pdf job uploads azul-documentation.pdf; the deploy lays it out
+    // at release/{version}/azul-documentation.pdf.
+    let pdf_link = release_link_li(
+        version,
+        "azul-documentation.pdf",
+        "Full guide + API reference (PDF)",
+    );
+
+    // ---- Language bindings ----------------------------------------------
+    // Per-language install instructions for the bindings with a solid working
+    // hello-world (mirrors the frontpage install-tab whitelist). The frontpage
+    // install panel is keyed by `?lang=` / the in-page selector, so we deep-link
+    // to it; the examples zip below carries the full source for each.
+    const BINDING_LANGS: &[(&str, &str)] = &[
+        ("rust", "Rust"),
+        ("python", "Python"),
+        ("c", "C"),
+        ("cpp", "C++"),
+        ("csharp", "C# / .NET"),
+        ("java", "Java"),
+        ("kotlin", "Kotlin"),
+        ("lua", "Lua"),
+        ("ruby", "Ruby"),
+        ("node", "Node.js"),
+        ("ocaml", "OCaml"),
+    ];
+    let binding_links: String = BINDING_LANGS
+        .iter()
+        .map(|(lang, label)| {
+            external_link_li(
+                &format!("https://azul.rs/#install-{lang}"),
+                &format!("{label} — install &amp; hello-world"),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n                ");
 
     format!(
         "<!DOCTYPE html>
@@ -1032,8 +1161,10 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
           <a href='https://github.com/fschutt/azul/commit/{git}' style='font-size:18px;'>(git {git})</a>
           <style>
             main h1 {{ margin-bottom: none; }}
-            ul {{ margin-left: 20px; margin-top: 20px; list-style-type: none; }} 
-            nav ul {{ margin: 0px; }} 
+            main h2 {{ margin-top: 36px; margin-bottom: 4px; font-size: 24px; }}
+            main h2:target {{ scroll-margin-top: 12px; }}
+            ul {{ margin-left: 20px; margin-top: 20px; list-style-type: none; }}
+            nav ul {{ margin: 0px; }}
             #releasenotes {{ margin-top: 20px; max-width: 700px; }}
             #releasenotes ul {{ list-style-type: initial; }} 
             #releasenotes ul li {{ margin-bottom: 2px; }} 
@@ -1047,23 +1178,21 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
 
               <br/>
 
-              <strong>Links:</strong>
-              <ul>
-                <li><a href='https://azul.rs/api/{version}.html'>Documentation for this release</a></li>
-                <li><a href='https://azul.rs/guide'>Guide</a></li>
-                <br/>
-                <li><a href='https://github.com/fschutt/azul/releases/tag/{version}'>GitHub release</a></li>
-                <li><a href='https://crates.io/crates/azul/{version}'>Crates.io</a></li>
-                <li><a href='https://docs.rs/azul/{version}'>Docs.rs</a></li>
-                <br/>
-                <li><a href='https://azul.rs/skill.md'>AI agent skill (skill.md)</a> &mdash; install once to make a coding agent ready to build azul apps</li>
-                <li><a href='https://azul.rs/llms.txt'>llms.txt</a> / <a href='https://azul.rs/llms-full.txt'>llms-full.txt</a> &mdash; machine-readable API + guide index for LLMs</li>
-              </ul>
+              <p style='color:grey;font-size:15px;max-width:700px;'>Every artifact shipped with this release &mdash;
+              native libraries from x86 to RISC-V, Linux packages, language bindings, docs, agentic files and source &mdash;
+              is linked below. Jump to:
+              <a href='#native-libraries'>native libs</a> &middot;
+              <a href='#linux-packages'>packages</a> &middot;
+              <a href='#language-bindings'>bindings</a> &middot;
+              <a href='#docs-guide'>docs</a> &middot;
+              <a href='#agentic'>agentic</a> &middot;
+              <a href='#source'>source</a>.</p>
 
               <br/>
 
-              <strong>Files:</strong>
-              <br/>
+              <h2 id='native-libraries'>Native libraries</h2>
+              <p style='color:grey;font-size:15px;'>Prebuilt dynamic (<code>.so</code>/<code>.dll</code>/<code>.dylib</code>)
+              and static (<code>.a</code>/<code>.lib</code>) libraries + Python extension modules.</p>
               <ul>
                 {windows_assets}
               </ul>
@@ -1076,30 +1205,31 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               {cross_arch_section}
 
               <br/>
-
-              <strong>C Header:</strong>
-              <br/>
+              <strong>C / C++ headers:</strong>
               <ul>
                 {c_header_link}
-              </ul>
-              
-              <br/>
-              <strong>C++ Headers:</strong>
-              <ul>
                 {cpp_header_links}
               </ul>
 
               <br/>
-              <strong>API Description &amp; Examples:</strong>
+              <h2 id='linux-packages'>Linux packages</h2>
+              <p style='color:grey;font-size:15px;'>System packages (<code>.deb</code> / <code>.rpm</code>) per architecture.
+              amd64 is solid; arm64/ppc64/s390x/riscv64 are experimental and ship only when CI builds them.</p>
               <ul>
-                {api_json_link}
-                {examples_zip_link}
+                {package_links}
               </ul>
 
               <br/>
-              <strong>Use Azul as Rust dependency:</strong>
-              <br/>
+              <h2 id='language-bindings'>Language bindings</h2>
+              <p style='color:grey;font-size:15px;'>Install instructions + a working hello-world for every supported
+              language. Full source for each ships in the examples archive below.</p>
+              <ul>
+                {binding_links}
+              </ul>
 
+              <br/>
+              <strong>Use Azul as a Rust dependency:</strong>
+              <br/>
               <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;font-size:14px;'>
                   <p style='color:grey;font-family:monospace;'># Cargo.toml</p>
                   <p style='color:black;font-family:monospace;'>[dependencies.azul]</p>
@@ -1111,10 +1241,28 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               </div>
 
               <br/>
+              <h2 id='docs-guide'>Docs &amp; guide</h2>
+              <ul>
+                <li><a href='https://azul.rs/api/{version}.html'>API documentation for this release</a></li>
+                <li><a href='https://azul.rs/guide'>Online guide</a></li>
+                {pdf_link}
+                {api_json_link}
+                {examples_zip_link}
+              </ul>
+
+              <br/>
+              <h2 id='agentic'>Agentic</h2>
+              <p style='color:grey;font-size:15px;'>Machine-readable artifacts that make a coding agent ready to build azul apps.</p>
+              <ul>
+                <li><a href='https://azul.rs/skill.md'>AI agent skill (skill.md)</a> &mdash; install once to prime a coding agent</li>
+                <li><a href='https://azul.rs/llms.txt'>llms.txt</a> &mdash; compact API + guide index for LLMs</li>
+                <li><a href='https://azul.rs/llms-full.txt'>llms-full.txt</a> &mdash; full machine-readable index</li>
+              </ul>
+
+              <br/>
               <strong>Deploy a web app (pre-lifted WASM base image &mdash; experimental preview):</strong>
               <br/>
               <a href='https://azul.rs/guide/deploying-web'>Guide: deploying azul web apps</a>
-
               <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;font-size:14px;'>
                   <p style='color:grey;'>A <code>ghcr.io/fschutt/azul-web-base</code> base image with a pre-lifted
                   azul-library WASM cache &mdash; so your app only lifts its own callbacks, not the whole
@@ -1122,6 +1270,16 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                   published here once the web backend is stable. For now, see the guide above and build
                   <code>docker/web-base/Dockerfile</code> from the repo yourself.</p>
               </div>
+
+              <br/>
+              <h2 id='source'>Source</h2>
+              <ul>
+                <li><a href='https://github.com/fschutt/azul'>Git repository</a> &mdash; <code>git clone https://github.com/fschutt/azul</code></li>
+                <li><a href='https://azul.rs/{version}.git'>Bare git repo for this release</a> &mdash; pin via <code>git = \"https://azul.rs/{version}.git\"</code></li>
+                <li><a href='https://github.com/fschutt/azul/releases/tag/{version}'>GitHub release page</a></li>
+                <li><a href='https://crates.io/crates/azul/{version}'>Crates.io</a></li>
+                <li><a href='https://docs.rs/azul/{version}'>Docs.rs</a></li>
+              </ul>
           </div>
         </main>
       </div>
