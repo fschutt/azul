@@ -74,13 +74,14 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT" || { echo "FATAL: cannot cd to repo root $REPO_ROOT" >&2; exit 2; }
 
 # -----------------------------------------------------------------------------
-# Canonical list of the 26 shipped language bindings (matches examples/<lang>/).
-# (examples/go and examples/python also exist; go is not in the official 26 and
-# python has no AZ_E2E counter example, so neither is included here — see the
-# report. Order below is the print order of the status board.)
+# Canonical list of the shipped language bindings (matches examples/<lang>/).
+# `go` (examples/go, cgo-based) has a real counter E2E and is included. `python`
+# is kept as a named entry but always SKIPs — examples/python has no AZ_E2E
+# counter example (the python-extension is a separate build). Order below is the
+# print order of the status board.
 # -----------------------------------------------------------------------------
 ALL_LANGS=(
-  ada algol68 c cobol cpp csharp fortran freebasic haskell java kotlin
+  ada algol68 c cobol cpp csharp fortran freebasic go haskell java kotlin
   lisp lua node ocaml pascal perl php powershell python ruby rust scala
   smalltalk vb6 zig
 )
@@ -128,12 +129,17 @@ fi
 # -----------------------------------------------------------------------------
 # OS detection + dynamic library path. We point AZ_LIB at the dynamic lib and
 # add target/release to the loader path so every example finds libazul.
-#   - macOS:  libazul.dylib, DYLD_LIBRARY_PATH
-#   - Linux:  libazul.so,    LD_LIBRARY_PATH
-# JNA / ctypes / cgo also consult these.
+#   - macOS:    libazul.dylib, DYLD_LIBRARY_PATH
+#   - Linux:    libazul.so,    LD_LIBRARY_PATH
+#   - Windows:  azul.dll,      PATH   (Git-Bash: uname -s is MINGW*/MSYS*/CYGWIN*)
+# JNA / ctypes / cgo also consult these. On Windows the loader resolves DLLs
+# from PATH (and the binary's own dir), so we prepend the release dir to PATH;
+# we also copy the dll into each example dir below.
 # -----------------------------------------------------------------------------
 RELEASE_DIR="$REPO_ROOT/target/release"
 OS_NAME="$(uname -s)"
+IS_MACOS=0
+IS_WINDOWS=0
 # AZ_LIB_DIR is honored by some bindings (e.g. ruby azul.rb) to locate the lib
 # by absolute path — which matters on macOS, where SIP strips DYLD_* env vars
 # from hardened interpreters (/opt/homebrew/bin/ruby etc.) so the loader-path
@@ -148,8 +154,18 @@ case "$OS_NAME" in
     export DYLD_LIBRARY_PATH="$RELEASE_DIR${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
     export DYLD_FALLBACK_LIBRARY_PATH="$RELEASE_DIR${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
     ;;
+  MINGW*|MSYS*|CYGWIN*|Windows_NT)
+    IS_WINDOWS=1
+    # cargo build --features build-dll emits `azul.dll` (no lib-prefix) on MSVC.
+    LIB_PATH="$RELEASE_DIR/azul.dll"
+    export AZ_LIB="$LIB_PATH"
+    export AZ_LIB_DIR="$RELEASE_DIR"
+    # Windows resolves DLLs from PATH; prepend the release dir. Git-Bash accepts
+    # a Unix-style path entry in PATH (it converts on exec), so this is enough
+    # for child processes spawned via the shell.
+    export PATH="$RELEASE_DIR:$PATH"
+    ;;
   *)
-    IS_MACOS=0
     LIB_PATH="$RELEASE_DIR/libazul.so"
     export AZ_LIB="$LIB_PATH"
     export AZ_LIB_DIR="$RELEASE_DIR"
@@ -306,18 +322,27 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # Toolchain: clang (CI: apt `clang` on Linux / preinstalled on macos-14).
 # Recipe lifted verbatim from rust.yml e2e_native "E2E - C hello-world".
 lang_c() {
-  have clang || { skip c "clang not installed (apt: clang)"; return; }
+  # On Windows prefer gcc (MinGW, installed via `choco install mingw` like
+  # build_binaries) which links against the import lib; clang works too.
+  local CC; CC="$(command -v clang || command -v gcc || command -v cc || true)"
+  [ -n "$CC" ] || { skip c "no C compiler (apt: clang / Windows: choco install mingw)"; return; }
   local f; f="$(log_path c)"
   (
     set -x
     cp "$CODEGEN_DIR/azul.h" "$REPO_ROOT/examples/c/" || true
     cd "$REPO_ROOT/examples/c" || exit 1
     if [ "$IS_MACOS" = 1 ]; then
-      clang -g -O0 -I. hello-world.c -L"$RELEASE_DIR" -lazul \
+      "$CC" -g -O0 -I. hello-world.c -L"$RELEASE_DIR" -lazul \
         -framework AppKit -framework OpenGL -framework CoreGraphics \
         -framework CoreText -framework CoreFoundation -o hello-world-e2e || exit 1
+    elif [ "$IS_WINDOWS" = 1 ]; then
+      # MinGW links against the MSVC import lib `azul.dll.lib`; pass it directly
+      # (the dll itself is found on PATH at run time).
+      "$CC" -g -O0 -I. hello-world.c "$RELEASE_DIR/azul.dll.lib" -o hello-world-e2e.exe || exit 1
+      ./hello-world-e2e.exe
+      exit $?
     else
-      clang -g -O0 -I. hello-world.c -L"$RELEASE_DIR" -lazul \
+      "$CC" -g -O0 -I. hello-world.c -L"$RELEASE_DIR" -lazul \
         -lpthread -lm -ldl -o hello-world-e2e || exit 1
     fi
     ./hello-world-e2e
@@ -345,7 +370,8 @@ lang_rust() {
 # Not in rust.yml e2e_native, but the C++20 example mirrors the C one: it
 # #includes the generated azul20.hpp and links libazul. Build cpp20/hello-world.cpp.
 lang_cpp() {
-  have clang++ || { skip cpp "clang++ not installed (apt: clang)"; return; }
+  local CXX; CXX="$(command -v clang++ || command -v g++ || true)"
+  [ -n "$CXX" ] || { skip cpp "no C++ compiler (apt: clang / Windows: choco install mingw)"; return; }
   local f; f="$(log_path cpp)"
   (
     set -x
@@ -353,16 +379,57 @@ lang_cpp() {
     cp "$CODEGEN_DIR/azul.h"    "$REPO_ROOT/examples/cpp/cpp20/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/cpp/cpp20" || exit 1
     if [ "$IS_MACOS" = 1 ]; then
-      clang++ -g -O0 -std=c++20 -I. hello-world.cpp -L"$RELEASE_DIR" -lazul \
+      # Pass the active SDK explicitly: a Command Line Tools install whose
+      # default libc++ header dir (.../usr/include/c++/v1) is missing still
+      # resolves <cstdint> etc. from the SDK's copy via -isysroot.
+      local SDK; SDK="$(xcrun --show-sdk-path 2>/dev/null || true)"
+      "$CXX" -g -O0 -std=c++20 ${SDK:+-isysroot "$SDK"} -I. hello-world.cpp -L"$RELEASE_DIR" -lazul \
         -framework AppKit -framework OpenGL -framework CoreGraphics \
         -framework CoreText -framework CoreFoundation -o hello-world-e2e || exit 1
+    elif [ "$IS_WINDOWS" = 1 ]; then
+      "$CXX" -g -O0 -std=c++20 -I. hello-world.cpp "$RELEASE_DIR/azul.dll.lib" -o hello-world-e2e.exe || exit 1
+      ./hello-world-e2e.exe
+      exit $?
     else
-      clang++ -g -O0 -std=c++20 -I. hello-world.cpp -L"$RELEASE_DIR" -lazul \
+      "$CXX" -g -O0 -std=c++20 -I. hello-world.cpp -L"$RELEASE_DIR" -lazul \
         -lpthread -lm -ldl -o hello-world-e2e || exit 1
     fi
     ./hello-world-e2e
   ) >"$f" 2>&1
   finish cpp
+}
+
+# ---- Go (cgo) ----------------------------------------------------------------
+# Toolchain: go (preinstalled on GitHub runners) + a C compiler reachable to
+# cgo (clang on macOS, gcc on Linux, MinGW gcc on Windows). The example's
+# main.go pulls in azul.h via the cgo preamble and links libazul; it does NOT
+# import the generated azul-go package (it calls C.Az* directly), so no
+# ../azul-go sibling dir is needed. We mirror the C recipe's per-OS link flags
+# through CGO_CFLAGS / CGO_LDFLAGS.
+lang_go() {
+  have go || { skip go "go not installed (preinstalled on GH runners / apt: golang-go)"; return; }
+  local f; f="$(log_path go)"
+  (
+    set -x
+    cp "$CODEGEN_DIR/azul.h" "$REPO_ROOT/examples/go/" 2>/dev/null || true
+    cp "$LIB_PATH"           "$REPO_ROOT/examples/go/" 2>/dev/null || true
+    cd "$REPO_ROOT/examples/go" || exit 1
+    export CGO_ENABLED=1
+    export CGO_CFLAGS="-I."
+    local OUT="hello-world-go-e2e"
+    if [ "$IS_MACOS" = 1 ]; then
+      export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -framework CoreFoundation"
+    elif [ "$IS_WINDOWS" = 1 ]; then
+      # cgo links the MSVC import lib directly; the dll resolves from PATH.
+      export CGO_LDFLAGS="$RELEASE_DIR/azul.dll.lib"
+      OUT="hello-world-go-e2e.exe"
+    else
+      export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -lpthread -lm -ldl"
+    fi
+    go build -o "$OUT" . || exit 1
+    "./$OUT"
+  ) >"$f" 2>&1
+  finish go "go build/run failed (cgo + libazul link)"
 }
 
 # ---- Lua / LuaJIT ------------------------------------------------------------
@@ -753,23 +820,29 @@ lang_php() {
 }
 
 # ---- PowerShell --------------------------------------------------------------
-# Toolchain: pwsh (CI: PowerShell preinstalled on windows runners; on
-# macOS/Linux install via brew/apt). README marks macOS BLOCKED (CFRunLoop owns
-# the main thread) and the path is Windows-only -> SKIP on non-Windows.
+# Toolchain: pwsh / powershell (CI: PowerShell preinstalled on windows runners;
+# on macOS/Linux install via brew/apt). README marks macOS BLOCKED (CFRunLoop
+# owns the main thread) -> SKIP on macOS. On Windows there's no CFRunLoop
+# conflict, so we attempt it for real: Add-Type JIT-compiles Azul.cs and
+# Set-AzulLibraryPath $PSScriptRoot finds the dll we copy in.
 lang_powershell() {
-  case "$OS_NAME" in
-    MINGW*|MSYS*|CYGWIN*|Windows_NT) : ;;  # Windows-ish: attempt below.
-    *) skip powershell "Windows-only (macOS pwsh CFRunLoop blocks NSApp.run per README)"; return ;;
-  esac
-  have pwsh || { skip powershell "pwsh not installed"; return; }
+  if [ "$IS_WINDOWS" != 1 ]; then
+    skip powershell "Windows-only (macOS pwsh CFRunLoop blocks NSApp.run per README)"; return
+  fi
+  # Prefer pwsh (PowerShell 7+); fall back to the built-in Windows PowerShell.
+  local PSBIN; PSBIN="$(command -v pwsh || command -v powershell || true)"
+  [ -n "$PSBIN" ] || { skip powershell "pwsh/powershell not installed"; return; }
   local f; f="$(log_path powershell)"
   (
     set -x
-    cp "$CODEGEN_DIR/Azul.cs"  "$REPO_ROOT/examples/powershell/" 2>/dev/null || true
+    cp "$CODEGEN_DIR/Azul.cs"   "$REPO_ROOT/examples/powershell/" 2>/dev/null || true
     cp "$CODEGEN_DIR/Azul.psd1" "$REPO_ROOT/examples/powershell/" 2>/dev/null || true
     cp "$CODEGEN_DIR/Azul.psm1" "$REPO_ROOT/examples/powershell/" 2>/dev/null || true
+    # hello-world.ps1 calls Set-AzulLibraryPath $PSScriptRoot, so the dll must
+    # sit next to the script (P/Invoke loads azul.dll from there).
+    cp "$LIB_PATH"              "$REPO_ROOT/examples/powershell/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/powershell" || exit 1
-    pwsh -ExecutionPolicy Bypass -File hello-world.ps1
+    "$PSBIN" -ExecutionPolicy Bypass -File hello-world.ps1
   ) >"$f" 2>&1
   finish powershell "powershell run failed"
 }
@@ -870,10 +943,42 @@ lang_smalltalk() {
 }
 
 # ---- VB6 ---------------------------------------------------------------------
-# Toolchain: VB6 IDE / vbc — 32-bit Windows only, legacy. ALWAYS SKIP on
-# Linux/macOS (and there is no CI runner with the VB6 toolchain).
+# Toolchain: the classic VB6 IDE compiler (VB6.EXE, `/make`) — 32-bit Windows
+# only, legacy. ALWAYS SKIP on Linux/macOS. On Windows we *attempt* it: probe
+# for VB6.EXE on PATH (and the usual install dir), and if present build the
+# example .vbp with `VB6.EXE /make`. The GitHub windows runner does NOT ship
+# the VB6 IDE, so the honest result there is a clean ⊘ "vb6 toolchain
+# unavailable" — but the recipe is real and will run wherever VB6.EXE exists.
+# NOTE: VB6 needs a 32-bit azul.dll (i686); the e2e job builds the 64-bit dll,
+# so even with the IDE present this would need the i686 dll on PATH.
 lang_vb6() {
-  skip vb6 "32-bit Windows legacy only; no Linux/macOS or CI toolchain"
+  if [ "$IS_WINDOWS" != 1 ]; then
+    skip vb6 "32-bit Windows legacy only (no VB6 toolchain on Linux/macOS)"; return
+  fi
+  # Locate the VB6 IDE compiler. `command -v` covers PATH; otherwise check the
+  # canonical install location under Program Files (x86).
+  local VB6BIN; VB6BIN="$(command -v VB6.EXE || command -v vb6.exe || command -v vb6 || true)"
+  if [ -z "$VB6BIN" ]; then
+    for _cand in "/c/Program Files (x86)/Microsoft Visual Studio/VB98/VB6.EXE" \
+                 "/c/Program Files/Microsoft Visual Studio/VB98/VB6.EXE"; do
+      [ -x "$_cand" ] && { VB6BIN="$_cand"; break; }
+    done
+  fi
+  [ -n "$VB6BIN" ] || { skip vb6 "vb6 toolchain unavailable (VB6.EXE not found; not on CI runners)"; return; }
+  local f; f="$(log_path vb6)"
+  (
+    set -x
+    # The example ships its own HelloWorld.vbp + HelloWorld.bas; the codegen
+    # emits the Azul.bas module + .cls wrappers into target/codegen/vb6/.
+    cp "$CODEGEN_DIR/vb6/Azul.bas" "$REPO_ROOT/examples/vb6/" 2>/dev/null || true
+    cp "$LIB_PATH"                 "$REPO_ROOT/examples/vb6/" 2>/dev/null || true
+    cd "$REPO_ROOT/examples/vb6" || exit 1
+    # VB6 IDE batch compile: /make builds the .exe defined by the .vbp.
+    "$VB6BIN" /make HelloWorld.vbp /out vb6-build.log || { cat vb6-build.log 2>/dev/null; exit 1; }
+    [ -f HelloWorld.exe ] || { echo "VB6 produced no HelloWorld.exe"; exit 1; }
+    ./HelloWorld.exe
+  ) >"$f" 2>&1
+  finish vb6 "vb6 build/run failed (needs 32-bit azul.dll + VB6 IDE)"
 }
 
 # =============================================================================

@@ -1020,6 +1020,10 @@ jobs:
         include:
           - os: ubuntu-22.04
           - os: macos-14
+          # Windows lets the Windows-only bindings (vb6, powershell) and the
+          # P/Invoke / FFI ones (csharp, node, ruby, lua, ...) be tested where
+          # they actually work. The matrix script runs under Git-Bash.
+          - os: windows-2022
     runs-on: ${{ matrix.os }}
     env:
       AZ_E2E: ${{ github.workspace }}/tests/e2e/hello_world_counter.json
@@ -1037,6 +1041,30 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
+      # MinGW gives cgo/C/C++ a gcc that links the MSVC import lib (mirrors
+      # build_binaries' Windows setup). The other Windows toolchains (pwsh,
+      # node, ruby, dotnet, go, perl, php, java) are preinstalled on the runner.
+      - name: Install MinGW (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: choco install mingw -y
+
+      # OCaml: the lang_ocaml recipe WORKS once dune + ctypes + ctypes-foreign
+      # are present. setup-ocaml is Linux/macOS only (it needs a real opam),
+      # so gate it off Windows; lang_ocaml just reports ⊘ on Windows.
+      - name: Set up OCaml (Linux/macOS)
+        if: matrix.os != 'windows-2022'
+        continue-on-error: true
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.2"
+
+      - name: Install OCaml FFI packages (Linux/macOS)
+        if: matrix.os != 'windows-2022'
+        continue-on-error: true
+        shell: bash
+        run: opam install -y dune ctypes ctypes-foreign
+
       - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc codegen all
 
@@ -1049,6 +1077,10 @@ jobs:
           if [ "${{ matrix.os }}" = "macos-14" ]; then
             echo "AZ_LIB=$PWD/target/release/libazul.dylib" >> "$GITHUB_ENV"
             echo "DYLD_LIBRARY_PATH=$PWD/target/release" >> "$GITHUB_ENV"
+          elif [ "${{ matrix.os }}" = "windows-2022" ]; then
+            # azul.dll (no lib-prefix) on MSVC; loader resolves DLLs from PATH.
+            echo "AZ_LIB=$PWD/target/release/azul.dll" >> "$GITHUB_ENV"
+            echo "$PWD/target/release" >> "$GITHUB_PATH"
           else
             echo "AZ_LIB=$PWD/target/release/libazul.so" >> "$GITHUB_ENV"
             echo "LD_LIBRARY_PATH=$PWD/target/release" >> "$GITHUB_ENV"
@@ -1069,8 +1101,12 @@ jobs:
           if [ "${{ matrix.os }}" = "ubuntu-22.04" ]; then
             sudo apt-get install -y --no-install-recommends \
               luajit php-cli gfortran gnucobol fp-compiler sbcl 2>/dev/null || true
-          else
+          elif [ "${{ matrix.os }}" = "macos-14" ]; then
             brew install luajit php fpc sbcl 2>/dev/null || true
+          else
+            # Windows: install a couple of cheap FFI runtimes via Chocolatey.
+            # pwsh, node, ruby, dotnet, go, perl, php, java are already present.
+            choco install luajit -y 2>/dev/null || true
           fi
       - name: Language binding status board (AZ_E2E)
         continue-on-error: true

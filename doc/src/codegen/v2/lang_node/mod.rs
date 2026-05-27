@@ -262,7 +262,17 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.line("//   }");
     b.line("// ----------------------------------------------------------------------------");
     b.blank();
-    b.line(&format!("const DLL_NAME = '{}';", DLL_NAME));
+    // The bare library name (`azul` -> `azul.dll` / `libazul.so` / `libazul.dylib`)
+    // works whenever the loader search path (`LD_LIBRARY_PATH` etc.) finds it.
+    // But macOS SIP strips `DYLD_*` from hardened interpreters (the system/
+    // Homebrew `node`), so a bare name can't be located there. When the
+    // environment provides an explicit absolute path via `AZ_LIB` (the way the
+    // AZ_E2E harness points every binding at the freshly-built lib), prefer it.
+    b.line(&format!(
+        "const DLL_NAME = (typeof process !== 'undefined' && process.env && \
+process.env.AZ_LIB) ? process.env.AZ_LIB : '{}';",
+        DLL_NAME
+    ));
     b.blank();
 
     // ---- Node / koffi branch ------------------------------------------------
@@ -316,7 +326,9 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.line("// `bun:ffi` ships in the Bun runtime; no install step. The dlopen");
     b.line("// call resolves library names the same way as koffi/Deno.");
     b.line("const { dlopen, FFIType, suffix, ptr, JSCallback } = require('bun:ffi');");
-    b.line("const path = `${DLL_NAME}.${suffix}`;");
+    b.line("// If DLL_NAME already names a concrete file (an absolute/relative path,");
+    b.line("// e.g. from AZ_LIB), use it verbatim; otherwise append the platform suffix.");
+    b.line("const path = /[\\\\/]|\\.(dll|dylib|so)$/.test(DLL_NAME) ? DLL_NAME : `${DLL_NAME}.${suffix}`;");
     b.line("// Bun requires the symbol map up-front. We populate it lazily by");
     b.line("// returning a builder that records bindings until the user is done,");
     b.line("// then reopens. This wastes a small amount of work but keeps the");
@@ -413,8 +425,12 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.line("// Resolve the platform-specific filename. Deno does NOT auto-resolve");
     b.line("// `'azul'` to `libazul.so` etc.: the caller must spell it out.");
     b.line("const platform = Deno.build.os;");
-    b.line("const libPath = platform === 'windows'");
+    b.line("// An explicit path (e.g. from AZ_LIB) is used verbatim; a bare name gets");
+    b.line("// the platform's lib prefix/suffix.");
+    b.line("const libPath = /[\\\\/]|\\.(dll|dylib|so)$/.test(DLL_NAME)");
     b.indent();
+    b.line("? DLL_NAME");
+    b.line(": platform === 'windows'");
     b.line("? `${DLL_NAME}.dll`");
     b.line(": platform === 'darwin' ? `lib${DLL_NAME}.dylib` : `lib${DLL_NAME}.so`;");
     b.dedent();

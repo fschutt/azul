@@ -30,7 +30,13 @@ extern AzUpdate goOnClick        (AzRefAny data, AzCallbackInfo info);
 extern AzDom    goLayout         (AzRefAny data, AzLayoutCallbackInfo info);
 extern void     myDataDestructor (void* m);
 
-static inline AzCallback                  make_click_callback     (void) { return AzCallback_create((AzCallbackType)goOnClick); }
+// AzButton_setOnClick / AzWindowCreateOptions_create take a RAW C-ABI
+// function pointer (AzCallbackType / AzLayoutCallbackType), NOT the
+// AzCallback wrapper struct. cgo maps a raw fn-pointer typedef to
+// `*[0]byte` and a struct to `_Ctype_struct_Az...`, so returning the
+// struct here is a type error at the Go call site. Return the raw
+// fn-pointer types directly.
+static inline AzCallbackType              make_click_callback     (void) { return (AzCallbackType)goOnClick; }
 static inline AzLayoutCallbackType        make_layout_callback    (void) { return (AzLayoutCallbackType)goLayout; }
 static inline AzRefAnyDestructorType      make_my_data_destructor (void) { return (AzRefAnyDestructorType)myDataDestructor; }
 */
