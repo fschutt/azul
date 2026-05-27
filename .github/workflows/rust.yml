@@ -282,6 +282,12 @@ jobs:
     name: Cross-Build (${{ matrix.target }})
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
     runs-on: ${{ matrix.runner }}
+    # The solid targets (i686/aarch64/armv7-linux, i686-windows, x86_64-macos)
+    # stay BLOCKING. The exotic Linux arches below carry `experimental: true`
+    # and are non-blocking: if cross can't build them they just don't ship,
+    # the required pipeline stays green. (fail-fast: false already isolates
+    # each matrix leg, so a failing experimental leg can't cancel the others.)
+    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
@@ -316,6 +322,37 @@ jobs:
             artifact_name: azul-macos-x86_64
             use_cross: false
             artifact_ext: dylib
+          # -----------------------------------------------------------------
+          # Exotic Linux arches — EXPERIMENTAL / non-blocking. cross ships
+          # prebuilt Docker images for each; we try to build a real .so and
+          # ship it if it succeeds, but a failure here must NOT fail the run.
+          # nfpm_arch is the Go-nomenclature (GOARCH) value handed to nfpm in
+          # build_linux_packages so it can emit a correctly-tagged .deb/.rpm.
+          # -----------------------------------------------------------------
+          # ---- Linux PowerPC64 (big-endian) ----
+          - target: powerpc64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            artifact_name: azul-linux-ppc64
+            use_cross: true
+            artifact_ext: so
+            experimental: true
+            nfpm_arch: ppc64
+          # ---- Linux s390x (IBM Z, big-endian) ----
+          - target: s390x-unknown-linux-gnu
+            runner: ubuntu-22.04
+            artifact_name: azul-linux-s390x
+            use_cross: true
+            artifact_ext: so
+            experimental: true
+            nfpm_arch: s390x
+          # ---- Linux RISC-V 64 ----
+          - target: riscv64gc-unknown-linux-gnu
+            runner: ubuntu-22.04
+            artifact_name: azul-linux-riscv64
+            use_cross: true
+            artifact_ext: so
+            experimental: true
+            nfpm_arch: riscv64
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -341,7 +378,12 @@ jobs:
         if: "!matrix.use_cross"
         run: cargo build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="build-dll"
 
+      # Run even when an experimental build failed (success() || matrix.experimental)
+      # so a partial build that produced a binary still ships; for experimental
+      # targets a missing binary is a clean skip (if-no-files-found: ignore),
+      # while the solid targets keep the louder `warn`.
       - name: Upload Artifacts
+        if: ${{ success() || matrix.experimental }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
@@ -350,7 +392,7 @@ jobs:
             target/${{ matrix.target }}/prod-release/*azul*.a
             target/${{ matrix.target }}/prod-release/*azul*.lib
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: ${{ matrix.experimental && 'ignore' || 'warn' }}
 
   # rust9x: Build azul for Windows 98/XP using the rust9x fork (i686).
   #
@@ -1065,7 +1107,11 @@ jobs:
   build_linux_packages:
     name: Build Linux Packages (.deb/.rpm)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
-    needs: [build_binaries, build_website_skeleton]
+    # cross_build_binaries is added so the per-arch .so artifacts (aarch64 +
+    # the exotic ppc64/s390x/riscv64) are available to package. Its experimental
+    # legs are job-level continue-on-error, so a failed exotic build still lets
+    # `needs` succeed and never blocks this job.
+    needs: [build_binaries, build_website_skeleton, cross_build_binaries]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -1076,6 +1122,36 @@ jobs:
         with:
           name: azul-linux-amd64
           path: artifacts
+
+      # Extra per-arch binaries to package (each optional / continue-on-error):
+      # aarch64 is solid; ppc64/s390x/riscv64 are experimental and may be absent.
+      - name: Download Linux aarch64 binaries
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-aarch64
+          path: artifacts-arch/arm64
+
+      - name: Download Linux ppc64 binaries (experimental)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-ppc64
+          path: artifacts-arch/ppc64
+
+      - name: Download Linux s390x binaries (experimental)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-s390x
+          path: artifacts-arch/s390x
+
+      - name: Download Linux riscv64 binaries (experimental)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-riscv64
+          path: artifacts-arch/riscv64
 
       - name: Download NFPM config
         uses: actions/download-artifact@v4
@@ -1129,6 +1205,102 @@ jobs:
           path: target/packages/*.rpm
           retention-days: 30
           if-no-files-found: error
+
+      # -----------------------------------------------------------------------
+      # Per-arch .deb/.rpm for every NON-amd64 binary that actually built.
+      # Entirely non-blocking (continue-on-error). For each arch we stage its
+      # libazul.so, write a per-arch copy of the generated nfpm.yaml with the
+      # `arch:` line set to the nfpm/GOARCH value (nfpm passes unknown arches
+      # through to deb/rpm unchanged; arm64/s390x/ppc64le it maps natively),
+      # then run nfpm into a per-arch output dir. Missing binaries are skipped.
+      #
+      # NOTE: this rewrites the `arch:` line of the DOWNLOADED config artifact
+      # at build time — it does NOT edit azul-doc's generated source. The
+      # cleaner long-term fix is to have `azul-doc nfpm` emit
+      # `arch: ${NFPM_ARCH:-amd64}` so the env var alone selects the arch; see
+      # the report. Until then this sed transform is self-contained here.
+      - name: Build per-arch .deb/.rpm (experimental, non-blocking)
+        id: pkg_multiarch
+        continue-on-error: true
+        run: |
+          set -u
+          BASE_YAML="target/packages/nfpm.yaml"
+          if [ ! -f "$BASE_YAML" ]; then
+            echo "::warning::nfpm.yaml not found - skipping per-arch packaging"
+            exit 0
+          fi
+          mkdir -p target/packages-arch
+          # arch dir : nfpm arch value
+          for entry in arm64:arm64 ppc64:ppc64 s390x:s390x riscv64:riscv64; do
+            dir="${entry%%:*}"
+            nfpm_arch="${entry##*:}"
+            so="$(find "artifacts-arch/$dir" -name 'libazul.so' 2>/dev/null | head -n1)"
+            if [ -z "$so" ]; then
+              echo "  [skip] no libazul.so for $dir (build absent or failed)"
+              continue
+            fi
+            echo "=== Packaging $dir (nfpm arch=$nfpm_arch) from $so ==="
+            outdir="target/packages-arch/$dir"
+            mkdir -p "$outdir"
+            cp "$so" "$outdir/libazul.so"
+            # Co-locate the other contents (azul.h, LICENSE) next to the .so so
+            # the relative `src:` paths in nfpm.yaml resolve from $outdir.
+            find nfpm-config -name 'azul.h' -exec cp {} "$outdir/" \; 2>/dev/null || true
+            cp LICENSE "$outdir/" 2>/dev/null || true
+            # Per-arch config: replace the (hardcoded) `arch:` line.
+            sed "s/^arch:.*/arch: ${nfpm_arch}/" "$BASE_YAML" > "$outdir/nfpm.yaml"
+            ( cd "$outdir" && \
+              nfpm pkg --config nfpm.yaml --packager deb --target . && \
+              nfpm pkg --config nfpm.yaml --packager rpm --target . ) \
+              || echo "::warning::nfpm packaging failed for $dir"
+            ls -la "$outdir"/*.deb "$outdir"/*.rpm 2>/dev/null || true
+          done
+          echo "=== per-arch packages ==="
+          find target/packages-arch -name '*.deb' -o -name '*.rpm' 2>/dev/null || true
+
+      - name: Upload per-arch aarch64 packages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azul-linux-aarch64-packages
+          path: |
+            target/packages-arch/arm64/*.deb
+            target/packages-arch/arm64/*.rpm
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload per-arch ppc64 packages (experimental)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azul-linux-ppc64-packages
+          path: |
+            target/packages-arch/ppc64/*.deb
+            target/packages-arch/ppc64/*.rpm
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload per-arch s390x packages (experimental)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azul-linux-s390x-packages
+          path: |
+            target/packages-arch/s390x/*.deb
+            target/packages-arch/s390x/*.rpm
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload per-arch riscv64 packages (experimental)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azul-linux-riscv64-packages
+          path: |
+            target/packages-arch/riscv64/*.deb
+            target/packages-arch/riscv64/*.rpm
+          retention-days: 30
+          if-no-files-found: ignore
 
   build_website_skeleton:
     name: Build Website Skeleton
@@ -1269,6 +1441,28 @@ jobs:
           name: azul-linux-armv7
           path: artifacts-linux-armv7
 
+      # Exotic Linux arches (experimental, may be absent if cross couldn't build)
+      - name: Download Linux ppc64 binaries (experimental)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-ppc64
+          path: artifacts-linux-ppc64
+
+      - name: Download Linux s390x binaries (experimental)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-s390x
+          path: artifacts-linux-s390x
+
+      - name: Download Linux riscv64 binaries (experimental)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-riscv64
+          path: artifacts-linux-riscv64
+
       - name: Download Windows i686 binaries
         uses: actions/download-artifact@v4
         continue-on-error: true
@@ -1303,6 +1497,35 @@ jobs:
         with:
           name: azul-linux-amd64-rpm
           path: artifacts-rpm
+
+      # Per-arch .deb/.rpm packages (each optional; aarch64 solid, rest experimental)
+      - name: Download aarch64 packages
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-aarch64-packages
+          path: artifacts-pkg-aarch64
+
+      - name: Download ppc64 packages (experimental)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-ppc64-packages
+          path: artifacts-pkg-ppc64
+
+      - name: Download s390x packages (experimental)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-s390x-packages
+          path: artifacts-pkg-s390x
+
+      - name: Download riscv64 packages (experimental)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-riscv64-packages
+          path: artifacts-pkg-riscv64
 
       - name: Download headers
         uses: actions/download-artifact@v4
@@ -1380,6 +1603,15 @@ jobs:
           # Linux armv7 (Raspberry Pi)
           find artifacts-linux-armv7 -name "libazul.so" -exec cp {} "$RELEASE_DIR/libazul.linux-armv7.so" \; 2>/dev/null || true
           find artifacts-linux-armv7 -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.linux-armv7.a" \; 2>/dev/null || true
+          # Linux ppc64 (PowerPC64, big-endian) — experimental, may be absent
+          find artifacts-linux-ppc64 -name "libazul.so" -exec cp {} "$RELEASE_DIR/libazul.linux-ppc64.so" \; 2>/dev/null || true
+          find artifacts-linux-ppc64 -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.linux-ppc64.a" \; 2>/dev/null || true
+          # Linux s390x (IBM Z, big-endian) — experimental, may be absent
+          find artifacts-linux-s390x -name "libazul.so" -exec cp {} "$RELEASE_DIR/libazul.linux-s390x.so" \; 2>/dev/null || true
+          find artifacts-linux-s390x -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.linux-s390x.a" \; 2>/dev/null || true
+          # Linux riscv64 (RISC-V 64) — experimental, may be absent
+          find artifacts-linux-riscv64 -name "libazul.so" -exec cp {} "$RELEASE_DIR/libazul.linux-riscv64.so" \; 2>/dev/null || true
+          find artifacts-linux-riscv64 -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.linux-riscv64.a" \; 2>/dev/null || true
           # Windows i686 (32-bit, Win7+/XP compat)
           find artifacts-windows-i686 -name "azul.dll" -exec cp {} "$RELEASE_DIR/azul.i686.dll" \; 2>/dev/null || true
           find artifacts-windows-i686 -name "azul.lib" ! -name "azul.dll.lib" -exec cp {} "$RELEASE_DIR/azul.i686.lib" \; 2>/dev/null || true
@@ -1398,6 +1630,12 @@ jobs:
           # Packages
           find artifacts-deb -name "*.deb" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           find artifacts-rpm -name "*.rpm" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
+          # Per-arch packages (nfpm already encodes the arch in the filename,
+          # e.g. azul_<ver>_arm64.deb / azul-<ver>.riscv64.rpm); each optional.
+          for pkgdir in artifacts-pkg-aarch64 artifacts-pkg-ppc64 artifacts-pkg-s390x artifacts-pkg-riscv64; do
+            find "$pkgdir" -name "*.deb" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
+            find "$pkgdir" -name "*.rpm" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
+          done
           
           # Replace placeholder reftest with real results
           if [ -d artifacts-reftest ]; then
