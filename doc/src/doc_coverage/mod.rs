@@ -256,6 +256,13 @@ visibility (no recompile should be needed).
 - Do NOT edit api.json (autofix pulls your source docs into it afterward).
 - Some labels are `Az`-prefixed in api.json; the source type usually has no
   `Az` prefix — match by the un-prefixed name in the listed file.
+
+## When done
+- Commit the source files YOU changed, with a clear message, e.g.
+  `git add <files> && git commit -m \"docs(<area>): document <file>\"`.
+  Your files don't overlap other agents' files, so there are no conflicts.
+- Do NOT push, and do NOT run `azul-doc autofix` — the orchestrator runs
+  autofix once all agents finish, to sync every source doc into api.json.
 "
     .to_string()
 }
