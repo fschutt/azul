@@ -11,6 +11,7 @@ pub mod api;
 pub mod autofix;
 pub mod autotest;
 pub mod codegen;
+pub mod doc_coverage;
 pub mod dllgen;
 pub mod docgen;
 pub mod patch;
@@ -130,6 +131,15 @@ fn main() -> anyhow::Result<()> {
             // Usage: autotest [--crate <name>] [--file <relpath>] [--out <dir>]
             let opts = autotest::AutotestOptions::parse(rest)?;
             autotest::run(&project_root, &opts)?;
+            return Ok(());
+        }
+        ["doc-coverage", rest @ ..] => {
+            // API documentation-completeness harness: find undocumented public
+            // items in api.json, map to source, split into N balanced per-agent
+            // task files. Usage: doc-coverage [--agents <N>] [--out <dir>]
+            let opts = doc_coverage::DocCoverageOptions::parse(rest)?;
+            let api_data = load_api_json(&api_path)?;
+            doc_coverage::run(&project_root, &api_data, &opts)?;
             return Ok(());
         }
         ["discover"] => {
