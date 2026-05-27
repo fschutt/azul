@@ -1111,19 +1111,16 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               </div>
 
               <br/>
-              <strong>Deploy a web app (pre-lifted WASM base image):</strong>
+              <strong>Deploy a web app (pre-lifted WASM base image &mdash; experimental preview):</strong>
               <br/>
               <a href='https://azul.rs/guide/deploying-web'>Guide: deploying azul web apps</a>
 
               <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;font-size:14px;'>
-                  <p style='color:grey;font-family:monospace;'># Pull the pre-lifted base image (warm WASM lift cache)</p>
-                  <p style='color:black;font-family:monospace;'>docker pull ghcr.io/fschutt/azul-web-base:{version}</p>
-                  <br/>
-                  <p style='color:grey;font-family:monospace;'># Dockerfile</p>
-                  <p style='color:black;font-family:monospace;'>FROM ghcr.io/fschutt/azul-web-base:{version}</p>
-                  <p style='color:black;font-family:monospace;'>COPY my-app /usr/local/bin/my-app</p>
-                  <p style='color:black;font-family:monospace;'>ENV AZ_BACKEND=\"web://0.0.0.0:8080?allow_public=1\"</p>
-                  <p style='color:black;font-family:monospace;'>CMD [\"/usr/local/bin/my-app\"]</p>
+                  <p style='color:grey;'>A <code>ghcr.io/fschutt/azul-web-base</code> base image with a pre-lifted
+                  azul-library WASM cache &mdash; so your app only lifts its own callbacks, not the whole
+                  library (seconds instead of minutes) &mdash; is <strong>in preparation</strong> and will be
+                  published here once the web backend is stable. For now, see the guide above and build
+                  <code>docker/web-base/Dockerfile</code> from the repo yourself.</p>
               </div>
           </div>
         </main>
