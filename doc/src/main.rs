@@ -1477,7 +1477,14 @@ fn main() -> anyhow::Result<()> {
 
             // Generate releases pages with api.json and examples.zip
             println!("Generating releases pages...");
-            generate_release_pages(&api_data, &releases_dir, config.deploy_mode, &examples_dir)?;
+            let codegen_dir = project_root.join("target").join("codegen");
+            generate_release_pages(
+                &api_data,
+                &releases_dir,
+                config.deploy_mode,
+                &examples_dir,
+                &codegen_dir,
+            )?;
 
             // Generate releases index page
             let versions = api_data.get_sorted_versions();
@@ -1573,6 +1580,7 @@ fn generate_release_pages(
     releases_dir: &std::path::Path,
     deploy_mode: dllgen::deploy::DeployMode,
     examples_dir: &std::path::Path,
+    codegen_dir: &std::path::Path,
 ) -> anyhow::Result<()> {
     use codegen::CppStandard;
     use dllgen::deploy::{DeployMode, ReleaseAssets};
@@ -1609,6 +1617,20 @@ fn generate_release_pages(
             "  [OK] Generated: release/{}/azul*.hpp (all C++ versions)",
             version
         );
+
+        // Copy per-language (non-whitelist) bindings + scaffolding so that the
+        // go/haskell/ada/pascal/zig/cobol/fortran/perl/php/lisp/smalltalk/vb6/
+        // freebasic/algol68/powershell install steps' `curl` targets resolve.
+        // Same idea as the azul.h / azul*.hpp writes just above, but the
+        // sources are the `codegen all` outputs (+ a few `examples/` files).
+        if let Err(e) = dllgen::deploy::copy_language_bindings(
+            version,
+            &version_dir,
+            codegen_dir,
+            examples_dir,
+        ) {
+            eprintln!("  [WARN] Failed to copy per-language bindings: {}", e);
+        }
 
         // Generate api.json for this version
         if let Some(version_data) = api_data.get_version(version) {
