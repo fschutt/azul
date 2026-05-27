@@ -1,0 +1,787 @@
+# =============================================================================
+# Multi-registry publishing pipeline for the Azul GUI framework.
+#
+# One job per package registry. Each job ALWAYS builds/packages its artifact
+# (so the packaging is validated on every run, even without secrets), but only
+# PUBLISHES when the registry's secret is configured. When the secret is
+# missing, the publish step prints a `::notice::` and exits 0 — a clean skip,
+# never a failure.
+#
+# Skip-if-no-secret pattern (secrets are NOT visible in job-level `if:`):
+#
+#     - name: Publish to <registry>
+#       env:
+#         TOKEN: ${{ secrets.<SECRET_NAME> }}
+#       run: |
+#         if [ -z "${TOKEN:-}" ]; then
+#           echo "::notice::<SECRET_NAME> not set — built the package but skipping publish."
+#           exit 0
+#         fi
+#         <publish command using $TOKEN>
+#
+# All build/package steps run BEFORE the guard. Every job sets
+# `continue-on-error: true` so a packaging hiccup in one registry never fails
+# the others — this is a preparation pipeline; expect iteration once the
+# secrets are wired.
+#
+# Secrets each job is gated on (add these in repo Settings → Secrets):
+#   crates.io    → CARGO_REGISTRY_TOKEN
+#   PyPI         → PYPI_API_TOKEN
+#   npm          → NPM_TOKEN
+#   RubyGems     → RUBYGEMS_API_KEY
+#   NuGet        → NUGET_API_KEY
+#   Maven Central→ OSSRH_USERNAME + OSSRH_TOKEN + MAVEN_GPG_PRIVATE_KEY + MAVEN_GPG_PASSPHRASE
+#   AUR          → AUR_SSH_PRIVATE_KEY
+#   LuaRocks     → LUAROCKS_API_KEY
+#
+# NOTE: This workflow does NOT touch the desktop DLL crate publishing
+# (azul-dll); only the three pure-Rust libraries go to crates.io. The native
+# library is built from source for the FFI-based bindings and bundled into
+# each language package.
+# =============================================================================
+name: publish
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  # The release version. Bump in lockstep with the workspace crates.
+  AZUL_VERSION: "0.2.0"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. crates.io — pure-Rust libraries only (NOT azul-dll).
+  #
+  #    Published in dependency order: azul-css → azul-core → azul-layout.
+  #    `--dry-run` always validates packaging; the real publish runs only when
+  #    CARGO_REGISTRY_TOKEN is set.
+  # ---------------------------------------------------------------------------
+  crates-io:
+    name: crates.io (azul-css / azul-core / azul-layout)
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+
+      - name: Package (dry-run, always)
+        run: |
+          set -euo pipefail
+          # Validate packaging of each crate in dependency order. --no-verify
+          # avoids a full from-scratch compile of dependents during dry-run;
+          # the real publish below verifies.
+          # NOTE: azul-core/azul-layout carry path+version deps on the crates
+          # ahead of them in this list, which are not on crates.io until the
+          # real publish below runs. A dry-run of a dependent may therefore
+          # warn about an unresolved registry dep — tolerated here so all three
+          # are still exercised.
+          for crate in azul-css azul-core azul-layout; do
+            echo "::group::cargo publish --dry-run -p $crate"
+            cargo publish --dry-run -p "$crate" --allow-dirty --no-verify || \
+              echo "::warning::dry-run packaging of $crate reported an issue (likely an as-yet-unpublished sibling dep)."
+            echo "::endgroup::"
+          done
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "::notice::CARGO_REGISTRY_TOKEN not set — packaged the crates (dry-run) but skipping publish."
+            exit 0
+          fi
+          # Publish in dependency order. Sleep between crates so the index has
+          # time to expose each new version to the next crate's resolver.
+          for crate in azul-css azul-core azul-layout; do
+            echo "::group::cargo publish -p $crate"
+            cargo publish -p "$crate" --token "$CARGO_REGISTRY_TOKEN" || {
+              echo "::warning::cargo publish -p $crate failed (already published, or needs version bump?)"
+            }
+            echo "::endgroup::"
+            sleep 20
+          done
+
+  # ---------------------------------------------------------------------------
+  # 2. PyPI — native pyo3 extension (the `dll` crate with python-extension).
+  #
+  #    cibuildwheel drives maturin under the hood across the CPython matrix and
+  #    bundles the native lib into an importable `azul` wheel. An sdist is also
+  #    built. Publish via the official PyPA action, gated on PYPI_API_TOKEN.
+  # ---------------------------------------------------------------------------
+  pypi:
+    name: PyPI (python wheel via maturin/cibuildwheel)
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+
+      - name: Generate Python binding source (codegen)
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Stage pyproject.toml at workspace root
+        run: |
+          set -euo pipefail
+          # maturin's manifest-path in the template is relative to the repo
+          # root, so place the packaging pyproject + its README there for the
+          # build. This is an ephemeral CI checkout — overwriting the root
+          # README.md here does not affect the committed tree.
+          cp packaging/pypi/pyproject.toml ./pyproject.toml
+          cp packaging/pypi/README.md ./README.md
+
+      - name: Build wheels (cibuildwheel)
+        uses: pypa/cibuildwheel@v2.21.3
+        env:
+          # maturin reads pyproject.toml at the repo root (staged above).
+          CIBW_BUILD_FRONTEND: "build"
+          # Build a representative set of CPython abi3 wheels; broaden once the
+          # native build is confirmed green across the matrix.
+          CIBW_BUILD: "cp38-* cp311-*"
+          CIBW_SKIP: "*-musllinux* *_i686 pp*"
+          # The manylinux image needs the native build deps + a Rust toolchain.
+          CIBW_BEFORE_ALL_LINUX: >
+            yum install -y clang mesa-libGL-devel libX11-devel ||
+            (apt-get update && apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev);
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          CIBW_ENVIRONMENT_LINUX: 'PATH="$HOME/.cargo/bin:$PATH"'
+        with:
+          output-dir: dist
+
+      - name: Build sdist (maturin)
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade maturin
+          maturin sdist -m dll/Cargo.toml -o dist || \
+            echo "::warning::maturin sdist failed (sdist is optional for a native extension)"
+
+      - name: List built artifacts
+        run: ls -la dist/ || echo "no dist/"
+
+      - name: Upload built wheels (artifact)
+        uses: actions/upload-artifact@v7
+        with:
+          name: pypi-dist
+          path: dist/*
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish to PyPI
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ -z "${PYPI_API_TOKEN:-}" ]; then
+            echo "::notice::PYPI_API_TOKEN not set — built the wheels but skipping publish."
+            exit 0
+          fi
+          echo "PUBLISH_PYPI=1" >> "$GITHUB_ENV"
+
+      - name: Upload to PyPI (gh-action-pypi-publish)
+        if: env.PUBLISH_PYPI == '1'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: dist
+          skip-existing: true
+
+  # ---------------------------------------------------------------------------
+  # 3. npm — Node binding (FFI loader via koffi). Packages the GENERATED
+  #    binding (target/codegen/node/{package.json,azul.js}) plus the native
+  #    library, NOT the example. `npm pack` always; `npm publish` if NPM_TOKEN.
+  # ---------------------------------------------------------------------------
+  npm:
+    name: npm (node binding)
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+
+      - name: Generate bindings (codegen)
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Build native library
+        run: cargo build --release -p azul-dll --features build-dll
+
+      - name: Assemble npm package
+        run: |
+          set -euo pipefail
+          pkg=target/package/npm
+          rm -rf "$pkg" && mkdir -p "$pkg"
+          # The generated node binding + its package.json.
+          cp target/codegen/node/azul.js "$pkg/azul.js"
+          cp target/codegen/node/package.json "$pkg/package.json"
+          cp examples/node/README.md "$pkg/README.md" || echo "(no node README)"
+          # Bundle the native lib (Linux build here; release CI publishes the
+          # multi-platform set). koffi loads it from alongside azul.js.
+          cp target/release/libazul.so "$pkg/libazul.so"
+          # Sync version + ensure the native lib ships in the tarball.
+          node -e '
+            const fs=require("fs"), p="'"$pkg"'/package.json";
+            const j=JSON.parse(fs.readFileSync(p,"utf8"));
+            j.version=process.env.AZUL_VERSION;
+            j.files=Array.from(new Set([...(j.files||[]),"azul.js","README.md","libazul.so","libazul.dylib","azul.dll"]));
+            fs.writeFileSync(p, JSON.stringify(j,null,2));
+            console.log("npm package.json version =>", j.version);
+          '
+
+      - name: Pack (always — validates packaging)
+        working-directory: target/package/npm
+        run: npm pack
+
+      - name: Upload npm tarball (artifact)
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-package
+          path: target/package/npm/*.tgz
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish to npm
+        working-directory: target/package/npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NPM_TOKEN:-}" ]; then
+            echo "::notice::NPM_TOKEN not set — packed the binding but skipping publish."
+            exit 0
+          fi
+          npm publish --access public
+
+  # ---------------------------------------------------------------------------
+  # 4. RubyGems — Ruby binding (FFI loader via the `ffi` gem). Uses the
+  #    GENERATED gemspec (target/codegen/azul.gemspec), which expects
+  #    lib/azul.rb + lib/native/<rid>/<lib>. `gem build` always; `gem push`
+  #    if RUBYGEMS_API_KEY.
+  # ---------------------------------------------------------------------------
+  rubygems:
+    name: RubyGems (ruby binding)
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+
+      - name: Generate bindings (codegen)
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Build native library
+        run: cargo build --release -p azul-dll --features build-dll
+
+      - name: Assemble gem
+        run: |
+          set -euo pipefail
+          pkg=target/package/ruby
+          rm -rf "$pkg" && mkdir -p "$pkg/lib/native/x86_64-linux"
+          cp target/codegen/azul.gemspec "$pkg/azul.gemspec"
+          cp target/codegen/azul.rb "$pkg/lib/azul.rb"
+          cp examples/ruby/README.md "$pkg/README.md" || true
+          # Native lib in the layout the generated gemspec lists (Linux slot;
+          # release CI fills the other RIDs). Missing slots are skipped by
+          # `gem build` only if the gemspec tolerates them — so create empty
+          # placeholders for the other RIDs the gemspec references is NOT done
+          # (would ship junk); instead rewrite files to what we actually have.
+          cp target/release/libazul.so "$pkg/lib/native/x86_64-linux/libazul.so"
+          # Pin version + restrict files to what exists so `gem build` passes.
+          ruby -e '
+            v = ENV["AZUL_VERSION"]
+            path = "'"$pkg"'/azul.gemspec"
+            s = File.read(path)
+            s = s.sub(/s\.version\s*=\s*.*/, "s.version     = \x27#{v}\x27")
+            s = s.sub(/s\.files\s*=\s*\[.*?\]/m,
+                      "s.files = Dir[\x27lib/**/*\x27]")
+            File.write(path, s)
+            puts "gemspec version => #{v}"
+          '
+
+      - name: Build gem (always — validates packaging)
+        working-directory: target/package/ruby
+        run: gem build azul.gemspec
+
+      - name: Upload gem (artifact)
+        uses: actions/upload-artifact@v7
+        with:
+          name: ruby-gem
+          path: target/package/ruby/*.gem
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish to RubyGems
+        working-directory: target/package/ruby
+        env:
+          RUBYGEMS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RUBYGEMS_API_KEY:-}" ]; then
+            echo "::notice::RUBYGEMS_API_KEY not set — built the gem but skipping publish."
+            exit 0
+          fi
+          mkdir -p "$HOME/.gem"
+          printf -- '---\n:rubygems_api_key: %s\n' "$RUBYGEMS_API_KEY" > "$HOME/.gem/credentials"
+          chmod 0600 "$HOME/.gem/credentials"
+          gem push ./*.gem
+
+  # ---------------------------------------------------------------------------
+  # 5. NuGet — C# binding (P/Invoke). Uses the GENERATED csproj
+  #    (target/codegen/Azul.csproj), which packs Azul.cs + runtimes/<rid>/native.
+  #    `dotnet pack` always; `dotnet nuget push` if NUGET_API_KEY.
+  # ---------------------------------------------------------------------------
+  nuget:
+    name: NuGet (csharp binding)
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+
+      - name: Generate bindings (codegen)
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Build native library
+        run: cargo build --release -p azul-dll --features build-dll
+
+      - name: Assemble NuGet package layout
+        run: |
+          set -euo pipefail
+          pkg=target/package/nuget
+          rm -rf "$pkg" && mkdir -p "$pkg/runtimes/linux-x64/native"
+          cp target/codegen/Azul.csproj "$pkg/Azul.csproj"
+          cp target/codegen/Azul.cs "$pkg/Azul.cs"
+          cp examples/csharp/README.md "$pkg/README.md" || true
+          # Native runtime payload for this build's RID. The generated csproj
+          # includes each runtimes/<rid>/native/<lib> only `Condition="Exists()"`,
+          # so missing RIDs are simply not packed (release CI fills the rest).
+          cp target/release/libazul.so "$pkg/runtimes/linux-x64/native/libazul.so"
+
+      - name: Pack (always — validates packaging)
+        working-directory: target/package/nuget
+        run: dotnet pack Azul.csproj -c Release -p:Version="${AZUL_VERSION}" -o ./out
+
+      - name: Upload nupkg (artifact)
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget-package
+          path: target/package/nuget/out/*.nupkg
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish to NuGet
+        working-directory: target/package/nuget
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NUGET_API_KEY:-}" ]; then
+            echo "::notice::NUGET_API_KEY not set — packed the .nupkg but skipping publish."
+            exit 0
+          fi
+          dotnet nuget push ./out/*.nupkg \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+  # ---------------------------------------------------------------------------
+  # 6. Maven Central — Java/Kotlin binding (JNA loader). Builds a JAR (Java
+  #    binding from target/codegen/java + the native lib as a JNA resource),
+  #    GPG-signs it, and deploys to OSSRH. Gated on the OSSRH creds AND the GPG
+  #    key — if ANY of the four secrets is missing, the deploy is skipped.
+  #
+  #    A self-contained publishing pom is generated in this step (the codegen
+  #    pom is a plain build pom without the signing/staging plugins).
+  # ---------------------------------------------------------------------------
+  maven-central:
+    name: Maven Central (java / kotlin binding)
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+
+      - name: Generate bindings (codegen)
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Build native library
+        run: cargo build --release -p azul-dll --features build-dll
+
+      - name: Assemble Maven project (sources + native resource + publish pom)
+        run: |
+          set -euo pipefail
+          pkg=target/package/maven
+          # JNA resource folder name for linux x86-64.
+          res="$pkg/src/main/resources/linux-x86-64"
+          src="$pkg/src/main/java"
+          rm -rf "$pkg" && mkdir -p "$res" "$src/com/azul"
+          # Generated Java bindings (flat *.java in package com.azul).
+          cp target/codegen/java/*.java "$src/com/azul/" 2>/dev/null || \
+            echo "::warning::no generated java sources found"
+          # Native lib as a JNA-resolvable resource.
+          cp target/release/libazul.so "$res/libazul.so"
+          # Self-contained publishing pom (signing + OSSRH staging plugins).
+          cat > "$pkg/pom.xml" <<POM
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project xmlns="http://maven.apache.org/POM/4.0.0"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>rs.azul</groupId>
+            <artifactId>azul</artifactId>
+            <version>${AZUL_VERSION}</version>
+            <packaging>jar</packaging>
+            <name>Azul Java Bindings</name>
+            <description>Java/Kotlin (JNA) bindings for the Azul GUI framework.</description>
+            <url>https://azul.rs/</url>
+            <licenses>
+              <license><name>MPL-2.0</name><url>https://www.mozilla.org/en-US/MPL/2.0/</url></license>
+            </licenses>
+            <developers>
+              <developer><name>Felix Schütt</name><email>felix.schuett@maps4print.com</email></developer>
+            </developers>
+            <scm>
+              <connection>scm:git:https://github.com/maps4print/azul.git</connection>
+              <url>https://github.com/maps4print/azul</url>
+            </scm>
+            <properties>
+              <maven.compiler.source>11</maven.compiler.source>
+              <maven.compiler.target>11</maven.compiler.target>
+              <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+            </properties>
+            <dependencies>
+              <dependency>
+                <groupId>net.java.dev.jna</groupId>
+                <artifactId>jna</artifactId>
+                <version>5.14.0</version>
+              </dependency>
+            </dependencies>
+            <distributionManagement>
+              <snapshotRepository>
+                <id>ossrh</id>
+                <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
+              </snapshotRepository>
+              <repository>
+                <id>ossrh</id>
+                <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+              </repository>
+            </distributionManagement>
+            <build>
+              <plugins>
+                <plugin>
+                  <groupId>org.apache.maven.plugins</groupId>
+                  <artifactId>maven-source-plugin</artifactId>
+                  <version>3.3.1</version>
+                  <executions>
+                    <execution><id>attach-sources</id><goals><goal>jar-no-fork</goal></goals></execution>
+                  </executions>
+                </plugin>
+                <plugin>
+                  <groupId>org.apache.maven.plugins</groupId>
+                  <artifactId>maven-javadoc-plugin</artifactId>
+                  <version>3.6.3</version>
+                  <configuration><doclint>none</doclint><failOnError>false</failOnError></configuration>
+                  <executions>
+                    <execution><id>attach-javadocs</id><goals><goal>jar</goal></goals></execution>
+                  </executions>
+                </plugin>
+                <plugin>
+                  <groupId>org.apache.maven.plugins</groupId>
+                  <artifactId>maven-gpg-plugin</artifactId>
+                  <version>3.2.4</version>
+                  <executions>
+                    <execution><id>sign-artifacts</id><phase>verify</phase><goals><goal>sign</goal></goals></execution>
+                  </executions>
+                </plugin>
+                <plugin>
+                  <groupId>org.sonatype.plugins</groupId>
+                  <artifactId>nexus-staging-maven-plugin</artifactId>
+                  <version>1.7.0</version>
+                  <extensions>true</extensions>
+                  <configuration>
+                    <serverId>ossrh</serverId>
+                    <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
+                    <autoReleaseAfterClose>false</autoReleaseAfterClose>
+                  </configuration>
+                </plugin>
+              </plugins>
+            </build>
+          </project>
+          POM
+          echo "Assembled Maven project at $pkg"
+          # Sanity-check the generated pom is well-formed before mvn runs.
+          if command -v xmllint >/dev/null 2>&1; then xmllint --noout "$pkg/pom.xml"; fi
+
+      - name: Build + verify JAR (always — validates packaging)
+        working-directory: target/package/maven
+        run: mvn -B -ntp package
+
+      - name: Upload JAR (artifact)
+        uses: actions/upload-artifact@v7
+        with:
+          name: maven-jar
+          path: target/package/maven/target/*.jar
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Determine whether all Maven secrets are present
+        id: mvncheck
+        env:
+          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          OSSRH_TOKEN: ${{ secrets.OSSRH_TOKEN }}
+          MAVEN_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          if [ -n "${OSSRH_USERNAME:-}" ] && [ -n "${OSSRH_TOKEN:-}" ] \
+             && [ -n "${MAVEN_GPG_PRIVATE_KEY:-}" ] && [ -n "${MAVEN_GPG_PASSPHRASE:-}" ]; then
+            echo "ready=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Maven Central secrets incomplete (need OSSRH_USERNAME, OSSRH_TOKEN, MAVEN_GPG_PRIVATE_KEY, MAVEN_GPG_PASSPHRASE) — built the JAR but skipping deploy."
+            echo "ready=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Re-configure JDK with OSSRH server + GPG
+        if: steps.mvncheck.outputs.ready == '1'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          server-id: ossrh
+          server-username: OSSRH_USERNAME
+          server-password: OSSRH_TOKEN
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Deploy to Maven Central (OSSRH)
+        if: steps.mvncheck.outputs.ready == '1'
+        working-directory: target/package/maven
+        env:
+          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          OSSRH_TOKEN: ${{ secrets.OSSRH_TOKEN }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: mvn -B -ntp deploy -DskipTests
+
+  # ---------------------------------------------------------------------------
+  # 7. AUR — Arch User Repository. Source build (cargo build --release -p
+  #    azul-dll --features build-dll). The PKGBUILD template lives under
+  #    packaging/aur/PKGBUILD; this job stamps the version and deploys via
+  #    git+SSH, gated on AUR_SSH_PRIVATE_KEY.
+  # ---------------------------------------------------------------------------
+  aur:
+    name: AUR (Arch — libazul source build)
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Stamp PKGBUILD version
+        run: |
+          set -euo pipefail
+          mkdir -p target/package/aur
+          cp packaging/aur/PKGBUILD target/package/aur/PKGBUILD
+          sed -i "s/^pkgver=.*/pkgver=${AZUL_VERSION}/" target/package/aur/PKGBUILD
+          echo "::group::PKGBUILD"
+          cat target/package/aur/PKGBUILD
+          echo "::endgroup::"
+
+      - name: Upload PKGBUILD (artifact)
+        uses: actions/upload-artifact@v7
+        with:
+          name: aur-pkgbuild
+          path: target/package/aur/PKGBUILD
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Check AUR secret
+        id: aurcheck
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "${AUR_SSH_PRIVATE_KEY:-}" ]; then
+            echo "::notice::AUR_SSH_PRIVATE_KEY not set — generated the PKGBUILD but skipping AUR publish."
+            echo "ready=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to the AUR
+        if: steps.aurcheck.outputs.ready == '1'
+        uses: KSXGitHub/github-actions-deploy-aur@v3.0.1
+        with:
+          pkgname: azul
+          pkgbuild: target/package/aur/PKGBUILD
+          # Username/email default to the maintainer in the PKGBUILD when the
+          # optional secrets are unset, so AUR_SSH_PRIVATE_KEY is the only
+          # strictly-required secret for this job.
+          commit_username: ${{ secrets.AUR_USERNAME || 'Felix Schütt' }}
+          commit_email: ${{ secrets.AUR_EMAIL || 'felix.schuett@maps4print.com' }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to ${{ env.AZUL_VERSION }}"
+          updpkgsums: true
+
+  # ---------------------------------------------------------------------------
+  # 8a. LuaRocks — LuaJIT FFI binding. Uses the GENERATED rockspec
+  #     (target/codegen/azul-1-1.rockspec). `luarocks pack` validates; upload
+  #     gated on LUAROCKS_API_KEY.
+  # ---------------------------------------------------------------------------
+  luarocks:
+    name: LuaRocks (lua binding) [stub]
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Install build dependencies + LuaRocks
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev lua5.1 luarocks
+
+      - name: Generate bindings (codegen)
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Assemble rock
+        run: |
+          set -euo pipefail
+          pkg=target/package/lua
+          rm -rf "$pkg" && mkdir -p "$pkg"
+          # The generated rockspec installs only the LuaJIT FFI glue (azul.lua);
+          # the native lib is distributed separately. Stamp the version.
+          cp target/codegen/azul.lua "$pkg/azul.lua"
+          sed "s/^version = .*/version = \"${AZUL_VERSION}-1\"/" \
+            target/codegen/azul-1-1.rockspec > "$pkg/azul-${AZUL_VERSION}-1.rockspec"
+          echo "::group::rockspec"
+          cat "$pkg/azul-${AZUL_VERSION}-1.rockspec"
+          echo "::endgroup::"
+
+      - name: Pack (always — validates the rockspec)
+        working-directory: target/package/lua
+        run: |
+          # `luarocks pack` builds a .src.rock from the rockspec without
+          # needing the upstream source tarball to exist yet.
+          luarocks pack "azul-${AZUL_VERSION}-1.rockspec" || \
+            echo "::warning::luarocks pack failed (source tarball URL not live yet — expected pre-release)."
+
+      - name: Publish to LuaRocks
+        working-directory: target/package/lua
+        env:
+          LUAROCKS_API_KEY: ${{ secrets.LUAROCKS_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${LUAROCKS_API_KEY:-}" ]; then
+            echo "::notice::LUAROCKS_API_KEY not set — built the rockspec but skipping upload."
+            exit 0
+          fi
+          luarocks upload "azul-${AZUL_VERSION}-1.rockspec" --api-key="$LUAROCKS_API_KEY" --skip-pack || \
+            echo "::warning::luarocks upload failed (source tarball URL must be live first)."
+
+  # ---------------------------------------------------------------------------
+  # 8b. opam (OCaml) — TODO.
+  #
+  #     The OCaml binding (examples/ocaml) is an FFI loader (ctypes / dlopen of
+  #     libazul). Publishing to the opam repository is done via a PR to
+  #     ocaml/opam-repository (there is no push-token registry), so it does not
+  #     fit the "secret-gated push" pattern of the other jobs. Wiring it up
+  #     needs: a generated `azul.opam` file (NOT yet emitted by codegen), a
+  #     released source tarball with a stable checksum, and the
+  #     `ocaml/setup-ocaml` + `opam publish` (or a repo PR) flow.
+  #
+  #     Tracked as a follow-up; no job emitted here to avoid a perpetually-red
+  #     placeholder.
+  # ---------------------------------------------------------------------------
