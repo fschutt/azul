@@ -123,20 +123,26 @@ log_info "Screenshot Test: $EXAMPLE_NAME"
 log_info "Port: $PORT"
 log_info "=========================================="
 
-# Step 1: Always rebuild DLL
-log_step 1 "Building DLL..."
+# Step 1: Build the DLL. Reuse whatever profile the caller already built rather
+# than forcing a second from-scratch build into a different target dir. CI's
+# build_binaries job builds `--profile prod-release` one step earlier, so default
+# to that — the cargo build below is then a no-op artifact hit instead of a full
+# azul-dll + deps rebuild. Override with AZ_SCREENSHOT_PROFILE=release for a
+# faster local run.
+PROFILE="${AZ_SCREENSHOT_PROFILE:-prod-release}"
+log_step 1 "Building DLL (profile=$PROFILE)..."
 
 DLL_PATH=""
 if [ "$(uname)" == "Darwin" ]; then
-    DLL_PATH="$ROOT_DIR/target/release/libazul.dylib"
+    DLL_PATH="$ROOT_DIR/target/$PROFILE/libazul.dylib"
 elif [ "$(uname)" == "Linux" ]; then
-    DLL_PATH="$ROOT_DIR/target/release/libazul.so"
+    DLL_PATH="$ROOT_DIR/target/$PROFILE/libazul.so"
 else
-    DLL_PATH="$ROOT_DIR/target/release/azul.dll"
+    DLL_PATH="$ROOT_DIR/target/$PROFILE/azul.dll"
 fi
 
 cd "$ROOT_DIR"
-cargo build --release -p azul-dll --features build-dll
+cargo build --profile "$PROFILE" -p azul-dll --features build-dll
 if [ ! -f "$DLL_PATH" ]; then
     log_error "Failed to compile DLL"
     exit 1
