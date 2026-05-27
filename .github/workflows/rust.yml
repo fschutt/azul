@@ -1391,7 +1391,7 @@ jobs:
   deploy_pages:
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy'
-    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton]
+    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage]
     runs-on: ubuntu-22.04
     environment:
       name: github-pages
@@ -1598,6 +1598,15 @@ jobs:
           name: azul-demos-windows
           path: artifacts-demos-windows
 
+      # Code-coverage HTML report (grcov) from the `coverage` job. Optional:
+      # a missing artifact is a clean skip (the release page link just 404s).
+      - name: Download coverage report
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: coverage-report
+          path: artifacts-coverage
+
       - name: Debug - Tree after download
         run: |
           sudo apt-get update && sudo apt-get install -y tree
@@ -1670,6 +1679,19 @@ jobs:
           done
           echo "=== Demo binaries ==="
           ls -la "$RELEASE_DIR/demos/" 2>/dev/null || echo "  (no demo binaries shipped)"
+
+          # Coverage HTML report (grcov) → release/0.2.0/coverage/. The release
+          # page links coverage/index.html. Also stash the text summaries next
+          # to it. Optional: a missing artifact-coverage dir is a clean skip.
+          if [ -d artifacts-coverage/coverage ]; then
+            rm -rf "$RELEASE_DIR/coverage"
+            cp -r artifacts-coverage/coverage "$RELEASE_DIR/coverage"
+            cp artifacts-coverage/coverage.txt "$RELEASE_DIR/coverage/" 2>/dev/null || true
+            cp artifacts-coverage/coverage_analysis.txt "$RELEASE_DIR/coverage/" 2>/dev/null || true
+            echo "  [OK] Copied coverage HTML report"
+          else
+            echo "  (no coverage report shipped)"
+          fi
 
           # Headers
           find artifacts-headers -name "*.h" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
