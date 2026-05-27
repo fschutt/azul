@@ -110,6 +110,33 @@ pub fn generate_docs(
 /// the api ships with 30+ bindings.
 const PRIMARY_LANGUAGES: &[&str] = &["rust", "python", "c", "cpp"];
 
+/// Whitelist of languages that have a SOLID, working hello-world and may
+/// appear on the azul.rs frontpage install tabs. Every other binding still
+/// lives in `examples/` and in api.json's `languages` data (so the data is
+/// preserved and codegen still runs for them) — they are just NOT surfaced
+/// on the frontpage so a visitor isn't confused by a half-working binding.
+///
+/// `cpp` is the dialect *group*; its per-standard variants (cpp03 … cpp23)
+/// are listed too because the C++ dropdown needs them in the installation
+/// JSON to populate the version selector. The variants are never rendered as
+/// their own tab (they carry `dialectOf: "cpp"`), only as dropdown options.
+///
+/// This is the single source of truth: both the server-rendered tab HTML
+/// (`generate_language_tabs_html`) and the client-side installation JSON
+/// (`generate_installation_json`) filter against it, so even if api.json's
+/// `tabOrder` drifts to include a non-whitelisted language, the frontpage
+/// stays restricted to this set.
+const FRONTPAGE_LANGUAGES: &[&str] = &[
+    "python", "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml",
+    // C++ dialect variants — dropdown options only, never standalone tabs.
+    "cpp03", "cpp11", "cpp14", "cpp17", "cpp20", "cpp23",
+];
+
+/// True if `lang` is allowed on the frontpage (see [`FRONTPAGE_LANGUAGES`]).
+fn is_frontpage_language(lang: &str) -> bool {
+    FRONTPAGE_LANGUAGES.contains(&lang)
+}
+
 /// Generate the HTML for language tabs based on tabOrder configuration.
 ///
 /// Renders the four primary languages as flat buttons; the rest go into a
@@ -117,13 +144,22 @@ const PRIMARY_LANGUAGES: &[&str] = &["rust", "python", "c", "cpp"];
 /// are always rendered as a single dropdown regardless of which row they
 /// land in. The `<details>` is part of the same `.lang-grid` so clicking
 /// inside it doesn't change the language unless the user chooses one.
+///
+/// Only languages in [`FRONTPAGE_LANGUAGES`] are ever rendered, even if
+/// `tabOrder` lists more — non-whitelisted entries are skipped (NOT appended),
+/// so a half-working binding can't leak onto the frontpage.
 fn generate_language_tabs_html(installation: &crate::api::Installation) -> String {
-    // Use tabOrder if specified, otherwise use default order
+    // Use tabOrder if specified, otherwise use default order. Either way,
+    // restrict to the frontpage whitelist so broken bindings stay hidden.
     let tab_order: Vec<String> = if installation.tab_order.is_empty() {
         PRIMARY_LANGUAGES.iter().map(|s| s.to_string()).collect()
     } else {
         installation.tab_order.clone()
     };
+    let tab_order: Vec<String> = tab_order
+        .into_iter()
+        .filter(|lang| is_frontpage_language(lang))
+        .collect();
 
     let render_lang_button = |lang: &str| -> Option<String> {
         if let Some(dialect) = installation.dialects.get(lang) {
@@ -489,9 +525,13 @@ fn generate_installation_json(
             .collect()
     }
 
-    // Convert dialects
+    // Convert dialects. Only whitelisted dialect groups (e.g. `cpp`) are
+    // emitted so the frontpage install panel matches the rendered tabs.
     let mut dialects = BTreeMap::new();
     for (key, dialect) in &installation.dialects {
+        if !is_frontpage_language(key) {
+            continue;
+        }
         let mut variants = BTreeMap::new();
         for (var_key, var) in &dialect.variants {
             variants.insert(
@@ -512,9 +552,15 @@ fn generate_installation_json(
         );
     }
 
-    // Convert languages
+    // Convert languages. Restrict to the frontpage whitelist (including the
+    // cpp dialect variants the dropdown needs) so no broken-binding install
+    // steps ship to the frontpage. The full `languages` data still lives in
+    // api.json and still drives codegen — this only trims the frontpage JSON.
     let mut languages = BTreeMap::new();
     for (lang_key, lang_config) in &installation.languages {
+        if !is_frontpage_language(lang_key) {
+            continue;
+        }
         let methods: Vec<String> = lang_config
             .methods
             .as_ref()
@@ -564,7 +610,13 @@ fn generate_installation_json(
     let config = InstallationConfig {
         version: version.to_string(),
         hostname: hostname.to_string(),
-        tab_order: installation.tab_order.clone(),
+        // Mirror the server-rendered tab filter: frontpage whitelist only.
+        tab_order: installation
+            .tab_order
+            .iter()
+            .filter(|lang| is_frontpage_language(lang))
+            .cloned()
+            .collect(),
         dialects,
         languages,
     };
