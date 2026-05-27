@@ -887,6 +887,113 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
+  # Build the demo "goal apps" as self-contained, downloadable release binaries.
+  #
+  # Each demo is a Rust workspace member that depends on azul-dll with
+  # `link-static`, so `cargo build --release -p <demo>` compiles azul straight
+  # into the binary — no separate libazul link step. The produced binary is a
+  # single self-contained executable visitors can download and run off the
+  # release page.
+  #
+  # Every demo build is BEST-EFFORT: some need platform deps that aren't
+  # installed on every runner (camera/video → v4l/AVFoundation, audio → cpal,
+  # maps → geo stack), so a demo that won't build on a given OS just isn't
+  # shipped — it must never block the release. We therefore:
+  #   * make the whole job `continue-on-error: true` (non-blocking), and
+  #   * build each demo with `|| echo "::warning::..."` so one failing demo
+  #     doesn't abort the loop / fail the step.
+  # Binaries are staged as `<demo>-<os>[.exe]` (e.g. azul-maps-linux,
+  # azul-maps-macos, azul-maps-windows.exe) and uploaded as `azul-demos-<os>`.
+  # ---------------------------------------------------------------------------
+  build_demos:
+    name: Build Demo Apps (${{ matrix.os }})
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    # Non-blocking: a demo that won't build on some platform must never fail the
+    # pipeline or block the release. fail-fast: false already isolates each OS.
+    continue-on-error: true
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            os_suffix: linux
+            bin_ext: ""
+            artifact_name: azul-demos-ubuntu
+          - os: macos-14
+            os_suffix: macos
+            bin_ext: ""
+            artifact_name: azul-demos-macos
+          - os: windows-2022
+            os_suffix: windows
+            bin_ext: ".exe"
+            artifact_name: azul-demos-windows
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      # Mirror build_binaries' Linux dependency install (clang + GL/X11) plus
+      # libv4l-dev for the camera/video demos. macOS/Windows pull their platform
+      # frameworks (AVFoundation, Media Foundation) from the SDK at build time.
+      - name: Install clang + deps (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+
+      - name: Install MinGW (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: choco install mingw -y
+
+      - name: Install coreutils (macOS)
+        if: matrix.os == 'macos-14'
+        run: brew install coreutils
+
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+
+      # Build each demo best-effort. A failing demo prints a ::warning:: and is
+      # skipped (no binary shipped) instead of failing the step/job. azul-doc is
+      # intentionally excluded — it's the generator tool, not a demo.
+      - name: Build demos (best-effort)
+        shell: bash
+        run: |
+          set +e
+          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet; do
+            echo "=== Building $demo on ${{ matrix.os }} ==="
+            cargo build --release -p "$demo" || echo "::warning::$demo failed to build on ${{ matrix.os }} (likely missing platform deps) — skipping"
+          done
+
+      # Collect whatever built into a staging dir, renamed <demo>-<os>[.exe].
+      # Missing binaries (failed builds) are simply skipped.
+      - name: Stage demo binaries
+        shell: bash
+        run: |
+          mkdir -p demos-staging
+          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet; do
+            src="target/release/${demo}${{ matrix.bin_ext }}"
+            if [ -f "$src" ]; then
+              cp "$src" "demos-staging/${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
+              echo "  [OK] staged ${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
+            else
+              echo "  [skip] $src not found (build absent or failed)"
+            fi
+          done
+          ls -la demos-staging/ || echo "No demos staged"
+
+      - name: Upload demo binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: demos-staging/*
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
   # Native AZ_E2E click/counter test.
   #
   # Builds each genuinely-working language's hello-world and runs it under the
@@ -1428,6 +1535,30 @@ jobs:
           name: screenshots-windows-2022
           path: artifacts-screenshots-windows
 
+      # Demo "goal app" binaries (best-effort; each OS optional — the build_demos
+      # job is non-blocking, so an OS whose demos all failed simply has no
+      # artifact). Laid out flat into release/0.2.0/demos/ below.
+      - name: Download Linux demo binaries
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: azul-demos-ubuntu
+          path: artifacts-demos-linux
+
+      - name: Download macOS demo binaries
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: azul-demos-macos
+          path: artifacts-demos-macos
+
+      - name: Download Windows demo binaries
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: azul-demos-windows
+          path: artifacts-demos-windows
+
       - name: Debug - Tree after download
         run: |
           sudo apt-get update && sudo apt-get install -y tree
@@ -1488,6 +1619,18 @@ jobs:
           # rust9x (Win98/XP experimental)
           find artifacts-windows-rust9x -name "azul.dll" -exec cp {} "$RELEASE_DIR/azul.rust9x.dll" \; 2>/dev/null || true
           find artifacts-windows-rust9x -name "azul.lib" -exec cp {} "$RELEASE_DIR/azul.rust9x.lib" \; 2>/dev/null || true
+
+          # Demo "goal app" binaries → release/0.2.0/demos/. Already named
+          # <demo>-<os>[.exe] by the build_demos job; each OS optional (a missing
+          # artifact dir is a clean skip). Served at /release/0.2.0/demos/<file>.
+          mkdir -p "$RELEASE_DIR/demos"
+          for demodir in artifacts-demos-linux artifacts-demos-macos artifacts-demos-windows; do
+            if [ -d "$demodir" ]; then
+              find "$demodir" -type f -exec cp {} "$RELEASE_DIR/demos/" \; 2>/dev/null || true
+            fi
+          done
+          echo "=== Demo binaries ==="
+          ls -la "$RELEASE_DIR/demos/" 2>/dev/null || echo "  (no demo binaries shipped)"
 
           # Headers
           find artifacts-headers -name "*.h" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
@@ -1680,7 +1823,12 @@ jobs:
         run: |
           # cargo-geiger refuses a virtual-manifest root AND requires an
           # ABSOLUTE --manifest-path; point it at the azul-dll package manifest.
-          cargo geiger --manifest-path "$PWD/dll/Cargo.toml" --output-format Ascii > geiger.txt 2>&1 || true
+          # --locked: use the committed Cargo.lock instead of re-resolving, which
+          # makes cargo-geiger's bundled cargo panic (assertion pending_ids.insert)
+          # on this dep graph (icu_experimental). Filter the non-fatal
+          # "Failed to match (ignoring source)" source-match warnings.
+          cargo geiger --locked --manifest-path "$PWD/dll/Cargo.toml" --output-format Ascii 2>&1 \
+            | grep -v 'Failed to match (ignoring source)' > geiger.txt || true
           {
             echo '## ☢️ Unsafe surface — cargo-geiger (azul-dll)'
             echo ''

@@ -1137,6 +1137,63 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         .collect::<Vec<_>>()
         .join("\n                ");
 
+    // ---- Demos — download & run -----------------------------------------
+    // Self-contained release binaries of the demo "goal apps" (Rust apps built
+    // statically against azul). The build_demos CI job stages them as
+    // <crate>-<os>[.exe] and the deploy lays them into release/{version}/demos/.
+    // Each demo has up to three OS variants (linux/macos/windows). We link them
+    // unconditionally (like the exotic-arch/package links) since the skeleton
+    // build doesn't placeholder these — a not-yet-built one 404s rather than
+    // vanishing. (crate, friendly name, one-line description.)
+    const DEMO_APPS: &[(&str, &str, &str)] = &[
+        ("azul-paint", "AzulPaint", "a small raster paint / drawing app"),
+        ("azul-maps", "AzulMaps", "a slippy-map tile viewer"),
+        ("azul-vault", "AzulVault", "an encrypted SQLite-backed password vault"),
+        (
+            "azul-spirit-level",
+            "AzSpiritLevel",
+            "a motion-sensor spirit level (accelerometer)",
+        ),
+        ("azul-gamepad", "AzGamepad", "a live gamepad / controller input tester"),
+        ("azul-camera-app", "AzCamera", "a webcam capture & preview widget demo"),
+        (
+            "azul-screenshare-app",
+            "AzScreenShare",
+            "a screen-capture / screenshare widget demo",
+        ),
+        ("azul-video-app", "AzVideo", "a video playback widget demo"),
+        (
+            "azul-meet",
+            "azul-meet",
+            "a tiny video-call demo (UDP + audio sink + microphone)",
+        ),
+    ];
+    // OS suffix → label + filename extension, matching the build_demos staging
+    // names (azul-maps-linux, azul-maps-macos, azul-maps-windows.exe).
+    const DEMO_OSES: &[(&str, &str, &str)] = &[
+        ("linux", "Linux", ""),
+        ("macos", "macOS", ""),
+        ("windows", "Windows", ".exe"),
+    ];
+    let demo_links: String = DEMO_APPS
+        .iter()
+        .map(|(crate_name, friendly, desc)| {
+            let os_links: String = DEMO_OSES
+                .iter()
+                .map(|(os_suffix, os_label, ext)| {
+                    release_link_li(
+                        version,
+                        &format!("demos/{crate_name}-{os_suffix}{ext}"),
+                        &format!("{friendly} ({os_label}) &mdash; {desc}"),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n                ");
+            os_links
+        })
+        .collect::<Vec<_>>()
+        .join("\n                ");
+
     format!(
         "<!DOCTYPE html>
     <html lang='en'>
@@ -1183,6 +1240,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               is linked below. Jump to:
               <a href='#native-libraries'>native libs</a> &middot;
               <a href='#linux-packages'>packages</a> &middot;
+              <a href='#demos'>demos</a> &middot;
               <a href='#language-bindings'>bindings</a> &middot;
               <a href='#docs-guide'>docs</a> &middot;
               <a href='#agentic'>agentic</a> &middot;
@@ -1217,6 +1275,16 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               amd64 is solid; arm64/ppc64/s390x/riscv64 are experimental and ship only when CI builds them.</p>
               <ul>
                 {package_links}
+              </ul>
+
+              <br/>
+              <h2 id='demos'>Demos &mdash; download &amp; run</h2>
+              <p style='color:grey;font-size:15px;max-width:700px;'>Self-contained demo apps built statically against azul &mdash;
+              download one for your OS and run it directly, no install or separate library needed.
+              These are best-effort builds; some demos need platform features (camera/video, motion sensors, audio)
+              and may not ship for every OS.</p>
+              <ul>
+                {demo_links}
               </ul>
 
               <br/>
