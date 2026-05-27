@@ -422,18 +422,13 @@ jobs:
         working-directory: azul
         shell: bash
         run: |
-          # Win98/XP feature set = (default + build-dll) MINUS:
-          #   a11y       — accesskit_windows pulls the windows 0.48 import lib
-          #                `windows.0.48.5.lib`, which the i686-rust9x target
-          #                can't resolve (LNK1181); Win98/XP has no UIAutomation.
-          #   http       — rustls + the crypto stack (not for legacy Windows).
-          #   map-tiles  — network tiles.
-          #   db-sqlite  — turso/aegis C-amalgamation deps.
-          # icu_windows stays (raw `extern "system"` Win32 NLS, no `windows` crate).
+          # The only legacy-Windows link blocker was tfd pulling the `windows`
+          # 0.48 import lib (windows.0.48.5.lib); the [patch.crates-io] tfd fork
+          # (v0.1.1) removes that, so build the full dll. accesskit_windows uses
+          # windows 0.62 (raw-dylib, no import lib) and the rest is pure Rust.
           cargo +rust9x build --release \
             --target i686-rust9x-windows-msvc \
-            -p azul-dll --no-default-features \
-            --features "std,link-static,logging,all_img_formats,cabi_export,rust_api,_internal_deps,font_loading_multithreaded,font_async_registry,icons,svg,xml,icu,fluent,pdf"
+            -p azul-dll --features="build-dll"
 
       - name: Upload rust9x artifact
         if: steps.rust9x_cache.outputs.cache-matched-key != ''
