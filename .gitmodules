@@ -1,3 +1,4 @@
 [submodule "third_party/remill"]
 	path = third_party/remill
 	url = https://github.com/fschutt/remill.git
+	branch = m12-q-reg-x8-sret

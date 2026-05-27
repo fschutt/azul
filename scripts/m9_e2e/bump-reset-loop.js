@@ -47,9 +47,10 @@ const CYCLES = parseInt(process.env.AZ_CYCLES || '100', 10);
         },
         memset: memsetImpl, memcpy: memcpyImpl, memmove: memcpyImpl,
     };
-    const stubFor = n => /write_memory|barrier|exception_clear/.test(n)
+    const AZ_MATH = { fmaxf:(a,b)=>a!==a?b:(b!==b?a:Math.max(a,b)), fminf:(a,b)=>a!==a?b:(b!==b?a:Math.min(a,b)), fmax:(a,b)=>a!==a?b:(b!==b?a:Math.max(a,b)), fmin:(a,b)=>a!==a?b:(b!==b?a:Math.min(a,b)), roundf:x=>Math.sign(x)*Math.round(Math.abs(x)), round:x=>Math.sign(x)*Math.round(Math.abs(x)), fabsf:Math.abs, fabs:Math.abs, sqrtf:Math.sqrt, sqrt:Math.sqrt, floorf:Math.floor, floor:Math.floor, ceilf:Math.ceil, ceil:Math.ceil, truncf:Math.trunc, trunc:Math.trunc, powf:Math.pow, pow:Math.pow };
+        const stubFor = n => AZ_MATH[n] || (/write_memory|barrier|exception_clear/.test(n)
         ? () => {}
-        : (/_f64\b/.test(n) ? () => 0 : (/_64\b/.test(n) ? () => 0n : () => 0));
+        : (/_f64\b/.test(n) ? () => 0 : (/_64\b/.test(n) ? () => 0n : () => 0)));
     const h = env => ({
         get: (_, p) => typeof p === 'string'
             ? (Object.prototype.hasOwnProperty.call(env, p) ? env[p] : stubFor(p))

@@ -765,18 +765,27 @@ impl RemillTranspiler {
         }
         let tools = self.tools(fn_name)?;
         let hex = bytes_to_hex(&bytes);
-        run_tool(
-            tools.remill_lift,
-            &[
-                "--arch", arch_tag,
-                "--os", host_os_tag(),
-                "--address", &format!("0x{:x}", lift_addr),
-                "--entry_address", &format!("0x{:x}", lift_addr),
-                "--bytes", &hex,
-                "--ir_out", lifted_ir_path.to_str().expect("scratch path is utf-8"),
-            ],
-            fn_name,
-        )?;
+        let addr_s = format!("0x{:x}", lift_addr);
+        let lift_out = lifted_ir_path.to_str().expect("scratch path is utf-8").to_string();
+        // M12.7: provide this fn's adrp-referenced .rodata (its jump tables) to the lifter
+        // at SYNTH addresses, so ForEachDevirtualizedTarget reads the EXACT jump-table
+        // targets (only the real arm blocks) instead of over-sweeping a window — the
+        // over-sweep adds the helper-return block as a spurious switch case, creating a
+        // dispatch edge into it where a callee's f32 return isn't in State yet (body w=0).
+        let extra_data = build_extra_data(&bytes, fn_addr, lift_addr);
+        let mut args: Vec<&str> = vec![
+            "--arch", arch_tag,
+            "--os", host_os_tag(),
+            "--address", &addr_s,
+            "--entry_address", &addr_s,
+            "--bytes", &hex,
+            "--ir_out", &lift_out,
+        ];
+        if !extra_data.is_empty() {
+            args.push("--extra_data");
+            args.push(&extra_data);
+        }
+        run_tool(tools.remill_lift, &args, fn_name)?;
         let ir = std::fs::read_to_string(&lifted_ir_path).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
             reason: format!("read lifted IR: {e}"),
@@ -6358,6 +6367,35 @@ fn scan_arm64_adrp_pages(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
 /// mirror via [`scan_arm64_adrp_pages`]. The caller can dedup the
 /// two sets — exact ranges take precedence; if an exact range is
 /// found for a page, the whole-page mirror is skipped.
+/// M12.7: build the `--extra_data` arg for remill-lift-17 — the fn's adrp-referenced
+/// .rodata (jump-table offset tables + constants) at SYNTH addresses, so the devirt's
+/// exact-target decoder can read the jump tables during the lift. The lifter uses
+/// `lift_addr` (synth) as --address while the bytes are read from `fn_addr` (real);
+/// they share the low-12-bit page offset (synth = file_vmaddr+0x110000, real =
+/// page-aligned load_base + file_vmaddr), so synth_target = real_target + (lift_addr -
+/// fn_addr) for every adrp page. Format: "<synthaddrhex>:<bytehex>;...". Empty (→ the
+/// devirt falls back to a window sweep) if there are no adrp data refs.
+fn build_extra_data(bytes: &[u8], fn_addr: usize, lift_addr: u64) -> String {
+    let synth_off = (lift_addr as i128) - (fn_addr as i128);
+    let mut regions: Vec<String> = Vec::new();
+    let mut total = 0usize;
+    for (raddr, len) in scan_arm64_adrp_accesses(bytes, fn_addr) {
+        if len == 0 || len > 65536 {
+            continue;
+        }
+        if total + len > 1_000_000 {
+            break; // bound the CLI arg size
+        }
+        // SAFETY: (raddr, len) are adrp+ldr-referenced ranges in the live dylib's
+        // read-only data — the same ranges the wasm data-mirror reads.
+        let data = unsafe { std::slice::from_raw_parts(raddr as *const u8, len) };
+        let synth = ((raddr as i128) + synth_off) as u64;
+        regions.push(format!("{:x}:{}", synth, bytes_to_hex(data)));
+        total += len;
+    }
+    regions.join(";")
+}
+
 fn scan_arm64_adrp_accesses(
     fn_bytes: &[u8],
     fn_addr: usize,

@@ -105,6 +105,24 @@ function azMakeMiniImports() {
             var idx = azFnAddrToTableIdx.get(n);
             return idx === undefined ? SENTINEL_NO_NODE : idx;
         },
+        // M12.7: libc math libcalls. LLVM's wasm backend lowers Rust f32::max/min
+        // (`@llvm.maxnum/minnum.f32`) and .round() to `fmaxf`/`fminf`/`roundf` calls
+        // (their NaN/sign-of-zero semantics differ from wasm's native f32.max/min).
+        // These MUST be real — the layout solver floors every used size with
+        // `.max(0.0)`, so a 0-returning stub zeroes ALL widths/heights. fmaxf/fminf
+        // follow IEEE maxNum/minNum (a NaN operand yields the other).
+        fmaxf: function(a, b) { return a !== a ? b : (b !== b ? a : Math.max(a, b)); },
+        fminf: function(a, b) { return a !== a ? b : (b !== b ? a : Math.min(a, b)); },
+        fmax:  function(a, b) { return a !== a ? b : (b !== b ? a : Math.max(a, b)); },
+        fmin:  function(a, b) { return a !== a ? b : (b !== b ? a : Math.min(a, b)); },
+        roundf: function(x) { return Math.sign(x) * Math.round(Math.abs(x)); },
+        round:  function(x) { return Math.sign(x) * Math.round(Math.abs(x)); },
+        fabsf: Math.abs, fabs: Math.abs,
+        sqrtf: Math.sqrt, sqrt: Math.sqrt,
+        floorf: Math.floor, floor: Math.floor,
+        ceilf: Math.ceil, ceil: Math.ceil,
+        truncf: Math.trunc, trunc: Math.trunc,
+        powf: Math.pow, pow: Math.pow,
     };
     function stubFor(name) {
         if (name.indexOf('write_memory') !== -1 ||

@@ -26,8 +26,9 @@ function fetch_(p) {
         __az_resolve_callback: (addr) => (addr === 0xFFFFFFFF) ? 0xFFFFFFFF : (cbTableIdx >= 0 ? cbTableIdx : 0xFFFFFFFF),
         memset: memsetImpl, memcpy: memcpyImpl, memmove: memcpyImpl,
     };
-    const stubFor = n => /write_memory|barrier|exception_clear/.test(n) ? () => {}
-        : (/_f64\b/.test(n) ? () => 0 : (/_64\b/.test(n) ? () => 0n : () => 0));
+    const AZ_MATH = { fmaxf:(a,b)=>a!==a?b:(b!==b?a:Math.max(a,b)), fminf:(a,b)=>a!==a?b:(b!==b?a:Math.min(a,b)), fmax:(a,b)=>a!==a?b:(b!==b?a:Math.max(a,b)), fmin:(a,b)=>a!==a?b:(b!==b?a:Math.min(a,b)), roundf:x=>Math.sign(x)*Math.round(Math.abs(x)), round:x=>Math.sign(x)*Math.round(Math.abs(x)), fabsf:Math.abs, fabs:Math.abs, sqrtf:Math.sqrt, sqrt:Math.sqrt, floorf:Math.floor, floor:Math.floor, ceilf:Math.ceil, ceil:Math.ceil, truncf:Math.trunc, trunc:Math.trunc, powf:Math.pow, pow:Math.pow };
+        const stubFor = n => AZ_MATH[n] || (/write_memory|barrier|exception_clear/.test(n) ? () => {}
+        : (/_f64\b/.test(n) ? () => 0 : (/_64\b/.test(n) ? () => 0n : () => 0)));
     const h = env => ({ get: (_, p) => typeof p === 'string'
         ? (Object.prototype.hasOwnProperty.call(env, p) ? env[p] : stubFor(p)) : undefined, has: () => true });
     const { instance: miniI } = await WebAssembly.instantiate(miniBytes, { env: new Proxy({}, h(realEnv)) });
@@ -89,6 +90,73 @@ function fetch_(p) {
       else if (lo===0xfe) m='FE calculated_positions.get(idx)=None (calc_pos.len='+((p>>8)&0xfff)+')';
       else if (lo===0x04) m='OK';
       console.log('  get_node_position     0x400E8=' + hx(0x400E8) + '  → ' + m); }
+    // 0x40144 = raw arg viewport_w (wrapper); 0x40148 = ws.width after LogicalSize store (wrapper)
+    console.log('  WRAPPER viewport_w arg(0x40144)=' + peek(0x40144) + '  ws.width after store(0x40148)=' + peek(0x40148)
+        + (peek(0x40144)===0 ? '  → ARG 0 (wasm→ARM arg threading lost viewport_w)'
+           : (peek(0x40148)===0 ? '  → arg OK but WS.WIDTH 0 (as-f32 UCVTF or LogicalSize store mis-lifted in WRAPPER)'
+              : '  → wrapper established 800; loss is DOWNSTREAM in layout_dom_recursive read/propagation')));
+    // M12.7 width-loss bracket inside layout_document: 0x401E0 viewport arg, 0x401E4 cb_size, 0x401E8 ctx.viewport_size
+    { const va=peek(0x401E0), cbs=peek(0x401E4), cvs=peek(0x401E8);
+      console.log('  layout_document BRACKET  viewport-arg(0x401E0)=' + va + '  cb_size(0x401E4)=' + cbs + '  ctx.viewport_size(0x401E8)=' + cvs
+        + (va===0 ? '  → HFA ARG lost (LogicalRect viewport arg = 0 across the lifted call)'
+           : cbs===0 ? '  → arg OK but get_containing_block_for_node returned cb_size=0 (HFA RETURN lost)'
+           : cvs===0 ? '  → cb OK but ctx.viewport_size=0 (viewport.size→ctx copy lost)'
+           : '  → all 800 in layout_document; loss is in calculate_layout_for_subtree→calc_used_size arg passing')); }
+    // 0x401EC/F0 = containing_block_size + ctx.viewport_size AT prepare_layout_context (right before the calc_used_size call)
+    { const pcb=peek(0x401EC), pvp=peek(0x401F0);
+      console.log('  prepare_layout_ctx BRACKET  cb(0x401EC)=' + pcb + '  viewport(0x401F0)=' + pvp
+        + ((pcb!==0||pvp!==0) ? '  → 800 HERE but calc_used_size reads 0 ⟹ HFA(LogicalSize) ARG passing lost at the calc_used_size call'
+           : '  → already 0 here ⟹ loss is upstream in calculate_layout_for_subtree→prepare_layout_context')); }
+    // 0x40228 = cb.width inside the auto_block_inline_size helper; 0x4022C = aw (subtraction) before .max
+    { const hcb=peek(0x40228), haw=peek(0x4022C);
+      console.log('  auto_block helper  cb.width(0x40228)=' + hcb + '  aw-before-max(0x4022C)=' + haw
+        + (hcb!==800 ? '  → ✗ cb POINTER/deref into the helper lost it (GP-arg or stack-ptr-across-call)'
+           : haw!==800 ? '  → cb=800 but subtraction gave ' + haw + ' (box-model read mis-lift)'
+           : '  → cb=800, aw=800 in helper; the .max or out-ptr write/read loses it')); }
+    // M12.7 round-trip bisection: 0x40240=auto_w as the Block arm reads it back after the
+    // helper call; 0x40244=resolved_width after the match + .max(0.0)
+    { const aw=peek(0x40240), rw=peek(0x40244);
+      console.log('  Block-arm round-trip  auto_w-after-call(0x40240)=' + aw + '  resolved_width-after-max(0x40244)=' + rw
+        + (aw!==800 ? '  → ✗✗ auto_w round-trip BROKEN: helper wrote 800 to FP-184 but caller reloads ' + aw + ' (out-ptr/stack/FP mismatch)'
+           : rw!==800 ? '  → ✗ auto_w=800 but resolved_width=' + rw + ' (match-arm phi/binding or .max(0.0) mis-lift)'
+           : '  → ✓ auto_w=800, resolved_width=800; loss is between here and apply_width_constraints')); }
+    // M12.7 apply_width_constraints clamp bracket: 0x40230=tentative_width (in),
+    // 0x40234=min_width, 0x40238=max_width sentinel (0xFFFFFFFF=None), 0x4023C=result (out)
+    { const tw=peek(0x40230), mn=peek(0x40234), mx=peek(0x40238), res=peek(0x4023C);
+      const mxs = (mx===0xFFFFFFFF ? 'None' : 'Some('+mx+')');
+      console.log('  apply_width_constraints  tentative(0x40230)=' + tw + '  min(0x40234)=' + mn
+        + '  max(0x40238)=' + mxs + '  result(0x4023C)=' + res
+        + (tw!==800 ? '  → ✗ tentative≠800: loss is BEFORE the clamp (calc .max / helper round-trip)'
+           : (mx!==0xFFFFFFFF && mx===0) ? '  → ✗✗ max_width=Some(0) ZEROED it — get_css_max_width mis-lifts (CSS getter returns corrupted prop)'
+           : res!==800 ? '  → ✗ clamp dropped it despite tentative=800 (min='+mn+' max='+mxs+')'
+           : '  → ✓ apply_width_constraints returns 800; loss is in box-sizing/from_main_cross')); }
+    // 0x401F4 = containing_block_size.width AS RECEIVED inside calc_used_size (via the by-ref pointer)
+    { const rcb=peek(0x401F4);
+      console.log('  calc_used_size RECEIVED cb.width(0x401F4)=' + rcb
+        + (rcb===800 ? '  → ✓ BY-REF DELIVERED IT (any width=0 is a compute mis-lift inside calc)'
+           : rcb===0 ? '  → ✗ by-ref pointer/deref STILL 0 (GP-pointer arg or stack-ptr-across-call issue)'
+           : '  → unexpected ' + rcb)); }
+    // 0x40200 Block-arm reached; 0x401F8 available_width; 0x401FC box-model sum
+    { const arm=peek(0x40200), aw=peek(0x401F8), bm=peek(0x401FC);
+      console.log('  calc_used_size COMPUTE  Block-arm(0x40200)=0x' + arm.toString(16) + '  available_width(0x401F8)=' + aw + '  box-model-sum(0x401FC)=' + bm
+        + (arm!==0xb10c0000 ? '  → Block arm NOT reached (display mis-lifted to a different arm)'
+           : bm!==0 ? '  → box-model sum nonzero ⟹ &BoxProps deref/unpack mis-lift (garbage margins)'
+           : aw===800 ? '  → available_width=800 ✓ (loss is .max/downstream)'
+           : '  → available_width=' + aw + ' from cb=800, box-model=0 (the subtraction itself mis-lifts!)')); }
+    // post-available_width chain: 0x40204 constrained_width, 0x40208 border_box_width, 0x4020C result.width, 0x40210 final_used_size (caller)
+    { const cw=peek(0x40204), bbw=peek(0x40208), rw=peek(0x4020C), fus=peek(0x40210);
+      console.log('  calc_used_size CHAIN  constrained(0x40204)=' + cw + '  border_box(0x40208)=' + bbw + '  result.width(0x4020C)=' + rw + '  final_used(caller 0x40210)=' + fus
+        + (cw!==800 ? '  → apply_width_constraints dropped it (f32 arg/return mis-lift)'
+           : bbw!==800 ? '  → box-sizing dropped it'
+           : rw!==800 ? '  → from_main_cross dropped it (f32 args or LogicalSize HFA return)'
+           : fus!==800 ? '  → calc_used_size Ok(LogicalSize) HFA RETURN mis-lifts (caller got 0)'
+           : '  → 800 all the way to the caller ✓ (loss is in the tree store / get_node_size)')); }
+    // 0x40214 resolved_width after .max(0.0); 0x40218 tentative_width received inside apply_width_constraints
+    { const rwm=peek(0x40214), awc=peek(0x40218);
+      console.log('  resolved_width.max(0.0)(0x40214)=' + rwm + '  apply_width_constraints RECEIVED(0x40218)=' + awc
+        + (rwm!==800 ? '  → ✗ the arm `.max(0.0)` (fmaxnm) or match→resolved_width binding mis-lifts (800→' + rwm + ')'
+           : awc!==800 ? '  → resolved_width=800 but apply_width_constraints got ' + awc + ' ⟹ single-f32 ARG mis-lifts across the call'
+           : '  → 800 into apply_width_constraints; its return or internal logic drops it')); }
     // 0x40114/18/1C = calc_used_size width source: cb.width(in) viewport.width(in) result.width(out)
     console.log('  calc_used_size widths   cb=' + peek(0x40114) + ' viewport=' + peek(0x40118) + ' result=' + peek(0x4011C)
         + (peek(0x40114)===0 ? '  → CB WIDTH 0 (viewport not propagating to containing block)'
@@ -110,13 +178,70 @@ function fetch_(p) {
     { const epc=peek(0x400F0), ecnt=peek(0x400F4), mpc=peek(0x400F8), mcnt=peek(0x400FC);
       const nat = s => '0x'+(((s>>>0) - 0x110000 + 0x1098fc000) >>> 0 === 0 ? 0 : ((s>>>0) - 0x110000 + 0x1098fc000)).toString(16);
       console.log('  __remill_error  count=' + ecnt + ' lastPC=' + hx(0x400F0) + (epc? '  → native '+nat(epc)+' (otool libazul @ this for the unlifted instr)':''));
-      console.log('  __remill_missing_block count=' + mcnt + ' lastPC=' + hx(0x400F8) + (mpc? '  → native '+nat(mpc):'')); }
+      console.log('  __remill_missing_block count=' + mcnt + ' lastPC=' + hx(0x400F8) + (mpc? '  → native '+nat(mpc):''));
+      // 0x40160 + i*4 = 16-slot ring of distinct missing_block TARGET PCs (synth);
+      // libazul vmaddr = synthPC - 0x110000 (otool target/release/libazul.dylib @ that).
+      const nslot = Math.min(mcnt, 16);
+      for (let i = 0; i < nslot; i++) { const pc = peek(0x40160 + i*4);
+        if (pc) console.log('    mb[' + i + '] synth=0x' + pc.toString(16) + '  libazul-vmaddr=0x' + ((pc - 0x110000)>>>0).toString(16)); }
+      // 0x4014C = count of SILENT indirect calls (no-op'd __remill_function_call);
+      // 0x401A0 + i*4 = ring of their 16 most-recent target PCs (synth).
+      const fcc = peek(0x4014C);
+      console.log('  __remill_function_call (SILENT indirect calls, no-op today) count=' + fcc);
+      const fslot = Math.min(fcc, 16);
+      for (let i = 0; i < fslot; i++) { const pc = peek(0x401A0 + i*4);
+        if (pc) console.log('    fc[' + i + '] synth=0x' + pc.toString(16) + '  libazul-vmaddr=0x' + ((pc - 0x110000)>>>0).toString(16)); }
+      // 0x40158 = count of indirect targets the dispatcher could NOT resolve (fell to no-op).
+      console.log('  @__az_indirect_dispatch UNRESOLVED count=' + peek(0x40158)
+        + (peek(0x40158)===0 && (mcnt+fcc)>0 ? '  → (0 may mean weak no-op default won — see WEAK below)' : ''));
+      // 0x4015C = weak no-op default hits. >0 ⟹ strong dispatcher .o did NOT override it.
+      console.log('  @__az_indirect_dispatch WEAK-default hits=' + peek(0x4015C)
+        + (peek(0x4015C)>0 ? '  → ✗ strong override FAILED (indirect calls stayed no-op)'
+           : (peek(0x40158)>0 ? '  → ✓ strong dispatcher active' : ''))); }
 
     const rptr = mini.AzStartup_getPositionedRectsPtr(state), rlen = mini.AzStartup_getPositionedRectsLen(state);
     console.log('\n=== RECTS (ptr=' + rptr + ' len=' + rlen + ') ===');
     for (let i = 0; i < rlen; i++) {
         const o = rptr + i*16;
         console.log('  rect[' + i + ']: x=' + dv.getUint32(o,true) + ' y=' + dv.getUint32(o+4,true) + ' w=' + dv.getUint32(o+8,true) + ' h=' + dv.getUint32(o+12,true));
+    }
+
+    // === AZ_LOG_STORES ring buffer (count @0x41000, entries @0x41010+k*16: addr,id,deptag,val) ===
+    const scnt = peek(0x41000);
+    if (scnt > 0) {
+        const cap = Math.min(scnt, 3500);
+        console.log('\n=== STORE TRACE (' + scnt + ' in-window stores, showing ' + cap + ') ===');
+        // Optional filters via env: AZ_STORE_FILTER_VAL (decimal, e.g. 800), AZ_STORE_ID (decimal id)
+        const fval = process.env.AZ_STORE_FILTER_VAL ? (process.env.AZ_STORE_FILTER_VAL>>>0) : null;
+        const fid  = process.env.AZ_STORE_ID ? (process.env.AZ_STORE_ID>>>0) : null;
+        let shown = 0;
+        for (let k = 0; k < cap; k++) {
+            const o = 0x41010 + k*16;
+            const addr = peek(o), id = peek(o+4), deptag = peek(o+8), val = dv.getUint32(o+12,true)>>>0;
+            if (fval !== null && val !== fval) continue;
+            if (fid !== null && id !== fid) continue;
+            const sval = (val===0xDEADBEEF)?'<non-int>':(val===0xBEEF0000)?'<mem>':((val>>>0)+' (0x'+(val>>>0).toString(16)+(val|0<0?'':'')+')');
+            console.log('  #' + k + ' id=' + id + ' addr=0x' + addr.toString(16) + ' val=' + sval);
+            if (++shown > 600) { console.log('  ... (truncated at 600 shown)'); break; }
+        }
+        // Summarize ids storing the viewport width as int 800 OR f32 800.0 (bits
+        // 0x44480000=1145569280), and ids storing 0 (== 0.0f32 too). The FIRST
+        // id storing 800/800.0 then a LATER id storing 0 brackets the 800→0 loss.
+        const F800 = 1145569280; // 0x44480000 = 800.0f32
+        const saw800 = new Set(), saw0 = new Set();
+        for (let k = 0; k < cap; k++) {
+            const o = 0x41010 + k*16, id = peek(o+4), val = dv.getUint32(o+12,true)>>>0;
+            if (val === 800 || val === F800) saw800.add(id); if (val === 0) saw0.add(id);
+        }
+        console.log('  ids that stored 800 or 800.0f32: [' + [...saw800].sort((a,b)=>a-b).join(',') + ']');
+        console.log('  ids that stored 0/0.0f32       : [' + [...saw0].sort((a,b)=>a-b).slice(0,40).join(',') + (saw0.size>40?',...':'') + ']');
+        // First in-buffer occurrence (k order = runtime store order) of 800 and of 0.
+        let firstk800=-1, firstk0=-1;
+        for (let k = 0; k < cap; k++) { const val = dv.getUint32(0x41010+k*16+12,true)>>>0;
+            if (firstk800<0 && (val===800||val===F800)) firstk800=k; if (firstk0<0 && val===0) firstk0=k; }
+        console.log('  first store of 800/800.0 at k=' + firstk800 + ' (id=' + (firstk800<0?'-':peek(0x41010+firstk800*16+4)) + '); first store of 0 at k=' + firstk0);
+    } else {
+        console.log('\n(no store trace — AZ_LOG_STORES not set or no in-window stores)');
     }
     process.exit(0);
 })().catch(e => { console.error(e.stack); process.exit(1); });
