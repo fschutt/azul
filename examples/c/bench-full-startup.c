@@ -1,3 +1,7 @@
+/* clock_gettime / CLOCK_MONOTONIC / struct timespec are POSIX.1b; -std=c99 is
+ * strict ISO C and hides them without this feature-test macro (must come
+ * before any #include). */
+#define _POSIX_C_SOURCE 199309L
 #include "azul.h"
 #include <stdio.h>
 #include <string.h>
