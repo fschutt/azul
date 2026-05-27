@@ -51,6 +51,11 @@ concurrency:
 env:
   CARGO_TERM_COLOR: never
   NO_COLOR: "1"
+  # Run JS actions still bundling Node 20 (checkout@v4, upload/download-artifact@v4,
+  # cache@v4, setup-chrome@v1, …) on Node 24 now — silences the Node-20 deprecation
+  # warnings ahead of GitHub forcing the switch (2026-06-02), without bumping ~60
+  # action pins. Drop once all actions ship Node-24 majors.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   # =============================================================================
@@ -667,7 +672,11 @@ jobs:
           - os: macos-14
             llc: /opt/homebrew/opt/llvm@21/bin/llc
             wasm_ld: /opt/homebrew/opt/lld@21/bin/wasm-ld
-            install_llvm: brew install llvm@21 lld@21 wabt
+            # Unlink the runner's pre-installed older llvm first so brew can link
+            # llvm@21 cleanly (avoids the "installed but not linked because llvm@15
+            # is already installed" warning). The job uses explicit @21 paths
+            # anyway; this just keeps the log clean.
+            install_llvm: brew unlink llvm@15 2>/dev/null || true; brew install llvm@21 lld@21 wabt
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
@@ -1934,32 +1943,22 @@ jobs:
       - name: Generate DLL API bindings
         continue-on-error: true
         run: cargo run -r -p azul-doc codegen all
-      - name: cargo tree + summary
+      - name: cargo tree (generate crate lists)
         continue-on-error: true
         shell: bash
         run: |
+          # Generate the per-member crate list + full tree for each member. The
+          # "Check dependency justifications" step below renders the annotated
+          # tables (crate + its justification) into the Summary and enforces the
+          # gate — so we don't write the bare list here anymore.
           os="${{ matrix.os }}"
           mkdir -p deptree
-          {
-            echo "## 🌳 Dependency tree ($os)"
-            echo ''
-          } >> "$GITHUB_STEP_SUMMARY"
           gen() { # <label> <cargo-tree args...>
             local label="$1"; shift
             cargo tree "$@" -e normal,build > "deptree/${label}.${os}.tree.txt" 2>/dev/null || true
             cargo tree "$@" -e normal,build --prefix none 2>/dev/null \
               | sed -E 's/ \(.*\)//; s/ v[0-9].*//' | grep -E '^[a-z0-9]' | sort -u \
               > "deptree/${label}.${os}.crates.txt" || true
-            local n; n=$(wc -l < "deptree/${label}.${os}.crates.txt" | tr -d ' ')
-            {
-              echo "<details><summary><b>$label</b> — $n unique crates</summary>"
-              echo ''
-              echo '```'
-              cat "deptree/${label}.${os}.crates.txt"
-              echo '```'
-              echo '</details>'
-              echo ''
-            } >> "$GITHUB_STEP_SUMMARY"
           }
           gen azul-css    -p azul-css
           gen azul-core   -p azul-core
