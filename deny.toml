@@ -1,6 +1,6 @@
 # cargo-deny configuration — supply-chain, license, and dependency-tree gates.
-# Run locally with `cargo deny check`. In CI the checks start as informational
-# (see .github/workflows/quality.yml); promote them to hard gates once clean.
+# Run locally with `cargo deny check`. In CI the checks run in the quality jobs
+# of .github/workflows/rust.yml and surface their output in the run Summary.
 
 [advisories]
 version = 2
@@ -8,7 +8,26 @@ version = 2
 # add specific IDs to `ignore` (with a justification comment) when a transitive
 # advisory can't be fixed yet.
 yanked = "warn"
-ignore = []
+ignore = [
+    # ── Security — all reach the tree ONLY through rustls-rustcrypto 0.0.2-alpha,
+    # used solely as a TLS *client* for HTTPS fetching in azul-doc / reftest.
+    # rustls-rustcrypto is the pure-Rust crypto provider that lets the shipped
+    # libazul (via azul-layout) cross-compile to the exotic targets
+    # (riscv64/s390x/ppc64/…) where ring / aws-lc-rs need platform asm. It's a
+    # crates.io alpha we don't control; revisit when it bumps its rsa/webpki
+    # pins (or we fork it). ──
+    { id = "RUSTSEC-2023-0071", reason = "rsa Marvin timing attack recovers a TLS *server's* RSA private key via decryption/signing timing. azul is a TLS client doing certificate signature *verification* (public-key) only and never performs RSA private-key ops, so the vulnerable path is unreachable. No fixed rsa release exists." },
+    { id = "RUSTSEC-2026-0049", reason = "rustls-webpki 0.102.8 CRL distributionPoint matching. Pulled directly by rustls-rustcrypto (alpha); the live TLS handshake path goes through rustls 0.23.40 -> rustls-webpki 0.103.13 (fixed). azul fetches from trusted hosts and does not rely on CRL revocation; low impact." },
+    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.102.8 URI name-constraint handling (same rustls-rustcrypto chain as -0049). webpki exposes no URI-name API and azul asserts none; reachable only post-signature against a misissued cert." },
+    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.102.8 wildcard name-constraint handling (same chain as -0049); reachable only post-signature against a misissued cert." },
+    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.102.8 reachable panic parsing a malformed CRL (same chain as -0049). azul does not parse untrusted CRLs (trusted-host fetch). Fixed in >=0.103.13." },
+    # ── Unmaintained — no known vulnerability; deep-transitive in third-party
+    # crates we don't own. Tracked, with fix paths noted. ──
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1.3.3/2.0.1 — team ceased development; 1.3.3 is declared a complete/stable release. Transitive via webrender 0.62, hyphenation (build dep), and rust-fontconfig. Migrating off it (postcard/…) needs upstream changes in those crates." },
+    { id = "RUSTSEC-2025-0057", reason = "fxhash 0.2.1 unmaintained (-> rustc-hash). Pulled only by webrender 0.62 (our fork). Fix path: switch webrender's hasher to rustc-hash in the fork — tracked follow-up." },
+    { id = "RUSTSEC-2024-0436", reason = "paste 1.0.15 archived (-> pastey). Transitive via nokhwa, turso_core, and rustls-rustcrypto. Build-time macro only, no runtime/security impact; awaiting upstreams to migrate." },
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error 1.0.4 unmaintained (-> proc-macro-error2). Pulled by ouroboros 0.17 <- allsorts-azul (our fork). Fix path: bump allsorts-azul's ouroboros to >=0.18 (drops proc-macro-error) — tracked follow-up; build-time macro only." },
+]
 
 [licenses]
 version = 2

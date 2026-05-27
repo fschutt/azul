@@ -108,7 +108,6 @@ calendrical_calculations = "Low-level calendar arithmetic backing icu_calendar."
 core_maths = "core/std-agnostic float math (round/floor) used by calendrical_calculations."
 fixed_decimal = "Fixed-point decimal type used by icu_decimal/datetime formatting."
 ixdtf = "ISO-8601/RFC-3339 date-time string parser used by icu_time."
-julian_day_converter = "Julian-day <-> calendar conversion, pulled by turso_core date functions."
 
 # === ICU4X / zerocopy data plumbing (zerovec, yoke, tinystr) ===
 tinystr = "Small inline ASCII strings (locale subtags) used across ICU4X."
