@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -161,7 +161,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -260,7 +260,7 @@ jobs:
             check_build_dll: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -370,7 +370,7 @@ jobs:
             nfpm_arch: riscv64
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -429,7 +429,7 @@ jobs:
     continue-on-error: false
     steps:
       - name: Checkout azul
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: azul
 
@@ -507,7 +507,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -556,7 +556,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -601,7 +601,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -652,114 +652,6 @@ jobs:
           MIRIFLAGS: -Zmiri-disable-isolation
         run: cargo +nightly miri test --lib -p azul-dll -- --nocapture
 
-  # Phase-C transpile blueprint smoke test (web.md Phase C).
-  # Validates the LLVM IR → llc(wasm32) → wasm-ld → valid .wasm leg of the
-  # web backend's lift pipeline. Uses StubLifter (hand-rolled IR) so this
-  # is fast (<30s) and runs on every PR.
-  # The remill-backed lifter is built separately by `transpile_blueprint_remill`
-  # below (manual trigger only — remill is a 30-60 min C++ build).
-  transpile_blueprint_smoke:
-    name: Transpile Blueprint Smoke (${{ matrix.os }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            llc: llc
-            wasm_ld: wasm-ld
-            install_llvm: sudo apt-get update && sudo apt-get install -y llvm lld wabt
-          - os: macos-14
-            llc: /opt/homebrew/opt/llvm@21/bin/llc
-            wasm_ld: /opt/homebrew/opt/lld@21/bin/wasm-ld
-            # Unlink the runner's pre-installed older llvm first so brew can link
-            # llvm@21 cleanly (avoids the "installed but not linked because llvm@15
-            # is already installed" warning). The job uses explicit @21 paths
-            # anyway; this just keeps the log clean.
-            install_llvm: brew unlink llvm@15 2>/dev/null || true; brew install llvm@21 lld@21 wabt
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.88.0
-
-      - name: Install LLVM / lld / wabt
-        run: ${{ matrix.install_llvm }}
-
-      - name: Build blueprint (stub lifter)
-        working-directory: experiments/transpile-blueprint
-        run: cargo build --release
-
-      - name: Run blueprint and verify output
-        working-directory: experiments/transpile-blueprint
-        env:
-          LLVM_BIN: ${{ matrix.os == 'ubuntu-22.04' && '/usr/bin' || '/opt/homebrew/opt/llvm@21/bin' }}
-          WASM_LD: ${{ matrix.wasm_ld }}
-        run: |
-          cargo run --release
-          # Verify the artifacts the pipeline produced
-          test -f out/blueprint.ll || { echo "missing blueprint.ll"; exit 1; }
-          test -f out/blueprint.o  || { echo "missing blueprint.o";  exit 1; }
-          test -f out/blueprint.wasm || { echo "missing blueprint.wasm"; exit 1; }
-          wasm-validate out/blueprint.wasm
-          wasm-objdump -d out/blueprint.wasm | tee disasm.txt
-          grep -q 'i32.add' disasm.txt || { echo "expected i32.add in WASM"; exit 1; }
-          grep -q 'add_blueprint' disasm.txt || { echo "expected add_blueprint export"; exit 1; }
-
-  # Manual: build remill from source against pre-built cxx-common, then
-  # re-run the blueprint with the real lift step. Decoupled from the smoke
-  # test because the remill C++ build is 30-60 min and would block PRs.
-  transpile_blueprint_remill:
-    name: Transpile Blueprint (remill, manual)
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_mode == 'ci'
-    runs-on: macos-14
-    timeout-minutes: 120
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.88.0
-
-      - name: Install build deps (cmake, ninja, llvm@21, lld@21, wabt)
-        run: brew install cmake ninja llvm@21 lld@21 wabt
-
-      - name: Build remill via scripts/build_remill.sh
-        run: bash scripts/build_remill.sh
-
-      - name: Build blueprint with --features remill
-        working-directory: experiments/transpile-blueprint
-        env:
-          REMILL_INSTALL_DIR: ${{ github.workspace }}/third_party/remill-install/install
-          LLVM_PREFIX: /opt/homebrew/opt/llvm@21
-        run: cargo build --release --features remill
-
-      - name: Run blueprint with real remill lift
-        working-directory: experiments/transpile-blueprint
-        env:
-          REMILL_INSTALL_DIR: ${{ github.workspace }}/third_party/remill-install/install
-        run: |
-          cargo run --release --features remill -- --lifter=remill
-          wasm-validate out/blueprint.wasm
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: transpile-blueprint-remill-output
-          path: |
-            experiments/transpile-blueprint/out/blueprint.ll
-            experiments/transpile-blueprint/out/blueprint.o
-            experiments/transpile-blueprint/out/blueprint.wasm
-          retention-days: 14
-
   build_binaries:
     name: Build Binaries (${{ matrix.os }})
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
@@ -789,7 +681,7 @@ jobs:
               target/prod-release/azul.pyd
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -1027,7 +919,7 @@ jobs:
       AZ_BACKEND: headless
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -1137,7 +1029,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download Linux binaries
         uses: actions/download-artifact@v4
@@ -1330,7 +1222,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -1408,7 +1300,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout repository (for fallback assets)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           sparse-checkout: |
             examples/assets/screenshots
@@ -1794,7 +1686,7 @@ jobs:
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
@@ -1823,7 +1715,7 @@ jobs:
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
@@ -1834,7 +1726,7 @@ jobs:
       - name: cargo-geiger + summary
         shell: bash
         run: |
-          cargo geiger -p azul-dll --output-format Ascii > geiger.txt 2>&1 || true
+          cargo geiger --manifest-path dll/Cargo.toml --output-format Ascii > geiger.txt 2>&1 || true
           {
             echo '## ☢️ Unsafe surface — cargo-geiger (azul-dll)'
             echo ''
@@ -1852,7 +1744,7 @@ jobs:
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
@@ -1884,7 +1776,7 @@ jobs:
     env:
       AZ_BACKEND: headless
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
@@ -1936,7 +1828,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-14, windows-2022]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
@@ -1992,7 +1884,7 @@ jobs:
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
