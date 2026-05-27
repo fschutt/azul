@@ -1517,3 +1517,197 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # ───────────────────────────── Quality & Security ─────────────────────────
+  # Merged in from the former quality.yml so there is ONE push-triggered
+  # workflow. Every job is continue-on-error (informational, never blocks) and
+  # writes its output to the GitHub run **Summary** via $GITHUB_STEP_SUMMARY —
+  # open any run to see cargo-deny, cargo-geiger, clippy, sanitizers and the
+  # dependency tree at a glance, next to the coverage report.
+
+  supply_chain:
+    name: Supply chain (cargo-deny)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked || cargo install cargo-deny
+      - name: cargo-deny + summary
+        shell: bash
+        run: |
+          {
+            echo '## 🔒 Supply chain — cargo-deny'
+            echo ''
+            for chk in advisories bans licenses sources; do
+              echo "<details><summary><b>cargo deny check $chk</b></summary>"
+              echo ''
+              echo '```'
+              cargo deny check "$chk" 2>&1 || true
+              echo '```'
+              echo '</details>'
+              echo ''
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  unsafe_audit:
+    name: Unsafe audit (cargo-geiger)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+      - name: Install cargo-geiger
+        run: cargo install cargo-geiger --locked || cargo install cargo-geiger
+      - name: cargo-geiger + summary
+        shell: bash
+        run: |
+          cargo geiger -p azul-dll --output-format Ascii > geiger.txt 2>&1 || true
+          {
+            echo '## ☢️ Unsafe surface — cargo-geiger (azul-dll)'
+            echo ''
+            echo '<details><summary>full report</summary>'
+            echo ''
+            echo '```'
+            tail -250 geiger.txt
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  clippy:
+    name: Clippy
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+          components: clippy
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+      - name: clippy + summary
+        shell: bash
+        run: |
+          cargo clippy -p azul-core -p azul-css -p azul-layout --no-default-features --features std 2>&1 | tee clippy.txt || true
+          {
+            echo '## 📎 Clippy (azul-core / azul-css / azul-layout)'
+            echo ''
+            echo "Warnings: **$(grep -c 'warning:' clippy.txt || echo 0)**"
+            echo ''
+            echo '<details><summary>output (tail)</summary>'
+            echo ''
+            echo '```'
+            tail -150 clippy.txt
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  sanitizers:
+    name: Sanitizers (C examples)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    env:
+      AZ_BACKEND: headless
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+      - name: Install clang + headless deps
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+      - name: Build azul-dll (debug)
+        run: cargo build -p azul-dll --features build-dll
+      - name: Run sanitizers + summary
+        shell: bash
+        run: |
+          {
+            echo '## 🧪 Sanitizers (C examples, headless)'
+            echo ''
+            echo '| example | sanitizer | result |'
+            echo '|---|---|---|'
+          } >> "$GITHUB_STEP_SUMMARY"
+          run_san() { # <example> <label> <san-flags>
+            local ex="$1" label="$2" flags="$3"
+            if ! clang -g -O1 $flags -fno-omit-frame-pointer -I target/codegen \
+                 "examples/c/$ex.c" -L target/debug -lazul -o "/tmp/$ex-san" 2>/tmp/cc.log; then
+              echo "| $ex | $label | build-fail |" >> "$GITHUB_STEP_SUMMARY"; return
+            fi
+            ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
+            TSAN_OPTIONS=halt_on_error=0 LD_LIBRARY_PATH=target/debug \
+              timeout 30 "/tmp/$ex-san"; local rc=$?
+            if [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ]; then
+              echo "| $ex | $label | ✅ pass |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| $ex | $label | ❌ rc=$rc |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          }
+          run_san hello-world "ASan+UBSan" "-fsanitize=address,undefined"
+          run_san async       "ASan+UBSan" "-fsanitize=address,undefined"
+          run_san async       "ThreadSan"  "-fsanitize=thread"
+
+  dep_tree:
+    name: Dependency tree (${{ matrix.os }})
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+      - name: cargo tree + summary
+        shell: bash
+        run: |
+          os="${{ matrix.os }}"
+          mkdir -p deptree
+          {
+            echo "## 🌳 Dependency tree ($os)"
+            echo ''
+          } >> "$GITHUB_STEP_SUMMARY"
+          gen() { # <label> <cargo-tree args...>
+            local label="$1"; shift
+            cargo tree "$@" -e normal,build > "deptree/${label}.${os}.tree.txt" 2>/dev/null || true
+            cargo tree "$@" -e normal,build --prefix none 2>/dev/null \
+              | sed -E 's/ \(.*\)//; s/ v[0-9].*//' | grep -E '^[a-z0-9]' | sort -u \
+              > "deptree/${label}.${os}.crates.txt" || true
+            local n; n=$(wc -l < "deptree/${label}.${os}.crates.txt" | tr -d ' ')
+            {
+              echo "<details><summary><b>$label</b> — $n unique crates</summary>"
+              echo ''
+              echo '```'
+              cat "deptree/${label}.${os}.crates.txt"
+              echo '```'
+              echo '</details>'
+              echo ''
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+          gen azul-css    -p azul-css
+          gen azul-core   -p azul-core
+          gen azul-layout -p azul-layout
+          gen azul-dll    -p azul-dll --features build-dll
+      - name: Upload dependency trees
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-trees-${{ matrix.os }}
+          path: deptree/
+          if-no-files-found: warn
