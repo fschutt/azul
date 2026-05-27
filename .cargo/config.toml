@@ -22,6 +22,17 @@ ar     = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolcha
 linker = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android24-clang"
 ar     = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
 
+# Legacy Windows (rust9x, i686, WinXP+). getrandom 0.2.17 — pulled transitively
+# (rand/uuid/ahash etc.) — calls RtlGenRandom (SystemFunction036) from advapi32
+# but emits no link directive for it: it historically assumed std links advapi32.
+# Modern std links bcrypt instead, so on this target the import is unresolved
+# (LNK2019 __imp__SystemFunction036@8 -> LNK1120). RtlGenRandom exists on Windows
+# XP+ (this target's floor), so pulling advapi32.lib into every link makes
+# getrandom both link and work. (A genuine pre-XP/Win98 target would instead need
+# a dlopen fork of getrandom, since a static advapi32 import blocks image load.)
+[target.i686-rust9x-windows-msvc]
+rustflags = ["-Clink-arg=advapi32.lib"]
+
 [profile.release]
 lto = "thin"
 codegen-units = 16
