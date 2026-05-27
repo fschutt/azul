@@ -365,11 +365,10 @@ jobs:
     name: Build rust9x (Win98/XP experimental)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
     runs-on: windows-2022
-    # Non-blocking on normal push/CI (experimental target). On a DEPLOY it is a
-    # hard gate: a release must ship the Win98/XP binary, so a missing compiler
-    # cache or a build failure fails the run (prime via the rust9x-compiler
-    # workflow first).
-    continue-on-error: ${{ github.event.inputs.run_mode != 'deploy' }}
+    # BLOCKING: when the compiler cache is present the Win98/XP build must
+    # succeed. The cache-empty path skips the build (the build steps are gated
+    # on the cache being present), so an un-primed cache can't false-fail the run.
+    continue-on-error: false
     steps:
       - name: Checkout azul
         uses: actions/checkout@v4
@@ -423,9 +422,18 @@ jobs:
         working-directory: azul
         shell: bash
         run: |
+          # Win98/XP feature set = (default + build-dll) MINUS:
+          #   a11y       — accesskit_windows pulls the windows 0.48 import lib
+          #                `windows.0.48.5.lib`, which the i686-rust9x target
+          #                can't resolve (LNK1181); Win98/XP has no UIAutomation.
+          #   http       — rustls + the crypto stack (not for legacy Windows).
+          #   map-tiles  — network tiles.
+          #   db-sqlite  — turso/aegis C-amalgamation deps.
+          # icu_windows stays (raw `extern "system"` Win32 NLS, no `windows` crate).
           cargo +rust9x build --release \
             --target i686-rust9x-windows-msvc \
-            -p azul-dll --features="build-dll"
+            -p azul-dll --no-default-features \
+            --features "std,link-static,logging,all_img_formats,cabi_export,rust_api,_internal_deps,font_loading_multithreaded,font_async_registry,icons,svg,xml,icu,fluent,pdf"
 
       - name: Upload rust9x artifact
         if: steps.rust9x_cache.outputs.cache-matched-key != ''
