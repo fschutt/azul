@@ -9,7 +9,7 @@
 name = "azul-layout"
 version = "0.0.9"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
-license = "MPL-2.0"
+license = "MIT"
 description = "Layout solver + font and image loader the Azul GUI framework"
 homepage = "https://azul.rs/"
 keywords = ["gui", "user-interface", "svg", "graphics", "css" ]

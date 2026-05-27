@@ -32,13 +32,13 @@ version = "0.2.0"
 description = "Python bindings for the Azul GUI framework"
 readme = "README.md"
 requires-python = ">=3.8"
-license = { text = "MPL-2.0" }
+license = { text = "MIT" }
 authors = [{ name = "Felix Schütt", email = "felix.schuett@maps4print.com" }]
 keywords = ["gui", "user-interface", "svg", "graphics", "css"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Rust",
     "Programming Language :: Python :: 3",
     "Topic :: Software Development :: User Interfaces",

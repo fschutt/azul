@@ -24,4 +24,4 @@ wheel.
 
 ## License
 
-MPL-2.0. See https://github.com/maps4print/azul.
+MIT. See https://github.com/maps4print/azul.

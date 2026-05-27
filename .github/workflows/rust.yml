@@ -2556,7 +2556,7 @@ jobs:
             <description>Java/Kotlin (JNA) bindings for the Azul GUI framework.</description>
             <url>https://azul.rs/</url>
             <licenses>
-              <license><name>MPL-2.0</name><url>https://www.mozilla.org/en-US/MPL/2.0/</url></license>
+              <license><name>MIT</name><url>https://opensource.org/licenses/MIT</url></license>
             </licenses>
             <developers>
               <developer><name>Felix Schütt</name><email>felix.schuett@maps4print.com</email></developer>
