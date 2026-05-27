@@ -45,8 +45,11 @@ LICENSE-MAC.json
 LICENSE-WINDOWS.txt
 LICENSE-LINUX.txt
 LICENSE-MAC.txt
-Cargo.lock
 *.lock
+# Track the root workspace lockfile: reproducible CI builds + a stable
+# Swatinem/rust-cache key. Nested/vendored locks stay ignored via *.lock above;
+# the excluded experiment keeps its own ignore rule lower in this file.
+!/Cargo.lock
 commits.txt
 out-italic.txt
 scripts/gemini_perf_prompt*.md
