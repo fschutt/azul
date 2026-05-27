@@ -1980,3 +1980,40 @@ jobs:
       - name: Check dependency justifications
         shell: bash
         run: python3 scripts/check_dep_justifications.py deptree --os "${{ matrix.os }}"
+
+  # Render the full guide (all three books) to a single PDF and upload it as a
+  # build artifact, so every push produces a downloadable offline/paper copy.
+  # Non-blocking: the headless-Chrome/CDP render is best-effort and must never
+  # fail the pipeline. The @media print CSS (docgen/guide.rs) gives light code
+  # blocks in the PDF while the web keeps the dark theme.
+  docs_pdf:
+    name: Docs PDF (artifact)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+      # The CDP driver (scripts/docs_pdf_cdp.mjs) uses Node's built-in global
+      # WebSocket, which is only available on Node 22+ (runners default lower).
+      - name: Install Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install Chrome
+        id: setup_chrome
+        uses: browser-actions/setup-chrome@v1
+      - name: Install pdfunite (poppler-utils)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - name: Render docs → target/azul-documentation.pdf
+        env:
+          CHROME_BIN: ${{ steps.setup_chrome.outputs.chrome-path }}
+        run: bash scripts/docs_to_pdf.sh --no-open
+      - name: Upload docs PDF
+        uses: actions/upload-artifact@v4
+        with:
+          name: azul-documentation-pdf
+          path: target/azul-documentation.pdf
+          if-no-files-found: warn

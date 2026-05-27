@@ -20,6 +20,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 1. launch Chrome with remote debugging (network left ON so web fonts load).
 const chrome = spawn(chromePath, [
   '--headless=new', '--disable-gpu', '--no-sandbox',
+  // --disable-dev-shm-usage: CI runners give /dev/shm only ~64 MB and Chrome
+  // crashes ("Target closed") when it overflows; force it to use /tmp instead.
+  '--disable-dev-shm-usage',
   '--remote-debugging-port=0', '--no-first-run', '--disable-extensions',
   '--hide-scrollbars', 'about:blank',
 ], { stdio: ['ignore', 'ignore', 'pipe'] });

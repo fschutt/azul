@@ -27,18 +27,25 @@ for a in "$@"; do
 done
 
 # --- locate Chrome ---------------------------------------------------------
+# Honor an explicit override first ($CHROME / $CHROME_BIN — e.g. the path that
+# browser-actions/setup-chrome emits in CI), then probe the usual names
+# (`chrome` covers setup-chrome's binary; `google-chrome-stable` covers Debian).
+CHROME_OVERRIDE="${CHROME:-${CHROME_BIN:-}}"
 CHROME=""
 for c in \
+  "$CHROME_OVERRIDE" \
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   "/Applications/Chromium.app/Contents/MacOS/Chromium" \
   "$(command -v google-chrome || true)" \
+  "$(command -v google-chrome-stable || true)" \
+  "$(command -v chrome || true)" \
   "$(command -v chromium || true)" \
   "$(command -v chromium-browser || true)"; do
   if [ -n "$c" ] && [ -x "$c" ]; then CHROME="$c"; break; fi
 done
-[ -z "$CHROME" ] && { echo "ERROR: Google Chrome / Chromium not found." >&2; exit 1; }
-command -v pdfunite >/dev/null || { echo "ERROR: pdfunite not found (brew install poppler)." >&2; exit 1; }
-command -v node >/dev/null || { echo "ERROR: node not found (drives Chrome over CDP; Node 18+)." >&2; exit 1; }
+[ -z "$CHROME" ] && { echo "ERROR: Google Chrome / Chromium not found (set \$CHROME_BIN)." >&2; exit 1; }
+command -v pdfunite >/dev/null || { echo "ERROR: pdfunite not found (apt: poppler-utils / brew: poppler)." >&2; exit 1; }
+command -v node >/dev/null || { echo "ERROR: node not found (drives Chrome over CDP; needs Node 22+ for the built-in WebSocket)." >&2; exit 1; }
 
 # --- 1. generate the HTML site (debug = root-relative URLs for local serving) ---
 if [ "$SKIP_DEPLOY" -eq 1 ] && [ -d "$DEPLOY/guide" ]; then
