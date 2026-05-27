@@ -110,3 +110,52 @@ jobs:
             -L target/debug -lazul -o /tmp/async-tsan
           TSAN_OPTIONS=halt_on_error=0 LD_LIBRARY_PATH=target/debug \
             timeout 30 /tmp/async-tsan || [ $? -eq 124 ]
+
+  # Dependency tree per crate, per OS. Makes the full transitive dependency
+  # graph of azul-css / azul-core / azul-layout / azul-dll visible (CI log +
+  # downloadable artifact) so a reviewer can spot anything "weird" — a new or
+  # untrusted dependency sneaking in. Pairs with cargo-deny (supply_chain),
+  # which is the active gate on advisories / sources / licenses / dup versions.
+  dep_tree:
+    name: Dependency tree (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+      - name: cargo tree (css / core / layout / dll)
+        shell: bash
+        run: |
+          os="${{ matrix.os }}"
+          mkdir -p deptree
+          gen() { # <label> <cargo-tree args...>
+            local label="$1"; shift
+            echo "::group::$label ($os) — full tree"
+            cargo tree "$@" -e normal,build 2>/dev/null | tee "deptree/${label}.${os}.tree.txt"
+            echo "::endgroup::"
+            # flat, de-duplicated crate list (names only) — easiest to eyeball
+            cargo tree "$@" -e normal,build --prefix none --no-dedupe 2>/dev/null \
+              | sed -E 's/ \(.*\)//; s/ v[0-9].*//' | grep -E '^[a-z0-9]' | sort -u \
+              > "deptree/${label}.${os}.crates.txt"
+            echo "$label ($os): $(wc -l < "deptree/${label}.${os}.crates.txt" | tr -d ' ') unique crates"
+          }
+          gen azul-css    -p azul-css
+          gen azul-core   -p azul-core
+          gen azul-layout -p azul-layout
+          gen azul-dll    -p azul-dll --features build-dll
+          echo "=== unique crate list (azul-dll, $os) ==="
+          cat "deptree/azul-dll.${os}.crates.txt"
+      - name: Upload dependency trees
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-trees-${{ matrix.os }}
+          path: deptree/
+          if-no-files-found: warn
