@@ -399,7 +399,7 @@ jobs:
       # while the solid targets keep the louder `warn`.
       - name: Upload Artifacts
         if: ${{ success() || matrix.experimental }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
           path: |
@@ -448,7 +448,7 @@ jobs:
 
       - name: Restore cached rust9x compiler (stage1)
         id: rust9x_cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           # Must match rust9x-compiler.yml's cache path + key exactly.
           path: rust9x/build/x86_64-pc-windows-msvc/stage1
@@ -492,7 +492,7 @@ jobs:
 
       - name: Upload rust9x artifact
         if: steps.rust9x_cache.outputs.cache-matched-key != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: azul-windows-i686-rust9x
           path: |
@@ -526,10 +526,10 @@ jobs:
         run: cargo run -r -p azul-doc codegen all
 
       - name: Setup Chrome
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2
 
       - name: Cache Chrome reference images
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: doc/target/reftest/reftest_img/*_chrome.webp
           key: reftest-chrome-images-${{ hashFiles('doc/working/*.xhtml') }}
@@ -539,7 +539,7 @@ jobs:
         run: cargo run -r -p azul-doc reftest
 
       - name: Upload reftest results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: reftest-results
@@ -576,7 +576,7 @@ jobs:
         run: python3 scripts/analyze_coverage.py coverage.txt | tee coverage_analysis.txt
 
       - name: Upload coverage HTML report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-report
@@ -846,7 +846,7 @@ jobs:
           fi
 
       - name: Upload Screenshots
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         continue-on-error: true
         with:
           name: screenshots-${{ matrix.os }}
@@ -863,7 +863,7 @@ jobs:
           ls -la target/codegen/ 2>/dev/null | head -20 || echo "Not found"
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
@@ -872,7 +872,7 @@ jobs:
 
       - name: Upload Headers (Linux only)
         if: matrix.os == 'ubuntu-22.04'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: azul-headers
           path: |
@@ -947,76 +947,28 @@ jobs:
             echo "LD_LIBRARY_PATH=$PWD/target/release" >> "$GITHUB_ENV"
           fi
 
-      - name: E2E - C hello-world
+      # Language binding status board. Builds + runs every shipped example's
+      # hello-world under AZ_E2E and reports the result to the run Summary:
+      # ✓ works / ✗ fails / ⊘ toolchain-unavailable. Replaces the old per-language
+      # steps (which surfaced as red continue-on-error failures); the script
+      # always exits 0, so the board is informational with no red X's. We install
+      # a few cheap toolchains best-effort; the runner's preinstalled ones (node,
+      # ruby, python, go, perl, php, java, dotnet) cover most of the rest, and
+      # anything still missing is reported ⊘ instead of failing.
+      - name: Install extra language toolchains (best-effort)
         continue-on-error: true
         shell: bash
         run: |
-          cp target/codegen/azul.h examples/c/
-          cd examples/c
-          if [ "${{ matrix.os }}" = "macos-14" ]; then
-            clang -g -O0 -I. hello-world.c -L../../target/release -lazul \
-              -framework AppKit -framework OpenGL -framework CoreGraphics \
-              -framework CoreText -framework CoreFoundation -o hello-world-e2e
+          if [ "${{ matrix.os }}" = "ubuntu-22.04" ]; then
+            sudo apt-get install -y --no-install-recommends \
+              luajit php-cli gfortran gnucobol fp-compiler sbcl 2>/dev/null || true
           else
-            clang -g -O0 -I. hello-world.c -L../../target/release -lazul \
-              -lpthread -lm -ldl -o hello-world-e2e
+            brew install luajit php fpc sbcl 2>/dev/null || true
           fi
-          ./hello-world-e2e
-
-      - name: E2E - Rust hello-world
+      - name: Language binding status board (AZ_E2E)
         continue-on-error: true
         shell: bash
-        run: |
-          cargo build --release -p azul-examples --example hello-world
-          ./target/release/examples/hello-world
-
-      - name: E2E - Lua hello-world
-        continue-on-error: true
-        shell: bash
-        run: |
-          BIN="$(command -v luajit || command -v lua || true)"
-          [ -n "$BIN" ] || { echo "lua not installed - skipping"; exit 0; }
-          cp target/codegen/azul.lua examples/lua/ 2>/dev/null || true
-          cd examples/lua && "$BIN" hello-world.lua
-
-      - name: E2E - Node hello-world
-        continue-on-error: true
-        shell: bash
-        run: |
-          command -v node >/dev/null || { echo "node not installed - skipping"; exit 0; }
-          cp target/codegen/azul.js examples/node/ 2>/dev/null || true
-          cd examples/node && node hello-world.js
-
-      - name: E2E - Ruby hello-world
-        continue-on-error: true
-        shell: bash
-        run: |
-          command -v ruby >/dev/null || { echo "ruby not installed - skipping"; exit 0; }
-          cp target/codegen/azul.rb examples/ruby/ 2>/dev/null || true
-          cd examples/ruby && ruby hello-world.rb
-
-      - name: E2E - C# hello-world
-        continue-on-error: true
-        shell: bash
-        run: |
-          command -v dotnet >/dev/null || { echo "dotnet not installed - skipping"; exit 0; }
-          cp target/codegen/azul.cs examples/csharp/ 2>/dev/null || true
-          cd examples/csharp && dotnet run -c Release
-
-      - name: E2E - Java hello-world
-        continue-on-error: true
-        shell: bash
-        run: |
-          command -v mvn >/dev/null || { echo "maven not installed - skipping"; exit 0; }
-          cp target/codegen/Azul.java examples/java/ 2>/dev/null || true
-          cd examples/java && mvn -q package && mvn -q exec:java
-
-      - name: E2E - Kotlin hello-world
-        continue-on-error: true
-        shell: bash
-        run: |
-          command -v gradle >/dev/null || { echo "gradle not installed - skipping"; exit 0; }
-          cd examples/kotlin && gradle run
+        run: bash scripts/e2e_language_matrix.sh
 
   build_linux_packages:
     name: Build Linux Packages (.deb/.rpm)
@@ -1032,7 +984,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download Linux binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: azul-linux-amd64
           path: artifacts
@@ -1040,35 +992,35 @@ jobs:
       # Extra per-arch binaries to package (each optional / continue-on-error):
       # aarch64 is solid; ppc64/s390x/riscv64 are experimental and may be absent.
       - name: Download Linux aarch64 binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-aarch64
           path: artifacts-arch/arm64
 
       - name: Download Linux ppc64 binaries (experimental)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-ppc64
           path: artifacts-arch/ppc64
 
       - name: Download Linux s390x binaries (experimental)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-s390x
           path: artifacts-arch/s390x
 
       - name: Download Linux riscv64 binaries (experimental)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-riscv64
           path: artifacts-arch/riscv64
 
       - name: Download NFPM config
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nfpm-config
           path: nfpm-config
@@ -1105,7 +1057,7 @@ jobs:
           tree target/packages/ 2>/dev/null || ls -la target/packages/
 
       - name: Upload .deb package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: azul-linux-amd64-deb
           path: target/packages/*.deb
@@ -1113,7 +1065,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload .rpm package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: azul-linux-amd64-rpm
           path: target/packages/*.rpm
@@ -1174,7 +1126,7 @@ jobs:
 
       - name: Upload per-arch aarch64 packages
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: azul-linux-aarch64-packages
           path: |
@@ -1185,7 +1137,7 @@ jobs:
 
       - name: Upload per-arch ppc64 packages (experimental)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: azul-linux-ppc64-packages
           path: |
@@ -1196,7 +1148,7 @@ jobs:
 
       - name: Upload per-arch s390x packages (experimental)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: azul-linux-s390x-packages
           path: |
@@ -1207,7 +1159,7 @@ jobs:
 
       - name: Upload per-arch riscv64 packages (experimental)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: azul-linux-riscv64-packages
           path: |
@@ -1237,17 +1189,17 @@ jobs:
       - name: Create placeholder binaries
         run: |
           # Create placeholder files where real binaries will be inserted later
-          mkdir -p doc/target/deploy/release/1.0.0-alpha1
-          touch doc/target/deploy/release/1.0.0-alpha1/libazul.so
-          touch doc/target/deploy/release/1.0.0-alpha1/libazul.linux.a
-          touch doc/target/deploy/release/1.0.0-alpha1/azul.cpython.so
-          touch doc/target/deploy/release/1.0.0-alpha1/libazul.dylib
-          touch doc/target/deploy/release/1.0.0-alpha1/libazul.macos.a
-          touch doc/target/deploy/release/1.0.0-alpha1/azul.macos.so
-          touch doc/target/deploy/release/1.0.0-alpha1/azul.dll
-          touch doc/target/deploy/release/1.0.0-alpha1/azul.lib
-          touch doc/target/deploy/release/1.0.0-alpha1/azul.dll.lib
-          touch doc/target/deploy/release/1.0.0-alpha1/azul.pyd
+          mkdir -p doc/target/deploy/release/0.2.0
+          touch doc/target/deploy/release/0.2.0/libazul.so
+          touch doc/target/deploy/release/0.2.0/libazul.linux.a
+          touch doc/target/deploy/release/0.2.0/azul.cpython.so
+          touch doc/target/deploy/release/0.2.0/libazul.dylib
+          touch doc/target/deploy/release/0.2.0/libazul.macos.a
+          touch doc/target/deploy/release/0.2.0/azul.macos.so
+          touch doc/target/deploy/release/0.2.0/azul.dll
+          touch doc/target/deploy/release/0.2.0/azul.lib
+          touch doc/target/deploy/release/0.2.0/azul.dll.lib
+          touch doc/target/deploy/release/0.2.0/azul.pyd
           # Placeholder reftest
           mkdir -p doc/target/reftest/reftest_img
           echo '[]' > doc/target/reftest/results.json
@@ -1268,7 +1220,7 @@ jobs:
           tree doc/target/deploy/ 2>/dev/null | head -100 || ls -laR doc/target/deploy/ | head -100
 
       - name: Upload website skeleton
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: website-skeleton
           path: doc/target/deploy/
@@ -1276,7 +1228,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload NFPM config and headers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nfpm-config
           path: |
@@ -1307,27 +1259,27 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Download website skeleton
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: website-skeleton
           path: website
 
       - name: Download Linux binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-amd64
           path: artifacts-linux
 
       - name: Download macOS binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-macos-amd64
           path: artifacts-macos
 
       - name: Download Windows binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-windows-amd64
@@ -1335,21 +1287,21 @@ jobs:
 
       # Cross-built architecture artifacts
       - name: Download Linux i686 binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-i686
           path: artifacts-linux-i686
 
       - name: Download Linux aarch64 binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-aarch64
           path: artifacts-linux-aarch64
 
       - name: Download Linux armv7 binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-armv7
@@ -1357,56 +1309,56 @@ jobs:
 
       # Exotic Linux arches (experimental, may be absent if cross couldn't build)
       - name: Download Linux ppc64 binaries (experimental)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-ppc64
           path: artifacts-linux-ppc64
 
       - name: Download Linux s390x binaries (experimental)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-s390x
           path: artifacts-linux-s390x
 
       - name: Download Linux riscv64 binaries (experimental)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-riscv64
           path: artifacts-linux-riscv64
 
       - name: Download Windows i686 binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-windows-i686
           path: artifacts-windows-i686
 
       - name: Download macOS x86_64 binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-macos-x86_64
           path: artifacts-macos-x86_64
 
       - name: Download rust9x binaries (experimental)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-windows-i686-rust9x
           path: artifacts-windows-rust9x
 
       - name: Download .deb package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-amd64-deb
           path: artifacts-deb
 
       - name: Download .rpm package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-amd64-rpm
@@ -1414,63 +1366,63 @@ jobs:
 
       # Per-arch .deb/.rpm packages (each optional; aarch64 solid, rest experimental)
       - name: Download aarch64 packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-aarch64-packages
           path: artifacts-pkg-aarch64
 
       - name: Download ppc64 packages (experimental)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-ppc64-packages
           path: artifacts-pkg-ppc64
 
       - name: Download s390x packages (experimental)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-s390x-packages
           path: artifacts-pkg-s390x
 
       - name: Download riscv64 packages (experimental)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-linux-riscv64-packages
           path: artifacts-pkg-riscv64
 
       - name: Download headers
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-headers
           path: artifacts-headers
 
       - name: Download reftest results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: reftest-results
           path: artifacts-reftest
 
       - name: Download Linux screenshots
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: screenshots-ubuntu-22.04
           path: artifacts-screenshots-linux
 
       - name: Download macOS screenshots
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: screenshots-macos-14
           path: artifacts-screenshots-macos
 
       - name: Download Windows screenshots
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: screenshots-windows-2022
@@ -1487,7 +1439,7 @@ jobs:
 
       - name: Merge real artifacts into website
         run: |
-          RELEASE_DIR="website/release/1.0.0-alpha1"
+          RELEASE_DIR="website/release/0.2.0"
           mkdir -p "$RELEASE_DIR"
           
           # Replace placeholder binaries with real ones
@@ -1662,16 +1614,16 @@ jobs:
         run: tree website/ 2>/dev/null | head -100 || ls -laR website/ | head -100
 
       - name: Setup Pages
-        uses: actions/configure-pages@v4
+        uses: actions/configure-pages@v6
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: 'website'
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   # ───────────────────────────── Quality & Security ─────────────────────────
   # Merged in from the former quality.yml so there is ONE push-triggered
@@ -1726,7 +1678,9 @@ jobs:
       - name: cargo-geiger + summary
         shell: bash
         run: |
-          cargo geiger --manifest-path dll/Cargo.toml --output-format Ascii > geiger.txt 2>&1 || true
+          # cargo-geiger refuses a virtual-manifest root AND requires an
+          # ABSOLUTE --manifest-path; point it at the azul-dll package manifest.
+          cargo geiger --manifest-path "$PWD/dll/Cargo.toml" --output-format Ascii > geiger.txt 2>&1 || true
           {
             echo '## ☢️ Unsafe surface — cargo-geiger (azul-dll)'
             echo ''
@@ -1858,7 +1812,7 @@ jobs:
           gen azul-dll    -p azul-dll --features build-dll
       - name: Upload dependency trees
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dependency-trees-${{ matrix.os }}
           path: deptree/
@@ -1891,12 +1845,12 @@ jobs:
       # The CDP driver (scripts/docs_pdf_cdp.mjs) uses Node's built-in global
       # WebSocket, which is only available on Node 22+ (runners default lower).
       - name: Install Node 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
       - name: Install Chrome
         id: setup_chrome
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2
       - name: Install pdfunite (poppler-utils)
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - name: Render docs → target/azul-documentation.pdf
@@ -1904,7 +1858,7 @@ jobs:
           CHROME_BIN: ${{ steps.setup_chrome.outputs.chrome-path }}
         run: bash scripts/docs_to_pdf.sh --no-open
       - name: Upload docs PDF
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: azul-documentation-pdf
           path: target/azul-documentation.pdf
