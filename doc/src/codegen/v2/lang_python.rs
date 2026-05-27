@@ -160,6 +160,11 @@ impl PythonGenerator {
 
     fn generate_imports(&self, builder: &mut CodeBuilder) {
         builder.line("use core::ffi::c_void;");
+        // C numeric aliases from core::ffi. Kept AS aliases (not mapped to
+        // i32/u32/f32/f64) so the binding stays ABI-correct on 32-bit and riscv
+        // targets, where the GL shim's `c_int` width follows the platform C ABI.
+        builder.line("#[allow(unused_imports)]");
+        builder.line("use core::ffi::{c_int, c_uint, c_float, c_double};");
         builder.line("use core::mem;");
         builder.line("use pyo3::{pyclass, pymethods, pymodule, Bound, Py, PyResult};");
         builder.line("use pyo3::{Python, PyErr, FromPyObject};");
@@ -503,14 +508,7 @@ impl AzStringVec {
         builder.blank();
 
         builder.raw(
-            r#"/// Holds Python objects for the main App (data + layout callback)
-#[repr(C)]
-pub struct AppDataTy {
-    pub _py_app_data: Option<Py<PyAny>>,
-    pub _py_layout_callback: Option<Py<PyAny>>,
-}
-
-/// Generic wrapper for Python user data stored in RefAny
+            r#"/// Generic wrapper for Python user data stored in RefAny
 #[repr(C)]
 pub struct PyDataWrapper {
     pub _py_data: Option<Py<PyAny>>,
@@ -641,15 +639,15 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
 
         let prefix = &config.base.type_prefix;
 
-        // Layout callback trampoline (special - uses AppDataTy)
-        self.generate_layout_callback_trampoline(builder, prefix);
-
+        // Generate trampolines for ALL callback typedefs — including
+        // LayoutCallbackType. The layout callback is NOT special: like every
+        // other callback it reaches its Python callable via the ctx stored on
+        // the wrapper (info.get_ctx()), so it uses the same trampoline path.
         // Generate trampolines for other callback typedefs
         for callback in &ir.callback_typedefs {
             if callback.name.ends_with("DestructorType")
                 || callback.name.ends_with("CloneCallbackType")
                 || callback.name.ends_with("DestructorCallbackType")
-                || callback.name == "LayoutCallbackType"
             {
                 continue;
             }
@@ -686,60 +684,6 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         Ok(())
     }
 
-    fn generate_layout_callback_trampoline(&self, builder: &mut CodeBuilder, prefix: &str) {
-        builder.raw(&format!(r#"/// Trampoline for layout callbacks - uses AppDataTy wrapper
-/// Uses FFI types in signature, transmutes to external types internally
-extern "C" fn invoke_py_layout_callback(
-    app_data: __dll_api_inner::dll::{prefix}RefAny,
-    info: __dll_api_inner::dll::{prefix}LayoutCallbackInfo
-) -> __dll_api_inner::dll::{prefix}StyledDom {{
-    let default_ext = azul_core::styled_dom::StyledDom::default();
-    let default: __dll_api_inner::dll::{prefix}StyledDom = unsafe {{ core::mem::transmute(default_ext) }};
-    
-    // Transmute FFI types to external types for working with the API
-    let app_data_ext: azul_core::refany::RefAny = unsafe {{ core::mem::transmute(app_data) }};
-    let mut app_data_core = app_data_ext;
-    
-    let app = match app_data_core.downcast_ref::<AppDataTy>() {{
-        Some(s) => s,
-        None => return default,
-    }};
-
-    let py_callback = match app._py_layout_callback.as_ref() {{
-        Some(s) => s,
-        None => return default,
-    }};
-
-    let py_data = match app._py_app_data.as_ref() {{
-        Some(s) => s,
-        None => return default,
-    }};
-
-    Python::attach(|py| {{
-        let info_py: {prefix}LayoutCallbackInfo = unsafe {{ mem::transmute(info) }};
-        
-        match py_callback.call1(py, (py_data.clone_ref(py), info_py)) {{
-            Ok(result) => {{
-                match result.extract::<{prefix}StyledDom>(py) {{
-                    Ok(styled_dom) => unsafe {{ mem::transmute(styled_dom) }},
-                    Err(e) => {{
-                        #[cfg(feature = "logging")]
-                        log::error!("Layout callback must return StyledDom: {{:?}}", e);
-                        default
-                    }}
-                }}
-            }}
-            Err(e) => {{
-                #[cfg(feature = "logging")]
-                log::error!("Exception in layout callback: {{:?}}", e);
-                default
-            }}
-        }}
-    }})
-}}
-
-"#, prefix = prefix));
-    }
 
     fn generate_callback_trampoline(
         &self,
@@ -2485,7 +2429,6 @@ extern "C" fn invoke_py_layout_callback(
         if typedef.name.ends_with("DestructorType")
             || typedef.name.ends_with("CloneCallbackType")
             || typedef.name.ends_with("DestructorCallbackType")
-            || typedef.name == "LayoutCallbackType"
         {
             return false;
         }
@@ -2837,6 +2780,10 @@ fn is_primitive_type(name: &str) -> bool {
         "bool" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
         "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
         "f32" | "f64" | "char" | "()" | "c_void" |
+        // core::ffi C numeric aliases — kept as aliases (imported in
+        // generate_imports) for 32-bit/riscv ABI correctness, handled directly
+        // as primitives rather than through the .inner wrapper path.
+        "c_int" | "c_uint" | "c_float" | "c_double" |
         // GL type aliases (these are type aliases for primitive types)
         "GLuint" | "GLint" | "GLenum" | "GLint64" | "GLuint64" | "GLsizei" |
         "GLfloat" | "GLboolean" | "GLbitfield" | "GLclampf" | "GLsizeiptr" | "GLintptr"

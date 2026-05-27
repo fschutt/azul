@@ -3383,6 +3383,17 @@ impl_vec_partialeq!(Dom, DomVec);
 impl_vec_eq!(Dom, DomVec);
 impl_vec_hash!(Dom, DomVec);
 
+/// An empty `<body>` DOM. Used as the safe fallback return value when a layout
+/// callback cannot produce a DOM (e.g. a foreign-language binding's trampoline
+/// raised, or an app-data downcast failed). `StyledDom` is the post-cascade
+/// CSSOM; layout callbacks return an un-cascaded `Dom`, so an empty body is the
+/// natural "nothing to show" default.
+impl Default for Dom {
+    fn default() -> Self {
+        Dom::create_body()
+    }
+}
+
 impl Dom {
     // ----- DOM CONSTRUCTORS
 
