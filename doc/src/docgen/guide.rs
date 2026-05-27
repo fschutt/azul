@@ -487,10 +487,11 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             font-weight: bold;
             font-size: 1.1em;
         }
-        /* Print / PDF (azul-doc → Chrome --print-to-pdf): drop the nav chrome,
+        /* Print / PDF (azul-doc → Chrome print-to-pdf): drop the nav chrome,
            use the full page width, WRAP long code lines (on-screen they
-           overflow-x:auto, which would clip them in a PDF), keep the dark
-           syntax-highlight backgrounds/colors via print-color-adjust, and keep
+           overflow-x:auto, which would clip them in a PDF), force code blocks to
+           a LIGHT theme (the dark on-screen theme wastes toner and reads poorly
+           on paper — web keeps dark for content/code contrast), and keep
            figures/screenshots/tables from being split across page breaks. */
         @media print {
             @page { margin: 1.4cm; }
@@ -498,14 +499,53 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             body, .center, main { display: block !important; margin: 0 !important; padding: 0 !important; max-width: none !important; }
             #guide { max-width: 100% !important; width: 100% !important; font-size: 11pt; line-height: 1.5; }
             h1, h2, h3, h4 { text-shadow: none !important; cursor: auto !important; break-after: avoid; }
-            #guide pre, #guide pre code {
+            #guide pre,
+            #guide pre code,
+            #guide pre[class*=\"language-\"],
+            #guide pre code[class*=\"language-\"] {
                 white-space: pre-wrap !important;
                 word-break: break-word;
                 overflow: visible !important;
                 font-size: 8.5pt;
+                background: #f6f8fa !important;
+                color: #24292f !important;
+                border: 1px solid #d0d7de !important;
+                text-shadow: none !important;
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
             }
+            /* Light syntax palette for print (GitHub-light flavored), overriding
+               the dark on-screen token colors above. */
+            #guide pre .token.comment,
+            #guide pre .token.prolog,
+            #guide pre .token.doctype,
+            #guide pre .token.cdata { color: #6e7781 !important; font-style: italic; }
+            #guide pre .token.punctuation,
+            #guide pre .token.operator,
+            #guide pre .token.entity,
+            #guide pre .token.url { color: #24292f !important; background: transparent !important; }
+            #guide pre .token.property,
+            #guide pre .token.tag,
+            #guide pre .token.boolean,
+            #guide pre .token.number,
+            #guide pre .token.constant,
+            #guide pre .token.symbol,
+            #guide pre .token.deleted { color: #0550ae !important; }
+            #guide pre .token.selector,
+            #guide pre .token.attr-name,
+            #guide pre .token.string,
+            #guide pre .token.char,
+            #guide pre .token.builtin,
+            #guide pre .token.inserted { color: #0a3069 !important; }
+            #guide pre .token.atrule,
+            #guide pre .token.attr-value,
+            #guide pre .token.keyword { color: #cf222e !important; }
+            #guide pre .token.function,
+            #guide pre .token.class-name { color: #8250df !important; }
+            #guide pre .token.regex,
+            #guide pre .token.important,
+            #guide pre .token.variable { color: #e36209 !important; }
+            #guide pre .token.lifetime-annotation { color: #1a7f64 !important; }
             #guide img, .azul-window, .azul-screenshot, table, figure, .markdown-alert-warning {
                 break-inside: avoid;
                 -webkit-print-color-adjust: exact;
