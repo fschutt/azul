@@ -727,12 +727,17 @@ impl RemillTranspiler {
         })?;
         let stem = sanitize_filename(fn_name);
         let lifted_ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
-        // On-disk lift cache (subprocess path only — the native path is
-        // already spawn-free). A hit skips the remill-lift-17 subprocess,
-        // the slowest per-fn step; the IR is synth-addressed so it stays
-        // valid across restarts + dll relinks that don't touch this fn's
-        // machine bytes. `bytes` here is already post-rewrite.
-        let cache_path = if !use_native && std::env::var_os("AZ_NO_LIFT_CACHE").is_none() {
+        // On-disk lift cache (subprocess path only). OPT-IN via AZ_LIFT_CACHE=1,
+        // default OFF: a hit skips the remill-lift-17 subprocess (the slowest
+        // per-fn step), but the cache key (lift_cache_path) hashes only the
+        // machine bytes + lift_addr + a manual LIFT_CACHE_VERSION — it does NOT
+        // capture the remill fork rev, the LLVM version, or the azul source. So
+        // while the web backend is pre-stable (remill bugs unfixed, toolchain in
+        // flux) a stale/buggy lift could be served on a false hit. Keep it off by
+        // default until web ships and the key is version-pinned; opt in (e.g. the
+        // pre-lifted Docker base image, once its cache key is made deterministic)
+        // when you accept that contract. `bytes` here is already post-rewrite.
+        let cache_path = if !use_native && std::env::var_os("AZ_LIFT_CACHE").is_some() {
             Some(lift_cache_path(&bytes, lift_addr))
         } else {
             None
