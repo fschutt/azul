@@ -5,13 +5,26 @@
                              http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <!--
          Hello-world Maven project for the Azul Java bindings.
-         Compiles HelloWorld.java + every generated com.azul.* class
-         (sourced from this directory; copy them in via:
-             cp target/codegen/java/*.java examples/java/com/azul/
-         then run:
-             cp target/release/libazul.dylib examples/java/
-             cd examples/java && mvn package
-             java -cp target/hello-world-1.0.0.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout) com.azul.HelloWorld
+
+         The generated Java bindings are *per-class* files emitted by
+         `cargo run -r -p azul-doc codegen all` into
+         `target/codegen/java/*.java` (package `com.azul`). Rather than
+         copying ~6000 files into this directory, the build adds that
+         generated directory as an extra source root via
+         build-helper-maven-plugin, so `HelloWorld.java` compiles
+         against the freshly-generated API directly.
+
+         Build + run (macOS):
+             cargo run -r -p azul-doc codegen all
+             cargo build (release, -p azul-dll, feature build-dll)
+             cd examples/java
+             mvn -q package
+             DYLD_LIBRARY_PATH=../../target/release
+                 AZ_E2E=../../tests/e2e/hello_world_counter.json AZ_BACKEND=headless
+                 mvn -q exec:java
+
+         The codegen output root is overridable via the system property
+         azul.codegen.dir (point it at your target/codegen/java).
       -->
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.azul.examples</groupId>
@@ -23,15 +36,61 @@
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Directory holding the generated com.azul.* bindings.
+             Relative to this pom (examples/java). Override via the
+             system property azul.codegen.dir if your checkout differs. -->
+        <azul.codegen.dir>${project.basedir}/../../target/codegen/java</azul.codegen.dir>
+        <!-- Directory holding the prebuilt native libazul (.dylib/.so/.dll).
+             Passed to the JVM as jna.library.path so JNA resolves it. -->
+        <azul.native.dir>${project.basedir}/../../target/release</azul.native.dir>
     </properties>
 
     <build>
+        <!-- HelloWorld.java lives in this directory; the generated
+             com.azul.* classes are pulled in as a second source root
+             below (build-helper-maven-plugin) straight from
+             target/codegen/java. The compiler excludes (com/**) below
+             drop any stale local copy of the bindings (examples/java/com/,
+             which is git-ignored and may be left over from a prior `cp`)
+             so it is never double-compiled alongside the authoritative
+             target/codegen/java tree. -->
         <sourceDirectory>${project.basedir}</sourceDirectory>
         <plugins>
+            <!-- Add the generated bindings directory as an extra source
+                 root so we never have to copy thousands of files. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>add-generated-bindings</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${azul.codegen.dir}</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
+                <configuration>
+                    <!-- Drop any stale local copy of the bindings
+                         (examples/java/com/**) so it is never compiled
+                         alongside the authoritative target/codegen/java
+                         tree (whose files are flat, e.g. App.java, and so
+                         are unaffected by this com/** exclude). -->
+                    <excludes>
+                        <exclude>com/**</exclude>
+                    </excludes>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -43,6 +102,33 @@
                             <mainClass>com.azul.HelloWorld</mainClass>
                         </manifest>
                     </archive>
+                </configuration>
+            </plugin>
+            <!-- `mvn exec:java` runs the example. The native libazul
+                 (built separately into target/release) is located by JNA
+                 via the jna.library.path system property set below; on
+                 macOS the DYLD_LIBRARY_PATH env var is stripped from
+                 forked/relaunched JVMs by SIP, so an explicit -D is the
+                 reliable path. The AZ_E2E / AZ_BACKEND env vars (passed
+                 through from the environment) drive the headless counter
+                 test inside libazul.
+
+                 Run in a forked JVM (default in exec-maven-plugin 3.x via
+                 the `exec` goal) so the libazul `std::process::exit` after
+                 the E2E run terminates that child, not the Maven JVM, and
+                 its exit code propagates as the build result. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.2.0</version>
+                <configuration>
+                    <mainClass>com.azul.HelloWorld</mainClass>
+                    <systemProperties>
+                        <systemProperty>
+                            <key>jna.library.path</key>
+                            <value>${azul.native.dir}</value>
+                        </systemProperty>
+                    </systemProperties>
                 </configuration>
             </plugin>
         </plugins>
