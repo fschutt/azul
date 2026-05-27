@@ -1185,13 +1185,40 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
 /// 4. A final `LogicalSize` is constructed from these logical dimensions.
 // +spec:overflow:3c4f25 - auto box sizes: four auto-determined size types resolved here
 // +spec:width-calculation:fb0629 - width/margin used values depend on box type, auto replaced by suitable value
+/// M12.7: out-of-line auto-width-block inline size — `(cb.width - margins - borders -
+/// padding).max(0.0)`. Extracted from calc_used_size's auto-width Block arm so the
+/// `.max(0.0)` runs in a small fn (proven to lift correctly), with a FRESH pointer
+/// deref (the huge calc_used_size body hoists/spills cb.width and the remill lift then
+/// reads it back 0). Returns by f32 (D0/V0 — the standard scalar return), NOT an out-ptr:
+/// the out-ptr version computed 800 correctly but the caller's reload was opt-forwarded
+/// to the init 0.0 across the opaque call (the helper's `*out` lowers to a direct
+/// linear-mem store not modeled as aliasing the caller's slot). The f32 return is the
+/// call's SSA result, which opt cannot replace. (The earlier "f32-return mis-lift" worry
+/// was the 2×f32 *struct* HFA — a single scalar f32 return is fine.)
+#[inline(never)]
+fn auto_block_inline_size(cb: &LogicalSize, bp: &BoxProps) -> f32 {
+    let aw = cb.width
+        - bp.margin.left
+        - bp.margin.right
+        - bp.border.left
+        - bp.border.right
+        - bp.padding.left
+        - bp.padding.right;
+    aw.max(0.0)
+}
+
 pub fn calculate_used_size_for_node(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
-    containing_block_size: LogicalSize,
+    // M12.7: by-reference (GP-register pointer). A by-value LogicalSize is an HFA
+    // (2×f32) the remill lift stages as an 8-byte double into a V register, and that
+    // f64/d-register copyload mis-tracks to 0 in the wasm lift (single-f32 reads work,
+    // the 64-bit one doesn't) — so cb + viewport arrived 0 and every width came out 0.
+    // A pointer arg lifts cleanly; the body reads only .width/.height (auto-deref).
+    containing_block_size: &LogicalSize,
     intrinsic: IntrinsicSizes,
     _box_props: &BoxProps,
-    viewport_size: LogicalSize,
+    viewport_size: &LogicalSize,
 ) -> Result<LogicalSize> {
     let Some(id) = dom_id else {
         // Anonymous boxes:
@@ -1362,15 +1389,19 @@ pub fn calculate_used_size_for_node(
                     // CSS 2.2 §10.3.3: width = containing_block_width - margin_left -
                     // margin_right - border_left - border_right - padding_left - padding_right
                     // +spec:width-calculation:aef2da - auto width: other auto values become 0, width follows from constraint equality
-                    let available_width = containing_block_size.width
-                        - _box_props.margin.left
-                        - _box_props.margin.right
-                        - _box_props.border.left
-                        - _box_props.border.right
-                        - _box_props.padding.left
-                        - _box_props.padding.right;
-
-                    available_width.max(0.0)
+                    // M12.7: compute in a small #[inline(never)] helper with by-ref/out-ptr
+                    // args. calc_used_size is a ~6KB fn (38 maxnum, heavy SROA); the remill
+                    // lift spills + diverges the available_width copyload feeding `.max`
+                    // (a marker read sees 800, the maxnum's copyload reads 0 → width 0). A
+                    // small fn has clean register allocation; out-ptr avoids the f32-return
+                    // mis-lift. cb/bp are already &-refs (GP-pointer args lift cleanly).
+                    // M12.7: compute the auto-width in a small f32-RETURNING helper.
+                    // Inline-in-calc reads cb.width back 0 (huge-fn lift divergence); the
+                    // out-ptr helper's readback was opt-forwarded to init 0. The f32
+                    // return comes back in D0 as the call's SSA result (opt can't forward
+                    // the init over it), and with D8-D15 preserved across calc's later
+                    // calls the value survives to the return.
+                    auto_block_inline_size(containing_block_size, _box_props)
                 }
                 LayoutDisplay::InlineBlock | LayoutDisplay::InlineGrid | LayoutDisplay::InlineFlex => {
                     // +spec:width-calculation:c01de8 - inline-block auto width uses shrink-to-fit (§10.3.9)

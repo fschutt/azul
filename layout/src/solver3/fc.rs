@@ -1113,10 +1113,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                         let computed_size = crate::solver3::sizing::calculate_used_size_for_node(
                             ctx.styled_dom,
                             child_dom_id,
-                            children_containing_block_size,
+                            &children_containing_block_size,
                             intrinsic,
                             &child_bp,
-                            ctx.viewport_size,
+                            &ctx.viewport_size,
                         )?;
                         if let Some(node_mut) = tree.get_mut(child_index) {
                             node_mut.used_size = Some(computed_size);
@@ -1212,10 +1212,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                 let child_used_size = crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
                     child_dom_id,
-                    children_containing_block_size,
+                    &children_containing_block_size,
                     intrinsic,
                     &child_node.box_props.unpack(),
-                    ctx.viewport_size,
+                    &ctx.viewport_size,
                 )?;
                 // Update the node with computed size (we need to re-borrow mutably)
                 if let Some(node_mut) = tree.get_mut(child_index) {
@@ -4550,10 +4550,10 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         let table_size = crate::solver3::sizing::calculate_used_size_for_node(
             ctx.styled_dom,
             Some(dom_id),
-            containing_block_size,
+            &containing_block_size,
             intrinsic,
             &table_bp,
-            ctx.viewport_size,
+            &ctx.viewport_size,
         )?;
 
         table_size.width
@@ -6504,10 +6504,10 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
                     Some(dom_id),
-                    constraints.containing_block_size,
+                    &constraints.containing_block_size,
                     intrinsic_size,
                     &box_props,
-                    ctx.viewport_size,
+                    &ctx.viewport_size,
                 )?;
 
                 let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state)
@@ -6904,10 +6904,10 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
                 ctx.styled_dom,
                 Some(dom_id),
-                constraints.containing_block_size,
+                &constraints.containing_block_size,
                 intrinsic_size,
                 &box_props,
-                ctx.viewport_size,
+                &ctx.viewport_size,
             )?;
 
             let writing_mode =
@@ -7100,10 +7100,10 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
                 ctx.styled_dom,
                 Some(dom_id),
-                constraints.containing_block_size,
+                &constraints.containing_block_size,
                 intrinsic_size.clone(),
                 &box_props,
-                ctx.viewport_size,
+                &ctx.viewport_size,
             )?;
             
             // Drop immutable borrow before mutable access

@@ -1945,18 +1945,15 @@ impl LayoutTreeBuilder {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> usize {
         let index = self.nodes.len();
-        // M12.7 diag: 0x400B4 = create_node_from_dom's pre-push index (= nodes.len()
         // as IT sees it). If this is 0 but build() sees 0 nodes, the push is lost
         // between here and build (builder &mut threading); if garbage, len mis-reads.
         { let _ = (0xCE00_0000u32 | (index as u32 & 0xffff)); }
         let parent_fc =
             parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context.clone()));
-        // M12.7 diag: 0x400CC = parent.and_then done (Option<usize> discriminant). If
         // this is reached but step A is NOT, collect_box_props diverges; if this is
         // NOT reached, the parent Option discriminant mis-lifts (None→Some garbage).
         { let _ = (0xCD00_0001u32 | ((parent_fc.is_some() as u32) << 8)); }
         let collected = collect_box_props(styled_dom, dom_id, debug_messages, self.viewport_size);
-        // M12.7 diag: 0x400C0 = collect_box_props returned (step A).
         { let _ = (0xCA00_0001u32); }
         self.nodes.push(LayoutNode {
             // ── HOT ──
@@ -2012,13 +2009,11 @@ impl LayoutTreeBuilder {
             unresolved_box_props: collected.unresolved,
             ifc_id: None,
         });
-        // M12.7 diag: 0x400C4 = LayoutNode literal + self.nodes.push done (step B).
         { let _ = (0xCB00_0001u32 | ((self.nodes.len() as u32 & 0xff) << 8)); }
         if let Some(p) = parent {
             self.nodes[p].children.push(index);
         }
         self.dom_to_layout.entry(dom_id).or_default().push(index);
-        // M12.7 diag: 0x400B8 = nodes.len() AFTER the push (should be index+1).
         { let _ = (0xCF00_0000u32 | (self.nodes.len() as u32 & 0xffff)); }
         index
     }
@@ -2069,14 +2064,10 @@ impl LayoutTreeBuilder {
             cold_nodes.push(cold);
         }
 
-        // M12.7 diag: 0x400B0 = 0xBD00_<len><root> — plain field reads (NOT a
         // discriminant). If len>0 but calculate_intrinsic_recursive's
         // `tree.get(root).ok_or(InvalidTree)?` still errors, that `?`/null-check
         // mis-discriminates Some→None. If len==0, build's input was empty.
-        // 0x40110 = 0xBD_<d2l_len>_<nodes_len>_<root> — dom_to_layout.len at BUILD time
-        // (pre-clone). Compare with get_node_size's post-clone dom_to_layout.len (0x400EC):
         // if build>0 but get_node_size sees 0, the tree.clone() (hashbrown) drops the map.
-        unsafe { core::ptr::write_volatile(0x40110 as *mut u32, 0xBD000000u32 | (((self.dom_to_layout.len() as u32) & 0xff) << 16) | (((hot_nodes.len() as u32) & 0xff) << 8) | (root_idx as u32 & 0xff)); }
 
         LayoutTree {
             nodes: hot_nodes,
@@ -2384,7 +2375,6 @@ fn collect_box_props(
 ) -> CollectedBoxProps {
     use crate::solver3::geometry::{UnresolvedBoxProps, UnresolvedEdge, UnresolvedMargin};
     use crate::solver3::getters::*;
-    // M12.7 diag: collect_box_props sub-step markers (0xC0_0N). The last one set
     // before create_node step A is the diverging call.
     { let _ = (0xC0_000001u32); } // entered
 
@@ -2456,7 +2446,6 @@ fn collect_box_props(
 
     // +spec:table-layout:038f9d - padding does not apply to table-row-group, table-header-group, table-footer-group, table-row, table-column-group, table-column
     // Non-cell internal table elements (rows, row groups, columns, column groups) do not have padding.
-    // M12.7 diag: capture get_display_type's return BEFORE the match. If 0x400D0 reads
     // 0xC0_57<dt> the CALL returned (dt = LayoutDisplay discriminant) and the MATCH below
     // diverges; if it stays 0x56, get_display_type (the enum extraction) itself diverges.
     // M12.7 NOTE: get_display_type RETURNS a valid dt here (captured =2), but the code

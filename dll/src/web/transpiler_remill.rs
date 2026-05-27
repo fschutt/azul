@@ -1796,6 +1796,27 @@ impl RemillTranspiler {
             exports.len()
         );
 
+        // M12.7: indirect-call dispatcher (sequential/subprocess path — the e2e
+        // default, since use_native_remill() is off unless AZ_NATIVE_REMILL is set).
+        // Every dep is a per-fn .o so its @sub_<csynth> is externally callable.
+        // Routes blr (→ __remill_function_call) + br tail-calls
+        // (→ __remill_missing_block) to the matching lifted dep, overriding
+        // emit_helper_ir's weak no-op default. AZ_NO_INDIRECT_DISPATCH=1 disables.
+        #[cfg(feature = "web-transpiler-static")]
+        {
+            if std::env::var_os("AZ_NO_INDIRECT_DISPATCH").is_none() {
+                let cs = self.dispatcher_csynths(visited.iter().copied());
+                if let Some(o) = self.emit_indirect_dispatcher_obj(&cs) {
+                    object_paths.push(o);
+                    // Export so the strong def is kept (not gc-stripped) and
+                    // wins over emit_helper_ir's per-.o weak no-op default.
+                    if !exports.iter().any(|e| e == "__az_indirect_dispatch") {
+                        exports.push("__az_indirect_dispatch".to_string());
+                    }
+                }
+            }
+        }
+
         let bytes = self.link_objects_to_wasm(
             &object_paths,
             &exports,
@@ -1819,6 +1840,85 @@ impl RemillTranspiler {
             imports_from_mini: Vec::new(),
             used_boundaries: boundaries,
         })
+    }
+
+    /// M12.7: build + compile the indirect-call dispatcher object. `csynths` is
+    /// the canonical-synth address of every lifted dep in this module (the
+    /// `@sub_<hex>` symbols the dispatcher's `switch i64 %pc` routes indirect
+    /// calls (blr → __remill_function_call) and tail-jumps (br →
+    /// __remill_missing_block) to, instead of silently no-op'ing them). Emits a
+    /// STRONG `@__az_indirect_dispatch` that overrides emit_helper_ir's weak
+    /// no-op default. Returns the wasm32 .o path, or None if no deps / the
+    /// compile fails (caller then keeps the no-op fallback). Self-contained:
+    /// `compile_to_wasm32_obj` self-inits LLVM via call_once, so it's safe from
+    /// either the native (batched) or subprocess (sequential) lift path.
+    #[cfg(feature = "web-transpiler-static")]
+    fn emit_indirect_dispatcher_obj(&self, csynths: &[u64]) -> Option<PathBuf> {
+        if csynths.is_empty() {
+            return None;
+        }
+        let mut ir = String::with_capacity(csynths.len() * 96 + 512);
+        ir.push_str("target datalayout = \"e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128\"\n");
+        ir.push_str("target triple = \"aarch64-apple-macosx-macho\"\n");
+        ir.push_str("%struct.State = type opaque\n");
+        ir.push_str("declare ptr @__remill_write_memory_32(ptr, i64, i32)\n");
+        ir.push_str("declare i32 @__remill_read_memory_32(ptr, i64)\n");
+        for c in csynths {
+            ir.push_str(&format!("declare ptr @sub_{:x}(ptr, i64, ptr)\n", c));
+        }
+        ir.push_str("define ptr @__az_indirect_dispatch(ptr %state, i64 %pc, ptr %memory) {\nentry:\n  switch i64 %pc, label %unk [\n");
+        for c in csynths {
+            ir.push_str(&format!("    i64 {}, label %c{:x}\n", c, c));
+        }
+        ir.push_str("  ]\n");
+        for c in csynths {
+            ir.push_str(&format!(
+                "c{c:x}:\n  %r{c:x} = call ptr @sub_{c:x}(ptr %state, i64 %pc, ptr %memory)\n  ret ptr %r{c:x}\n",
+                c = c
+            ));
+        }
+        ir.push_str("unk:\n  %uc = call i32 @__remill_read_memory_32(ptr %memory, i64 262488)\n  %uc1 = add i32 %uc, 1\n  %um = call ptr @__remill_write_memory_32(ptr %memory, i64 262488, i32 %uc1)\n  ret ptr %um\n}\n");
+        let obj_bytes = match super::native_remill::compile_to_wasm32_obj(&[ir.as_str()]) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!(
+                    "[azul-web] M12.7: dispatcher compile FAILED ({}): indirect calls stay no-op",
+                    e.message
+                );
+                return None;
+            }
+        };
+        let disp_o = self.scratch_dir.join("az_indirect_dispatch.o");
+        if let Err(e) = std::fs::write(&disp_o, &obj_bytes) {
+            eprintln!("[azul-web] M12.7: dispatcher .o write failed: {}", e);
+            return None;
+        }
+        eprintln!(
+            "[azul-web] M12.7: indirect-call dispatcher emitted ({} dep cases)",
+            csynths.len()
+        );
+        Some(disp_o)
+    }
+
+    /// Collect the deduped canonical-synth addresses of the lifted deps named by
+    /// `addrs` (canonical native addrs), for [`Self::emit_indirect_dispatcher_obj`].
+    #[cfg(feature = "web-transpiler-static")]
+    fn dispatcher_csynths(&self, addrs: impl Iterator<Item = usize>) -> Vec<u64> {
+        let Some(tbl) = symbol_table::get() else {
+            return Vec::new();
+        };
+        let mut cs: Vec<u64> = Vec::new();
+        let mut seen: HashSet<u64> = HashSet::new();
+        for a in addrs {
+            let c = tbl
+                .lookup(a)
+                .map(|e| tbl.resolve_synth(e.synthetic_addr).unwrap_or(e.synthetic_addr) as u64)
+                .unwrap_or(0);
+            if c != 0 && seen.insert(c) {
+                cs.push(c);
+            }
+        }
+        cs
     }
 
     /// Native-only batched transitive lift. Pre-walks the dep graph
@@ -2205,6 +2305,27 @@ impl RemillTranspiler {
                 object_paths.len(),
                 seen.len(),
             );
+        }
+
+        // M12.7: indirect-call dispatcher (batched/native path). Per-fn path only
+        // — merged mode inlines @sub_<hex> internally so the dispatcher .o can't
+        // call them. Skipped via AZ_NO_INDIRECT_DISPATCH=1. See
+        // [`Self::emit_indirect_dispatcher_obj`].
+        {
+            let env_force_on_d = std::env::var_os("AZ_REMILL_MERGED_COMPILE").is_some();
+            let env_force_off_d = std::env::var_os("AZ_REMILL_DISABLE_AUTO_MERGE").is_some();
+            let merged_d = self.use_native_remill()
+                && !env_force_off_d
+                && (env_force_on_d || targets.len() <= 30);
+            if !merged_d && std::env::var_os("AZ_NO_INDIRECT_DISPATCH").is_none() {
+                let cs = self.dispatcher_csynths(targets.iter().map(|t| t.addr));
+                if let Some(o) = self.emit_indirect_dispatcher_obj(&cs) {
+                    object_paths.push(o);
+                    if !exports.iter().any(|e| e == "__az_indirect_dispatch") {
+                        exports.push("__az_indirect_dispatch".to_string());
+                    }
+                }
+            }
         }
 
         let bytes = self.link_objects_to_wasm(
@@ -4564,6 +4685,17 @@ fn inject_unreachable_tagging(opt_ir: &str) -> (String, u32) {
 fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
     let mut out = String::with_capacity(opt_ir.len() + (1 << 17));
     let mut id: u32 = 0;
+    // Upper bound of the logged-address window (default 0x30000 = the self/cache
+    // page). Widen via AZ_LSWIN_HI (hex `0x..` or decimal) to trace stores in the
+    // layout heap/stack that sit above 0x30000.
+    let win_hi: u32 = std::env::var("AZ_LSWIN_HI")
+        .ok()
+        .and_then(|s| {
+            s.strip_prefix("0x")
+                .and_then(|h| u32::from_str_radix(h, 16).ok())
+                .or_else(|| s.parse().ok())
+        })
+        .unwrap_or(196608);
     for line in opt_ir.lines() {
         // Log the destination + value of a `store`, OR the dest pointer + LENGTH
         // of a memset/memcpy/memmove (a bulk zero/copy can clobber many cache
@@ -4607,7 +4739,7 @@ fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
         "\ndefine internal void @__az_logst(i32 %addr, i32 %id, i32 %val) {{\n\
          azentry:\n\
          \x20 %azlo = icmp uge i32 %addr, 0\n\
-         \x20 %azhi = icmp ult i32 %addr, 196608\n\
+         \x20 %azhi = icmp ult i32 %addr, {win_hi}\n\
          \x20 %azwin = and i1 %azlo, %azhi\n\
          \x20 %azsp = icmp eq i32 %addr, 983040\n\
          \x20 %azin = or i1 %azwin, %azsp\n\
@@ -4663,7 +4795,34 @@ fn parse_logged_write(line: &str, id: u32) -> Option<(String, Option<String>, St
                 }
             }
         }
-        // non-int store (vector / ptr / float): log addr but a sentinel value.
+        // float / vector-float stores: log LANE-0's bit pattern so f32 layout
+        // values (a LogicalSize <2 x float>, a box-model <4 x float>, or a bare
+        // f32) are visible. 800.0f32 == 0x44480000 == 1145569280; 0.0f32 == 0.
+        if let Some(rest) = body.strip_prefix("float ") {
+            if let Some(end) = rest.find(", ptr ") {
+                let v = rest[..end].trim();
+                return Some((
+                    dest,
+                    Some(format!("%azv_{id} = bitcast float {v} to i32")),
+                    format!("%azv_{id}"),
+                ));
+            }
+        }
+        for n in ["<2 x float>", "<3 x float>", "<4 x float>"] {
+            if let Some(rest) = body.strip_prefix(&format!("{n} ")) {
+                if let Some(end) = rest.find(", ptr ") {
+                    let v = rest[..end].trim();
+                    return Some((
+                        dest,
+                        Some(format!(
+                            "%aze_{id} = extractelement {n} {v}, i32 0\n  %azv_{id} = bitcast float %aze_{id} to i32"
+                        )),
+                        format!("%azv_{id}"),
+                    ));
+                }
+            }
+        }
+        // non-int store (ptr / f64 / wider vector): log addr but a sentinel value.
         return Some((dest, None, "3735928559".to_string())); // 0xDEADBEEF
     }
     if let Some(dest) = parse_memintrinsic_dest(line) {
@@ -4746,7 +4905,24 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
     // X19..X28 (848..992 step 16), X29/FP (1008), SP (1040). X30/LR (1024) is
     // NOT preserved (link register). Saving/restoring these around a call is the
     // ABI invariant; it repairs any callee whose lifted epilogue drops them.
-    const CS_OFFSETS: [u32; 12] = [848, 864, 880, 896, 912, 928, 944, 960, 976, 992, 1008, 1040];
+    //
+    // M12.7: ALSO preserve the callee-saved SIMD registers D8..D15 (the low 64
+    // bits of V8..V15), at State offsets 144..256 step 16 (V0=16, Vn=16+n*16).
+    // AAPCS64 §6.1.2 requires callees to preserve D8-D15; the layout solver
+    // holds widths/heights there across calls — e.g. calc_used_size's prologue
+    // spills d8-d13 and keeps the auto-width across `bl get_css_min_width` /
+    // `bl evaluate_calc_ast` in s8-s12. A lifted callee whose epilogue drops the
+    // D8-D15 restore then corrupts the caller's live float, so the body width
+    // 800 came back 0. GPR-only preservation missed this: it's opt-independent
+    // (survived -O0) and invisible to single-fn markers (no intervening call).
+    // Saving the low 64 bits (i64) matches the D-register callee-save width;
+    // the upper 64 bits of V8-V15 are caller-saved, so leaving them is correct.
+    const CS_OFFSETS: [u32; 20] = [
+        // GPRs: X19..X28, X29/FP, SP
+        848, 864, 880, 896, 912, 928, 944, 960, 976, 992, 1008, 1040,
+        // SIMD: D8..D15 (low 64 bits of callee-saved V8..V15)
+        144, 160, 176, 192, 208, 224, 240, 256,
+    ];
     let mut out = String::with_capacity(opt_ir.len() + (1 << 16));
     let mut k: u32 = 0;
     for line in opt_ir.lines() {
@@ -5502,7 +5678,22 @@ define linkonce_odr ptr @__remill_function_return(ptr %state, i64 %pc, ptr %memo
   ret ptr %memory
 }}
 define linkonce_odr ptr @__remill_function_call(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
-  ret ptr %memory
+  ; M12.7 validation: this is a NO-OP today (the indirect-call target is never
+  ; executed → garbage return/side-effects). Count silent indirect calls @0x4014C
+  ; (262476) + ring the 16 most-recent TARGET PCs @0x401A0 (262560)+i*4, so the
+  ; probe can confirm/quantify how many indirect calls the layout silently drops.
+  %fcp = trunc i64 %pc to i32
+  %fcc = call i32 @__remill_read_memory_32(ptr %memory, i64 262476)
+  %fcc1 = add i32 %fcc, 1
+  %fcm = call ptr @__remill_write_memory_32(ptr %memory, i64 262476, i32 %fcc1)
+  %fcidx = and i32 %fcc, 15
+  %fcoff = mul i32 %fcidx, 4
+  %fcea = add i32 %fcoff, 262560
+  %fcea64 = zext i32 %fcea to i64
+  %fcm2 = call ptr @__remill_write_memory_32(ptr %fcm, i64 %fcea64, i32 %fcp)
+  ; M12.7 FIX: dispatch the indirect call to the target dep (was a silent no-op).
+  %fcr = call ptr @__az_indirect_dispatch(ptr %state, i64 %pc, ptr %fcm2)
+  ret ptr %fcr
 }}
 define linkonce_odr ptr @__remill_jump(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
   ret ptr %memory
@@ -5516,7 +5707,18 @@ define linkonce_odr ptr @__remill_missing_block(ptr %state, i64 %pc, ptr %memory
   %mbc = call i32 @__remill_read_memory_32(ptr %mbm1, i64 262396)
   %mbc1 = add i32 %mbc, 1
   %mbm2 = call ptr @__remill_write_memory_32(ptr %mbm1, i64 262396, i32 %mbc1)
-  ret ptr %mbm2
+  ; M12.7: also record each missing-block TARGET PC into a 16-slot ring
+  ; @0x40160 (262496)+i*4 (i = count & 15), so the probe can otool ALL sites.
+  %mbidx = and i32 %mbc, 15
+  %mboff = mul i32 %mbidx, 4
+  %mbea = add i32 %mboff, 262496
+  %mbea64 = zext i32 %mbea to i64
+  %mbm3 = call ptr @__remill_write_memory_32(ptr %mbm2, i64 %mbea64, i32 %mbp)
+  ; M12.7 FIX: dispatch the unresolved indirect branch (br tail-call) to the
+  ; target dep (was returning garbage %memory). Resolved targets run; unknown
+  ; targets fall through to the dispatcher's no-op default.
+  %mbr = call ptr @__az_indirect_dispatch(ptr %state, i64 %pc, ptr %mbm3)
+  ret ptr %mbr
 }}
 define linkonce_odr ptr @__remill_error(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
   ; NOTE: returns (not traps). M12.7 diag (non-trapping): record LAST __remill_error PC
@@ -5528,6 +5730,20 @@ define linkonce_odr ptr @__remill_error(ptr %state, i64 %pc, ptr %memory) always
   %erc1 = add i32 %erc, 1
   %erm2 = call ptr @__remill_write_memory_32(ptr %erm1, i64 262388, i32 %erc1)
   ret ptr %erm2
+}}
+; M12.7 indirect-call dispatch: WEAK + NOINLINE no-op default. The batched transitive lift
+; emits a STRONG `@__az_indirect_dispatch` (a `switch i64 %pc → call @sub_<csynth>`
+; over every lifted dep) into a dispatcher .o that OVERRIDES this weak def, so
+; indirect calls (blr) / tail-call jumps (br) reach their real target instead of
+; silently no-op'ing. Non-batched paths (single-cb wasms with no dispatcher .o)
+; keep this no-op fallback (their indirect calls are rare and were already no-ops).
+define weak ptr @__az_indirect_dispatch(ptr %state, i64 %pc, ptr %memory) noinline optnone {{
+  ; M12.7 diag: count weak-default hits @0x4015C (262492). If this is >0 the strong
+  ; dispatcher .o did NOT override this weak def (indirect calls stayed no-op).
+  %wdc = call i32 @__remill_read_memory_32(ptr %memory, i64 262492)
+  %wdc1 = add i32 %wdc, 1
+  %wdm = call ptr @__remill_write_memory_32(ptr %memory, i64 262492, i32 %wdc1)
+  ret ptr %wdm
 }}
 ; M10-B1.a alias-scope metadata for guest memory ops.
 ;

@@ -885,7 +885,6 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     recon_result.layout_roots = final_layout_roots;
 
     let new_tree = new_tree_builder.build(root_idx);
-    // M12.7 diag: reconcile is about to return Ok. If 0x400AC is set but
     // layout_document's step marker is stuck at 1 (post-`?` not reached), the
     // lifted `?` mis-discriminated this Ok as Err (niche-Result mis-lift).
     { let _ = (0xCC00_0001u32); }
@@ -1053,7 +1052,6 @@ pub fn reconcile_recursive(
         idx
     };
 
-    // M12.7 diag: 0x400BC = new_node_idx (create_node_from_dom's return value) as
     // reconcile_recursive sees it. 0 = correct (the first node); 64 (matching the
     // build-marker root_idx) = the usize return mis-reads here.
     { let _ = (0xAB00_0000u32 | (new_node_idx as u32 & 0xffff)); }
@@ -1399,8 +1397,6 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
 ) -> Result<PreparedLayoutContext<'a>> {
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
     let warm = tree.warm(node_index).ok_or(LayoutError::InvalidTree)?;
-    // M12.7 diag (0x400B0): 0x70 = got node+warm OK; 0x72 = calculate_used_size_for_node OK.
-    unsafe { core::ptr::write_volatile(0x400B0 as *mut u32, 0xDD00_0070u32); }
     let dom_id = node.dom_node_id; // Can be None for anonymous boxes
 
     // Phase 1: Calculate this node's provisional used size
@@ -1411,12 +1407,11 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     let final_used_size = calculate_used_size_for_node(
         ctx.styled_dom,
         dom_id, // Now Option<NodeId>
-        containing_block_size,
+        &containing_block_size,
         intrinsic,
         &node.box_props.unpack(),
-        ctx.viewport_size,
+        &ctx.viewport_size,
     )?;
-    unsafe { core::ptr::write_volatile(0x400B0 as *mut u32, 0xDD00_0072u32); }
 
     // Phase 2: Layout children using a formatting context
     // Use pre-computed styles from LayoutNodeWarm instead of repeated lookups
@@ -1961,10 +1956,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         ComputeMode::ComputeSize => crate::probe::Probe::span("size_node"),
         ComputeMode::PerformLayout => crate::probe::Probe::span("pos_node"),
     };
-    // M12.7 diag: 0x5F = calc_layout body entered. (0x61 = took the PerformLayout cache
     // HIT path; 0x60 = reached cache-miss compute.) Distinguishes stub/not-entered vs an
     // early Err in the cache-check vs the compute path.
-    unsafe { core::ptr::write_volatile(0x400B0 as *mut u32, 0xDD00_005Fu32); }
     // === PER-NODE CACHE CHECK (Taffy-inspired 9+1 slot cache) ===
     //
     // Two-mode cache lookup (CSS two-pass architecture):
@@ -2027,7 +2020,6 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                     .cloned();
                 if let Some(cached_layout) = layout_hit {
                     drop(crate::probe::Probe::span("pos_cache_hit"));
-                    unsafe { core::ptr::write_volatile(0x400B0 as *mut u32, 0xDD00_0061u32); }
                     // LAYOUT CACHE HIT — apply cached results with child positions
                     if let Some(node) = tree.get_mut(node_index) {
                         node.used_size = Some(cached_layout.result_size);
@@ -2087,10 +2079,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         drop(crate::probe::Probe::span("pos_cache_miss"));
     }
 
-    // M12.7 diag: 0x60 = entered cache-miss PerformLayout; 0x62 = prepare_layout_context
     // returned Ok; 0x64 = layout_formatting_context returned Ok. Last value before the
     // Err pins the failing phase (fires per recursive node; bare body is shallow).
-    unsafe { core::ptr::write_volatile(0x400B0 as *mut u32, 0xDD00_0060u32); }
     // Phase 1: Prepare layout context (calculate used size, constraints)
     let PreparedLayoutContext {
         constraints,
@@ -2102,7 +2092,6 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         let _p = crate::probe::Probe::span("prepare_layout_context");
         prepare_layout_context(ctx, tree, node_index, containing_block_size)?
     };
-    unsafe { core::ptr::write_volatile(0x400B0 as *mut u32, 0xDD00_0062u32); }
 
     // Phase 1.5: Update used_size BEFORE calling layout_formatting_context.
     //
@@ -2127,7 +2116,6 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         let _p = crate::probe::Probe::span("layout_formatting_context");
         layout_formatting_context(ctx, tree, text_cache, node_index, &constraints, float_cache)?
     };
-    unsafe { core::ptr::write_volatile(0x400B0 as *mut u32, 0xDD00_0064u32); }
     let content_size = layout_result.output.overflow_size;
 
     // If layout_formatting_context adjusted this node's used_size (e.g.

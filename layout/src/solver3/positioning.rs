@@ -233,10 +233,10 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 let size = crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
                     Some(dom_id),
-                    containing_block_rect.size,
+                    &containing_block_rect.size,
                     intrinsic,
                     &node.box_props.unpack(),
-                    ctx.viewport_size,
+                    &ctx.viewport_size,
                 )?;
 
                 // Store the calculated size in the tree node
