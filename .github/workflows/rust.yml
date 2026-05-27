@@ -42,6 +42,16 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Force ANSI color OFF for every step. Tool output is captured into the run
+# Summary ($GITHUB_STEP_SUMMARY, which is markdown) where color escape codes
+# render as literal garbage (e.g. `␛[0m`), and into the raw logs. CARGO_TERM_COLOR
+# covers cargo/clippy/tree; NO_COLOR (the no-color.org standard) covers
+# cargo-deny, cargo-geiger and other termcolor/anstream/colored-based CLIs that
+# would otherwise force color on under CI.
+env:
+  CARGO_TERM_COLOR: never
+  NO_COLOR: "1"
+
 jobs:
   # =============================================================================
   # CI Jobs - Run on push, PR, or manual 'ci' mode
@@ -1791,7 +1801,7 @@ jobs:
               echo "<details><summary><b>cargo deny check $chk</b></summary>"
               echo ''
               echo '```'
-              cargo deny check "$chk" 2>&1 || true
+              cargo deny --color never check "$chk" 2>&1 || true
               echo '```'
               echo '</details>'
               echo ''
@@ -1908,7 +1918,10 @@ jobs:
     name: Dependency tree (${{ matrix.os }})
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
+    # The tree-rendering steps below are individually continue-on-error
+    # (informational — they just populate the run Summary + an artifact). The
+    # final "Check dependency justifications" step is BLOCKING: every crate in
+    # the tree must be justified in scripts/dependency-justifications.toml.
     strategy:
       fail-fast: false
       matrix:
@@ -1919,8 +1932,10 @@ jobs:
         with:
           toolchain: 1.88.0
       - name: Generate DLL API bindings
+        continue-on-error: true
         run: cargo run -r -p azul-doc codegen all
       - name: cargo tree + summary
+        continue-on-error: true
         shell: bash
         run: |
           os="${{ matrix.os }}"
@@ -1951,8 +1966,18 @@ jobs:
           gen azul-layout -p azul-layout
           gen azul-dll    -p azul-dll --features build-dll
       - name: Upload dependency trees
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: dependency-trees-${{ matrix.os }}
           path: deptree/
           if-no-files-found: warn
+
+      # BLOCKING supply-chain gate: every crate present in the dependency tree
+      # (the deptree/*.crates.txt the step above generated) must carry a
+      # one-line justification in scripts/dependency-justifications.toml, or the
+      # build fails listing the offenders. So adding a dependency — direct or
+      # transitive — requires a deliberate, reviewable "why is this here" line.
+      - name: Check dependency justifications
+        shell: bash
+        run: python3 scripts/check_dep_justifications.py deptree --os "${{ matrix.os }}"
