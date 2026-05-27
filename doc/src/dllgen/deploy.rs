@@ -1275,7 +1275,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
 
     // ---- License files ---------------------------------------------------
     // generate_license_files writes the bundled third-party license text per
-    // platform into release/{version}/. The project itself is MPL-2.0.
+    // platform into release/{version}/. The project itself is MIT-licensed.
     const LICENSE_FILES: &[(&str, &str)] = &[
         ("LICENSE-LINUX.txt", "Bundled third-party licenses (Linux build)"),
         ("LICENSE-MACOS.txt", "Bundled third-party licenses (macOS build)"),
@@ -1536,11 +1536,11 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <br/>
               <h2 id='license'>License</h2>
               <p style='color:grey;font-size:15px;max-width:700px;'>Azul itself is licensed under the
-              <strong>Mozilla Public License 2.0 (MPL-2.0)</strong>. The redistributable binaries above statically
+              <strong>MIT License</strong>. The redistributable binaries above statically
               link a number of third-party crates; their combined license texts are bundled per platform below so a
               shipped binary carries the attributions it needs.</p>
               <ul>
-                <li><a href='https://github.com/fschutt/azul/blob/{git}/LICENSE'>Azul project license (MPL-2.0)</a></li>
+                <li><a href='https://github.com/fschutt/azul/blob/{git}/LICENSE'>Azul project license (MIT)</a></li>
                 {license_links}
               </ul>
 
