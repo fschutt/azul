@@ -1055,6 +1055,9 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                 <li><a href='https://github.com/fschutt/azul/releases/tag/{version}'>GitHub release</a></li>
                 <li><a href='https://crates.io/crates/azul/{version}'>Crates.io</a></li>
                 <li><a href='https://docs.rs/azul/{version}'>Docs.rs</a></li>
+                <br/>
+                <li><a href='https://azul.rs/skill.md'>AI agent skill (skill.md)</a> &mdash; install once to make a coding agent ready to build azul apps</li>
+                <li><a href='https://azul.rs/llms.txt'>llms.txt</a> / <a href='https://azul.rs/llms-full.txt'>llms-full.txt</a> &mdash; machine-readable API + guide index for LLMs</li>
               </ul>
 
               <br/>
@@ -1105,6 +1108,22 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                   <p style='color:grey;font-family:monospace;'># Dynamic linking:</p>
                   <p style='color:grey;font-family:monospace;'># export AZ_LINK_PATH=/path/to/azul.dll</p>
                   <p style='color:grey;font-family:monospace;'># features = ['link-dynamic']</p>
+              </div>
+
+              <br/>
+              <strong>Deploy a web app (pre-lifted WASM base image):</strong>
+              <br/>
+              <a href='https://azul.rs/guide/deploying-web'>Guide: deploying azul web apps</a>
+
+              <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;font-size:14px;'>
+                  <p style='color:grey;font-family:monospace;'># Pull the pre-lifted base image (warm WASM lift cache)</p>
+                  <p style='color:black;font-family:monospace;'>docker pull ghcr.io/fschutt/azul-web-base:{version}</p>
+                  <br/>
+                  <p style='color:grey;font-family:monospace;'># Dockerfile</p>
+                  <p style='color:black;font-family:monospace;'>FROM ghcr.io/fschutt/azul-web-base:{version}</p>
+                  <p style='color:black;font-family:monospace;'>COPY my-app /usr/local/bin/my-app</p>
+                  <p style='color:black;font-family:monospace;'>ENV AZ_BACKEND=\"web://0.0.0.0:8080?allow_public=1\"</p>
+                  <p style='color:black;font-family:monospace;'>CMD [\"/usr/local/bin/my-app\"]</p>
               </div>
           </div>
         </main>

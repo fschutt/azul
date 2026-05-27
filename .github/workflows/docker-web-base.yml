@@ -1,0 +1,122 @@
+# .github/workflows/docker-web-base.yml
+#
+# Build + publish the pre-lifted WASM base image for azul web apps to the
+# GitHub Container Registry (ghcr.io/fschutt/azul-web-base).
+#
+# The image bakes a warm remill lift cache so apps under AZ_BACKEND=web only
+# lift their own callbacks on first request instead of the whole azul library.
+# See docker/web-base/README.md for the feasibility analysis and the library
+# changes this depends on.
+#
+# STATUS: DRAFT (2026-05-27). Builds remill from source, which is slow + heavy
+# — gate it behind tags/manual dispatch only (NOT every push). Consider
+# splitting the remill toolchain into a separately-cached image once stable.
+#
+# This is a SEPARATE workflow from rust.yml on purpose (rust.yml is owned by
+# another change). It does not touch the Pages deploy.
+
+name: docker-web-base
+
+on:
+  # Publish on release tags only — the build is expensive (remill + LLVM).
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+*'
+  # Manual run for testing the image build without cutting a release.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'azul git ref/tag to build libazul from'
+        type: string
+        required: false
+        default: 'master'
+      push_image:
+        description: 'Push to ghcr.io (off = build only)'
+        type: boolean
+        required: false
+        default: false
+
+# Least-privilege: only what is needed to push a package to GHCR.
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-web-base-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/azul-web-base
+
+jobs:
+  build-and-push:
+    name: Build & Publish azul-web-base
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: false  # the Dockerfile clones + inits remill itself
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        # Only authenticate when we actually intend to push (tag push, or the
+        # manual dispatch with push_image=true). Build-only runs skip login.
+        if: github.event_name == 'push' || github.event.inputs.push_image == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags
+        id: meta
+        # On a version tag (e.g. 1.2.3) → tag "1.2.3" + "latest".
+        # On manual dispatch → tag with the short SHA (and never "latest").
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VER="${GITHUB_REF_NAME}"
+            echo "tags=${IMAGE}:${VER},${IMAGE}:latest" >> "$GITHUB_OUTPUT"
+            echo "azul_ref=${VER}" >> "$GITHUB_OUTPUT"
+          else
+            SHA="${GITHUB_SHA::12}"
+            echo "tags=${IMAGE}:dev-${SHA}" >> "$GITHUB_OUTPUT"
+            echo "azul_ref=${{ github.event.inputs.ref }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build (and conditionally push) the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/web-base/Dockerfile
+          target: runtime
+          push: ${{ github.event_name == 'push' || github.event.inputs.push_image == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            AZUL_REF=${{ steps.meta.outputs.azul_ref }}
+          # Cache the (very heavy) toolchain + builder layers between runs.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "## azul-web-base image"
+            echo ""
+            echo "Tags: \`${{ steps.meta.outputs.tags }}\`"
+            echo ""
+            echo "Pull:"
+            echo '```'
+            echo "docker pull ${IMAGE}:latest"
+            echo '```'
+            echo ""
+            echo "Extend:"
+            echo '```dockerfile'
+            echo "FROM ${IMAGE}:latest"
+            echo "COPY my-app /usr/local/bin/my-app"
+            echo 'ENV AZ_BACKEND="web://0.0.0.0:8080?allow_public=1"'
+            echo 'CMD ["/usr/local/bin/my-app"]'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
