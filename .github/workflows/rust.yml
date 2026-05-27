@@ -1646,9 +1646,10 @@ jobs:
                  "examples/c/$ex.c" -L target/debug -lazul -o "/tmp/$ex-san" 2>/tmp/cc.log; then
               echo "| $ex | $label | build-fail |" >> "$GITHUB_STEP_SUMMARY"; return
             fi
+            local rc=0
             ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
             TSAN_OPTIONS=halt_on_error=0 LD_LIBRARY_PATH=target/debug \
-              timeout 30 "/tmp/$ex-san"; local rc=$?
+              timeout 30 "/tmp/$ex-san" || rc=$?
             if [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ]; then
               echo "| $ex | $label | ✅ pass |" >> "$GITHUB_STEP_SUMMARY"
             else
