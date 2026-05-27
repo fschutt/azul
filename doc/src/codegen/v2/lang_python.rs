@@ -2539,12 +2539,25 @@ extern "C" fn invoke_py_layout_callback(
             if arg.type_name == "RefAny" {
                 continue;
             }
+            // String args are bridged, not wrapped: Python `str` flows in via
+            // pyo3's built-in FromPyObject, and `generate_pymethod` converts it
+            // to AzString in the body (the `arg.type_name == "String"` arm).
+            // `String` IS a struct in the IR but is emitted C-API-direct (no
+            // pyclass wrapper), so `type_is_excluded` would otherwise drop EVERY
+            // String-taking method (Button::create, Button::with_type,
+            // Css::from_string, …). Mirror the RefAny case above.
+            if arg.type_name == "String" {
+                continue;
+            }
             if self.type_is_excluded(&arg.type_name, ir, config) {
                 return true;
             }
         }
         if let Some(ret) = &func.return_type {
-            if self.type_is_excluded(ret, ir, config) {
+            // String return is converted back to a Python `str` in the body
+            // (into_library_owned_string), so the C-API-direct String struct's
+            // lack of a pyclass wrapper must not drop the method.
+            if ret != "String" && self.type_is_excluded(ret, ir, config) {
                 return true;
             }
         }
