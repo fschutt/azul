@@ -23,6 +23,9 @@
  *   ./browser https://example.com
  */
 
+/* strdup() is POSIX, not ISO C99; strict -std=c99 hides it on Linux glibc
+ * (implicit-declaration error) without this feature-test macro (before includes). */
+#define _POSIX_C_SOURCE 200809L
 #include "azul.h"
 #include <stdio.h>
 #include <stdlib.h>
