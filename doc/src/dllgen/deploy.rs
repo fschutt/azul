@@ -1099,26 +1099,52 @@ pub fn create_git_repository(version: &str, output_dir: &Path, lib_rs: &str) -> 
 /// would never appear if we filtered on presence at generation time. For this
 /// comprehensive "every artifact we ship" download index we therefore link
 /// them unconditionally; a not-yet-built artifact 404s rather than vanishing.
-/// Download filename for an asset. The static `.a` libs are 200 MB+ each and
-/// would blow past GitHub Pages' 1 GB artifact limit, so the deploy ships them
-/// ZIPPED (CI compresses every `*.a` in the release dir to `*.a.zip`). Link
-/// `.a` assets to `<name>.a.zip`; everything else (the ~16 MB `.dll`/`.so`/
-/// `.dylib`, headers, packages, …) keeps its name.
-fn dl_name(filename: &str) -> String {
-    if filename.ends_with(".a") {
-        format!("{filename}.zip")
+/// Is `filename` a LARGE asset that must be hosted on the GitHub Release rather
+/// than bundled into the GitHub Pages site?
+///
+/// The static `.a` libs are 200 MB+ each and the demo binaries are large too;
+/// nine of those would blow past GitHub Pages' 1 GB artifact limit (and a future
+/// Cloudflare Pages target caps single files at 25 MiB). So LARGE assets live on
+/// the GitHub Release (≤2 GB/asset): every `.a` static lib, the demo binaries
+/// (under the `demos/` path), and the `.deb`/`.rpm` system packages.
+///
+/// Everything else stays SMALL and on Pages: the ~16 MB `.so`/`.dll`/`.dylib`,
+/// `.lib`/`.dll.lib`, the C/C++ headers, the Python extensions, `examples.zip`,
+/// `api.json`, the per-language bindings, the `LICENSE-*.txt` files, the PDF.
+fn is_large(filename: &str) -> bool {
+    filename.ends_with(".a")
+        || filename.ends_with(".deb")
+        || filename.ends_with(".rpm")
+        || filename.starts_with("demos/")
+        || filename.contains("/demos/")
+}
+
+/// Build the download URL for a release asset, routing LARGE assets to the
+/// GitHub Release and SMALL assets to the Pages-hosted release dir.
+///
+/// LARGE (see [`is_large`]) → `https://github.com/fschutt/azul/releases/download/{version}/{basename}`
+/// (GitHub flattens the path: a demo at `demos/azul-maps-linux` uploads as the
+/// bare `azul-maps-linux` asset). SMALL → `https://azul.rs/release/{version}/{filename}`.
+fn asset_url(version: &str, filename: &str) -> String {
+    if is_large(filename) {
+        // GitHub Release assets are flat — strip any `demos/` path prefix so the
+        // link matches the uploaded asset name.
+        let basename = filename.rsplit('/').next().unwrap_or(filename);
+        format!("https://github.com/fschutt/azul/releases/download/{version}/{basename}")
     } else {
-        filename.to_string()
+        format!("https://azul.rs/release/{version}/{filename}")
     }
 }
 
 fn release_link_li(version: &str, filename: &str, description: &str) -> String {
-    let dl = dl_name(filename);
+    let url = asset_url(version, filename);
+    // Display the bare filename (its basename) so the label stays readable for
+    // both Pages and Release-hosted assets.
+    let label = filename.rsplit('/').next().unwrap_or(filename);
     format!(
-        "<li><a href='https://azul.rs/release/{version}/{dl}'>{description} \
-         ({dl})</a></li>",
-        version = version,
-        dl = dl,
+        "<li><a href='{url}'>{description} ({label})</a></li>",
+        url = url,
+        label = label,
         description = description
     )
 }
@@ -1131,12 +1157,12 @@ fn external_link_li(url: &str, label: &str) -> String {
 /// Generate a single asset list item HTML
 fn generate_asset_li(version: &str, asset: &AssetInfo) -> String {
     if asset.is_present {
-        let dl = dl_name(&asset.filename);
+        let url = asset_url(version, &asset.filename);
         format!(
-            "<li><a href='https://azul.rs/release/{version}/{dl}'>{description} ({dl} \
+            "<li><a href='{url}'>{description} ({filename} \
              - {size})</a></li>",
-            version = version,
-            dl = dl,
+            url = url,
+            filename = asset.filename,
             description = asset.description,
             size = asset.humanize_size()
         )

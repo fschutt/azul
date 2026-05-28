@@ -1393,6 +1393,14 @@ jobs:
     if: github.event.inputs.run_mode == 'deploy'
     needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage]
     runs-on: ubuntu-22.04
+    # The top-level workflow permissions are `contents: read`; the GitHub Release
+    # step (`gh release create`/`upload`) needs `contents: write` or it 403s.
+    # Re-declare the pages/id-token perms this job also needs (a job-level
+    # `permissions:` block REPLACES, it does not merge with, the top-level one).
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -1820,20 +1828,58 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v6
 
-      - name: Compress large static (.a) libraries (keep the Pages artifact under 1 GB)
+      - name: Host LARGE assets on the GitHub Release + trim them from the Pages artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           REL="website/release/${AZUL_VERSION}"
           [ -d "$REL" ] || { echo "no $REL — skipping"; exit 0; }
           echo "release dir before:"; du -sh "$REL" || true
-          # The static libs are 200 MB+ each and blow past GitHub Pages' 1 GB
-          # artifact limit. Zip each *.a (native zip tool) and drop the original;
-          # the release page links them as <name>.a.zip (deploy.rs dl_name()).
-          # Leave the ~16 MB .dll/.so/.dylib alone — one deployment, everything
-          # stays on Pages (no GitHub Release).
-          find "$REL" -name '*.a' -type f | while IFS= read -r a; do
-            zip -q -j "${a}.zip" "$a" && rm -f "$a" && echo "zipped $(basename "$a")"
-          done
+
+          # The static .a libs are 200 MB+ each and the demo binaries are large;
+          # together they blow past GitHub Pages' 1 GB artifact limit (and a
+          # future Cloudflare Pages target caps single files at 25 MiB). Host the
+          # LARGE assets on the GitHub Release (≤2 GB/asset) instead, then drop
+          # them from the Pages artifact. deploy.rs links these to
+          # github.com/fschutt/azul/releases/download/<ver>/<file> (is_large()).
+          # SMALL assets (~16 MB .so/.dll/.dylib, headers, bindings, examples.zip,
+          # api.json, licenses, PDF) stay on Pages.
+
+          # Collect every LARGE file: each *.a, the demo binaries, the .deb/.rpm
+          # packages, plus any built language packages staged into the release dir
+          # (whl/nupkg/gem/jar/tgz). GitHub Release assets are flat, so the demo
+          # binaries upload as their bare basenames (matching deploy.rs, which
+          # strips the demos/ prefix from the link).
+          LARGE=()
+          while IFS= read -r f; do LARGE+=("$f"); done < <(
+            {
+              find "$REL" -maxdepth 1 -type f \( -name '*.a' -o -name '*.deb' -o -name '*.rpm' \
+                -o -name '*.whl' -o -name '*.nupkg' -o -name '*.gem' -o -name '*.jar' -o -name '*.tgz' \)
+              [ -d "$REL/demos" ] && find "$REL/demos" -type f
+            } 2>/dev/null | sort -u
+          )
+
+          if [ "${#LARGE[@]}" -eq 0 ]; then
+            echo "no LARGE assets present — nothing to upload or trim"
+          else
+            echo "=== LARGE assets (-> GitHub Release ${AZUL_VERSION}) ==="
+            printf '  %s\n' "${LARGE[@]}"
+
+            # Create the release if it doesn't exist yet (idempotent: a 2nd deploy
+            # of the same version just reuses it), then upload/clobber the assets.
+            gh release create "${AZUL_VERSION}" \
+              --title "Azul ${AZUL_VERSION}" \
+              --notes "Azul ${AZUL_VERSION} release. Binaries attached; docs + small assets at https://azul.rs/release/${AZUL_VERSION}/." \
+              2>/dev/null || true
+            gh release upload "${AZUL_VERSION}" "${LARGE[@]}" --clobber
+
+            # Now drop the LARGE files from the Pages artifact so it stays < 1 GB.
+            echo "=== trimming LARGE assets from the Pages artifact ==="
+            for f in "${LARGE[@]}"; do rm -f "$f" && echo "removed $f"; done
+            rmdir "$REL/demos" 2>/dev/null || true
+          fi
+
           echo "release dir after:"; du -sh "$REL" || true
           echo "total website size:"; du -sh website || true
 
