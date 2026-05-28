@@ -1820,6 +1820,23 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v6
 
+      - name: Compress large static (.a) libraries (keep the Pages artifact under 1 GB)
+        run: |
+          set -euo pipefail
+          REL="website/release/${AZUL_VERSION}"
+          [ -d "$REL" ] || { echo "no $REL — skipping"; exit 0; }
+          echo "release dir before:"; du -sh "$REL" || true
+          # The static libs are 200 MB+ each and blow past GitHub Pages' 1 GB
+          # artifact limit. Zip each *.a (native zip tool) and drop the original;
+          # the release page links them as <name>.a.zip (deploy.rs dl_name()).
+          # Leave the ~16 MB .dll/.so/.dylib alone — one deployment, everything
+          # stays on Pages (no GitHub Release).
+          find "$REL" -name '*.a' -type f | while IFS= read -r a; do
+            zip -q -j "${a}.zip" "$a" && rm -f "$a" && echo "zipped $(basename "$a")"
+          done
+          echo "release dir after:"; du -sh "$REL" || true
+          echo "total website size:"; du -sh website || true
+
       - name: Repack the Pages artifact as plain files (Pages forbids symlinks + hard links)
         run: |
           set -euo pipefail

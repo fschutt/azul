@@ -1099,12 +1099,26 @@ pub fn create_git_repository(version: &str, output_dir: &Path, lib_rs: &str) -> 
 /// would never appear if we filtered on presence at generation time. For this
 /// comprehensive "every artifact we ship" download index we therefore link
 /// them unconditionally; a not-yet-built artifact 404s rather than vanishing.
+/// Download filename for an asset. The static `.a` libs are 200 MB+ each and
+/// would blow past GitHub Pages' 1 GB artifact limit, so the deploy ships them
+/// ZIPPED (CI compresses every `*.a` in the release dir to `*.a.zip`). Link
+/// `.a` assets to `<name>.a.zip`; everything else (the ~16 MB `.dll`/`.so`/
+/// `.dylib`, headers, packages, …) keeps its name.
+fn dl_name(filename: &str) -> String {
+    if filename.ends_with(".a") {
+        format!("{filename}.zip")
+    } else {
+        filename.to_string()
+    }
+}
+
 fn release_link_li(version: &str, filename: &str, description: &str) -> String {
+    let dl = dl_name(filename);
     format!(
-        "<li><a href='https://azul.rs/release/{version}/{filename}'>{description} \
-         ({filename})</a></li>",
+        "<li><a href='https://azul.rs/release/{version}/{dl}'>{description} \
+         ({dl})</a></li>",
         version = version,
-        filename = filename,
+        dl = dl,
         description = description
     )
 }
@@ -1117,11 +1131,12 @@ fn external_link_li(url: &str, label: &str) -> String {
 /// Generate a single asset list item HTML
 fn generate_asset_li(version: &str, asset: &AssetInfo) -> String {
     if asset.is_present {
+        let dl = dl_name(&asset.filename);
         format!(
-            "<li><a href='https://azul.rs/release/{version}/{filename}'>{description} ({filename} \
+            "<li><a href='https://azul.rs/release/{version}/{dl}'>{description} ({dl} \
              - {size})</a></li>",
             version = version,
-            filename = asset.filename,
+            dl = dl,
             description = asset.description,
             size = asset.humanize_size()
         )
