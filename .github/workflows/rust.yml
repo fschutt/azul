@@ -1820,27 +1820,27 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v6
 
-      - name: Strip symlinks from the Pages artifact (GitHub Pages forbids symlinks)
+      - name: Repack the Pages artifact as plain files (Pages forbids symlinks + hard links)
         run: |
           set -euo pipefail
-          echo "::group::symlinks before strip"
-          find website -type l -print || true
+          echo "::group::symlinks + hard-linked files before repack"
+          find website -type l -print 2>/dev/null || true
+          find website -type f -links +1 -print 2>/dev/null | head -20 || true
           echo "::endgroup::"
-          # Pages rejects ANY symlink in the uploaded artifact. Dereference each
-          # one (replace it with a copy of its target so download content is
-          # preserved — e.g. a versioned .so symlink becomes a real file); drop
-          # broken ones. One of the merged CI artifacts ships a symlink.
-          find website -type l | while IFS= read -r link; do
-            tgt=$(readlink -f "$link" 2>/dev/null || true)
-            if [ -n "$tgt" ] && [ -e "$tgt" ]; then
-              rm -f "$link"; cp -a "$tgt" "$link"
-            else
-              echo "removing broken symlink: $link"; rm -f "$link"
-            fi
-          done
-          remaining=$(find website -type l | wc -l | tr -d ' ')
-          echo "symlinks remaining: $remaining"
-          [ "$remaining" = "0" ]
+          # GitHub Pages rejects an artifact containing ANY symlink OR hard link.
+          # The previous symlink-only strip cleared symlinks but the deploy still
+          # failed, so a merged CI artifact also ships hard links. Drop broken
+          # symlinks (a dereferencing copy chokes on them), then deep-copy with
+          # -L (dereference symlinks → real files) using a plain cp (NO
+          # --preserve=links, so hard-linked files become independent regular
+          # files). Result: website/ is plain files + dirs only.
+          find website -type l | while IFS= read -r l; do [ -e "$l" ] || { echo "drop broken symlink: $l"; rm -f "$l"; }; done
+          cp -rL website website.__pages_clean__
+          rm -rf website
+          mv website.__pages_clean__ website
+          echo "symlinks remaining:   $(find website -type l 2>/dev/null | wc -l | tr -d ' ')"
+          echo "hard-linked remaining: $(find website -type f -links +1 2>/dev/null | wc -l | tr -d ' ')"
+          echo "artifact size:"; du -sh website 2>/dev/null || true
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
