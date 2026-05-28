@@ -27,8 +27,17 @@ log = { version = "0.4.17", default-features = false, optional = true }
 fern = { version = "0.7.1", default-features = false, optional = true }
 backtrace = { version = "0.3.66", optional = true }
 
-# Python bindings
-pyo3 = { version = "0.27.1", default-features = false, features = ["abi3", "multiple-pymethods", "extension-module", "macros", "auto-initialize"], optional = true }
+# Python bindings.
+# `extension-module` is REQUIRED: the `python-extension` feature builds the
+# `dll` crate into a CPython extension module (`PyInit_azul`), so pyo3 must NOT
+# link libpython (the manylinux/cibuildwheel build images have no shared
+# libpython). The `auto-initialize` feature is deliberately OMITTED: it is only
+# for *embedding* a Python interpreter inside a Rust binary and pulls in a
+# shared-libpython link requirement that fails the static manylinux wheel build
+# ("auto-initialize feature is enabled, but your python installation only
+# supports embedding the Python interpreter statically"). Nothing in this crate
+# embeds an interpreter, so it is unused.
+pyo3 = { version = "0.27.1", default-features = false, features = ["abi3", "multiple-pymethods", "extension-module", "macros"], optional = true }
 pyo3-log = { version = "0.13.2", default-features = false, optional = true }
 
 # PHP bindings (Zend engine extension via ext-php-rs)

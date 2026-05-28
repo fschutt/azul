@@ -32,6 +32,10 @@ pub fn generate_csproj() -> String {
     <LangVersion>10.0</LangVersion>
     <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- The .NET SDK globs `**/*.cs` into <Compile> by default; the ItemGroup
+         below lists `Azul.cs` explicitly, so disable the default glob to avoid
+         the duplicate `Compile` item (NETSDK1022). -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <AssemblyName>Azul</AssemblyName>
     <RootNamespace>Azul</RootNamespace>
     <Version>1.0.0</Version>
