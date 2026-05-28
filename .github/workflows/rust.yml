@@ -1391,7 +1391,7 @@ jobs:
   deploy_pages:
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy'
-    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage]
+    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos]
     runs-on: ubuntu-22.04
     # The top-level workflow permissions are `contents: read`; the GitHub Release
     # step (`gh release create`/`upload`) needs `contents: write` or it 403s.
