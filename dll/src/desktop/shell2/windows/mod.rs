@@ -2359,9 +2359,13 @@ unsafe extern "system" fn window_proc(
                     render_api.send_transaction(wr_translate_document_id(document_id), txn);
                 }
 
-                // Update previous and current window state
-                window.common.previous_window_state = Some(window.common.current_window_state.clone());
-                window.common.current_window_state = new_window_state;
+                // F4: WM_SIZE is an OS-reported geometry/frame change (already
+                // applied by the OS), so set BOTH current AND the sync baseline
+                // (previous) to the new state. Setting previous to the OLD state
+                // would leave a non-zero diff that sync_window_state() echoes back
+                // via SetWindowPos — the OS→app→OS loop. (Source = Os, not App.)
+                window.common.current_window_state = new_window_state.clone();
+                window.common.previous_window_state = Some(new_window_state);
 
                 // Tag the next regen as a resize so the user's layout()
                 // callback can detect it via `info.relayout_reason()`.
@@ -2389,7 +2393,13 @@ unsafe extern "system" fn window_proc(
             let pos = azul_core::window::WindowPosition::Initialized(
                 azul_core::geom::PhysicalPositionI32::new(x, y),
             );
-            window.common.current_window_state.position = pos;
+            // F4: position REPORTED by the OS (source = Os) — acknowledge into both
+            // current and the sync baseline so sync_window_state() doesn't echo it
+            // back via SetWindowPos (the OS→app→OS geometry loop).
+            window.common.update_window_state(
+                crate::desktop::shell2::common::event::WindowStateSource::Os,
+                |ws| ws.position = pos,
+            );
 
             // Detect which monitor the window is on via MonitorFromWindow
             // This updates monitor_id so that DPI/MonitorChanged events can fire
