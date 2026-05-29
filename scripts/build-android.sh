@@ -65,9 +65,13 @@ if [[ "$CRATE" == "azul-dll" ]]; then
 else
     FEATURE_ARGS=()
 fi
-echo "==> cargo build --target $TARGET --release -p $CRATE ${FEATURE_ARGS[*]}"
+# --lib: Android loads the cdylib (.so) via NativeActivity; build ONLY the
+# library target. A demo's `[[bin]]` is the desktop/iOS entry point and links as
+# an executable (no undefined symbols allowed), which fails on the NDK media
+# symbols — and we don't ship it in the APK anyway.
+echo "==> cargo build --lib --target $TARGET --release -p $CRATE ${FEATURE_ARGS[*]}"
 (cd "$WORKSPACE_ROOT" \
-  && cargo build --target "$TARGET" --release -p "$CRATE" "${FEATURE_ARGS[@]}")
+  && cargo build --lib --target "$TARGET" --release -p "$CRATE" "${FEATURE_ARGS[@]}")
 
 SRC_SO="$WORKSPACE_ROOT/target/$TARGET/release/lib${LIB_NAME}.so"
 [[ -f "$SRC_SO" ]] || { echo "missing $SRC_SO — '$CRATE' produced no cdylib (.so). A demo must declare crate-type=cdylib + android_main to ship as an APK; skipping." >&2; exit 4; }

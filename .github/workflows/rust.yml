@@ -1291,7 +1291,9 @@ jobs:
       - name: Build libazul (Android)
         if: startsWith(matrix.label, 'android')
         run: |
-          cargo ndk -t ${{ matrix.abi }} build --release -p azul-dll \
+          # -p 26: AAudio (extra::audio::aaudio) needs API >= 26; build.rs links
+          # libaaudio/libcamera2ndk/libmediandk, whose stubs exist from API 26.
+          cargo ndk -t ${{ matrix.abi }} -p 26 build --release -p azul-dll \
             --no-default-features --features "$MOBILE_FEATURES,android-activity"
 
       - name: Build libazul (iOS)
@@ -1425,7 +1427,8 @@ jobs:
         run: |
           set +e
           NDKBIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDKBIN/aarch64-linux-android24-clang"
+          # API 26: AAudio's minimum (build.rs links libaaudio/camera2ndk/mediandk).
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDKBIN/aarch64-linux-android26-clang"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
           mkdir -p mobile-apps
           for demo in azul-maps azul-paint azul-self-test; do

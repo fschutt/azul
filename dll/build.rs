@@ -78,9 +78,17 @@ fn compile_python_weak_stubs() {
 // ── Android setup ─────────────────────────────────────────────────────
 
 fn configure_android() {
-    // Link the two system libraries every Android cdylib needs.
+    // Link the system libraries every Android cdylib needs.
     println!("cargo:rustc-link-lib=android");
     println!("cargo:rustc-link-lib=log");
+    // The device backends call NDK media APIs; link their stub libs so a binary
+    // that statically links azul (link-static demos) resolves the symbols
+    // instead of failing with "undefined symbol: AAudio_* / ACameraManager_* /
+    // AImageReader_*". aaudio needs API >= 26 (camera2ndk/mediandk: 24), so the
+    // Android builds target platform 26 (cargo-ndk `-p 26` / android26-clang).
+    println!("cargo:rustc-link-lib=aaudio"); // extra::audio::aaudio (API 26)
+    println!("cargo:rustc-link-lib=camera2ndk"); // extra::camera::android (API 24)
+    println!("cargo:rustc-link-lib=mediandk"); // AImageReader (API 21)
 
     if env::var("ANDROID_NDK_HOME").is_err() && env::var("ANDROID_HOME").is_err() {
         println!(
