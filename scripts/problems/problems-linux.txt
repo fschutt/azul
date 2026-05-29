@@ -1,0 +1,125 @@
+gcc -I. hello-world.c -L. -lazul -lpthread -lm -ldl -Wl,-rpath,'$ORIGIN' -o hello-world
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyTuple_SetItem'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyObject_Repr'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyExc_ValueError'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyLong_AsLong'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyLong_FromSsize_t'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyObject_GenericGetDict'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyBool_Type'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyObject_GetAttr'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyObject_Call'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `_Py_TrueStruct'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyErr_NormalizeException'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyTuple_Type'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyObject_Str'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyList_Type'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyType_FromSpec'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyErr_Restore'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyType_IsSubtype'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyNumber_Index'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyTuple_New'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyObject_SetAttr'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyEval_RestoreThread'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `_Py_DecRef'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `_Py_NoneStruct'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyExc_AttributeError'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyException_SetTraceback'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyList_Append'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyInterpreterState_GetID'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyType_Type'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyDict_Next'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyException_GetTraceback'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyTuple_Size'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyErr_SetObject'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyType_GenericAlloc'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyFloat_FromDouble'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyFloat_AsDouble'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyExc_OverflowError'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyLong_FromUnsignedLongLong'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyList_New'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `Py_GetVersion'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyBytes_Size'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyType_GetFlags'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyUnicode_Type'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyObject_DelItem'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyErr_PrintEx'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyErr_SetString'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyObject_SetItem'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyUnicode_InternInPlace'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyObject_SetAttrString'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyLong_AsUnsignedLongLong'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyGILState_Release'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyExc_RuntimeError'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyExc_BaseException'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyBytes_AsString'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyObject_GenericSetDict'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyBaseObject_Type'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyObject_GetItem'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyExc_TypeError'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyEval_SaveThread'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyObject_GC_UnTrack'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `_Py_FalseStruct'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyLong_FromLong'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyErr_WriteUnraisable'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyType_GetSlot'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyModule_Create2'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyTraceBack_Print'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyUnicode_AsEncodedString'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `_Py_IncRef'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyErr_NewExceptionWithDoc'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyLong_Type'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyErr_Fetch'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyDict_Size'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyObject_CallNoArgs'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyExc_SystemError'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyExc_ImportError'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyInterpreterState_Get'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyUnicode_AsUTF8AndSize'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyGILState_Ensure'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyException_GetCause'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyErr_Print'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyImport_Import'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyTuple_GetItem'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyException_SetCause'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyErr_GivenExceptionMatches'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `Py_IsInitialized'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/libazul.so: undefined reference to `PyUnicode_FromStringAndSize'
+collect2: error: ld returned 1 exit status
+
+
+---
+
+- linux apps: chmod +x not set?
+- all linux apps are 130+ MB large - entire remill being linked?
+- azul tries to compile GPU shaders even in CPU mode?
+- window moves randomly off-screen on x11?
+
+azul: SVG vertex shader compile error: 0:1(10): error: GLSL 1.50 is not supported. Supported versions are: 1.00 ES, 3.00 ES, 3.10 ES, and 3.20 ES
+
+azul: SVG fragment shader compile error: 0:1(10): error: GLSL 1.50 is not supported. Supported versions are: 1.00 ES, 3.00 ES, 3.10 ES, and 3.20 ES
+
+azul: SVG program link error: error: linking with uncompiled/unspecialized shadererror: linking with uncompiled/unspecialized shader
+azul: SVG multicolor vertex shader compile error: 0:1(10): error: GLSL 1.50 is not supported. Supported versions are: 1.00 ES, 3.00 ES, 3.10 ES, and 3.20 ES
+
+azul: SVG multicolor fragment shader compile error: 0:1(10): error: GLSL 1.50 is not supported. Supported versions are: 1.00 ES, 3.00 ES, 3.10 ES, and 3.20 ES
+
+azul: SVG multicolor program link error: error: linking with uncompiled/unspecialized shadererror: linking with uncompiled/unspecialized shader
+azul: FXAA vertex shader compile error: 0:1(10): error: GLSL 1.50 is not supported. Supported versions are: 1.00 ES, 3.00 ES, 3.10 ES, and 3.20 ES
+
+azul: FXAA fragment shader compile error: 0:1(10): error: GLSL 1.50 is not supported. Supported versions are: 1.00 ES, 3.00 ES, 3.10 ES, and 3.20 ES
+
+azul: FXAA program link error: error: linking with uncompiled/unspecialized shadererror: linking with uncompiled/unspecialized shader
+
+
+---
+
+azul-gamepad-linux: double free error in tcache2
+
+azul-paint: doesn't properly work, then moves off screen
+
+122 MB RAM usage on Linux (likely because of large binary size)
+
+
+Error: PlatformError(Failed to load libwayland-client: SymbolNotFound { symbol: wl_display_get_registry, library: libwayland-client.so.0, suggestion: Symbol not found in library })
+
+

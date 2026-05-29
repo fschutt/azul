@@ -1,0 +1,64 @@
+azul-meet-windows: crashes immediately, no Output
+
+Windows: Fonts are weirdly blocky (cpu Rendering)
+
+azul-video-app-Windows: ./azul-video-app-windows.exe
+
+thread 'main' panicked at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc\library\std\src\thread\mod.rs:1748:14:
+threads should not terminate unexpectedly
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+no Video / camera, White screen on first draw, UI Shows on resize
+
+text selection not working on "AzScreenShare" text (works on macos?)
+
+window Background goes to black when the window size < Content of the window (AzScreenShare)
+
+./azul-video-app-windows.exe
+
+thread 'main' panicked at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc\library\std\src\thread\mod.rs:1748:14:
+threads should not terminate unexpectedly
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+az-camera:same thing
+
+az-gamepad-windows: Shows window for 0.1s, then crashes, no Output 
+
+az-spirit-level (on Windows Desktop): crashes very fast, window blinks
+
+azul-vault-windows: first app that actually somewhat works (although first frame is blank):
+
+- Fonts don't load at all, but button still lays out? can't be a loading Problem because layout still works but Rendering the Fonts doesn't
+
+
+Windows PIN Dialog works, but the app requests you to then "tap unlock again"? which is weird behaviour, normally it would just log you in immediately
+
+
+bug is that it doesn't immediately log you in
+
+weird Offset of the actual window Content (Body padding not calculated properly)?
+
+text does Show on the "tap unlock again" text, but only serif, not sans-serif Maybe
+
+the black / White flicker Thing seems to be a) and uncleared backbuffer that Flips on every new draw
+
+Azul is extremely smooth but takes up 90 - 100 MB Ram on Windows? something is wrong, we had this at less than 20 MB
+
+$ ./azul-vault-windows.exe
+
+thread 'main' panicked at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc\library\std\src\thread\mod.rs:1748:14:
+threads should not terminate unexpectedly
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+Azul-maps-Windows mmediately crashes, no Output./
+
+
+azul-paint-windows has same weird Offset Problem, very bad text antialiasing / bad sub-Pixel rasterization / hinting
+
+doesn't actually draw or update Pixels: Maybe Images in General aren't working / updating?
+
+
+Memory at 91.5 MB
+
+cpu usage very low on resize, at like 3 - 5 %
