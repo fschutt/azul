@@ -83,6 +83,13 @@ define_class!(
                     }
                 }
                 if let Ok(mut slot) = self.ivars().slot.lock() {
+                    if slot.seq == 0 {
+                        // Log the very first frame only (the callback is hot).
+                        crate::plog_info!(
+                            "[camera] avfoundation: first frame {}x{} stride={} BGRA→RGBA ok",
+                            w, h, stride
+                        );
+                    }
                     slot.rgba = rgba;
                     slot.width = w as u32;
                     slot.height = h as u32;
@@ -159,6 +166,9 @@ pub fn open(_index: u32, _width: u32, _height: u32) -> u64 {
             slot,
             last_seq: 0,
         };
+        crate::plog_info!(
+            "[camera] avfoundation: opened default device, requested 32-BGRA → converting to RGBA8"
+        );
         Box::into_raw(Box::new(cam)) as u64
     }
 }
