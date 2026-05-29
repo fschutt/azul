@@ -693,6 +693,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: binaries-${{ matrix.os }}
 
       - name: Install clang (Linux)
         if: matrix.os == 'ubuntu-22.04'
@@ -1068,6 +1071,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: demos-${{ matrix.os }}
 
       # Mirror build_binaries' Linux dependency install (clang + GL/X11) plus
       # libv4l-dev for the camera/video demos. macOS/Windows pull their platform
@@ -1277,6 +1283,9 @@ jobs:
         with:
           toolchain: 1.88.0
           targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mobile-${{ matrix.label }}
       - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc codegen all
 
@@ -1367,6 +1376,9 @@ jobs:
         with:
           toolchain: 1.88.0
           targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mobile-apps-ios
       - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc codegen all
       - name: Build + bundle each demo as a .app (best-effort)
@@ -1407,6 +1419,9 @@ jobs:
         with:
           toolchain: 1.88.0
           targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mobile-apps-android
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
