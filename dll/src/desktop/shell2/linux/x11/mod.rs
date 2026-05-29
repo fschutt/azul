@@ -2008,7 +2008,11 @@ impl X11Window {
                                 };
 
                                 let did_incremental = match &dl_damage {
-                                    Some(rects) if rects.is_empty() => true, // nothing changed
+                                    // Nothing changed — but only skip the render if we
+                                    // actually have a retained pixmap to blit. Without
+                                    // this guard a missing pixmap fell through to the
+                                    // solid-colour fallback and flickered (R2).
+                                    Some(rects) if rects.is_empty() && self.retained_pixmap.is_some() => true,
                                     Some(rects) if self.retained_pixmap.is_some() => {
                                         let pw = (width * dpi) as u32;
                                         let ph = (height * dpi) as u32;
@@ -2056,6 +2060,19 @@ impl X11Window {
                                     let ph = pixmap.height() as c_uint;
                                     let data = pixmap.data();
 
+                                    // R2: if the blitted pixmap is smaller than the
+                                    // window, the uncovered window area shows the X11
+                                    // window background (black) — the reported "bg goes
+                                    // black when window < content". Surface it so the
+                                    // per-OS run can confirm this is the flicker source.
+                                    let phys = self.common.current_window_state.size.get_physical_size();
+                                    if pw != phys.width || ph != phys.height {
+                                        crate::plog_warn!(
+                                            "[x11 cpu] pixmap {}x{} != window {}x{} — uncovered area will show black (R2)",
+                                            pw, ph, phys.width, phys.height
+                                        );
+                                    }
+
                                     // Reuse BGRA conversion buffer
                                     self.bgra_buffer.resize(data.len(), 0);
                                     for (src, dst) in data.chunks_exact(4).zip(self.bgra_buffer.chunks_exact_mut(4)) {
@@ -2100,6 +2117,13 @@ impl X11Window {
                     }
 
                     if !rendered {
+                        // R2: no pixmap was produced this frame (e.g. unchanged
+                        // display list but the retained pixmap was dropped) — we
+                        // paint a solid fallback colour instead of the content,
+                        // which flips with real frames as the black/white flicker.
+                        crate::plog_warn!(
+                            "[x11 cpu] no rendered pixmap — painting solid fallback bg instead of content (R2 flicker suspect)"
+                        );
                         // Fallback to solid rectangle if CPU rendering not yet available
                         unsafe {
                             (self.xlib.XSetForeground)(self.display, *gc, CPU_FALLBACK_BG_COLOR);
