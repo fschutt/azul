@@ -148,7 +148,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
             {content}
             </div>
             <p style='font-size:1.2em;margin-top:20px;'>
-            <a href='{HTML_ROOT}/api/{version}.html'>Back to API index</a>
+            <a href='{HTML_ROOT}/api'>Back to API index</a>
             </p>
         </main>
 
@@ -658,7 +658,7 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
     let mut content = String::new();
     for version in api_data.get_sorted_versions() {
         content.push_str(&format!(
-            "<li><a href=\"{}/api/{}.html\">{}</a></li>\n",
+            "<li><a href=\"{}/api/{}\">{}</a></li>\n",
             HTML_ROOT, version, version
         ));
     }

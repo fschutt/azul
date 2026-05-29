@@ -774,7 +774,7 @@ fn render_tree(pages: &[&Guide]) -> String {
 
 fn render_li(g: &Guide, children: &std::collections::BTreeMap<String, Vec<&Guide>>) -> String {
     let mut s = format!(
-        "<li><a href=\"{HTML_ROOT}/guide/{}.html\">{}</a>",
+        "<li><a href=\"{HTML_ROOT}/guide/{}\">{}</a>",
         g.file_name,
         transform_german_quotes(&g.title),
     );
@@ -814,7 +814,8 @@ fn title_case(s: &str) -> String {
         .join(" ")
 }
 
-/// Rewrite `[text](path.md)` and `[text](path.md#anchor)` to `.html`.
+/// Rewrite `[text](path.md)` and `[text](path.md#anchor)` to an extensionless
+/// link (`path`) — the static host serves `path.html` for a request to `path`.
 /// Only touches link targets — `.md` inside prose / code stays untouched.
 fn rewrite_md_links(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
@@ -838,14 +839,12 @@ fn rewrite_md_links(content: &str) -> String {
                 let (path, frag) = target.split_at(hash);
                 if path.ends_with(".md") {
                     out.push_str(&path[..path.len() - 3]);
-                    out.push_str(".html");
                 } else {
                     out.push_str(path);
                 }
                 out.push_str(frag);
             } else if target.ends_with(".md") {
                 out.push_str(&target[..target.len() - 3]);
-                out.push_str(".html");
             } else {
                 out.push_str(target);
             }
@@ -862,7 +861,7 @@ pub fn generate_guide_index(versions: &[String]) -> String {
     let mut version_items = String::new();
     for version in versions {
         version_items.push_str(&format!(
-            "<li><a href=\"{HTML_ROOT}/guide/{version}.html\">{version}</a></li>\n",
+            "<li><a href=\"{HTML_ROOT}/guide/{version}\">{version}</a></li>\n",
         ));
     }
 

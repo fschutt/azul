@@ -1,0 +1,173 @@
+---
+slug: hello-world/java
+title: Hello World [Java]
+language: en
+canonical_slug: hello-world/java
+audience: external
+maturity: wip
+guide_order: 16
+topic_only: false
+prerequisites: [hello-world]
+tracked_files:
+  - api.json
+  - examples/java/HelloWorld.java
+last_generated_rev: 39416ebc681c6423bfdefa94dc996f613184ea0b
+generated_at: 2026-05-29T00:00:00Z
+default-search-keys:
+  - App
+  - AppConfig
+  - Dom
+  - Button
+  - WindowCreateOptions
+  - Update
+---
+
+# Hello World [Java]
+
+## Introduction
+
+The Java binding loads the prebuilt `libazul` native library through
+[JNA](https://github.com/java-native-access/jna). You write ordinary Java — a plain
+data class, a typed `LayoutCallback` that returns a `Dom`, and the wrapper-class
+`App` API — and the generated wrappers handle the FFI. No manual byte splicing, no
+`Pointer` arithmetic in your code.
+
+## Installation
+
+You need **JDK 17+**, **Maven**, **JNA 5.14+**, and the native `libazul` library.
+
+### Recommended: Maven dependency
+
+```xml
+<dependency>
+  <groupId>rs.azul</groupId>
+  <artifactId>azul</artifactId>
+  <version>0.2.0</version>
+</dependency>
+```
+
+> ![NOTE]
+> The 0.2.0 artifacts are hosted on the azul.rs Maven repository. Add it to your
+> `pom.xml` so Maven can resolve them:
+> ```xml
+> <repositories>
+>   <repository>
+>     <id>azul</id>
+>     <url>https://azul.rs/maven</url>
+>   </repository>
+> </repositories>
+> ```
+> JNA itself (`net.java.dev.jna:jna:5.14.0`) comes from Maven Central as usual.
+
+### Manual (works today)
+
+1. Download the native library from the [/releases](/releases) page (`libazul.dylib`
+   / `libazul.so` / `azul.dll`) and keep it in your working directory or pass
+   `-Djna.library.path=.`.
+2. Add the generated `com/azul/*.java` wrappers (from the
+   [examples archive](/release/0.2.0/examples.zip) under `java/`) to your project.
+
+## Simple "Counter" Example
+
+```java
+package com.azul;
+
+import com.sun.jna.Pointer;
+
+public final class HelloWorld {
+
+    // Plain data class - the "single source of truth" for app state.
+    public static final class MyDataModel {
+        public int counter;
+        public MyDataModel(int counter) { this.counter = counter; }
+    }
+
+    private static final MyDataModel MODEL = new MyDataModel(5);
+
+    // Click callback. refanyGet recovers your object from the handle; write the
+    // Update value back through the out-pointer.
+    private static final AzulNativeManaged.CallbackInvokerCallback ON_CLICK =
+        (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
+            Object m = AzulHostInvoker.refanyGet(dataPtr);
+            int result = AzUpdate.DoNothing.value;
+            if (m instanceof MyDataModel) {
+                ((MyDataModel) m).counter += 1;
+                result = AzUpdate.RefreshDom.value;
+            }
+            outPtr.setInt(0, result);
+        };
+
+    // Typed layout callback: returns a Dom directly. The host-invoker bridge
+    // splices the Dom bytes into libazul's out-pointer for you.
+    private static final AzulHostInvoker.LayoutCallback LAYOUT =
+        (long id, Pointer dataPtr, Pointer infoPtr) -> {
+            Object recovered = AzulHostInvoker.refanyGet(dataPtr);
+            if (!(recovered instanceof MyDataModel)) {
+                return Dom.createBody();
+            }
+            MyDataModel m = (MyDataModel) recovered;
+            Dom label = Dom.createDiv()
+                .withCss("font-size: 32px;")
+                .withChild(Dom.createText(String.valueOf(m.counter)));
+            Dom buttonDom = Button.create("Increase counter")
+                .withButtonType(AzButtonType.Primary.value)
+                .onClick(m, ON_CLICK)
+                .dom();
+            return Dom.createBody()
+                .withChild(label)
+                .withChild(buttonDom);
+        };
+
+    public static void main(String[] args) {
+        // try-with-resources disposes the App (C-side delete) on exit.
+        try (App app = App.create(AzulHostInvoker.refanyWrap(MODEL), AppConfig.create())) {
+            app.run(WindowCreateOptions.create(LAYOUT));
+        }
+    }
+}
+```
+
+Four things to notice.
+
+- **`AzulHostInvoker.refanyWrap` / `refanyGet`** — your `MyDataModel` is wrapped once
+  and the same instance is handed back to every callback. Use `instanceof` to guard
+  the cast and fall back to `Dom.createBody()` / `AzUpdate.DoNothing` on mismatch.
+- **Typed `LayoutCallback` SAM** — returns a `Dom` directly; the bridge handles the
+  byte-splice into the native out-pointer. Click handlers use
+  `CallbackInvokerCallback` and write the `Update` int via `outPtr.setInt(0, ...)`.
+- **Wrapper-class fluent API** — `Dom.createBody().withChild(...)` and
+  `Button.create(label).withButtonType(...).onClick(data, fn).dom()`. `AzString`
+  decodes to `java.lang.String` via `.toString()`.
+- **`try (App app = ...)`** releases native memory deterministically — `close()` calls
+  the C-side `delete`.
+
+## Build and run
+
+```sh
+mvn package
+# macOS — -XstartOnFirstThread is REQUIRED so libazul's NSApplication loop
+# pumps on the JVM main thread.
+DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \
+    -cp target/hello-world-1.0.0.jar:$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar \
+    com.azul.HelloWorld
+```
+
+On Linux/Windows drop `-XstartOnFirstThread` and use `LD_LIBRARY_PATH` / `PATH`.
+
+You should see the window pictured on the [hello-world landing page](../hello-world.md).
+Click the button: the counter increments and the layout callback re-runs.
+
+## Common errors
+
+- **`UnsatisfiedLinkError` / library not found** — the native library isn't on
+  `-Djna.library.path` / `DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH`.
+- **Window never appears / instant crash on macOS** — you omitted
+  `-XstartOnFirstThread`. Cocoa requires the event loop on the main thread.
+- **Counter does not advance** — the click handler wrote `AzUpdate.DoNothing.value`.
+  Write `AzUpdate.RefreshDom.value` to `outPtr` after mutating.
+
+## Coming Up Next
+
+- [Application Architecture](../architecture.md) — architecting a larger Azul application
+- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS
+- [Hello World [Kotlin]](kotlin.md)
