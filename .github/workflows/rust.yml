@@ -1202,6 +1202,98 @@ jobs:
         shell: bash
         run: bash scripts/e2e_language_matrix.sh
 
+  # ===========================================================================
+  # Mobile libazul — prebuilt drop-in libraries (+ the minimal link stubs).
+  #
+  # Cross-compiles the LEAN libazul (no remill/web) for iOS + Android and bundles
+  # the few NDK / iOS-SDK *link stubs* it needs, so a user links a dropped-in
+  # libazul with NEITHER Android Studio NOR Xcode (see guide/mobile.md). The CI
+  # runner's NDK / Xcode SDK are used only to extract those stubs once — the
+  # published artifact is self-contained. Best-effort / non-blocking.
+  # ===========================================================================
+  build_mobile:
+    name: Mobile libazul (${{ matrix.label }})
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    continue-on-error: true
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, label: android-arm64,  target: aarch64-linux-android, abi: arm64-v8a }
+          - { os: ubuntu-22.04, label: android-x64,    target: x86_64-linux-android,  abi: x86_64 }
+          - { os: macos-14,     label: ios-arm64,      target: aarch64-apple-ios }
+          - { os: macos-14,     label: ios-sim-arm64,  target: aarch64-apple-ios-sim }
+    env:
+      MOBILE_FEATURES: "std,logging,link-static,a11y"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+          targets: ${{ matrix.target }}
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Set up Android NDK
+        if: startsWith(matrix.label, 'android')
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27
+      - name: Install cargo-ndk
+        if: startsWith(matrix.label, 'android')
+        run: cargo install cargo-ndk --locked
+      - name: Build libazul (Android)
+        if: startsWith(matrix.label, 'android')
+        run: |
+          cargo ndk -t ${{ matrix.abi }} build --release -p azul-dll \
+            --no-default-features --features "$MOBILE_FEATURES,android-activity"
+
+      - name: Build libazul (iOS)
+        if: startsWith(matrix.label, 'ios')
+        run: |
+          cargo build --release --target ${{ matrix.target }} -p azul-dll \
+            --no-default-features --features "$MOBILE_FEATURES"
+
+      - name: Collect libazul + minimal link stubs
+        shell: bash
+        run: |
+          set -e
+          OUT="mobile/${{ matrix.label }}"
+          mkdir -p "$OUT/stubs"
+          T="target/${{ matrix.target }}/release"
+          [ -f "$T/libazul.a" ] && cp "$T/libazul.a" "$OUT/" || true
+          for ext in so dylib; do [ -f "$T/libazul.$ext" ] && cp "$T/libazul.$ext" "$OUT/" || true; done
+          if [[ "${{ matrix.label }}" == android* ]]; then
+            SYS="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${{ matrix.target }}/24"
+            for l in c m dl log android; do cp "$SYS/lib$l.so" "$OUT/stubs/" 2>/dev/null || true; done
+            {
+              echo "Android NDK r27 link stubs for ${{ matrix.target }} (API 24)."
+              echo "Source: \$ANDROID_NDK/toolchains/llvm/prebuilt/<host>/sysroot/usr/lib/${{ matrix.target }}/24/"
+              echo "These are empty linker stubs (real impls ship on-device). Link your azul"
+              echo "app against these + libazul — no full NDK needed. See guide/mobile.md."
+            } > "$OUT/stubs/PROVENANCE.txt"
+          else
+            SDK="$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || true)"
+            for f in Foundation UIKit CoreGraphics; do
+              cp "$SDK/System/Library/Frameworks/$f.framework/$f.tbd" "$OUT/stubs/$f.tbd" 2>/dev/null || true
+            done
+            cp "$SDK/usr/lib/libSystem.tbd" "$OUT/stubs/" 2>/dev/null || true
+            {
+              echo "iOS SDK link stubs (.tbd) for ${{ matrix.target }}."
+              echo "Source: \$(xcrun --sdk iphoneos --show-sdk-path)/System/Library/Frameworks/"
+              echo "Text-based stubs; link your azul app against these + libazul. See guide/mobile.md."
+            } > "$OUT/stubs/PROVENANCE.txt"
+          fi
+          ls -lR "$OUT"
+
+      - name: Upload mobile libazul
+        uses: actions/upload-artifact@v7
+        with:
+          name: azul-mobile-${{ matrix.label }}
+          path: mobile/${{ matrix.label }}
+          if-no-files-found: warn
+
   build_linux_packages:
     name: Build Linux Packages (.deb/.rpm)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
@@ -1530,7 +1622,7 @@ jobs:
   deploy_pages:
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy'
-    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf]
+    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile]
     runs-on: ubuntu-22.04
     # The top-level workflow permissions are `contents: read`; the GitHub Release
     # step (`gh release create`/`upload`) needs `contents: write` or it 403s.
@@ -1768,6 +1860,13 @@ jobs:
           name: apt-repo
           path: artifacts-apt
 
+      - name: Download mobile libazul
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: azul-mobile-*
+          path: artifacts-mobile
+
       - name: Debug - Tree after download
         run: |
           sudo apt-get update && sudo apt-get install -y tree
@@ -1794,6 +1893,15 @@ jobs:
             mkdir -p website/apt
             cp -r artifacts-apt/. website/apt/
           fi
+
+          # Prebuilt drop-in mobile libazul + link stubs → release/0.2.0/mobile/<label>/
+          # (label = android-arm64 / android-x64 / ios-arm64 / ios-sim-arm64).
+          for d in artifacts-mobile/azul-mobile-*; do
+            [ -d "$d" ] || continue
+            label="${d##*azul-mobile-}"
+            mkdir -p "$RELEASE_DIR/mobile/$label"
+            cp -r "$d/." "$RELEASE_DIR/mobile/$label/" 2>/dev/null || true
+          done
 
           # Replace placeholder binaries with real ones
           # Linux

@@ -1522,6 +1522,21 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               </div>
 
               <br/>
+              <strong>Mobile (iOS &amp; Android) &mdash; drop-in libraries:</strong>
+              <p style='color:grey;font-size:15px;max-width:700px;'>Prebuilt lean <code>libazul</code>
+              (static <code>.a</code> + dynamic <code>.so</code>/<code>.dylib</code>) per mobile target,
+              bundled with the few NDK / iOS-SDK <em>link stubs</em> it needs &mdash; so you build an
+              Azul app in Rust and link it with <strong>no Android Studio and no Xcode</strong>. Drop the
+              right slice into your <code>.apk</code>/<code>.app</code> (a C <code>hello-world</code>
+              works too). See <a href='https://azul.rs/guide/mobile'>guide: Mobile</a>.</p>
+              <ul>
+                <li><a href='https://azul.rs/release/{version}/mobile/android-arm64/'>Android arm64-v8a</a> &mdash; <code>libazul.a</code> / <code>libazul.so</code> + stubs</li>
+                <li><a href='https://azul.rs/release/{version}/mobile/android-x64/'>Android x86_64 (emulator)</a> &mdash; <code>libazul.a</code> / <code>libazul.so</code> + stubs</li>
+                <li><a href='https://azul.rs/release/{version}/mobile/ios-arm64/'>iOS arm64 (device)</a> &mdash; <code>libazul.a</code> / <code>libazul.dylib</code> + .tbd stubs</li>
+                <li><a href='https://azul.rs/release/{version}/mobile/ios-sim-arm64/'>iOS arm64 (simulator)</a> &mdash; <code>libazul.a</code> / <code>libazul.dylib</code> + .tbd stubs</li>
+              </ul>
+
+              <br/>
               <strong>C / C++ headers:</strong>
               <ul>
                 {c_header_link}
