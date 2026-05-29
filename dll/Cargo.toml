@@ -241,6 +241,10 @@ ndk = { version = "0.9", default-features = false, optional = true }
 # backend (camera/android.rs); the safe `ndk` crate doesn't wrap camera.
 # Already transitive via `ndk`.
 ndk-sys = { version = "0.6", optional = true }
+# Runtime loader for AAudio (audio/aaudio.rs dlopen's libaaudio.so) — AAudio is
+# API 26+, so dlopen instead of -laaudio keeps the app loadable on API 24/25.
+# Non-optional so the Android AudioSink/mic backend always compiles.
+libloading = "0.8"
 # Optional bridge to logcat for `log` macros — feature-gated.
 android_logger = { version = "0.14", optional = true }
 # Soft-keyboard / IME bridge (Phase 5) — speaks to the Java
