@@ -2148,7 +2148,13 @@ define_class!(
                         let pos = azul_core::window::WindowPosition::Initialized(
                             azul_core::geom::PhysicalPositionI32::new(top_left_x, top_left_y),
                         );
-                        macos_window.common.current_window_state.position = pos;
+                        // F4: position REPORTED by the OS (source = Os) — acknowledge
+                        // into both current and the sync baseline so sync_window_state()
+                        // doesn't echo it back via setFrameTopLeftPoint.
+                        macos_window.common.update_window_state(
+                            crate::desktop::shell2::common::event::WindowStateSource::Os,
+                            |ws| ws.position = pos,
+                        );
                         if let Some(ref mut lw) = macos_window.common.layout_window {
                             lw.current_window_state.position = pos;
                         }
@@ -4726,10 +4732,17 @@ impl MacOSWindow {
         if (old_dims.width - new_logical_width).abs() > 0.5
             || (old_dims.height - new_logical_height).abs() > 0.5
         {
-            self.common.current_window_state.size.dimensions = azul_core::geom::LogicalSize {
+            // F4: size REPORTED by the OS (source = Os) — acknowledge into both
+            // current and the sync baseline so sync_window_state() doesn't echo it
+            // back via setFrame.
+            let new_dims = azul_core::geom::LogicalSize {
                 width: new_logical_width,
                 height: new_logical_height,
             };
+            self.common.update_window_state(
+                crate::desktop::shell2::common::event::WindowStateSource::Os,
+                |ws| ws.size.dimensions = new_dims,
+            );
 
             // Also update the DPI in case it changed (e.g., window moved to different display)
             let scale_factor = unsafe {
