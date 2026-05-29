@@ -26,7 +26,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use azul::dom::OnAudioFrameCallback;
-use azul::misc::{AudioConfig, CameraConfig, SensorKind, Udp};
+use azul::misc::{AudioConfig, Capability, CameraConfig, SensorKind, Udp};
 use azul::option::{OptionRefAny, OptionU8Vec};
 use azul::prelude::*;
 use azul::str::String as AzString;
@@ -110,6 +110,43 @@ fn init_logger() {
         std::env::consts::OS,
         std::env::consts::ARCH
     );
+}
+
+// ─────────────────────── capabilities probe ───────────────────────
+
+/// Non-destructive capability dump via the `AzCapability_*` probe API — answers
+/// "is each feature usable on this target, and which backend?" WITHOUT touching
+/// hardware (so it never crashes and runs even headless). This is the upfront
+/// capabilities table; the operational probes below then exercise the live path.
+fn probe_capabilities() {
+    log::info!("── capabilities (probe — non-destructive) ──");
+    let rows = [
+        ("camera", Capability::camera()),
+        ("microphone", Capability::microphone()),
+        ("audio-out", Capability::audio_output()),
+        ("udp", Capability::udp()),
+        ("sensors", Capability::sensors()),
+        ("gamepad", Capability::gamepad()),
+        ("geolocation", Capability::geolocation()),
+        ("keyring", Capability::keyring()),
+        ("biometric", Capability::biometric()),
+        ("video-codec", Capability::video_codec()),
+    ];
+    for (name, c) in rows {
+        let status = if c.available { "AVAILABLE  " } else { "unavailable" };
+        let reason = c.reason.as_str();
+        if reason.is_empty() {
+            log::info!("[cap] {:<12} {} via {}", name, status, c.backend.as_str());
+        } else {
+            log::info!(
+                "[cap] {:<12} {} via {} ({})",
+                name,
+                status,
+                c.backend.as_str(),
+                reason
+            );
+        }
+    }
 }
 
 // ─────────────────────── standalone probes ───────────────────────
@@ -442,6 +479,9 @@ fn banner() {
 pub fn start() {
     banner();
     init_logger();
+
+    // 0) Capabilities table (non-destructive probe API).
+    probe_capabilities();
 
     // 1) Standalone probes (no event loop) — the deterministic, exit-code ones.
     probe_udp();

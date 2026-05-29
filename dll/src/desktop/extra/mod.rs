@@ -60,3 +60,7 @@ pub mod sensors;
 /// `azul_layout::managers::gamepad::push_gamepad_state`, which the layout
 /// pass folds into the per-`App` `GamepadManager`.
 pub mod gamepad;
+
+/// Cross-subsystem capability probes ([`capability::Capability`]) — "can I use
+/// this feature here, and which backend?". Non-destructive, never panic.
+pub mod capability;
