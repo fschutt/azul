@@ -26,14 +26,14 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use azul::dom::OnAudioFrameCallback;
-use azul::misc::{AudioConfig, Capability, CameraConfig, SensorKind, Udp};
+use azul::misc::{AudioConfig, CameraConfig, SensorKind, Udp};
 use azul::option::{OptionRefAny, OptionU8Vec};
 use azul::prelude::*;
 use azul::str::String as AzString;
 use azul::task::TerminateTimer;
 use azul::vec::U8Vec;
 use azul::widgets::{AudioFrame, CameraWidget, MicrophoneWidget};
-use azul::window::AudioSink;
+use azul::window::{AudioSink, PlatformCapability};
 
 /// How long the windowed (event-loop) probe phase runs before auto-closing.
 const RUN_SECS: u64 = 4;
@@ -121,16 +121,16 @@ fn init_logger() {
 fn probe_capabilities() {
     log::info!("── capabilities (probe — non-destructive) ──");
     let rows = [
-        ("camera", Capability::camera()),
-        ("microphone", Capability::microphone()),
-        ("audio-out", Capability::audio_output()),
-        ("udp", Capability::udp()),
-        ("sensors", Capability::sensors()),
-        ("gamepad", Capability::gamepad()),
-        ("geolocation", Capability::geolocation()),
-        ("keyring", Capability::keyring()),
-        ("biometric", Capability::biometric()),
-        ("video-codec", Capability::video_codec()),
+        ("camera", PlatformCapability::camera()),
+        ("microphone", PlatformCapability::microphone()),
+        ("audio-out", PlatformCapability::audio_output()),
+        ("udp", PlatformCapability::udp()),
+        ("sensors", PlatformCapability::sensors()),
+        ("gamepad", PlatformCapability::gamepad()),
+        ("geolocation", PlatformCapability::geolocation()),
+        ("keyring", PlatformCapability::keyring()),
+        ("biometric", PlatformCapability::biometric()),
+        ("video-codec", PlatformCapability::video_codec()),
     ];
     for (name, c) in rows {
         let status = if c.available { "AVAILABLE  " } else { "unavailable" };

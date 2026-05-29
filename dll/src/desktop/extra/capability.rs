@@ -1,9 +1,9 @@
-//! Capability probes — "can I use this platform feature here, and which backend
+//! PlatformCapability probes — "can I use this platform feature here, and which backend
 //! serves it?" (Phase 2, item c).
 //!
 //! Every device subsystem (camera / microphone / audio / udp / sensors /
 //! gamepad / geolocation / keyring / biometric / video) can be *probed*
-//! up-front for a typed [`Capability`] instead of attempting an operation and
+//! up-front for a typed [`PlatformCapability`] instead of attempting an operation and
 //! getting an ambiguous `0` / null / `None`. The probes are **non-destructive
 //! and never panic** — a desktop with no motion sensor returns
 //! `available = false` with a reason, it does not crash (the contract the bug
@@ -23,7 +23,7 @@ use azul_css::AzString;
 /// it is not (or a note about when device presence is confirmed).
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
-pub struct Capability {
+pub struct PlatformCapability {
     /// Whether the feature is usable on this target (see the module note on how
     /// device-presence is determined per subsystem).
     pub available: bool,
@@ -36,24 +36,24 @@ pub struct Capability {
 }
 
 #[inline]
-fn cap(available: bool, backend: &'static str, reason: &'static str) -> Capability {
-    Capability {
+fn cap(available: bool, backend: &'static str, reason: &'static str) -> PlatformCapability {
+    PlatformCapability {
         available,
         backend: AzString::from_const_str(backend),
         reason: AzString::from_const_str(reason),
     }
 }
 
-impl Capability {
+impl PlatformCapability {
     /// Probe UDP networking (`AzUdp`). Always available — it is plain
     /// `std::net::UdpSocket`, no device or platform feature required.
-    pub fn udp() -> Capability {
+    pub fn udp() -> PlatformCapability {
         cap(true, "std::net::UdpSocket", "")
     }
 
     /// Probe camera capture. On Linux a real check for a `/dev/video*` node;
     /// elsewhere reports the backend (device presence confirmed at `open()`).
-    pub fn camera() -> Capability {
+    pub fn camera() -> PlatformCapability {
         if cfg!(target_os = "linux") {
             let have = (0..8).any(|i| {
                 std::path::Path::new(&format!("/dev/video{}", i)).exists()
@@ -75,7 +75,7 @@ impl Capability {
     }
 
     /// Probe microphone capture.
-    pub fn microphone() -> Capability {
+    pub fn microphone() -> PlatformCapability {
         if cfg!(target_os = "linux") {
             let have = std::path::Path::new("/dev/snd").exists();
             if have {
@@ -95,7 +95,7 @@ impl Capability {
     }
 
     /// Probe audio output (`AudioSink`).
-    pub fn audio_output() -> Capability {
+    pub fn audio_output() -> PlatformCapability {
         if cfg!(target_os = "linux") {
             let have = std::path::Path::new("/dev/snd").exists();
             if have {
@@ -116,7 +116,7 @@ impl Capability {
 
     /// Probe motion sensors. Linux checks the iio sysfs tree; desktops usually
     /// have no accelerometer (reported, not crashed); phones do.
-    pub fn sensors() -> Capability {
+    pub fn sensors() -> PlatformCapability {
         if cfg!(target_os = "linux") {
             let have = std::fs::read_dir("/sys/bus/iio/devices")
                 .map(|mut d| d.next().is_some())
@@ -142,7 +142,7 @@ impl Capability {
     /// Probe gamepad input. Reports the backend without initialising gilrs
     /// (whose libudev/evdev enumeration is the suspect for the Linux double-free
     /// C5); a connected pad is detected when `poll()` runs.
-    pub fn gamepad() -> Capability {
+    pub fn gamepad() -> PlatformCapability {
         if cfg!(any(target_os = "linux", target_os = "macos", target_os = "windows")) {
             cap(true, "gilrs", "a controller is detected when polled (none may be connected)")
         } else if cfg!(target_os = "ios") {
@@ -155,7 +155,7 @@ impl Capability {
     }
 
     /// Probe geolocation. Currently a stub on every platform.
-    pub fn geolocation() -> Capability {
+    pub fn geolocation() -> PlatformCapability {
         if cfg!(target_os = "linux") {
             cap(false, "geoclue (D-Bus)", "not yet implemented (stub)")
         } else if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
@@ -171,7 +171,7 @@ impl Capability {
 
     /// Probe the secret keyring. Backend presence; the actual store may still be
     /// locked/absent (delivered async as `KeyringResult::Unavailable`).
-    pub fn keyring() -> Capability {
+    pub fn keyring() -> PlatformCapability {
         if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
             cap(true, "Keychain", "result delivered async via get_keyring_result")
         } else if cfg!(target_os = "linux") {
@@ -187,7 +187,7 @@ impl Capability {
 
     /// Probe biometric auth — uses the real sync availability probe
     /// (`probe_availability`), so this reflects actual device/enrolment state.
-    pub fn biometric() -> Capability {
+    pub fn biometric() -> PlatformCapability {
         use azul_core::biometric::BiometricKind;
         match super::biometric::probe_availability() {
             BiometricKind::NotAvailable => {
@@ -201,7 +201,7 @@ impl Capability {
 
     /// Probe the hardware video codec. Currently a stub on every platform
     /// (encode/decode are no-ops), so reported as unavailable.
-    pub fn video_codec() -> Capability {
+    pub fn video_codec() -> PlatformCapability {
         if cfg!(any(target_os = "macos", target_os = "ios")) {
             cap(false, "VideoToolbox", "not yet implemented (stub)")
         } else if cfg!(target_os = "android") {
