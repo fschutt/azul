@@ -2636,3 +2636,34 @@ Run 26333448552 (first mobile-ios-android push) revealed the full failure set + 
 - **#20 IN PROGRESS — printpdf** (branch azul-mobile-parsedfont-compat): deps switched to allsorts-azul 0.16.4 + azul-layout 0.0.9 + azul-css/core 0.0.8 (local, uncommitted). font.rs/serialize.rs adapted earlier (commit 09d15ee) but ~2 minor type-annotation errors remain. **Real work: components.rs uses the OLD `XmlComponent` trait; azul redesigned xml into data-driven `ComponentMap`/`ComponentDef` (builtin library = ~90 standard HTML tags). Plan: drop printpdf's ~80 redundant standard-tag impls, use azul's default ComponentMap, port only the custom `ImgComponent` + `DynamicXmlComponent` to `ComponentDef`.** User cuts the final 0.10 release; I get it compiling + green + commit to the branch.
 - **#21 — issue-triage subagent RUNNING (background, read-only):** triaging fschutt/printpdf open issues/PRs (already-fixed vs needs-fixing) for the "fix every bug" 0.10 goal.
 - **azul-mobile CI still gated on the printpdf `[patch]`** (Cargo.toml:47 — breaks `cargo metadata` on runners); drops only after printpdf 0.10 publishes. 137 commits unpushed.
+
+### Tick — 2026-05-29 — 0.2.0 release-page + docs + .a-size pass
+
+Release punch-list (user-driven). Branch mobile-ios-android, NOT pushed.
+
+- **7 hello-world guides** authored (`doc/guide/en/hello-world/{csharp,java,kotlin,lua,ruby,node,ocaml}.md`)
+  in the python.md style, from the real current-API `examples/*` sources + READMEs.
+  Verified: parse OK, render with correct syntax-highlight, appear in guide nav + llms.txt,
+  cross-links rewrite, no frontmatter errors. guide_order 15–21.
+- **Release page (`doc/src/dllgen/deploy.rs`):**
+  - Binding links `#install-{lang}` → `https://azul.rs/guide/hello-world/{lang}` (all 11, extensionless).
+  - Dead `azul.rs/{version}.git` (never generated → 404; `create_git_repository` had 0 call sites)
+    → crates.io `version="0.2.0"` snippet + GitHub-tag source link.
+  - Demos grouped by binary (heading + per-OS sub-list).
+  - PDF link `azul-documentation.pdf` → `guide.pdf`; coverage/index.html → coverage; api/{v}.html → api/{v}.
+- **.html stripping** (user ask) across sidebar nav (mod.rs), guide-body `rewrite_md_links` (guide.rs),
+  guide+api version indexes (guide.rs/apidocs.rs), release page (deploy.rs). No X.html/X-index collisions.
+- **Back-to-API-index** (apidocs.rs) `/api/{version}.html` (self-link) → `/api`.
+- **CI guide.pdf deploy** (rust.yml): `deploy_pages` now `needs: docs_pdf`, downloads the
+  `azul-documentation-pdf` artifact, copies it to `release/0.2.0/guide.pdf`.
+- **BUG: 1GB libazul.a** root-caused: `cargo tree` proves remill is NOT in `build-dll` (the
+  "linked with remill" was stray symbols). Real cause: `prod-release` inherits `release` (debug=1),
+  and cargo's `strip` does NOT strip `.a` archives → 1GB of un-GC'd line tables. Fix: `debug=0` in
+  prod-release (covers native + all cross-arch, all use prod-release) + CI `strip --strip-debug` belt
+  on the native `.a`.
+- **remill = dll-only** (task verified, no change): rust.yml release path has zero remill; the
+  Dockerfile builds `libazul.so` (dynamic) + uses the EXTERNAL lifter — no static remill, no `.a`.
+
+Cron: created `*/10 * * * *` self-wake to continue the list autonomously (session-only, 7-day expiry).
+Still pending: doc-review JS tool (#7), lean/azuldbg split (#13), mobile APK/.app CI (#8),
+docker→GHCR enable (#9), self-host publish channels (#10), mac/Android signing (#6).

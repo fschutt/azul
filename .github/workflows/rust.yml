@@ -759,6 +759,24 @@ jobs:
       - name: Build DLL (for C/C++ examples)
         run: cargo build --profile prod-release -p azul-dll --features="build-dll"
 
+      # Strip debug + local symbols from the STATICLIB. cargo's profile `strip`
+      # only strips final linked outputs (.so/.dylib), never `.a` archives, so
+      # the archive would otherwise ship every object file's symbols. Combined
+      # with prod-release `debug = 0` this keeps libazul.a small (was ~1 GB).
+      - name: Strip static lib (.a)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          A="target/prod-release/libazul.a"
+          [ -f "$A" ] || exit 0
+          echo "before: $(du -h "$A" | cut -f1)"
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            strip -S -x "$A" || true            # -S strip debug, -x strip locals
+          else
+            strip --strip-debug --strip-unneeded "$A" || true
+          fi
+          echo "after:  $(du -h "$A" | cut -f1)"
+
       - name: Build Rust examples
         run: cargo check --verbose --examples
 
@@ -1391,7 +1409,7 @@ jobs:
   deploy_pages:
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy'
-    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos]
+    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf]
     runs-on: ubuntu-22.04
     # The top-level workflow permissions are `contents: read`; the GitHub Release
     # step (`gh release create`/`upload`) needs `contents: write` or it 403s.
@@ -1615,6 +1633,13 @@ jobs:
           name: coverage-report
           path: artifacts-coverage
 
+      - name: Download docs PDF
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: azul-documentation-pdf
+          path: artifacts-pdf
+
       - name: Debug - Tree after download
         run: |
           sudo apt-get update && sudo apt-get install -y tree
@@ -1628,7 +1653,11 @@ jobs:
         run: |
           RELEASE_DIR="website/release/0.2.0"
           mkdir -p "$RELEASE_DIR"
-          
+
+          # Guide + API reference PDF (rendered by the docs_pdf job). The release
+          # page links it as release/0.2.0/guide.pdf.
+          find artifacts-pdf -name "azul-documentation.pdf" -exec cp {} "$RELEASE_DIR/guide.pdf" \; 2>/dev/null || true
+
           # Replace placeholder binaries with real ones
           # Linux
           find artifacts-linux -name "libazul.so" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true

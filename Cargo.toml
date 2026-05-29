@@ -82,6 +82,13 @@ opt-level = 3
 lto = "thin"      # Thin LTO: good size/perf wins without full-LTO build cost.
 codegen-units = 1 # Single codegen unit for best optimization.
 strip = "symbols" # Strip symbols for smallest binary.
+# Distribution profile carries NO debuginfo. `release` sets debug=1 for local
+# samply profiling, but that line-table data bloats the `libazul.a` STATICLIB
+# to ~1 GB: cargo's `strip` only strips final linked outputs (.so/.dylib/exe),
+# NOT `.a` archives, so the archive otherwise keeps debug=1 line tables for the
+# whole azul + webrender + deps object set un-GC'd. debug=0 is the real fix; CI
+# also runs `strip --strip-debug` on the `.a` as a belt (removes local symbols).
+debug = 0
 
 # Minimum-size profile: smallest possible binary without losing functionality.
 #   cargo build --profile min-size -p azul-dll --features build-dll
