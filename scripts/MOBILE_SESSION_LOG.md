@@ -2768,3 +2768,24 @@ OPTIONAL remaining (low pri, not blocking release): deeper sub-split of full.rs 
 responses/server/e2e/scaffold submodules — pure code-motion on the gated side, verify via full check.
 
 DONE 13/15 top-level (+ STEP A/B of #13). Remaining: #8 mobile APK/.app CI, #10 self-host feeds.
+
+### Tick — 2026-05-29 (cont.) — fix stale-macro bug + wind down cron
+
+- FIXED a real bug: the split commit (80704c8fe) had staged full.rs BEFORE the macro block was
+  removed (git-mv timing), so full.rs kept the 5 log_* #[macro_export] macros that also live in
+  mod.rs → duplicate-definition error in ANY debug-server/azuldbg build. The earlier FULL check
+  passed only because it tested the working tree. Committed the deletion; re-verified `cargo check
+  -p azul-dll` lean + `--features debug-server` BOTH green from a clean tree. (Lesson: verify the
+  COMMITTED state, not just the working tree, after git mv + post-mv edits.)
+
+STATUS 13/15 top-level done (10 commits this session, branch mobile-ios-android, NOT pushed).
+Remaining BLOCKED-ON-USER:
+- #8 mobile APK/.app CI — scripts build `-p azul-dll` as a generic NativeActivity/.app, NOT a
+  specific demo crate; needs a decision on WHICH app is the mobile demo + HOW the cdylib carries
+  its layout callback (azul-dll is the library, not an app). No Android SDK/Xcode locally to verify.
+- #10 self-host feeds — apt mirror needs a GPG signing key the USER must generate (private key →
+  CI secret AZUL_APT_GPG_KEY); all feeds need the CI-built packages staged into website/<feed>/.
+  Writing instructions for empty/unsigned feeds would mislead.
+
+Cron 9f553e2d deleted (its grind purpose is served; the rest is user-input-bound). Re-arm with
+/loop after deciding #8's app + providing #10's GPG key.
