@@ -56,8 +56,22 @@ pub fn poll() {
     GILRS.with(|cell| {
         let mut slot = cell.borrow_mut();
         if slot.is_none() {
-            // Lazy init on first poll (same thread every frame).
+            // Lazy init on first poll (same thread every frame). These two logs
+            // bracket gilrs's libudev/evdev enumeration — the suspect for the
+            // reported Linux "double free in tcache2" (C5). If the CI/self-test
+            // log shows "initialising gilrs" with no following line, the abort is
+            // inside Gilrs::new (a gilrs/libudev issue), not azul code.
+            crate::plog_info!("[gamepad] initialising gilrs (libudev/evdev enumeration)");
             *slot = Gilrs::new().ok();
+            match slot.as_ref() {
+                Some(g) => crate::plog_info!(
+                    "[gamepad] gilrs initialised; {} pad(s) present",
+                    g.gamepads().count()
+                ),
+                None => crate::plog_warn!(
+                    "[gamepad] gilrs failed to initialise — gamepad input unavailable"
+                ),
+            }
         }
         let Some(gilrs) = slot.as_mut() else {
             return;
@@ -67,6 +81,7 @@ pub fn poll() {
         // disconnects so the manager can clear that pad's slot.
         while let Some(ev) = gilrs.next_event() {
             if matches!(ev.event, EventType::Disconnected) {
+                crate::plog_info!("[gamepad] pad {} disconnected", usize::from(ev.id));
                 push_gamepad_state(GamepadState::empty(GamepadId {
                     id: usize::from(ev.id) as u32,
                 }));

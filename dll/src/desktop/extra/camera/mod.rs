@@ -25,6 +25,7 @@ pub fn ensure_camera_backend() {
     {
         static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         DONE.get_or_init(|| {
+            crate::plog_info!("[camera] registering v4l2 backend (libv4l2 → RGB24 → RGBA)");
             azul_layout::widgets::capture_common::register_camera_backend(
                 azul_layout::widgets::capture_common::CaptureVTable {
                     open: v4l2::open,
@@ -38,6 +39,7 @@ pub fn ensure_camera_backend() {
     {
         static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         DONE.get_or_init(|| {
+            crate::plog_info!("[camera] registering Windows (nokhwa/Media Foundation) backend → RGBA");
             azul_layout::widgets::capture_common::register_camera_backend(
                 azul_layout::widgets::capture_common::CaptureVTable {
                     open: windows::open,
@@ -51,6 +53,7 @@ pub fn ensure_camera_backend() {
     {
         static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         DONE.get_or_init(|| {
+            crate::plog_info!("[camera] registering AVFoundation backend (32-BGRA → RGBA)");
             azul_layout::widgets::capture_common::register_camera_backend(
                 azul_layout::widgets::capture_common::CaptureVTable {
                     open: avfoundation::open,

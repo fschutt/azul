@@ -45,6 +45,11 @@ pub fn ensure_started() {
 }
 
 fn start() {
+    // Brackets the native motion-sensor registration. A reading never arriving
+    // is normal (a desktop with no accelerometer → get_sensor_reading stays
+    // None, NOT a crash); this log lets the self-test report "unavailable" vs.
+    // pinpoint a backend that aborts during start (C4).
+    crate::plog_info!("[sensors] starting motion-sensor backend");
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     apple::start();
     #[cfg(target_os = "android")]
@@ -54,6 +59,7 @@ fn start() {
     #[cfg(target_os = "windows")]
     windows::start();
     // Other targets: no motion sensors wired — `get_sensor_reading` stays `None`.
+    crate::plog_info!("[sensors] motion-sensor backend start complete");
 }
 
 /// Pull the latest sample from each sensor into the async channel. Called
