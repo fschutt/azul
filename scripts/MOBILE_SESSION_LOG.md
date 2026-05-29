@@ -2725,3 +2725,26 @@ DebugTimerData, debug_timer_callback, process_debug_event ~4090 LOC, DebugEvent 
 structs, all handlers/evaluators/scaffold gens) for the SIZE win + split the 10,329-line file into
 debug_server/{mod,responses,server,e2e,scaffold,events}.rs + ship azuldbg.* artifact + release note.
 NOTE disk at 95% (12Gi) — STEP B's per-item gating uses the fast check loop; no heavy build needed.
+
+### Tick — 2026-05-29 (cont.) — #13 STEP B: split debug_server into a gated module
+
+Branch mobile-ios-android, NOT pushed. Verified: `cargo check -p azul-dll` LEAN (0.42s) +
+`--features debug-server` FULL (5.57s) — both green.
+
+- Split common/debug_server.rs (10,329 lines) into a directory module:
+  - debug_server/full.rs — the verbatim ~10.2k-line server impl, gated `#[cfg(feature="debug-server")]`
+    (macros lifted out to avoid duplicate #[macro_export]).
+  - debug_server/stub.rs — lean light-API (~95 lines): LogLevel/LogCategory enums, is_debug_enabled()
+    →false, log()/init_recording()/register_debug_timer() no-ops, opaque DebugRequest.
+  - debug_server/mod.rs — cfg-selects full vs stub + the 5 log_* macros (always compiled; their
+    format!(...) branch keeps args type-checked → no unused-var warnings; the branch is dead in lean).
+- Result: the lean azul.* no longer COMPILES the ~10k-line HTTP server / inspector / E2E /
+  scaffold-generator machinery (size win) and the debug port is unreachable (security). The 700+
+  log_*! call sites + 38 platform files are untouched.
+
+Verify loop (cargo check, ~0.4–6s) made the gating safe to iterate.
+
+REMAINING for #15: (a) CI build_binaries — also build azuldbg.{so,dll,dylib} via
+`--features build-dll,debug-server` + deploy as swap-in; (b) release-page note: swap azul→azuldbg to
+re-enable AZ_DEBUG=<port>; (c) optional deeper LOC split of full.rs into responses/server/e2e/scaffold
+submodules (pure code-motion on the gated side, verify with the full check).
