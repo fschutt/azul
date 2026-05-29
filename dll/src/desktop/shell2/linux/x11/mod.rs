@@ -382,6 +382,32 @@ unsafe fn decode_valuator(ev: &defines::XIDeviceEvent, number: i32) -> Option<f6
     Some(*vs.values.offset(idx))
 }
 
+/// Human-readable name for an X11 core event type (for raw-event tracing).
+/// Values are the stable X11 protocol numbers.
+fn x11_event_name(t: i32) -> &'static str {
+    match t {
+        2 => "KeyPress",
+        3 => "KeyRelease",
+        4 => "ButtonPress",
+        5 => "ButtonRelease",
+        6 => "MotionNotify",
+        7 => "EnterNotify",
+        8 => "LeaveNotify",
+        9 => "FocusIn",
+        10 => "FocusOut",
+        12 => "Expose",
+        18 => "UnmapNotify",
+        19 => "MapNotify",
+        21 => "ReparentNotify",
+        22 => "ConfigureNotify",
+        28 => "PropertyNotify",
+        33 => "ClientMessage",
+        34 => "MappingNotify",
+        35 => "GenericEvent",
+        _ => "Other",
+    }
+}
+
 /// Handle an XI2 GenericEvent: feed pen pressure/tilt + multi-touch into the
 /// window state (mirrors the iOS/Android/Windows/macOS feed). The core pointer
 /// events still drive the cursor + click; XI2 only adds pressure + touch points.
@@ -577,6 +603,16 @@ impl X11Window {
                     continue; // Event was consumed by IME
                 }
             }
+
+            // Raw-event trace: every incoming XEvent, so the per-OS run shows how
+            // raw system events map to app actions and surfaces event storms
+            // (e.g. a flood of ConfigureNotify = a geometry feedback loop). Cheap
+            // (trace-level, no-op unless logging is enabled).
+            crate::plog_trace!(
+                "[x11 ev] raw {} (#{})",
+                x11_event_name(unsafe { event.type_ }),
+                unsafe { event.type_ }
+            );
 
             // Process event with V2 handlers
             let result = match unsafe { event.type_ } {
@@ -1686,6 +1722,13 @@ impl X11Window {
                 return;
             }
         }
+
+        // Raw-event trace (see the main event loop).
+        crate::plog_trace!(
+            "[x11 ev] raw {} (#{})",
+            x11_event_name(unsafe { event.type_ }),
+            unsafe { event.type_ }
+        );
 
         // Process event with V2 handlers
         let result = match unsafe { event.type_ } {
