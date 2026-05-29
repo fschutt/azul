@@ -5053,6 +5053,15 @@ impl MacOSWindow {
 
         let event_type = event.r#type();
 
+        // Raw-event trace: every NSEvent reaching the app, mirroring the X11
+        // [x11 ev] / Win32 [win32 ev] traces — shows how raw system events map to
+        // app actions per OS. Trace-level, no-op unless logging enabled.
+        crate::plog_trace!(
+            "[macos ev] raw {} (#{})",
+            macos_event_name(event_type.0 as usize),
+            event_type.0 as usize
+        );
+
         match event_type {
             // Mouse events are handled by NSView's responder methods (mouseDown:, etc.)
             // They will be dispatched to our handlers via sendEvent() -> NSView -> handle_mouse_*
@@ -6571,5 +6580,35 @@ impl MacOSWindow {
             // TODO: Could call invalidateMarkable or similar if needed
             // For now, passive approach is sufficient
         }
+    }
+}
+
+/// Human-readable name for an `NSEventType` raw value (for raw-event tracing).
+fn macos_event_name(t: usize) -> &'static str {
+    match t {
+        1 => "LeftMouseDown",
+        2 => "LeftMouseUp",
+        3 => "RightMouseDown",
+        4 => "RightMouseUp",
+        5 => "MouseMoved",
+        6 => "LeftMouseDragged",
+        7 => "RightMouseDragged",
+        8 => "MouseEntered",
+        9 => "MouseExited",
+        10 => "KeyDown",
+        11 => "KeyUp",
+        12 => "FlagsChanged",
+        13 => "AppKitDefined",
+        14 => "SystemDefined",
+        15 => "ApplicationDefined",
+        16 => "Periodic",
+        17 => "CursorUpdate",
+        22 => "ScrollWheel",
+        23 => "TabletPoint",
+        24 => "TabletProximity",
+        25 => "OtherMouseDown",
+        26 => "OtherMouseUp",
+        27 => "OtherMouseDragged",
+        _ => "Other",
     }
 }
