@@ -2789,3 +2789,28 @@ Remaining BLOCKED-ON-USER:
 
 Cron 9f553e2d deleted (its grind purpose is served; the rest is user-input-bound). Re-arm with
 /loop after deciding #8's app + providing #10's GPG key.
+
+### Tick — 2026-05-29 (cont.) — #8 mobile architecture investigation
+
+Goal (user): EVERY azul example → its own APK/.app, "Android app fully in Rust", no Xcode/Studio,
+CLI tools only (APK/.app are just zips).
+
+Findings:
+- azul-dll defines `#[no_mangle] pub fn android_main(app: AndroidApp)` (shell2/android/mod.rs),
+  driven by the `android-activity` crate (feature `android-activity`, dep 0.6 native-activity) whose
+  ANativeActivity_onCreate shim calls it. Manifest meta-data android.app.lib_name="azul" → libazul.so.
+- App::run() on android (run.rs:681) just STASHES (app_data,config,fc,fr,window) into
+  ANDROID_INITIAL_OPTIONS and returns; android_main (run.rs comment) reads it. But on NativeActivity
+  there is NO main() — so an example's main() (which calls App::run) never executes → options never
+  set → android_main errors "without INITIAL_OPTIONS set". THIS is the friction to close.
+- build-android.sh ALREADY does CLI-only packaging (cargo build cdylib → aapt2 link → zip in
+  lib/<abi>/libazul.so + classes.dex → zipalign → apksigner with auto debug keystore). It builds
+  `-p azul-dll` though, not a per-example crate. scripts/android/{AzulActivity,AzulFilePicker,
+  NativeGestureBridge}.java are dexed in. build-ios.sh similarly bundles a .app from the CLI.
+- NOT locally verifiable: `cargo check --target aarch64-linux-android` fails ("can't find crate for
+  core" — active toolchain lacks android std), and no NDK/SDK/Xcode here. Android/iOS builds are
+  CI/device-only. So the entry mechanism must be authored carefully + verified in CI.
+
+Decision needed (asked user): the Android/iOS ENTRY-POINT API shape so examples build as both a
+desktop bin AND a mobile cdylib with zero friction (macro vs explicit android_run vs ctor). Plus GPG
+approach for #10 (GitHub only stores PUBLIC keys; signing needs the PRIVATE key as a CI secret).
