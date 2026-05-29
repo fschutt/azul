@@ -2866,3 +2866,27 @@ CoreGraphics/libSystem .tbd; CPU render → no GLES/Metal; rust-lld → no exter
 STILL OPEN: ship prebuilt mobile libazul (.so/.dylib/.a, lean/no-remill) per target on the release
 page for the drop-in model + bundle the minimal NDK/iOS stub libs ("download these, here's the
 source"); per-example APK/.app CI (#8) needs a clean rustup toolchain + NDK in CI to verify.
+
+### Tick — 2026-05-29 (cont.) — mobile drop-in libs + per-example iOS .app CI
+
+Wired "wire everything" for mobile (CI-verified on push; locally: yaml-lint + bash -n + render).
+
+- build_mobile job: cross-compiles LEAN libazul (.so/.dylib + .a) for android-arm64/x64 +
+  ios-arm64/sim, bundles the minimal NDK/iOS link stubs (libandroid/liblog/libc/m/dl;
+  Foundation/UIKit/CoreGraphics/libSystem .tbd) + PROVENANCE.txt. deploy → release/0.2.0/mobile/<label>/.
+  Release-page "Mobile — drop-in libraries" section. (commit be4b5b845)
+- Generalized build-android.sh + build-ios.sh to take a CRATE arg (build any example); fixed feature
+  handling (azul-dll passes its features; demos use their own link-static dep). LIB_NAME/manifest
+  lib_name parametrized. bash -n clean.
+- build_mobile_apps job (macos): builds each demo as an iOS bin (main()→UIApplicationMain) → .app,
+  zips → release/0.2.0/mobile-apps/<demo>-ios.app.zip. deploy + per-demo "iOS (.app, sideload)" row
+  in the demo grouping. So reviewers sideload + test pan/zoom without Xcode.
+
+KEY FACTS: demos are bin-only crates depending on azul-dll{link-static}. iOS demos work as bins (no
+change). ANDROID demo APKs need each demo to add `crate-type=["cdylib","rlib"]` + an android_main
+shim (no main() on Android) — build-android.sh + the drop-in libazul/stubs already support it; demos
+opt in per guide/mobile.md. Did NOT blind-convert 9 demo crates (unverifiable android + the
+azul::android public API surface isn't confirmed).
+
+FOLLOW-UP: confirm/expose azul::android::{AndroidApp,run_android} in rust_api + an android_main!
+macro, then convert azul-maps/azul-paint to cdylib for android APKs (CI-verified).

@@ -20,6 +20,11 @@ set -euo pipefail
 TARGET="${1:-aarch64-linux-android}"
 APP_NAME="${2:-azul-example}"
 PACKAGE="${3:-com.azul.example}"
+# CRATE is the package built as the NativeActivity cdylib. A demo opts into
+# Android by declaring `crate-type=["cdylib","rlib"]` + an `android_main` shim
+# (see guide/mobile.md); a plain bin produces no .so and is skipped here.
+CRATE="${4:-${AZ_ANDROID_CRATE:-azul-dll}}"
+LIB_NAME="${CRATE//-/_}"
 VERSION_CODE="${VERSION_CODE:-1}"
 VERSION_NAME="${VERSION_NAME:-1.0}"
 LABEL="${LABEL:-${APP_NAME}}"
@@ -53,14 +58,20 @@ mkdir -p "$BUILD_DIR/lib/$ABI"
 
 FEATURES="${AZ_ANDROID_FEATURES:-std,logging,link-static,a11y}"
 
-echo "==> cargo build --target $TARGET --release -p azul-dll --no-default-features --features '$FEATURES'"
+# azul-dll takes its features explicitly; a demo/example crate pins its own azul
+# features (link-static) in Cargo.toml, so build it with its defaults.
+if [[ "$CRATE" == "azul-dll" ]]; then
+    FEATURE_ARGS=(--no-default-features --features "$FEATURES")
+else
+    FEATURE_ARGS=()
+fi
+echo "==> cargo build --target $TARGET --release -p $CRATE ${FEATURE_ARGS[*]}"
 (cd "$WORKSPACE_ROOT" \
-  && cargo build --target "$TARGET" --release -p azul-dll \
-       --no-default-features --features "$FEATURES")
+  && cargo build --target "$TARGET" --release -p "$CRATE" "${FEATURE_ARGS[@]}")
 
-SRC_SO="$WORKSPACE_ROOT/target/$TARGET/release/libazul.so"
-[[ -f "$SRC_SO" ]] || { echo "missing $SRC_SO — cargo build did not produce a cdylib" >&2; exit 4; }
-cp "$SRC_SO" "$BUILD_DIR/lib/$ABI/libazul.so"
+SRC_SO="$WORKSPACE_ROOT/target/$TARGET/release/lib${LIB_NAME}.so"
+[[ -f "$SRC_SO" ]] || { echo "missing $SRC_SO — '$CRATE' produced no cdylib (.so). A demo must declare crate-type=cdylib + android_main to ship as an APK; skipping." >&2; exit 4; }
+cp "$SRC_SO" "$BUILD_DIR/lib/$ABI/lib${LIB_NAME}.so"
 
 # Java sources for the optional native-gesture bridge. If present, we
 # compile them with javac, dex with d8, and ship classes.dex inside the
@@ -108,7 +119,7 @@ fi
 sed \
     -e "s|@PACKAGE@|$PACKAGE|g" \
     -e "s|@LABEL@|$LABEL|g" \
-    -e "s|@LIB_NAME@|azul|g" \
+    -e "s|@LIB_NAME@|${LIB_NAME}|g" \
     -e "s|@VERSION_CODE@|$VERSION_CODE|g" \
     -e "s|@VERSION_NAME@|$VERSION_NAME|g" \
     -e "s|android:hasCode=\"false\"|android:hasCode=\"$HAS_CODE_VALUE\"|g" \

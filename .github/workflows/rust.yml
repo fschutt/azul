@@ -1294,6 +1294,56 @@ jobs:
           path: mobile/${{ matrix.label }}
           if-no-files-found: warn
 
+  # ===========================================================================
+  # Mobile demo apps — installable .app per example, so reviewers can sideload
+  # and test touch features (pan/zoom, …) without Xcode/Studio.
+  #
+  # iOS: each demo is a normal bin whose main() runs App::run → UIApplicationMain,
+  # so the binary IS the app — build it for the iOS target and bundle a .app
+  # (build-ios.sh, AZ_IOS_DRYRUN=1 to bundle-but-not-deploy). Best-effort: a demo
+  # that needs a platform dep just isn't shipped (same model as build_demos).
+  #
+  # ANDROID demo APKs are NOT built here yet: a NativeActivity needs a cdylib
+  # (+ an android_main shim), and the demos are bin-only. Each demo opts into
+  # Android by adding `crate-type=["cdylib","rlib"]` + the shim (see
+  # guide/mobile.md); build-android.sh already accepts a crate name. The drop-in
+  # libazul + NDK stubs shipped by build_mobile are what those APKs link against.
+  # ===========================================================================
+  build_mobile_apps:
+    name: Mobile demo apps (iOS)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    continue-on-error: true
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+          targets: aarch64-apple-ios
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+      - name: Build + bundle each demo as a .app (best-effort)
+        shell: bash
+        run: |
+          set +e
+          mkdir -p mobile-apps
+          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet; do
+            echo "=== iOS .app: $demo ==="
+            AZ_IOS_DRYRUN=1 APP_NAME="$demo" bash scripts/build-ios.sh aarch64-apple-ios "$demo" \
+              || { echo "::warning::$demo failed to bundle for iOS — skipping"; continue; }
+            APP_DIR="target/ios-bundle/${demo}-aarch64-apple-ios.app"
+            if [ -d "$APP_DIR" ]; then
+              ( cd "$(dirname "$APP_DIR")" && zip -qr "$OLDPWD/mobile-apps/${demo}-ios.app.zip" "$(basename "$APP_DIR")" )
+            fi
+          done
+          ls -l mobile-apps || true
+      - name: Upload mobile demo apps
+        uses: actions/upload-artifact@v7
+        with:
+          name: azul-mobile-apps-ios
+          path: mobile-apps
+          if-no-files-found: warn
+
   build_linux_packages:
     name: Build Linux Packages (.deb/.rpm)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
@@ -1622,7 +1672,7 @@ jobs:
   deploy_pages:
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy'
-    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile]
+    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps]
     runs-on: ubuntu-22.04
     # The top-level workflow permissions are `contents: read`; the GitHub Release
     # step (`gh release create`/`upload`) needs `contents: write` or it 403s.
@@ -1864,8 +1914,22 @@ jobs:
         uses: actions/download-artifact@v8
         continue-on-error: true
         with:
-          pattern: azul-mobile-*
+          pattern: azul-mobile-android-*
           path: artifacts-mobile
+
+      - name: Download mobile libazul (iOS)
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: azul-mobile-ios-*
+          path: artifacts-mobile
+
+      - name: Download mobile demo apps
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: azul-mobile-apps-ios
+          path: artifacts-mobile-apps
 
       - name: Debug - Tree after download
         run: |
@@ -1902,6 +1966,13 @@ jobs:
             mkdir -p "$RELEASE_DIR/mobile/$label"
             cp -r "$d/." "$RELEASE_DIR/mobile/$label/" 2>/dev/null || true
           done
+
+          # Installable per-demo mobile apps (iOS .app zips) → release/0.2.0/mobile-apps/
+          # (Pages-hosted; the demo grouping links them per binary).
+          if [ -d artifacts-mobile-apps ] && [ -n "$(ls -A artifacts-mobile-apps 2>/dev/null)" ]; then
+            mkdir -p "$RELEASE_DIR/mobile-apps"
+            cp artifacts-mobile-apps/*.zip "$RELEASE_DIR/mobile-apps/" 2>/dev/null || true
+          fi
 
           # Replace placeholder binaries with real ones
           # Linux

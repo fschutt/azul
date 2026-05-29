@@ -36,8 +36,13 @@ case "$TARGET" in
         echo "unknown iOS target: $TARGET" >&2; exit 2 ;;
 esac
 
-APP_NAME="${APP_NAME:-AzulExample}"
-BUNDLE_ID="${BUNDLE_ID:-com.azul.example}"
+# CRATE is the package to build. A normal example/demo is a BIN whose main()
+# runs App::run → UIApplicationMain, i.e. it IS the iOS app executable. When
+# CRATE is the library (azul-dll) we fall back to bundling the dylib (sanity
+# check only). Pass via 2nd arg or AZ_IOS_CRATE.
+CRATE="${2:-${AZ_IOS_CRATE:-azul-dll}}"
+APP_NAME="${APP_NAME:-$CRATE}"
+BUNDLE_ID="${BUNDLE_ID:-com.azul.${CRATE//-/_}}"
 DISPLAY_NAME="${DISPLAY_NAME:-$APP_NAME}"
 VERSION="${VERSION:-1.0}"
 BUILD="${BUILD:-1}"
@@ -57,23 +62,26 @@ fi
 
 WORKSPACE_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
-echo "==> cargo build --target $TARGET --release -p azul-dll --no-default-features --features '$FEATURES'"
-( cd "$WORKSPACE_ROOT" \
-  && cargo build --target "$TARGET" --release -p azul-dll \
-       --no-default-features --features "$FEATURES" )
-
-# `cargo build` with `crate-type = ["cdylib","staticlib","rlib"]` and an iOS
-# target produces target/<triple>/release/libazul.dylib for sim and an
-# .a static lib. To get an actual executable Mach-O we need a thin C
-# main() that links against libazul.a — placeholder for that is the
-# `examples/ios/main.c` (TODO: real example). For now the script bundles
-# the dylib as a sanity check.
-
-ARTIFACT="$WORKSPACE_ROOT/target/$TARGET/release/libazul.dylib"
-if [[ ! -f "$ARTIFACT" ]]; then
-    ARTIFACT="$WORKSPACE_ROOT/target/$TARGET/release/libazul.a"
+# azul-dll takes its features explicitly; a demo/example crate already pins its
+# own azul features (link-static) in its Cargo.toml, so build it with defaults.
+if [[ "$CRATE" == "azul-dll" ]]; then
+    FEATURE_ARGS=(--no-default-features --features "$FEATURES")
+else
+    FEATURE_ARGS=()
 fi
-[[ -f "$ARTIFACT" ]] || { echo "missing $ARTIFACT — cargo did not produce a library" >&2; exit 4; }
+echo "==> cargo build --target $TARGET --release -p $CRATE ${FEATURE_ARGS[*]}"
+( cd "$WORKSPACE_ROOT" \
+  && cargo build --target "$TARGET" --release -p "$CRATE" "${FEATURE_ARGS[@]}" )
+
+# A bin crate produces an executable Mach-O at target/<triple>/release/<crate>;
+# that binary's main() runs App::run → UIApplicationMain, so it IS the app. If
+# CRATE is the library (azul-dll) there's no bin — fall back to the dylib/.a.
+ARTIFACT="$WORKSPACE_ROOT/target/$TARGET/release/$CRATE"
+if [[ ! -f "$ARTIFACT" ]]; then
+    ARTIFACT="$WORKSPACE_ROOT/target/$TARGET/release/libazul.dylib"
+    [[ -f "$ARTIFACT" ]] || ARTIFACT="$WORKSPACE_ROOT/target/$TARGET/release/libazul.a"
+fi
+[[ -f "$ARTIFACT" ]] || { echo "missing $ARTIFACT — cargo did not produce a binary/library" >&2; exit 4; }
 
 BUNDLE_DIR="$WORKSPACE_ROOT/target/ios-bundle/${APP_NAME}-${TARGET}.app"
 rm -rf "$BUNDLE_DIR"

@@ -1401,7 +1401,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     let demo_links: String = DEMO_APPS
         .iter()
         .map(|(crate_name, friendly, desc)| {
-            let os_links: String = DEMO_OSES
+            let mut os_links: String = DEMO_OSES
                 .iter()
                 .map(|(os_suffix, os_label, ext)| {
                     release_link_li(
@@ -1412,6 +1412,15 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                 })
                 .collect::<Vec<_>>()
                 .join("\n                    ");
+            // Installable iOS .app (Pages-hosted under mobile-apps/, so it routes
+            // to azul.rs not the GitHub Release). Sideload to test touch features
+            // (pan/zoom) without Xcode. 404s gracefully until built for a demo.
+            os_links.push_str("\n                    ");
+            os_links.push_str(&release_link_li(
+                version,
+                &format!("mobile-apps/{crate_name}-ios.app.zip"),
+                "iOS (.app, sideload)",
+            ));
             format!(
                 "<li><strong>{friendly}</strong> &mdash; {desc}\n                  \
                  <ul>\n                    {os_links}\n                  </ul></li>",
