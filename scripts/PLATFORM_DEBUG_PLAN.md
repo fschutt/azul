@@ -1,7 +1,58 @@
 # Platform-layer debug + self-test plan (0.2.0 post-release)
 
-**Status:** PLANNING (pre-implementation). Author this turn; implement after a /compact.
+**Status:** IN PROGRESS — Phases 0–3 done; the verifiable platform fixes are
+committed (compile-verified, awaiting per-OS RUNTIME validation); Phase 4 (run
+per-OS + compare logs) is the remaining step and needs a rebuild + a real
+Linux/Windows box.
 **Branch:** `mobile-ios-android` (never master; never force-push; always `--release`/`--profile`).
+
+---
+
+## CURRENT STATUS (update as of the platform-debug sessions)
+
+### Fixed + compile-verified (need runtime confirmation on the rebuild)
+| Item | What | Verified | Validate by |
+|------|------|----------|-------------|
+| **C1** | macOS demos aborted: `render_api.unwrap()` None in CPU mode → guarded | builds | run any macOS demo (should not abort on resize) |
+| **B1** | Linux `libazul.so` ~80 undefined `Py*` → one dylib + weak Py stubs; CI `nm` gate + C-link test | C stubs compile | CI `nm`/link step green; link a C app vs released `libazul.so` |
+| **F3** | Wayland `wl_display_get_registry` is an inline wrapper (not exported) → marshal it; + X11 fallback | linux x-check | run a demo under Wayland (`WAYLAND_DISPLAY` set) |
+| **F4** | window drifted on its own: OS-reported geometry echoed back. `WindowStateSource{App,Os}` + `update_window_state`; wired X11/macOS/Windows; Wayland immune | linux+win x-check, mac build | window stays put on Mint/Cinnamon; no ConfigureNotify storm in the `[x11 ev]` trace |
+| **R1** | CPU/llvmpipe "GLSL 1.50 not supported": SVG/FXAA shaders compiled in software mode → gate behind `RendererType::Hardware`; X11/Wayland detect software GL → `Software` | core check, linux x-check | run a demo on llvmpipe (no shader-compile error) |
+| **R2** | X11 black/white flicker: skip-render fast-path had no pixmap to blit → guarded; + warn logs for pixmap-vs-window mismatch | linux x-check | resize a window smaller than content; watch the `[x11 cpu]` warns |
+| **Phase 2** | `AzCapability_*` probe C-API (camera/mic/audio/udp/sensors/gamepad/geo/keyring/biometric/video) — typed `{available,backend,reason}`, never panics | codegen+build, table prints | the self-test capabilities table |
+
+### Diagnostics added (Phase 1) — how to read the per-OS logs
+Always-on `plog_*!` (route to the `log` facade; the self-test installs a logger).
+Grep the self-test log / demo run (with logging enabled) for these tags:
+- `[x11 ev] raw <name> (#n)` / `[win32 ev] raw <name>` / `[macos ev] raw <name>` — every raw OS event → spot event storms / wiring.
+- `[x11 ev] ConfigureNotify x/y/w/h/send_event` — F4: `send_event=0` = frame-relative coords.
+- `[x11 cpu] ...` — R2: pixmap-vs-window mismatch / fallback-paint.
+- `[camera] ...` `[udp] ...` `[audio] ...` `[gamepad] ...` `[sensors] ...` — backend open/format/availability.
+- `[cap] <subsystem> AVAILABLE|unavailable via <backend>` — the capability table.
+
+### Still OPEN — need Phase-4 per-OS runtime data (NOT blind-fixable safely)
+- **R3** Windows first-frame blank until resize — the initial present *does* run
+  (`render_and_present(true)` at window create); it is an async GPU first-frame
+  timing detail. Capture the `[win32 ev]` trace around startup.
+- **R4/R5** fonts blocky / sans-serif missing (Windows) — font rasterisation /
+  system-font-family wiring; needs a Windows run to see which face loads.
+- **R6/R7** content offset / images don't update (Windows) — CPU framebuffer
+  update path.
+- **F5/F6** Windows text-selection / vault double-auth — Windows runtime.
+- **C2/C3** Windows worker "threads should not terminate unexpectedly" — `panic="abort"`
+  means it can't be caught, only LOCALISED via the backend logs (which call aborted).
+- **C5** Linux gamepad `double free in tcache2` — inside gilrs/libudev (a C abort,
+  uncatchable); the `[gamepad] initialising gilrs` log brackets the crash site.
+- **M1** RAM 90–120 MB — needs runtime profiling.
+
+### Phase-4 runbook (for the agent restarted on the Linux/Windows box)
+1. Build + run `azul-self-test` (it self-describes on stdout). For the full device
+   probes leave the window on; for a headless box set `AZUL_SELFTEST_NO_WINDOW=1`.
+   Log goes to `$TMPDIR/azul-self-test.log` (override `AZUL_SELFTEST_LOG`).
+2. To get azul's platform traces in a *demo* run, build with the `logging` feature
+   and install an env_logger (the self-test already does); set `RUST_LOG=trace`.
+3. Compare `selftest-<os>.log` across machines; the tags above localise each bug.
+4. Fix the OPEN items against the real logs, then update this table.
 
 ## Source of truth (in-repo copies of the user's bug reports)
 
