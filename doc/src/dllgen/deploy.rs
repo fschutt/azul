@@ -1388,6 +1388,11 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
             "azul-meet",
             "a tiny video-call demo (UDP + audio sink + microphone)",
         ),
+        (
+            "azul-self-test",
+            "azul-self-test",
+            "unattended platform-API smoke test (camera/mic/UDP/sensors/gamepad) — logs to a file and exits",
+        ),
     ];
     // OS suffix → label + filename extension, matching the build_demos staging
     // names (azul-maps-linux, azul-maps-macos, azul-maps-windows.exe).
@@ -1422,7 +1427,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                 "iOS (.app, sideload)",
             ));
             // Android .apk for the demos set up as a NativeActivity cdylib.
-            const ANDROID_READY: &[&str] = &["azul-maps", "azul-paint"];
+            const ANDROID_READY: &[&str] = &["azul-maps", "azul-paint", "azul-self-test"];
             if ANDROID_READY.contains(crate_name) {
                 os_links.push_str("\n                    ");
                 os_links.push_str(&release_link_li(

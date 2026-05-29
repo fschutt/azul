@@ -1095,7 +1095,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet; do
+          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
             echo "=== Building $demo on ${{ matrix.os }} ==="
             cargo build --release -p "$demo" || echo "::warning::$demo failed to build on ${{ matrix.os }} (likely missing platform deps) — skipping"
           done
@@ -1106,7 +1106,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p demos-staging
-          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet; do
+          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
             src="target/release/${demo}${{ matrix.bin_ext }}"
             if [ -f "$src" ]; then
               cp "$src" "demos-staging/${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
@@ -1372,7 +1372,7 @@ jobs:
         run: |
           set +e
           mkdir -p mobile-apps
-          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet; do
+          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
             echo "=== iOS .app: $demo ==="
             AZ_IOS_DRYRUN=1 APP_NAME="$demo" bash scripts/build-ios.sh aarch64-apple-ios "$demo" \
               || { echo "::warning::$demo failed to bundle for iOS — skipping"; continue; }
@@ -1428,7 +1428,7 @@ jobs:
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDKBIN/aarch64-linux-android24-clang"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
           mkdir -p mobile-apps
-          for demo in azul-maps azul-paint; do
+          for demo in azul-maps azul-paint azul-self-test; do
             echo "=== Android APK: $demo ==="
             AZ_ANDROID_NO_DEPLOY=1 AZ_ANDROID_NO_JAVA=1 \
               bash scripts/build-android.sh aarch64-linux-android "$demo" "com.azul.${demo//-/_}" "$demo" \
