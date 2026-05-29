@@ -2837,3 +2837,32 @@ FOLLOW-UP (noted, not blocking): CI should publish a mobile libazul per target (
 aarch64-linux-android) on the release page for the drop-in model; a Rust `cargo xtask` packager to
 replace the .sh scripts. #8 (per-example APK/.app CI) still needs an Android/iOS toolchain to verify
 + a decision on the entry macro vs shim.
+
+### Tick — 2026-05-29 (cont.) — #10 apt/dpkg mirror WIRING (secret-gated)
+
+Prepared the self-hosted apt mirror per user's request ("just wire it; activates when I add the
+secret later"), mirroring the build-always/publish-if-secret pattern of the other registries.
+Verified: rust.yml YAML valid; release-page apt section renders.
+
+- build_linux_packages: new "Assemble apt mirror" step builds a flat apt repo from the built .deb
+  (pool/main + dists/stable/{Release, main/binary-amd64/Packages[.gz]}); if secret AZUL_APT_GPG_KEY
+  (base64 of `gpg --export-secret-keys`) is present → signs Release.gpg + InRelease + exports
+  azul-archive-keyring.asc (mirror ACTIVE); else builds unsigned (inactive until the secret is added).
+  Uploads `apt-repo` artifact.
+- deploy_pages: downloads `apt-repo`, lays it at website/apt → https://azul.rs/apt (top-level,
+  version-independent so apt sources stay stable across releases).
+- Release page (deploy.rs): "apt repository (Debian/Ubuntu)" section with the curl-key + sources.list
+  + apt install instructions; noted "active once signed".
+
+To ACTIVATE later: add repo secret AZUL_APT_GPG_KEY = `gpg --export-secret-keys <KEYID> | base64`.
+(GitHub stores only PUBLIC keys, so CI cannot fetch the private half — it must be a secret.)
+
+Mobile cross-compile note: the local "can't compile mobile" was a LOCAL env quirk — the active rustc
+here is Homebrew Rust 1.94 (host-std only), not rustup's toolchain (which has the android/ios std).
+Rust DOES cross-compile to android/ios; CI (rustup + target add + NDK stub libs) does it. Minimal
+link surface already enumerated in the guides (libandroid/liblog/libc/m/dl; iOS Foundation/UIKit/
+CoreGraphics/libSystem .tbd; CPU render → no GLES/Metal; rust-lld → no external linker).
+
+STILL OPEN: ship prebuilt mobile libazul (.so/.dylib/.a, lean/no-remill) per target on the release
+page for the drop-in model + bundle the minimal NDK/iOS stub libs ("download these, here's the
+source"); per-example APK/.app CI (#8) needs a clean rustup toolchain + NDK in CI to verify.

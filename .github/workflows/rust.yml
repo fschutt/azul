@@ -1305,6 +1305,59 @@ jobs:
           if-no-files-found: error
 
       # -----------------------------------------------------------------------
+      # Self-hosted apt (dpkg) mirror — WIRING (build always, ACTIVATE on secret).
+      #
+      # Assembles a flat apt repository from the built .deb(s). The mirror is
+      # "activated" only when the AZUL_APT_GPG_KEY secret (a base64-encoded
+      # `gpg --export-secret-keys`) is present: then the Release file is signed
+      # (Release.gpg + InRelease) and the public key is exported as
+      # azul-archive-keyring.asc so users can `apt` from https://azul.rs/apt.
+      # Without the secret the repo is still built (unsigned) but apt clients
+      # using `signed-by=` won't trust it — i.e. inactive until you add the key.
+      # Mirrors the build-always/publish-if-secret pattern of the other registries.
+      - name: Assemble apt mirror (sign if AZUL_APT_GPG_KEY present)
+        shell: bash
+        env:
+          AZUL_APT_GPG_KEY: ${{ secrets.AZUL_APT_GPG_KEY }}
+        run: |
+          set -e
+          sudo apt-get update && sudo apt-get install -y dpkg-dev gnupg
+          DIST=apt-repo/dists/stable
+          POOL=apt-repo/pool/main
+          ARCHDIR="$DIST/main/binary-amd64"
+          mkdir -p "$POOL" "$ARCHDIR"
+          find target/packages target/packages-arch -name '*.deb' -exec cp -n {} "$POOL/" \; 2>/dev/null || true
+          ( cd apt-repo && dpkg-scanpackages --multiversion pool/main > dists/stable/main/binary-amd64/Packages )
+          gzip -kf "$ARCHDIR/Packages"
+          {
+            echo "Origin: Azul"; echo "Label: Azul"; echo "Suite: stable"
+            echo "Codename: stable"; echo "Architectures: amd64 arm64"
+            echo "Components: main"
+            echo "Description: Azul GUI framework apt repository (azul.rs)"
+            echo "SHA256:"
+            for f in main/binary-amd64/Packages main/binary-amd64/Packages.gz; do
+              echo " $(sha256sum "$DIST/$f" | cut -d' ' -f1) $(stat -c%s "$DIST/$f") $f"
+            done
+          } > "$DIST/Release"
+          if [ -n "${AZUL_APT_GPG_KEY:-}" ]; then
+            echo "::notice::AZUL_APT_GPG_KEY present — signing apt Release (mirror ACTIVE)"
+            echo "$AZUL_APT_GPG_KEY" | base64 -d | gpg --batch --import
+            gpg --batch --yes --armor --detach-sign -o "$DIST/Release.gpg" "$DIST/Release"
+            gpg --batch --yes --clearsign -o "$DIST/InRelease" "$DIST/Release"
+            gpg --batch --armor --export > apt-repo/azul-archive-keyring.asc
+          else
+            echo "::notice::AZUL_APT_GPG_KEY not set — apt repo built UNSIGNED (mirror inactive until the secret is added)."
+          fi
+
+      - name: Upload apt mirror
+        uses: actions/upload-artifact@v7
+        with:
+          name: apt-repo
+          path: apt-repo
+          retention-days: 30
+          if-no-files-found: warn
+
+      # -----------------------------------------------------------------------
       # Per-arch .deb/.rpm for every NON-amd64 binary that actually built.
       # Entirely non-blocking (continue-on-error). For each arch we stage its
       # libazul.so, write a per-arch copy of the generated nfpm.yaml with the
@@ -1708,6 +1761,13 @@ jobs:
           name: azul-documentation-pdf
           path: artifacts-pdf
 
+      - name: Download apt mirror
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: apt-repo
+          path: artifacts-apt
+
       - name: Debug - Tree after download
         run: |
           sudo apt-get update && sudo apt-get install -y tree
@@ -1725,6 +1785,15 @@ jobs:
           # Guide + API reference PDF (rendered by the docs_pdf job). The release
           # page links it as release/0.2.0/guide.pdf.
           find artifacts-pdf -name "azul-documentation.pdf" -exec cp {} "$RELEASE_DIR/guide.pdf" \; 2>/dev/null || true
+
+          # Self-hosted apt (dpkg) mirror → https://azul.rs/apt (top-level, version
+          # independent so `apt` sources stay stable across releases). Only carries
+          # a usable signature when the AZUL_APT_GPG_KEY secret activated signing in
+          # build_linux_packages; otherwise the tree is present but unsigned.
+          if [ -d artifacts-apt ] && [ -n "$(ls -A artifacts-apt 2>/dev/null)" ]; then
+            mkdir -p website/apt
+            cp -r artifacts-apt/. website/apt/
+          fi
 
           # Replace placeholder binaries with real ones
           # Linux

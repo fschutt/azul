@@ -1537,6 +1537,17 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               </ul>
 
               <br/>
+              <strong>apt repository (Debian / Ubuntu) &mdash; <code>https://azul.rs/apt</code>:</strong>
+              <p style='color:grey;font-size:15px;max-width:700px;'>A self-hosted apt mirror so you can install
+              <em>and get updates</em> straight from azul.rs &mdash; no third-party PPA. (Active once the release is
+              signed with the azul archive key.)</p>
+              <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;font-size:14px;'>
+                  <p style='color:black;font-family:monospace;'>curl -fsSL https://azul.rs/apt/azul-archive-keyring.asc | sudo tee /usr/share/keyrings/azul-archive-keyring.asc &gt;/dev/null</p>
+                  <p style='color:black;font-family:monospace;'>echo \"deb [signed-by=/usr/share/keyrings/azul-archive-keyring.asc] https://azul.rs/apt stable main\" | sudo tee /etc/apt/sources.list.d/azul.list</p>
+                  <p style='color:black;font-family:monospace;'>sudo apt update &amp;&amp; sudo apt install azul</p>
+              </div>
+
+              <br/>
               <h2 id='demos'>Demos &mdash; download &amp; run</h2>
               <p style='color:grey;font-size:15px;max-width:700px;'>Self-contained demo apps built statically against azul &mdash;
               download one for your OS and run it directly, no install or separate library needed.
