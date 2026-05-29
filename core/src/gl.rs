@@ -1025,74 +1025,86 @@ fn check_program_link(gl_context: &GenericGlContext, program: GLuint, _label: &s
 
 impl GlContextPtr {
     pub fn new(renderer_type: RendererType, gl_context: Rc<GenericGlContext>) -> Self {
-        // Compile basic shader
-        let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
-        gl_context.shader_source(vertex_shader_object, &[SVG_VERTEX_SHADER]);
-        gl_context.compile_shader(vertex_shader_object);
-        check_shader_compile(&gl_context, vertex_shader_object, "SVG vertex");
+        // R1: only compile the SVG/FXAA GL shaders for a real GPU. In
+        // Software/CPU mode nothing composites through them, and on a software
+        // GL stack (llvmpipe/swrast — GLES-only) compiling these *desktop*
+        // GLSL 1.50 shaders fails ("GLSL 1.50 is not supported"), which is the
+        // reported Linux error. Leave the program IDs 0 (unused) in that case.
+        let (svg_program_id, svg_multicolor_program_id, fxaa_program_id) =
+            if matches!(renderer_type, RendererType::Hardware) {
+                // Compile basic shader
+                let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
+                gl_context.shader_source(vertex_shader_object, &[SVG_VERTEX_SHADER]);
+                gl_context.compile_shader(vertex_shader_object);
+                check_shader_compile(&gl_context, vertex_shader_object, "SVG vertex");
 
-        let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
-        gl_context.shader_source(fragment_shader_object, &[SVG_FRAGMENT_SHADER]);
-        gl_context.compile_shader(fragment_shader_object);
-        check_shader_compile(&gl_context, fragment_shader_object, "SVG fragment");
+                let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
+                gl_context.shader_source(fragment_shader_object, &[SVG_FRAGMENT_SHADER]);
+                gl_context.compile_shader(fragment_shader_object);
+                check_shader_compile(&gl_context, fragment_shader_object, "SVG fragment");
 
-        let svg_program_id = gl_context.create_program();
+                let svg_program_id = gl_context.create_program();
 
-        gl_context.attach_shader(svg_program_id, vertex_shader_object);
-        gl_context.attach_shader(svg_program_id, fragment_shader_object);
-        gl_context.bind_attrib_location(svg_program_id, 0, "vAttrXY".into());
-        gl_context.link_program(svg_program_id);
-        check_program_link(&gl_context, svg_program_id, "SVG");
+                gl_context.attach_shader(svg_program_id, vertex_shader_object);
+                gl_context.attach_shader(svg_program_id, fragment_shader_object);
+                gl_context.bind_attrib_location(svg_program_id, 0, "vAttrXY".into());
+                gl_context.link_program(svg_program_id);
+                check_program_link(&gl_context, svg_program_id, "SVG");
 
-        gl_context.delete_shader(vertex_shader_object);
-        gl_context.delete_shader(fragment_shader_object);
+                gl_context.delete_shader(vertex_shader_object);
+                gl_context.delete_shader(fragment_shader_object);
 
-        // Compile multi-color SVG shader
-        let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
-        gl_context.shader_source(vertex_shader_object, &[SVG_MULTICOLOR_VERTEX_SHADER]);
-        gl_context.compile_shader(vertex_shader_object);
-        check_shader_compile(&gl_context, vertex_shader_object, "SVG multicolor vertex");
+                // Compile multi-color SVG shader
+                let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
+                gl_context.shader_source(vertex_shader_object, &[SVG_MULTICOLOR_VERTEX_SHADER]);
+                gl_context.compile_shader(vertex_shader_object);
+                check_shader_compile(&gl_context, vertex_shader_object, "SVG multicolor vertex");
 
-        let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
-        gl_context.shader_source(fragment_shader_object, &[SVG_MULTICOLOR_FRAGMENT_SHADER]);
-        gl_context.compile_shader(fragment_shader_object);
-        check_shader_compile(&gl_context, fragment_shader_object, "SVG multicolor fragment");
+                let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
+                gl_context.shader_source(fragment_shader_object, &[SVG_MULTICOLOR_FRAGMENT_SHADER]);
+                gl_context.compile_shader(fragment_shader_object);
+                check_shader_compile(&gl_context, fragment_shader_object, "SVG multicolor fragment");
 
-        let svg_multicolor_program_id = gl_context.create_program();
+                let svg_multicolor_program_id = gl_context.create_program();
 
-        gl_context.attach_shader(svg_multicolor_program_id, vertex_shader_object);
-        gl_context.attach_shader(svg_multicolor_program_id, fragment_shader_object);
-        gl_context.bind_attrib_location(svg_multicolor_program_id, 0, "vAttrXY".into());
-        gl_context.bind_attrib_location(svg_multicolor_program_id, 1, "vColor".into());
-        gl_context.link_program(svg_multicolor_program_id);
-        check_program_link(&gl_context, svg_multicolor_program_id, "SVG multicolor");
+                gl_context.attach_shader(svg_multicolor_program_id, vertex_shader_object);
+                gl_context.attach_shader(svg_multicolor_program_id, fragment_shader_object);
+                gl_context.bind_attrib_location(svg_multicolor_program_id, 0, "vAttrXY".into());
+                gl_context.bind_attrib_location(svg_multicolor_program_id, 1, "vColor".into());
+                gl_context.link_program(svg_multicolor_program_id);
+                check_program_link(&gl_context, svg_multicolor_program_id, "SVG multicolor");
 
-        gl_context.delete_shader(vertex_shader_object);
-        gl_context.delete_shader(fragment_shader_object);
+                gl_context.delete_shader(vertex_shader_object);
+                gl_context.delete_shader(fragment_shader_object);
 
-        // Compile FXAA shader
-        use crate::gl_fxaa::{FXAA_FRAGMENT_SHADER, FXAA_VERTEX_SHADER};
+                // Compile FXAA shader
+                use crate::gl_fxaa::{FXAA_FRAGMENT_SHADER, FXAA_VERTEX_SHADER};
 
-        let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
-        gl_context.shader_source(vertex_shader_object, &[FXAA_VERTEX_SHADER]);
-        gl_context.compile_shader(vertex_shader_object);
-        check_shader_compile(&gl_context, vertex_shader_object, "FXAA vertex");
+                let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
+                gl_context.shader_source(vertex_shader_object, &[FXAA_VERTEX_SHADER]);
+                gl_context.compile_shader(vertex_shader_object);
+                check_shader_compile(&gl_context, vertex_shader_object, "FXAA vertex");
 
-        let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
-        gl_context.shader_source(fragment_shader_object, &[FXAA_FRAGMENT_SHADER]);
-        gl_context.compile_shader(fragment_shader_object);
-        check_shader_compile(&gl_context, fragment_shader_object, "FXAA fragment");
+                let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
+                gl_context.shader_source(fragment_shader_object, &[FXAA_FRAGMENT_SHADER]);
+                gl_context.compile_shader(fragment_shader_object);
+                check_shader_compile(&gl_context, fragment_shader_object, "FXAA fragment");
 
-        let fxaa_program_id = gl_context.create_program();
+                let fxaa_program_id = gl_context.create_program();
 
-        gl_context.attach_shader(fxaa_program_id, vertex_shader_object);
-        gl_context.attach_shader(fxaa_program_id, fragment_shader_object);
-        gl_context.bind_attrib_location(fxaa_program_id, 0, "vAttrXY".into());
-        gl_context.link_program(fxaa_program_id);
-        check_program_link(&gl_context, fxaa_program_id, "FXAA");
+                gl_context.attach_shader(fxaa_program_id, vertex_shader_object);
+                gl_context.attach_shader(fxaa_program_id, fragment_shader_object);
+                gl_context.bind_attrib_location(fxaa_program_id, 0, "vAttrXY".into());
+                gl_context.link_program(fxaa_program_id);
+                check_program_link(&gl_context, fxaa_program_id, "FXAA");
 
-        gl_context.delete_shader(vertex_shader_object);
-        gl_context.delete_shader(fragment_shader_object);
+                gl_context.delete_shader(vertex_shader_object);
+                gl_context.delete_shader(fragment_shader_object);
+
+                (svg_program_id, svg_multicolor_program_id, fxaa_program_id)
+            } else {
+                (0, 0, 0)
+            };
 
         Self {
             ptr: Box::new(Rc::new(GlContextPtrInner {
