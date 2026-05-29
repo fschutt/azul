@@ -1300,9 +1300,12 @@ jobs:
       - name: Build libazul (Android)
         if: startsWith(matrix.label, 'android')
         run: |
-          # -p 24 (Android 7.0): build.rs links libcamera2ndk/libmediandk (API 24);
-          # AAudio (API 26) is dlopen'd at runtime, so it doesn't raise the floor.
-          cargo ndk -t ${{ matrix.abi }} -p 24 build --release -p azul-dll \
+          # --platform 24 (Android 7.0): build.rs links libcamera2ndk/libmediandk
+          # (API 24); AAudio (API 26) is dlopen'd, so it doesn't raise the floor.
+          # NB: it MUST be `--platform` — cargo-ndk passes `-p` through to cargo as
+          # `--package` (that's the "unknown package: 24" panic), and it goes
+          # BEFORE the `build` subcommand.
+          cargo ndk -t ${{ matrix.abi }} --platform 24 build --release -p azul-dll \
             --no-default-features --features "$MOBILE_FEATURES,android-activity"
 
       - name: Build libazul (iOS)
