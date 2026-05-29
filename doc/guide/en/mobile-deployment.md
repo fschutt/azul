@@ -137,31 +137,28 @@ generated `azul.h` (`cargo run -r -p azul-doc -- codegen c`) and the same
 
 ### Android entry point
 
-Because there is no `main()`, add a small `android_main` to your app crate that
-runs the same setup your desktop `main()` does. Factor the setup into one
-function and call it from both:
+Because there is no `main()`, run your setup from a **load-time constructor**.
+`libazul` already provides `android_main` (via the android-activity glue);
+`App::run` on Android just stashes the window options for it to read — and it
+must run *before* `ANativeActivity_onCreate`, which is exactly what a `ctor`
+gives you. Factor the setup into one function and wire both entry points:
 
 ```rust
-fn start() {
+pub fn start() {
     let data = RefAny::new(DataModel { counter: 0 });
     let app = App::create(data, AppConfig::create());
-    // On Android, run() stashes the window options for android_main to pick up
-    // and returns; on desktop it blocks until the window closes.
+    // Android: run() stashes the window options + returns; desktop/iOS: blocks.
     app.run(WindowCreateOptions::create(my_layout_func));
 }
 
-// Desktop / iOS
+// Desktop / iOS — main() runs and App::run drives UIApplicationMain on iOS.
 #[cfg(not(target_os = "android"))]
 fn main() { start(); }
 
-// Android: android-activity's ANativeActivity_onCreate calls this. Run start()
-// first (it stashes the options), then hand the AndroidApp to Azul's loop.
+// Android — fires at dlopen, before libazul's android_main reads the options.
 #[cfg(target_os = "android")]
-#[no_mangle]
-pub extern "C" fn android_main(app: azul::android::AndroidApp) {
-    start();
-    azul::android::run_android(app);
-}
+#[ctor::ctor]
+fn azul_android_init() { start(); }
 ```
 
 Your crate must build as a `cdylib` for Android — add to its `Cargo.toml`:

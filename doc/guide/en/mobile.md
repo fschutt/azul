@@ -82,35 +82,44 @@ compile into one `.so`/binary.
 
 ## Step 1 — make your app build for both platforms
 
-Factor your startup into one function and pick the entry point per platform.
-iOS keeps a normal `main()` (it runs `UIApplicationMain` for you via
-`App::run`); Android has no `main()`, so it gets a tiny `android_main` shim:
+Factor your startup into one function. iOS keeps a normal `main()` (it runs
+`UIApplicationMain` for you via `App::run`). Android has no `main()`: the OS
+loads your cdylib and calls `android_main` *inside libazul*, which reads the
+window options `App::run` stashed — so `start()` must run **before** that, from
+a load-time constructor (the [`ctor`](https://crates.io/crates/ctor) crate):
 
 ```rust
 use azul::prelude::*;
 
-fn start() {
+pub fn start() {
     let data = RefAny::new(DataModel { counter: 0 });
     App::create(data, AppConfig::create())
-        .run(WindowCreateOptions::create(my_layout));
+        .run(WindowCreateOptions::create(my_layout));   // Android: stashes + returns
 }
 
 #[cfg(not(target_os = "android"))]
-fn main() { start(); }                       // desktop + iOS
+fn main() { start(); }                       // desktop + iOS: main() runs start()
 
+// Android: fires at dlopen / System.loadLibrary, before ANativeActivity_onCreate
+// → libazul's android_main then picks up the stashed window options.
 #[cfg(target_os = "android")]
-#[no_mangle]
-pub extern "C" fn android_main(app: azul::android::AndroidApp) {
-    start();                                 // stashes the window options
-    azul::android::run_android(app);         // then drives Azul's event loop
-}
+#[ctor::ctor]
+fn azul_android_init() { start(); }
 ```
 
-For Android your crate also builds as a shared library — add to `Cargo.toml`:
+(That's the whole platform difference — `azul-maps` / `azul-paint` in the repo
+are set up exactly like this.) For Android your crate also builds as a shared
+library, and links the android-activity glue + `ctor` only on Android:
 
 ```toml
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+# Android only: pull android-activity into libazul (it provides android_main /
+# ANativeActivity_onCreate) and ctor for the load-time constructor above.
+[target.'cfg(target_os = "android")'.dependencies]
+azul = { package = "azul-dll", version = "0.2", default-features = false, features = ["link-static", "android-activity"] }
+ctor = "0.2"
 ```
 
 That is the *entire* difference from a desktop app.

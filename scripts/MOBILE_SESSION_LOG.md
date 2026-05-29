@@ -2890,3 +2890,30 @@ azul::android public API surface isn't confirmed).
 
 FOLLOW-UP: confirm/expose azul::android::{AndroidApp,run_android} in rust_api + an android_main!
 macro, then convert azul-maps/azul-paint to cdylib for android APKs (CI-verified).
+
+### Tick — 2026-05-29 (cont.) — #16 Android demo APKs (azul-maps, azul-paint)
+
+Uninstalled Homebrew rust (it shadowed rustup → host-only std, blocking cross-compile); now
+cargo/rustc = rustup 1.90 and `cargo check --target aarch64-linux-android` works locally.
+
+- Converted azul-maps + azul-paint from bin-only to bin+cdylib: src/main.rs → src/lib.rs with
+  `pub fn start()` + a `#[cfg(target_os="android")] #[ctor::ctor]` that runs start() at dlopen
+  (App::run stashes ANDROID_INITIAL_OPTIONS before libazul's android_main reads them — the intended
+  "run before onCreate" mechanism, confirmed by the android_main doc comment). New 1-line main.rs
+  calls start(). Cargo.toml: [lib] crate-type=["rlib","cdylib"] + target.android azul
+  features=["link-static","android-activity"] + ctor.
+- VERIFIED LOCALLY: `cargo build --target aarch64-linux-android -p azul-maps --lib` →
+  libazul_maps.so (153MB unstripped) links with the NDK + ctor + android-activity. Both demos
+  desktop-check clean (bin+lib refactor intact).
+- CI build_mobile_apps_android (ubuntu + setup-android/ndk r27/JDK17): builds azul-maps/azul-paint
+  APKs via the crate-parametric build-android.sh (linker via CARGO_TARGET_..._LINKER env overriding
+  the macOS path in .cargo/config.toml). deploy → release/0.2.0/mobile-apps/<demo>-android.apk +
+  per-demo "Android (.apk, sideload)" row (ANDROID_READY=[azul-maps,azul-paint]).
+- Fixed BOTH guides: replaced the invented `azul::android::run_android` with the real ctor entry +
+  the android-only Cargo deps.
+
+iOS .app production: can't build locally (only CommandLineTools, no iphoneos SDK; full Xcode needed)
+— build_mobile_apps (macos runner w/ Xcode) produces them in CI. Local Java also absent (apksigner),
+so local APK signing is CI-only; the .so build is the local proof.
+
+#16 done. Other demos light up on Android by adopting the same cdylib+ctor pattern.

@@ -1421,6 +1421,16 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                 &format!("mobile-apps/{crate_name}-ios.app.zip"),
                 "iOS (.app, sideload)",
             ));
+            // Android .apk for the demos set up as a NativeActivity cdylib.
+            const ANDROID_READY: &[&str] = &["azul-maps", "azul-paint"];
+            if ANDROID_READY.contains(crate_name) {
+                os_links.push_str("\n                    ");
+                os_links.push_str(&release_link_li(
+                    version,
+                    &format!("mobile-apps/{crate_name}-android.apk"),
+                    "Android (.apk, sideload)",
+                ));
+            }
             format!(
                 "<li><strong>{friendly}</strong> &mdash; {desc}\n                  \
                  <ul>\n                    {os_links}\n                  </ul></li>",

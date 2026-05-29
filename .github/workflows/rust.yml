@@ -1344,6 +1344,61 @@ jobs:
           path: mobile-apps
           if-no-files-found: warn
 
+  # Android demo APKs — only the demos set up as a NativeActivity cdylib
+  # (crate-type=cdylib + ctor android entry: azul-maps, azul-paint). CLI-only:
+  # cargo + NDK clang (linker via env, overriding the macOS path in
+  # .cargo/config.toml) → aapt2/zipalign/apksigner (build-android.sh). Other
+  # demos light up as they adopt the cdylib+ctor pattern (see guide/mobile.md).
+  build_mobile_apps_android:
+    name: Mobile demo apps (Android)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    continue-on-error: true
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+          targets: aarch64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK build-tools + platform
+        run: sdkmanager "build-tools;34.0.0" "platforms;android-34"
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r27
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+      - name: Build cdylib demos as APKs (best-effort)
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          set +e
+          NDKBIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDKBIN/aarch64-linux-android24-clang"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
+          mkdir -p mobile-apps
+          for demo in azul-maps azul-paint; do
+            echo "=== Android APK: $demo ==="
+            AZ_ANDROID_NO_DEPLOY=1 AZ_ANDROID_NO_JAVA=1 \
+              bash scripts/build-android.sh aarch64-linux-android "$demo" "com.azul.${demo//-/_}" "$demo" \
+              || { echo "::warning::$demo failed to build an APK — skipping"; continue; }
+            APK="target/android-bundle/${demo}-arm64-v8a/aligned.apk"
+            [ -f "$APK" ] && cp "$APK" "mobile-apps/${demo}-android.apk"
+          done
+          ls -l mobile-apps || true
+      - name: Upload mobile demo apps (Android)
+        uses: actions/upload-artifact@v7
+        with:
+          name: azul-mobile-apps-android
+          path: mobile-apps
+          if-no-files-found: warn
+
   build_linux_packages:
     name: Build Linux Packages (.deb/.rpm)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
@@ -1672,7 +1727,7 @@ jobs:
   deploy_pages:
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy'
-    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps]
+    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android]
     runs-on: ubuntu-22.04
     # The top-level workflow permissions are `contents: read`; the GitHub Release
     # step (`gh release create`/`upload`) needs `contents: write` or it 403s.
@@ -1931,6 +1986,13 @@ jobs:
           name: azul-mobile-apps-ios
           path: artifacts-mobile-apps
 
+      - name: Download mobile demo apps (Android)
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: azul-mobile-apps-android
+          path: artifacts-mobile-apps
+
       - name: Debug - Tree after download
         run: |
           sudo apt-get update && sudo apt-get install -y tree
@@ -1971,7 +2033,7 @@ jobs:
           # (Pages-hosted; the demo grouping links them per binary).
           if [ -d artifacts-mobile-apps ] && [ -n "$(ls -A artifacts-mobile-apps 2>/dev/null)" ]; then
             mkdir -p "$RELEASE_DIR/mobile-apps"
-            cp artifacts-mobile-apps/*.zip "$RELEASE_DIR/mobile-apps/" 2>/dev/null || true
+            cp artifacts-mobile-apps/*.zip artifacts-mobile-apps/*.apk "$RELEASE_DIR/mobile-apps/" 2>/dev/null || true
           fi
 
           # Replace placeholder binaries with real ones
