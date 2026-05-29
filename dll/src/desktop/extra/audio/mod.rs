@@ -92,6 +92,11 @@ impl AudioSink {
     /// invalid handle (`is_open()` false) on failure. The stub engine always
     /// "opens"; the real rodio / AVAudio backend may fail (no device).
     pub fn open(config: AudioConfig) -> AudioSink {
+        crate::plog_info!(
+            "[audio] opening sink: {}Hz x{}ch (f32 interleaved)",
+            config.sample_rate,
+            config.channels
+        );
         #[cfg(target_os = "linux")]
         let pcm = alsa::AlsaPcm::open(config.sample_rate, config.channels as u32);
         #[cfg(any(target_os = "macos", target_os = "windows"))]

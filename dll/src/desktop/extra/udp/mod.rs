@@ -80,6 +80,7 @@ impl Udp {
     pub fn bind(local_addr: AzString) -> Udp {
         match UdpSocket::bind(local_addr.as_str()) {
             Ok(socket) => {
+                crate::plog_info!("[udp] bound {}", local_addr.as_str());
                 let _ = socket.set_nonblocking(true);
                 let inner = Box::new(UdpInner {
                     socket,
@@ -91,7 +92,10 @@ impl Udp {
                     run_destructor: true,
                 }
             }
-            Err(_) => Udp::default(),
+            Err(_) => {
+                crate::plog_warn!("[udp] bind {} failed", local_addr.as_str());
+                Udp::default()
+            }
         }
     }
 
