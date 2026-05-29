@@ -870,6 +870,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "azul-self-test"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "ctor",
+ "log",
+]
+
+[[package]]
 name = "azul-simplecss"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,41 @@
+[package]
+name = "azul-self-test"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    azul-self-test — an unattended platform-API smoke test. Exercises every
+    `extra/*` device backend through the public `azul::` surface (UDP loopback,
+    AudioSink, MicrophoneWidget mic-level dots, CameraWidget, motion sensors,
+    gamepad, geolocation), prints human-readable progress to stdout, mirrors a
+    structured trace (including azul's own `plog_*!` platform logs) to a log
+    file, and exits with a non-zero code if a *required* probe hard-fails
+    (a device being unavailable is NOT a failure). Runs on desktop and, built as
+    an Android cdylib / iOS binary, on a plugged-in phone for the log comparison
+    in scripts/PLATFORM_DEBUG_PLAN.md (Phase 4).
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static"] }
+# `std` feature → `log::set_boxed_logger` (azul-dll pulls `log` with
+# default-features=false, so we must opt back into std here).
+log = { version = "0.4", features = ["std"] }
+
+# On Android the crate builds as a NativeActivity cdylib: link the android-activity
+# glue into libazul (so it provides android_main / ANativeActivity_onCreate) and
+# pull in `ctor` for the load-time constructor that stashes the window options.
+[target.'cfg(target_os = "android")'.dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "android-activity"] }
+ctor = "0.2"
+
+# rlib = what the desktop/iOS bin links; cdylib = the Android NativeActivity lib.
+[lib]
+name = "azul_self_test"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "azul-self-test"
+path = "src/main.rs"
