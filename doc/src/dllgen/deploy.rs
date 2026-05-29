@@ -1138,15 +1138,8 @@ fn asset_url(version: &str, filename: &str) -> String {
 
 fn release_link_li(version: &str, filename: &str, description: &str) -> String {
     let url = asset_url(version, filename);
-    // Display the bare filename (its basename) so the label stays readable for
-    // both Pages and Release-hosted assets.
-    let label = filename.rsplit('/').next().unwrap_or(filename);
-    format!(
-        "<li><a href='{url}'>{description} ({label})</a></li>",
-        url = url,
-        label = label,
-        description = description
-    )
+    // The description already names the artifact; don't repeat the filename.
+    format!("<li><a href='{url}'>{description}</a></li>", url = url, description = description)
 }
 
 /// Render an unconditional external `<li>` link (full URL, no release-dir prefix).
@@ -1261,8 +1254,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         .join("\n                ");
     let cross_arch_section = format!(
         "\n              <br/>\n              \
-         <strong>Additional &amp; exotic architectures (experimental, x86 → \
-         RISC-V):</strong>\n              <ul>\n                {}\n              </ul>",
+         <strong>Additional architectures:</strong>\n              <ul>\n                {}\n              </ul>",
         cross_arch_assets
     );
 
@@ -1278,16 +1270,16 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // and maps the rpm arch (amd64→x86_64, arm64→aarch64; ppc64/s390x/riscv64
     // pass through). The deploy copies them flat into release/{version}/.
     let package_links: String = [
-        ("azul_{V}_amd64.deb", "Debian/Ubuntu package (x86-64)"),
-        ("azul-{V}.x86_64.rpm", "RPM package (Fedora/RHEL/openSUSE, x86-64)"),
-        ("azul_{V}_arm64.deb", "Debian/Ubuntu package (ARM64, experimental)"),
-        ("azul-{V}.aarch64.rpm", "RPM package (ARM64, experimental)"),
-        ("azul_{V}_ppc64.deb", "Debian/Ubuntu package (PowerPC64, experimental)"),
-        ("azul-{V}.ppc64.rpm", "RPM package (PowerPC64, experimental)"),
-        ("azul_{V}_s390x.deb", "Debian/Ubuntu package (s390x, experimental)"),
-        ("azul-{V}.s390x.rpm", "RPM package (s390x, experimental)"),
-        ("azul_{V}_riscv64.deb", "Debian/Ubuntu package (RISC-V 64, experimental)"),
-        ("azul-{V}.riscv64.rpm", "RPM package (RISC-V 64, experimental)"),
+        ("azul_{V}_amd64.deb", "Debian/Ubuntu (x86-64)"),
+        ("azul-{V}.x86_64.rpm", "Fedora/RHEL/openSUSE (x86-64)"),
+        ("azul_{V}_arm64.deb", "Debian/Ubuntu (ARM64)"),
+        ("azul-{V}.aarch64.rpm", "RPM (ARM64)"),
+        ("azul_{V}_ppc64.deb", "Debian/Ubuntu (PowerPC64)"),
+        ("azul-{V}.ppc64.rpm", "RPM (PowerPC64)"),
+        ("azul_{V}_s390x.deb", "Debian/Ubuntu (s390x)"),
+        ("azul-{V}.s390x.rpm", "RPM (s390x)"),
+        ("azul_{V}_riscv64.deb", "Debian/Ubuntu (RISC-V 64)"),
+        ("azul-{V}.riscv64.rpm", "RPM (RISC-V 64)"),
     ]
     .iter()
     .map(|(fname, desc)| release_link_li(version, &fname.replace("{V}", version), desc))
@@ -1352,7 +1344,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         .map(|(lang, label)| {
             external_link_li(
                 &format!("https://azul.rs/guide/hello-world/{lang}"),
-                &format!("{label} — install &amp; hello-world"),
+                label,
             )
         })
         .collect::<Vec<_>>()
@@ -1401,47 +1393,40 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         ("macos", "macOS", ""),
         ("windows", "Windows", ".exe"),
     ];
-    // Grouped by binary: each demo is a heading with a sub-list of its
-    // per-OS (and, when built, per-mobile) downloads.
-    let demo_links: String = DEMO_APPS
+    // Grouped by OS: each OS is a heading with a sub-list of "Name: what it is",
+    // so the OS and filename aren't repeated on every line. .apk = the demos set
+    // up as a NativeActivity cdylib; every demo ships an installable iOS .app.
+    const ANDROID_READY: &[&str] = &["azul-maps", "azul-paint", "azul-self-test"];
+    // (os heading, path template with {c}=crate). Desktop = demos/<crate>-<os>[.exe];
+    // mobile = mobile-apps/<crate>-{ios.app.zip,android.apk} (Pages-hosted).
+    let os_groups: &[(&str, &str, fn(&str) -> bool)] = &[
+        ("Linux", "demos/{c}-linux", |_| true),
+        ("macOS", "demos/{c}-macos", |_| true),
+        ("Windows", "demos/{c}-windows.exe", |_| true),
+        ("iOS (.app, sideload)", "mobile-apps/{c}-ios.app.zip", |_| true),
+        ("Android (.apk, sideload)", "mobile-apps/{c}-android.apk",
+            |c| ANDROID_READY.contains(&c)),
+    ];
+    let demo_links: String = os_groups
         .iter()
-        .map(|(crate_name, friendly, desc)| {
-            let mut os_links: String = DEMO_OSES
+        .map(|(os_label, path_tmpl, include)| {
+            let items: String = DEMO_APPS
                 .iter()
-                .map(|(os_suffix, os_label, ext)| {
+                .filter(|(crate_name, _, _)| include(crate_name))
+                .map(|(crate_name, friendly, desc)| {
                     release_link_li(
                         version,
-                        &format!("demos/{crate_name}-{os_suffix}{ext}"),
-                        os_label,
+                        &path_tmpl.replace("{c}", crate_name),
+                        &format!("{friendly}: {desc}"),
                     )
                 })
                 .collect::<Vec<_>>()
                 .join("\n                    ");
-            // Installable iOS .app (Pages-hosted under mobile-apps/, so it routes
-            // to azul.rs not the GitHub Release). Sideload to test touch features
-            // (pan/zoom) without Xcode. 404s gracefully until built for a demo.
-            os_links.push_str("\n                    ");
-            os_links.push_str(&release_link_li(
-                version,
-                &format!("mobile-apps/{crate_name}-ios.app.zip"),
-                "iOS (.app, sideload)",
-            ));
-            // Android .apk for the demos set up as a NativeActivity cdylib.
-            const ANDROID_READY: &[&str] = &["azul-maps", "azul-paint", "azul-self-test"];
-            if ANDROID_READY.contains(crate_name) {
-                os_links.push_str("\n                    ");
-                os_links.push_str(&release_link_li(
-                    version,
-                    &format!("mobile-apps/{crate_name}-android.apk"),
-                    "Android (.apk, sideload)",
-                ));
-            }
             format!(
-                "<li><strong>{friendly}</strong> &mdash; {desc}\n                  \
-                 <ul>\n                    {os_links}\n                  </ul></li>",
-                friendly = friendly,
-                desc = desc,
-                os_links = os_links
+                "<li><strong>{os_label}</strong>\n                  \
+                 <ul>\n                    {items}\n                  </ul></li>",
+                os_label = os_label,
+                items = items
             )
         })
         .collect::<Vec<_>>()
@@ -1489,24 +1474,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
 
               <br/>
 
-              <p style='color:grey;font-size:15px;max-width:700px;'>Every artifact shipped with this release &mdash;
-              native libraries from x86 to RISC-V, Linux packages, language bindings, docs, agentic files and source &mdash;
-              is linked below. Jump to:
-              <a href='#native-libraries'>native libs</a> &middot;
-              <a href='#linux-packages'>packages</a> &middot;
-              <a href='#demos'>demos</a> &middot;
-              <a href='#language-bindings'>bindings</a> &middot;
-              <a href='#docs-guide'>docs</a> &middot;
-              <a href='#agentic'>agentic</a> &middot;
-              <a href='#coverage'>coverage</a> &middot;
-              <a href='#license'>license</a> &middot;
-              <a href='#source'>source</a>.</p>
-
-              <br/>
-
               <h2 id='native-libraries'>Native libraries</h2>
-              <p style='color:grey;font-size:15px;'>Prebuilt dynamic (<code>.so</code>/<code>.dll</code>/<code>.dylib</code>)
-              and static (<code>.a</code>/<code>.lib</code>) libraries + Python extension modules.</p>
               <ul>
                 {windows_assets}
               </ul>
@@ -1520,7 +1488,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
 
               <br/>
               <div style='padding:14px 16px;background:#eef4ff;border:1px solid #aac4ec;border-radius:6px;max-width:700px;font-size:14px;'>
-                <strong>Debug build (<code>azuldbg</code>) &mdash; for developers</strong><br/>
+                <strong>Debug build (<code>azuldbg</code>): for developers</strong><br/>
                 The shipped <code>libazul</code> above is <strong>lean</strong>: the in-process debug
                 server is compiled out, so <code>AZ_DEBUG=&lt;port&gt;</code> (the DOM inspector / E2E
                 runner) does nothing and no debug port is reachable on your users' machines. To debug
@@ -1542,22 +1510,22 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                 ad-hoc-signed; to run a download now, clear the quarantine flag:
                 <pre style='margin:8px 0 0;white-space:pre-wrap;'>xattr -dr com.apple.quarantine libazul.dylib   # or the demo binary / .a</pre>
                 Or fetch the helper: <a href='https://azul.rs/release/{version}/unquarantine.sh'>unquarantine.sh</a>
-                &mdash; <code>sh unquarantine.sh &lt;file&gt;…</code>
+               : <code>sh unquarantine.sh &lt;file&gt;…</code>
               </div>
 
               <br/>
-              <strong>Mobile (iOS &amp; Android) &mdash; drop-in libraries:</strong>
+              <strong>Mobile (iOS &amp; Android): drop-in libraries:</strong>
               <p style='color:grey;font-size:15px;max-width:700px;'>Prebuilt lean <code>libazul</code>
               (static <code>.a</code> + dynamic <code>.so</code>/<code>.dylib</code>) per mobile target,
-              bundled with the few NDK / iOS-SDK <em>link stubs</em> it needs &mdash; so you build an
+              bundled with the few NDK / iOS-SDK <em>link stubs</em> it needs: so you build an
               Azul app in Rust and link it with <strong>no Android Studio and no Xcode</strong>. Drop the
               right slice into your <code>.apk</code>/<code>.app</code> (a C <code>hello-world</code>
               works too). See <a href='https://azul.rs/guide/mobile'>guide: Mobile</a>.</p>
               <ul>
-                <li><a href='https://azul.rs/release/{version}/mobile/android-arm64/'>Android arm64-v8a</a> &mdash; <code>libazul.a</code> / <code>libazul.so</code> + stubs</li>
-                <li><a href='https://azul.rs/release/{version}/mobile/android-x64/'>Android x86_64 (emulator)</a> &mdash; <code>libazul.a</code> / <code>libazul.so</code> + stubs</li>
-                <li><a href='https://azul.rs/release/{version}/mobile/ios-arm64/'>iOS arm64 (device)</a> &mdash; <code>libazul.a</code> / <code>libazul.dylib</code> + .tbd stubs</li>
-                <li><a href='https://azul.rs/release/{version}/mobile/ios-sim-arm64/'>iOS arm64 (simulator)</a> &mdash; <code>libazul.a</code> / <code>libazul.dylib</code> + .tbd stubs</li>
+                <li><a href='https://azul.rs/release/{version}/mobile/android-arm64/'>Android arm64-v8a</a>: <code>libazul.a</code> / <code>libazul.so</code> + stubs</li>
+                <li><a href='https://azul.rs/release/{version}/mobile/android-x64/'>Android x86_64 (emulator)</a>: <code>libazul.a</code> / <code>libazul.so</code> + stubs</li>
+                <li><a href='https://azul.rs/release/{version}/mobile/ios-arm64/'>iOS arm64 (device)</a>: <code>libazul.a</code> / <code>libazul.dylib</code> + .tbd stubs</li>
+                <li><a href='https://azul.rs/release/{version}/mobile/ios-sim-arm64/'>iOS arm64 (simulator)</a>: <code>libazul.a</code> / <code>libazul.dylib</code> + .tbd stubs</li>
               </ul>
 
               <br/>
@@ -1569,16 +1537,14 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
 
               <br/>
               <h2 id='linux-packages'>Linux packages</h2>
-              <p style='color:grey;font-size:15px;'>System packages (<code>.deb</code> / <code>.rpm</code>) per architecture.
-              amd64 is solid; arm64/ppc64/s390x/riscv64 are experimental and ship only when CI builds them.</p>
               <ul>
                 {package_links}
               </ul>
 
               <br/>
-              <strong>apt repository (Debian / Ubuntu) &mdash; <code>https://azul.rs/apt</code>:</strong>
+              <strong>apt repository (Debian / Ubuntu): <code>https://azul.rs/apt</code>:</strong>
               <p style='color:grey;font-size:15px;max-width:700px;'>A self-hosted apt mirror so you can install
-              <em>and get updates</em> straight from azul.rs &mdash; no third-party PPA. (Active once the release is
+              <em>and get updates</em> straight from azul.rs: no third-party PPA. (Active once the release is
               signed with the azul archive key.)</p>
               <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;font-size:14px;'>
                   <p style='color:black;font-family:monospace;'>curl -fsSL https://azul.rs/apt/azul-archive-keyring.asc | sudo tee /usr/share/keyrings/azul-archive-keyring.asc &gt;/dev/null</p>
@@ -1587,20 +1553,13 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               </div>
 
               <br/>
-              <h2 id='demos'>Demos &mdash; download &amp; run</h2>
-              <p style='color:grey;font-size:15px;max-width:700px;'>Self-contained demo apps built statically against azul &mdash;
-              download one for your OS and run it directly, no install or separate library needed.
-              These are best-effort builds; some demos need platform features (camera/video, motion sensors, audio)
-              and may not ship for every OS. <strong>macOS:</strong> downloads are quarantined &mdash; see the
-              <a href='#native-libraries'>un-quarantine note above</a> (<code>xattr -dr com.apple.quarantine</code>).</p>
+              <h2 id='demos'>Demos</h2>
               <ul>
                 {demo_links}
               </ul>
 
               <br/>
-              <h2 id='language-bindings'>Language bindings</h2>
-              <p style='color:grey;font-size:15px;'>Install instructions + a working hello-world for every supported
-              language. Full source for each ships in the examples archive below.</p>
+              <h2 id='language-bindings'>Installation instructions</h2>
               <ul>
                 {binding_links}
               </ul>
@@ -1632,19 +1591,19 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <h2 id='agentic'>Agentic</h2>
               <p style='color:grey;font-size:15px;'>Machine-readable artifacts that make a coding agent ready to build azul apps.</p>
               <ul>
-                <li><a href='https://azul.rs/skill.md'>AI agent skill (skill.md)</a> &mdash; install once to prime a coding agent</li>
-                <li><a href='https://azul.rs/llms.txt'>llms.txt</a> &mdash; compact API + guide index for LLMs</li>
-                <li><a href='https://azul.rs/llms-full.txt'>llms-full.txt</a> &mdash; full machine-readable index</li>
+                <li><a href='https://azul.rs/skill.md'>AI agent skill (skill.md)</a>: install once to prime a coding agent</li>
+                <li><a href='https://azul.rs/llms.txt'>llms.txt</a>: compact API + guide index for LLMs</li>
+                <li><a href='https://azul.rs/llms-full.txt'>llms-full.txt</a>: full machine-readable index</li>
               </ul>
 
               <br/>
-              <strong>Deploy a web app (pre-lifted WASM base image &mdash; experimental preview):</strong>
+              <strong>Deploy a web app (pre-lifted WASM base image: experimental preview):</strong>
               <br/>
               <a href='https://azul.rs/guide/deploying-web'>Guide: deploying azul web apps</a>
               <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;font-size:14px;'>
                   <p style='color:grey;'>A <code>ghcr.io/fschutt/azul-web-base</code> base image with a pre-lifted
-                  azul-library WASM cache &mdash; so your app only lifts its own callbacks, not the whole
-                  library (seconds instead of minutes) &mdash; is published to the GitHub Container Registry
+                  azul-library WASM cache: so your app only lifts its own callbacks, not the whole
+                  library (seconds instead of minutes): is published to the GitHub Container Registry
                   (<strong>experimental preview</strong>; the web backend is not yet stable):</p>
                   <p style='color:black;font-family:monospace;'>docker pull ghcr.io/fschutt/azul-web-base:latest</p>
                   <p style='color:grey;'>Build it yourself from <code>docker/web-base/Dockerfile</code> in the repo. See the guide above.</p>
@@ -1655,7 +1614,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <p style='color:grey;font-size:15px;max-width:700px;'>HTML line/branch coverage report for the
               <code>azul-css</code>, <code>azul-core</code> and <code>azul-layout</code> test suites, produced by
               the <code>coverage</code> CI job (grcov + <code>llvm-tools</code>). Regenerated on every CI run; if the
-              report has not been built for this release yet the link below 404s &mdash; the same report is always
+              report has not been built for this release yet the link below 404s: the same report is always
               available as the <code>coverage-report</code> artifact on the
               <a href='https://github.com/fschutt/azul/actions/workflows/rust.yml'>latest CI run</a>.</p>
               <ul>
@@ -1676,8 +1635,8 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <br/>
               <h2 id='source'>Source</h2>
               <ul>
-                <li><a href='https://github.com/fschutt/azul'>Git repository</a> &mdash; <code>git clone https://github.com/fschutt/azul</code></li>
-                <li><a href='https://github.com/fschutt/azul/tree/{version}'>Source tree at tag {version}</a> &mdash; pin via <code>git = \"https://github.com/fschutt/azul\", tag = \"{version}\"</code></li>
+                <li><a href='https://github.com/fschutt/azul'>Git repository</a>: <code>git clone https://github.com/fschutt/azul</code></li>
+                <li><a href='https://github.com/fschutt/azul/tree/{version}'>Source tree at tag {version}</a>: pin via <code>git = \"https://github.com/fschutt/azul\", tag = \"{version}\"</code></li>
                 <li><a href='https://github.com/fschutt/azul/releases/tag/{version}'>GitHub release page</a></li>
                 <li><a href='https://crates.io/crates/azul/{version}'>Crates.io</a></li>
                 <li><a href='https://docs.rs/azul/{version}'>Docs.rs</a></li>
