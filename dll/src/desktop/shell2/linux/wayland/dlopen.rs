@@ -52,6 +52,10 @@ pub struct Wayland {
     pub wl_proxy_set_queue: unsafe extern "C" fn(proxy: *mut wl_proxy, queue: *mut wl_event_queue),
 
     // Protocol interfaces (needed for wl_registry_bind)
+    // F3: wl_registry_interface is the return-interface for wl_display.get_registry,
+    // which (like the other request wrappers) is a C inline function, NOT an
+    // exported symbol — so we marshal it ourselves (see wl_display_get_registry_impl).
+    pub wl_registry_interface: wl_interface,
     pub wl_compositor_interface: wl_interface,
     pub wl_subcompositor_interface: wl_interface,
     pub wl_shm_interface: wl_interface,
@@ -269,7 +273,10 @@ impl Wayland {
         let wl = Rc::new(Self {
             wl_display_connect: load_symbol!(lib_client, _, "wl_display_connect"),
             wl_display_disconnect: load_symbol!(lib_client, _, "wl_display_disconnect"),
-            wl_display_get_registry: load_symbol!(lib_client, _, "wl_display_get_registry"),
+            // F3: wl_display_get_registry is a C inline wrapper, NOT exported by
+            // libwayland-client — dlsym'ing it always failed (SymbolNotFound),
+            // which aborted Wayland init. Marshal it ourselves like the others.
+            wl_display_get_registry: wl_display_get_registry_impl,
             wl_display_roundtrip: load_symbol!(lib_client, _, "wl_display_roundtrip"),
             wl_display_dispatch_queue: load_symbol!(lib_client, _, "wl_display_dispatch_queue"),
             wl_display_dispatch_queue_pending: load_symbol!(
@@ -295,6 +302,9 @@ impl Wayland {
             wl_proxy_destroy: load_symbol!(lib_client, _, "wl_proxy_destroy"),
             wl_proxy_set_queue: load_symbol!(lib_client, _, "wl_proxy_set_queue"),
 
+            wl_registry_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_registry_interface")
+            },
             wl_compositor_interface: unsafe {
                 *load_symbol!(lib_client, *const wl_interface, "wl_compositor_interface")
             },
@@ -446,6 +456,7 @@ struct WlMarshalCtx {
     marshal: *const c_void,
     marshal_constructor: *const c_void,
     marshal_constructor_versioned: *const c_void,
+    wl_registry: *const wl_interface,
     wl_surface: *const wl_interface,
     wl_pointer: *const wl_interface,
     wl_keyboard: *const wl_interface,
@@ -471,6 +482,7 @@ fn init_marshal_ctx(w: &Wayland) {
         marshal: w.wl_proxy_marshal,
         marshal_constructor: w.wl_proxy_marshal_constructor,
         marshal_constructor_versioned: w.wl_proxy_marshal_constructor_versioned,
+        wl_registry: &w.wl_registry_interface,
         wl_surface: &w.wl_surface_interface,
         wl_pointer: &w.wl_pointer_interface,
         wl_keyboard: &w.wl_keyboard_interface,
@@ -487,6 +499,20 @@ fn init_marshal_ctx(w: &Wayland) {
     });
 }
 
+// F3: wl_display.get_registry is request opcode 1 on wl_display, returning a new
+// wl_registry. Like create_surface it is a constructor request with no extra args
+// (just the NULL new_id placeholder + the return interface). Marshalling it here
+// replaces the bogus dlsym of the inline wrapper that aborted Wayland startup.
+unsafe extern "C" fn wl_display_get_registry_impl(display: *mut wl_display) -> *mut wl_registry {
+    let c = ctx();
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(display as *mut wl_proxy, 1, c.wl_registry, std::ptr::null_mut()) as *mut wl_registry
+}
 // Constructor requests: marshal_constructor(proxy, opcode, ret_interface, NULL new_id, ...args).
 unsafe extern "C" fn wl_registry_bind_impl(
     registry: *mut wl_registry,

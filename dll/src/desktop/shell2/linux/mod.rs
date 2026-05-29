@@ -119,9 +119,31 @@ impl LinuxWindow {
             BackendType::X11 => Ok(LinuxWindow::X11(x11::X11Window::new_with_resources(
                 options, resources,
             )?)),
-            BackendType::Wayland => Ok(LinuxWindow::Wayland(wayland::WaylandWindow::new(
-                options, resources,
-            )?)),
+            BackendType::Wayland => {
+                // F3: try Wayland, but fall back to X11 if it fails to initialise
+                // (missing/old libwayland, no compositor, etc.) instead of aborting
+                // the whole app. Only a HARD override (AZ_BACKEND=wayland) propagates
+                // the error, so a user who explicitly asked for Wayland still sees it.
+                match wayland::WaylandWindow::new(options.clone(), resources.clone()) {
+                    Ok(w) => Ok(LinuxWindow::Wayland(w)),
+                    Err(e) => {
+                        let forced = std::env::var("AZ_BACKEND")
+                            .map(|b| b.eq_ignore_ascii_case("wayland"))
+                            .unwrap_or(false);
+                        if forced {
+                            return Err(e);
+                        }
+                        log_warn!(
+                            LogCategory::Platform,
+                            "[Linux] Wayland init failed ({:?}); falling back to X11",
+                            e
+                        );
+                        Ok(LinuxWindow::X11(x11::X11Window::new_with_resources(
+                            options, resources,
+                        )?))
+                    }
+                }
+            }
         }
     }
 
