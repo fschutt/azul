@@ -905,21 +905,66 @@ jobs:
           done
           ls -la target/screenshots/ || echo "No screenshots directory"
 
+      # B1 fix. python-extension pulls in pyo3 (extension-module, no libpython
+      # link) — its cdylib references ~80 Py* symbols. Build it into a SEPARATE
+      # target dir so it never clobbers the LEAN libazul.a (static C linking must
+      # stay python-free).
+      #
+      # LINUX: ship ONE dylib. The Linux python build bakes WEAK Py* stubs into
+      # the cdylib (dll/src/python_abi3_weak_stubs.c via build.rs), so a single
+      # libazul.so serves both `import azul` (libpython interposes the strong
+      # symbols at load) AND C/C++ apps that link `-lazul` (the weak stubs satisfy
+      # the linker, never called). We copy that .so over the lean prod-release
+      # libazul.so and also expose it as azul.so for `import azul`. The lean
+      # libazul.a (built earlier, stripped) is untouched.
+      #
+      # macOS/Windows: KEEP the lean dynamic lib + a SEPARATE python module
+      # (azul.so / azul.pyd). The weak-stub trick is ELF-only; macOS two-level
+      # namespace would bind libazul's own refs to the stubs (breaking import),
+      # and Windows pyo3 hard-links python3.dll (would break pure-C apps). The
+      # macOS codesign step also runs before this, so re-baking would void it.
       - name: Build Python extension
-        run: cargo build --profile prod-release -p azul-dll --lib --features="python-extension"
+        run: cargo build --profile prod-release -p azul-dll --lib --features="python-extension" --target-dir target/pyext
 
       - name: Rename Python extension (Windows)
         if: matrix.os == 'windows-2022'
         shell: bash
-        run: cp target/prod-release/azul.dll target/prod-release/azul.pyd
+        run: cp target/pyext/prod-release/azul.dll target/prod-release/azul.pyd
 
-      - name: Rename Python extension (Linux)
+      # Linux: the python build is C-safe (weak stubs) — make it THE release dylib.
+      - name: Bake Python into the single release dylib (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: cp target/prod-release/libazul.so target/prod-release/azul.so
+        run: |
+          cp target/pyext/prod-release/libazul.so target/prod-release/libazul.so
+          cp target/prod-release/libazul.so target/prod-release/azul.so
+
+      # Verify B1 is actually fixed: no undefined Py* symbols may remain in the
+      # shipped libazul.so (the weak stubs must cover every one pyo3 references).
+      # If this fails, add the reported symbol to dll/src/python_abi3_weak_stubs.c.
+      - name: Verify no undefined Py* symbols (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          UNDEF=$(nm -D --undefined-only target/prod-release/libazul.so | grep -E '\b(Py|_Py)[A-Za-z0-9_]*' || true)
+          if [ -n "$UNDEF" ]; then
+            echo "::error::libazul.so still has undefined Py* symbols — B1 not fixed:"
+            echo "$UNDEF"
+            exit 1
+          fi
+          echo "OK: no undefined Py* symbols in libazul.so"
+
+      # Empirically prove a C app links against the python-baked libazul.so
+      # (this is exactly what B1 broke). Link only — running needs a display.
+      - name: C link test against release libazul.so (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          cd examples/c
+          clang -std=c99 -I../../target/codegen hello-world.c \
+            -L../../target/prod-release -lazul -o /tmp/azul-c-linktest \
+            && echo "OK: C app links against the release libazul.so (B1 fixed)"
 
       - name: Rename Python extension (macOS)
         if: matrix.os == 'macos-14'
-        run: cp target/prod-release/libazul.dylib target/prod-release/azul.so
+        run: cp target/pyext/prod-release/libazul.dylib target/prod-release/azul.so
 
       - name: Test Python extension import
         shell: bash

@@ -34,12 +34,45 @@ fn main() {
         println!("cargo:rustc-cdylib-link-arg=dynamic_lookup");
     }
 
+    // B1: on Linux, bake weak Py* stubs into the cdylib (see
+    // src/python_abi3_weak_stubs.c) so a SINGLE libazul.so serves both
+    // `import azul` (libpython interposes) and C/C++ apps linking `-lazul`
+    // (the weak stubs satisfy the linker, never called). macOS/Windows use
+    // their own mechanism, so this is Linux-only.
+    #[cfg(feature = "python-extension")]
+    if target.contains("linux") {
+        compile_python_weak_stubs();
+    }
+
     if target.contains("ios") {
         configure_ios();
     }
     if target.contains("android") {
         configure_android();
     }
+}
+
+// ── Python: weak Py* stubs (Linux, bug B1) ────────────────────────────
+
+/// Compile `src/python_abi3_weak_stubs.c` into the cdylib so that the single
+/// shipped `libazul.so` carries WEAK definitions of every `Py*` symbol pyo3
+/// leaves undefined (extension-module does not link libpython). C/C++ apps can
+/// then link `-lazul`; a real interpreter interposes the strong symbols at
+/// import via the RTLD_GLOBAL global scope. `--whole-archive` forces all stubs
+/// in regardless of static-link order; `rustc-cdylib-link-arg` keeps them out of
+/// the staticlib (`libazul.a` stays lean for C static linking).
+#[cfg(feature = "python-extension")]
+fn compile_python_weak_stubs() {
+    println!("cargo:rerun-if-changed=src/python_abi3_weak_stubs.c");
+    cc::Build::new()
+        .file("src/python_abi3_weak_stubs.c")
+        .opt_level(0)
+        .cargo_metadata(false) // we link it ourselves, whole-archive, cdylib-only
+        .compile("azul_pyabi3_stubs");
+    let out = env::var("OUT_DIR").unwrap();
+    println!("cargo:rustc-cdylib-link-arg=-Wl,--whole-archive");
+    println!("cargo:rustc-cdylib-link-arg={}/libazul_pyabi3_stubs.a", out);
+    println!("cargo:rustc-cdylib-link-arg=-Wl,--no-whole-archive");
 }
 
 // ── Android setup ─────────────────────────────────────────────────────
