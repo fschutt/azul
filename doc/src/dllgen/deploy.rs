@@ -1581,6 +1581,10 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <ul>
                 {demo_links}
               </ul>
+              <p style='font-size:15px;'>Installing &amp; debugging these, and going
+              from Rust to a final <code>.apk</code>/<code>.ipa</code> cross-platform:
+              <a href='https://azul.rs/guide/mobile'>guide: Mobile</a> &middot;
+              <a href='https://azul.rs/guide/mobile-deployment'>guide: Mobile Deployment (install, sideload, debug)</a>.</p>
 
               <br/>
               <h2 id='language-bindings'>Installation instructions</h2>

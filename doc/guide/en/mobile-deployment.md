@@ -250,6 +250,88 @@ Xcode or even a Mac:
 event/runtime paths are covered by the synthetic-event harness (no hardware) —
 see [e2e-testing](e2e-testing.md). The iOS simulator runs unsigned `.app`s.
 
+## Installing & debugging the built app
+
+You don't have to build anything to try the demos — every example is published
+per-OS on the [release page](/releases) (Demos section): a `.apk` for Android, a
+device `.app` and a Simulator `.app` for iOS. To install a build (yours or a
+downloaded one):
+
+### Android (`.apk`)
+
+The APKs are debug-signed, so they sideload directly.
+
+```sh
+# Over USB (enable Settings → Developer options → USB debugging first):
+adb install azul-maps-android.apk
+# Replace an existing install: adb install -r …; uninstall: adb uninstall com.azul.azul_maps
+```
+
+Or copy the `.apk` to the phone and tap it (allow "install unknown apps" for the
+browser/file manager). **Minimum Android 7.0 (API 24)** — the camera backend
+links the NDK Camera2 stubs (API 24); AAudio (API 26) is loaded at runtime, so on
+7.0/7.1 the app runs and audio just reports unavailable.
+
+**Debug logs:** azul's platform layer logs through the `log` facade to logcat
+(via `liblog`). Watch them with:
+
+```sh
+adb logcat -s azul:V '*:S'        # azul lines only
+adb logcat | grep -E '\[camera\]|\[udp\]|\[gamepad\]|\[sensors\]|\[cap\]'
+```
+
+A native crash prints a tombstone — `adb logcat` shows the `backtrace:` with the
+faulting library; pull `/data/tombstones/` for the full dump.
+
+### iOS Simulator (`.app`, no signing)
+
+The Simulator slice (`<demo>-ios-sim.app.zip`) runs **unsigned** — easiest to try
+on a Mac:
+
+```sh
+unzip azul-maps-ios-sim.app.zip
+open -a Simulator                              # boot a simulator
+xcrun simctl install booted azul-maps.app
+xcrun simctl launch --console booted <bundle-id>   # --console streams stdout/stderr
+```
+
+`--console` (or `xcrun simctl spawn booted log stream --predicate 'process == "azul-maps"'`)
+shows the same `[camera]`/`[udp]`/… traces.
+
+### iOS device (`.app` → signed)
+
+A physical iPhone needs the binary code-signed (a **free** Apple ID / personal
+team works for a 7-day sideload). On a Mac, the lowest-friction path is to sign +
+install with the platform tools:
+
+```sh
+codesign --force --sign "Apple Development: you@example.com (TEAMID)" \
+  --entitlements scripts/ios/entitlements.plist azul-maps.app
+xcrun devicectl device install app --device <udid> azul-maps.app
+```
+
+No Mac? [`rcodesign`](https://github.com/indygreg/apple-platform-rs) signs an
+`.app`/`.ipa` from Linux/Windows with a Developer ID `.p12`. **Device logs:**
+`xcrun devicectl device console --device <udid>`, or Console.app filtered by the
+app name, or `idevicesyslog` (libimobiledevice).
+
+## From Rust to a final `.apk` / `.ipa` — cross-platform
+
+The whole pipeline is `cargo` + small CLI tools, no IDE, and the same on Linux or
+macOS (only the final iOS *signing* prefers a Mac, and even that has the
+`rcodesign` escape hatch above):
+
+| Step | Android | iOS |
+|------|---------|-----|
+| 1. Compile | `cargo ndk -t arm64-v8a -p 24 build --lib` (the cdylib NativeActivity loads) | `cargo build --target aarch64-apple-ios[-sim]` (the binary, `main()` runs `UIApplicationMain`) |
+| 2. Bundle | `aapt2 link` + `zip` the `.so` + `classes.dex` → `.apk` | lay out `MyApp.app/` (binary + `Info.plist`); `.ipa` = `Payload/MyApp.app` zipped |
+| 3. Sign | `zipalign` + `apksigner` (debug keystore is fine for sideloading) | `codesign` / `rcodesign` (device only; Simulator needs none) |
+| 4. Install | `adb install` | `xcrun simctl install` (sim) / `devicectl`/`ios-deploy` (device) |
+
+[`scripts/build-android.sh`](https://github.com/fschutt/azul/blob/master/scripts/build-android.sh)
+and [`scripts/build-ios.sh`](https://github.com/fschutt/azul/blob/master/scripts/build-ios.sh)
+run steps 1–4 end to end; CI runs exactly these to produce the release artifacts.
+
 ## See also
 
 - [Web Deployment](web-deployment.md) — the WASM target, by comparison.
