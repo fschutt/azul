@@ -2667,3 +2667,36 @@ Release punch-list (user-driven). Branch mobile-ios-android, NOT pushed.
 Cron: created `*/10 * * * *` self-wake to continue the list autonomously (session-only, 7-day expiry).
 Still pending: doc-review JS tool (#7), lean/azuldbg split (#13), mobile APK/.app CI (#8),
 docker→GHCR enable (#9), self-host publish channels (#10), mac/Android signing (#6).
+
+### Tick — 2026-05-29 (cont.) — review tool, docker, macOS signing
+
+Continued the 0.2.0 punch list. Branch mobile-ios-android, 7 commits this session, NOT pushed.
+
+- **#7 doc-review tool** (`doc/templates/azul-review.js`, injected via get_common_head_tags):
+  select text on any page → comment popup → IndexedDB persist → "Export all" → one JSON across all
+  pages. Temporary (remove script line + copy_static_assets write + template later). node --check OK,
+  injected on all 8 page types, emitted to deploy root. Commit b1e84de66.
+- **#9 docker→GHCR**: enabled docker-web-base.yml (tag trigger + push_image default true), updated
+  release-page note to "published (experimental) — docker pull ghcr.io/fschutt/azul-web-base:latest".
+  Commit 4a2123175.
+- **#6 macOS signing**: release-page Gatekeeper callout + generated release/<v>/unquarantine.sh
+  (xattr -dr com.apple.quarantine). CI build_binaries: ad-hoc codesign always + secret-gated
+  (APPLE_*) Developer-ID codesign+notarytool+staple prepared. Android signing folded into #8.
+  Commit e41c25dfb. (Quarantine is applied on the DOWNLOADER's machine — server-side strip is
+  impossible; notarization is the real fix, ready for when a Developer ID is purchased.)
+
+DONE 11/14: #1 #2 #3 #4 #5 #6 #7 #9 #11 #12 #14.
+
+REMAINING 3 (heavy; concrete plans in the TaskList descriptions — need machine builds/CI to verify,
+so handed to the */10 cron):
+- **#13 lean azul vs azuldbg**: feature `debug-server` OFF by default; stub module so run.rs compiles
+  unchanged; gate verbose log macros; CI builds both azul.* (lean) + azuldbg.*; examples link lean.
+  REQUIRED gate before commit: `cargo build -p azul-dll --features build-dll` (lean) compiles.
+- **#8 mobile APK/.app CI**: scripts/build-android.sh (ubuntu+SDK+NDK27+JDK17, AZ_ANDROID_NO_DEPLOY=1,
+  debug-keystore now / release-keystore secret-gated) + build-ios.sh (macos+Xcode, aarch64-apple-ios
+  UNSIGNED zip). Lay into release/demos/ + add mobile rows to the deploy.rs demo grouping.
+- **#10 self-host feeds**: static nuget/maven/npm/gems/luarocks/opam/aur/apt(+GPG key)/brew-tap/choco
+  feeds under the deployed site; each publish job stages its artifact into website/<feed>/; per-channel
+  "add our source/key" notes on the release page.
+
+cron 9f553e2d (*/10) drives the remaining 3.
