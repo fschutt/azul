@@ -1373,6 +1373,11 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
     continue-on-error: true
     runs-on: macos-14
+    # Hoist the signing secrets to job env so the optional cert-import step can
+    # gate on `env.` (the `secrets.` context is not allowed in a step `if:`).
+    env:
+      APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+      APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -1391,10 +1396,7 @@ jobs:
       # the Simulator .app never needs signing. (No Mac? the guide documents
       # rcodesign for signing off-host.)
       - name: Import Apple signing cert (optional)
-        if: ${{ secrets.APPLE_CERT_P12 != '' }}
-        env:
-          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
-          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        if: ${{ env.APPLE_CERT_P12 != '' }}
         run: |
           KCHAIN="$RUNNER_TEMP/azul.keychain-db"
           security create-keychain -p actions "$KCHAIN"
