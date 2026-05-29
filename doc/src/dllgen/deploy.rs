@@ -1692,6 +1692,13 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     fs::write(output_dir.join("azul-search.js"), AZUL_SEARCH_JS)?;
     fs::write(output_dir.join("azul-search.css"), AZUL_SEARCH_CSS)?;
 
+    // TEMPORARY doc-review tool (referenced from get_common_head_tags). Lets the
+    // maintainer select text on any page and attach a comment persisted in the
+    // browser's IndexedDB, then export every comment as one JSON. Remove this
+    // write + the <script> tag + the template file in a later release.
+    const AZUL_REVIEW_JS: &str = include_str!("../../templates/azul-review.js");
+    fs::write(output_dir.join("azul-review.js"), AZUL_REVIEW_JS)?;
+
     // Copy logo SVG at runtime
     fs::copy(templates_dir.join("logo.svg"), output_dir.join("logo.svg"))?;
 

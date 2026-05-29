@@ -812,6 +812,8 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
       <link rel='stylesheet' href='{base_url}/azul-search.css'>
       {css_tag}
       {anchor_link}
+      <!-- TEMPORARY doc-review tool (remove this line + azul-review.js in a later release) -->
+      <script defer src='{base_url}/azul-review.js'></script>
     ", base_url=base_url, css_tag=css_tag, anchor_link=get_anchor_link_script())
 }
 
