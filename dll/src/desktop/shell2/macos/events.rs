@@ -956,11 +956,20 @@ impl MacOSWindow {
         // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
         txn.set_document_view(device_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
-        // Send transaction
+        // Send transaction (GPU backend only — in CPU mode `render_api` is None and
+        // the WebRender document does not exist; the CPU framebuffer resize below is
+        // what matters there. This guard is C1: unconditional unwrap here aborted every
+        // macOS demo on the first resize when running on the CPU backend.)
         if let Some(ref layout_window) = self.common.layout_window {
-            let document_id =
-                crate::desktop::wr_translate2::wr_translate_document_id(layout_window.document_id);
-            self.common.render_api.as_mut().unwrap().send_transaction(document_id, txn);
+            if let Some(render_api) = self.common.render_api.as_mut() {
+                let document_id = crate::desktop::wr_translate2::wr_translate_document_id(
+                    layout_window.document_id,
+                );
+                crate::plog_trace!("[compositor] macOS resize: sending WebRender set_document_view txn");
+                render_api.send_transaction(document_id, txn);
+            } else {
+                crate::plog_trace!("[compositor] macOS resize: CPU backend, skipping WebRender txn");
+            }
         }
 
         // Resize GL viewport (if OpenGL backend)

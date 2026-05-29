@@ -3783,6 +3783,15 @@ impl MacOSWindow {
             return;
         }
 
+        // GPU backend only: in CPU mode `render_api`/`document_id` are None and the
+        // CPU present path (render_and_present_in_draw_rect) regenerates frames itself.
+        // Guarding here keeps the unconditional unwraps below from aborting in CPU mode.
+        if self.common.render_api.is_none() || self.common.document_id.is_none() {
+            crate::plog_trace!("[compositor] macOS generate_frame_if_needed: CPU backend, skipping WebRender frame gen");
+            self.common.frame_needs_regeneration = false;
+            return;
+        }
+
         // CRITICAL: Make OpenGL context current BEFORE generate_frame
         // The image callbacks (RenderImageCallback) need the GL context to be current
         // to allocate textures and draw to them
