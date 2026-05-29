@@ -1566,9 +1566,10 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;font-size:14px;'>
                   <p style='color:grey;'>A <code>ghcr.io/fschutt/azul-web-base</code> base image with a pre-lifted
                   azul-library WASM cache &mdash; so your app only lifts its own callbacks, not the whole
-                  library (seconds instead of minutes) &mdash; is <strong>in preparation</strong> and will be
-                  published here once the web backend is stable. For now, see the guide above and build
-                  <code>docker/web-base/Dockerfile</code> from the repo yourself.</p>
+                  library (seconds instead of minutes) &mdash; is published to the GitHub Container Registry
+                  (<strong>experimental preview</strong>; the web backend is not yet stable):</p>
+                  <p style='color:black;font-family:monospace;'>docker pull ghcr.io/fschutt/azul-web-base:latest</p>
+                  <p style='color:grey;'>Build it yourself from <code>docker/web-base/Dockerfile</code> in the repo. See the guide above.</p>
               </div>
 
               <br/>

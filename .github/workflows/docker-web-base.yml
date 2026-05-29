@@ -18,14 +18,13 @@
 name: docker-web-base
 
 on:
-  # PREPARATION — NOT shipped yet, so manual-trigger ONLY. The pre-lifted WASM
-  # base image stays experimental until hello-world.c is stable on web (remill
-  # bugs) and the lift-cache key is version-pinned (it currently hashes machine
-  # bytes + an ASLR-dependent lift_addr, not the remill/LLVM/source version).
-  # Re-enable the tag trigger below to auto-publish on release once we ship.
-  # push:
-  #   tags:
-  #     - '[0-9]+.[0-9]+.[0-9]+*'
+  # Ship the image AS-IS to GHCR for now (still experimental: hello-world.c is
+  # not yet stable on web and the lift-cache key is not version-pinned — see
+  # docker/web-base/README.md). Auto-publish :<version> + :latest on a release
+  # tag; a manual dispatch defaults to pushing too.
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+*'
   workflow_dispatch:
     inputs:
       ref:
@@ -37,7 +36,7 @@ on:
         description: 'Push to ghcr.io (off = build only)'
         type: boolean
         required: false
-        default: false
+        default: true
 
 # Least-privilege: only what is needed to push a package to GHCR.
 permissions:
