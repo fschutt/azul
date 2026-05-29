@@ -1381,6 +1381,27 @@ jobs:
           key: mobile-apps-ios
       - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc codegen all
+      # Signing is OPTIONAL: only when the APPLE_* secrets are present do we import
+      # the Developer cert and export IOS_SIGNING_IDENTITY, which makes build-ios.sh
+      # codesign the DEVICE .app and lets us emit an installable .ipa. Without the
+      # secrets this step is skipped and the device .app ships unsigned (as is) —
+      # the Simulator .app never needs signing. (No Mac? the guide documents
+      # rcodesign for signing off-host.)
+      - name: Import Apple signing cert (optional)
+        if: ${{ secrets.APPLE_CERT_P12 != '' }}
+        env:
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          KCHAIN="$RUNNER_TEMP/azul.keychain-db"
+          security create-keychain -p actions "$KCHAIN"
+          security set-keychain-settings -lut 21600 "$KCHAIN"
+          security unlock-keychain -p actions "$KCHAIN"
+          echo "$APPLE_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KCHAIN"
+          security list-keychain -d user -s "$KCHAIN"
+          IDENT=$(security find-identity -v -p codesigning "$KCHAIN" | awk '/Apple (Development|Distribution)|Developer ID/{print $2; exit}')
+          echo "IOS_SIGNING_IDENTITY=$IDENT" >> "$GITHUB_ENV"
       - name: Build + bundle each demo as a .app — device + simulator (best-effort)
         shell: bash
         run: |
@@ -1399,6 +1420,14 @@ jobs:
               APP_DIR="target/ios-bundle/${demo}-${tgt}.app"
               if [ -d "$APP_DIR" ]; then
                 ( cd "$(dirname "$APP_DIR")" && zip -qr "$OLDPWD/mobile-apps/${demo}-${suffix}.app.zip" "$(basename "$APP_DIR")" )
+                # When the device .app was code-signed (IOS_SIGNING_IDENTITY set by
+                # the optional cert-import step), also emit an installable .ipa
+                # (Payload/<App>.app, zipped). Unsigned builds ship only the .app.
+                if [ "$tgt" = "aarch64-apple-ios" ] && [ -n "${IOS_SIGNING_IDENTITY:-}" ]; then
+                  rm -rf "$RUNNER_TEMP/Payload" && mkdir -p "$RUNNER_TEMP/Payload"
+                  cp -R "$APP_DIR" "$RUNNER_TEMP/Payload/"
+                  ( cd "$RUNNER_TEMP" && zip -qr "$OLDPWD/mobile-apps/${demo}-ios.ipa" Payload )
+                fi
               fi
             done
           done
