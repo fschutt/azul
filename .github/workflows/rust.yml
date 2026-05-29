@@ -1375,25 +1375,32 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
-          targets: aarch64-apple-ios
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim
       - uses: Swatinem/rust-cache@v2
         with:
           key: mobile-apps-ios
       - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc codegen all
-      - name: Build + bundle each demo as a .app (best-effort)
+      - name: Build + bundle each demo as a .app — device + simulator (best-effort)
         shell: bash
         run: |
           set +e
           mkdir -p mobile-apps
+          # Build BOTH the device slice (aarch64-apple-ios → <demo>-ios.app.zip,
+          # needs signing to install on a phone) and the simulator slice
+          # (aarch64-apple-ios-sim → <demo>-ios-sim.app.zip, runs UNSIGNED in the
+          # iOS Simulator via `xcrun simctl install`).
           for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
-            echo "=== iOS .app: $demo ==="
-            AZ_IOS_DRYRUN=1 APP_NAME="$demo" bash scripts/build-ios.sh aarch64-apple-ios "$demo" \
-              || { echo "::warning::$demo failed to bundle for iOS — skipping"; continue; }
-            APP_DIR="target/ios-bundle/${demo}-aarch64-apple-ios.app"
-            if [ -d "$APP_DIR" ]; then
-              ( cd "$(dirname "$APP_DIR")" && zip -qr "$OLDPWD/mobile-apps/${demo}-ios.app.zip" "$(basename "$APP_DIR")" )
-            fi
+            for tgt in aarch64-apple-ios aarch64-apple-ios-sim; do
+              echo "=== iOS .app: $demo ($tgt) ==="
+              suffix="ios"; [ "$tgt" = "aarch64-apple-ios-sim" ] && suffix="ios-sim"
+              AZ_IOS_DRYRUN=1 APP_NAME="$demo" bash scripts/build-ios.sh "$tgt" "$demo" \
+                || { echo "::warning::$demo ($tgt) failed to bundle — skipping"; continue; }
+              APP_DIR="target/ios-bundle/${demo}-${tgt}.app"
+              if [ -d "$APP_DIR" ]; then
+                ( cd "$(dirname "$APP_DIR")" && zip -qr "$OLDPWD/mobile-apps/${demo}-${suffix}.app.zip" "$(basename "$APP_DIR")" )
+              fi
+            done
           done
           ls -l mobile-apps || true
       - name: Upload mobile demo apps

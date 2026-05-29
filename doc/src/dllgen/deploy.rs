@@ -1400,7 +1400,8 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         ("Linux", "demos/{c}-linux", |_| true),
         ("macOS", "demos/{c}-macos", |_| true),
         ("Windows", "demos/{c}-windows.exe", |_| true),
-        ("iOS (.app, sideload)", "mobile-apps/{c}-ios.app.zip", |_| true),
+        ("iOS device (.app, needs signing)", "mobile-apps/{c}-ios.app.zip", |_| true),
+        ("iOS Simulator (.app, unsigned)", "mobile-apps/{c}-ios-sim.app.zip", |_| true),
         ("Android (.apk, sideload)", "mobile-apps/{c}-android.apk",
             |c| ANDROID_READY.contains(&c)),
     ];
