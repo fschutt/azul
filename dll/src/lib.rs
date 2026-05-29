@@ -51,6 +51,20 @@
     deprecated,                            // objc2 NSOpenGL*, msg_send_id, PanicInfo
 )]
 
+// Security rail: a remill/web build (libazulwithremill.so — shipped in the
+// azul-web-base Docker image and run in production pods) must NEVER carry the
+// in-process HTTP debug server. `debug-server` is what compiles in the AZ_DEBUG
+// port + the AZ_E2E runner; combining it with the web transpiler would risk an
+// accidental open debug port in a deployed web app. Refuse to build the two
+// together so it can't happen by mistake.
+#[cfg(all(feature = "web-transpiler", feature = "debug-server"))]
+compile_error!(
+    "the `debug-server` feature (AZ_DEBUG port + AZ_E2E runner) must not be enabled \
+     together with the web transpiler (`web-transpiler`/`web-transpiler-static`): a \
+     deployed web build must not expose a debug port. Build libazulwithremill.so \
+     without `debug-server`."
+);
+
 // ---------------------------------------------------------------------------
 // Global allocator selection (mutually exclusive features)
 // ---------------------------------------------------------------------------

@@ -1629,6 +1629,25 @@ fn generate_release_pages(
             version
         );
 
+        // Per-demo "run as a web app" Dockerfiles. Copy each
+        // examples/<crate>/Dockerfile to release/<version>/<crate>.Dockerfile (with
+        // the ARG default pinned to this release) so the release page's Web (Docker)
+        // links resolve to a `docker build`-able URL. Best-effort: a missing source
+        // (running outside the repo) just skips that demo.
+        for crate_name in [
+            "azul-paint", "azul-maps", "azul-vault", "azul-spirit-level",
+            "azul-gamepad", "azul-camera-app", "azul-screenshare-app",
+            "azul-video-app", "azul-meet", "azul-self-test",
+        ] {
+            let src = examples_dir.join(crate_name).join("Dockerfile");
+            if let Ok(contents) = fs::read_to_string(&src) {
+                let pinned = contents
+                    .replace("ARG AZUL_VERSION=0.2.0", &format!("ARG AZUL_VERSION={version}"));
+                let _ = fs::write(version_dir.join(format!("{crate_name}.Dockerfile")), pinned);
+            }
+        }
+        println!("  [OK] Generated: release/{}/<demo>.Dockerfile (web/Docker)", version);
+
         // Copy per-language (non-whitelist) bindings + scaffolding so that the
         // go/haskell/ada/pascal/zig/cobol/fortran/perl/php/lisp/smalltalk/vb6/
         // freebasic/algol68/powershell install steps' `curl` targets resolve.

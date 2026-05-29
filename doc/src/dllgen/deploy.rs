@@ -1404,7 +1404,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         ("Android (.apk, sideload)", "mobile-apps/{c}-android.apk",
             |c| ANDROID_READY.contains(&c)),
     ];
-    let demo_links: String = os_groups
+    let mut demo_links: String = os_groups
         .iter()
         .map(|(os_label, path_tmpl, include)| {
             let items: String = DEMO_APPS
@@ -1428,6 +1428,32 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         })
         .collect::<Vec<_>>()
         .join("\n                ");
+
+    // Web (Docker): run any demo as a web app with one command. The link is the
+    // demo's Dockerfile (a release-hosted copy of examples/<crate>/Dockerfile); it
+    // FROMs ghcr.io/fschutt/azul-web-base and REUSES the Linux x86-64 desktop
+    // binary — azul lifts it to WASM in-process (remill) and serves it, no
+    // separate web build, no recompile. The label is the ready-to-run command.
+    let web_items: String = DEMO_APPS
+        .iter()
+        .map(|(crate_name, friendly, _desc)| {
+            let url = asset_url(version, &format!("{crate_name}.Dockerfile"));
+            format!(
+                "<li><strong>{friendly}</strong>: \
+                 <a href='{url}'><code>docker build {url} -t {crate_name}</code></a> \
+                 then <code>docker run -p 8080:8080 {crate_name}</code></li>",
+                friendly = friendly,
+                url = url,
+                crate_name = crate_name
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n                    ");
+    demo_links.push_str(&format!(
+        "\n                <li><strong>Web (Docker, experimental)</strong>\n                  \
+         <ul>\n                    {web_items}\n                  </ul></li>",
+        web_items = web_items
+    ));
 
     format!(
         "<!DOCTYPE html>
