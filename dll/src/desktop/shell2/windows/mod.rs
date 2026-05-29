@@ -1965,6 +1965,38 @@ impl Win32Window {
     }
 }
 
+/// Human-readable name for a Win32 window message (for raw-event tracing).
+fn win32_msg_name(msg: u32) -> &'static str {
+    match msg {
+        0x0001 => "WM_CREATE",
+        0x0002 => "WM_DESTROY",
+        0x0003 => "WM_MOVE",
+        0x0005 => "WM_SIZE",
+        0x0007 => "WM_SETFOCUS",
+        0x0008 => "WM_KILLFOCUS",
+        0x000F => "WM_PAINT",
+        0x0010 => "WM_CLOSE",
+        0x0014 => "WM_ERASEBKGND",
+        0x0024 => "WM_GETMINMAXINFO",
+        0x0046 => "WM_WINDOWPOSCHANGING",
+        0x0047 => "WM_WINDOWPOSCHANGED",
+        0x0084 => "WM_NCHITTEST",
+        0x0100 => "WM_KEYDOWN",
+        0x0101 => "WM_KEYUP",
+        0x0102 => "WM_CHAR",
+        0x0113 => "WM_TIMER",
+        0x0200 => "WM_MOUSEMOVE",
+        0x0201 => "WM_LBUTTONDOWN",
+        0x0202 => "WM_LBUTTONUP",
+        0x0204 => "WM_RBUTTONDOWN",
+        0x0205 => "WM_RBUTTONUP",
+        0x020A => "WM_MOUSEWHEEL",
+        0x020E => "WM_MOUSEHWHEEL",
+        0x02E0 => "WM_DPICHANGED",
+        _ => "WM_other",
+    }
+}
+
 // Helper function for default window processing when Win32 libraries aren't available
 #[inline]
 unsafe fn default_window_proc(
@@ -2214,6 +2246,12 @@ unsafe extern "system" fn window_proc(
     }
 
     let window = &mut *window_ptr;
+
+    // Raw-event trace: every incoming window message, so the per-OS run shows
+    // how raw system events map to app actions and surfaces message storms
+    // (e.g. a flood of WM_WINDOWPOSCHANGED = a geometry feedback loop). Cheap
+    // (trace-level, no-op unless logging is enabled). Mirrors the X11 [x11 ev] trace.
+    crate::plog_trace!("[win32 ev] raw {} (0x{:04X})", win32_msg_name(msg), msg);
 
     // Handle messages
     match msg {
