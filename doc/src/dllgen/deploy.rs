@@ -1495,6 +1495,22 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               {cross_arch_section}
 
               <br/>
+              <div style='padding:14px 16px;background:#eef4ff;border:1px solid #aac4ec;border-radius:6px;max-width:700px;font-size:14px;'>
+                <strong>Debug build (<code>azuldbg</code>) &mdash; for developers</strong><br/>
+                The shipped <code>libazul</code> above is <strong>lean</strong>: the in-process debug
+                server is compiled out, so <code>AZ_DEBUG=&lt;port&gt;</code> (the DOM inspector / E2E
+                runner) does nothing and no debug port is reachable on your users' machines. To debug
+                your own app, download the matching <code>azuldbg</code> library and swap it in for
+                <code>libazul</code> (e.g. set <code>AZ_LINK_PATH</code> to it); then
+                <code>AZ_DEBUG=8765 ./my_app</code> works.
+                <ul>
+                  <li><a href='https://azul.rs/release/{version}/libazuldbg.so'>libazuldbg.so (Linux)</a></li>
+                  <li><a href='https://azul.rs/release/{version}/libazuldbg.dylib'>libazuldbg.dylib (macOS)</a></li>
+                  <li><a href='https://azul.rs/release/{version}/azuldbg.dll'>azuldbg.dll (Windows)</a></li>
+                </ul>
+              </div>
+
+              <br/>
               <div style='padding:14px 16px;background:#fff6e0;border:1px solid #e8c97a;border-radius:6px;max-width:700px;font-size:14px;'>
                 <strong>macOS — &ldquo;app is damaged / from an unidentified developer&rdquo;</strong><br/>
                 Downloaded files get a quarantine flag, so Gatekeeper blocks them until azul is

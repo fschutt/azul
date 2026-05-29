@@ -2748,3 +2748,23 @@ REMAINING for #15: (a) CI build_binaries — also build azuldbg.{so,dll,dylib} v
 `--features build-dll,debug-server` + deploy as swap-in; (b) release-page note: swap azul→azuldbg to
 re-enable AZ_DEBUG=<port>; (c) optional deeper LOC split of full.rs into responses/server/e2e/scaffold
 submodules (pure code-motion on the gated side, verify with the full check).
+
+### Tick — 2026-05-29 (cont.) — #13/#15 complete: ship azuldbg.* swap-in
+
+Branch mobile-ios-android, NOT pushed. azul-doc rebuilt + `deploy debug` render-verified; rust.yml YAML valid.
+
+- CI build_binaries: builds azuldbg.{so,dylib,dll} via `--features build-dll,debug-server` into a
+  SEPARATE --target-dir (so it never clobbers the lean libazul.* the example/screenshot steps use),
+  copies to target/prod-release/libazuldbg.*, ad-hoc-signs (macOS) + strips (Linux). Added to each
+  OS artifact_path; deploy_pages lays them into release/0.2.0/.
+- Release page: "Debug build (azuldbg) — for developers" callout + 3 download links explaining the
+  swap (shipped libazul is lean / AZ_DEBUG no-op; swap in azuldbg → AZ_DEBUG=<port> works).
+
+#13 + #15 DONE: lean azul.* (AZ_DEBUG/E2E/HTTP server compiled out — size + security) vs azuldbg.*
+swap-in; examples/demos link lean; e2e_native CI builds debug-server. debug_server.rs (10,329 LOC)
+split into debug_server/{mod,stub,full}.rs.
+
+OPTIONAL remaining (low pri, not blocking release): deeper sub-split of full.rs (10.2k) into
+responses/server/e2e/scaffold submodules — pure code-motion on the gated side, verify via full check.
+
+DONE 13/15 top-level (+ STEP A/B of #13). Remaining: #8 mobile APK/.app CI, #10 self-host feeds.

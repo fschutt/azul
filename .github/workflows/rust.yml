@@ -667,18 +667,21 @@ jobs:
             artifact_name: azul-linux-amd64
             artifact_path: |
               target/prod-release/libazul.so
+              target/prod-release/libazuldbg.so
               target/prod-release/libazul.a
               target/prod-release/azul.so
           - os: macos-14
             artifact_name: azul-macos-amd64
             artifact_path: |
               target/prod-release/libazul.dylib
+              target/prod-release/libazuldbg.dylib
               target/prod-release/libazul.a
               target/prod-release/azul.so
           - os: windows-2022
             artifact_name: azul-windows-amd64
             artifact_path: |
               target/prod-release/azul.dll
+              target/prod-release/azuldbg.dll
               target/prod-release/azul.lib
               target/prod-release/azul.dll.lib
               target/prod-release/azul.pyd
@@ -817,6 +820,27 @@ jobs:
           else
             echo "::notice::No APPLE_* secrets — ad-hoc signing only (users run unquarantine.sh)"
             for f in $FILES; do [ -f "$f" ] && codesign --force --sign - "$f" || true; done
+          fi
+
+      # Build the azuldbg.* swap-in (debug-server feature → AZ_DEBUG works) into
+      # a SEPARATE target dir so it never clobbers the lean libazul.* the example
+      # / screenshot steps consume. Devs download azuldbg.* and drop it in place
+      # of azul.* to re-enable the debug server. Shipped azul.* stays lean.
+      - name: Build azuldbg (debug-server swap-in)
+        shell: bash
+        run: |
+          cargo build --profile prod-release -p azul-dll \
+            --features build-dll,debug-server --target-dir target/azuldbg
+          SRC=target/azuldbg/prod-release
+          DST=target/prod-release
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            cp "$SRC/libazul.dylib" "$DST/libazuldbg.dylib"
+            codesign --force --sign - "$DST/libazuldbg.dylib" || true
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            cp "$SRC/azul.dll" "$DST/azuldbg.dll"
+          else
+            cp "$SRC/libazul.so" "$DST/libazuldbg.so"
+            strip --strip-debug "$DST/libazuldbg.so" || true
           fi
 
       - name: Build Rust examples
@@ -1705,16 +1729,19 @@ jobs:
           # Replace placeholder binaries with real ones
           # Linux
           find artifacts-linux -name "libazul.so" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
+          find artifacts-linux -name "libazuldbg.so" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           find artifacts-linux -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.linux.a" \; 2>/dev/null || true
           find artifacts-linux -name "azul.so" -exec cp {} "$RELEASE_DIR/azul.cpython.so" \; 2>/dev/null || true
-          
+
           # macOS
           find artifacts-macos -name "libazul.dylib" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
+          find artifacts-macos -name "libazuldbg.dylib" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           find artifacts-macos -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.macos.a" \; 2>/dev/null || true
           find artifacts-macos -name "azul.so" -exec cp {} "$RELEASE_DIR/azul.so" \; 2>/dev/null || true
-          
+
           # Windows
           find artifacts-windows -name "azul.dll" ! -name "*.lib" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
+          find artifacts-windows -name "azuldbg.dll" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           find artifacts-windows -name "azul.lib" ! -name "azul.dll.lib" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           find artifacts-windows -name "azul.dll.lib" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           find artifacts-windows -name "azul.pyd" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
