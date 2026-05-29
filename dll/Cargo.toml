@@ -602,6 +602,14 @@ _internal_deps = [
 std = ["azul-core?/std", "azul-layout?/std"]
 logging = ["log"]
 
+# Debug server / inspector / E2E runner. OFF by default so the shipped
+# `azul.{so,dll,dylib}` is LEAN: no embedded HTTP server (AZ_DEBUG=<port> is a
+# no-op), no E2E runner, no DOM-inspector/scaffold-generator machinery, and the
+# ~8k lines of `common/debug_server` request handling are NOT compiled in (a few
+# MB + an attacker-reachable port off the customer build). Build the swap-in
+# `azuldbg.*` with `--features build-dll,debug-server` to re-enable AZ_DEBUG.
+debug-server = []
+
 # Memory allocator features — set the global allocator inside the azul DLL.
 # Since azul exposes a C API, the allocator only affects azul's internal
 # allocations. The host application keeps its own allocator.

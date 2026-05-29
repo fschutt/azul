@@ -1132,7 +1132,9 @@ jobs:
         run: cargo run -r -p azul-doc codegen all
 
       - name: Build azul-dll (release, dynamic)
-        run: cargo build --release -p azul-dll --features build-dll
+        # debug-server enables the AZ_E2E runner this job drives (it is OFF in
+        # the shipped lean build, so the E2E test binary must opt back in).
+        run: cargo build --release -p azul-dll --features build-dll,debug-server
 
       - name: Resolve dynamic library path
         shell: bash

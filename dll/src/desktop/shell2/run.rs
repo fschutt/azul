@@ -48,7 +48,9 @@ fn resolve_backend(options: &WindowCreateOptions) -> super::AzBackend {
 }
 
 /// Check if E2E test runner mode is requested via environment variable.
-/// Returns `Some(path)` if `AZ_E2E` is set.
+/// Returns `Some(path)` if `AZ_E2E` is set. Only meaningful in `debug-server`
+/// builds; the lean build has no E2E runner.
+#[cfg(feature = "debug-server")]
 fn e2e_test_file() -> Option<String> {
     std::env::var("AZ_E2E").ok().filter(|s| !s.is_empty())
 }
@@ -64,6 +66,7 @@ fn e2e_test_file() -> Option<String> {
 /// - **Headless mode** (`AZ_BACKEND=headless`) → StubWindow instead of real window
 /// - **Debug server** (`AZ_DEBUG=<port>`) → HTTP API on that port
 /// - **E2E runner** (`AZ_E2E=<file>`) → one event on the queue
+#[cfg(feature = "debug-server")]
 fn setup_e2e_runner(test_file: &str) {
     // Read the test file — exit immediately on error
     let tests_json = match std::fs::read_to_string(test_file) {
@@ -222,31 +225,41 @@ fn setup_debug_and_e2e(
     Option<spmc::Receiver<debug_server::DebugRequest>>,
     Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
 ) {
-    let debug_port = debug_server::get_debug_port();
-    let e2e_file = e2e_test_file();
-    let needs_debug = debug_port.is_some() || e2e_file.is_some();
-
-    let (debug_request_rx, component_map) = if needs_debug {
-        let cm = Arc::new(Mutex::new(
-            azul_core::xml::ComponentMap::from_libraries(&config.component_libraries),
-        ));
-        let rx = if let Some(port) = debug_port {
-            let (_handle, rx) = debug_server::start_debug_server(port);
-            rx
-        } else {
-            let (_handle, rx) = debug_server::create_debug_channel();
-            rx
-        };
-        (Some(rx), Some(cm))
-    } else {
+    // Lean build: no debug server, no E2E runner — AZ_DEBUG/AZ_E2E are no-ops.
+    #[cfg(not(feature = "debug-server"))]
+    {
+        let _ = config;
         (None, None)
-    };
-
-    if let Some(ref test_file) = e2e_file {
-        setup_e2e_runner(test_file);
     }
 
-    (debug_request_rx, component_map)
+    #[cfg(feature = "debug-server")]
+    {
+        let debug_port = debug_server::get_debug_port();
+        let e2e_file = e2e_test_file();
+        let needs_debug = debug_port.is_some() || e2e_file.is_some();
+
+        let (debug_request_rx, component_map) = if needs_debug {
+            let cm = Arc::new(Mutex::new(
+                azul_core::xml::ComponentMap::from_libraries(&config.component_libraries),
+            ));
+            let rx = if let Some(port) = debug_port {
+                let (_handle, rx) = debug_server::start_debug_server(port);
+                rx
+            } else {
+                let (_handle, rx) = debug_server::create_debug_channel();
+                rx
+            };
+            (Some(rx), Some(cm))
+        } else {
+            (None, None)
+        };
+
+        if let Some(ref test_file) = e2e_file {
+            setup_e2e_runner(test_file);
+        }
+
+        (debug_request_rx, component_map)
+    }
 }
 
 /// Run the application with the given root window configuration

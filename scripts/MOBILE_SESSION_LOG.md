@@ -2700,3 +2700,28 @@ so handed to the */10 cron):
   "add our source/key" notes on the release page.
 
 cron 9f553e2d (*/10) drives the remaining 3.
+
+### Tick — 2026-05-29 (cont.) — #13 STEP A: debug-server feature (opt-in AZ_DEBUG)
+
+Branch mobile-ios-android, NOT pushed. Verified via `cargo check -p azul-dll` (lean, ~7s) +
+`--features debug-server` (full, ~10s) — both green.
+
+- New cargo feature `debug-server` (OFF by default) in dll/Cargo.toml. The shipped lean
+  azul.{so,dll,dylib} now has AZ_DEBUG=<port> + AZ_E2E as NO-OPS (the debug HTTP server is
+  never started/reachable — closes the attacker-on-customer vector). Rebuild with
+  `--features build-dll,debug-server` (→ azuldbg.*) to restore it.
+- run.rs: `setup_debug_and_e2e` body wrapped so the lean arm returns (None,None) and never
+  references start_debug_server/create_debug_channel/setup_e2e_runner/e2e_test_file;
+  `setup_e2e_runner` + `e2e_test_file` gated `#[cfg(feature="debug-server")]`.
+  register_debug_timer stays always-compiled (6 callers); its rx is always None in lean.
+- CI: e2e_native now builds `--features build-dll,debug-server` (it drives AZ_E2E; the shipped
+  build is lean). reftest is azul-doc-driven (no dll debug server) — unaffected.
+
+Verification harness found: `cargo check -p azul-dll` compiles desktop/shell2/debug_server via
+default link-static, ~7s warm, ~1GB disk — fast loop for STEP B.
+
+STEP B (task #15, queued): gate the heavy internals (register_debug_timer body, create_debug_timer,
+DebugTimerData, debug_timer_callback, process_debug_event ~4090 LOC, DebugEvent ~590, ~80 *Response
+structs, all handlers/evaluators/scaffold gens) for the SIZE win + split the 10,329-line file into
+debug_server/{mod,responses,server,e2e,scaffold,events}.rs + ship azuldbg.* artifact + release note.
+NOTE disk at 95% (12Gi) — STEP B's per-item gating uses the fast check loop; no heavy build needed.
