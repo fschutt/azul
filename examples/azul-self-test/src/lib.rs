@@ -390,10 +390,57 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 
 // ───────────────────────── entry point ─────────────────────────
 
+/// Print a self-describing intro to stdout (NOT the log) so a human — or a fresh
+/// Claude instance asked to "run the self-test and debug the failures" — knows
+/// what this is, how it behaves, and how to read the result, without prior
+/// context. Lines are plain (no `[INFO]` prefix) so they stand out.
+fn banner() {
+    let no_window = std::env::var("AZUL_SELFTEST_NO_WINDOW").is_ok();
+    let interactive = std::env::var("AZUL_SELFTEST_INTERACTIVE").is_ok();
+    println!("╔══════════════════════════════════════════════════════════════════╗");
+    println!("║  azul-self-test — platform device-API smoke test                   ║");
+    println!("╚══════════════════════════════════════════════════════════════════╝");
+    println!("WHAT THIS IS: exercises every azul platform API (UDP, audio, camera,");
+    println!("  microphone, motion sensors, gamepad, geolocation) on THIS machine,");
+    println!("  printing each result and mirroring a trace — including azul's own");
+    println!("  [camera]/[udp]/[gamepad]/... backend logs — to a file. Use it to");
+    println!("  compare behaviour across OSes and pinpoint platform bugs.");
+    println!();
+    println!("HOW TO READ RESULTS:");
+    println!("  PASS    — the API worked.");
+    println!("  UNAVAIL — no device / not supported on this target. NOT a failure");
+    println!("            (e.g. no camera on a server, no sensors on a desktop).");
+    println!("  FAIL    — a required API is broken. This is a real bug; the process");
+    println!("            exits non-zero. (Only UDP loopback is currently required.)");
+    println!();
+    println!("INTERACTION: runs UNATTENDED and exits on its own (~{}s for the device", RUN_SECS);
+    println!("  phase). No clicks needed.");
+    if !no_window {
+        println!("  • A window opens for ~{}s for the live device probes. To see real", RUN_SECS);
+        println!("    data: move a connected GAMEPAD, SPEAK into the mic (you'll see a");
+        println!("    dot-bar rise), point the CAMERA at something. All optional — it");
+        println!("    auto-closes and nothing blocks if no device is present.");
+    } else {
+        println!("  • AZUL_SELFTEST_NO_WINDOW set: only the headless probes run (UDP,");
+        println!("    audio-sink). Device probes that need the event loop are skipped.");
+    }
+    if interactive {
+        println!("  • AZUL_SELFTEST_INTERACTIVE set: keyring/biometric probes will run");
+        println!("    and MAY PROMPT (fingerprint / PIN). Respond when asked.");
+    } else {
+        println!("  • Keyring/biometric probes are SKIPPED (they prompt). Set");
+        println!("    AZUL_SELFTEST_INTERACTIVE=1 to include them.");
+    }
+    println!("LOG FILE: {}  (override with AZUL_SELFTEST_LOG=<path>)", log_path().display());
+    println!("────────────────────────────────────────────────────────────────────");
+    println!();
+}
+
 /// Run the self-test. Desktop: blocks through the windowed probe phase, then
 /// returns (caller exits with [`exit_code`]). Android: `App::run` stashes the
 /// window options and returns; the device probes run later under `android_main`.
 pub fn start() {
+    banner();
     init_logger();
 
     // 1) Standalone probes (no event loop) — the deterministic, exit-code ones.
@@ -403,12 +450,13 @@ pub fn start() {
     // 2) Headless escape hatch: skip the window (no display on this box).
     if std::env::var("AZUL_SELFTEST_NO_WINDOW").is_ok() {
         log::info!("AZUL_SELFTEST_NO_WINDOW set — skipping windowed device probes");
-        log::info!("exit code: {}", exit_code());
+        finish();
         return;
     }
 
     // 3) Windowed device probes via the App event loop.
-    log::info!("── opening window for device probes ({}s) ──", RUN_SECS);
+    log::info!("── opening window for live device probes ({}s) ──", RUN_SECS);
+    println!(">>> A window is opening for ~{}s — move a gamepad / speak / show the camera to see live data (optional). It closes automatically.", RUN_SECS);
     let data = RefAny::new(ProbeState::new());
     let config = AppConfig::create();
     let app = App::create(data, config);
@@ -416,7 +464,24 @@ pub fn start() {
     window.create_callback = Some(Callback::create(startup)).into();
     app.run(window);
 
-    log::info!("window closed — self-test complete (exit code {})", exit_code());
+    finish();
+}
+
+/// Final stdout verdict — written so an agent can act on it directly.
+fn finish() {
+    let code = exit_code();
+    println!();
+    println!("────────────────────────────────────────────────────────────────────");
+    if code == 0 {
+        println!("RESULT: PASS (exit 0). All required probes passed; UNAVAIL items are");
+        println!("  expected on machines without that device.");
+    } else {
+        println!("RESULT: FAIL (exit {}). A required probe failed — see the FAIL line(s)", code);
+        println!("  above; that is a real platform bug to debug.");
+    }
+    println!("Full trace (incl. azul backend logs): {}", log_path().display());
+    println!("To compare against another OS: run this there and diff the two logs.");
+    log::info!("self-test complete (exit code {})", code);
 }
 
 // Android has no `main()`: the OS loads this cdylib and calls libazul's
