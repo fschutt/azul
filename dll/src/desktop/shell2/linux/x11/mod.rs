@@ -611,6 +611,15 @@ impl X11Window {
                     let ev = unsafe { &event.configure };
                     let (new_width, new_height) = (ev.width as u32, ev.height as u32);
 
+                    // F4: trace the raw geometry the WM reported. `send_event==0`
+                    // means a real (non-synthetic) event whose x/y are relative to
+                    // the WM frame, not the root — do NOT treat them as on-screen
+                    // coords, and (below) do NOT echo them back via XMoveWindow.
+                    crate::plog_trace!(
+                        "[x11 ev] ConfigureNotify x={} y={} w={} h={} send_event={}",
+                        ev.x, ev.y, new_width, new_height, ev.send_event
+                    );
+
                     // Store old context for breakpoint detection
                     let old_context = self.dynamic_selector_context.clone();
 
@@ -660,11 +669,25 @@ impl X11Window {
                         self.regenerate_layout().ok();
                     }
 
-                    // Update position
-                    self.common.current_window_state.position =
-                        azul_core::window::WindowPosition::Initialized(
-                            azul_core::geom::PhysicalPositionI32::new(ev.x, ev.y),
-                        );
+                    // F4: this geometry was REPORTED BY the WM (source = Os), so
+                    // acknowledge it into both current and the sync baseline.
+                    // sync_window_state() then sees a zero diff and won't echo it
+                    // back via XMoveWindow/XResizeWindow (the WM reports
+                    // frame-relative coords on reparenting WMs, so echoing them as
+                    // root coords drifted the window down+right and spammed events).
+                    let new_pos = azul_core::window::WindowPosition::Initialized(
+                        azul_core::geom::PhysicalPositionI32::new(ev.x, ev.y),
+                    );
+                    let new_dims = LogicalSize::new(new_width as f32, new_height as f32);
+                    self.common.update_window_state(
+                        crate::desktop::shell2::common::event::WindowStateSource::Os,
+                        |ws| {
+                            ws.position = new_pos;
+                            if size_changed {
+                                ws.size.dimensions = new_dims;
+                            }
+                        },
+                    );
 
                     // If position changed, check for DPI change (moved to different monitor)
                     if position_changed && !size_changed {
@@ -1750,10 +1773,27 @@ impl X11Window {
                     self.regenerate_layout().ok();
                 }
 
-                self.common.current_window_state.position =
-                    azul_core::window::WindowPosition::Initialized(
-                        azul_core::geom::PhysicalPositionI32::new(ev.x, ev.y),
-                    );
+                crate::plog_trace!(
+                    "[x11 ev] ConfigureNotify x={} y={} w={} h={} send_event={}",
+                    ev.x, ev.y, new_width, new_height, ev.send_event
+                );
+
+                // F4: OS-reported geometry (source = Os) — acknowledge into both
+                // current and the sync baseline so it is not echoed back. See the
+                // main-loop handler + CommonWindowState::update_window_state.
+                let new_pos = azul_core::window::WindowPosition::Initialized(
+                    azul_core::geom::PhysicalPositionI32::new(ev.x, ev.y),
+                );
+                let new_dims = LogicalSize::new(new_width as f32, new_height as f32);
+                self.common.update_window_state(
+                    crate::desktop::shell2::common::event::WindowStateSource::Os,
+                    |ws| {
+                        ws.position = new_pos;
+                        if size_changed {
+                            ws.size.dimensions = new_dims;
+                        }
+                    },
+                );
 
                 if position_changed && !size_changed {
                     use azul_core::geom::LogicalPosition;

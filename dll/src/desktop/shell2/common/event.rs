@@ -534,6 +534,27 @@ pub struct InvokeSingleCallbackBorrows<'a> {
 /// Fields that are `Option<T>` here may be non-Option on some platforms (macOS, Win32)
 /// but are wrapped in Option for a common representation. The getters use `.expect()`
 /// for these fields — they should always be `Some(...)` by the time they're accessed.
+/// Where a window-state mutation originated. This is the event-source tracking
+/// the window-state sync relies on (see [`CommonWindowState::update_window_state`]).
+///
+/// `sync_window_state()` pushes the diff between `previous_window_state` (the
+/// baseline = "what the OS already has") and `current_window_state` (what we
+/// want) to the OS via `XMoveWindow`/`XResizeWindow`/`SetWindowPos`/…. Tagging
+/// the source decides whether a change is echoed:
+///   * [`App`](WindowStateSource::App) — the application/API asked for it, so it
+///     must be applied to the OS (it isn't there yet).
+///   * [`Os`](WindowStateSource::Os) — the OS *reported* it (already applied
+///     outside), so it must NOT be echoed; doing so causes feedback loops — e.g.
+///     a reparenting WM reports frame-relative coords and the echo walks the
+///     window across the screen, spamming configure events (F4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowStateSource {
+    /// Application/API requested the change → `sync_window_state()` applies it.
+    App,
+    /// OS reported the change (already applied) → never echoed back.
+    Os,
+}
+
 pub struct CommonWindowState {
     /// LayoutWindow integration (for UI callbacks and display list)
     pub layout_window: Option<LayoutWindow>,
@@ -595,6 +616,34 @@ pub struct CommonWindowState {
 }
 
 impl CommonWindowState {
+    /// Apply a window-state mutation, tagged with its [`WindowStateSource`].
+    ///
+    /// This is the single entry point for changing `current_window_state` in a
+    /// way `sync_window_state()` is aware of:
+    ///   * [`App`](WindowStateSource::App) — mutates `current` only, so the
+    ///     `current` vs `previous` diff makes `sync_window_state()` push it to
+    ///     the OS (`XMoveWindow`/`SetWindowPos`/…).
+    ///   * [`Os`](WindowStateSource::Os) — the change is *already applied* by the
+    ///     OS, so this mutates `current` AND advances the sync baseline
+    ///     (`previous`) in lockstep, leaving a zero diff so it is never echoed.
+    ///     Echoing OS-reported geometry is what drifted the window on reparenting
+    ///     WMs (F4).
+    ///
+    /// `apply` may run against both states, so pass a pure field assignment with
+    /// no side effects.
+    pub fn update_window_state(
+        &mut self,
+        source: WindowStateSource,
+        apply: impl Fn(&mut FullWindowState),
+    ) {
+        apply(&mut self.current_window_state);
+        if source == WindowStateSource::Os {
+            if let Some(prev) = self.previous_window_state.as_mut() {
+                apply(prev);
+            }
+        }
+    }
+
     /// Perform a hit test using whichever backend is available (GPU or CPU).
     ///
     /// Encapsulates the GPU vs CPU dispatch so callers don't need if/else chains.
