@@ -1591,6 +1591,17 @@ fn generate_release_pages(
         let version_dir = releases_dir.join(version);
         fs::create_dir_all(&version_dir)?;
 
+        // macOS un-quarantine helper. Downloaded files carry
+        // com.apple.quarantine; Gatekeeper blocks them until azul is notarized.
+        // Linked from the release page next to the macOS downloads.
+        fs::write(
+            version_dir.join("unquarantine.sh"),
+            "#!/bin/sh\n# Remove the macOS quarantine flag from downloaded azul files so\n\
+             # Gatekeeper stops blocking them. Usage: sh unquarantine.sh <file>...\n\
+             if [ $# -eq 0 ]; then echo \"usage: sh unquarantine.sh <file>...\"; exit 1; fi\n\
+             for f in \"$@\"; do xattr -dr com.apple.quarantine \"$f\" && echo \"un-quarantined: $f\"; done\n",
+        )?;
+
         // Generate C header for this version
         let c_api_code = codegen::generate_c_header(api_data)?;
         fs::write(version_dir.join("azul.h"), &c_api_code)?;

@@ -1495,6 +1495,17 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               {cross_arch_section}
 
               <br/>
+              <div style='padding:14px 16px;background:#fff6e0;border:1px solid #e8c97a;border-radius:6px;max-width:700px;font-size:14px;'>
+                <strong>macOS — &ldquo;app is damaged / from an unidentified developer&rdquo;</strong><br/>
+                Downloaded files get a quarantine flag, so Gatekeeper blocks them until azul is
+                notarized (coming once we have an Apple Developer ID). The macOS binaries above ship
+                ad-hoc-signed; to run a download now, clear the quarantine flag:
+                <pre style='margin:8px 0 0;white-space:pre-wrap;'>xattr -dr com.apple.quarantine libazul.dylib   # or the demo binary / .a</pre>
+                Or fetch the helper: <a href='https://azul.rs/release/{version}/unquarantine.sh'>unquarantine.sh</a>
+                &mdash; <code>sh unquarantine.sh &lt;file&gt;…</code>
+              </div>
+
+              <br/>
               <strong>C / C++ headers:</strong>
               <ul>
                 {c_header_link}
@@ -1514,7 +1525,8 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <p style='color:grey;font-size:15px;max-width:700px;'>Self-contained demo apps built statically against azul &mdash;
               download one for your OS and run it directly, no install or separate library needed.
               These are best-effort builds; some demos need platform features (camera/video, motion sensors, audio)
-              and may not ship for every OS.</p>
+              and may not ship for every OS. <strong>macOS:</strong> downloads are quarantined &mdash; see the
+              <a href='#native-libraries'>un-quarantine note above</a> (<code>xattr -dr com.apple.quarantine</code>).</p>
               <ul>
                 {demo_links}
               </ul>

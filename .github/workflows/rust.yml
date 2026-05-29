@@ -777,6 +777,48 @@ jobs:
           fi
           echo "after:  $(du -h "$A" | cut -f1)"
 
+      # macOS code signing. Without an Apple Developer ID (paid program) we can
+      # only AD-HOC sign (`-`), which does not clear the download quarantine but
+      # is a precursor to notarization and avoids some "damaged" errors. When the
+      # APPLE_* secrets are present we do the REAL thing: import the Developer ID
+      # cert, hardened-runtime codesign, notarize, and staple. Users without a
+      # notarized build clear quarantine via release/<v>/unquarantine.sh
+      # (xattr -dr com.apple.quarantine).
+      - name: Codesign macOS artifacts
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          set -e
+          FILES="target/prod-release/libazul.dylib target/prod-release/libazul.a target/prod-release/azul.so"
+          if [ -n "$APPLE_CERT_P12" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "::notice::Apple Developer ID present — signing + notarizing"
+            KCHAIN="$RUNNER_TEMP/azul.keychain-db"
+            security create-keychain -p actions "$KCHAIN"
+            security set-keychain-settings -lut 21600 "$KCHAIN"
+            security unlock-keychain -p actions "$KCHAIN"
+            echo "$APPLE_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KCHAIN"
+            security list-keychain -d user -s "$KCHAIN"
+            IDENT=$(security find-identity -v -p codesigning "$KCHAIN" | awk '/Developer ID/{print $2; exit}')
+            for f in $FILES; do
+              [ -f "$f" ] || continue
+              codesign --force --timestamp --options runtime --sign "$IDENT" "$f"
+              ZIP="$RUNNER_TEMP/$(basename "$f").zip"; ditto -c -k "$f" "$ZIP"
+              xcrun notarytool submit "$ZIP" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+                --password "$APPLE_APP_PASSWORD" --wait || true
+              xcrun stapler staple "$f" 2>/dev/null || true   # .dylib/.a may not be staple-able
+            done
+          else
+            echo "::notice::No APPLE_* secrets — ad-hoc signing only (users run unquarantine.sh)"
+            for f in $FILES; do [ -f "$f" ] && codesign --force --sign - "$f" || true; done
+          fi
+
       - name: Build Rust examples
         run: cargo check --verbose --examples
 
