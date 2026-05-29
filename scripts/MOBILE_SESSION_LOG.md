@@ -2814,3 +2814,26 @@ Findings:
 Decision needed (asked user): the Android/iOS ENTRY-POINT API shape so examples build as both a
 desktop bin AND a mobile cdylib with zero friction (macro vs explicit android_run vs ctor). Plus GPG
 approach for #10 (GitHub only stores PUBLIC keys; signing needs the PRIVATE key as a CI secret).
+
+### Tick — 2026-05-29 (cont.) — mobile guides: drop-in libazul, no Xcode/Studio
+
+Wrote/rewrote two guides (verified render + anchors via `azul-doc deploy debug`):
+- NEW doc/guide/en/mobile.md (slug `mobile`, order 285) — concise "what do I do": leads with the
+  DROP-IN model (ship prebuilt per-arch libazul in the bundle, link your thin app dynamically — C
+  hello-world works, NO recompiling azul, same as desktop); the Android android_main shim vs iOS
+  main(); build.rs does platform wiring (Rust-native, prefer over .sh); packaging is post-build
+  (build.rs can't zip the output → recommend a Rust `cargo xtask`, .sh shipped today); rcodesign
+  signs iOS from Linux.
+- REWROTE doc/guide/en/mobile-deployment.md — removed the Xcode/.xcframework assumption; added the
+  MINIMAL-TOOLCHAIN table (Android: libandroid+liblog+libc/m/dl stubs; iOS: Foundation/UIKit/
+  CoreGraphics+libSystem .tbd stubs; CPU render → no GLES/Metal; rust-lld → no external linker;
+  pure-NativeActivity → no JDK), CLI packaging recipe, iOS-from-Linux + rcodesign signing.
+
+Answered user's key Qs: (1) NDK/SDK are mostly link stubs — extract only the few needed + use
+rust-lld; (2) yes, drop prebuilt libazul into the .apk/.ipa and link dynamically — hello-world.c
+works on mobile, per-arch + Android entry shim + iOS signs both are the only caveats.
+
+FOLLOW-UP (noted, not blocking): CI should publish a mobile libazul per target (aarch64-apple-ios,
+aarch64-linux-android) on the release page for the drop-in model; a Rust `cargo xtask` packager to
+replace the .sh scripts. #8 (per-example APK/.app CI) still needs an Android/iOS toolchain to verify
++ a decision on the entry macro vs shim.

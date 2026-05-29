@@ -7,136 +7,254 @@ audience: external
 maturity: beta
 guide_order: 290
 topic_only: false
-short_desc: How to cross-compile, package, and deploy an Azul app on iOS and Android
+short_desc: Cross-compile, package and sign an Azul app as an .apk / .ipa — from any OS, no Xcode or Android Studio
 prerequisites: [hello-world, web-deployment]
 tracked_files:
   - dll/Cargo.toml
+  - dll/src/desktop/shell2/android/mod.rs
+  - dll/src/desktop/shell2/run.rs
+  - scripts/build-android.sh
+  - scripts/build-ios.sh
   - scripts/mobile-check-all.sh
-last_generated_rev: 754b7f00e088960c14db598f64fa200dacc28bf1
-generated_at: 2026-05-21T00:00:00Z
+last_generated_rev: ae991d834f665b88609d19ecf25dc88ea50e98a0
+generated_at: 2026-05-29T00:00:00Z
 default-search-keys:
   - link-static
   - aarch64-apple-ios
   - aarch64-linux-android
   - staticlib
-  - cargo-ndk
-  - XCFramework
+  - App
+  - WindowCreateOptions
 ---
 
 # Mobile Deployment (iOS and Android)
 
 ## Introduction
 
-An Azul application is a Rust library (`azul-dll`) plus your app code. On
-desktop you link it into an executable; on mobile you cross-compile it to a
-**static library** and link that into a thin platform shell (an Xcode app or an
-Android `Activity`). The shell owns the OS surface + lifecycle and hands it to
-Azul; everything else - layout, rendering, callbacks, the capture/audio/UDP
-APIs from [Realtime Media](realtime-media.md) - is the same code as desktop.
+An Azul app is **Rust all the way down** — the same `App::create(...).run(...)`
+code you wrote for desktop becomes the whole mobile app. There is no Java/Kotlin
+or Swift/Objective-C app layer to write, and **no Xcode or Android Studio**: an
+`.apk` and an `.ipa`/`.app` are just ZIP archives with a known layout, so you
+build the native library with the Rust cross-compiler and pack it with
+command-line tools. You can build for *both* platforms from Linux (only the
+final iOS code-signing touches an Apple-specific tool, and that has a
+cross-platform option — see [iOS signing](#ios-code-signing-no-xcode)).
 
-This guide covers cross-compilation, packaging, and the per-platform glue.
+The two ready-made scripts — [`scripts/build-android.sh`](https://github.com/fschutt/azul/blob/master/scripts/build-android.sh)
+and [`scripts/build-ios.sh`](https://github.com/fschutt/azul/blob/master/scripts/build-ios.sh)
+— do the whole thing (cross-compile → bundle → sign → optionally deploy) with no
+IDE. The sections below explain what they do so you can reproduce it by hand or
+adapt it. Every example in the repo (AzulMaps, azul-meet, …) is packaged this
+way, one self-contained app per example.
 
 ## Supported targets
-
-The mobile build is checked against five Rust targets (see
-`scripts/mobile-check-all.sh`):
 
 | Target | Use |
 |---|---|
 | `aarch64-apple-ios` | iOS device (arm64) |
 | `aarch64-apple-ios-sim` | iOS simulator on Apple silicon |
-| `x86_64-apple-ios` | iOS simulator on Intel Macs |
+| `x86_64-apple-ios` | iOS simulator on Intel |
 | `aarch64-linux-android` | Android device (arm64-v8a) |
 | `x86_64-linux-android` | Android emulator |
 
-Install them with `rustup target add <triple>`.
+`rustup target add <triple>` installs each. `bash scripts/mobile-check-all.sh`
+runs `cargo check` across all five — the gate kept green as the port lands.
 
-## Building the static library
+## How an Azul app maps onto each platform
 
-Mobile builds use the `link-static` feature and **no default features** (the
-desktop windowing/renderer defaults pull in things mobile doesn't want). The
-canonical build line, per target, is:
+The one structural difference between the two platforms is the **entry point**:
+
+- **iOS** keeps a normal `fn main()`. Your `main` calls `App::run(...)`, which on
+  iOS hands control to `UIApplicationMain` and drives the UIKit run loop. So an
+  iOS app is just your example compiled as a **binary** for an iOS target — the
+  exact same source as desktop.
+- **Android** has *no* `main()`: the OS loads your `.so` and calls
+  `ANativeActivity_onCreate` (provided by the bundled
+  [`android-activity`](https://crates.io/crates/android-activity) glue), which
+  invokes `android_main`. So an Android app is your example compiled as a
+  **`cdylib`**, and you give it a tiny `android_main` shim that runs the same
+  setup. See [Android entry point](#android-entry-point).
+
+Everything else — layout, rendering (CPU), callbacks, the
+[realtime-media](realtime-media.md) / sensor / gamepad / geolocation device
+APIs — is identical to desktop.
+
+## Minimal toolchain (only the stubs you need)
+
+You do **not** need the full NDK or the iOS SDK. Both are mostly *link stubs*
+(empty `.so` API stubs / `.tbd` text stubs) plus headers, and Rust already ships
+its own linker (`rust-lld`). Azul renders on the **CPU** on mobile
+(`gl_context_ptr = None`), so there are no OpenGL ES / Metal libraries to link
+either. The entire system-library surface is:
+
+| Platform | Links against | Notes |
+|---|---|---|
+| **Android** | `libandroid` (NativeActivity, `ANativeWindow`, `ALooper`), `liblog` (`__android_log_print`), and `libc` / `libm` / `libdl` | These are tiny NDK *stub* `.so`s — extract just those five, no full NDK needed at link time. (Set via `cargo:rustc-link-lib=android,log` in `azul-dll/build.rs`.) |
+| **iOS** | `Foundation`, `UIKit`, `CoreGraphics`, `libSystem` — plus one framework per device API you actually use (`AVFoundation`, `CoreMotion`, `CoreLocation`, `GameController`) | These are `.tbd` text stubs in the iOS SDK; copy only the ones you reference. |
+
+So a from-scratch minimal setup is:
+
+1. `rustup target add <triple>` — brings the Rust `std` for the target.
+2. A small **stub sysroot**: the five Android stub `.so`s (from the NDK's
+   `platforms/android-<api>/.../usr/lib/`) **or** the iOS framework `.tbd` stubs
+   (from the SDK's `System/Library/Frameworks/`). You extract these once; they're
+   a few hundred KB, not the multi-GB toolchain.
+3. **`rust-lld`** as the linker (`-C linker-flavor=ld.lld` / point the target's
+   linker at the bundled `rust-lld`) — no external `ld`, `clang`, or `xcrun`.
+
+For **packaging** you then need only the small CLI tools — `aapt2` / `zipalign` /
+`apksigner` for Android (a head-less `sdkmanager` install, no Studio), nothing
+for iOS beyond `zip` and a signer (see [iOS signing](#ios-code-signing-no-xcode)).
+And a pure-`NativeActivity` Android app needs **no Java at all** (so no JDK / `d8`)
+— the custom `AzulActivity.java` is only needed for the optional gesture bridge.
+
+> The ready-made `build-android.sh` / `build-ios.sh` currently lean on a normal
+> NDK / iOS-SDK install for convenience; the table above is the irreducible set
+> if you want to assemble a minimal cross-toolchain (e.g. to build iOS apps on
+> Linux). Extracting a minimal stub sysroot is a one-time step.
+
+## Building the native library
+
+Mobile builds use `link-static` with **no default features** (the desktop
+windowing/renderer defaults pull in things mobile doesn't want):
 
 ```sh
+# iOS device — produces a static lib your app binary links
 cargo build --release --target aarch64-apple-ios \
+    -p azul-dll --no-default-features --features "std,logging,link-static,a11y"
+
+# Android arm64 — produces the cdylib the APK ships
+cargo build --release --target aarch64-linux-android \
     -p azul-dll --no-default-features \
-    --features "std,logging,link-static,a11y"
+    --features "std,logging,link-static,a11y,android-activity"
 ```
 
-This produces a static library (`libazul.a`) under
-`target/<triple>/release/`. To verify all five targets compile without building
-artifacts, run `bash scripts/mobile-check-all.sh` (it runs `cargo check` across
-the matrix; this is the gate kept green as the mobile port lands).
-
-Your app calls into the library through the generated C API (`azul.h`,
-emitted by `cargo run --release --bin azul-doc -- codegen c`) - the same
-`AzApp_create` / `AzApp_run` / `Az*` entry points the C and other-language
-bindings use. From Rust you can instead depend on `azul-dll` directly with the
-same features.
-
-## iOS
-
-1. **Build for device + simulator.** Build `aarch64-apple-ios` (device) and the
-   simulator slice(s) you need (`aarch64-apple-ios-sim` on Apple silicon).
-2. **Make an XCFramework.** Bundle the per-slice `libazul.a` into an
-   `.xcframework` so Xcode picks the right slice automatically:
-   ```sh
-   xcodebuild -create-xcframework \
-       -library target/aarch64-apple-ios/release/libazul.a \
-       -library target/aarch64-apple-ios-sim/release/libazul.a \
-       -output Azul.xcframework
-   ```
-   (Use `lipo` only to merge slices of the *same* platform, e.g. two simulator
-   archs; device + simulator must stay separate xcframework entries.)
-3. **Link it.** Add `Azul.xcframework` to your Xcode target, add `azul.h` to the
-   bridging header, and link the system frameworks the on-device backends need
-   (Metal, AVFoundation, CoreMotion, CoreLocation, GameController).
-4. **Entry + surface.** Your `UIViewController` creates the drawable surface and
-   hands it to Azul, then drives the run loop. (The mobile windowing entry is
-   the integration seam between UIKit and Azul's event loop.)
-5. **Permissions.** Add the usage strings to `Info.plist` for whatever device
-   APIs you use: `NSCameraUsageDescription`, `NSMicrophoneUsageDescription`,
-   `NSLocationWhenInUseUsageDescription`, `NSMotionUsageDescription`.
+From Rust, depend on `azul-dll` directly with those features; from C, use the
+generated `azul.h` (`cargo run -r -p azul-doc -- codegen c`) and the same
+`AzApp_create` / `AzApp_run` entry points every binding uses.
 
 ## Android
 
-1. **Install the NDK** and the Android Rust targets. The simplest build path is
-   [`cargo-ndk`](https://github.com/bbqsrc/cargo-ndk), which sets the NDK
-   linker + sysroot for you:
-   ```sh
-   cargo ndk -t arm64-v8a -t x86_64 -o ./jniLibs build --release \
-       -p azul-dll --no-default-features --features "std,logging,link-static,a11y"
-   ```
-   Without `cargo-ndk`, point each target's linker at the NDK clang in
-   `.cargo/config.toml` and build per target as in the iOS section.
-2. **Bridge.** Call the C API from a `NativeActivity`, or from Kotlin/Java via a
-   small JNI shim that forwards to `AzApp_*`. The native side renders into the
-   `ANativeWindow` / `Surface` the Activity provides.
-3. **Package.** Put the per-ABI libraries under `app/src/main/jniLibs/<abi>/`
-   and let Gradle pack them into the APK/AAB.
-4. **Permissions.** Declare them in `AndroidManifest.xml`: `CAMERA`,
-   `RECORD_AUDIO`, `ACCESS_FINE_LOCATION`, `INTERNET` (for UDP), and request the
-   dangerous ones at runtime.
+### Android entry point
 
-## On-device backends
+Because there is no `main()`, add a small `android_main` to your app crate that
+runs the same setup your desktop `main()` does. Factor the setup into one
+function and call it from both:
 
-The cross-platform widget/handle surfaces ([Realtime Media](realtime-media.md),
-sensors, gamepad, geolocation) bind to native APIs at runtime:
-CoreMotion/AVFoundation/CoreLocation/GameController on iOS, the
-`SensorManager`/Camera2/`LocationManager`/`InputDevice` stack on Android. The
-permission prompts are driven by the manifest entries above plus the
-permission-as-DOM probes (e.g. `Dom::create_geolocation_probe`).
+```rust
+fn start() {
+    let data = RefAny::new(DataModel { counter: 0 });
+    let app = App::create(data, AppConfig::create());
+    // On Android, run() stashes the window options for android_main to pick up
+    // and returns; on desktop it blocks until the window closes.
+    app.run(WindowCreateOptions::create(my_layout_func));
+}
+
+// Desktop / iOS
+#[cfg(not(target_os = "android"))]
+fn main() { start(); }
+
+// Android: android-activity's ANativeActivity_onCreate calls this. Run start()
+// first (it stashes the options), then hand the AndroidApp to Azul's loop.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn android_main(app: azul::android::AndroidApp) {
+    start();
+    azul::android::run_android(app);
+}
+```
+
+Your crate must build as a `cdylib` for Android — add to its `Cargo.toml`:
+
+```toml
+[lib]
+crate-type = ["cdylib", "rlib"]
+```
+
+### Package the APK (no Android Studio)
+
+You need the **NDK 27**, **build-tools 34** (`aapt2`, `zipalign`, `apksigner`)
+and a **JDK 17** — all installable head-less via `sdkmanager`, no IDE. An `.apk`
+is a ZIP, assembled like this (this is exactly what `build-android.sh` does):
+
+```sh
+# 1. cross-compile the cdylib (cargo-ndk sets the NDK linker for you)
+cargo ndk -t arm64-v8a -o ./jniLibs build --release \
+    -p my-app --no-default-features --features "std,logging,link-static,a11y,android-activity"
+
+# 2. lay out the APK tree, compile the manifest, add the lib + Java glue
+aapt2 link --manifest AndroidManifest.xml -I "$ANDROID_HOME/platforms/android-34/android.jar" -o base.apk
+zip -r base.apk lib/arm64-v8a/libmy_app.so classes.dex   # classes.dex = dexed scripts/android/*.java
+
+# 3. align + sign with a (debug) keystore — apksigner is a CLI tool
+zipalign -f 4 base.apk aligned.apk
+apksigner sign --ks debug.keystore --ks-pass pass:android aligned.apk
+```
+
+**Files to copy** into your project (the Java glue + manifest template) live in
+[`scripts/android/`](https://github.com/fschutt/azul/tree/master/scripts/android):
+`AndroidManifest.xml` (sets `android.app.lib_name` to your lib), `AzulActivity.java`
+(the `NativeActivity` subclass), `NativeGestureBridge.java`, `AzulFilePicker.java`.
+The manifest's `lib_name` must match your `cdylib` name. The simplest path is to
+just run `bash scripts/build-android.sh aarch64-linux-android <AppName> <com.pkg>`.
+
+Declare permissions in `AndroidManifest.xml` (`CAMERA`, `RECORD_AUDIO`,
+`ACCESS_FINE_LOCATION`, `INTERNET`, …) and request the dangerous ones at runtime.
+
+## iOS
+
+### Build + bundle the .app/.ipa (no Xcode project)
+
+A `.app` is a directory; an `.ipa` is `Payload/<App>.app` zipped. You do **not**
+need an Xcode project — just the iOS SDK (for the linker sysroot) and the
+cross-linker. `build-ios.sh` does:
+
+```sh
+# 1. build your example as an iOS binary (its main() runs UIApplicationMain via App::run)
+cargo build --release --target aarch64-apple-ios -p my-app \
+    --no-default-features --features "std,logging,link-static,a11y"
+
+# 2. assemble the bundle: the executable + an Info.plist
+mkdir -p MyApp.app
+cp target/aarch64-apple-ios/release/my-app MyApp.app/MyApp
+cp scripts/ios/Info.plist MyApp.app/Info.plist          # template to copy/edit
+
+# 3. (device) sign, then zip into an .ipa
+mkdir -p Payload && cp -r MyApp.app Payload/ && zip -r MyApp.ipa Payload
+```
+
+The `Info.plist` template + entitlements are in
+[`scripts/ios/`](https://github.com/fschutt/azul/tree/master/scripts/ios).
+Add the usage strings for the device APIs you use: `NSCameraUsageDescription`,
+`NSMicrophoneUsageDescription`, `NSLocationWhenInUseUsageDescription`,
+`NSMotionUsageDescription`.
+
+> **Cross-compiling iOS from Linux:** install the iOS SDK sysroot (extractable
+> from the Xcode toolchain, no GUI) and point Rust's linker at it. The simulator
+> needs no signing and runs unsigned `.app`s directly.
+
+### iOS code signing (no Xcode)
+
+Code signing is the *only* Apple-specific step, and it does **not** require
+Xcode or even a Mac:
+
+- [`rcodesign`](https://github.com/indygreg/apple-platform-rs) (the Rust
+  `apple-codesign` crate) signs `.app`/`.ipa` bundles **on Linux or Windows** and
+  can submit to **Apple's notarization web service** (`rcodesign notary-submit`),
+  which is a REST API — no `xcrun`/`notarytool` needed.
+- You still need an Apple Developer ID certificate + provisioning profile (the
+  paid program), but those are files, not tools.
+- Simulator builds and personal-team device installs over a debug bridge need no
+  signing at all.
 
 ## Testing without a device
 
-Cross-compilation correctness is covered by `scripts/mobile-check-all.sh` (all
-five targets must `cargo check` clean). Event/runtime paths are covered by the
-synthetic-event harness without hardware - see [e2e-testing](e2e-testing.md) and
-`layout/tests/synthetic_events.rs`.
+`scripts/mobile-check-all.sh` proves all five targets `cargo check` clean;
+event/runtime paths are covered by the synthetic-event harness (no hardware) —
+see [e2e-testing](e2e-testing.md). The iOS simulator runs unsigned `.app`s.
 
 ## See also
 
-- [Web Deployment](web-deployment.md) - the WASM target, by comparison.
-- [Realtime Media and Devices](realtime-media.md) - the device APIs you'll be
-  requesting permissions for.
-- [hello-world](hello-world.md) - the app you're packaging.
+- [Web Deployment](web-deployment.md) — the WASM target, by comparison.
+- [Realtime Media and Devices](realtime-media.md) — the device APIs you request permissions for.
+- [hello-world](hello-world.md) — the app you're packaging.
