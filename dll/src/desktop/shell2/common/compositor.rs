@@ -221,12 +221,18 @@ pub fn check_gpu_blacklist(info: &GpuInfo) -> GpuCheckResult {
     let renderer_lower = info.renderer.to_lowercase();
     let version_lower = info.version.to_lowercase();
 
-    // Mesa llvmpipe — software rasteriser, cpurender is faster
-    if renderer_lower.contains("llvmpipe") || renderer_lower.contains("softpipe") {
+    // Mesa software rasterisers — they present as a real GL context but only
+    // support GLES-level GLSL, so desktop GLSL-150 SVG/FXAA shaders fail to
+    // compile (R1). cpurender is the right path for these anyway.
+    if renderer_lower.contains("llvmpipe")
+        || renderer_lower.contains("softpipe")
+        || renderer_lower.contains("swrast")
+        || renderer_lower.contains("software rasterizer")
+    {
         return GpuCheckResult::Blacklisted {
             info: info.clone(),
-            reason: "Mesa software rasteriser (llvmpipe/softpipe) detected — \
-                     cpurender is faster for this configuration".into(),
+            reason: "Mesa software rasteriser (llvmpipe/softpipe/swrast) detected — \
+                     cpurender is faster and avoids desktop-GLSL shader-compile errors".into(),
         };
     }
 

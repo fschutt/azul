@@ -1096,8 +1096,29 @@ impl X11Window {
                 let id_namespace =
                     wr_translate2::translate_id_namespace_wr(render_api.get_namespace_id());
                 let hit_tester_request = render_api.request_hit_tester(wr_doc_id);
+                // R1: a software GL stack (llvmpipe/swrast) presents as a real GL
+                // context but can't compile the desktop GLSL-150 SVG/FXAA shaders.
+                // Detect it and mark the GlContextPtr Software so those shaders are
+                // skipped (see GlContextPtr::new). WebRender compositing is left as-is.
+                let renderer_type = match crate::desktop::shell2::common::compositor::query_gpu_info(
+                    &gl_functions.functions,
+                ) {
+                    crate::desktop::shell2::common::compositor::GpuCheckResult::Blacklisted {
+                        ref info,
+                        ref reason,
+                    } => {
+                        log_warn!(
+                            LogCategory::Platform,
+                            "[X11] software/blacklisted GL ({}): {} — skipping GPU SVG/FXAA shaders",
+                            info.renderer,
+                            reason
+                        );
+                        RendererType::Software
+                    }
+                    _ => RendererType::Hardware,
+                };
                 let gl_context_ptr = OptionGlContextPtr::Some(GlContextPtr::new(
-                    RendererType::Hardware,
+                    renderer_type,
                     gl_functions.functions.clone(),
                 ));
                 log_debug!(

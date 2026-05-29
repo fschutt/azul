@@ -1321,8 +1321,27 @@ impl WaylandWindow {
         ));
         let hit_tester_request = render_api.request_hit_tester(wr_doc_id);
         self.common.hit_tester = Some(AsyncHitTester::Requested(hit_tester_request));
+        // R1: software GL (llvmpipe/swrast) can't compile desktop GLSL-150 SVG/FXAA
+        // shaders — detect it and mark the GlContextPtr Software so they're skipped.
+        let renderer_type = match crate::desktop::shell2::common::compositor::query_gpu_info(
+            &gl_functions.functions,
+        ) {
+            crate::desktop::shell2::common::compositor::GpuCheckResult::Blacklisted {
+                ref info,
+                ref reason,
+            } => {
+                log_warn!(
+                    LogCategory::Platform,
+                    "[Wayland] software/blacklisted GL ({}): {} — skipping GPU SVG/FXAA shaders",
+                    info.renderer,
+                    reason
+                );
+                RendererType::Software
+            }
+            _ => RendererType::Hardware,
+        };
         self.common.gl_context_ptr = OptionGlContextPtr::Some(GlContextPtr::new(
-            RendererType::Hardware,
+            renderer_type,
             gl_functions.functions.clone(),
         ));
         self.new_frame_ready = new_frame_ready;
