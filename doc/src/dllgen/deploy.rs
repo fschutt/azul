@@ -1152,17 +1152,14 @@ fn generate_asset_li(version: &str, asset: &AssetInfo) -> String {
     if asset.is_present {
         let url = asset_url(version, &asset.filename);
         format!(
-            "<li><a href='{url}'>{description} ({filename} \
-             - {size})</a></li>",
+            "<li><a href='{url}'>{description} ({size})</a></li>",
             url = url,
-            filename = asset.filename,
             description = asset.description,
             size = asset.humanize_size()
         )
     } else {
         format!(
-            "<li><span style='color: #999;'>{description} ({filename} - not available)</span></li>",
-            filename = asset.filename,
+            "<li><span style='color: #999;'>{description} (not available)</span></li>",
             description = asset.description
         )
     }
@@ -1383,7 +1380,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         (
             "azul-self-test",
             "azul-self-test",
-            "unattended platform-API smoke test (camera/mic/UDP/sensors/gamepad) — logs to a file and exits",
+            "unattended camera/mic/UDP/sensors/gamepad smoke test (logs to a file and exits)",
         ),
     ];
     // OS suffix → label + filename extension, matching the build_demos staging
@@ -1504,7 +1501,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
 
               <br/>
               <div style='padding:14px 16px;background:#fff6e0;border:1px solid #e8c97a;border-radius:6px;max-width:700px;font-size:14px;'>
-                <strong>macOS — &ldquo;app is damaged / from an unidentified developer&rdquo;</strong><br/>
+                <strong>macOS: &ldquo;app is damaged / from an unidentified developer&rdquo;</strong><br/>
                 Downloaded files get a quarantine flag, so Gatekeeper blocks them until azul is
                 notarized (coming once we have an Apple Developer ID). The macOS binaries above ship
                 ad-hoc-signed; to run a download now, clear the quarantine flag:
