@@ -145,7 +145,7 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
 
     let css = "
         h1 { 
-            font-family: 'Instrument Serif', Georgia, serif;
+            font-family: 'Playfair Display', Georgia, serif;
             font-size: 2.5em;
             font-weight: normal;
             line-height: 1.2;
@@ -162,7 +162,7 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
         }
         h2, h3, h4 { cursor: pointer; }
         h2 { 
-            font-family: 'Instrument Serif', Georgia, serif;
+            font-family: 'Playfair Display', Georgia, serif;
             font-size: 28px;
             font-weight: normal;
             text-shadow: 0.3px 0 0 currentColor, -0.3px 0 0 currentColor;

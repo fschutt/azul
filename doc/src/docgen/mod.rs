@@ -680,7 +680,7 @@ pub fn get_anchor_link_script() -> String {
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.82);
   color: #fff;
-  font-family: "Source Serif Pro", Georgia, serif;
+  font-family: "Rubik", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 13px;
   padding: 8px 14px;
   border-radius: 6px;
@@ -805,8 +805,8 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
       <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
       <meta name='keywords' content='gui, rust, user interface'>
 
-      <link rel='preload' as='font' href='{base_url}/fonts/SourceSerifPro-Regular.ttf' type='font/ttf' crossorigin='anonymous'>
-      <link rel='preload' as='font' href='{base_url}/fonts/InstrumentSerif-Regular.ttf' type='font/ttf' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='{base_url}/fonts/Rubik-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='{base_url}/fonts/PlayfairDisplay-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
       <link rel='stylesheet' href='{base_url}/azul-search.css'>
