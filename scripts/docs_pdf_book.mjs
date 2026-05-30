@@ -75,7 +75,9 @@ const CSS = `
                     color:#b00; font-size:.9em; }
   .booktitle h1 { font-size: 3em; margin:.1em 0 .3em; }
   .booktitle .sub { color:#555; font-size:1.3em; max-width: 18cm; }
-  .toc { margin-top: 2em; font-family: -apple-system, 'Segoe UI', sans-serif; font-size: 11pt; }
+  /* Each book's Contents starts on its own page (the .booktitle above fills the
+     title page; without this the TOC overflows onto the bottom of it). */
+  .toc { break-before: page; page-break-before: always; margin-top: 0; font-family: -apple-system, 'Segoe UI', sans-serif; font-size: 11pt; }
   .toc h2 { font-family:'Instrument Serif',serif; font-size:1.6em; border-bottom:1px solid #ddd; padding-bottom:.2em; }
   .toc ul { list-style:none; padding-left:0; }
   .toc li { margin:.28em 0; }
@@ -92,10 +94,15 @@ const today = new Date().toISOString().slice(0, 10);
 
 writeFileSync(join(deployDir, '_pdf', 'cover.html'), pageHtml('Azul Documentation',
   `<div class=cover><h1>Azul</h1><div class=sub>GUI Framework — Documentation</div>
-   <div class=meta>Native desktop &amp; web UI for Rust and 30+ language bindings<br>
+   <div class=meta>Native desktop &amp; web UI for Rust and 10+ language bindings<br>
    Version ${esc(version)} · ${today}</div></div>`));
 
+// `urls` (one rendered NNNN.pdf each) and `outline` stay index-aligned: the CDP
+// renderer writes NNNN.pdf in URL order, so the merge step can attach a PDF
+// bookmark to the first physical page of each source PDF. level 0 = top-level
+// (cover + each book title), level 1 = a page nested under its book.
 const urls = [`${baseUrl}/_pdf/cover.html`];
+const outline = [{ title: 'Azul Documentation', level: 0 }];
 books.forEach((b, i) => {
   const items = b.pages.map((g) => {
     const depth = (g.fileName.match(/\//g) || []).length;       // 0 = top level
@@ -105,8 +112,16 @@ books.forEach((b, i) => {
     `<div class=booktitle><div class=num>${b.num}</div><h1>${esc(b.title)}</h1><div class=sub>${esc(b.sub)}</div></div>
      <div class=toc><h2>Contents</h2><ul>${items}</ul></div>`));
   urls.push(`${baseUrl}/_pdf/book-${i}.html`);
-  for (const g of b.pages) urls.push(`${baseUrl}/guide/${g.fileName}.html`);
+  outline.push({ title: `${b.num}: ${b.title}`, level: 0 });
+  for (const g of b.pages) {
+    urls.push(`${baseUrl}/guide/${g.fileName}.html`);
+    outline.push({ title: g.title, level: 1 });
+  }
 });
+
+// Outline manifest for the merge step's pypdf bookmark builder (index-aligned to
+// the sorted NNNN.pdf files == this url order).
+writeFileSync(join(deployDir, '_pdf', 'outline.json'), JSON.stringify(outline));
 
 process.stderr.write(`books: ${books.map((b) => `${b.key}=${b.pages.length}`).join(' ')} · ${urls.length} pages total\n`);
 process.stdout.write(urls.join('\n') + '\n');

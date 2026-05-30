@@ -94,10 +94,20 @@ for ((i = 0; i < ${#URLS[@]}; i++)); do
 done
 
 # --- 4. merge -------------------------------------------------------------
+# Prefer pypdf + docs_pdf_merge.py: it attaches a real PDF outline (bookmarks)
+# from the planner's _pdf/outline.json (index-aligned to the NNNN.pdf order), so
+# the merged PDF gets a navigable Contents tree. pdfunite cannot add bookmarks,
+# so it is only the flat fallback when pypdf isn't installable.
 [ "${#PDFS[@]}" -gt 0 ] || { echo "ERROR: no pages rendered." >&2; exit 1; }
 mkdir -p "$ROOT/target"
 echo "==> Merging ${#PDFS[@]} pages -> $OUT"
-pdfunite "${PDFS[@]}" "$OUT"
+if python3 -c 'import pypdf' >/dev/null 2>&1 \
+   || python3 -m pip install --quiet pypdf >/dev/null 2>&1; then
+  python3 "$ROOT/scripts/docs_pdf_merge.py" "$TMP" "$DEPLOY/_pdf/outline.json" "$OUT"
+else
+  echo "    (pypdf unavailable — flat pdfunite merge, no bookmarks)"
+  pdfunite "${PDFS[@]}" "$OUT"
+fi
 rm -rf "$TMP"
 
 echo "==> Done: $OUT ($(du -h "$OUT" | cut -f1))"
