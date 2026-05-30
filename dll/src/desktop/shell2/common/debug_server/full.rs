@@ -2478,6 +2478,15 @@ pub fn is_debug_enabled() -> bool {
     DEBUG_ENABLED.load(Ordering::SeqCst) || E2E_ACTIVE.load(Ordering::SeqCst)
 }
 
+/// Whether the `log_*!` macros should fire. In the full (debug-server) build
+/// this tracks `is_debug_enabled()` exactly — messages flow into the queue for
+/// the HTTP server / `AZ_RECORD` exactly as before. (The lean stub overrides
+/// this to follow `AZ_LOG` and forward to the `log` facade instead.)
+#[cfg(feature = "std")]
+pub fn log_active() -> bool {
+    is_debug_enabled()
+}
+
 /// Initialize file-based recording from `AZ_RECORD` environment variable.
 ///
 /// When `AZ_RECORD=<filepath>` is set, all log messages are written to the

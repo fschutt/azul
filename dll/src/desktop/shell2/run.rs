@@ -988,12 +988,24 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
+    // Startup environment dump — the first thing to check when a Linux app
+    // "just exits": which display server we'll try, and whether the session
+    // env even points at one. Routes to stderr via the default logger.
+    crate::plog_info!(
+        "[Linux] run() entry — AZ_BACKEND={:?} WAYLAND_DISPLAY={:?} DISPLAY={:?} XDG_SESSION_TYPE={:?}",
+        std::env::var("AZ_BACKEND").ok(),
+        std::env::var("WAYLAND_DISPLAY").ok(),
+        std::env::var("DISPLAY").ok(),
+        std::env::var("XDG_SESSION_TYPE").ok(),
+    );
     let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
     if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window) {
+        crate::plog_info!("[Linux] backend resolved to Web");
         return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
+        crate::plog_info!("[Linux] backend resolved to Headless (AZ_BACKEND=headless)");
         return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
     use std::cell::RefCell;
@@ -1013,8 +1025,19 @@ pub fn run(
     // Wrap app_data in Arc<RefCell<>> for shared access
     let app_data_arc = Arc::new(RefCell::new(app_data));
 
-    // Create the root window
-    let mut window = LinuxWindow::new_with_resources(root_window, app_data_arc, resources.clone())?;
+    // Create the root window — log a failure HERE (with the concrete error)
+    // before propagating, so a window-creation failure is never silent even if
+    // the caller discards the Result.
+    let mut window = match LinuxWindow::new_with_resources(root_window, app_data_arc, resources.clone()) {
+        Ok(w) => {
+            crate::plog_info!("[Linux] root window created successfully");
+            w
+        }
+        Err(e) => {
+            crate::plog_error!("[Linux] FAILED to create root window: {:?} — app cannot start", e);
+            return Err(e);
+        }
+    };
 
     // Register debug timer with explicit channel + component map (no globals)
     if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {

@@ -47,6 +47,14 @@ impl App {
         // Initialize AZ_RECORD file logging before anything else
         debug_server::init_recording();
 
+        // Install azul's built-in stderr logger (default ON; AZ_LOG=off to
+        // silence). The lean `build-dll` library otherwise installs NO logger,
+        // so every platform-layer trace is discarded and a failed startup looks
+        // like a silent quit. Doing it here means it is live before any window,
+        // event-loop or font work runs. No-op if the host already set a logger.
+        #[cfg(feature = "logging")]
+        crate::desktop::logging::init_default_logger();
+
         // Discover the real system style (replaces the hard-coded default from AppConfig::create)
         app_config.system_style = discover_system_style();
 
@@ -87,6 +95,7 @@ impl App {
             "Starting App::run",
             None,
         );
+        crate::plog_info!("[azul] App::run starting (AZ_BACKEND={:?})", std::env::var("AZ_BACKEND").ok());
         let data = self.ptr.data.clone();
         let config = self.ptr.config.clone();
         let fc_cache = (*self.ptr.fc_cache).clone();
@@ -96,16 +105,25 @@ impl App {
         let err = crate::desktop::shell2::run(data, config, fc_cache, font_registry, root_window);
 
         if let Err(e) = err {
+            // ALWAYS surface the error — to the log facade AND raw stderr — on
+            // EVERY platform. Previously a desktop error only went to msg_box,
+            // which silently no-ops on Linux/Wayland without zenity/kdialog, so
+            // a failed startup looked like the app "just exiting with no error".
+            crate::plog_error!("[azul] application exited with error: {:?}", e);
+            eprintln!("[azul] application error: {:?}", e);
+            // Best-effort GUI dialog on desktop (only shows if a dialog backend
+            // like zenity/kdialog is present; the stderr line above is the
+            // guaranteed channel).
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
-            #[cfg(any(target_os = "android", target_os = "ios"))]
-            eprintln!("Application error: {:?}", e);
             debug_server::log(
                 debug_server::LogLevel::Error,
                 debug_server::LogCategory::EventLoop,
                 format!("Application error: {:?}", e),
                 None,
             );
+        } else {
+            crate::plog_info!("[azul] App::run returned cleanly (event loop ended)");
         }
     }
 }

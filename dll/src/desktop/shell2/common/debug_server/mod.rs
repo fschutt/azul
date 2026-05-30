@@ -97,7 +97,7 @@ macro_rules! plog_error {
 #[macro_export]
 macro_rules! log_trace {
     ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::is_debug_enabled() {
+        if $crate::desktop::shell2::common::debug_server::log_active() {
             $crate::desktop::shell2::common::debug_server::log(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Trace,
                 $cat,
@@ -107,7 +107,7 @@ macro_rules! log_trace {
         }
     };
     ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::is_debug_enabled() {
+        if $crate::desktop::shell2::common::debug_server::log_active() {
             $crate::desktop::shell2::common::debug_server::log(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Trace,
                 $cat,
@@ -122,7 +122,7 @@ macro_rules! log_trace {
 #[macro_export]
 macro_rules! log_debug {
     ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::is_debug_enabled() {
+        if $crate::desktop::shell2::common::debug_server::log_active() {
             $crate::desktop::shell2::common::debug_server::log(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Debug,
                 $cat,
@@ -132,7 +132,7 @@ macro_rules! log_debug {
         }
     };
     ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::is_debug_enabled() {
+        if $crate::desktop::shell2::common::debug_server::log_active() {
             $crate::desktop::shell2::common::debug_server::log(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Debug,
                 $cat,
@@ -147,7 +147,7 @@ macro_rules! log_debug {
 #[macro_export]
 macro_rules! log_info {
     ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::is_debug_enabled() {
+        if $crate::desktop::shell2::common::debug_server::log_active() {
             $crate::desktop::shell2::common::debug_server::log(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Info,
                 $cat,
@@ -157,7 +157,7 @@ macro_rules! log_info {
         }
     };
     ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::is_debug_enabled() {
+        if $crate::desktop::shell2::common::debug_server::log_active() {
             $crate::desktop::shell2::common::debug_server::log(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Info,
                 $cat,
@@ -172,7 +172,7 @@ macro_rules! log_info {
 #[macro_export]
 macro_rules! log_warn {
     ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::is_debug_enabled() {
+        if $crate::desktop::shell2::common::debug_server::log_active() {
             $crate::desktop::shell2::common::debug_server::log(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Warn,
                 $cat,
@@ -182,7 +182,7 @@ macro_rules! log_warn {
         }
     };
     ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::is_debug_enabled() {
+        if $crate::desktop::shell2::common::debug_server::log_active() {
             $crate::desktop::shell2::common::debug_server::log(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Warn,
                 $cat,
@@ -197,7 +197,7 @@ macro_rules! log_warn {
 #[macro_export]
 macro_rules! log_error {
     ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::is_debug_enabled() {
+        if $crate::desktop::shell2::common::debug_server::log_active() {
             $crate::desktop::shell2::common::debug_server::log(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Error,
                 $cat,
@@ -207,7 +207,7 @@ macro_rules! log_error {
         }
     };
     ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::is_debug_enabled() {
+        if $crate::desktop::shell2::common::debug_server::log_active() {
             $crate::desktop::shell2::common::debug_server::log(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Error,
                 $cat,

@@ -198,6 +198,145 @@ pub fn set_up_panic_hooks() {
     panic::set_hook(Box::new(panic_fn));
 }
 
+// ============================================================================
+// Built-in default logger (dependency-free; works in the lean `build-dll` DLL).
+//
+// The fern logger above is gated behind `use_fern_logger`, which the shipped
+// `build-dll` library does NOT enable — so the released `.deb`/`.dylib`/`.dll`
+// installs no logger and every `plog_*!` / `log_*!` / `log::*!` call is silently
+// discarded. That is why a misbehaving app "just exits with no error".
+//
+// This installs a minimal `log::Log` that writes to stderr, controlled by the
+// `AZ_LOG` environment variable and ON BY DEFAULT (we are in a testing phase —
+// the goal is that NOTHING ever quits silently):
+//
+//   AZ_LOG unset / 1 / true / on / yes   -> ON at Debug   (the default)
+//   AZ_LOG = trace|debug|info|warn|error -> ON at that level
+//   AZ_LOG = 0 / off / false / none / no -> OFF (no logger installed)
+//
+// It never clobbers a logger the host already installed (pyo3-log under Python,
+// android_logger on Android, env_logger in azul-self-test, a user's own logger).
+// ============================================================================
+
+/// Parse `AZ_LOG` into a max level filter. `None` means "logging disabled".
+/// Unset (or any unrecognized truthy value) defaults to `Debug` — verbose but
+/// not the per-frame `Trace` firehose; pass `AZ_LOG=trace` for everything.
+pub fn az_log_level() -> Option<LevelFilter> {
+    let raw = std::env::var("AZ_LOG").unwrap_or_default();
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "0" | "off" | "false" | "none" | "no" | "disable" | "disabled" => None,
+        "error" => Some(LevelFilter::Error),
+        "warn" | "warning" => Some(LevelFilter::Warn),
+        "info" => Some(LevelFilter::Info),
+        "trace" | "all" => Some(LevelFilter::Trace),
+        // "", "1", "true", "on", "yes", "debug", or anything unknown -> Debug.
+        _ => Some(LevelFilter::Debug),
+    }
+}
+
+// Zero-field unit logger: `log` is built with default-features off, so the
+// `std`-only `set_boxed_logger` is unavailable — we must hand `set_logger` a
+// `&'static dyn Log`. State that the install computes (color, start time) lives
+// in module statics; the level filter is `log::max_level()` (set via
+// `set_max_level`), which the `log` macros also consult to skip work early.
+static LOG_COLOR: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+static LOG_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+struct StderrLogger;
+static STDERR_LOGGER: StderrLogger = StderrLogger;
+
+impl log::Log for StderrLogger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::max_level()
+    }
+
+    fn log(&self, record: &log::Record) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        use std::io::Write;
+        let us = LOG_START
+            .get()
+            .map(|s| s.elapsed().as_micros())
+            .unwrap_or(0);
+        let color = LOG_COLOR.load(core::sync::atomic::Ordering::Relaxed);
+        let lvl = record.level();
+        let (col, reset) = if color {
+            let c = match lvl {
+                log::Level::Error => "\x1b[31m", // red
+                log::Level::Warn => "\x1b[33m",  // yellow
+                log::Level::Info => "\x1b[32m",  // green
+                log::Level::Debug => "\x1b[36m", // cyan
+                log::Level::Trace => "\x1b[90m", // bright black
+            };
+            (c, "\x1b[0m")
+        } else {
+            ("", "")
+        };
+        let loc = match (record.file(), record.line()) {
+            (Some(f), Some(l)) => {
+                // Trim workspace-absolute paths to the file name for readability.
+                let short = f.rsplit('/').next().unwrap_or(f);
+                format!("  ({}:{})", short, l)
+            }
+            _ => String::new(),
+        };
+        // Lock stderr once per line so concurrent threads don't interleave.
+        let mut err = std::io::stderr().lock();
+        let _ = writeln!(
+            err,
+            "{col}[{us:>10}us] [{lvl:<5}] [{target}] {args}{loc}{reset}",
+            col = col,
+            us = us,
+            lvl = lvl,
+            target = record.target(),
+            args = record.args(),
+            loc = loc,
+            reset = reset,
+        );
+    }
+
+    fn flush(&self) {
+        use std::io::Write;
+        let _ = std::io::stderr().flush();
+    }
+}
+
+/// Install azul's built-in stderr logger unless `AZ_LOG` disables it (default
+/// ON). Idempotent and safe to call from every `App::create`: if a logger is
+/// already installed (by the host or a previous call) this is a no-op.
+pub fn init_default_logger() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    // Only attempt the install once per process.
+    static TRIED: AtomicBool = AtomicBool::new(false);
+    if TRIED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let level = match az_log_level() {
+        Some(l) => l,
+        None => return, // AZ_LOG=off — stay silent.
+    };
+    let color = {
+        use std::io::IsTerminal;
+        // Honor NO_COLOR (https://no-color.org/) and only colorize a real TTY.
+        std::env::var_os("NO_COLOR").is_none() && std::io::stderr().is_terminal()
+    };
+    // Stash install-time state for the zero-field static logger.
+    let _ = LOG_START.set(std::time::Instant::now());
+    LOG_COLOR.store(color, core::sync::atomic::Ordering::Relaxed);
+    // `set_logger` (not the std-only `set_boxed_logger`) takes a &'static dyn Log
+    // and works with `log`'s default-features-off build. It fails if the host
+    // already installed a logger — that's fine, theirs wins.
+    if log::set_logger(&STDERR_LOGGER).is_ok() {
+        log::set_max_level(level);
+        log::info!(
+            target: "azul",
+            "logging enabled at {:?} (AZ_LOG=off to silence, AZ_LOG=trace for everything)",
+            level
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::escape_dialog_html;
