@@ -303,6 +303,7 @@ jobs:
   # and native runners for Windows/macOS cross-arch.
   cross_build_binaries:
     name: Cross-Build (${{ matrix.target }})
+    timeout-minutes: 90
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ${{ matrix.runner }}
     # The solid targets (i686/aarch64/armv7-linux, i686-windows, x86_64-macos)
@@ -429,6 +430,7 @@ jobs:
   # steps, so an un-primed/evicted cache can't false-fail the run.
   build_rust9x:
     name: Build rust9x (Win98/XP experimental)
+    timeout-minutes: 90
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: windows-2022
     # BLOCKING: when the compiler cache is present the Win98/XP build must
@@ -662,6 +664,10 @@ jobs:
 
   build_binaries:
     name: Build Binaries (${{ matrix.os }})
+    # Normal run ~30-55 min; a cold Windows prod-release build is the slowest.
+    # Cap well above that so an intermittent build hang (seen: "Build Python
+    # extension" stuck >160 min) fails the job instead of burning the 6h default.
+    timeout-minutes: 120
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ${{ matrix.os }}
     strategy:
@@ -1052,6 +1058,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build_demos:
     name: Build Demo Apps (${{ matrix.os }})
+    timeout-minutes: 120   # cap intermittent Windows demo-build hangs (seen >160m)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     # Non-blocking: a demo that won't build on some platform must never fail the
     # pipeline or block the release. fail-fast: false already isolates each OS.
@@ -1169,6 +1176,7 @@ jobs:
   # ---------------------------------------------------------------------------
   e2e_native:
     name: Native AZ_E2E (${{ matrix.os }})
+    timeout-minutes: 75   # per-lang timeouts bound the matrix; this caps the job
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     strategy:
       fail-fast: false
@@ -1282,6 +1290,7 @@ jobs:
   # ===========================================================================
   build_mobile:
     name: Mobile libazul (${{ matrix.label }})
+    timeout-minutes: 45
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     continue-on-error: true
     runs-on: ${{ matrix.os }}
@@ -1409,6 +1418,7 @@ jobs:
   # ===========================================================================
   build_mobile_apps:
     name: Mobile demo apps (iOS)
+    timeout-minutes: 60
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     continue-on-error: true
     runs-on: macos-14
@@ -1490,6 +1500,7 @@ jobs:
   # demos light up as they adopt the cdylib+ctor pattern (see guide/mobile.md).
   build_mobile_apps_android:
     name: Mobile demo apps (Android)
+    timeout-minutes: 60
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     continue-on-error: true
     runs-on: ubuntu-22.04
