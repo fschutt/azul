@@ -1,18 +1,16 @@
 @media screen {
+  /* Headings: Playfair Display (variable wght 400-900), self-hosted (OFL). */
   @font-face {
       font-family: "Playfair Display";
-      src: url("./fonts/InstrumentSerif-Regular.ttf");
+      font-weight: 400 900;
+      src: url("./fonts/PlayfairDisplay-VariableFont_wght.ttf");
   }
 
-  @font-face {
-      font-family: "Playfair Display";
-      font-style: italic;
-      src: url("./fonts/InstrumentSerif-Italic.ttf");
-  }
-
+  /* Body / UI: Rubik (variable wght 300-900), self-hosted (OFL). */
   @font-face {
       font-family: "Rubik";
-      src: url("./fonts/SourceSerifPro-Regular.ttf");
+      font-weight: 300 900;
+      src: url("./fonts/Rubik-VariableFont_wght.ttf");
   }
 }
 
