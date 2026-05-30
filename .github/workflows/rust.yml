@@ -1366,8 +1366,11 @@ jobs:
           for f in "$OUT/libazul.a" "$OUT/libazul.so" "$OUT/libazul.dylib"; do
             [ -f "$f" ] || continue
             b=$(wc -c < "$f")
-            if [ "$STRIP" = "strip" ]; then strip -S "$f" 2>/dev/null || true
-            else "$STRIP" --strip-debug "$f" 2>/dev/null || true; fi
+            # Drop debug + LOCAL symbols (keep globals → still links). -x on
+            # macOS/BSD strip, --discard-all on llvm-strip. The local symbol
+            # table is what bloats the .a, so this is the real size win.
+            if [ "$STRIP" = "strip" ]; then strip -S -x "$f" 2>/dev/null || true
+            else "$STRIP" --strip-debug --discard-all "$f" 2>/dev/null || true; fi
             echo "  stripped $f ($b -> $(wc -c < "$f") bytes)"
           done
 
