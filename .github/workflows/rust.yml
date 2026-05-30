@@ -1157,41 +1157,35 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # Native AZ_E2E click/counter test.
+  # Native AZ_E2E click/counter test — producer + family consumers.
   #
-  # Builds each genuinely-working language's hello-world and runs it under the
-  # libazul-native E2E runner:
-  #
+  # The language bindings drive libazul's headless E2E runner:
   #   AZ_E2E=<spec.json> AZ_BACKEND=headless ./hello-world
+  # which replays a click, the binding's callback increments a counter, and
+  # libazul prints cargo-test-style output ending in `test result: ok`.
   #
-  # The runner starts headless, executes the JSON scenario
-  # (tests/e2e/hello_world_counter.json), prints cargo-test-style output, and
-  # exits 0 (all pass) / 1 (any fail). We assert on that exit code.
+  # build_dll_e2e builds the debug-server DLL + the codegen bindings ONCE per OS
+  # and uploads them. The consumer family jobs (rust / c-cpp / scripting) then
+  # DOWNLOAD that prebuilt DLL and run only their slice of the language matrix —
+  # no per-job DLL rebuild. Previously every "Native AZ_E2E (os)" job rebuilt the
+  # whole DLL (~15-20 min) before a matrix whose actual tests take ~400 ms each;
+  # the split removes that redundant rebuild and runs the three families in
+  # parallel, cutting the E2E tail from ~28 min to a few minutes per job.
   #
-  # Every step is `continue-on-error: true` for now — these are INFORMATIONAL
-  # until verified green in CI. To promote a language to a hard gate, simply
-  # remove its `continue-on-error: true`. The non-C/Rust languages are guarded
-  # by a tool-availability check so a missing toolchain is a clean skip, not a
-  # red X.
+  # Gating: each consumer runs `scripts/e2e_language_matrix.sh --gate-shipped`,
+  # which fails the job iff one of the 11 SHIPPED bindings FAILS on an OS where
+  # it can run (missing toolchains / unrunnable-on-this-OS report ⊘ SKIP and do
+  # NOT gate — per-OS aware without a hardcoded table). BETA/ALPHA stay info-only.
   # ---------------------------------------------------------------------------
-  e2e_native:
-    name: Native AZ_E2E (${{ matrix.os }})
-    timeout-minutes: 75   # per-lang timeouts bound the matrix; this caps the job
+  build_dll_e2e:
+    name: Build E2E DLL (${{ matrix.os }})
+    timeout-minutes: 60
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-22.04
-          - os: macos-14
-          # Windows lets the Windows-only bindings (vb6, powershell) and the
-          # P/Invoke / FFI ones (csharp, node, ruby, lua, ...) be tested where
-          # they actually work. The matrix script runs under Git-Bash.
-          - os: windows-2022
+        os: [ubuntu-22.04, macos-14, windows-2022]
     runs-on: ${{ matrix.os }}
-    env:
-      AZ_E2E: ${{ github.workspace }}/tests/e2e/hello_world_counter.json
-      AZ_BACKEND: headless
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -1201,50 +1195,137 @@ jobs:
         with:
           toolchain: 1.88.0
 
+      - name: Run Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Build azul-dll (release, dynamic, debug-server)
+        # debug-server enables the AZ_E2E runner the families drive (it is OFF in
+        # the shipped lean build, so the E2E test binary must opt back in).
+        run: cargo build --release -p azul-dll --features build-dll,debug-server
+
+      - name: Stage DLL + codegen artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf e2e-dll && mkdir -p e2e-dll/release e2e-dll/codegen
+          cp -a target/codegen/. e2e-dll/codegen/
+          # Per-OS native lib(s). Windows also needs the MSVC import lib so the
+          # C / C++ families can link against azul.dll.lib.
+          if [ "${{ matrix.os }}" = "macos-14" ]; then
+            cp target/release/libazul.dylib e2e-dll/release/
+          elif [ "${{ matrix.os }}" = "windows-2022" ]; then
+            cp target/release/azul.dll        e2e-dll/release/
+            cp target/release/azul.dll.lib    e2e-dll/release/ 2>/dev/null || true
+          else
+            cp target/release/libazul.so e2e-dll/release/
+          fi
+          ls -la e2e-dll/release/
+
+      - name: Upload E2E DLL + codegen
+        uses: actions/upload-artifact@v7
+        with:
+          name: azul-e2e-dll-${{ matrix.os }}
+          path: e2e-dll
+          retention-days: 7
+          if-no-files-found: error
+
+  e2e_native:
+    name: AZ_E2E ${{ matrix.family.key }} (${{ matrix.os }})
+    needs: build_dll_e2e
+    timeout-minutes: 30
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-2022]
+        family:
+          # key = board file suffix + display; langs = subset passed to the script.
+          - key: rust
+            langs: "rust"
+          - key: c-cpp
+            langs: "c cpp"
+          # scripting = everything else: the FFI shipped bindings + all beta/alpha
+          # langs, so the per-OS board (concatenated in deploy) still covers them.
+          - key: scripting
+            langs: "python lua ruby node csharp java kotlin ocaml go zig ada algol68 cobol fortran freebasic haskell lisp pascal perl php powershell scala smalltalk vb6"
+    runs-on: ${{ matrix.os }}
+    env:
+      AZ_E2E: ${{ github.workspace }}/tests/e2e/hello_world_counter.json
+      AZ_BACKEND: headless
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      # Rust toolchain: the rust family compiles examples/rust; the others don't
+      # rebuild the DLL but installing rustup is cheap and harmless.
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Run Swatinem/rust-cache@v2
+        if: matrix.family.key == 'rust'
+        uses: Swatinem/rust-cache@v2
+
       - name: Install dependencies (Linux)
         if: matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       # MinGW gives cgo/C/C++ a gcc that links the MSVC import lib (mirrors
-      # build_binaries' Windows setup). The other Windows toolchains (pwsh,
-      # node, ruby, dotnet, go, perl, php, java) are preinstalled on the runner.
+      # build_binaries' Windows setup). Only the c-cpp + scripting (go) families
+      # need it.
       - name: Install MinGW (Windows)
-        if: matrix.os == 'windows-2022'
+        if: matrix.os == 'windows-2022' && matrix.family.key != 'rust'
         shell: bash
         run: choco install mingw -y
 
-      # OCaml: the lang_ocaml recipe WORKS once dune + ctypes + ctypes-foreign
-      # are present. setup-ocaml is Linux/macOS only (it needs a real opam),
-      # so gate it off Windows; lang_ocaml just reports ⊘ on Windows.
+      # OCaml: lang_ocaml WORKS once dune + ctypes are present. setup-ocaml is
+      # Linux/macOS only; only the scripting family needs it.
       - name: Set up OCaml (Linux/macOS)
-        if: matrix.os != 'windows-2022'
+        if: matrix.family.key == 'scripting' && matrix.os != 'windows-2022'
         continue-on-error: true
         uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: "5.2"
 
       - name: Install OCaml FFI packages (Linux/macOS)
-        if: matrix.os != 'windows-2022'
+        if: matrix.family.key == 'scripting' && matrix.os != 'windows-2022'
         continue-on-error: true
         shell: bash
         run: opam install -y dune ctypes ctypes-foreign
 
-      - name: Generate DLL API bindings
-        run: cargo run -r -p azul-doc codegen all
+      - name: Download prebuilt E2E DLL + codegen
+        uses: actions/download-artifact@v8
+        with:
+          name: azul-e2e-dll-${{ matrix.os }}
+          path: e2e-dll
 
-      - name: Build azul-dll (release, dynamic)
-        # debug-server enables the AZ_E2E runner this job drives (it is OFF in
-        # the shipped lean build, so the E2E test binary must opt back in).
-        run: cargo build --release -p azul-dll --features build-dll,debug-server
+      - name: Place DLL + codegen into the target tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/release target/codegen
+          cp -a e2e-dll/codegen/. target/codegen/
+          cp -a e2e-dll/release/. target/release/
+          ls -la target/release/
 
       - name: Resolve dynamic library path
         shell: bash
         run: |
+          # build.rs falls back to target/<profile>, but set AZ_LINK_PATH too so
+          # the rust example links the prebuilt DLL without any rebuild.
+          echo "AZ_LINK_PATH=$PWD/target/release" >> "$GITHUB_ENV"
           if [ "${{ matrix.os }}" = "macos-14" ]; then
             echo "AZ_LIB=$PWD/target/release/libazul.dylib" >> "$GITHUB_ENV"
             echo "DYLD_LIBRARY_PATH=$PWD/target/release" >> "$GITHUB_ENV"
           elif [ "${{ matrix.os }}" = "windows-2022" ]; then
-            # azul.dll (no lib-prefix) on MSVC; loader resolves DLLs from PATH.
             echo "AZ_LIB=$PWD/target/release/azul.dll" >> "$GITHUB_ENV"
             echo "$PWD/target/release" >> "$GITHUB_PATH"
           else
@@ -1252,13 +1333,10 @@ jobs:
             echo "LD_LIBRARY_PATH=$PWD/target/release" >> "$GITHUB_ENV"
           fi
 
-      # Language binding status board. Builds + runs every example's hello-world
-      # under AZ_E2E and reports the result to the run Summary:
-      # ✓ works / ✗ fails / ⊘ toolchain-unavailable, tagged by maturity tier
-      # (shipped / beta / alpha). We install a few cheap toolchains best-effort;
-      # the runner's preinstalled ones (node, ruby, python, go, perl, php, java,
-      # dotnet) cover most of the rest, and anything still missing is reported ⊘.
+      # Extra scripting toolchains best-effort (the runner preinstalls node,
+      # ruby, python, go, perl, php, java, dotnet; install a few cheap extras).
       - name: Install extra language toolchains (best-effort)
+        if: matrix.family.key == 'scripting'
         continue-on-error: true
         shell: bash
         run: |
@@ -1268,25 +1346,16 @@ jobs:
           elif [ "${{ matrix.os }}" = "macos-14" ]; then
             brew install luajit php fpc sbcl 2>/dev/null || true
           else
-            # Windows: install a couple of cheap FFI runtimes via Chocolatey.
-            # pwsh, node, ruby, dotnet, go, perl, php, java are already present.
             choco install luajit -y 2>/dev/null || true
           fi
-      # GATE on the SHIPPED tier only: the 11 bindings we officially ship
-      # (python, c, cpp, rust, csharp, java, kotlin, lua, ruby, node, ocaml) must
-      # PASS the counter E2E on any OS where they can run. --gate-shipped exits
-      # nonzero iff a SHIPPED binding FAILS; a binding whose toolchain is absent
-      # or that can't run on this OS (e.g. ocaml on Windows, python which has no
-      # counter example) is reported ⊘ SKIP and does NOT gate — so this is
-      # per-OS aware without a hardcoded table. BETA/ALPHA rows stay informational.
-      # NOT continue-on-error: a shipped-binding regression should fail CI.
-      - name: Language binding status board (AZ_E2E, gates shipped tier)
+
+      - name: Language binding board (AZ_E2E, gates shipped tier)
         shell: bash
         run: |
-          # Run the matrix ONCE: capture the board to a per-OS text file for the
-          # release-page Statistics section via tee, and propagate the script's
-          # --gate-shipped exit code (NOT tee's) so a shipped-binding regression
-          # still fails CI. pipefail makes ${PIPESTATUS[0]} authoritative.
+          # Run only this family's subset against the prebuilt DLL. tee the board
+          # to a per-(os,family) file for the Statistics section; propagate the
+          # script's --gate-shipped exit code (NOT tee's) via pipefail so a
+          # shipped-binding regression still fails CI.
           set -o pipefail
           mkdir -p stats
           os_slug="ubuntu"
@@ -1294,14 +1363,14 @@ jobs:
             macos-14)     os_slug="macos" ;;
             windows-2022) os_slug="windows" ;;
           esac
-          bash scripts/e2e_language_matrix.sh --gate-shipped \
-            | tee "stats/language-bindings-${os_slug}.txt"
+          bash scripts/e2e_language_matrix.sh --gate-shipped ${{ matrix.family.langs }} \
+            | tee "stats/language-bindings-${os_slug}-${{ matrix.family.key }}.txt"
 
       - name: Upload language binding board
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: stats-language-board-${{ matrix.os }}
+          name: stats-language-board-${{ matrix.os }}-${{ matrix.family.key }}
           path: stats/language-bindings-*.txt
           if-no-files-found: warn
           retention-days: 30
@@ -2192,23 +2261,16 @@ jobs:
         with:
           name: stats-sanitizers
           path: artifacts-stats
-      - name: Download language board (Linux)
+      # The E2E board is now produced per (OS, family): artifacts named
+      # stats-language-board-<os>-<family>. Pull them all with one pattern
+      # download (merge-multiple flattens them into one dir); the merge step
+      # concatenates per OS into language-bindings-<os>.txt.
+      - name: Download language boards (all families/OSes)
         uses: actions/download-artifact@v8
         continue-on-error: true
         with:
-          name: stats-language-board-ubuntu-22.04
-          path: artifacts-stats-board
-      - name: Download language board (macOS)
-        uses: actions/download-artifact@v8
-        continue-on-error: true
-        with:
-          name: stats-language-board-macos-14
-          path: artifacts-stats-board
-      - name: Download language board (Windows)
-        uses: actions/download-artifact@v8
-        continue-on-error: true
-        with:
-          name: stats-language-board-windows-2022
+          pattern: stats-language-board-*
+          merge-multiple: true
           path: artifacts-stats-board
       - name: Download dependency trees (Linux)
         uses: actions/download-artifact@v8
@@ -2385,8 +2447,16 @@ jobs:
           cp artifacts-stats/cargo-geiger.txt  "$STATS_DIR/" 2>/dev/null || true
           cp artifacts-stats/clippy.txt        "$STATS_DIR/" 2>/dev/null || true
           cp artifacts-stats/sanitizers.txt    "$STATS_DIR/" 2>/dev/null || true
-          # Per-OS language binding boards (already named language-bindings-<os>.txt).
-          cp artifacts-stats-board/language-bindings-*.txt "$STATS_DIR/" 2>/dev/null || true
+          # Per-OS language binding boards: concatenate the per-family files
+          # (language-bindings-<os>-<family>.txt) into one language-bindings-<os>.txt
+          # per OS, which is what the release page links.
+          for osslug in ubuntu macos windows; do
+            if ls artifacts-stats-board/language-bindings-"$osslug"-*.txt >/dev/null 2>&1; then
+              { for b in artifacts-stats-board/language-bindings-"$osslug"-*.txt; do
+                  echo "===== $(basename "$b") ====="; cat "$b"; echo;
+                done; } > "$STATS_DIR/language-bindings-$osslug.txt"
+            fi
+          done
           # Per-OS dependency trees: concatenate the per-member *.tree.txt the
           # dep_tree job uploaded into one dependency-tree-<os>.txt.
           for osslug in ubuntu macos windows; do
