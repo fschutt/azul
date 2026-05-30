@@ -47,13 +47,13 @@ If your operating system has a package manager, that is the recommended path. Yo
 simply use your systems package manager to install `libazul`:
 
 ```sh
-# windows
+# windows (choco feed: --source https://azul.rs/choco)
 choco install libazul
-# linux - debian-like
+# linux - Debian / Ubuntu (apt repo: https://azul.rs/apt)
 apt install libazul
-# linux - arch-like
-yum install libazul
-# macos
+# linux - Fedora / RHEL / openSUSE (dnf repo: https://azul.rs/rpm)
+dnf install libazul
+# macos (tap: brew tap fschutt/azul)
 brew install libazul
 ```
 

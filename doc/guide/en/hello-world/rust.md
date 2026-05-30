@@ -56,13 +56,13 @@ Rust code will recompile much faster and your binary size is now in the kilobyte
 Ideally, simply install `libazul` from your system package manager.
 
 ```sh
-# windows
+# windows (choco feed: --source https://azul.rs/choco)
 choco install libazul
-# linux - debian-like
+# linux - Debian / Ubuntu (apt repo: https://azul.rs/apt)
 apt install libazul
-# linux - arch-like
-yum install libazul
-# macos
+# linux - Fedora / RHEL / openSUSE (dnf repo: https://azul.rs/rpm)
+dnf install libazul
+# macos (tap: brew tap fschutt/azul)
 brew install libazul
 ```
 

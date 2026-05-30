@@ -2291,6 +2291,40 @@ jobs:
           name: dependency-trees-windows-2022
           path: artifacts-deptree-windows
 
+      # Package artifacts for the self-hosted registry mirrors (azul.rs/maven,
+      # /pypi, /npm, /nuget, /gems, /rpm). Produced only by the run_mode==deploy
+      # packager jobs, so best-effort: a missing one just skips that registry.
+      - name: Download maven jar
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: maven-jar
+          path: artifacts-registry/maven-jar
+      - name: Download pypi dist
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: pypi-dist
+          path: artifacts-registry/pypi-dist
+      - name: Download npm package
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: npm-package
+          path: artifacts-registry/npm-package
+      - name: Download nuget package
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: nuget-package
+          path: artifacts-registry/nuget-package
+      - name: Download ruby gem
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: ruby-gem
+          path: artifacts-registry/ruby-gem
+
       - name: Download mobile libazul
         uses: actions/download-artifact@v8
         continue-on-error: true
@@ -2345,6 +2379,16 @@ jobs:
             mkdir -p website/apt
             cp -r artifacts-apt/. website/apt/
           fi
+
+          # Self-hosted package-registry mirrors → azul.rs/{maven,pypi,npm,nuget,
+          # gems,rpm}, so the documented install commands work without the
+          # official registries. Inputs come from artifacts-registry/* (+ the
+          # already-downloaded artifacts-rpm); each is optional. createrepo_c
+          # makes the dnf repodata when present.
+          sudo apt-get install -y createrepo-c >/dev/null 2>&1 || true
+          mkdir -p artifacts-registry
+          cp -r artifacts-rpm artifacts-registry/artifacts-rpm 2>/dev/null || true
+          bash scripts/build_registry_mirrors.sh website "${AZUL_VERSION}" artifacts-registry || true
 
           # Prebuilt drop-in mobile libazul + link stubs → release/0.2.0/mobile/<label>/
           # (label = android-arm64 / android-x64 / ios-arm64 / ios-sim-arm64).

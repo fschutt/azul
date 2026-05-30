@@ -51,13 +51,13 @@ Same as the [C installation](./c.md#installation), the ideal
 installation uses your system package manager:
 
 ```sh
-# windows
+# windows (choco feed: --source https://azul.rs/choco)
 choco install libazul
-# linux - debian-like
+# linux - Debian / Ubuntu (apt repo: https://azul.rs/apt)
 apt install libazul
-# linux - arch-like
-yum install libazul
-# macos
+# linux - Fedora / RHEL / openSUSE (dnf repo: https://azul.rs/rpm)
+dnf install libazul
+# macos (tap: brew tap fschutt/azul)
 brew install libazul
 ```
 
