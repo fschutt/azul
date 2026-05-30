@@ -10,7 +10,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::api::{ApiData, Language, LoadedExample};
 
-const HTML_ROOT: &str = "https://azul.rs";
+const HTML_ROOT: &str = "https://azul.rs/ui";
 
 /// Generate all documentation files
 ///
@@ -915,15 +915,15 @@ pub fn get_sidebar() -> String {
         "
         <nav>
         <ul class='nav-grid'>
-          <li><a href='https://azul.rs'>overview</a></li>
-          <li><a href='https://azul.rs/releases'>releases</a></li>
+          <li><a href='https://azul.rs/ui'>overview</a></li>
+          <li><a href='https://azul.rs/ui/releases'>releases</a></li>
           <li><a href='https://github.com/fschutt/azul'>code</a></li>
           <li><a href='https://discord.gg/V96ZGKqQvn'>discord</a></li>
-          <li><a href='https://azul.rs/guide'>guide</a></li>
-          <li><a href='https://azul.rs/api'>api</a></li>
-          <li><a href='https://azul.rs/reftest'>reftests</a></li>
-          <li><a href='https://azul.rs/blog'>blog</a></li>
-          <li><a href='https://azul.rs/donate'>donate</a></li>
+          <li><a href='https://azul.rs/ui/guide'>guide</a></li>
+          <li><a href='https://azul.rs/ui/api'>api</a></li>
+          <li><a href='https://azul.rs/ui/reftest'>reftests</a></li>
+          <li><a href='https://azul.rs/ui/blog'>blog</a></li>
+          <li><a href='https://azul.rs/ui/donate'>donate</a></li>
         </ul>
       </nav>
     "

@@ -1392,17 +1392,29 @@ fn main() -> anyhow::Result<()> {
             println!("CONFIG={}", config.print());
 
             // Create output directory structure
-            let output_dir = project_root.join("doc").join("target").join("deploy");
+            let root_dir = project_root.join("doc").join("target").join("deploy");
 
-            // Remove stale deploy folder before generating new content
-            if output_dir.exists() {
+            // Remove stale deploy folder before generating new content. Wipe the
+            // whole deploy root (docs + marketing landing) so nothing leaks
+            // between runs.
+            if root_dir.exists() {
                 println!("Removing stale deploy folder...");
-                fs::remove_dir_all(&output_dir)?;
+                fs::remove_dir_all(&root_dir)?;
             }
+
+            // ---- /ui migration: the whole docs site is generated under
+            // <deploy>/ui, leaving the deploy root for the azlin.io-style
+            // marketing landing + product stubs (copied in at the end). Every
+            // docs path below derives from `output_dir`, so shadowing it here
+            // relocates the entire generated site under /ui. A later
+            // azul.rs -> azlin.io rename is just the HTML_ROOT constant + the
+            // get_sidebar/index.template literals.
+            let output_dir = root_dir.join("ui");
 
             let image_path = output_dir.join("images");
             let releases_dir = output_dir.join("release");
 
+            fs::create_dir_all(&root_dir)?;
             fs::create_dir_all(&output_dir)?;
             fs::create_dir_all(&image_path)?;
             fs::create_dir_all(&releases_dir)?;
@@ -1559,9 +1571,32 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
+            // ---- Root marketing site (azlin.io style), independent of the
+            // /ui docs. The landing/stub files use bare root-relative links
+            // (/azlin.css, /ui/, /ws.html, /os.html) and contain no
+            // "https://azul.rs", so the debug rewrite leaves them correct —
+            // copy them verbatim into the deploy root.
+            let templates_dir = project_root.join("doc").join("templates");
+            fs::copy(
+                templates_dir.join("azlin.css"),
+                root_dir.join("azlin.css"),
+            )?;
+            fs::copy(
+                templates_dir.join("azlin-ws.html"),
+                root_dir.join("ws.html"),
+            )?;
+            fs::copy(
+                templates_dir.join("azlin-os.html"),
+                root_dir.join("os.html"),
+            )?;
+            let azlin_landing =
+                fs::read_to_string(templates_dir.join("azlin-index.template.html"))?;
+            fs::write(root_dir.join("index.html"), azlin_landing)?;
+            println!("  [OK] Generated root marketing landing + ws/os stubs + azlin.css");
+
             println!(
                 "\nWebsite generated successfully in: {}",
-                output_dir.display()
+                root_dir.display()
             );
             return Ok(());
         }
