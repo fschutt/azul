@@ -42,14 +42,14 @@ You need **Node.js 16+** (or Bun / Deno), the **`koffi`** package, and the nativ
 npm install azul
 ```
 
-> ![NOTE]
+> [!NOTE]
 > The 0.2.0 package is hosted on azul.rs. If the npm registry does not yet resolve
 > it, install the tarball directly:
 > ```sh
 > npm install https://azul.rs/npm/azul-0.2.0.tgz
 > ```
 
-### Manual (works today)
+### Manual
 
 ```sh
 npm install koffi

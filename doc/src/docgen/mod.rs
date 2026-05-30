@@ -107,7 +107,7 @@ pub fn generate_docs(
 
 /// Languages always shown inline (above the fold). Everything else lives
 /// inside the collapsed `<details>` so the tab grid stays compact when
-/// the api ships with 30+ bindings.
+/// the api ships with 10+ bindings.
 const PRIMARY_LANGUAGES: &[&str] = &["rust", "python", "c", "cpp"];
 
 /// Whitelist of languages that have a SOLID, working hello-world and may

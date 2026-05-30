@@ -46,7 +46,7 @@ You need **JDK 17+**, **Maven**, **JNA 5.14+**, and the native `libazul` library
 </dependency>
 ```
 
-> ![NOTE]
+> [!NOTE]
 > The 0.2.0 artifacts are hosted on the azul.rs Maven repository. Add it to your
 > `pom.xml` so Maven can resolve them:
 > ```xml
@@ -59,7 +59,7 @@ You need **JDK 17+**, **Maven**, **JNA 5.14+**, and the native `libazul` library
 > ```
 > JNA itself (`net.java.dev.jna:jna:5.14.0`) comes from Maven Central as usual.
 
-### Manual (works today)
+### Manual
 
 1. Download the native library from the [/releases](/releases) page (`libazul.dylib`
    / `libazul.so` / `azul.dll`) and keep it in your working directory or pass

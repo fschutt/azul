@@ -42,7 +42,7 @@ You need **LuaJIT 2.1+** (vanilla Lua has no `ffi`) and the native `libazul` lib
 luarocks install azul --server=https://azul.rs/luarocks
 ```
 
-### Manual (works today)
+### Manual
 
 1. Download the native library from the [/releases](/releases) page (`libazul.dylib`
    / `libazul.so` / `azul.dll`).

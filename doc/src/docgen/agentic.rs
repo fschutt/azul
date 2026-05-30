@@ -71,7 +71,7 @@ pub fn generate_llms_txt(api_data: &ApiData) -> String {
          immediate-mode-style developer experience: a `LayoutCallback` maps your application \
          data to a `Dom`, CSS styles it, and event callbacks mutate the data and request a \
          re-layout. The whole API is exposed over a stable `repr(C)` ABI, so the same concepts \
-         are available from Rust (native) plus 30+ generated language bindings \
+         are available from Rust (native) plus 10+ generated language bindings \
          (C, C++, Python, and more). It ships headless rendering and a JSON-driven E2E test \
          runner for windowless verification.\n\n",
     );
@@ -175,7 +175,7 @@ pub fn generate_skill_md(api_data: &ApiData) -> String {
     s.push_str("name: azul-gui\n");
     s.push_str(
         "description: Build native desktop (and web) GUI applications with the azul framework \
-         in Rust, C, C++, Python, and 30+ other language bindings — DOM/CSS UI, callbacks, \
+         in Rust, C, C++, Python, and 10+ other language bindings — DOM/CSS UI, callbacks, \
          widgets, headless + E2E testing.\n",
     );
     s.push_str("---\n\n");
@@ -201,7 +201,7 @@ pub fn generate_skill_md(api_data: &ApiData) -> String {
          - **Event callbacks** receive the `RefAny`, downcast it to your struct, mutate it, and \
            return an `Update` telling the framework whether to do nothing or rebuild the DOM.\n\n\
          The entire public API is a stable `repr(C)` ABI. Native Rust callbacks are still \
-         `extern \"C\"`. The 30+ language bindings are generated from a single `api.json`, so \
+         `extern \"C\"`. The 10+ language bindings are generated from a single `api.json`, so \
          the *concepts* below map one-to-one across C, C++, Python, etc. — only syntax differs.\n\n\
          Depth: see "
     );

@@ -48,7 +48,7 @@ dependencies {
 }
 ```
 
-### Manual (works today)
+### Manual
 
 1. Download the native library from the [/releases](/releases) page.
 2. Add the generated `Azul.kt` bindings (from the

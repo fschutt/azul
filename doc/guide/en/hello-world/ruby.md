@@ -42,7 +42,7 @@ native `libazul` library.
 gem install azul --source https://azul.rs/gems
 ```
 
-### Manual (works today)
+### Manual
 
 ```sh
 gem install ffi          # the FFI runtime

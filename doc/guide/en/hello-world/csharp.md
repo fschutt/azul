@@ -42,7 +42,7 @@ You need **.NET 8+** and the native `libazul` library for your platform.
 dotnet add package Azul
 ```
 
-> ![NOTE]
+> [!NOTE]
 > The 0.2.0 NuGet feed is hosted on azul.rs. If `nuget.org` does not yet resolve
 > the package, add the azul.rs source first:
 > ```sh
@@ -50,7 +50,7 @@ dotnet add package Azul
 > ```
 > If a package is not yet published for your platform, use the manual route below.
 
-### Manual (works today)
+### Manual
 
 1. Download the native library for your OS from the [/releases](/releases) page and
    keep it next to your binary (or on the loader path):

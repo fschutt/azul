@@ -43,7 +43,7 @@ pip install azul
 The wheel bundles the prebuilt native library, so there are no system dependencies 
 to worry about. Targets **Python 3.10+** - make sure you have the right version.
 
-> ![NOTE]
+> [!NOTE]
 > If `pip install` does not yet have a wheel for your platform, 
 > see "[Building the extension](#building-the-extension)" below for the 
 > manual route.

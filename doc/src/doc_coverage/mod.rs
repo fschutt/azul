@@ -251,7 +251,7 @@ visibility (no recompile should be needed).
   `unimplemented!()`, always returns default/None/empty, or a \"not
   implemented\" comment), PREFIX its doc with `WIP:` and say so, e.g.
   `/// WIP: stub — not yet implemented on this platform.`
-- These are public, `#[repr(C)]` FFI types consumed by 30+ language bindings;
+- These are public, `#[repr(C)]` FFI types consumed by 10+ language bindings;
   keep docs precise and binding-relevant.
 - Do NOT edit api.json (autofix pulls your source docs into it afterward).
 - Some labels are `Az`-prefixed in api.json; the source type usually has no

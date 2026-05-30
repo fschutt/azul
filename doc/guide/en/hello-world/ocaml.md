@@ -45,7 +45,7 @@ opam repo add azul https://azul.rs/opam
 opam install azul
 ```
 
-### Manual (works today)
+### Manual
 
 ```sh
 opam install ctypes ctypes-foreign
