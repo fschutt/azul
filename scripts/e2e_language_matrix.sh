@@ -70,6 +70,7 @@ set -uo pipefail
 # Repo root (this script lives in scripts/).
 # -----------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"  # absolute: survives the cd below for --single re-exec
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT" || { echo "FATAL: cannot cd to repo root $REPO_ROOT" >&2; exit 2; }
 
@@ -91,10 +92,14 @@ ALL_LANGS=(
 # Subset may be space- or comma-separated, one arg or many.
 # -----------------------------------------------------------------------------
 STRICT=0
+SINGLE=0          # internal: run exactly the named langs in-process, write
+                  # per-lang .status sidecars, skip the board (used by the
+                  # parallel/timeout-bounded driver which re-execs `$0 --single`).
 SUBSET_RAW=""
 for arg in "$@"; do
   case "$arg" in
     --strict) STRICT=1 ;;
+    --single) SINGLE=1 ;;
     -h|--help)
       sed -n '2,70p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
@@ -224,7 +229,10 @@ fi
 # -----------------------------------------------------------------------------
 # Per-language scratch / log directory.
 # -----------------------------------------------------------------------------
-WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/azul-e2e-matrix.XXXXXX")"
+# Re-exec'd `--single` children inherit the parent's dir via E2E_WORKDIR so the
+# parent can collect their <lang>.log and <lang>.status sidecars.
+WORKDIR="${E2E_WORKDIR:-$(mktemp -d "${TMPDIR:-/tmp}/azul-e2e-matrix.XXXXXX")}"
+export E2E_WORKDIR="$WORKDIR"
 
 # Results accumulators (indexed parallel arrays keyed by position in RESULT_LANGS).
 RESULT_LANGS=()
@@ -257,10 +265,32 @@ pass_in_log() {
 }
 
 # record <lang> <status> <note>
+# Appends to the in-process arrays AND writes a tab-separated <lang>.status
+# sidecar. The sidecar is how the parent driver collects results from re-exec'd
+# `--single` children (whose array writes live in a separate process). Each lang
+# calls record exactly once (via finish or skip), so one sidecar per lang.
 record() {
   RESULT_LANGS+=("$1")
   RESULT_STATUS+=("$2")
   RESULT_NOTE+=("$3")
+  printf '%s\t%s\t%s\n' "$1" "$2" "$3" > "$WORKDIR/$1.status"
+}
+
+# _timeout <secs> <cmd...>: run <cmd> with a wall-clock limit, SIGKILL 10s after
+# SIGTERM. Prefers GNU `timeout` (Linux coreutils) / `gtimeout` (macOS coreutils)
+# which kill the whole child tree — important for hung headless GUI binaries.
+# Falls back to a bash watchdog if neither is present (best-effort kill).
+_timeout() {
+  local t="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then timeout --kill-after=10 "$t" "$@"; return $?; fi
+  if command -v gtimeout >/dev/null 2>&1; then gtimeout --kill-after=10 "$t" "$@"; return $?; fi
+  "$@" &
+  local cmdpid=$!
+  ( sleep "$t"; kill -TERM "$cmdpid" 2>/dev/null; sleep 10; kill -KILL "$cmdpid" 2>/dev/null ) >/dev/null 2>&1 &
+  local wd=$!
+  wait "$cmdpid" 2>/dev/null; local rc=$?
+  kill "$wd" 2>/dev/null
+  return "$rc"
 }
 
 # skip <lang> <note>
@@ -984,15 +1014,89 @@ lang_vb6() {
 # =============================================================================
 # DRIVER: dispatch each requested language to its lang_<name> function.
 # =============================================================================
+# normalize requested langs
+NORM_LANGS=()
 for lang in "${LANGS[@]}"; do
   lang="$(echo "$lang" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
-  [ -n "$lang" ] || continue
-  fn="lang_${lang}"
-  if declare -F "$fn" >/dev/null 2>&1; then
-    echo ">>> [$lang] running..." >&2
-    "$fn"
+  [ -n "$lang" ] && NORM_LANGS+=("$lang")
+done
+
+if [ "$SINGLE" = 1 ]; then
+  # --single: run the requested lang(s) in THIS process (no fan-out), writing
+  # logs + .status sidecars, then exit. This is what the parallel driver
+  # re-execs under `_timeout`, so a hung GUI binary is killed instead of
+  # blocking the whole matrix. No status board here — the parent prints it.
+  for lang in "${NORM_LANGS[@]}"; do
+    fn="lang_${lang}"
+    if declare -F "$fn" >/dev/null 2>&1; then
+      "$fn"
+    else
+      record "$lang" "FAILS" "unknown language (no recipe)"
+    fi
+  done
+  exit 0
+fi
+
+# Parallel driver: each lang runs in a re-exec'd `--single` child under a
+# wall-clock timeout (default 240s, override E2E_LANG_TIMEOUT), at most
+# E2E_JOBS (default 4) at a time. This both bounds hangs and cuts wall time vs.
+# the old sequential loop. Results are collected from the .status sidecars.
+LANG_TIMEOUT="${E2E_LANG_TIMEOUT:-240}"
+# Default concurrency = CPU count (GitHub free runners are 2-core Linux/Windows,
+# 3-core macOS — so this stays gentle). The TIMEOUT, not the parallelism, is the
+# real hang-fix; most langs SKIP instantly and only a handful actually compile,
+# so even 2-wide meaningfully cuts the old fully-sequential 39 min. Override
+# with E2E_JOBS (E2E_JOBS=1 = sequential, for the most constrained runners).
+_ncpu="$( (nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2) )"
+MAXJOBS="${E2E_JOBS:-$_ncpu}"
+[ "$MAXJOBS" -ge 1 ] 2>/dev/null || MAXJOBS=1
+
+# `wait -n` (reap one job → rolling parallelism) needs bash 4.3+. macOS ships
+# bash 3.2; there we fall back to fixed-size batches (launch MAXJOBS, wait all).
+HAVE_WAIT_N=0
+( sleep 0 & wait -n ) >/dev/null 2>&1 && HAVE_WAIT_N=1
+
+run_one() {  # backgrounded per-lang worker: re-exec --single under a timeout.
+  local lang="$1"
+  if _timeout "$LANG_TIMEOUT" bash "$SELF" --single "$lang"; then return 0; fi
+  local rc=$?
+  # Ensure a row exists even if the child was killed before it could record().
+  # 124 = GNU timeout fired; 137 = SIGKILL (kill-after / OOM).
+  if [ ! -f "$WORKDIR/$lang.status" ]; then
+    if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+      printf '%s\t%s\t%s\n' "$lang" "FAILS" "timed out after ${LANG_TIMEOUT}s (hung — see log)" > "$WORKDIR/$lang.status"
+    else
+      printf '%s\t%s\t%s\n' "$lang" "FAILS" "driver error rc=$rc (see log)" > "$WORKDIR/$lang.status"
+    fi
+  fi
+}
+
+running=0
+for lang in "${NORM_LANGS[@]}"; do
+  echo ">>> [$lang] running..." >&2
+  run_one "$lang" &
+  running=$((running + 1))
+  if [ "$running" -ge "$MAXJOBS" ]; then
+    if [ "$HAVE_WAIT_N" = 1 ]; then
+      wait -n; running=$((running - 1))
+    else
+      wait; running=0          # bash 3.2: drain the whole batch
+    fi
+  fi
+done
+wait
+
+# Collect results from the .status sidecars in requested-lang order.
+for lang in "${NORM_LANGS[@]}"; do
+  if [ -f "$WORKDIR/$lang.status" ]; then
+    IFS=$'\t' read -r s_lang s_status s_note < "$WORKDIR/$lang.status"
+    RESULT_LANGS+=("${s_lang:-$lang}")
+    RESULT_STATUS+=("${s_status:-FAILS}")
+    RESULT_NOTE+=("${s_note:-no status written (see log)}")
   else
-    record "$lang" "FAILS" "unknown language (no recipe)"
+    RESULT_LANGS+=("$lang")
+    RESULT_STATUS+=("FAILS")
+    RESULT_NOTE+=("no status written (crashed before record — see log)")
   fi
 done
 
