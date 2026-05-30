@@ -321,7 +321,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
 
     let css = "
         h1 { 
-            font-family: 'Instrument Serif', Georgia, serif;
+            font-family: 'Playfair Display', Georgia, serif;
             font-size: 2.5em;
             font-weight: normal;
             line-height: 1.2;
@@ -338,7 +338,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         }
         h2, h3, h4 { cursor: pointer; }
         h2 {
-            font-family: 'Instrument Serif', Georgia, serif;
+            font-family: 'Playfair Display', Georgia, serif;
             font-size: 2em;
             font-weight: normal;
             margin-top: 25px;
@@ -624,7 +624,7 @@ pub fn generate_guide_mainpage(version: &str) -> String {
     let css = "
         #guide-index { max-width: 760px; }
         #guide-index h2 {
-            font-family: 'Instrument Serif', Georgia, serif;
+            font-family: 'Playfair Display', Georgia, serif;
             font-size: 1.6em;
             font-weight: normal;
             margin-top: 32px;
