@@ -356,23 +356,31 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         .guide-layout > #guide { flex: 1 1 auto; min-width: 0; padding-bottom: 80px; }
         .guide-search-col { flex: 0 0 300px; position: sticky; top: 20px; align-self: flex-start; }
         .guide-search-col .page-search { max-width: 100%; }
+        /* overlay bar/fade colour = the guide content background, so the text
+           dissolves cleanly under the bar. White in light mode, dark in dark. */
+        .guide-search-col { --fade-bg: #ffffff; }
+        @media (prefers-color-scheme: dark) { .guide-search-col { --fade-bg: #15181f; } }
         @media (max-width: 1100px) {
             .guide-layout { display: block; }
-            .guide-layout > #guide { padding-bottom: 160px; }
+            .guide-layout > #guide { padding-bottom: 200px; }
             .guide-search-col {
                 position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 9000;
-                padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
-                pointer-events: none;
+                margin: 0; padding: 0; pointer-events: none;
             }
-            .guide-search-col .page-search { max-width: 760px; margin: 0 auto; pointer-events: auto; }
-            /* fade-out: text dissolves into the page background above the bar */
+            /* full-width bar, flush to the bottom edge */
+            .guide-search-col .page-search {
+                max-width: 100%; margin: 0; pointer-events: auto;
+                background: var(--fade-bg);
+                padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+            }
+            /* fade: text dissolves into the content background above the bar */
             .guide-search-col::before {
-                content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 72px;
+                content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 96px;
                 pointer-events: none;
-                background: linear-gradient(to bottom, rgba(0, 4, 40, 0), #000428);
+                background: linear-gradient(to bottom, transparent, var(--fade-bg));
             }
-            /* bar lives at the bottom -> results open UPWARD */
-            .guide-search-col .azs-panel-inline { top: auto; bottom: calc(100% + 6px); }
+            /* bar lives at the bottom -> results open UPWARD, full width */
+            .guide-search-col .azs-panel-inline { top: auto; bottom: calc(100% + 6px); left: 16px; right: 16px; }
         }
         #guide p { margin-bottom: 1em; }
         #guide img { max-width: 700px; margin-top: 15px; margin-bottom: 15px;}
