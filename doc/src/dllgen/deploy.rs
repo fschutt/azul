@@ -1553,31 +1553,13 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               {cross_arch_section}
 
               <br/>
-              <div style='padding:14px 16px;background:#eef4ff;border:1px solid #aac4ec;border-radius:6px;max-width:700px;font-size:14px;'>
-                <strong>Debug build (<code>azuldbg</code>): for developers</strong><br/>
-                The shipped <code>libazul</code> above is <strong>lean</strong>: the in-process debug
-                server is compiled out, so <code>AZ_DEBUG=&lt;port&gt;</code> (the DOM inspector / E2E
-                runner) does nothing and no debug port is reachable on your users' machines. To debug
-                your own app, download the matching <code>azuldbg</code> library and swap it in for
-                <code>libazul</code> (e.g. set <code>AZ_LINK_PATH</code> to it); then
-                <code>AZ_DEBUG=8765 ./my_app</code> works.
-                <ul>
-                  <li><a href='https://azul.rs/release/{version}/libazuldbg.so'>libazuldbg.so (Linux)</a></li>
-                  <li><a href='https://azul.rs/release/{version}/libazuldbg.dylib'>libazuldbg.dylib (macOS)</a></li>
-                  <li><a href='https://azul.rs/release/{version}/azuldbg.dll'>azuldbg.dll (Windows)</a></li>
-                </ul>
-              </div>
-
-              <br/>
-              <div style='padding:14px 16px;background:#fff6e0;border:1px solid #e8c97a;border-radius:6px;max-width:700px;font-size:14px;'>
-                <strong>macOS: &ldquo;app is damaged / from an unidentified developer&rdquo;</strong><br/>
-                Downloaded files get a quarantine flag, so Gatekeeper blocks them until azul is
-                notarized (coming once we have an Apple Developer ID). The macOS binaries above ship
-                ad-hoc-signed; to run a download now, clear the quarantine flag:
-                <pre style='margin:8px 0 0;white-space:pre-wrap;'>xattr -dr com.apple.quarantine libazul.dylib   # or the demo binary / .a</pre>
-                Or fetch the helper: <a href='https://azul.rs/release/{version}/unquarantine.sh'>unquarantine.sh</a>
-               : <code>sh unquarantine.sh &lt;file&gt;…</code>
-              </div>
+              <h2 id='debug-libraries'>Debug libraries</h2>
+              <p style='color:grey;font-size:15px;max-width:700px;'>The shipped <code>libazul</code> is lean (no debug server). Swap in the matching <code>azuldbg</code> build to enable <code>AZ_DEBUG=&lt;port&gt;</code> &mdash; see <a href='https://azul.rs/guide/debugging'>guide: Debugging</a>.</p>
+              <ul>
+                <li><a href='https://azul.rs/release/{version}/libazuldbg.so'>libazuldbg.so (Linux)</a></li>
+                <li><a href='https://azul.rs/release/{version}/libazuldbg.dylib'>libazuldbg.dylib (macOS)</a></li>
+                <li><a href='https://azul.rs/release/{version}/azuldbg.dll'>azuldbg.dll (Windows)</a></li>
+              </ul>
 
               <br/>
               <strong>Mobile (iOS &amp; Android): drop-in libraries:</strong>
