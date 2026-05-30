@@ -1856,6 +1856,20 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # This job downloads EVERY build artifact (15+ arch binaries, 200MB+ static
+      # libs, demos x3 OS, mobile libs, coverage HTML, docs PDF, apt mirror) onto
+      # one runner and merges them into the Pages tree. That overflows the stock
+      # ~14 GB runner disk (the merge step crashed with ENOSPC). Reclaim the
+      # ~25-30 GB of preinstalled toolchains we don't need here FIRST.
+      - name: Free disk space
+        run: |
+          echo "Before:"; df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+                      /usr/local/.ghcup /opt/hostedtoolcache/CodeQL \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" 2>/dev/null || true
+          sudo docker image prune --all --force 2>/dev/null || true
+          echo "After:"; df -h / | tail -1
+
       - name: Checkout repository (for fallback assets)
         uses: actions/checkout@v5
         with:
