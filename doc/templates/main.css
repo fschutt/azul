@@ -1,16 +1,41 @@
 @media screen {
-  /* Headings: Playfair Display (variable wght 400-900), self-hosted (OFL). */
+  /* Big eye-catcher headings (hero h1 + guide page title): Playfair Display
+     (variable wght 400-900, OFL). format("truetype-variations") is required or
+     some browsers silently reject the variable @font-face and fall back to a
+     plain serif — which is why the big headings rendered as Georgia before. */
   @font-face {
       font-family: "Playfair Display";
+      font-style: normal;
       font-weight: 400 900;
-      src: url("./fonts/PlayfairDisplay-VariableFont_wght.ttf");
+      src: url("./fonts/PlayfairDisplay-VariableFont_wght.ttf") format("truetype-variations");
   }
 
-  /* Body / UI: Rubik (variable wght 300-900), self-hosted (OFL). */
+  /* Subtitles / section headings + the showcase title: Instrument Serif (OFL). */
+  @font-face {
+      font-family: "Instrument Serif";
+      font-style: normal;
+      src: url("./fonts/InstrumentSerif-Regular.ttf");
+  }
+  @font-face {
+      font-family: "Instrument Serif";
+      font-style: italic;
+      src: url("./fonts/InstrumentSerif-Italic.ttf");
+  }
+
+  /* Body / UI: Rubik (variable wght 300-900, OFL). */
   @font-face {
       font-family: "Rubik";
+      font-style: normal;
       font-weight: 300 900;
-      src: url("./fonts/Rubik-VariableFont_wght.ttf");
+      src: url("./fonts/Rubik-VariableFont_wght.ttf") format("truetype-variations");
+  }
+
+  /* Code / monospace: Red Hat Mono (variable wght 300-700, OFL). */
+  @font-face {
+      font-family: "Red Hat Mono";
+      font-style: normal;
+      font-weight: 300 700;
+      src: url("./fonts/RedHatMono-VariableFont_wght.ttf") format("truetype-variations");
   }
 }
 
@@ -188,7 +213,7 @@ aside nav ul li ul {
   text-overflow: ellipsis;
   margin-left: 10px;
   font-size: 1rem;
-  font-family: monospace;
+  font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   list-style-type: none;
 }
 main {
@@ -207,20 +232,24 @@ main {
   }
 }
 
-main h1, main h2, h1, h2, h3, h4, h5, h6 {
+/* Big eye-catcher headings (hero h1, guide page <h1>) use Playfair Display.
+   Subtitles / section headings (h2-h6) use Instrument Serif. */
+main h1, h1 {
     font-family: "Playfair Display", Georgia, "Times New Roman", serif;
 }
+main h2, h2, h4, h5, h6 {
+    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+}
 
-/* Main page h1 - large eye-catcher with responsive scaling */
+/* Main page h1 - large eye-catcher with responsive scaling. Playfair has real
+   weights, so use a genuine weight instead of the text-shadow fake-bold. */
 main h1 {
-    /* Base size for large screens */
-    font-size: 3.5em;
-    font-weight: normal;
-    line-height: 1.0;
+    /* Base size for large screens (reduced from 3.5em). */
+    font-size: 2.8em;
+    font-weight: 700;
+    line-height: 1.05;
     margin-bottom: 20px;
-    /* Fake bold using text-shadow with em units for consistent boldness */
-    text-shadow: currentColor 0.5px 0.5px 0.5px, currentColor -0.5px -0.5px 0.5px, currentColor 0px -0.5px 0.5px, currentColor -0.5px 0px 0.5px;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.01em;
 }
 
 /* Section h2 - overlaid on screenshot */
@@ -250,7 +279,7 @@ main h1 {
 }
 
 main h3, h3 {
-    font-family: "Playfair Display", Georgia, "Times New Roman", serif;
+    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
     font-size: 24px;
     font-weight: bold;
     line-height: 1.6;
@@ -274,7 +303,7 @@ main p, p {
 }
 
 .first-letter {
-  font-family: "Playfair Display", serif;
+  font-family: "Instrument Serif", serif;
   font-size: 1em;
 }
 
@@ -306,7 +335,7 @@ code {
     background: #f5f2f0;
     padding: 0px;
     text-shadow: 0 1px white;
-    font-family: monospace;
+    font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-weight: bolder;
     font-size: 14px;
     text-align: left;
@@ -508,7 +537,7 @@ main > header h3 {
 .lang-grid .lang-more > summary {
   list-style: none;
   cursor: pointer;
-  font-family: monospace;
+  font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   font-weight: bold;
   color: #555;
@@ -536,7 +565,7 @@ main > header h3 {
   border: 1px solid #ccc;
   background: #e0e0e0;
   cursor: pointer;
-  font-family: monospace;
+  font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   font-weight: bold;
   border-radius: 0;
@@ -570,7 +599,7 @@ main > header h3 {
   border: 1px solid #ccc;
   background-color: #e0e0e0;
   cursor: pointer;
-  font-family: monospace;
+  font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   font-weight: bold;
   border-radius: 0;
@@ -609,7 +638,7 @@ main > header h3 {
   border: 1px solid #ccc;
   background: #f0f0f0;
   cursor: pointer;
-  font-family: monospace;
+  font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   font-weight: bold;
   border-radius: 0;
@@ -626,7 +655,7 @@ main > header h3 {
 .code-panel {
   background: #fafafa;
   border: 1px solid #ddd;
-  font-family: monospace;
+  font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   font-weight: 600;
 }

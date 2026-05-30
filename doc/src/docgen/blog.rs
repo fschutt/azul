@@ -185,7 +185,7 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
             margin-top: 10px;
         }
         #blog code {
-            font-family: monospace;
+            font-family: 'Red Hat Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
             font-weight: bold;
             font-size: 10pt;
             border-radius: 3px;
@@ -193,7 +193,7 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
         }
         #blog pre code {
             font-weight: normal;
-            font-family: monospace;
+            font-family: 'Red Hat Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
             font-size: 10pt;
             margin-top: 5px;
             margin-bottom: 5px;

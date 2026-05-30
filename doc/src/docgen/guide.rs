@@ -320,30 +320,28 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
     let title = &guide.title;
 
     let css = "
-        h1 { 
+        h1 {
             font-family: 'Playfair Display', Georgia, serif;
-            font-size: 2.5em;
-            font-weight: normal;
-            line-height: 1.2;
+            font-size: 2em;
+            font-weight: 700;
+            line-height: 1.15;
             margin-top: 0;
             margin-bottom: 25px;
-            text-shadow: currentColor 0.5px 0.5px 0.5px, currentColor -0.5px -0.5px 0.5px, currentColor 0px -0.5px 0.5px, currentColor -0.5px 0px 0.5px;
-            letter-spacing: 0.02em;
+            letter-spacing: 0.01em;
         }
         @media screen and (max-width: 768px) {
-            h1 { font-size: 2.2em; }
+            h1 { font-size: 1.8em; }
         }
         @media screen and (max-width: 480px) {
-            h1 { font-size: 1.8em; }
+            h1 { font-size: 1.5em; }
         }
         h2, h3, h4 { cursor: pointer; }
         h2 {
-            font-family: 'Playfair Display', Georgia, serif;
+            font-family: 'Instrument Serif', Georgia, serif;
             font-size: 2em;
             font-weight: normal;
             margin-top: 25px;
             margin-bottom: 15px;
-            text-shadow: 0.3px 0 0 currentColor, -0.3px 0 0 currentColor;
         }
         h3 { margin-top: 22px; margin-bottom: 10px; font-size: 1.3em; }
         h4 { margin-top: 18px; margin-bottom: 8px; font-size: 1.1em; }
@@ -362,7 +360,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         #guide li > p { margin-bottom: 0.3em; }
         #guide li:last-child { margin-bottom: 0; }
         #guide code {
-            font-family: monospace;
+            font-family: 'Red Hat Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
             font-weight: bold;
             font-size: 0.75em;
             border-radius: 5px;
@@ -370,7 +368,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         }
         #guide pre code {
             font-weight: normal;
-            font-family: monospace;
+            font-family: 'Red Hat Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
             font-size: 10pt;
             margin-top: 5px;
             margin-bottom: 5px;

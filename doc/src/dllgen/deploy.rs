@@ -1874,16 +1874,18 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
         images_dir.join("fleur-de-lis.svg"),
     )?;
 
-    // Copy font files at runtime. Site fonts are now Playfair Display (headings)
-    // + Rubik (body), self-hosted as OFL variable fonts (see main.css @font-face).
-    fs::copy(
-        fonts_source_dir.join("PlayfairDisplay-VariableFont_wght.ttf"),
-        fonts_dir.join("PlayfairDisplay-VariableFont_wght.ttf"),
-    )?;
-    fs::copy(
-        fonts_source_dir.join("Rubik-VariableFont_wght.ttf"),
-        fonts_dir.join("Rubik-VariableFont_wght.ttf"),
-    )?;
+    // Copy font files at runtime. Site fonts (see main.css @font-face):
+    // Playfair Display (big headings), Instrument Serif (subtitles/section
+    // headings), Rubik (body), Red Hat Mono (code) — all self-hosted OFL.
+    for f in [
+        "PlayfairDisplay-VariableFont_wght.ttf",
+        "InstrumentSerif-Regular.ttf",
+        "InstrumentSerif-Italic.ttf",
+        "Rubik-VariableFont_wght.ttf",
+        "RedHatMono-VariableFont_wght.ttf",
+    ] {
+        fs::copy(fonts_source_dir.join(f), fonts_dir.join(f))?;
+    }
 
     // Create favicon
     fs::write(output_dir.join("favicon.ico"), "Favicon placeholder")?;
