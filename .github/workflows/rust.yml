@@ -2847,15 +2847,20 @@ jobs:
           skip-existing: true
 
   # ---------------------------------------------------------------------------
-  # 3. npm — Node binding (FFI loader via koffi). Packages the GENERATED
-  #    binding (target/codegen/node/{package.json,azul.js}) plus the native
-  #    library, NOT the example. `npm pack` always; `npm publish` if NPM_TOKEN.
+  # build_dll_linux — SHARED producer for the Linux language-binding packagers.
+  #
+  # npm / rubygems / nuget / maven all ran the SAME two slow steps
+  # (`codegen all` + `cargo build --release -p azul-dll --features build-dll`)
+  # just to copy target/codegen/* + target/release/libazul.so into their
+  # package. That's the workspace compiled FOUR redundant times. Build it ONCE
+  # here, upload codegen + libazul.so as `azul-dll-linux`, and let those jobs
+  # download it (they then need no Rust toolchain at all — pure packagers).
+  # Deploy-gated to match its consumers.
   # ---------------------------------------------------------------------------
-  npm:
-    name: npm (node binding)
+  build_dll_linux:
+    name: Build libazul (linux, shared by binding packagers)
     if: github.event.inputs.run_mode == 'deploy'
     runs-on: ubuntu-22.04
-    continue-on-error: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -2867,11 +2872,8 @@ jobs:
         with:
           toolchain: 1.88.0
 
-      - name: Set up Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
+      - name: Run Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2
 
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
@@ -2879,8 +2881,61 @@ jobs:
       - name: Generate bindings (codegen)
         run: cargo run -r -p azul-doc codegen all
 
-      - name: Build native library
+      - name: Build native library (lean release)
         run: cargo build --release -p azul-dll --features build-dll
+
+      - name: Stage shared codegen + libazul.so
+        run: |
+          set -euo pipefail
+          rm -rf dll-share && mkdir -p dll-share
+          cp -a target/codegen dll-share/codegen
+          cp target/release/libazul.so dll-share/libazul.so
+
+      - name: Upload shared libazul + codegen
+        uses: actions/upload-artifact@v7
+        with:
+          name: azul-dll-linux
+          path: dll-share
+          retention-days: 7
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 3. npm — Node binding (FFI loader via koffi). Packages the GENERATED
+  #    binding (target/codegen/node/{package.json,azul.js}) plus the native
+  #    library, NOT the example. `npm pack` always; `npm publish` if NPM_TOKEN.
+  # ---------------------------------------------------------------------------
+  npm:
+    name: npm (node binding)
+    needs: build_dll_linux
+    if: github.event.inputs.run_mode == 'deploy'
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      # Pure packager: no Rust toolchain / cargo build. Pull the prebuilt
+      # libazul.so + codegen from the shared build_dll_linux producer.
+      - name: Download shared libazul + codegen
+        uses: actions/download-artifact@v7
+        with:
+          name: azul-dll-linux
+          path: dll-share
+
+      - name: Place shared libazul + codegen
+        run: |
+          set -euo pipefail
+          mkdir -p target/codegen target/release
+          cp -a dll-share/codegen/. target/codegen/
+          cp dll-share/libazul.so target/release/libazul.so
 
       - name: Assemble npm package
         run: |
@@ -2936,6 +2991,7 @@ jobs:
   # ---------------------------------------------------------------------------
   rubygems:
     name: RubyGems (ruby binding)
+    needs: build_dll_linux
     if: github.event.inputs.run_mode == 'deploy'
     runs-on: ubuntu-22.04
     continue-on-error: true
@@ -2945,24 +3001,24 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.88.0
-
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
 
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+      # Pure packager: pull the prebuilt libazul.so + codegen from build_dll_linux.
+      - name: Download shared libazul + codegen
+        uses: actions/download-artifact@v7
+        with:
+          name: azul-dll-linux
+          path: dll-share
 
-      - name: Generate bindings (codegen)
-        run: cargo run -r -p azul-doc codegen all
-
-      - name: Build native library
-        run: cargo build --release -p azul-dll --features build-dll
+      - name: Place shared libazul + codegen
+        run: |
+          set -euo pipefail
+          mkdir -p target/codegen target/release
+          cp -a dll-share/codegen/. target/codegen/
+          cp dll-share/libazul.so target/release/libazul.so
 
       - name: Assemble gem
         run: |
@@ -3024,6 +3080,7 @@ jobs:
   # ---------------------------------------------------------------------------
   nuget:
     name: NuGet (csharp binding)
+    needs: build_dll_linux
     if: github.event.inputs.run_mode == 'deploy'
     runs-on: ubuntu-22.04
     continue-on-error: true
@@ -3033,24 +3090,24 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.88.0
-
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
 
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+      # Pure packager: pull the prebuilt libazul.so + codegen from build_dll_linux.
+      - name: Download shared libazul + codegen
+        uses: actions/download-artifact@v7
+        with:
+          name: azul-dll-linux
+          path: dll-share
 
-      - name: Generate bindings (codegen)
-        run: cargo run -r -p azul-doc codegen all
-
-      - name: Build native library
-        run: cargo build --release -p azul-dll --features build-dll
+      - name: Place shared libazul + codegen
+        run: |
+          set -euo pipefail
+          mkdir -p target/codegen target/release
+          cp -a dll-share/codegen/. target/codegen/
+          cp dll-share/libazul.so target/release/libazul.so
 
       - name: Assemble NuGet package layout
         run: |
@@ -3103,6 +3160,7 @@ jobs:
   # ---------------------------------------------------------------------------
   maven-central:
     name: Maven Central (java / kotlin binding)
+    needs: build_dll_linux
     if: github.event.inputs.run_mode == 'deploy'
     runs-on: ubuntu-22.04
     continue-on-error: true
@@ -3112,25 +3170,25 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.88.0
-
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+      # Pure packager: pull the prebuilt libazul.so + codegen from build_dll_linux.
+      - name: Download shared libazul + codegen
+        uses: actions/download-artifact@v7
+        with:
+          name: azul-dll-linux
+          path: dll-share
 
-      - name: Generate bindings (codegen)
-        run: cargo run -r -p azul-doc codegen all
-
-      - name: Build native library
-        run: cargo build --release -p azul-dll --features build-dll
+      - name: Place shared libazul + codegen
+        run: |
+          set -euo pipefail
+          mkdir -p target/codegen target/release
+          cp -a dll-share/codegen/. target/codegen/
+          cp dll-share/libazul.so target/release/libazul.so
 
       - name: Assemble Maven project (sources + native resource + publish pom)
         run: |
