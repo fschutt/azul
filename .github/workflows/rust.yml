@@ -1282,7 +1282,29 @@ jobs:
       # NOT continue-on-error: a shipped-binding regression should fail CI.
       - name: Language binding status board (AZ_E2E, gates shipped tier)
         shell: bash
-        run: bash scripts/e2e_language_matrix.sh --gate-shipped
+        run: |
+          # Run the matrix ONCE: capture the board to a per-OS text file for the
+          # release-page Statistics section via tee, and propagate the script's
+          # --gate-shipped exit code (NOT tee's) so a shipped-binding regression
+          # still fails CI. pipefail makes ${PIPESTATUS[0]} authoritative.
+          set -o pipefail
+          mkdir -p stats
+          os_slug="ubuntu"
+          case "${{ matrix.os }}" in
+            macos-14)     os_slug="macos" ;;
+            windows-2022) os_slug="windows" ;;
+          esac
+          bash scripts/e2e_language_matrix.sh --gate-shipped \
+            | tee "stats/language-bindings-${os_slug}.txt"
+
+      - name: Upload language binding board
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stats-language-board-${{ matrix.os }}
+          path: stats/language-bindings-*.txt
+          if-no-files-found: warn
+          retention-days: 30
 
   # ===========================================================================
   # Mobile libazul — prebuilt drop-in libraries (+ the minimal link stubs).
@@ -2142,6 +2164,71 @@ jobs:
           name: apt-repo
           path: artifacts-apt
 
+      # Statistics / CI reports → release/{V}/statistics/ (Statistics section on
+      # the release page). Each is best-effort: the producing job is NOT in this
+      # job's needs[] (so an informational/gating stats job can never block the
+      # deploy), and a missing report 404s on the page rather than failing here.
+      - name: Download cargo-deny report
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: stats-cargo-deny
+          path: artifacts-stats
+      - name: Download cargo-geiger report
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: stats-cargo-geiger
+          path: artifacts-stats
+      - name: Download clippy report
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: stats-clippy
+          path: artifacts-stats
+      - name: Download sanitizers report
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: stats-sanitizers
+          path: artifacts-stats
+      - name: Download language board (Linux)
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: stats-language-board-ubuntu-22.04
+          path: artifacts-stats-board
+      - name: Download language board (macOS)
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: stats-language-board-macos-14
+          path: artifacts-stats-board
+      - name: Download language board (Windows)
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: stats-language-board-windows-2022
+          path: artifacts-stats-board
+      - name: Download dependency trees (Linux)
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: dependency-trees-ubuntu-22.04
+          path: artifacts-deptree-ubuntu
+      - name: Download dependency trees (macOS)
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: dependency-trees-macos-14
+          path: artifacts-deptree-macos
+      - name: Download dependency trees (Windows)
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: dependency-trees-windows-2022
+          path: artifacts-deptree-windows
+
       - name: Download mobile libazul
         uses: actions/download-artifact@v8
         continue-on-error: true
@@ -2287,6 +2374,45 @@ jobs:
           else
             echo "  (no coverage report shipped)"
           fi
+
+          # Statistics / CI reports → release/{V}/statistics/ (Statistics section
+          # on the release page). Each input is optional — a missing report just
+          # 404s on the page. Mirrors the download steps added in deploy_pages.
+          STATS_DIR="$RELEASE_DIR/statistics"
+          mkdir -p "$STATS_DIR"
+          # Flat text reports (cargo-deny / cargo-geiger / clippy / sanitizers).
+          cp artifacts-stats/cargo-deny.txt    "$STATS_DIR/" 2>/dev/null || true
+          cp artifacts-stats/cargo-geiger.txt  "$STATS_DIR/" 2>/dev/null || true
+          cp artifacts-stats/clippy.txt        "$STATS_DIR/" 2>/dev/null || true
+          cp artifacts-stats/sanitizers.txt    "$STATS_DIR/" 2>/dev/null || true
+          # Per-OS language binding boards (already named language-bindings-<os>.txt).
+          cp artifacts-stats-board/language-bindings-*.txt "$STATS_DIR/" 2>/dev/null || true
+          # Per-OS dependency trees: concatenate the per-member *.tree.txt the
+          # dep_tree job uploaded into one dependency-tree-<os>.txt.
+          for osslug in ubuntu macos windows; do
+            d="artifacts-deptree-$osslug"
+            if [ -d "$d" ] && ls "$d"/*.tree.txt >/dev/null 2>&1; then
+              { for t in "$d"/*.tree.txt; do echo "===== $(basename "$t") ====="; cat "$t"; echo; done; } \
+                > "$STATS_DIR/dependency-tree-$osslug.txt"
+            fi
+          done
+          # Dependency justifications: render the committed TOML to a simple HTML
+          # page (escaped, in a <pre>) so the release page can link it.
+          if [ -f scripts/dependency-justifications.toml ]; then
+            {
+              echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+              echo '<title>Azul dependency justifications</title>'
+              echo '<style>body{font-family:monospace;max-width:900px;margin:2em auto;padding:0 1em;}'
+              echo 'h1{font-family:Georgia,serif;}pre{white-space:pre-wrap;word-wrap:break-word;}</style>'
+              echo '</head><body><h1>Dependency justifications</h1>'
+              echo '<p>Why each crate is present in the dependency tree (the supply-chain gate'
+              echo 'requires a one-line justification for every direct and transitive dependency).</p><pre>'
+              sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' scripts/dependency-justifications.toml
+              echo '</pre></body></html>'
+            } > "$STATS_DIR/dependency-justifications.html"
+          fi
+          echo "=== Statistics ==="
+          ls -la "$STATS_DIR/" 2>/dev/null || echo "  (no statistics shipped)"
 
           # Headers
           find artifacts-headers -name "*.h" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
@@ -2558,6 +2684,18 @@ jobs:
       - name: cargo-deny + summary
         shell: bash
         run: |
+          # Plain-text report for the release page Statistics section, plus the
+          # rich <details> summary for the run page.
+          mkdir -p stats
+          {
+            echo '# Supply chain — cargo-deny'
+            echo ''
+            for chk in advisories bans licenses sources; do
+              echo "=== cargo deny check $chk ==="
+              cargo deny --color never check "$chk" 2>&1 || true
+              echo ''
+            done
+          } > stats/cargo-deny.txt
           {
             echo '## 🔒 Supply chain — cargo-deny'
             echo ''
@@ -2571,6 +2709,14 @@ jobs:
               echo ''
             done
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload cargo-deny report
+        uses: actions/upload-artifact@v7
+        with:
+          name: stats-cargo-deny
+          path: stats/cargo-deny.txt
+          if-no-files-found: warn
+          retention-days: 30
 
   unsafe_audit:
     name: Unsafe audit (cargo-geiger)
@@ -2597,6 +2743,7 @@ jobs:
           # "Failed to match (ignoring source)" source-match warnings.
           cargo geiger --locked --manifest-path "$PWD/dll/Cargo.toml" --output-format Ascii 2>&1 \
             | grep -v 'Failed to match (ignoring source)' > geiger.txt || true
+          mkdir -p stats && cp geiger.txt stats/cargo-geiger.txt
           {
             echo '## ☢️ Unsafe surface — cargo-geiger (azul-dll)'
             echo ''
@@ -2607,6 +2754,14 @@ jobs:
             echo '```'
             echo '</details>'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload cargo-geiger report
+        uses: actions/upload-artifact@v7
+        with:
+          name: stats-cargo-geiger
+          path: stats/cargo-geiger.txt
+          if-no-files-found: warn
+          retention-days: 30
 
   clippy:
     name: Clippy
@@ -2625,6 +2780,7 @@ jobs:
         shell: bash
         run: |
           cargo clippy -p azul-core -p azul-css -p azul-layout --no-default-features --features std 2>&1 | tee clippy.txt || true
+          mkdir -p stats && cp clippy.txt stats/clippy.txt
           {
             echo '## 📎 Clippy (azul-core / azul-css / azul-layout)'
             echo ''
@@ -2637,6 +2793,14 @@ jobs:
             echo '```'
             echo '</details>'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload clippy report
+        uses: actions/upload-artifact@v7
+        with:
+          name: stats-clippy
+          path: stats/clippy.txt
+          if-no-files-found: warn
+          retention-days: 30
 
   sanitizers:
     name: Sanitizers (C examples)
@@ -2659,31 +2823,51 @@ jobs:
       - name: Run sanitizers + summary
         shell: bash
         run: |
+          mkdir -p stats
+          # Plain-text report for the release-page Statistics section + the run
+          # Summary table. emit() writes one row to both.
+          {
+            echo '# Sanitizers (C examples, headless)'
+            echo ''
+            printf '%-14s %-12s %s\n' "example" "sanitizer" "result"
+          } > stats/sanitizers.txt
           {
             echo '## 🧪 Sanitizers (C examples, headless)'
             echo ''
             echo '| example | sanitizer | result |'
             echo '|---|---|---|'
           } >> "$GITHUB_STEP_SUMMARY"
+          emit() { # <example> <label> <result>
+            printf '%-14s %-12s %s\n' "$1" "$2" "$3" >> stats/sanitizers.txt
+            echo "| $1 | $2 | $3 |" >> "$GITHUB_STEP_SUMMARY"
+          }
           run_san() { # <example> <label> <san-flags>
             local ex="$1" label="$2" flags="$3"
             if ! clang -g -O1 $flags -fno-omit-frame-pointer -I target/codegen \
                  "examples/c/$ex.c" -L target/debug -lazul -o "/tmp/$ex-san" 2>/tmp/cc.log; then
-              echo "| $ex | $label | build-fail |" >> "$GITHUB_STEP_SUMMARY"; return
+              emit "$ex" "$label" "build-fail"; return
             fi
             local rc=0
             ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
             TSAN_OPTIONS=halt_on_error=0 LD_LIBRARY_PATH=target/debug \
               timeout 30 "/tmp/$ex-san" || rc=$?
             if [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ]; then
-              echo "| $ex | $label | ✅ pass |" >> "$GITHUB_STEP_SUMMARY"
+              emit "$ex" "$label" "pass"
             else
-              echo "| $ex | $label | ❌ rc=$rc |" >> "$GITHUB_STEP_SUMMARY"
+              emit "$ex" "$label" "FAIL rc=$rc"
             fi
           }
           run_san hello-world "ASan+UBSan" "-fsanitize=address,undefined"
           run_san async       "ASan+UBSan" "-fsanitize=address,undefined"
           run_san async       "ThreadSan"  "-fsanitize=thread"
+
+      - name: Upload sanitizers report
+        uses: actions/upload-artifact@v7
+        with:
+          name: stats-sanitizers
+          path: stats/sanitizers.txt
+          if-no-files-found: warn
+          retention-days: 30
 
   dep_tree:
     name: Dependency tree (${{ matrix.os }})
