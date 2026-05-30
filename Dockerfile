@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# azul-web-base — base image for running ANY azul app as a web app.
+# ghcr.io/fschutt/azul — base image for running ANY azul app as a web app.
 # =================================================================
 # STATUS: DRAFT concept (see docker/web-base/README.md for the caveats).
 #
@@ -10,12 +10,12 @@
 # no external toolchain and no separate "web build" — the same x86_64 desktop
 # binary is reused (see https://azul.rs/guide/deploying-web).
 #
-# Published as `ghcr.io/fschutt/azul-web-base:<version>`; the per-app Dockerfiles
+# Published as `ghcr.io/fschutt/azul:<version>`; the per-app Dockerfiles
 # in examples/<app>/Dockerfile `FROM` this. The final per-app image is distroless
 # (glibc + a TCP stack, nothing else) + the binary + this .so + a pre-lifted
 # /cache, so a container starts fast: only the app's own callbacks are lifted.
 #
-#   docker build --build-arg AZUL_REF=0.2.0 -t ghcr.io/fschutt/azul-web-base:0.2.0 .
+#   docker build --build-arg AZUL_REF=0.2.0 -t ghcr.io/fschutt/azul:0.2.0 .
 
 ARG AZUL_REF=master
 

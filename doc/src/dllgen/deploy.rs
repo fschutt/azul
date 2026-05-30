@@ -635,6 +635,16 @@ pub fn generate_license_files(version: &str, output_dir: &Path) -> Result<()> {
         ("LICENSE-WINDOWS.txt", "x86_64-pc-windows-msvc"),
         ("LICENSE-MACOS.txt", "aarch64-apple-darwin"),
         ("LICENSE-LINUX.txt", "x86_64-unknown-linux-gnu"),
+        // Mobile: the iOS / Android slices pull a different dependency set
+        // (platform backends, codecs) so their bundled-license lists differ
+        // from desktop. cargo-license resolves per-target via CARGO_BUILD_TARGET
+        // -> `cargo metadata --filter-platform`, which evaluates each crate's
+        // `cfg(target_os = ...)` against cargo's built-in target spec. That is a
+        // metadata-only query: it does NOT require the target toolchain be
+        // installed (verified: both targets resolve full graphs, ~7.4k crates),
+        // so these lists are real and distinct, not empty fallbacks.
+        ("LICENSE-IOS.txt", "aarch64-apple-ios"),
+        ("LICENSE-ANDROID.txt", "aarch64-linux-android"),
     ];
 
     for (f, target) in targets.iter() {
@@ -1391,6 +1401,8 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         ("LICENSE-LINUX.txt", "Bundled third-party licenses (Linux build)"),
         ("LICENSE-MACOS.txt", "Bundled third-party licenses (macOS build)"),
         ("LICENSE-WINDOWS.txt", "Bundled third-party licenses (Windows build)"),
+        ("LICENSE-IOS.txt", "Bundled third-party licenses (iOS build)"),
+        ("LICENSE-ANDROID.txt", "Bundled third-party licenses (Android build)"),
     ];
     let license_links: String = LICENSE_FILES
         .iter()
@@ -1516,7 +1528,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
 
     // Web (Docker): run any demo as a web app with one command. The link is the
     // demo's Dockerfile (a release-hosted copy of examples/<crate>/Dockerfile); it
-    // FROMs ghcr.io/fschutt/azul-web-base and REUSES the Linux x86-64 desktop
+    // FROMs ghcr.io/fschutt/azul and REUSES the Linux x86-64 desktop
     // binary — azul lifts it to WASM in-process (remill) and serves it, no
     // separate web build, no recompile. The label is the ready-to-run command.
     let web_items: String = DEMO_APPS
@@ -1714,12 +1726,12 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <br/>
               <a href='https://azul.rs/guide/deploying-web'>Guide: deploying azul web apps</a>
               <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;font-size:14px;'>
-                  <p style='color:grey;'>A <code>ghcr.io/fschutt/azul-web-base</code> base image with a pre-lifted
+                  <p style='color:grey;'>A <code>ghcr.io/fschutt/azul</code> base image with a pre-lifted
                   azul-library WASM cache: so your app only lifts its own callbacks, not the whole
                   library (seconds instead of minutes): is published to the GitHub Container Registry
                   (<strong>experimental preview</strong>; the web backend is not yet stable):</p>
-                  <p style='color:black;font-family:monospace;'>docker pull ghcr.io/fschutt/azul-web-base:latest</p>
-                  <p style='color:grey;'>Build it yourself from <code>docker/web-base/Dockerfile</code> in the repo. See the guide above.</p>
+                  <p style='color:black;font-family:monospace;'>docker pull ghcr.io/fschutt/azul:{version}</p>
+                  <p style='color:grey;'>Build it yourself from the <code>Dockerfile</code> in the repo root. See the guide above.</p>
               </div>
 
               <br/>

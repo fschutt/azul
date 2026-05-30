@@ -29,7 +29,7 @@
 #
 # HOW A USER EXTENDS IT
 # ---------------------
-#   FROM ghcr.io/fschutt/azul-web-base:<version>
+#   FROM ghcr.io/fschutt/azul:<version>
 #   COPY my-app /usr/local/bin/my-app
 #   ENV AZ_BACKEND=web://0.0.0.0:8080?allow_public=1
 #   CMD ["/usr/local/bin/my-app"]

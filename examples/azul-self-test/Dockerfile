@@ -20,14 +20,14 @@ ARG AZUL_VERSION=0.2.0
 # lift-and-exit hook (AZ_PRELIFT) rather than the debug-server E2E runner. [TODO:
 # AZ_PRELIFT hook is not implemented yet — until then the cache warms on the first
 # request instead of at build time.]
-FROM ghcr.io/fschutt/azul-web-base:${AZUL_VERSION} AS prelift
+FROM ghcr.io/fschutt/azul:${AZUL_VERSION} AS prelift
 ARG AZUL_VERSION
 ADD https://azul.rs/release/${AZUL_VERSION}/demos/azul-self-test-linux /app/azul-self-test.bin
 RUN chmod +x /app/azul-self-test.bin \
  && AZ_LIFT_CACHE_DIR=/cache AZ_PRELIFT=1 /app/azul-self-test.bin || true
 
 # ---- final: distroless + binary + in-process lifter + warm cache -------------
-FROM ghcr.io/fschutt/azul-web-base:${AZUL_VERSION}
+FROM ghcr.io/fschutt/azul:${AZUL_VERSION}
 COPY --from=prelift /app/azul-self-test.bin /app/azul-self-test.bin
 COPY --from=prelift /cache /cache
 ENV AZ_BACKEND="web://0.0.0.0:8080?allow_public=1"
