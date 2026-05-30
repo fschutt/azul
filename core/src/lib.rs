@@ -88,7 +88,10 @@ pub mod sync {
 
         impl<T> OnceLock<T> {
             pub const fn new() -> Self {
-                OnceLock { state: AtomicU8::new(UNINIT), value: UnsafeCell::new(None) }
+                OnceLock {
+                    state: AtomicU8::new(UNINIT),
+                    value: UnsafeCell::new(None),
+                }
             }
 
             pub fn get(&self) -> Option<&T> {
@@ -233,55 +236,36 @@ pub mod callbacks;
 pub mod host_invoker;
 /// Accessibility types for screen-reader integration (AccessKit).
 pub mod a11y;
-/// DOM construction: `Dom`, `NodeData`, `NodeType`, and the CSS-in-Rust API.
-pub mod dom;
-/// Drag context for text selection, scrollbar, node, and window drags.
-pub mod drag;
-/// Icon provider system for loading icons from fonts, images, or zip packs.
-pub mod icon;
-/// Resource management: font/image loading, caching, and garbage collection.
-pub mod resources;
-/// Text selection and cursor positioning for inline content.
-pub mod selection;
-/// Motion-sensor POD types — `SensorKind` + `SensorReading`.
-/// Stateful manager lives in `azul_layout::managers::sensors`.
-pub mod sensors;
-/// Linear-time DOM diffing for incremental updates.
-pub mod diff;
 /// CSS animation and transition configuration.
 pub mod animation;
-/// Event filtering: mouse, keyboard, window, and synthetic events.
-pub mod events;
+/// Audio POD types — `AudioConfig` (stream format) + `AudioFrame` (interleaved
+/// f32 samples). The unit captured from the mic, played back, and (P8) shared
+/// over UDP. Backend (rodio / cpal / AVAudioEngine / AAudio) lives dll-side.
+pub mod audio;
 /// Biometric-auth POD types — `BiometricKind` + `BiometricResult` + `BiometricPrompt`.
 /// Stateful manager lives in `azul_layout::managers::biometric`.
 pub mod biometric;
-/// Geolocation POD types — `LocationFix` + `GeolocationProbeConfig`.
-/// Stateful manager lives in `azul_layout::managers::geolocation`.
-pub mod geolocation;
-/// Gamepad POD types — `GamepadId` + `GamepadButton` + `GamepadAxis` +
-/// `GamepadState`. Stateful manager lives in `azul_layout::managers::gamepad`.
-pub mod gamepad;
 /// Camera-capture POD types — `CaptureStreamId` + `CameraConfig` +
 /// `CameraFacing` + `StreamState` + … . The stateful `CameraStream` /
 /// `CameraManager` (which own the shared `ImageRef` texture) live in
 /// `azul_layout::managers::camera`.
 pub mod camera;
-/// Screen-capture POD types — `ScreenCaptureSource` + `ScreenCaptureConfig`.
-/// Symmetric to the camera surface (a "dumb widget" in
-/// `azul_layout::widgets::screencap`); reuses `camera`'s capture status types.
-pub mod screencap;
-/// Video-playback POD types — `VideoConfig` (source URL + autoplay/loop).
-/// Same "dumb widget" architecture (`azul_layout::widgets::video`); decoded
-/// via vk-video into the shared GL texture.
-pub mod video;
-/// Audio POD types — `AudioConfig` (stream format) + `AudioFrame` (interleaved
-/// f32 samples). The unit captured from the mic, played back, and (P8) shared
-/// over UDP. Backend (rodio / cpal / AVAudioEngine / AAudio) lives dll-side.
-pub mod audio;
-/// UDP chunked-message framing (P8): split a >MTU payload into sequenced
-/// datagrams + reassemble them, tolerating reorder + loss. Pure logic the
-/// dll's `Udp` handle builds on; unit-tested here. See `udp_framing.rs`.
-pub mod udp_framing;
+/// Converts `CssPropertyCache` into compact three-tier numeric cache.
+pub mod compact;
+/// Linear-time DOM diffing for incremental updates.
+pub mod diff;
+/// DOM construction: `Dom`, `NodeData`, `NodeType`, and the CSS-in-Rust API.
+pub mod dom;
+/// Drag context for text selection, scrollbar, node, and window drags.
+pub mod drag;
+/// Event filtering: mouse, keyboard, window, and synthetic events.
+pub mod events;
+/// Gamepad POD types — `GamepadId` + `GamepadButton` + `GamepadAxis` +
+/// `GamepadState`. Stateful manager lives in `azul_layout::managers::gamepad`.
+pub mod gamepad;
+/// Geolocation POD types — `LocationFix` + `GeolocationProbeConfig`.
+/// Stateful manager lives in `azul_layout::managers::geolocation`.
+pub mod geolocation;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
 /// OpenGL context wrappers, shader compilation, and texture cache.
@@ -296,41 +280,60 @@ pub mod gpu;
 pub mod hit_test;
 /// Type-safe hit-test tag system for compositor integration.
 pub mod hit_test_tag;
+/// Icon provider system for loading icons from fonts, images, or zip packs.
+pub mod icon;
 /// Arena-based node tree storage and hierarchy management.
 pub mod id;
+/// JSON value types for the C API (no serde dependency).
+pub mod json;
 /// System-keyring POD types — `KeyringRequest` + `KeyringResult`.
 /// Stateful manager lives in `azul_layout::managers::keyring`.
 pub mod keyring;
 /// Menu system: context menus, dropdown menus, and menu bars.
 pub mod menu;
+/// SVG `d=""` path data parser.
+pub mod path_parser;
 /// CSS property cache for efficient per-node style resolution.
 pub mod prop_cache;
-/// Converts `CssPropertyCache` into compact three-tier numeric cache.
-pub mod compact_cache_builder;
 /// Type-erased, ref-counted smart pointer with runtime borrow checking.
 pub mod refany;
+/// Resource management: font/image loading, caching, and garbage collection.
+pub mod resources;
+/// Screen-capture POD types — `ScreenCaptureSource` + `ScreenCaptureConfig`.
+/// Symmetric to the camera surface (a "dumb widget" in
+/// `azul_layout::widgets::screencap`); reuses `camera`'s capture status types.
+pub mod screencap;
+/// Text selection and cursor positioning for inline content.
+pub mod selection;
+/// Motion-sensor POD types — `SensorKind` + `SensorReading`.
+/// Stateful manager lives in `azul_layout::managers::sensors`.
+pub mod sensors;
 /// CSS cascade: selector matching, specificity, and property inheritance.
 pub mod style;
 /// `StyledDom` — the result of applying CSS to a DOM tree (the CSSOM).
 pub mod styled_dom;
 /// SVG rendering, path tessellation, and geometric operations.
 pub mod svg;
-/// SVG `d=""` path data parser.
-pub mod svg_path_parser;
 /// Timer, thread, and async task management.
 pub mod task;
 /// 3D transform matrix computation for CSS transforms.
 pub mod transform;
 /// Built-in user-agent default stylesheet.
 pub mod ua_css;
+/// UDP chunked-message framing (P8): split a >MTU payload into sequenced
+/// datagrams + reassemble them, tolerating reorder + loss. Pure logic the
+/// dll's `Udp` handle builds on; unit-tested here. See `udp_framing.rs`.
+pub mod udp_framing;
 /// Default font/text constants and small geometry helpers for layout.
 pub mod ui_solver;
+/// Video-playback POD types — `VideoConfig` (source URL + autoplay/loop).
+/// Same "dumb widget" architecture (`azul_layout::widgets::video`); decoded
+/// via vk-video into the shared GL texture.
+pub mod video;
 /// Window configuration, input state, and platform-specific options.
 pub mod window;
 /// XML and XHTML parsing for declarative UI definitions.
 pub mod xml;
-/// JSON value types for the C API (no serde dependency).
-pub mod json;
 
 /// Ordered map alias used throughout `azul-core`.
 ///
