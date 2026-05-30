@@ -337,7 +337,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         }
         h2, h3, h4 { cursor: pointer; }
         h2 {
-            font-family: 'Instrument Serif', Georgia, serif;
+            font-family: 'Imbue', Georgia, serif;
             font-size: 2em;
             font-weight: normal;
             margin-top: 25px;

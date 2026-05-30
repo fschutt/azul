@@ -681,7 +681,7 @@ pub fn get_anchor_link_script() -> String {
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.82);
   color: #fff;
-  font-family: "Rubik", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Red Hat Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 13px;
   padding: 8px 14px;
   border-radius: 6px;

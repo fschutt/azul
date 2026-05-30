@@ -10,24 +10,22 @@
       src: url("./fonts/PlayfairDisplay-VariableFont_wght.ttf") format("truetype-variations");
   }
 
-  /* Subtitles / section headings + the showcase title: Instrument Serif (OFL). */
+  /* Subtitles / section headings + the showcase title: Imbue (variable opsz
+     10-100 + wght 100-900, OFL). The optical-size axis is driven automatically
+     by font-optical-sizing: auto on the using rules. */
   @font-face {
-      font-family: "Instrument Serif";
+      font-family: "Imbue";
       font-style: normal;
-      src: url("./fonts/InstrumentSerif-Regular.ttf");
-  }
-  @font-face {
-      font-family: "Instrument Serif";
-      font-style: italic;
-      src: url("./fonts/InstrumentSerif-Italic.ttf");
+      font-weight: 100 900;
+      src: url("./fonts/Imbue-VariableFont_opsz,wght.ttf") format("truetype-variations");
   }
 
-  /* Body / UI: Rubik (variable wght 300-900, OFL). */
+  /* Body / UI: Red Hat Display (variable wght 300-900, OFL). */
   @font-face {
-      font-family: "Rubik";
+      font-family: "Red Hat Display";
       font-style: normal;
       font-weight: 300 900;
-      src: url("./fonts/Rubik-VariableFont_wght.ttf") format("truetype-variations");
+      src: url("./fonts/RedHatDisplay-VariableFont_wght.ttf") format("truetype-variations");
   }
 
   /* Code / monospace: Red Hat Mono (variable wght 300-700, OFL). */
@@ -93,9 +91,11 @@ body {
     background: linear-gradient(135deg, #004e92 0%,#000428 100%); /* W3C, IE10+, FF16+, Chrome26+, Opera12+, Safari7+ */
     filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#004e92', endColorstr='#000428',GradientType=1 ); /* IE6-9 fallback on horizontal gradient */
     min-height: 100%;
-    font-family: "Rubik", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: "Red Hat Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 16px;
     line-height: 1.6;
+    /* Drive Imbue's optical-size axis automatically (inherited site-wide). */
+    font-optical-sizing: auto;
 }
 
 body .center {
@@ -154,7 +154,7 @@ aside {
 
 /* Fake bold for version number using text-shadow - uses same font as regular p */
 #latestrelease p strong {
-    font-family: "Rubik", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: "Red Hat Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-weight: normal;
     text-shadow: 0.3px 0 0 currentColor, -0.3px 0 0 currentColor;
 }
@@ -248,7 +248,7 @@ main h1, h1 {
     font-family: "Playfair Display", Georgia, "Times New Roman", serif;
 }
 main h2, h2, h4, h5, h6 {
-    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+    font-family: "Imbue", Georgia, "Times New Roman", serif;
 }
 
 /* Main page h1 - large eye-catcher with responsive scaling. Playfair has real
@@ -289,7 +289,7 @@ main h1 {
 }
 
 main h3, h3 {
-    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+    font-family: "Imbue", Georgia, "Times New Roman", serif;
     font-size: 24px;
     font-weight: bold;
     line-height: 1.6;
@@ -297,14 +297,14 @@ main h3, h3 {
 }
 
 main p, p {
-    font-family: "Rubik", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: "Red Hat Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 16px;
     line-height: 1.6;
     color: #444;
 }
 
 .tagline {
-    font-family: "Rubik", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: "Red Hat Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 1.2em;
     font-weight: normal;
     line-height: 1.5;
@@ -313,7 +313,7 @@ main p, p {
 }
 
 .first-letter {
-  font-family: "Instrument Serif", serif;
+  font-family: "Imbue", serif;
   font-size: 1em;
 }
 
@@ -474,7 +474,7 @@ main > header h2 {
   font-size: 30px;
   font-weight: 100;
   line-height: 0.9;
-  font-family: "Instrument Serif", serif;
+  font-family: "Imbue", serif;
 }
 
 main > header h2 .first-letter {

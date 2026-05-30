@@ -1875,13 +1875,12 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     )?;
 
     // Copy font files at runtime. Site fonts (see main.css @font-face):
-    // Playfair Display (big headings), Instrument Serif (subtitles/section
-    // headings), Rubik (body), Red Hat Mono (code) — all self-hosted OFL.
+    // Playfair Display (big headings), Imbue (subtitles/section headings, opsz+
+    // wght), Red Hat Display (body), Red Hat Mono (code) — all self-hosted OFL.
     for f in [
         "PlayfairDisplay-VariableFont_wght.ttf",
-        "InstrumentSerif-Regular.ttf",
-        "InstrumentSerif-Italic.ttf",
-        "Rubik-VariableFont_wght.ttf",
+        "Imbue-VariableFont_opsz,wght.ttf",
+        "RedHatDisplay-VariableFont_wght.ttf",
         "RedHatMono-VariableFont_wght.ttf",
     ] {
         fs::copy(fonts_source_dir.join(f), fonts_dir.join(f))?;
