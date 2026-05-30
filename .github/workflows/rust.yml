@@ -2324,6 +2324,18 @@ jobs:
         with:
           name: ruby-gem
           path: artifacts-registry/ruby-gem
+      - name: Download alpine apk package
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: azul-linux-amd64-apk
+          path: artifacts-registry/artifacts-apk
+      - name: Download archlinux package
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: azul-linux-amd64-arch
+          path: artifacts-registry/artifacts-arch
 
       - name: Download mobile libazul
         uses: actions/download-artifact@v8
