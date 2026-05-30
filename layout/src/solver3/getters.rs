@@ -11,36 +11,33 @@ use azul_css::{
     css::CssPropertyValue,
     props::{
         basic::{
-            font::{StyleFontFamily, StyleFontFamilyVec, StyleFontWeight, StyleFontStyle},
+            font::{StyleFontFamily, StyleFontFamilyVec, StyleFontStyle, StyleFontWeight},
             pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
             ColorU, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,
         },
         layout::{
-            BoxDecorationBreak, BreakInside, LayoutBoxSizing, LayoutClear, LayoutDisplay,
-            LayoutFlexDirection, LayoutFlexWrap, LayoutFloat, LayoutHeight,
-            LayoutJustifyContent, LayoutAlignItems, LayoutAlignContent, LayoutOverflow,
-            LayoutPosition, LayoutWidth, LayoutWritingMode, Orphans, PageBreak, Widows,
-            StyleScrollbarGutter, StyleOverflowClipMargin,
-            grid::GridTemplateAreas,
+            grid::GridTemplateAreas, BoxDecorationBreak, BreakInside, LayoutAlignContent,
+            LayoutAlignItems, LayoutBoxSizing, LayoutClear, LayoutDisplay, LayoutFlexDirection,
+            LayoutFlexWrap, LayoutFloat, LayoutHeight, LayoutJustifyContent, LayoutOverflow,
+            LayoutPosition, LayoutWidth, LayoutWritingMode, Orphans, PageBreak,
+            StyleOverflowClipMargin, StyleScrollbarGutter, Widows,
         },
-        property::{CssProperty, CssPropertyType,
-            LayoutFlexBasisValue, LayoutFlexDirectionValue, LayoutFlexWrapValue,
-            LayoutFlexGrowValue, LayoutFlexShrinkValue,
-            LayoutAlignItemsValue, LayoutAlignSelfValue, LayoutAlignContentValue,
-            LayoutJustifyContentValue, LayoutJustifyItemsValue, LayoutJustifySelfValue,
-            LayoutGapValue,
-            LayoutGridTemplateColumnsValue, LayoutGridTemplateRowsValue,
-            LayoutGridAutoColumnsValue, LayoutGridAutoRowsValue,
-            LayoutGridAutoFlowValue, LayoutGridColumnValue, LayoutGridRowValue,
+        property::{
+            CssProperty, CssPropertyType, LayoutAlignContentValue, LayoutAlignItemsValue,
+            LayoutAlignSelfValue, LayoutFlexBasisValue, LayoutFlexDirectionValue,
+            LayoutFlexGrowValue, LayoutFlexShrinkValue, LayoutFlexWrapValue, LayoutGapValue,
+            LayoutGridAutoColumnsValue, LayoutGridAutoFlowValue, LayoutGridAutoRowsValue,
+            LayoutGridColumnValue, LayoutGridRowValue, LayoutGridTemplateColumnsValue,
+            LayoutGridTemplateRowsValue, LayoutJustifyContentValue, LayoutJustifyItemsValue,
+            LayoutJustifySelfValue,
         },
         style::{
             border_radius::StyleBorderRadius,
             lists::{StyleListStylePosition, StyleListStyleType},
-            StyleDirection, StyleTextAlign, StyleUserSelect, StyleVerticalAlign,
-            StyleVisibility, StyleWhiteSpace,
-            StyleUnicodeBidi, StyleTextBoxTrim, StyleTextBoxEdge,
-            StyleDominantBaseline, StyleAlignmentBaseline,
-            StyleInitialLetterAlign, StyleInitialLetterWrap,
+            StyleAlignmentBaseline, StyleDirection, StyleDominantBaseline, StyleInitialLetterAlign,
+            StyleInitialLetterWrap, StyleTextAlign, StyleTextBoxEdge, StyleTextBoxTrim,
+            StyleUnicodeBidi, StyleUserSelect, StyleVerticalAlign, StyleVisibility,
+            StyleWhiteSpace,
         },
     },
 };
@@ -133,9 +130,7 @@ fn compute_all_font_sizes_px(styled_dom: &StyledDom) -> alloc::vec::Vec<f32> {
 
         // Step 1: computed_values short-circuit (matches original).
         if let Some(vec) = cache.computed_values.get(idx) {
-            if let Ok(cv_idx) =
-                vec.binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k)
-            {
+            if let Ok(cv_idx) = vec.binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k) {
                 if let CssProperty::FontSize(css_val) = &vec[cv_idx].1.property {
                     if let Some(fs) = css_val.get_property() {
                         if fs.inner.metric == SizeMetric::Px {
@@ -192,7 +187,8 @@ fn compute_all_font_sizes_px(styled_dom: &StyledDom) -> alloc::vec::Vec<f32> {
                             element_size: None,
                             viewport_size: PhysicalSize::new(0.0, 0.0),
                         };
-                        fast_fs = Some(pv.resolve_with_context(&context, PropertyContext::FontSize));
+                        fast_fs =
+                            Some(pv.resolve_with_context(&context, PropertyContext::FontSize));
                     }
                 }
             }
@@ -245,7 +241,8 @@ fn resolve_font_size_slow(
             &azul_css::props::property::CssPropertyType::FontSize,
             |(k, _)| *k,
         ) {
-            if let azul_css::props::property::CssProperty::FontSize(css_val) = &vec[idx].1.property {
+            if let azul_css::props::property::CssProperty::FontSize(css_val) = &vec[idx].1.property
+            {
                 if let Some(fs) = css_val.get_property() {
                     if fs.inner.metric == azul_css::props::basic::length::SizeMetric::Px {
                         return fs.inner.number.get();
@@ -442,7 +439,10 @@ impl MultiValue<LayoutOverflow> {
     /// Resolves the computed value per CSS Overflow 3 § 3.1:
     /// visible/clip values compute to auto/hidden (respectively)
     /// if the other axis is neither visible nor clip.
-    pub fn resolve_computed(&self, other_axis: &MultiValue<LayoutOverflow>) -> MultiValue<LayoutOverflow> {
+    pub fn resolve_computed(
+        &self,
+        other_axis: &MultiValue<LayoutOverflow>,
+    ) -> MultiValue<LayoutOverflow> {
         match (self, other_axis) {
             (MultiValue::Exact(val), MultiValue::Exact(other)) => {
                 MultiValue::Exact(val.resolve_computed(*other))
@@ -574,7 +574,7 @@ macro_rules! get_css_property_pixel {
             }
 
             // 3. Fallback to Initial (not set)
-            // IMPORTANT: Use Initial, not Auto! In CSS, the initial value for 
+            // IMPORTANT: Use Initial, not Auto! In CSS, the initial value for
             // margin is 0, not auto. Using Auto here caused margins to be treated
             // as "margin: auto" which blocks align-self: stretch in flexbox.
             MultiValue::Initial
@@ -1136,7 +1136,11 @@ get_css_property!(
     get_width,
     LayoutWidth,
     azul_css::props::property::CssPropertyType::Width,
-    compact_u32_dim = get_width_raw, LayoutWidth::Px, LayoutWidth::Auto, LayoutWidth::MinContent, LayoutWidth::MaxContent
+    compact_u32_dim = get_width_raw,
+    LayoutWidth::Px,
+    LayoutWidth::Auto,
+    LayoutWidth::MinContent,
+    LayoutWidth::MaxContent
 );
 
 get_css_property!(
@@ -1144,7 +1148,11 @@ get_css_property!(
     get_height,
     LayoutHeight,
     azul_css::props::property::CssPropertyType::Height,
-    compact_u32_dim = get_height_raw, LayoutHeight::Px, LayoutHeight::Auto, LayoutHeight::MinContent, LayoutHeight::MaxContent
+    compact_u32_dim = get_height_raw,
+    LayoutHeight::Px,
+    LayoutHeight::Auto,
+    LayoutHeight::MinContent,
+    LayoutHeight::MaxContent
 );
 
 get_css_property!(
@@ -1370,7 +1378,9 @@ pub fn get_scrollbar_gutter_property(
             let val = match bits {
                 azul_css::compact_cache::SCROLLBAR_GUTTER_AUTO => StyleScrollbarGutter::Auto,
                 azul_css::compact_cache::SCROLLBAR_GUTTER_STABLE => StyleScrollbarGutter::Stable,
-                azul_css::compact_cache::SCROLLBAR_GUTTER_BOTH_EDGES => StyleScrollbarGutter::StableBothEdges,
+                azul_css::compact_cache::SCROLLBAR_GUTTER_BOTH_EDGES => {
+                    StyleScrollbarGutter::StableBothEdges
+                }
                 _ => StyleScrollbarGutter::Auto,
             };
             return MultiValue::Exact(val);
@@ -1585,7 +1595,11 @@ pub fn get_border_radius(
             // sentinel = "unset" = 0 px (no corner radius)
             let thresh = azul_css::compact_cache::I16_SENTINEL_THRESHOLD;
             let decode = |raw: i16| -> f32 {
-                if raw >= thresh { 0.0 } else { raw as f32 / 10.0 }
+                if raw >= thresh {
+                    0.0
+                } else {
+                    raw as f32 / 10.0
+                }
             };
             return BorderRadius {
                 top_left: decode(tl),
@@ -1875,22 +1889,23 @@ pub fn get_background_contents(
     // Helper to get backgrounds for a node.
     // Negative fast path: if compact cache says `has_background == 0` on a normal
     // pseudo-state node, return empty without walking the cascade.
-    let get_node_backgrounds =
-        |nid: NodeId, ndata: &azul_core::dom::NodeData, state: &StyledNodeState|
-        -> Vec<StyleBackgroundContent> {
-            if state.is_normal() {
-                if let Some(ref cc) = cache.compact_cache {
-                    if !cc.has_background(nid.index()) {
-                        return Vec::new();
-                    }
+    let get_node_backgrounds = |nid: NodeId,
+                                ndata: &azul_core::dom::NodeData,
+                                state: &StyledNodeState|
+     -> Vec<StyleBackgroundContent> {
+        if state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                if !cc.has_background(nid.index()) {
+                    return Vec::new();
                 }
             }
-            cache
-                .get_background_content(ndata, &nid, state)
-                .and_then(|bg| bg.get_property())
-                .map(|bg_vec| bg_vec.iter().cloned().collect())
-                .unwrap_or_default()
-        };
+        }
+        cache
+            .get_background_content(ndata, &nid, state)
+            .and_then(|bg| bg.get_property())
+            .map(|bg_vec| bg_vec.iter().cloned().collect())
+            .unwrap_or_default()
+    };
 
     let own_backgrounds = get_node_backgrounds(node_id, node_data, node_state);
 
@@ -1939,15 +1954,14 @@ pub fn get_border_info(
     use azul_css::css::CssPropertyValue;
     use azul_css::props::basic::color::ColorU;
     use azul_css::props::basic::pixel::PixelValue;
-    use azul_css::props::style::{
-        LayoutBorderTopWidth, LayoutBorderRightWidth,
-        LayoutBorderBottomWidth, LayoutBorderLeftWidth,
-    };
     use azul_css::props::style::border::{
-        BorderStyle, StyleBorderTopColor, StyleBorderRightColor,
-        StyleBorderBottomColor, StyleBorderLeftColor,
-        StyleBorderTopStyle, StyleBorderRightStyle,
-        StyleBorderBottomStyle, StyleBorderLeftStyle,
+        BorderStyle, StyleBorderBottomColor, StyleBorderBottomStyle, StyleBorderLeftColor,
+        StyleBorderLeftStyle, StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+        StyleBorderTopStyle,
+    };
+    use azul_css::props::style::{
+        LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+        LayoutBorderTopWidth,
     };
 
     // FAST PATH: compact cache for normal state
@@ -1983,7 +1997,9 @@ pub fn get_border_info(
 
             // Border colors from compact cache
             let make_color = |raw: u32| -> Option<ColorU> {
-                if raw == 0 { None } else {
+                if raw == 0 {
+                    None
+                } else {
                     Some(ColorU {
                         r: ((raw >> 24) & 0xFF) as u8,
                         g: ((raw >> 16) & 0xFF) as u8,
@@ -2020,7 +2036,11 @@ pub fn get_border_info(
                 })),
             };
 
-            return BorderInfo { widths, colors, styles };
+            return BorderInfo {
+                widths,
+                colors,
+                styles,
+            };
         }
     }
 
@@ -2335,7 +2355,7 @@ pub struct SelectionStyle {
 
 /// Get selection style for a node
 pub fn get_selection_style(
-    styled_dom: &StyledDom, 
+    styled_dom: &StyledDom,
     node_id: Option<NodeId>,
     system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
 ) -> SelectionStyle {
@@ -2365,8 +2385,7 @@ pub fn get_selection_style(
         .unwrap_or(default_bg);
 
     // Try to get selection text color from CSS, otherwise use system color
-    let default_text = system_style
-        .and_then(|ss| ss.colors.selection_text.as_option().copied());
+    let default_text = system_style.and_then(|ss| ss.colors.selection_text.as_option().copied());
 
     let text_color = styled_dom
         .css_property_cache
@@ -2464,9 +2483,7 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
 /// scrollbars. The previous heuristic (>3 children = force overflow) caused
 /// false-positive scrollbars on normal containers.
 pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirements {
-    node.scrollbar_info
-        .clone()
-        .unwrap_or_default()
+    node.scrollbar_info.clone().unwrap_or_default()
 }
 
 /// Resolve the **layout-effective** scrollbar width for a node, in pixels.
@@ -2633,10 +2650,14 @@ pub fn get_style_properties(
     // Fast path: use compact cache reverse map (works for inherited values on text nodes).
     // Slow path: only for non-normal pseudo states (:hover, :focus, etc.)
     let font_families = if node_state.is_normal() {
-        cache.compact_cache.as_ref()
+        cache
+            .compact_cache
+            .as_ref()
             .and_then(|cc| {
                 let fh = cc.tier2b_text[dom_id.index()].font_family_hash;
-                if fh == 0 { return None; }
+                if fh == 0 {
+                    return None;
+                }
                 cc.font_hash_to_families.get(&fh).cloned()
             })
             .unwrap_or_else(|| {
@@ -2689,10 +2710,9 @@ pub fn get_style_properties(
                 {
                     compact_said_inherit = true;
                 } else if let Some(pv) = azul_css::compact_cache::decode_pixel_value_u32(raw) {
-                    fast_font_size = Some(pv.resolve_with_context(
-                        &font_size_context,
-                        PropertyContext::FontSize,
-                    ));
+                    fast_font_size = Some(
+                        pv.resolve_with_context(&font_size_context, PropertyContext::FontSize),
+                    );
                 }
             }
         }
@@ -2759,7 +2779,9 @@ pub fn get_style_properties(
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 if let Some(normalized) = cc.get_line_height(dom_id.index()) {
-                    fast_lh = Some(crate::text3::cache::LineHeight::Px(normalized / 100.0 * font_size));
+                    fast_lh = Some(crate::text3::cache::LineHeight::Px(
+                        normalized / 100.0 * font_size,
+                    ));
                 } else {
                     // Sentinel in compact cache = "normal" (CSS default).
                     sentinel_normal = true;
@@ -2837,14 +2859,11 @@ pub fn get_style_properties(
     // This allows embedded fonts (like Material Icons) to bypass fontconfig
     let font_stack = {
         // Look for a Ref in the font families
-        let font_ref = (0..font_families.len())
-            .find_map(|i| {
-                match font_families.get(i).unwrap() {
-                    azul_css::props::basic::font::StyleFontFamily::Ref(r) => Some(r.clone()),
-                    _ => None,
-                }
-            });
-        
+        let font_ref = (0..font_families.len()).find_map(|i| match font_families.get(i).unwrap() {
+            azul_css::props::basic::font::StyleFontFamily::Ref(r) => Some(r.clone()),
+            _ => None,
+        });
+
         // Get platform for resolving system font types
         let platform = system_style.map(|ss| &ss.platform);
 
@@ -2860,7 +2879,9 @@ pub fn get_style_properties(
 
                 // Handle SystemFontType specially - resolve to actual OS font names
                 // (e.g., "system:ui" → ["System Font", "Helvetica Neue", "Lucida Grande"] on macOS)
-                if let azul_css::props::basic::font::StyleFontFamily::SystemType(system_type) = family {
+                if let azul_css::props::basic::font::StyleFontFamily::SystemType(system_type) =
+                    family
+                {
                     if let Some(platform) = platform {
                         let font_names = system_type.get_fallback_chain(platform);
                         let system_weight = if system_type.is_bold() {
@@ -2936,7 +2957,9 @@ pub fn get_style_properties(
                 .get_letter_spacing(node_data, &dom_id, node_state)
                 .and_then(|v| v.get_property().cloned())
                 .map(|v| {
-                    let px_value = v.inner.resolve_with_context(&font_size_context, PropertyContext::FontSize);
+                    let px_value = v
+                        .inner
+                        .resolve_with_context(&font_size_context, PropertyContext::FontSize);
                     crate::text3::cache::Spacing::Px(px_value.round() as i32)
                 })
                 .unwrap_or_default()
@@ -2959,7 +2982,9 @@ pub fn get_style_properties(
                 .get_word_spacing(node_data, &dom_id, node_state)
                 .and_then(|v| v.get_property().cloned())
                 .map(|v| {
-                    let px_value = v.inner.resolve_with_context(&font_size_context, PropertyContext::FontSize);
+                    let px_value = v
+                        .inner
+                        .resolve_with_context(&font_size_context, PropertyContext::FontSize);
                     crate::text3::cache::Spacing::Px(px_value.round() as i32)
                 })
                 .unwrap_or_default()
@@ -3038,7 +3063,7 @@ pub fn get_style_properties(
         text_decoration,
         tab_size,
         // These still use defaults - could be extended in future:
-        // font_features, font_variations, text_transform, writing_mode, 
+        // font_features, font_variations, text_transform, writing_mode,
         // text_orientation, text_combine_upright, font_variant_*
         ..Default::default()
     };
@@ -3403,7 +3428,7 @@ impl ResolvedFontChains {
     pub fn get(&self, key: &FontChainKeyOrRef) -> Option<&FontFallbackChain> {
         self.chains.get(key)
     }
-    
+
     /// Get a font chain by FontChainKey (for system fonts)
     pub fn get_by_chain_key(&self, key: &FontChainKey) -> Option<&FontFallbackChain> {
         self.chains.get(&FontChainKeyOrRef::Chain(key.clone()))
@@ -3414,7 +3439,7 @@ impl ResolvedFontChains {
         let key = FontChainKeyOrRef::Chain(FontChainKey::from_selectors(font_stack));
         self.chains.get(&key)
     }
-    
+
     /// Get a font chain for a FontRef pointer
     pub fn get_for_font_ref(&self, ptr: usize) -> Option<&FontFallbackChain> {
         self.chains.get(&FontChainKeyOrRef::Ref(ptr))
@@ -3428,17 +3453,15 @@ impl ResolvedFontChains {
     }
 
     /// Consume self and return only the fontconfig-resolved chains
-    /// 
+    ///
     /// This filters out FontRef entries and returns only the chains
     /// resolved via fontconfig. This is what FontManager expects.
     pub fn into_fontconfig_chains(self) -> HashMap<FontChainKey, FontFallbackChain> {
         self.chains
             .into_iter()
-            .filter_map(|(key, chain)| {
-                match key {
-                    FontChainKeyOrRef::Chain(chain_key) => Some((chain_key, chain)),
-                    FontChainKeyOrRef::Ref(_) => None,
-                }
+            .filter_map(|(key, chain)| match key {
+                FontChainKeyOrRef::Chain(chain_key) => Some((chain_key, chain)),
+                FontChainKeyOrRef::Ref(_) => None,
             })
             .collect()
     }
@@ -3452,7 +3475,7 @@ impl ResolvedFontChains {
     pub fn is_empty(&self) -> bool {
         self.chains.is_empty()
     }
-    
+
     /// Get the number of direct FontRefs
     pub fn font_refs_len(&self) -> usize {
         self.chains.keys().filter(|k| k.is_ref()).count()
@@ -3474,7 +3497,9 @@ pub fn collect_font_stacks_from_styled_dom(
     styled_dom: &StyledDom,
     platform: &azul_css::system::Platform,
 ) -> CollectedFontStacks {
-    use azul_css::compact_cache::{FONT_WEIGHT_SHIFT, FONT_WEIGHT_MASK, FONT_STYLE_SHIFT, FONT_STYLE_MASK};
+    use azul_css::compact_cache::{
+        FONT_STYLE_MASK, FONT_STYLE_SHIFT, FONT_WEIGHT_MASK, FONT_WEIGHT_SHIFT,
+    };
 
     let mut font_stacks = Vec::new();
     let mut hash_to_index: HashMap<u64, usize> = HashMap::new();
@@ -3484,7 +3509,13 @@ pub fn collect_font_stacks_from_styled_dom(
     let cache = &styled_dom.css_property_cache.ptr;
     let compact = match cache.compact_cache.as_ref() {
         Some(c) => c,
-        None => return CollectedFontStacks { font_stacks, hash_to_index, font_refs },
+        None => {
+            return CollectedFontStacks {
+                font_stacks,
+                hash_to_index,
+                font_refs,
+            }
+        }
     };
 
     // Phase 1: Scan compact cache arrays (just u64 reads) to find unique
@@ -3521,7 +3552,8 @@ pub fn collect_font_stacks_from_styled_dom(
         // Use reverse map from compact cache: hash → actual font families.
         // This works for ALL nodes including text nodes that inherit font-family
         // via compact cache (where get_property_slow would return None).
-        let font_families = compact.font_hash_to_families
+        let font_families = compact
+            .font_hash_to_families
             .get(&fh)
             .cloned()
             .unwrap_or_else(|| {
@@ -3558,8 +3590,16 @@ pub fn collect_font_stacks_from_styled_dom(
             }
             if let StyleFontFamily::SystemType(system_type) = family {
                 let font_names = system_type.get_fallback_chain(platform);
-                let system_weight = if system_type.is_bold() { FcWeight::Bold } else { fc_weight };
-                let system_style = if system_type.is_italic() { FontStyle::Italic } else { fc_style };
+                let system_weight = if system_type.is_bold() {
+                    FcWeight::Bold
+                } else {
+                    fc_weight
+                };
+                let system_style = if system_type.is_italic() {
+                    FontStyle::Italic
+                } else {
+                    fc_style
+                };
                 for font_name in font_names {
                     font_stack.push(FontSelector {
                         family: font_name.to_string(),
@@ -3580,7 +3620,10 @@ pub fn collect_font_stacks_from_styled_dom(
 
         // Add generic fallbacks
         for fallback in &["sans-serif", "serif", "monospace"] {
-            if !font_stack.iter().any(|f| f.family.eq_ignore_ascii_case(fallback)) {
+            if !font_stack
+                .iter()
+                .any(|f| f.family.eq_ignore_ascii_case(fallback))
+            {
                 font_stack.push(FontSelector {
                     family: fallback.to_string(),
                     weight: FcWeight::Normal,
@@ -3638,9 +3681,7 @@ pub fn collect_font_stacks_from_styled_dom(
 /// returned set are deduped + sorted via `BTreeSet`.
 ///
 /// Cost: O(total text length). Cheap relative to layout itself.
-pub fn collect_used_codepoints(
-    styled_dom: &StyledDom,
-) -> std::collections::BTreeSet<u32> {
+pub fn collect_used_codepoints(styled_dom: &StyledDom) -> std::collections::BTreeSet<u32> {
     let mut out = std::collections::BTreeSet::new();
     let node_data = styled_dom.node_data.as_container();
     for node in node_data.internal.iter() {
@@ -3668,9 +3709,7 @@ pub fn collect_used_codepoints(
 /// (`prune_chain_to_used_chars`) runs *after* resolution to trim an
 /// already-resolved chain and every Latin-covering font passes ASCII
 /// trivially. That assumption doesn't hold during probing.
-pub fn collect_used_codepoints_all(
-    styled_dom: &StyledDom,
-) -> std::collections::BTreeSet<char> {
+pub fn collect_used_codepoints_all(styled_dom: &StyledDom) -> std::collections::BTreeSet<char> {
     let mut out = std::collections::BTreeSet::new();
     let node_data = styled_dom.node_data.as_container();
     for node in node_data.internal.iter() {
@@ -3734,9 +3773,9 @@ pub fn prune_chain_to_used_chars(
         group.fonts.truncate(keep);
     }
 
-    chain.unicode_fallbacks.retain(|fm| {
-        used_chars.iter().any(|&cp| fm_covers(fm, cp))
-    });
+    chain
+        .unicode_fallbacks
+        .retain(|fm| used_chars.iter().any(|&cp| fm_covers(fm, cp)));
 }
 
 /// Scan text-node content in `styled_dom` and return the subset of
@@ -3884,12 +3923,21 @@ pub fn resolve_font_chains_with_registry(
         // See `resolve_font_chains_with_registry` doc for rationale.
         let chain = if let Some(reg) = registry {
             reg.request_and_resolve_with_scripts(
-                &font_families, weight, italic, oblique, scripts_hint,
+                &font_families,
+                weight,
+                italic,
+                oblique,
+                scripts_hint,
             )
         } else {
             let mut trace = Vec::new();
             fc_cache.resolve_font_chain_with_scripts(
-                &font_families, weight, italic, oblique, scripts_hint, &mut trace,
+                &font_families,
+                weight,
+                italic,
+                oblique,
+                scripts_hint,
+                &mut trace,
             )
         };
 
@@ -3944,11 +3992,7 @@ pub fn collect_and_resolve_font_chains_with_registration<T: crate::font_traits::
     if let Some(registry) = font_manager.registry.as_deref() {
         let used_chars = collect_used_codepoints_all(styled_dom);
         if !used_chars.is_empty() {
-            return resolve_font_chains_fast(
-                &collected,
-                registry,
-                &used_chars,
-            );
+            return resolve_font_chains_fast(&collected, registry, &used_chars);
         }
     }
 
@@ -3989,8 +4033,7 @@ pub fn resolve_font_chains_fast(
     static DBG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let dbg = *DBG.get_or_init(|| std::env::var_os("AZ_FAST_RESOLVE_DEBUG").is_some());
 
-    let mut chains: HashMap<FontChainKeyOrRef, rust_fontconfig::FontFallbackChain> =
-        HashMap::new();
+    let mut chains: HashMap<FontChainKeyOrRef, rust_fontconfig::FontFallbackChain> = HashMap::new();
 
     for font_stack in &collected.font_stacks {
         if font_stack.is_empty() {
@@ -4042,7 +4085,10 @@ pub fn resolve_font_chains_fast(
                 font_families,
                 weight,
                 italic_match,
-                chains_out.first().map(|c| c.css_fallbacks.len()).unwrap_or(0),
+                chains_out
+                    .first()
+                    .map(|c| c.css_fallbacks.len())
+                    .unwrap_or(0),
                 total_fonts,
             );
         }
@@ -4167,7 +4213,10 @@ where
     // them cheaply (one `Arc::clone` per retained copy). On disk the
     // backing is an mmap, so untouched glyf/CFF pages don't count
     // toward RSS — the layout shaper only faults in pages it reads.
-    F: Fn(std::sync::Arc<rust_fontconfig::FontBytes>, usize) -> Result<T, crate::text3::cache::LayoutError>,
+    F: Fn(
+        std::sync::Arc<rust_fontconfig::FontBytes>,
+        usize,
+    ) -> Result<T, crate::text3::cache::LayoutError>,
 {
     let mut loaded = HashMap::new();
     let mut failed = Vec::new();
@@ -4239,7 +4288,10 @@ pub fn resolve_and_load_fonts<T, F>(
     platform: &azul_css::system::Platform,
 ) -> (ResolvedFontChains, FontLoadResult<T>)
 where
-    F: Fn(std::sync::Arc<rust_fontconfig::FontBytes>, usize) -> Result<T, crate::text3::cache::LayoutError>,
+    F: Fn(
+        std::sync::Arc<rust_fontconfig::FontBytes>,
+        usize,
+    ) -> Result<T, crate::text3::cache::LayoutError>,
 {
     // Step 1-2: Collect and resolve font chains
     let chains = collect_and_resolve_font_chains(styled_dom, fc_cache, platform);
@@ -4261,8 +4313,7 @@ where
 // ============================================================================
 
 use azul_css::props::style::scrollbar::{
-    LayoutScrollbarWidth, ScrollbarVisibilityMode,
-    StyleScrollbarColor,
+    LayoutScrollbarWidth, ScrollbarVisibilityMode, StyleScrollbarColor,
 };
 
 /// Computed scrollbar style for a node.
@@ -4386,7 +4437,7 @@ impl ComputedScrollbarStyle {
             r: thumb_color.r.saturating_sub(15),
             g: thumb_color.g.saturating_sub(15),
             b: thumb_color.b.saturating_sub(15),
-            a: 255,  // fully opaque when pressed
+            a: 255, // fully opaque when pressed
         };
         let track_hover = ColorU {
             r: track_color.r,
@@ -4445,9 +4496,7 @@ pub fn get_scrollbar_style(
 
     // Step 1: Evaluate UA scrollbar CSS using the DynamicSelector system.
     let ctx = match system_style {
-        Some(sys) => {
-            azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(sys)
-        }
+        Some(sys) => azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(sys),
         None => azul_css::dynamic_selector::DynamicSelectorContext::default(),
     };
     let ua = azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx);
@@ -4600,7 +4649,9 @@ pub fn get_scrollbar_style_cached<T: crate::font_traits::ParsedFontTrait>(
         node_state,
         ctx.system_style.as_deref(),
     );
-    ctx.scrollbar_style_cache.borrow_mut().insert(node_id, style.clone());
+    ctx.scrollbar_style_cache
+        .borrow_mut()
+        .insert(node_id, style.clone());
     style
 }
 
@@ -4645,7 +4696,7 @@ pub fn is_text_selectable(
     node_state: &StyledNodeState,
 ) -> bool {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    
+
     styled_dom
         .css_property_cache
         .ptr
@@ -4664,36 +4715,40 @@ pub fn is_text_selectable(
 /// This does NOT check inheritance - use `is_node_contenteditable_inherited` for that.
 pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     use azul_core::dom::AttributeType;
-    
+
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    
+
     // First check the direct contenteditable field (primary method)
     if node_data.is_contenteditable() {
         return true;
     }
-    
+
     // Also check the attribute for backwards compatibility
     // Only return true if the attribute value is explicitly true
-    node_data.attributes().as_ref().iter().any(|attr| {
-        matches!(attr, AttributeType::ContentEditable(true))
-    })
+    node_data
+        .attributes()
+        .as_ref()
+        .iter()
+        .any(|attr| matches!(attr, AttributeType::ContentEditable(true)))
 }
 // =============================================================================
 // Additional ExtractPropertyValue impls (not in compact cache tier 1/2)
 // =============================================================================
 
+use azul_css::props::layout::table::{
+    LayoutTableLayout, StyleBorderCollapse, StyleCaptionSide, StyleEmptyCells,
+};
 use azul_css::props::layout::text::LayoutTextJustify;
-use azul_css::props::layout::table::{LayoutTableLayout, StyleBorderCollapse, StyleCaptionSide, StyleEmptyCells};
-use azul_css::props::style::text::StyleHyphens;
-use azul_css::props::style::text::StyleWordBreak;
-use azul_css::props::style::text::StyleOverflowWrap;
-use azul_css::props::style::text::StyleLineBreak;
-use azul_css::props::style::text::StyleTextAlignLast;
+use azul_css::props::style::effects::StyleAspectRatio;
 use azul_css::props::style::effects::StyleCursor;
 use azul_css::props::style::effects::StyleObjectFit;
 use azul_css::props::style::effects::StyleObjectPosition;
-use azul_css::props::style::effects::StyleAspectRatio;
 use azul_css::props::style::effects::StyleTextOrientation;
+use azul_css::props::style::text::StyleHyphens;
+use azul_css::props::style::text::StyleLineBreak;
+use azul_css::props::style::text::StyleOverflowWrap;
+use azul_css::props::style::text::StyleTextAlignLast;
+use azul_css::props::style::text::StyleWordBreak;
 
 impl ExtractPropertyValue<LayoutTextJustify> for CssProperty {
     fn extract(&self) -> Option<LayoutTextJustify> {
@@ -4923,7 +4978,9 @@ pub fn get_height_value(
     node_state: &StyledNodeState,
 ) -> Option<LayoutHeight> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_height(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -4936,7 +4993,9 @@ pub fn get_shape_inside(
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::layout::shape::ShapeInside> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_shape_inside(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -4949,7 +5008,9 @@ pub fn get_shape_outside(
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::layout::shape::ShapeOutside> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_shape_outside(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -4962,7 +5023,9 @@ pub fn get_line_height_value(
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::text::StyleLineHeight> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_line_height(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -4975,7 +5038,9 @@ pub fn get_text_indent_value(
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::text::StyleTextIndent> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_text_indent(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -4988,7 +5053,9 @@ pub fn get_column_count(
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::layout::column::ColumnCount> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_column_count(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -5001,7 +5068,9 @@ pub fn get_initial_letter(
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::text::StyleInitialLetter> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_initial_letter(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -5014,7 +5083,9 @@ pub fn get_line_clamp(
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::text::StyleLineClamp> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_line_clamp(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -5027,7 +5098,9 @@ pub fn get_hanging_punctuation(
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::text::StyleHangingPunctuation> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_hanging_punctuation(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -5040,7 +5113,9 @@ pub fn get_text_combine_upright(
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::text::StyleTextCombineUpright> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_text_combine_upright(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -5053,7 +5128,9 @@ pub fn get_exclusion_margin(
     node_state: &StyledNodeState,
 ) -> f32 {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_exclusion_margin(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .map(|v| v.inner.get() as f32)
@@ -5065,9 +5142,11 @@ pub fn get_hyphenation_language(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
-) -> Option<azul_css::props::style::azul_exclusion::StyleHyphenationLanguage> {
+) -> Option<azul_css::props::style::exclusion::StyleHyphenationLanguage> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_hyphenation_language(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -5101,7 +5180,9 @@ pub fn get_border_spacing(
 
     // SLOW PATH
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_border_spacing(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -5113,11 +5194,7 @@ pub fn get_border_spacing(
 /// GPU fast path: the compact cache encodes opacity as a u8 (0-254, 255 = unset).
 /// Avoids the 4-pseudo-state × 6-layer cascade walk for animations reading opacity
 /// across every node each frame.
-pub fn get_opacity(
-    styled_dom: &StyledDom,
-    node_id: NodeId,
-    node_state: &StyledNodeState,
-) -> f32 {
+pub fn get_opacity(styled_dom: &StyledDom, node_id: NodeId, node_state: &StyledNodeState) -> f32 {
     // FAST PATH: compact cache for normal state
     if node_state.is_normal() {
         if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
@@ -5130,7 +5207,9 @@ pub fn get_opacity(
     }
     // SLOW PATH: fall back to cascade walk (state != normal, or no compact cache)
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_opacity(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .map(|v| v.inner.normalized())
@@ -5145,11 +5224,15 @@ pub fn get_filter(
 ) -> Option<azul_css::props::style::filter::StyleFilterVec> {
     if node_state.is_normal() {
         if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
-            if !cc.has_filter(node_id.index()) { return None; }
+            if !cc.has_filter(node_id.index()) {
+                return None;
+            }
         }
     }
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_filter(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -5163,11 +5246,15 @@ pub fn get_backdrop_filter(
 ) -> Option<azul_css::props::style::filter::StyleFilterVec> {
     if node_state.is_normal() {
         if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
-            if !cc.has_backdrop_filter(node_id.index()) { return None; }
+            if !cc.has_backdrop_filter(node_id.index()) {
+                return None;
+            }
         }
     }
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_backdrop_filter(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -5181,7 +5268,9 @@ fn box_shadow_fast_bail(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> bool {
-    if !node_state.is_normal() { return false; }
+    if !node_state.is_normal() {
+        return false;
+    }
     if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
         return !cc.has_box_shadow(node_id.index());
     }
@@ -5194,9 +5283,13 @@ pub fn get_box_shadow_left(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
-    if box_shadow_fast_bail(styled_dom, node_id, node_state) { return None; }
+    if box_shadow_fast_bail(styled_dom, node_id, node_state) {
+        return None;
+    }
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_box_shadow_left(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .map(|v| (**v).clone())
@@ -5208,9 +5301,13 @@ pub fn get_box_shadow_right(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
-    if box_shadow_fast_bail(styled_dom, node_id, node_state) { return None; }
+    if box_shadow_fast_bail(styled_dom, node_id, node_state) {
+        return None;
+    }
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_box_shadow_right(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .map(|v| (**v).clone())
@@ -5222,9 +5319,13 @@ pub fn get_box_shadow_top(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
-    if box_shadow_fast_bail(styled_dom, node_id, node_state) { return None; }
+    if box_shadow_fast_bail(styled_dom, node_id, node_state) {
+        return None;
+    }
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_box_shadow_top(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .map(|v| (**v).clone())
@@ -5236,9 +5337,13 @@ pub fn get_box_shadow_bottom(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
-    if box_shadow_fast_bail(styled_dom, node_id, node_state) { return None; }
+    if box_shadow_fast_bail(styled_dom, node_id, node_state) {
+        return None;
+    }
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_box_shadow_bottom(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .map(|v| (**v).clone())
@@ -5252,11 +5357,15 @@ pub fn get_text_shadow(
 ) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
     if node_state.is_normal() {
         if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
-            if !cc.has_text_shadow(node_id.index()) { return None; }
+            if !cc.has_text_shadow(node_id.index()) {
+                return None;
+            }
         }
     }
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_text_shadow(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .map(|v| (**v).clone())
@@ -5283,7 +5392,9 @@ pub fn get_transform(
         }
     }
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_transform(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -5296,7 +5407,9 @@ pub fn get_counter_reset(
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::content::CounterReset> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_counter_reset(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -5309,7 +5422,9 @@ pub fn get_counter_increment(
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::content::CounterIncrement> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_counter_increment(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
@@ -5342,21 +5457,21 @@ pub fn get_counter_increment(
 /// ```
 pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     use azul_core::dom::AttributeType;
-    
+
     let node_data_container = styled_dom.node_data.as_container();
     let hierarchy = styled_dom.node_hierarchy.as_container();
-    
+
     let mut current_node_id = Some(node_id);
-    
+
     while let Some(nid) = current_node_id {
         let node_data = &node_data_container[nid];
-        
+
         // First check the direct contenteditable field (set via set_contenteditable())
         // This takes precedence as it's the API-level setting
         if node_data.is_contenteditable() {
             return true;
         }
-        
+
         // Then check for explicit contenteditable attribute on this node
         // This handles HTML-style contenteditable="true" or contenteditable="false"
         for attr in node_data.attributes().as_ref().iter() {
@@ -5366,11 +5481,11 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
                 return *is_editable;
             }
         }
-        
+
         // No explicit setting on this node, check parent for inheritance
         current_node_id = hierarchy.get(nid).and_then(|h| h.parent_id());
     }
-    
+
     // Reached root without finding contenteditable - not editable
     false
 }
@@ -5386,20 +5501,20 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
 /// - `None` if no contenteditable ancestor exists
 pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) -> Option<NodeId> {
     use azul_core::dom::AttributeType;
-    
+
     let node_data_container = styled_dom.node_data.as_container();
     let hierarchy = styled_dom.node_hierarchy.as_container();
-    
+
     let mut current_node_id = Some(node_id);
-    
+
     while let Some(nid) = current_node_id {
         let node_data = &node_data_container[nid];
-        
+
         // First check the direct contenteditable field (set via set_contenteditable())
         if node_data.is_contenteditable() {
             return Some(nid);
         }
-        
+
         // Then check for contenteditable attribute on this node
         for attr in node_data.attributes().as_ref().iter() {
             if let AttributeType::ContentEditable(is_editable) = attr {
@@ -5411,11 +5526,11 @@ pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) ->
                 }
             }
         }
-        
+
         // Check parent
         current_node_id = hierarchy.get(nid).and_then(|h| h.parent_id());
     }
-    
+
     None
 }
 
@@ -5444,7 +5559,11 @@ macro_rules! get_css_property_value {
 }
 
 // Flexbox properties
-get_css_property_value!(get_flex_direction_prop, get_flex_direction, LayoutFlexDirectionValue);
+get_css_property_value!(
+    get_flex_direction_prop,
+    get_flex_direction,
+    LayoutFlexDirectionValue
+);
 get_css_property_value!(get_flex_wrap_prop, get_flex_wrap, LayoutFlexWrapValue);
 get_css_property_value!(get_flex_grow_prop, get_flex_grow, LayoutFlexGrowValue);
 get_css_property_value!(get_flex_shrink_prop, get_flex_shrink, LayoutFlexShrinkValue);
@@ -5453,20 +5572,56 @@ get_css_property_value!(get_flex_basis_prop, get_flex_basis, LayoutFlexBasisValu
 // Alignment properties
 get_css_property_value!(get_align_items_prop, get_align_items, LayoutAlignItemsValue);
 get_css_property_value!(get_align_self_prop, get_align_self, LayoutAlignSelfValue);
-get_css_property_value!(get_align_content_prop, get_align_content, LayoutAlignContentValue);
-get_css_property_value!(get_justify_content_prop, get_justify_content, LayoutJustifyContentValue);
-get_css_property_value!(get_justify_items_prop, get_justify_items, LayoutJustifyItemsValue);
-get_css_property_value!(get_justify_self_prop, get_justify_self, LayoutJustifySelfValue);
+get_css_property_value!(
+    get_align_content_prop,
+    get_align_content,
+    LayoutAlignContentValue
+);
+get_css_property_value!(
+    get_justify_content_prop,
+    get_justify_content,
+    LayoutJustifyContentValue
+);
+get_css_property_value!(
+    get_justify_items_prop,
+    get_justify_items,
+    LayoutJustifyItemsValue
+);
+get_css_property_value!(
+    get_justify_self_prop,
+    get_justify_self,
+    LayoutJustifySelfValue
+);
 
 // Gap
 get_css_property_value!(get_gap_prop, get_gap, LayoutGapValue);
 
 // Grid properties
-get_css_property_value!(get_grid_template_rows_prop, get_grid_template_rows, LayoutGridTemplateRowsValue);
-get_css_property_value!(get_grid_template_columns_prop, get_grid_template_columns, LayoutGridTemplateColumnsValue);
-get_css_property_value!(get_grid_auto_rows_prop, get_grid_auto_rows, LayoutGridAutoRowsValue);
-get_css_property_value!(get_grid_auto_columns_prop, get_grid_auto_columns, LayoutGridAutoColumnsValue);
-get_css_property_value!(get_grid_auto_flow_prop, get_grid_auto_flow, LayoutGridAutoFlowValue);
+get_css_property_value!(
+    get_grid_template_rows_prop,
+    get_grid_template_rows,
+    LayoutGridTemplateRowsValue
+);
+get_css_property_value!(
+    get_grid_template_columns_prop,
+    get_grid_template_columns,
+    LayoutGridTemplateColumnsValue
+);
+get_css_property_value!(
+    get_grid_auto_rows_prop,
+    get_grid_auto_rows,
+    LayoutGridAutoRowsValue
+);
+get_css_property_value!(
+    get_grid_auto_columns_prop,
+    get_grid_auto_columns,
+    LayoutGridAutoColumnsValue
+);
+get_css_property_value!(
+    get_grid_auto_flow_prop,
+    get_grid_auto_flow,
+    LayoutGridAutoFlowValue
+);
 get_css_property_value!(get_grid_column_prop, get_grid_column, LayoutGridColumnValue);
 get_css_property_value!(get_grid_row_prop, get_grid_row, LayoutGridRowValue);
 
@@ -5482,7 +5637,12 @@ pub fn get_grid_template_areas_prop(
     styled_dom
         .css_property_cache
         .ptr
-        .get_property(node_data, &node_id, node_state, &CssPropertyType::GridTemplateAreas)
+        .get_property(
+            node_data,
+            &node_id,
+            node_state,
+            &CssPropertyType::GridTemplateAreas,
+        )
         .and_then(|p| {
             if let CssProperty::GridTemplateAreas(v) = p {
                 v.get_property().cloned()
@@ -5511,7 +5671,9 @@ pub fn get_clip_path(
         }
     }
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
+    styled_dom
+        .css_property_cache
+        .ptr
         .get_clip_path(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()

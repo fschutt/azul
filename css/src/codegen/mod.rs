@@ -13,6 +13,7 @@ use alloc::{string::String, vec::Vec};
 use crate::css::Css;
 
 pub mod cpp;
+pub mod format;
 pub mod python;
 pub mod rust;
 

@@ -55,8 +55,6 @@ pub mod css;
 pub mod defaults;
 /// Runtime CSS selector matching (`:hover`, `@os`, `@media`, etc.).
 pub mod dynamic_selector;
-/// Const-compatible Rust source code generation from parsed CSS.
-pub mod format_rust_code;
 /// CSS string parser (tokenizer, declaration parser, shorthand expansion).
 #[cfg(feature = "parser")]
 pub mod parser2;

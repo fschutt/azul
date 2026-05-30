@@ -38,8 +38,8 @@ use crate::{
             overflow::*, position::*, shape::*, spacing::*, table::*, text::*, wrapping::*,
         },
         style::{
-            azul_exclusion::*, background::*, border::*, border_radius::*, box_shadow::*,
-            content::*, effects::*, filter::*, lists::*, scrollbar::*, text::*, transform::*,
+            background::*, border::*, border_radius::*, box_shadow::*, content::*, effects::*,
+            exclusion::*, filter::*, lists::*, scrollbar::*, text::*, transform::*,
             SelectionBackgroundColor, SelectionColor, SelectionRadius,
         },
     },
@@ -232,9 +232,18 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 178] = [
     (CssPropertyType::SelectionRadius, "-azul-selection-radius"),
     (CssPropertyType::ScrollbarWidth, "scrollbar-width"),
     (CssPropertyType::ScrollbarColor, "scrollbar-color"),
-    (CssPropertyType::ScrollbarVisibility, "-azul-scrollbar-visibility"),
-    (CssPropertyType::ScrollbarFadeDelay, "-azul-scrollbar-fade-delay"),
-    (CssPropertyType::ScrollbarFadeDuration, "-azul-scrollbar-fade-duration"),
+    (
+        CssPropertyType::ScrollbarVisibility,
+        "-azul-scrollbar-visibility",
+    ),
+    (
+        CssPropertyType::ScrollbarFadeDelay,
+        "-azul-scrollbar-fade-delay",
+    ),
+    (
+        CssPropertyType::ScrollbarFadeDuration,
+        "-azul-scrollbar-fade-duration",
+    ),
     (CssPropertyType::Opacity, "opacity"),
     (CssPropertyType::Visibility, "visibility"),
     (CssPropertyType::Transform, "transform"),
@@ -414,7 +423,8 @@ pub type LayoutGridAutoColumnsValue = CssPropertyValue<GridAutoTracks>;
 pub type LayoutGridAutoRowsValue = CssPropertyValue<GridAutoTracks>;
 pub type LayoutGridColumnValue = CssPropertyValue<GridPlacement>;
 pub type LayoutGridRowValue = CssPropertyValue<GridPlacement>;
-pub type LayoutGridTemplateAreasValue = CssPropertyValue<crate::props::layout::grid::GridTemplateAreas>;
+pub type LayoutGridTemplateAreasValue =
+    CssPropertyValue<crate::props::layout::grid::GridTemplateAreas>;
 pub type LayoutWritingModeValue = CssPropertyValue<LayoutWritingMode>;
 pub type LayoutClearValue = CssPropertyValue<LayoutClear>;
 pub type LayoutGridAutoFlowValue = CssPropertyValue<LayoutGridAutoFlow>;
@@ -519,7 +529,8 @@ impl fmt::Display for CombinedCssPropertyType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let key = COMBINED_CSS_PROPERTIES_KEY_MAP
             .iter()
-            .find(|(v, _)| *v == *self).map(|(k, _)| k)
+            .find(|(v, _)| *v == *self)
+            .map(|(k, _)| k)
             .unwrap();
         write!(f, "{}", key)
     }
@@ -746,7 +757,14 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]
 );
 
-crate::impl_vec!(CssProperty, CssPropertyVec, CssPropertyVecDestructor, CssPropertyVecDestructorType, CssPropertyVecSlice, OptionCssProperty);
+crate::impl_vec!(
+    CssProperty,
+    CssPropertyVec,
+    CssPropertyVecDestructor,
+    CssPropertyVecDestructorType,
+    CssPropertyVecSlice,
+    OptionCssProperty
+);
 crate::impl_vec_clone!(CssProperty, CssPropertyVec, CssPropertyVecDestructor);
 crate::impl_vec_debug!(CssProperty, CssPropertyVec);
 crate::impl_vec_partialeq!(CssProperty, CssPropertyVec);
@@ -796,7 +814,6 @@ pub enum RelayoutScope {
     /// Full subtree relayout required (e.g., display, position, float change).
     Full,
 }
-
 
 /// Represents a CSS key (for example `"border-radius"` => `BorderRadius`).
 /// You can also derive this key from a `CssProperty` by calling `CssProperty::get_type()`.
@@ -1177,7 +1194,6 @@ impl CssPropertyType {
     }
 }
 
-
 impl fmt::Debug for CssPropertyType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.to_str())
@@ -1441,7 +1457,8 @@ impl CssPropertyType {
 
     pub fn has_compact_encoding(&self) -> bool {
         use self::CssPropertyType::*;
-        matches!(self,
+        matches!(
+            self,
             // Tier 1 enums
             Display | Position | Float | OverflowX | OverflowY | BoxSizing |
             FlexDirection | FlexWrap | JustifyContent | AlignItems | AlignContent |
@@ -1568,33 +1585,65 @@ impl CssPropertyType {
         use CssPropertyType::*;
         match self {
             // Pure paint — never triggers relayout
-            TextColor | Cursor | BackgroundContent | BackgroundPosition
-            | BackgroundSize | BackgroundRepeat | BorderTopColor | BorderRightColor
-            | BorderLeftColor | BorderBottomColor | BorderTopStyle | BorderRightStyle
-            | BorderLeftStyle | BorderBottomStyle | BorderTopLeftRadius
-            | BorderTopRightRadius | BorderBottomLeftRadius | BorderBottomRightRadius
-            | ColumnRuleColor | ColumnRuleStyle | BoxShadowLeft | BoxShadowRight
-            | BoxShadowTop | BoxShadowBottom | BoxDecorationBreak
-            | ScrollbarTrack | ScrollbarThumb | ScrollbarButton
-            | ScrollbarCorner | ScrollbarResizer
-            | Opacity | Transform | TransformOrigin | PerspectiveOrigin
-            | BackfaceVisibility | MixBlendMode | Filter | BackdropFilter
-            | TextShadow | SelectionBackgroundColor | SelectionColor
-            | SelectionRadius | CaretColor | CaretAnimationDuration
-            | CaretWidth | ObjectFit | ObjectPosition | Clip => RelayoutScope::None,
+            TextColor
+            | Cursor
+            | BackgroundContent
+            | BackgroundPosition
+            | BackgroundSize
+            | BackgroundRepeat
+            | BorderTopColor
+            | BorderRightColor
+            | BorderLeftColor
+            | BorderBottomColor
+            | BorderTopStyle
+            | BorderRightStyle
+            | BorderLeftStyle
+            | BorderBottomStyle
+            | BorderTopLeftRadius
+            | BorderTopRightRadius
+            | BorderBottomLeftRadius
+            | BorderBottomRightRadius
+            | ColumnRuleColor
+            | ColumnRuleStyle
+            | BoxShadowLeft
+            | BoxShadowRight
+            | BoxShadowTop
+            | BoxShadowBottom
+            | BoxDecorationBreak
+            | ScrollbarTrack
+            | ScrollbarThumb
+            | ScrollbarButton
+            | ScrollbarCorner
+            | ScrollbarResizer
+            | Opacity
+            | Transform
+            | TransformOrigin
+            | PerspectiveOrigin
+            | BackfaceVisibility
+            | MixBlendMode
+            | Filter
+            | BackdropFilter
+            | TextShadow
+            | SelectionBackgroundColor
+            | SelectionColor
+            | SelectionRadius
+            | CaretColor
+            | CaretAnimationDuration
+            | CaretWidth
+            | ObjectFit
+            | ObjectPosition
+            | Clip => RelayoutScope::None,
 
             // Font/text properties — IFC-only if inside inline context,
             // otherwise no layout impact (block with only block children
             // inherits but doesn't directly reflow).
-            FontFamily | FontSize | FontWeight | FontStyle
-            | LetterSpacing | WordSpacing | LineHeight | TextAlign | TextJustify
-            | TextIndent | WhiteSpace | TabSize | Hyphens
-            | WordBreak | OverflowWrap | LineBreak | TextAlignLast | TextOrientation
-            | HyphenationLanguage | TextCombineUpright | TextDecoration
-            | HangingPunctuation | InitialLetter | LineClamp
-            | Direction | VerticalAlign | UnicodeBidi
-            | TextBoxTrim | TextBoxEdge | DominantBaseline | AlignmentBaseline
-            | InitialLetterAlign | InitialLetterWrap => {
+            FontFamily | FontSize | FontWeight | FontStyle | LetterSpacing | WordSpacing
+            | LineHeight | TextAlign | TextJustify | TextIndent | WhiteSpace | TabSize
+            | Hyphens | WordBreak | OverflowWrap | LineBreak | TextAlignLast | TextOrientation
+            | HyphenationLanguage | TextCombineUpright | TextDecoration | HangingPunctuation
+            | InitialLetter | LineClamp | Direction | VerticalAlign | UnicodeBidi | TextBoxTrim
+            | TextBoxEdge | DominantBaseline | AlignmentBaseline | InitialLetterAlign
+            | InitialLetterWrap => {
                 if node_is_ifc_member {
                     RelayoutScope::IfcOnly
                 } else {
@@ -1609,12 +1658,10 @@ impl CssPropertyType {
             // Sizing properties — only this node's size changes.
             // Parent may reposition subsequent siblings but doesn't need
             // full recursive relayout of unaffected subtrees.
-            Width | Height | MinWidth | MinHeight | MaxWidth | MaxHeight
-            | PaddingTop | PaddingRight | PaddingBottom | PaddingLeft
-            | PaddingInlineStart | PaddingInlineEnd
-            | BorderTopWidth | BorderRightWidth | BorderBottomWidth
-            | BorderLeftWidth | BoxSizing
-            | ScrollbarWidth | ScrollbarVisibility
+            Width | Height | MinWidth | MinHeight | MaxWidth | MaxHeight | PaddingTop
+            | PaddingRight | PaddingBottom | PaddingLeft | PaddingInlineStart
+            | PaddingInlineEnd | BorderTopWidth | BorderRightWidth | BorderBottomWidth
+            | BorderLeftWidth | BoxSizing | ScrollbarWidth | ScrollbarVisibility
             | ScrollbarGutter | OverflowClipMargin => RelayoutScope::SizingOnly,
 
             // Everything else: display, position, float, margin, flex-*,
@@ -2105,10 +2152,7 @@ impl_from!(
     CssParsingError::CaretAnimationDuration
 );
 impl_from!(CssBorderParseError<'a>, CssParsingError::Border);
-impl_from!(
-    CssBorderRadiusParseError<'a>,
-    CssParsingError::BorderRadius
-);
+impl_from!(CssBorderRadiusParseError<'a>, CssParsingError::BorderRadius);
 impl_from!(LayoutPaddingParseError<'a>, CssParsingError::Padding);
 impl_from!(LayoutMarginParseError<'a>, CssParsingError::Margin);
 impl_from!(CssShadowParseError<'a>, CssParsingError::BoxShadow);
@@ -2133,18 +2177,9 @@ impl_from!(
     StyleTextCombineUprightParseError<'a>,
     CssParsingError::TextCombineUpright
 );
-impl_from!(
-    StyleUnicodeBidiParseError<'a>,
-    CssParsingError::UnicodeBidi
-);
-impl_from!(
-    StyleTextBoxTrimParseError<'a>,
-    CssParsingError::TextBoxTrim
-);
-impl_from!(
-    StyleTextBoxEdgeParseError<'a>,
-    CssParsingError::TextBoxEdge
-);
+impl_from!(StyleUnicodeBidiParseError<'a>, CssParsingError::UnicodeBidi);
+impl_from!(StyleTextBoxTrimParseError<'a>, CssParsingError::TextBoxTrim);
+impl_from!(StyleTextBoxEdgeParseError<'a>, CssParsingError::TextBoxEdge);
 impl_from!(
     StyleDominantBaselineParseError<'a>,
     CssParsingError::DominantBaseline
@@ -2169,10 +2204,7 @@ impl_from!(
     StyleOverflowClipMarginParseError<'a>,
     CssParsingError::OverflowClipMargin
 );
-impl_from!(
-    StyleClipRectParseError<'a>,
-    CssParsingError::Clip
-);
+impl_from!(StyleClipRectParseError<'a>, CssParsingError::Clip);
 
 // Manual From implementation for StyleExclusionMarginParseError (no lifetime)
 #[cfg(feature = "parser")]
@@ -2338,13 +2370,25 @@ impl_from!(StyleTabSizeParseError<'a>, CssParsingError::TabSize);
 impl_from!(StyleWhiteSpaceParseError<'a>, CssParsingError::WhiteSpace);
 impl_from!(StyleHyphensParseError<'a>, CssParsingError::Hyphens);
 impl_from!(StyleWordBreakParseError<'a>, CssParsingError::WordBreak);
-impl_from!(StyleOverflowWrapParseError<'a>, CssParsingError::OverflowWrap);
+impl_from!(
+    StyleOverflowWrapParseError<'a>,
+    CssParsingError::OverflowWrap
+);
 impl_from!(StyleLineBreakParseError<'a>, CssParsingError::LineBreak);
 impl_from!(StyleObjectFitParseError<'a>, CssParsingError::ObjectFit);
-impl_from!(StyleObjectPositionParseError<'a>, CssParsingError::ObjectPosition);
+impl_from!(
+    StyleObjectPositionParseError<'a>,
+    CssParsingError::ObjectPosition
+);
 impl_from!(StyleAspectRatioParseError<'a>, CssParsingError::AspectRatio);
-impl_from!(StyleTextOrientationParseError<'a>, CssParsingError::TextOrientation);
-impl_from!(StyleTextAlignLastParseError<'a>, CssParsingError::TextAlignLast);
+impl_from!(
+    StyleTextOrientationParseError<'a>,
+    CssParsingError::TextOrientation
+);
+impl_from!(
+    StyleTextAlignLastParseError<'a>,
+    CssParsingError::TextAlignLast
+);
 impl_from!(StyleDirectionParseError<'a>, CssParsingError::Direction);
 impl_from!(StyleUserSelectParseError<'a>, CssParsingError::UserSelect);
 impl_from!(
@@ -2581,12 +2625,24 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::UnicodeBidi(e) => CssParsingErrorOwned::UnicodeBidi(e.to_contained()),
             CssParsingError::TextBoxTrim(e) => CssParsingErrorOwned::TextBoxTrim(e.to_contained()),
             CssParsingError::TextBoxEdge(e) => CssParsingErrorOwned::TextBoxEdge(e.to_contained()),
-            CssParsingError::DominantBaseline(e) => CssParsingErrorOwned::DominantBaseline(e.to_contained()),
-            CssParsingError::AlignmentBaseline(e) => CssParsingErrorOwned::AlignmentBaseline(e.to_contained()),
-            CssParsingError::InitialLetterAlign(e) => CssParsingErrorOwned::InitialLetterAlign(e.to_contained()),
-            CssParsingError::InitialLetterWrap(e) => CssParsingErrorOwned::InitialLetterWrap(e.to_contained()),
-            CssParsingError::ScrollbarGutter(e) => CssParsingErrorOwned::ScrollbarGutter(e.to_contained()),
-            CssParsingError::OverflowClipMargin(e) => CssParsingErrorOwned::OverflowClipMargin(e.to_contained()),
+            CssParsingError::DominantBaseline(e) => {
+                CssParsingErrorOwned::DominantBaseline(e.to_contained())
+            }
+            CssParsingError::AlignmentBaseline(e) => {
+                CssParsingErrorOwned::AlignmentBaseline(e.to_contained())
+            }
+            CssParsingError::InitialLetterAlign(e) => {
+                CssParsingErrorOwned::InitialLetterAlign(e.to_contained())
+            }
+            CssParsingError::InitialLetterWrap(e) => {
+                CssParsingErrorOwned::InitialLetterWrap(e.to_contained())
+            }
+            CssParsingError::ScrollbarGutter(e) => {
+                CssParsingErrorOwned::ScrollbarGutter(e.to_contained())
+            }
+            CssParsingError::OverflowClipMargin(e) => {
+                CssParsingErrorOwned::OverflowClipMargin(e.to_contained())
+            }
             CssParsingError::Clip(e) => CssParsingErrorOwned::Clip(e.to_contained()),
             CssParsingError::ExclusionMargin(e) => {
                 CssParsingErrorOwned::ExclusionMargin(e.to_contained())
@@ -2600,13 +2656,21 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::WhiteSpace(e) => CssParsingErrorOwned::WhiteSpace(e.to_contained()),
             CssParsingError::Hyphens(e) => CssParsingErrorOwned::Hyphens(e.to_contained()),
             CssParsingError::WordBreak(e) => CssParsingErrorOwned::WordBreak(e.to_contained()),
-            CssParsingError::OverflowWrap(e) => CssParsingErrorOwned::OverflowWrap(e.to_contained()),
+            CssParsingError::OverflowWrap(e) => {
+                CssParsingErrorOwned::OverflowWrap(e.to_contained())
+            }
             CssParsingError::LineBreak(e) => CssParsingErrorOwned::LineBreak(e.to_contained()),
             CssParsingError::ObjectFit(e) => CssParsingErrorOwned::ObjectFit(e.to_contained()),
-            CssParsingError::ObjectPosition(e) => CssParsingErrorOwned::ObjectPosition(e.to_contained()),
+            CssParsingError::ObjectPosition(e) => {
+                CssParsingErrorOwned::ObjectPosition(e.to_contained())
+            }
             CssParsingError::AspectRatio(e) => CssParsingErrorOwned::AspectRatio(e.to_contained()),
-            CssParsingError::TextOrientation(e) => CssParsingErrorOwned::TextOrientation(e.to_contained()),
-            CssParsingError::TextAlignLast(e) => CssParsingErrorOwned::TextAlignLast(e.to_contained()),
+            CssParsingError::TextOrientation(e) => {
+                CssParsingErrorOwned::TextOrientation(e.to_contained())
+            }
+            CssParsingError::TextAlignLast(e) => {
+                CssParsingErrorOwned::TextAlignLast(e.to_contained())
+            }
             CssParsingError::Direction(e) => CssParsingErrorOwned::Direction(e.to_contained()),
             CssParsingError::UserSelect(e) => CssParsingErrorOwned::UserSelect(e.to_contained()),
             CssParsingError::TextDecoration(e) => {
@@ -2677,7 +2741,9 @@ impl CssParsingErrorOwned {
                 CssParsingError::SelectionRadius(e.to_shared())
             }
             CssParsingErrorOwned::Border(e) => CssParsingError::Border(e.inner.to_shared()),
-            CssParsingErrorOwned::BorderRadius(e) => CssParsingError::BorderRadius(e.inner.to_shared()),
+            CssParsingErrorOwned::BorderRadius(e) => {
+                CssParsingError::BorderRadius(e.inner.to_shared())
+            }
             CssParsingErrorOwned::Padding(e) => CssParsingError::Padding(e.to_shared()),
             CssParsingErrorOwned::Margin(e) => CssParsingError::Margin(e.to_shared()),
             CssParsingErrorOwned::Overflow(e) => CssParsingError::Overflow(e.to_shared()),
@@ -2796,12 +2862,24 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::UnicodeBidi(e) => CssParsingError::UnicodeBidi(e.to_shared()),
             CssParsingErrorOwned::TextBoxTrim(e) => CssParsingError::TextBoxTrim(e.to_shared()),
             CssParsingErrorOwned::TextBoxEdge(e) => CssParsingError::TextBoxEdge(e.to_shared()),
-            CssParsingErrorOwned::DominantBaseline(e) => CssParsingError::DominantBaseline(e.to_shared()),
-            CssParsingErrorOwned::AlignmentBaseline(e) => CssParsingError::AlignmentBaseline(e.to_shared()),
-            CssParsingErrorOwned::InitialLetterAlign(e) => CssParsingError::InitialLetterAlign(e.to_shared()),
-            CssParsingErrorOwned::InitialLetterWrap(e) => CssParsingError::InitialLetterWrap(e.to_shared()),
-            CssParsingErrorOwned::ScrollbarGutter(e) => CssParsingError::ScrollbarGutter(e.to_shared()),
-            CssParsingErrorOwned::OverflowClipMargin(e) => CssParsingError::OverflowClipMargin(e.to_shared()),
+            CssParsingErrorOwned::DominantBaseline(e) => {
+                CssParsingError::DominantBaseline(e.to_shared())
+            }
+            CssParsingErrorOwned::AlignmentBaseline(e) => {
+                CssParsingError::AlignmentBaseline(e.to_shared())
+            }
+            CssParsingErrorOwned::InitialLetterAlign(e) => {
+                CssParsingError::InitialLetterAlign(e.to_shared())
+            }
+            CssParsingErrorOwned::InitialLetterWrap(e) => {
+                CssParsingError::InitialLetterWrap(e.to_shared())
+            }
+            CssParsingErrorOwned::ScrollbarGutter(e) => {
+                CssParsingError::ScrollbarGutter(e.to_shared())
+            }
+            CssParsingErrorOwned::OverflowClipMargin(e) => {
+                CssParsingError::OverflowClipMargin(e.to_shared())
+            }
             CssParsingErrorOwned::Clip(e) => CssParsingError::Clip(e.to_shared()),
             CssParsingErrorOwned::ExclusionMargin(e) => {
                 CssParsingError::ExclusionMargin(e.to_shared())
@@ -2818,9 +2896,13 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::OverflowWrap(e) => CssParsingError::OverflowWrap(e.to_shared()),
             CssParsingErrorOwned::LineBreak(e) => CssParsingError::LineBreak(e.to_shared()),
             CssParsingErrorOwned::ObjectFit(e) => CssParsingError::ObjectFit(e.to_shared()),
-            CssParsingErrorOwned::ObjectPosition(e) => CssParsingError::ObjectPosition(e.to_shared()),
+            CssParsingErrorOwned::ObjectPosition(e) => {
+                CssParsingError::ObjectPosition(e.to_shared())
+            }
             CssParsingErrorOwned::AspectRatio(e) => CssParsingError::AspectRatio(e.to_shared()),
-            CssParsingErrorOwned::TextOrientation(e) => CssParsingError::TextOrientation(e.to_shared()),
+            CssParsingErrorOwned::TextOrientation(e) => {
+                CssParsingError::TextOrientation(e.to_shared())
+            }
             CssParsingErrorOwned::TextAlignLast(e) => CssParsingError::TextAlignLast(e.to_shared()),
             CssParsingErrorOwned::Direction(e) => CssParsingError::Direction(e.to_shared()),
             CssParsingErrorOwned::UserSelect(e) => CssParsingError::UserSelect(e.to_shared()),
@@ -2904,7 +2986,7 @@ pub fn parse_css_property<'a>(
         CssPropertyType::UserSelect |
         CssPropertyType::Float |        // float: none means LayoutFloat::None
         CssPropertyType::TextDecoration | // text-decoration: none is a typed value
-        CssPropertyType::ObjectFit      // object-fit: none means StyleObjectFit::None
+        CssPropertyType::ObjectFit // object-fit: none means StyleObjectFit::None
     );
 
     Ok(match value {
@@ -3039,7 +3121,9 @@ pub fn parse_css_property<'a>(
             CssPropertyType::GridColumn => {
                 CssProperty::GridColumn(CssPropertyValue::Exact(parse_grid_placement(value)?))
             }
-            CssPropertyType::GridRow => CssProperty::GridRow(CssPropertyValue::Exact(parse_grid_placement(value)?)),
+            CssPropertyType::GridRow => {
+                CssProperty::GridRow(CssPropertyValue::Exact(parse_grid_placement(value)?))
+            }
             CssPropertyType::GridTemplateAreas => {
                 use crate::props::layout::grid::parse_grid_template_areas;
                 let areas = parse_grid_template_areas(value)
@@ -3113,24 +3197,34 @@ pub fn parse_css_property<'a>(
             CssPropertyType::BorderLeftWidth => parse_border_left_width(value)?.into(),
             CssPropertyType::BorderBottomWidth => parse_border_bottom_width(value)?.into(),
 
-            CssPropertyType::BoxShadowLeft => {
-                CssProperty::BoxShadowLeft(CssPropertyValue::Exact(BoxOrStatic::heap(parse_style_box_shadow(value)?)))
-            }
-            CssPropertyType::BoxShadowRight => {
-                CssProperty::BoxShadowRight(CssPropertyValue::Exact(BoxOrStatic::heap(parse_style_box_shadow(value)?)))
-            }
-            CssPropertyType::BoxShadowTop => {
-                CssProperty::BoxShadowTop(CssPropertyValue::Exact(BoxOrStatic::heap(parse_style_box_shadow(value)?)))
-            }
-            CssPropertyType::BoxShadowBottom => {
-                CssProperty::BoxShadowBottom(CssPropertyValue::Exact(BoxOrStatic::heap(parse_style_box_shadow(value)?)))
-            }
+            CssPropertyType::BoxShadowLeft => CssProperty::BoxShadowLeft(CssPropertyValue::Exact(
+                BoxOrStatic::heap(parse_style_box_shadow(value)?),
+            )),
+            CssPropertyType::BoxShadowRight => CssProperty::BoxShadowRight(
+                CssPropertyValue::Exact(BoxOrStatic::heap(parse_style_box_shadow(value)?)),
+            ),
+            CssPropertyType::BoxShadowTop => CssProperty::BoxShadowTop(CssPropertyValue::Exact(
+                BoxOrStatic::heap(parse_style_box_shadow(value)?),
+            )),
+            CssPropertyType::BoxShadowBottom => CssProperty::BoxShadowBottom(
+                CssPropertyValue::Exact(BoxOrStatic::heap(parse_style_box_shadow(value)?)),
+            ),
 
-            CssPropertyType::ScrollbarTrack => CssProperty::ScrollbarTrack(CssPropertyValue::Exact(parse_style_background_content(value)?)),
-            CssPropertyType::ScrollbarThumb => CssProperty::ScrollbarThumb(CssPropertyValue::Exact(parse_style_background_content(value)?)),
-            CssPropertyType::ScrollbarButton => CssProperty::ScrollbarButton(CssPropertyValue::Exact(parse_style_background_content(value)?)),
-            CssPropertyType::ScrollbarCorner => CssProperty::ScrollbarCorner(CssPropertyValue::Exact(parse_style_background_content(value)?)),
-            CssPropertyType::ScrollbarResizer => CssProperty::ScrollbarResizer(CssPropertyValue::Exact(parse_style_background_content(value)?)),
+            CssPropertyType::ScrollbarTrack => CssProperty::ScrollbarTrack(
+                CssPropertyValue::Exact(parse_style_background_content(value)?),
+            ),
+            CssPropertyType::ScrollbarThumb => CssProperty::ScrollbarThumb(
+                CssPropertyValue::Exact(parse_style_background_content(value)?),
+            ),
+            CssPropertyType::ScrollbarButton => CssProperty::ScrollbarButton(
+                CssPropertyValue::Exact(parse_style_background_content(value)?),
+            ),
+            CssPropertyType::ScrollbarCorner => CssProperty::ScrollbarCorner(
+                CssPropertyValue::Exact(parse_style_background_content(value)?),
+            ),
+            CssPropertyType::ScrollbarResizer => CssProperty::ScrollbarResizer(
+                CssPropertyValue::Exact(parse_style_background_content(value)?),
+            ),
             CssPropertyType::ScrollbarWidth => parse_layout_scrollbar_width(value)?.into(),
             CssPropertyType::ScrollbarColor => parse_style_scrollbar_color(value)?.into(),
             CssPropertyType::ScrollbarVisibility => parse_scrollbar_visibility_mode(value)?.into(),
@@ -3148,9 +3242,9 @@ pub fn parse_css_property<'a>(
             CssPropertyType::BackdropFilter => {
                 CssProperty::BackdropFilter(parse_style_filter_vec(value)?.into())
             }
-            CssPropertyType::TextShadow => {
-                CssProperty::TextShadow(CssPropertyValue::Exact(BoxOrStatic::heap(parse_style_box_shadow(value)?)))
-            }
+            CssPropertyType::TextShadow => CssProperty::TextShadow(CssPropertyValue::Exact(
+                BoxOrStatic::heap(parse_style_box_shadow(value)?),
+            )),
 
             // DTP properties
             CssPropertyType::BreakBefore => {
@@ -3188,18 +3282,15 @@ pub fn parse_css_property<'a>(
             }
             CssPropertyType::FlowInto => CssProperty::FlowInto(parse_flow_into(value)?.into()),
             CssPropertyType::FlowFrom => CssProperty::FlowFrom(parse_flow_from(value)?.into()),
-            CssPropertyType::ShapeOutside => CssProperty::ShapeOutside(
-                CssPropertyValue::Exact(parse_shape_outside(value)
-                    .map_err(|_| CssParsingError::GenericParseError)?)
-            ),
-            CssPropertyType::ShapeInside => CssProperty::ShapeInside(
-                CssPropertyValue::Exact(parse_shape_inside(value)
-                    .map_err(|_| CssParsingError::GenericParseError)?)
-            ),
-            CssPropertyType::ClipPath => CssProperty::ClipPath(
-                CssPropertyValue::Exact(parse_clip_path(value)
-                    .map_err(|_| CssParsingError::GenericParseError)?)
-            ),
+            CssPropertyType::ShapeOutside => CssProperty::ShapeOutside(CssPropertyValue::Exact(
+                parse_shape_outside(value).map_err(|_| CssParsingError::GenericParseError)?,
+            )),
+            CssPropertyType::ShapeInside => CssProperty::ShapeInside(CssPropertyValue::Exact(
+                parse_shape_inside(value).map_err(|_| CssParsingError::GenericParseError)?,
+            )),
+            CssPropertyType::ClipPath => CssProperty::ClipPath(CssPropertyValue::Exact(
+                parse_clip_path(value).map_err(|_| CssParsingError::GenericParseError)?,
+            )),
             CssPropertyType::ShapeMargin => {
                 CssProperty::ShapeMargin(parse_shape_margin(value)?.into())
             }
@@ -3467,10 +3558,7 @@ pub fn parse_combined_css_property<'a>(
             ]
         }
         TextBox => {
-            vec![
-                CssPropertyType::TextBoxTrim,
-                CssPropertyType::TextBoxEdge,
-            ]
+            vec![CssPropertyType::TextBoxTrim, CssPropertyType::TextBoxEdge]
         }
         // +spec:writing-modes:798cca - inset-block/inset-inline shorthand expansion
         // In horizontal-tb (default), block axis = vertical, inline axis = horizontal.
@@ -3489,23 +3577,13 @@ pub fn parse_combined_css_property<'a>(
     let has_typed_none = false; // Currently no combined properties have typed "none"
 
     match value {
-        "auto" if !has_typed_auto => {
-            return Ok(keys.into_iter().map(CssProperty::auto).collect())
-        }
-        "none" if !has_typed_none => {
-            return Ok(keys.into_iter().map(CssProperty::none).collect())
-        }
+        "auto" if !has_typed_auto => return Ok(keys.into_iter().map(CssProperty::auto).collect()),
+        "none" if !has_typed_none => return Ok(keys.into_iter().map(CssProperty::none).collect()),
         "initial" => {
-            return Ok(keys
-                .into_iter()
-                .map(CssProperty::initial)
-                .collect());
+            return Ok(keys.into_iter().map(CssProperty::initial).collect());
         }
         "inherit" => {
-            return Ok(keys
-                .into_iter()
-                .map(CssProperty::inherit)
-                .collect());
+            return Ok(keys.into_iter().map(CssProperty::inherit).collect());
         }
         _ => {}
     };
@@ -3559,7 +3637,7 @@ pub fn parse_combined_css_property<'a>(
                         CssProperty::OverflowY(overflow_y.into()),
                     ])
                 }
-                _ => Err(CssParsingError::InvalidValue(InvalidValueErr(value)))
+                _ => Err(CssParsingError::InvalidValue(InvalidValueErr(value))),
             }
         }
         Padding => {
@@ -3752,52 +3830,58 @@ pub fn parse_combined_css_property<'a>(
         BorderColor => {
             let colors = parse_style_border_color(value)?;
             Ok(vec![
-                CssProperty::BorderTopColor(
-                    StyleBorderTopColor { inner: colors.top }.into(),
-                ),
+                CssProperty::BorderTopColor(StyleBorderTopColor { inner: colors.top }.into()),
                 CssProperty::BorderRightColor(
-                    StyleBorderRightColor { inner: colors.right }.into(),
+                    StyleBorderRightColor {
+                        inner: colors.right,
+                    }
+                    .into(),
                 ),
                 CssProperty::BorderBottomColor(
-                    StyleBorderBottomColor { inner: colors.bottom }.into(),
+                    StyleBorderBottomColor {
+                        inner: colors.bottom,
+                    }
+                    .into(),
                 ),
-                CssProperty::BorderLeftColor(
-                    StyleBorderLeftColor { inner: colors.left }.into(),
-                ),
+                CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: colors.left }.into()),
             ])
         }
         BorderStyle => {
             let styles = parse_style_border_style(value)?;
             Ok(vec![
-                CssProperty::BorderTopStyle(
-                    StyleBorderTopStyle { inner: styles.top }.into(),
-                ),
+                CssProperty::BorderTopStyle(StyleBorderTopStyle { inner: styles.top }.into()),
                 CssProperty::BorderRightStyle(
-                    StyleBorderRightStyle { inner: styles.right }.into(),
+                    StyleBorderRightStyle {
+                        inner: styles.right,
+                    }
+                    .into(),
                 ),
                 CssProperty::BorderBottomStyle(
-                    StyleBorderBottomStyle { inner: styles.bottom }.into(),
+                    StyleBorderBottomStyle {
+                        inner: styles.bottom,
+                    }
+                    .into(),
                 ),
-                CssProperty::BorderLeftStyle(
-                    StyleBorderLeftStyle { inner: styles.left }.into(),
-                ),
+                CssProperty::BorderLeftStyle(StyleBorderLeftStyle { inner: styles.left }.into()),
             ])
         }
         BorderWidth => {
             let widths = parse_style_border_width(value)?;
             Ok(vec![
-                CssProperty::BorderTopWidth(
-                    LayoutBorderTopWidth { inner: widths.top }.into(),
-                ),
+                CssProperty::BorderTopWidth(LayoutBorderTopWidth { inner: widths.top }.into()),
                 CssProperty::BorderRightWidth(
-                    LayoutBorderRightWidth { inner: widths.right }.into(),
+                    LayoutBorderRightWidth {
+                        inner: widths.right,
+                    }
+                    .into(),
                 ),
                 CssProperty::BorderBottomWidth(
-                    LayoutBorderBottomWidth { inner: widths.bottom }.into(),
+                    LayoutBorderBottomWidth {
+                        inner: widths.bottom,
+                    }
+                    .into(),
                 ),
-                CssProperty::BorderLeftWidth(
-                    LayoutBorderLeftWidth { inner: widths.left }.into(),
-                ),
+                CssProperty::BorderLeftWidth(LayoutBorderLeftWidth { inner: widths.left }.into()),
             ])
         }
         BoxShadow => {
@@ -3806,18 +3890,24 @@ pub fn parse_combined_css_property<'a>(
                 CssProperty::BoxShadowLeft(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
                 CssProperty::BoxShadowRight(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
                 CssProperty::BoxShadowTop(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
-                CssProperty::BoxShadowBottom(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
+                CssProperty::BoxShadowBottom(CssPropertyValue::Exact(BoxOrStatic::heap(
+                    box_shadow,
+                ))),
             ])
         }
         BackgroundColor => {
             let color = parse_css_color(value)?;
             let vec: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
-            Ok(vec![CssProperty::BackgroundContent(CssPropertyValue::Exact(vec))])
+            Ok(vec![CssProperty::BackgroundContent(
+                CssPropertyValue::Exact(vec),
+            )])
         }
         BackgroundImage => {
             let background_content = parse_style_background_content(value)?;
             let vec: StyleBackgroundContentVec = vec![background_content].into();
-            Ok(vec![CssProperty::BackgroundContent(CssPropertyValue::Exact(vec))])
+            Ok(vec![CssProperty::BackgroundContent(
+                CssPropertyValue::Exact(vec),
+            )])
         }
         Background => {
             let background_content = parse_style_background_content_multiple(value)?;
@@ -3851,10 +3941,14 @@ pub fn parse_combined_css_property<'a>(
                     return Ok(vec![
                         CssProperty::FlexGrow(g.into()),
                         CssProperty::FlexShrink(
-                            LayoutFlexShrink { inner: crate::props::basic::length::FloatValue::const_new(1) }.into(),
+                            LayoutFlexShrink {
+                                inner: crate::props::basic::length::FloatValue::const_new(1),
+                            }
+                            .into(),
                         ),
                         CssProperty::FlexBasis(
-                            LayoutFlexBasis::Exact(crate::props::basic::pixel::PixelValue::px(0.0)).into(),
+                            LayoutFlexBasis::Exact(crate::props::basic::pixel::PixelValue::px(0.0))
+                                .into(),
                         ),
                     ]);
                 }
@@ -3873,7 +3967,8 @@ pub fn parse_combined_css_property<'a>(
                         CssProperty::FlexGrow(g.into()),
                         CssProperty::FlexShrink(s.into()),
                         CssProperty::FlexBasis(
-                            LayoutFlexBasis::Exact(crate::props::basic::pixel::PixelValue::px(0.0)).into(),
+                            LayoutFlexBasis::Exact(crate::props::basic::pixel::PixelValue::px(0.0))
+                                .into(),
                         ),
                     ]);
                 }
@@ -3885,7 +3980,10 @@ pub fn parse_combined_css_property<'a>(
                     return Ok(vec![
                         CssProperty::FlexGrow(g.into()),
                         CssProperty::FlexShrink(
-                            LayoutFlexShrink { inner: crate::props::basic::length::FloatValue::const_new(1) }.into(),
+                            LayoutFlexShrink {
+                                inner: crate::props::basic::length::FloatValue::const_new(1),
+                            }
+                            .into(),
                         ),
                         CssProperty::FlexBasis(b.into()),
                     ]);
@@ -3982,7 +4080,8 @@ pub fn parse_combined_css_property<'a>(
                 _ => return Err(CssParsingError::InvalidValue(InvalidValueErr(value))),
             };
             let parse_line = |s: &str| -> Result<GridLine, CssParsingError<'_>> {
-                parse_grid_line_owned(s.trim()).map_err(|_| CssParsingError::InvalidValue(InvalidValueErr(value)))
+                parse_grid_line_owned(s.trim())
+                    .map_err(|_| CssParsingError::InvalidValue(InvalidValueErr(value)))
             };
             Ok(vec![
                 CssProperty::GridRow(CssPropertyValue::Exact(GridPlacement {
@@ -4053,7 +4152,9 @@ pub fn parse_combined_css_property<'a>(
         // if omitted, second defaults to first. Maps to top/bottom in horizontal-tb.
         InsetBlock => {
             let parts: Vec<&str> = value.split_whitespace().collect();
-            let start_val = parts.first().ok_or(CssParsingError::InvalidValue(InvalidValueErr(value)))?;
+            let start_val = parts
+                .first()
+                .ok_or(CssParsingError::InvalidValue(InvalidValueErr(value)))?;
             let end_val = parts.get(1).unwrap_or(start_val);
             let start = parse_layout_top(start_val)?;
             let end = parse_layout_bottom(end_val)?;
@@ -4066,7 +4167,9 @@ pub fn parse_combined_css_property<'a>(
         // if omitted, second defaults to first. Maps to left/right in horizontal-tb.
         InsetInline => {
             let parts: Vec<&str> = value.split_whitespace().collect();
-            let start_val = parts.first().ok_or(CssParsingError::InvalidValue(InvalidValueErr(value)))?;
+            let start_val = parts
+                .first()
+                .ok_or(CssParsingError::InvalidValue(InvalidValueErr(value)))?;
             let end_val = parts.get(1).unwrap_or(start_val);
             let start = parse_layout_left(start_val)?;
             let end = parse_layout_right(end_val)?;

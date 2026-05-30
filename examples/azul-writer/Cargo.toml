@@ -1,7 +1,5 @@
 [package]
-# NB: package name is `azul-doc-demo` because the codegen tool crate already
-# owns `azul-doc`. The app/binary is still AzulDoc.
-name = "azul-doc-demo"
+name = "azul-writer"
 version = "0.1.0"
 edition = "2021"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]

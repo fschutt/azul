@@ -9,24 +9,21 @@ use std::collections::HashMap;
 use azul_core::{
     dom::ScrollbarOrientation,
     geom::{LogicalPosition, LogicalRect, LogicalSize},
-    resources::{
-        DecodedImage, FontInstanceKey, ImageRef,
-        RendererResources,
-    },
+    resources::{DecodedImage, FontInstanceKey, ImageRef, RendererResources},
     ui_solver::GlyphInstance,
 };
-use azul_css::props::basic::{ColorU, ColorOrSystem, FontRef, pixel::DEFAULT_FONT_SIZE};
+use azul_css::props::basic::{pixel::DEFAULT_FONT_SIZE, ColorOrSystem, ColorU, FontRef};
 use azul_css::props::style::filter::StyleFilter;
 
 use agg_rust::{
     basics::{FillingRule, VertexSource, PATH_FLAGS_NONE},
     blur::stack_blur_rgba32,
-    path_storage::PathStorage,
     color::Rgba8,
     conv_stroke::ConvStroke,
     conv_transform::ConvTransform,
     gradient_lut::GradientLut,
-    pixfmt_rgba::{PixfmtRgba32, PixelFormat},
+    path_storage::PathStorage,
+    pixfmt_rgba::{PixelFormat, PixfmtRgba32},
     rasterizer_scanline_aa::RasterizerScanlineAa,
     renderer_base::RendererBase,
     renderer_scanline::{render_scanlines_aa, render_scanlines_aa_solid},
@@ -123,7 +120,10 @@ impl CompositorState {
             root_id,
             LogicalRect {
                 origin: LogicalPosition::zero(),
-                size: LogicalSize { width: width as f32, height: height as f32 },
+                size: LogicalSize {
+                    width: width as f32,
+                    height: height as f32,
+                },
             },
             width,
             height,
@@ -172,7 +172,12 @@ impl CompositorState {
 
         while i < display_list.items.len() {
             match &display_list.items[i] {
-                DisplayListItem::PushScrollFrame { clip_bounds, content_size, scroll_id, .. } => {
+                DisplayListItem::PushScrollFrame {
+                    clip_bounds,
+                    content_size,
+                    scroll_id,
+                    ..
+                } => {
                     let bounds = *clip_bounds.inner();
                     let pw = (bounds.size.width * dpi_factor).ceil() as u32;
                     let ph = (bounds.size.height * dpi_factor).ceil() as u32;
@@ -259,15 +264,18 @@ impl CompositorState {
                         }
                     }
                 }
-                DisplayListItem::PushReferenceFrame { initial_transform, bounds, .. } => {
+                DisplayListItem::PushReferenceFrame {
+                    initial_transform,
+                    bounds,
+                    ..
+                } => {
                     let m = &initial_transform.m;
-                    let is_identity =
-                        (m[0][0] - 1.0).abs() < IDENTITY_EPSILON &&
-                        m[0][1].abs() < IDENTITY_EPSILON &&
-                        m[1][0].abs() < IDENTITY_EPSILON &&
-                        (m[1][1] - 1.0).abs() < IDENTITY_EPSILON &&
-                        m[3][0].abs() < IDENTITY_EPSILON &&
-                        m[3][1].abs() < IDENTITY_EPSILON;
+                    let is_identity = (m[0][0] - 1.0).abs() < IDENTITY_EPSILON
+                        && m[0][1].abs() < IDENTITY_EPSILON
+                        && m[1][0].abs() < IDENTITY_EPSILON
+                        && (m[1][1] - 1.0).abs() < IDENTITY_EPSILON
+                        && m[3][0].abs() < IDENTITY_EPSILON
+                        && m[3][1].abs() < IDENTITY_EPSILON;
                     if !is_identity {
                         let b = *bounds.inner();
                         let pw = (b.size.width * dpi_factor).ceil().max(1.0) as u32;
@@ -275,11 +283,15 @@ impl CompositorState {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
                         layer.transform = TransAffine::new_custom(
-                            m[0][0] as f64, m[0][1] as f64,
-                            m[1][0] as f64, m[1][1] as f64,
-                            m[3][0] as f64, m[3][1] as f64,
+                            m[0][0] as f64,
+                            m[0][1] as f64,
+                            m[1][0] as f64,
+                            m[1][1] as f64,
+                            m[3][0] as f64,
+                            m[3][1] as f64,
                         );
-                        let end = find_matching_pop(&display_list.items, i, MatchKind::ReferenceFrame);
+                        let end =
+                            find_matching_pop(&display_list.items, i, MatchKind::ReferenceFrame);
                         layer.display_list_range = (i + 1, end);
                         self.layers.insert(new_id, layer);
                         let parent_id = *layer_stack.last().unwrap();
@@ -358,7 +370,8 @@ impl CompositorState {
         glyph_cache: &mut GlyphCache,
     ) -> Result<(), String> {
         // Collect layer IDs and their display list ranges
-        let layer_ranges: Vec<(LayerId, (usize, usize), LogicalRect)> = self.layers
+        let layer_ranges: Vec<(LayerId, (usize, usize), LogicalRect)> = self
+            .layers
             .iter()
             .map(|(id, layer)| (*id, layer.display_list_range, layer.bounds))
             .collect();
@@ -445,8 +458,16 @@ impl CompositorState {
             self.composite_layer_recursive(
                 *child_id,
                 output,
-                if layer_id == self.root_layer { 0.0 } else { abs_x },
-                if layer_id == self.root_layer { 0.0 } else { abs_y },
+                if layer_id == self.root_layer {
+                    0.0
+                } else {
+                    abs_x
+                },
+                if layer_id == self.root_layer {
+                    0.0
+                } else {
+                    abs_y
+                },
                 dpi_factor,
             );
         }
@@ -464,7 +485,9 @@ impl CompositorState {
         glyph_cache: &mut GlyphCache,
     ) -> Result<(), String> {
         // Find the layer with this scroll_id
-        let layer_id = self.layers.iter()
+        let layer_id = self
+            .layers
+            .iter()
             .find(|(_, l)| l.scroll_id == Some(scroll_id))
             .map(|(id, _)| *id);
 
@@ -523,8 +546,13 @@ impl Layer {
     fn new(id: LayerId, bounds: LogicalRect, pixel_width: u32, pixel_height: u32) -> Self {
         Layer {
             id,
-            pixbuf: AzulPixmap::new(pixel_width.max(1), pixel_height.max(1))
-                .unwrap_or_else(|| AzulPixmap { data: vec![0; 4], width: 1, height: 1 }),
+            pixbuf: AzulPixmap::new(pixel_width.max(1), pixel_height.max(1)).unwrap_or_else(|| {
+                AzulPixmap {
+                    data: vec![0; 4],
+                    width: 1,
+                    height: 1,
+                }
+            }),
             bounds,
             damage: Vec::new(),
             children: Vec::new(),
@@ -560,22 +588,30 @@ fn find_matching_pop(items: &[DisplayListItem], start: usize, kind: MatchKind) -
             (DisplayListItem::PushScrollFrame { .. }, MatchKind::ScrollFrame) => depth += 1,
             (DisplayListItem::PopScrollFrame, MatchKind::ScrollFrame) => {
                 depth -= 1;
-                if depth == 0 { return i; }
+                if depth == 0 {
+                    return i;
+                }
             }
             (DisplayListItem::PushOpacity { .. }, MatchKind::Opacity) => depth += 1,
             (DisplayListItem::PopOpacity, MatchKind::Opacity) => {
                 depth -= 1;
-                if depth == 0 { return i; }
+                if depth == 0 {
+                    return i;
+                }
             }
             (DisplayListItem::PushFilter { .. }, MatchKind::Filter) => depth += 1,
             (DisplayListItem::PopFilter, MatchKind::Filter) => {
                 depth -= 1;
-                if depth == 0 { return i; }
+                if depth == 0 {
+                    return i;
+                }
             }
             (DisplayListItem::PushReferenceFrame { .. }, MatchKind::ReferenceFrame) => depth += 1,
             (DisplayListItem::PopReferenceFrame, MatchKind::ReferenceFrame) => {
                 depth -= 1;
-                if depth == 0 { return i; }
+                if depth == 0 {
+                    return i;
+                }
             }
             _ => {}
         }
@@ -592,7 +628,10 @@ fn rect_intersection(a: &LogicalRect, b: &LogicalRect) -> Option<LogicalRect> {
     if x2 > x1 && y2 > y1 {
         Some(LogicalRect {
             origin: LogicalPosition { x: x1, y: y1 },
-            size: LogicalSize { width: x2 - x1, height: y2 - y1 },
+            size: LogicalSize {
+                width: x2 - x1,
+                height: y2 - y1,
+            },
         })
     } else {
         None
@@ -609,20 +648,28 @@ fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32, opa
 
     for sy in 0..sh {
         let dy = px_y + sy;
-        if dy < 0 || dy >= dh { continue; }
+        if dy < 0 || dy >= dh {
+            continue;
+        }
         for sx in 0..sw {
             let dx = px_x + sx;
-            if dx < 0 || dx >= dw { continue; }
+            if dx < 0 || dx >= dw {
+                continue;
+            }
             let si = ((sy * sw + sx) * 4) as usize;
             let di = ((dy * dw + dx) * 4) as usize;
-            if si + 3 >= src.data.len() || di + 3 >= dst.data.len() { continue; }
+            if si + 3 >= src.data.len() || di + 3 >= dst.data.len() {
+                continue;
+            }
 
             let sr = src.data[si] as u32;
             let sg = src.data[si + 1] as u32;
             let sb = src.data[si + 2] as u32;
             let sa = (src.data[si + 3] as u32 * op) / 255;
 
-            if sa == 0 { continue; }
+            if sa == 0 {
+                continue;
+            }
             if sa == 255 {
                 dst.data[di] = sr as u8;
                 dst.data[di + 1] = sg as u8;
@@ -630,7 +677,7 @@ fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32, opa
                 dst.data[di + 3] = 255;
             } else {
                 let inv_sa = 255 - sa;
-                dst.data[di]     = ((sr * sa + dst.data[di] as u32 * inv_sa) / 255) as u8;
+                dst.data[di] = ((sr * sa + dst.data[di] as u32 * inv_sa) / 255) as u8;
                 dst.data[di + 1] = ((sg * sa + dst.data[di + 1] as u32 * inv_sa) / 255) as u8;
                 dst.data[di + 2] = ((sb * sa + dst.data[di + 2] as u32 * inv_sa) / 255) as u8;
                 dst.data[di + 3] = ((sa + dst.data[di + 3] as u32 * inv_sa / 255).min(255)) as u8;
@@ -714,14 +761,26 @@ fn compute_exposed_rects(bounds: &LogicalRect, dx: f32, dy: f32) -> Vec<LogicalR
         let strip = if dy > 0.0 {
             // Scrolled down — top strip exposed
             LogicalRect {
-                origin: LogicalPosition { x: bounds.origin.x, y: bounds.origin.y },
-                size: LogicalSize { width: w, height: dy.min(h) },
+                origin: LogicalPosition {
+                    x: bounds.origin.x,
+                    y: bounds.origin.y,
+                },
+                size: LogicalSize {
+                    width: w,
+                    height: dy.min(h),
+                },
             }
         } else {
             // Scrolled up — bottom strip exposed
             LogicalRect {
-                origin: LogicalPosition { x: bounds.origin.x, y: bounds.origin.y + h + dy },
-                size: LogicalSize { width: w, height: (-dy).min(h) },
+                origin: LogicalPosition {
+                    x: bounds.origin.x,
+                    y: bounds.origin.y + h + dy,
+                },
+                size: LogicalSize {
+                    width: w,
+                    height: (-dy).min(h),
+                },
             }
         };
         rects.push(strip);
@@ -731,13 +790,25 @@ fn compute_exposed_rects(bounds: &LogicalRect, dx: f32, dy: f32) -> Vec<LogicalR
     if dx.abs() > 0.5 {
         let strip = if dx > 0.0 {
             LogicalRect {
-                origin: LogicalPosition { x: bounds.origin.x, y: bounds.origin.y },
-                size: LogicalSize { width: dx.min(w), height: h },
+                origin: LogicalPosition {
+                    x: bounds.origin.x,
+                    y: bounds.origin.y,
+                },
+                size: LogicalSize {
+                    width: dx.min(w),
+                    height: h,
+                },
             }
         } else {
             LogicalRect {
-                origin: LogicalPosition { x: bounds.origin.x + w + dx, y: bounds.origin.y },
-                size: LogicalSize { width: (-dx).min(w), height: h },
+                origin: LogicalPosition {
+                    x: bounds.origin.x + w + dx,
+                    y: bounds.origin.y,
+                },
+                size: LogicalSize {
+                    width: (-dx).min(w),
+                    height: h,
+                },
             }
         };
         rects.push(strip);
@@ -751,8 +822,14 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
     for filter in filters {
         match filter {
             StyleFilter::Blur(blur) => {
-                let rx = blur.width.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * dpi_factor;
-                let ry = blur.height.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * dpi_factor;
+                let rx = blur
+                    .width
+                    .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                    * dpi_factor;
+                let ry = blur
+                    .height
+                    .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                    * dpi_factor;
                 let radius = ((rx + ry) / 2.0).ceil() as u32;
                 if radius > 0 {
                     let w = pixmap.width;
@@ -793,17 +870,23 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
             StyleFilter::Contrast(pct) => {
                 let factor = pct.normalized().max(0.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    chunk[0] = ((((chunk[0] as f32 / 255.0) - 0.5) * factor + 0.5) * 255.0).clamp(0.0, 255.0) as u8;
-                    chunk[1] = ((((chunk[1] as f32 / 255.0) - 0.5) * factor + 0.5) * 255.0).clamp(0.0, 255.0) as u8;
-                    chunk[2] = ((((chunk[2] as f32 / 255.0) - 0.5) * factor + 0.5) * 255.0).clamp(0.0, 255.0) as u8;
+                    chunk[0] = ((((chunk[0] as f32 / 255.0) - 0.5) * factor + 0.5) * 255.0)
+                        .clamp(0.0, 255.0) as u8;
+                    chunk[1] = ((((chunk[1] as f32 / 255.0) - 0.5) * factor + 0.5) * 255.0)
+                        .clamp(0.0, 255.0) as u8;
+                    chunk[2] = ((((chunk[2] as f32 / 255.0) - 0.5) * factor + 0.5) * 255.0)
+                        .clamp(0.0, 255.0) as u8;
                 }
             }
             StyleFilter::Invert(pct) => {
                 let amount = pct.normalized().clamp(0.0, 1.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    chunk[0] = (chunk[0] as f32 + (255.0 - 2.0 * chunk[0] as f32) * amount).clamp(0.0, 255.0) as u8;
-                    chunk[1] = (chunk[1] as f32 + (255.0 - 2.0 * chunk[1] as f32) * amount).clamp(0.0, 255.0) as u8;
-                    chunk[2] = (chunk[2] as f32 + (255.0 - 2.0 * chunk[2] as f32) * amount).clamp(0.0, 255.0) as u8;
+                    chunk[0] = (chunk[0] as f32 + (255.0 - 2.0 * chunk[0] as f32) * amount)
+                        .clamp(0.0, 255.0) as u8;
+                    chunk[1] = (chunk[1] as f32 + (255.0 - 2.0 * chunk[1] as f32) * amount)
+                        .clamp(0.0, 255.0) as u8;
+                    chunk[2] = (chunk[2] as f32 + (255.0 - 2.0 * chunk[2] as f32) * amount)
+                        .clamp(0.0, 255.0) as u8;
                 }
             }
             StyleFilter::Sepia(pct) => {
@@ -841,14 +924,14 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
                     let g = chunk[1] as f32;
                     let b = chunk[2] as f32;
                     let nr = (0.213 + 0.787 * cos_a - 0.213 * sin_a) * r
-                           + (0.715 - 0.715 * cos_a - 0.715 * sin_a) * g
-                           + (0.072 - 0.072 * cos_a + 0.928 * sin_a) * b;
+                        + (0.715 - 0.715 * cos_a - 0.715 * sin_a) * g
+                        + (0.072 - 0.072 * cos_a + 0.928 * sin_a) * b;
                     let ng = (0.213 - 0.213 * cos_a + 0.143 * sin_a) * r
-                           + (0.715 + 0.285 * cos_a + 0.140 * sin_a) * g
-                           + (0.072 - 0.072 * cos_a - 0.283 * sin_a) * b;
+                        + (0.715 + 0.285 * cos_a + 0.140 * sin_a) * g
+                        + (0.072 - 0.072 * cos_a - 0.283 * sin_a) * b;
                     let nb = (0.213 - 0.213 * cos_a - 0.787 * sin_a) * r
-                           + (0.715 - 0.715 * cos_a + 0.715 * sin_a) * g
-                           + (0.072 + 0.928 * cos_a + 0.072 * sin_a) * b;
+                        + (0.715 - 0.715 * cos_a + 0.715 * sin_a) * g
+                        + (0.072 + 0.928 * cos_a + 0.072 * sin_a) * b;
                     chunk[0] = nr.clamp(0.0, 255.0) as u8;
                     chunk[1] = ng.clamp(0.0, 255.0) as u8;
                     chunk[2] = nb.clamp(0.0, 255.0) as u8;
@@ -919,7 +1002,11 @@ impl AzulPixmap {
         }
         let len = (width as usize) * (height as usize) * 4;
         let data = vec![255u8; len]; // opaque white
-        Some(Self { data, width, height })
+        Some(Self {
+            data,
+            width,
+            height,
+        })
     }
 
     /// Fill the entire pixmap with a single color.
@@ -990,7 +1077,10 @@ impl AzulPixmap {
         &mut self,
         new_width: u32,
         new_height: u32,
-        fill_r: u8, fill_g: u8, fill_b: u8, fill_a: u8,
+        fill_r: u8,
+        fill_g: u8,
+        fill_b: u8,
+        fill_a: u8,
     ) -> Option<()> {
         if new_width < self.width || new_height < self.height {
             return None;
@@ -1019,8 +1109,7 @@ impl AzulPixmap {
         for row in 0..old_h {
             let src = row * old_stride;
             let dst = row * new_stride;
-            new_data[dst..dst + old_stride]
-                .copy_from_slice(&self.data[src..src + old_stride]);
+            new_data[dst..dst + old_stride].copy_from_slice(&self.data[src..src + old_stride]);
         }
 
         self.data = new_data;
@@ -1035,7 +1124,10 @@ impl AzulPixmap {
         &mut self,
         new_width: u32,
         new_height: u32,
-        fill_r: u8, fill_g: u8, fill_b: u8, fill_a: u8,
+        fill_r: u8,
+        fill_g: u8,
+        fill_b: u8,
+        fill_a: u8,
     ) {
         if new_width == self.width && new_height == self.height {
             return;
@@ -1080,9 +1172,11 @@ impl AzulPixmap {
             let mut encoder = png::Encoder::new(&mut buf, self.width, self.height);
             encoder.set_color(png::ColorType::Rgba);
             encoder.set_depth(png::BitDepth::Eight);
-            let mut writer = encoder.write_header()
+            let mut writer = encoder
+                .write_header()
                 .map_err(|e| format!("PNG header error: {}", e))?;
-            writer.write_image_data(&self.data)
+            writer
+                .write_image_data(&self.data)
                 .map_err(|e| format!("PNG write error: {}", e))?;
         }
         Ok(buf)
@@ -1091,12 +1185,15 @@ impl AzulPixmap {
     /// Decode a PNG byte slice into an AzulPixmap.
     pub fn decode_png(png_bytes: &[u8]) -> Result<Self, String> {
         let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
-        let mut reader = decoder.read_info()
+        let mut reader = decoder
+            .read_info()
             .map_err(|e| format!("PNG decode error: {}", e))?;
-        let buf_size = reader.output_buffer_size()
+        let buf_size = reader
+            .output_buffer_size()
             .ok_or_else(|| "PNG: unknown output buffer size".to_string())?;
         let mut buf = vec![0u8; buf_size];
-        let info = reader.next_frame(&mut buf)
+        let info = reader
+            .next_frame(&mut buf)
             .map_err(|e| format!("PNG frame error: {}", e))?;
         let width = info.width;
         let height = info.height;
@@ -1127,7 +1224,11 @@ impl AzulPixmap {
             other => return Err(format!("Unsupported PNG color type: {:?}", other)),
         };
 
-        Ok(Self { data, width, height })
+        Ok(Self {
+            data,
+            width,
+            height,
+        })
     }
 }
 
@@ -1164,8 +1265,11 @@ impl PixelDiffResult {
 
     /// Fraction of pixels that differ (0.0 = identical, 1.0 = all different).
     pub fn diff_ratio(&self) -> f64 {
-        if self.total_pixels == 0 { 0.0 }
-        else { self.diff_count as f64 / self.total_pixels as f64 }
+        if self.total_pixels == 0 {
+            0.0
+        } else {
+            self.diff_count as f64 / self.total_pixels as f64
+        }
     }
 }
 
@@ -1192,7 +1296,11 @@ pub fn pixel_diff(reference: &AzulPixmap, test: &AzulPixmap, threshold: u8) -> P
     let mut diff_count = 0u64;
     let mut max_delta = 0u8;
 
-    for (ref_chunk, test_chunk) in reference.data.chunks_exact(4).zip(test.data.chunks_exact(4)) {
+    for (ref_chunk, test_chunk) in reference
+        .data
+        .chunks_exact(4)
+        .zip(test.data.chunks_exact(4))
+    {
         let mut pixel_differs = false;
         for c in 0..4 {
             let delta = (ref_chunk[c] as i16 - test_chunk[c] as i16).unsigned_abs() as u8;
@@ -1249,10 +1357,21 @@ struct AzRect {
 
 impl AzRect {
     fn from_xywh(x: f32, y: f32, w: f32, h: f32) -> Option<Self> {
-        if w <= 0.0 || h <= 0.0 || !x.is_finite() || !y.is_finite() || !w.is_finite() || !h.is_finite() {
+        if w <= 0.0
+            || h <= 0.0
+            || !x.is_finite()
+            || !y.is_finite()
+            || !w.is_finite()
+            || !h.is_finite()
+        {
             return None;
         }
-        Some(Self { x, y, width: w, height: h })
+        Some(Self {
+            x,
+            y,
+            width: w,
+            height: h,
+        })
     }
 
     /// Intersect this rect with a clip rect. Returns None if fully clipped.
@@ -1262,7 +1381,12 @@ impl AzRect {
         let x2 = (self.x + self.width).min(clip.x + clip.width);
         let y2 = (self.y + self.height).min(clip.y + clip.height);
         if x2 > x1 && y2 > y1 {
-            Some(AzRect { x: x1, y: y1, width: x2 - x1, height: y2 - y1 })
+            Some(AzRect {
+                x: x1,
+                y: y1,
+                width: x2 - x1,
+                height: y2 - y1,
+            })
         } else {
             None
         }
@@ -1298,9 +1422,7 @@ fn agg_fill_path_clipped(
     let w = pixmap.width;
     let h = pixmap.height;
     let stride = (w * 4) as i32;
-    let mut ra = unsafe {
-        RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride)
-    };
+    let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride) };
     let mut pf = PixfmtRgba32::new(&mut ra);
     let mut rb = RendererBase::new(pf);
     if let Some(c) = clip {
@@ -1373,9 +1495,7 @@ fn agg_fill_gradient_clipped<G: GradientFunction>(
     let w = pixmap.width;
     let h = pixmap.height;
     let stride = (w * 4) as i32;
-    let mut ra = unsafe {
-        RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride)
-    };
+    let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride) };
     let mut pf = PixfmtRgba32::new(&mut ra);
     let mut rb = RendererBase::new(pf);
     if let Some(c) = clip {
@@ -1409,7 +1529,12 @@ fn agg_fill_gradient_clipped<G: GradientFunction>(
 /// nothing to the gradient instead of poisoning it with an arbitrary
 /// visible color (the previous behaviour was hardcoded mid-gray, which
 /// produced visibly wrong output).
-const SYSTEM_COLOR_FALLBACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+const SYSTEM_COLOR_FALLBACK: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 0,
+};
 
 /// Resolve a `ColorOrSystem` against the optional system palette.
 ///
@@ -1444,7 +1569,10 @@ fn build_gradient_lut_linear(
     for stop in stops_slice {
         let offset = stop.offset.normalized() as f64; // 0.0..1.0
         let c = resolve_color(&stop.color, system_colors);
-        lut.add_color(offset, Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32));
+        lut.add_color(
+            offset,
+            Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32),
+        );
     }
     lut.build_lut();
     lut
@@ -1467,7 +1595,10 @@ fn build_gradient_lut_radial(
         // Conic stops use angle — normalize to 0..1 fraction of full circle
         let offset = (stop.angle.to_degrees() / 360.0).clamp(0.0, 1.0) as f64;
         let c = resolve_color(&stop.color, system_colors);
-        lut.add_color(offset, Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32));
+        lut.add_color(
+            offset,
+            Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32),
+        );
     }
     lut.build_lut();
     lut
@@ -1479,7 +1610,9 @@ fn resolve_background_position(
     width: f32,
     height: f32,
 ) -> (f32, f32) {
-    use azul_css::props::style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical};
+    use azul_css::props::style::background::{
+        BackgroundPositionHorizontal, BackgroundPositionVertical,
+    };
 
     let x = match pos.horizontal {
         BackgroundPositionHorizontal::Left => 0.0,
@@ -1487,7 +1620,11 @@ fn resolve_background_position(
         BackgroundPositionHorizontal::Right => 1.0,
         BackgroundPositionHorizontal::Exact(px) => {
             let val = px.to_pixels_internal(width, 16.0, 16.0);
-            if width > 0.0 { val / width } else { 0.5 }
+            if width > 0.0 {
+                val / width
+            } else {
+                0.5
+            }
         }
     };
     let y = match pos.vertical {
@@ -1496,7 +1633,11 @@ fn resolve_background_position(
         BackgroundPositionVertical::Bottom => 1.0,
         BackgroundPositionVertical::Exact(px) => {
             let val = px.to_pixels_internal(height, 16.0, 16.0);
-            if height > 0.0 { val / height } else { 0.5 }
+            if height > 0.0 {
+                val / height
+            } else {
+                0.5
+            }
         }
     };
     (x, y)
@@ -1522,7 +1663,6 @@ fn render_linear_gradient(
     if stops.is_empty() {
         return Ok(());
     }
-
 
     let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
 
@@ -1562,7 +1702,9 @@ fn render_linear_gradient(
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
 
-    agg_fill_gradient_clipped(pixmap, &mut path, &lut, GradientX, transform, 0.0, 100.0, clip);
+    agg_fill_gradient_clipped(
+        pixmap, &mut path, &lut, GradientX, transform, 0.0, 100.0, clip,
+    );
     Ok(())
 }
 
@@ -1593,7 +1735,8 @@ fn render_radial_gradient(
     let h = rect.height as f64;
 
     // Compute center from position
-    let (cx_frac, cy_frac) = resolve_background_position(&gradient.position, rect.width, rect.height);
+    let (cx_frac, cy_frac) =
+        resolve_background_position(&gradient.position, rect.width, rect.height);
     let cx = rect.x as f64 + cx_frac as f64 * w;
     let cy = rect.y as f64 + cy_frac as f64 * h;
 
@@ -1644,7 +1787,16 @@ fn render_radial_gradient(
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
 
-    agg_fill_gradient_clipped(pixmap, &mut path, &lut, GradientRadialD, transform, 0.0, 100.0, clip);
+    agg_fill_gradient_clipped(
+        pixmap,
+        &mut path,
+        &lut,
+        GradientRadialD,
+        transform,
+        0.0,
+        100.0,
+        clip,
+    );
     Ok(())
 }
 
@@ -1698,7 +1850,16 @@ fn render_conic_gradient(
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
 
-    agg_fill_gradient_clipped(pixmap, &mut path, &lut, GradientConic, transform, 0.0, d2, clip);
+    agg_fill_gradient_clipped(
+        pixmap,
+        &mut path,
+        &lut,
+        GradientConic,
+        transform,
+        0.0,
+        d2,
+        clip,
+    );
     Ok(())
 }
 
@@ -1720,10 +1881,31 @@ fn render_box_shadow(
         None => return Ok(()),
     };
 
-    let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * dpi_factor;
-    let offset_y = shadow.offset_y.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * dpi_factor;
-    let blur_r = (shadow.blur_radius.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * dpi_factor).max(0.0);
-    let spread = shadow.spread_radius.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * dpi_factor;
+    let offset_x =
+        shadow
+            .offset_x
+            .inner
+            .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+            * dpi_factor;
+    let offset_y =
+        shadow
+            .offset_y
+            .inner
+            .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+            * dpi_factor;
+    let blur_r =
+        (shadow
+            .blur_radius
+            .inner
+            .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+            * dpi_factor)
+            .max(0.0);
+    let spread =
+        shadow
+            .spread_radius
+            .inner
+            .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+            * dpi_factor;
 
     let color = shadow.color;
     if color.a == 0 {
@@ -1760,7 +1942,12 @@ fn render_box_shadow(
         None => return Ok(()),
     };
 
-    let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
+    let agg_color = Rgba8::new(
+        color.r as u32,
+        color.g as u32,
+        color.b as u32,
+        color.a as u32,
+    );
     if border_radius.is_zero() {
         let mut path = build_rect_path(&shape_rect);
         agg_fill_path(&mut tmp, &mut path, &agg_color, FillingRule::NonZero);
@@ -1773,9 +1960,7 @@ fn render_box_shadow(
     if blur_r > 0.5 {
         let blur_radius = (blur_r.ceil() as u32).min(254);
         let stride = (sw * 4) as i32;
-        let mut ra = unsafe {
-            RowAccessor::new_with_buf(tmp.data.as_mut_ptr(), sw, sh, stride)
-        };
+        let mut ra = unsafe { RowAccessor::new_with_buf(tmp.data.as_mut_ptr(), sw, sh, stride) };
         stack_blur_rgba32(&mut ra, blur_radius, blur_radius);
     }
 
@@ -1822,9 +2007,12 @@ fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx: i32
             } else {
                 // Premultiplied-alpha compositing: src RGB already premultiplied by AGG
                 let inv_sa = 255 - sa;
-                dst.data[di]     = ((src[si] as u32 + dst.data[di] as u32 * inv_sa / 255).min(255)) as u8;
-                dst.data[di + 1] = ((src[si + 1] as u32 + dst.data[di + 1] as u32 * inv_sa / 255).min(255)) as u8;
-                dst.data[di + 2] = ((src[si + 2] as u32 + dst.data[di + 2] as u32 * inv_sa / 255).min(255)) as u8;
+                dst.data[di] =
+                    ((src[si] as u32 + dst.data[di] as u32 * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 1] =
+                    ((src[si + 1] as u32 + dst.data[di + 1] as u32 * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 2] =
+                    ((src[si + 2] as u32 + dst.data[di + 2] as u32 * inv_sa / 255).min(255)) as u8;
                 dst.data[di + 3] = ((sa + dst.data[di + 3] as u32 * inv_sa / 255).min(255)) as u8;
             }
         }
@@ -1898,9 +2086,7 @@ fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Opt
                 _ => return None,
             };
             match descriptor.format {
-                azul_core::resources::RawImageFormat::R8 => {
-                    (bytes.to_vec(), w, h)
-                }
+                azul_core::resources::RawImageFormat::R8 => (bytes.to_vec(), w, h),
                 azul_core::resources::RawImageFormat::BGRA8 => {
                     // Use alpha channel as mask
                     let mut r8 = Vec::with_capacity((w * h) as usize);
@@ -1948,9 +2134,21 @@ fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Opt
 /// (pre-mask state) and the current pixmap state using the mask value.
 fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
     let (snapshot, mask_data, origin_x, origin_y, width, height) = match entry {
-        MaskEntry::ImageMask { snapshot, mask_data, origin_x, origin_y, width, height } => {
-            (snapshot, mask_data.as_slice(), *origin_x, *origin_y, *width, *height)
-        }
+        MaskEntry::ImageMask {
+            snapshot,
+            mask_data,
+            origin_x,
+            origin_y,
+            width,
+            height,
+        } => (
+            snapshot,
+            mask_data.as_slice(),
+            *origin_x,
+            *origin_y,
+            *width,
+            *height,
+        ),
         _ => return,
     };
 
@@ -2022,7 +2220,11 @@ pub fn render(
         dpi_factor,
     } = opts;
 
-    let mut pixmap = acquire_pixmap(None, (width * dpi_factor) as u32, (height * dpi_factor) as u32)?;
+    let mut pixmap = acquire_pixmap(
+        None,
+        (width * dpi_factor) as u32,
+        (height * dpi_factor) as u32,
+    )?;
     pixmap.fill(255, 255, 255, 255);
 
     render_display_list(dl, &mut pixmap, dpi_factor, res, None, glyph_cache)?;
@@ -2053,7 +2255,15 @@ pub fn render_with_font_manager_and_scroll(
     glyph_cache: &mut GlyphCache,
     render_state: &CpuRenderState,
 ) -> Result<AzulPixmap, String> {
-    render_with_font_manager_and_scroll_retained(dl, res, font_manager, opts, glyph_cache, render_state, None)
+    render_with_font_manager_and_scroll_retained(
+        dl,
+        res,
+        font_manager,
+        opts,
+        glyph_cache,
+        render_state,
+        None,
+    )
 }
 
 /// Render with optional retained pixmap. If `retained` is Some and matches
@@ -2079,11 +2289,18 @@ pub fn render_with_font_manager_and_scroll_retained(
     let mut pixmap = acquire_pixmap(retained, pw, ph)?;
     pixmap.fill(255, 255, 255, 255);
 
-    render_display_list_with_state(dl, &mut pixmap, dpi_factor, res, Some(font_manager), glyph_cache, render_state)?;
+    render_display_list_with_state(
+        dl,
+        &mut pixmap,
+        dpi_factor,
+        res,
+        Some(font_manager),
+        glyph_cache,
+        render_state,
+    )?;
 
     Ok(pixmap)
 }
-
 
 /// Scroll offsets keyed by scroll_id (LocalScrollId).
 /// Passed to the renderer so it can look up the current scroll position
@@ -2120,8 +2337,12 @@ pub fn compute_display_list_damage(
         if !old_item.is_visually_equal(new_item) {
             let old_bounds = old_item.visual_bounds();
             let new_bounds = new_item.visual_bounds();
-            if let Some(ob) = old_bounds { damage.push(ob); }
-            if let Some(nb) = new_bounds { damage.push(nb); }
+            if let Some(ob) = old_bounds {
+                damage.push(ob);
+            }
+            if let Some(nb) = new_bounds {
+                damage.push(nb);
+            }
         }
     }
 
@@ -2132,7 +2353,9 @@ pub fn compute_display_list_damage(
 
 /// Merge overlapping or adjacent damage rects to reduce overdraw.
 fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
-    if rects.len() <= 1 { return; }
+    if rects.len() <= 1 {
+        return;
+    }
 
     // Simple O(n^2) merge — fine for typical damage counts (<20 rects)
     let mut changed = true;
@@ -2171,26 +2394,40 @@ pub fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
     let bottom = (a.origin.y + a.size.height).max(b.origin.y + b.size.height);
     LogicalRect {
         origin: LogicalPosition { x, y },
-        size: LogicalSize { width: right - x, height: bottom - y },
+        size: LogicalSize {
+            width: right - x,
+            height: bottom - y,
+        },
     }
 }
 
 /// Compute damage rects for a grow-only window resize.
 /// Returns the right strip and bottom strip that need rendering.
 pub fn compute_resize_damage(
-    old_width: f32, old_height: f32,
-    new_width: f32, new_height: f32,
+    old_width: f32,
+    old_height: f32,
+    new_width: f32,
+    new_height: f32,
 ) -> Vec<LogicalRect> {
     let mut rects = Vec::new();
     if new_width > old_width {
         rects.push(LogicalRect {
-            origin: LogicalPosition { x: old_width, y: 0.0 },
-            size: LogicalSize { width: new_width - old_width, height: new_height },
+            origin: LogicalPosition {
+                x: old_width,
+                y: 0.0,
+            },
+            size: LogicalSize {
+                width: new_width - old_width,
+                height: new_height,
+            },
         });
     }
     if new_height > old_height {
         rects.push(LogicalRect {
-            origin: LogicalPosition { x: 0.0, y: old_height },
+            origin: LogicalPosition {
+                x: 0.0,
+                y: old_height,
+            },
             size: LogicalSize {
                 width: old_width.min(new_width),
                 height: new_height - old_height,
@@ -2203,8 +2440,12 @@ pub fn compute_resize_damage(
 /// Compare a rectangular sub-region of two pixmaps pixel-by-pixel.
 /// Returns the number of pixels that differ by more than `threshold` per channel.
 pub fn compare_region(
-    a: &AzulPixmap, b: &AzulPixmap,
-    x: u32, y: u32, w: u32, h: u32,
+    a: &AzulPixmap,
+    b: &AzulPixmap,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
     threshold: u8,
 ) -> usize {
     let mut diff_count = 0;
@@ -2212,10 +2453,12 @@ pub fn compare_region(
         for col in x..(x + w).min(a.width).min(b.width) {
             let ai = (row * a.width + col) as usize * 4;
             let bi = (row * b.width + col) as usize * 4;
-            if ai + 3 >= a.data.len() || bi + 3 >= b.data.len() { continue; }
+            if ai + 3 >= a.data.len() || bi + 3 >= b.data.len() {
+                continue;
+            }
             let dr = (a.data[ai] as i16 - b.data[bi] as i16).unsigned_abs() as u8;
-            let dg = (a.data[ai+1] as i16 - b.data[bi+1] as i16).unsigned_abs() as u8;
-            let db = (a.data[ai+2] as i16 - b.data[bi+2] as i16).unsigned_abs() as u8;
+            let dg = (a.data[ai + 1] as i16 - b.data[bi + 1] as i16).unsigned_abs() as u8;
+            let db = (a.data[ai + 2] as i16 - b.data[bi + 2] as i16).unsigned_abs() as u8;
             if dr > threshold || dg > threshold || db > threshold {
                 diff_count += 1;
             }
@@ -2335,7 +2578,15 @@ fn render_display_list(
     glyph_cache: &mut GlyphCache,
 ) -> Result<(), String> {
     let empty_state = CpuRenderState::new(ScrollOffsetMap::new());
-    render_display_list_with_state(display_list, pixmap, dpi_factor, renderer_resources, font_manager, glyph_cache, &empty_state)
+    render_display_list_with_state(
+        display_list,
+        pixmap,
+        dpi_factor,
+        renderer_resources,
+        font_manager,
+        glyph_cache,
+        &empty_state,
+    )
 }
 
 fn render_display_list_with_state(
@@ -2469,9 +2720,9 @@ pub fn render_display_list_damaged(
         if !item.is_state_management() {
             if let Some(item_bounds) = item.bounds() {
                 // Check if item intersects ANY damage rect (not just the union)
-                let hits_damage = damage_rects.iter().any(|dr| {
-                    rects_overlap_or_adjacent(&item_bounds, dr, 0.0)
-                });
+                let hits_damage = damage_rects
+                    .iter()
+                    .any(|dr| rects_overlap_or_adjacent(&item_bounds, dr, 0.0));
                 if !hits_damage {
                     continue;
                 }
@@ -2518,7 +2769,9 @@ fn render_single_item(
     // the scroll offset shifts them so the visible portion aligns
     // with the clip region.
     let scroll_rect = |r: &LogicalRect| -> LogicalRect {
-        if scroll_dx == 0.0 && scroll_dy == 0.0 { return *r; }
+        if scroll_dx == 0.0 && scroll_dy == 0.0 {
+            return *r;
+        }
         LogicalRect {
             origin: LogicalPosition {
                 x: r.origin.x - scroll_dx,
@@ -2529,235 +2782,318 @@ fn render_single_item(
     };
 
     match item {
-            DisplayListItem::Rect {
-                bounds,
-                color,
+        DisplayListItem::Rect {
+            bounds,
+            color,
+            border_radius,
+        } => {
+            let clip = *clip_stack.last().unwrap();
+            render_rect(
+                pixmap,
+                &scroll_rect(bounds.inner()),
+                *color,
                 border_radius,
-            } => {
-                let clip = *clip_stack.last().unwrap();
-                render_rect(
-                    pixmap,
-                    &scroll_rect(bounds.inner()),
-                    *color,
-                    border_radius,
-                    clip,
-                    dpi_factor,
-                )?;
-            }
-            DisplayListItem::SelectionRect {
-                bounds,
-                color,
+                clip,
+                dpi_factor,
+            )?;
+        }
+        DisplayListItem::SelectionRect {
+            bounds,
+            color,
+            border_radius,
+        } => {
+            let clip = *clip_stack.last().unwrap();
+            render_rect(
+                pixmap,
+                &scroll_rect(bounds.inner()),
+                *color,
                 border_radius,
-            } => {
-                let clip = *clip_stack.last().unwrap();
-                render_rect(
+                clip,
+                dpi_factor,
+            )?;
+        }
+        DisplayListItem::CursorRect { bounds, color } => {
+            let clip = *clip_stack.last().unwrap();
+            render_rect(
+                pixmap,
+                &scroll_rect(bounds.inner()),
+                *color,
+                &BorderRadius::default(),
+                clip,
+                dpi_factor,
+            )?;
+        }
+        DisplayListItem::Border {
+            bounds,
+            widths,
+            colors,
+            styles,
+            border_radius,
+        } => {
+            let default_color = ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            };
+
+            let w_top = widths
+                .top
+                .and_then(|w| w.get_property().cloned())
+                .map(|w| {
+                    w.inner
+                        .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                })
+                .unwrap_or(0.0);
+            let w_right = widths
+                .right
+                .and_then(|w| w.get_property().cloned())
+                .map(|w| {
+                    w.inner
+                        .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                })
+                .unwrap_or(0.0);
+            let w_bottom = widths
+                .bottom
+                .and_then(|w| w.get_property().cloned())
+                .map(|w| {
+                    w.inner
+                        .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                })
+                .unwrap_or(0.0);
+            let w_left = widths
+                .left
+                .and_then(|w| w.get_property().cloned())
+                .map(|w| {
+                    w.inner
+                        .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                })
+                .unwrap_or(0.0);
+
+            let c_top = colors
+                .top
+                .and_then(|c| c.get_property().cloned())
+                .map(|c| c.inner)
+                .unwrap_or(default_color);
+            let c_right = colors
+                .right
+                .and_then(|c| c.get_property().cloned())
+                .map(|c| c.inner)
+                .unwrap_or(default_color);
+            let c_bottom = colors
+                .bottom
+                .and_then(|c| c.get_property().cloned())
+                .map(|c| c.inner)
+                .unwrap_or(default_color);
+            let c_left = colors
+                .left
+                .and_then(|c| c.get_property().cloned())
+                .map(|c| c.inner)
+                .unwrap_or(default_color);
+
+            use azul_css::props::style::border::BorderStyle;
+            let s_top = styles
+                .top
+                .and_then(|s| s.get_property().cloned())
+                .map(|s| s.inner)
+                .unwrap_or(BorderStyle::Solid);
+            let s_right = styles
+                .right
+                .and_then(|s| s.get_property().cloned())
+                .map(|s| s.inner)
+                .unwrap_or(BorderStyle::Solid);
+            let s_bottom = styles
+                .bottom
+                .and_then(|s| s.get_property().cloned())
+                .map(|s| s.inner)
+                .unwrap_or(BorderStyle::Solid);
+            let s_left = styles
+                .left
+                .and_then(|s| s.get_property().cloned())
+                .map(|s| s.inner)
+                .unwrap_or(BorderStyle::Solid);
+
+            let simple_radius = BorderRadius {
+                top_left: border_radius.top_left.to_pixels_internal(
+                    bounds.0.size.width,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ),
+                top_right: border_radius.top_right.to_pixels_internal(
+                    bounds.0.size.width,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ),
+                bottom_left: border_radius.bottom_left.to_pixels_internal(
+                    bounds.0.size.width,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ),
+                bottom_right: border_radius.bottom_right.to_pixels_internal(
+                    bounds.0.size.width,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ),
+            };
+
+            let clip = *clip_stack.last().unwrap();
+            let b = scroll_rect(bounds.inner());
+
+            // If all sides same color/width/style, use single render_border call
+            let all_same = c_top == c_right
+                && c_top == c_bottom
+                && c_top == c_left
+                && w_top == w_right
+                && w_top == w_bottom
+                && w_top == w_left
+                && s_top == s_right
+                && s_top == s_bottom
+                && s_top == s_left;
+
+            if all_same {
+                render_border(
                     pixmap,
-                    &scroll_rect(bounds.inner()),
-                    *color,
-                    border_radius,
+                    &b,
+                    c_top,
+                    w_top,
+                    s_top,
+                    &simple_radius,
+                    clip,
+                    dpi_factor,
+                )?;
+            } else {
+                // Per-side rendering: render each side separately
+                render_border_sides(
+                    pixmap,
+                    &b,
+                    [c_top, c_right, c_bottom, c_left],
+                    [w_top, w_right, w_bottom, w_left],
+                    [s_top, s_right, s_bottom, s_left],
+                    &simple_radius,
                     clip,
                     dpi_factor,
                 )?;
             }
-            DisplayListItem::CursorRect { bounds, color } => {
-                let clip = *clip_stack.last().unwrap();
-                render_rect(
-                    pixmap,
-                    &scroll_rect(bounds.inner()),
-                    *color,
-                    &BorderRadius::default(),
-                    clip,
-                    dpi_factor,
-                )?;
-            }
-            DisplayListItem::Border {
-                bounds,
-                widths,
-                colors,
-                styles,
-                border_radius,
-            } => {
-                let default_color = ColorU { r: 0, g: 0, b: 0, a: 255 };
-
-                let w_top = widths.top.and_then(|w| w.get_property().cloned())
-                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-                let w_right = widths.right.and_then(|w| w.get_property().cloned())
-                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-                let w_bottom = widths.bottom.and_then(|w| w.get_property().cloned())
-                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-                let w_left = widths.left.and_then(|w| w.get_property().cloned())
-                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-
-                let c_top = colors.top.and_then(|c| c.get_property().cloned())
-                    .map(|c| c.inner).unwrap_or(default_color);
-                let c_right = colors.right.and_then(|c| c.get_property().cloned())
-                    .map(|c| c.inner).unwrap_or(default_color);
-                let c_bottom = colors.bottom.and_then(|c| c.get_property().cloned())
-                    .map(|c| c.inner).unwrap_or(default_color);
-                let c_left = colors.left.and_then(|c| c.get_property().cloned())
-                    .map(|c| c.inner).unwrap_or(default_color);
-
-                use azul_css::props::style::border::BorderStyle;
-                let s_top = styles.top.and_then(|s| s.get_property().cloned())
-                    .map(|s| s.inner).unwrap_or(BorderStyle::Solid);
-                let s_right = styles.right.and_then(|s| s.get_property().cloned())
-                    .map(|s| s.inner).unwrap_or(BorderStyle::Solid);
-                let s_bottom = styles.bottom.and_then(|s| s.get_property().cloned())
-                    .map(|s| s.inner).unwrap_or(BorderStyle::Solid);
-                let s_left = styles.left.and_then(|s| s.get_property().cloned())
-                    .map(|s| s.inner).unwrap_or(BorderStyle::Solid);
-
-                let simple_radius = BorderRadius {
-                    top_left: border_radius.top_left
-                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
-                    top_right: border_radius.top_right
-                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
-                    bottom_left: border_radius.bottom_left
-                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
-                    bottom_right: border_radius.bottom_right
-                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
-                };
-
-                let clip = *clip_stack.last().unwrap();
-                let b = scroll_rect(bounds.inner());
-
-                // If all sides same color/width/style, use single render_border call
-                let all_same = c_top == c_right && c_top == c_bottom && c_top == c_left
-                    && w_top == w_right && w_top == w_bottom && w_top == w_left
-                    && s_top == s_right && s_top == s_bottom && s_top == s_left;
-
-                if all_same {
-                    render_border(pixmap, &b, c_top, w_top, s_top, &simple_radius, clip, dpi_factor)?;
-                } else {
-                    // Per-side rendering: render each side separately
-                    render_border_sides(
-                        pixmap, &b,
-                        [c_top, c_right, c_bottom, c_left],
-                        [w_top, w_right, w_bottom, w_left],
-                        [s_top, s_right, s_bottom, s_left],
-                        &simple_radius, clip, dpi_factor,
-                    )?;
-                }
-            }
-            DisplayListItem::Underline {
-                bounds,
-                color,
-                thickness: _,
-            } => {
-                let clip = *clip_stack.last().unwrap();
-                render_rect(
-                    pixmap,
-                    &scroll_rect(bounds.inner()),
-                    *color,
-                    &BorderRadius::default(),
-                    clip,
-                    dpi_factor,
-                )?;
-            }
-            DisplayListItem::Strikethrough {
-                bounds,
-                color,
-                thickness: _,
-            } => {
-                let clip = *clip_stack.last().unwrap();
-                render_rect(
-                    pixmap,
-                    &scroll_rect(bounds.inner()),
-                    *color,
-                    &BorderRadius::default(),
-                    clip,
-                    dpi_factor,
-                )?;
-            }
-            DisplayListItem::Overline {
-                bounds,
-                color,
-                thickness: _,
-            } => {
-                let clip = *clip_stack.last().unwrap();
-                render_rect(
-                    pixmap,
-                    &scroll_rect(bounds.inner()),
-                    *color,
-                    &BorderRadius::default(),
-                    clip,
-                    dpi_factor,
-                )?;
-            }
-            DisplayListItem::Text {
+        }
+        DisplayListItem::Underline {
+            bounds,
+            color,
+            thickness: _,
+        } => {
+            let clip = *clip_stack.last().unwrap();
+            render_rect(
+                pixmap,
+                &scroll_rect(bounds.inner()),
+                *color,
+                &BorderRadius::default(),
+                clip,
+                dpi_factor,
+            )?;
+        }
+        DisplayListItem::Strikethrough {
+            bounds,
+            color,
+            thickness: _,
+        } => {
+            let clip = *clip_stack.last().unwrap();
+            render_rect(
+                pixmap,
+                &scroll_rect(bounds.inner()),
+                *color,
+                &BorderRadius::default(),
+                clip,
+                dpi_factor,
+            )?;
+        }
+        DisplayListItem::Overline {
+            bounds,
+            color,
+            thickness: _,
+        } => {
+            let clip = *clip_stack.last().unwrap();
+            render_rect(
+                pixmap,
+                &scroll_rect(bounds.inner()),
+                *color,
+                &BorderRadius::default(),
+                clip,
+                dpi_factor,
+            )?;
+        }
+        DisplayListItem::Text {
+            glyphs,
+            font_size_px,
+            font_hash,
+            color,
+            clip_rect,
+            ..
+        } => {
+            let clip = *clip_stack.last().unwrap();
+            render_text(
                 glyphs,
-                font_size_px,
-                font_hash,
-                color,
-                clip_rect,
-                ..
-            } => {
-                let clip = *clip_stack.last().unwrap();
-                render_text(
-                    glyphs,
-                    *font_hash,
-                    *font_size_px,
-                    *color,
-                    pixmap,
-                    &scroll_rect(clip_rect.inner()),
-                    clip,
-                    renderer_resources,
-                    font_manager,
-                    dpi_factor,
-                    glyph_cache,
-                    (scroll_dx, scroll_dy),
-                )?;
-            }
-            DisplayListItem::TextLayout {
-                layout,
-                bounds,
-                font_hash,
-                font_size_px,
-                color,
-            } => {
-                // TextLayout is metadata for PDF/accessibility - skip in CPU rendering
-            }
-            DisplayListItem::Image { bounds, image, .. } => {
-                let clip = *clip_stack.last().unwrap();
-                render_image(
-                    pixmap,
-                    &scroll_rect(bounds.inner()),
-                    image,
-                    clip,
-                    dpi_factor,
-                )?;
-            }
-            DisplayListItem::ScrollBar {
-                bounds,
-                color,
-                orientation,
-                opacity_key: _,
-                hit_id: _,
-            } => {
-                let clip = *clip_stack.last().unwrap();
-                render_rect(
-                    pixmap,
-                    &scroll_rect(bounds.inner()),
-                    *color,
-                    &BorderRadius::default(),
-                    clip,
-                    dpi_factor,
-                )?;
-            }
-            DisplayListItem::ScrollBarStyled { info } => {
-                let clip = *clip_stack.last().unwrap();
+                *font_hash,
+                *font_size_px,
+                *color,
+                pixmap,
+                &scroll_rect(clip_rect.inner()),
+                clip,
+                renderer_resources,
+                font_manager,
+                dpi_factor,
+                glyph_cache,
+                (scroll_dx, scroll_dy),
+            )?;
+        }
+        DisplayListItem::TextLayout {
+            layout,
+            bounds,
+            font_hash,
+            font_size_px,
+            color,
+        } => {
+            // TextLayout is metadata for PDF/accessibility - skip in CPU rendering
+        }
+        DisplayListItem::Image { bounds, image, .. } => {
+            let clip = *clip_stack.last().unwrap();
+            render_image(
+                pixmap,
+                &scroll_rect(bounds.inner()),
+                image,
+                clip,
+                dpi_factor,
+            )?;
+        }
+        DisplayListItem::ScrollBar {
+            bounds,
+            color,
+            orientation,
+            opacity_key: _,
+            hit_id: _,
+        } => {
+            let clip = *clip_stack.last().unwrap();
+            render_rect(
+                pixmap,
+                &scroll_rect(bounds.inner()),
+                *color,
+                &BorderRadius::default(),
+                clip,
+                dpi_factor,
+            )?;
+        }
+        DisplayListItem::ScrollBarStyled { info } => {
+            let clip = *clip_stack.last().unwrap();
 
-                // Resolve scrollbar opacity from the GPU value cache.
-                // WhenScrolling mode starts at 0.0 and fades to 1.0 on scroll.
-                // In cpurender we read the current value; if none is cached
-                // (e.g. headless mode never ran synchronize_scrollbar_opacity)
-                // default to 1.0 so the scrollbar is always visible.
-                let scrollbar_opacity = info.opacity_key
-                    .and_then(|key| render_state.opacities.get(&key.id).copied())
-                    .unwrap_or(1.0);
+            // Resolve scrollbar opacity from the GPU value cache.
+            // WhenScrolling mode starts at 0.0 and fades to 1.0 on scroll.
+            // In cpurender we read the current value; if none is cached
+            // (e.g. headless mode never ran synchronize_scrollbar_opacity)
+            // default to 1.0 so the scrollbar is always visible.
+            let scrollbar_opacity = info
+                .opacity_key
+                .and_then(|key| render_state.opacities.get(&key.id).copied())
+                .unwrap_or(1.0);
 
-                if scrollbar_opacity > 0.001 {
-
+            if scrollbar_opacity > 0.001 {
                 // Render track
                 if info.track_color.a > 0 {
                     render_rect(
@@ -2805,7 +3141,8 @@ fn render_single_item(
                 if info.thumb_color.a > 0 {
                     let thumb_rect = info.thumb_bounds.inner();
                     // Look up live transform from render_state if available
-                    let transform = info.thumb_transform_key
+                    let transform = info
+                        .thumb_transform_key
                         .and_then(|key| render_state.transforms.get(&key.id))
                         .unwrap_or(&info.thumb_initial_transform);
                     let tx = transform.m[3][0];
@@ -2826,256 +3163,281 @@ fn render_single_item(
                         dpi_factor,
                     )?;
                 }
+            } // end scrollbar_opacity > 0
+        }
+        DisplayListItem::PushClip {
+            bounds,
+            border_radius,
+        } => {
+            let new_clip = logical_rect_to_az_rect(bounds.inner(), dpi_factor);
+            clip_stack.push(new_clip);
+        }
+        DisplayListItem::PopClip => {
+            clip_stack.pop();
+            if clip_stack.is_empty() {
+                return Err("Clip stack underflow".to_string());
+            }
+        }
+        DisplayListItem::PushScrollFrame { scroll_id, .. } => {
+            // Scroll frame = scroll offset only.
+            // The display list generator always emits PushClip before
+            // PushScrollFrame with the same clip bounds, so we don't
+            // need to push another clip here — that would double-clip.
+            transform_stack.push(
+                transform_stack
+                    .last()
+                    .cloned()
+                    .unwrap_or_else(TransAffine::new),
+            );
+            let frame_offset = render_state
+                .scroll_offsets
+                .get(scroll_id)
+                .copied()
+                .unwrap_or((0.0, 0.0));
+            let new_scroll = (scroll_dx + frame_offset.0, scroll_dy + frame_offset.1);
+            scroll_offset_stack.push(new_scroll);
+        }
+        DisplayListItem::PopScrollFrame => {
+            // Only pop transform and scroll offset — the clip was pushed
+            // by a separate PushClip and will be popped by PopClip.
+            if transform_stack.len() > 1 {
+                transform_stack.pop();
+            }
+            if scroll_offset_stack.len() > 1 {
+                scroll_offset_stack.pop();
+            }
+        }
+        DisplayListItem::HitTestArea { bounds, tag } => {
+            // Hit test areas don't render anything
+        }
+        DisplayListItem::PushStackingContext { z_index, bounds } => {
+            // For CPU rendering, stacking contexts are already handled by display list order
+        }
+        DisplayListItem::PopStackingContext => {}
+        DisplayListItem::VirtualView {
+            child_dom_id,
+            bounds,
+            clip_rect,
+        } => {
+            let clip = *clip_stack.last().unwrap();
+            // Debug placeholder: semi-transparent blue overlay for virtual views
+            render_rect(
+                pixmap,
+                &scroll_rect(bounds.inner()),
+                ColorU {
+                    r: 200,
+                    g: 200,
+                    b: 255,
+                    a: 128,
+                },
+                &BorderRadius::default(),
+                clip,
+                dpi_factor,
+            )?;
+        }
+        DisplayListItem::VirtualViewPlaceholder { .. } => {}
 
-                } // end scrollbar_opacity > 0
-            }
-            DisplayListItem::PushClip {
-                bounds,
-                border_radius,
-            } => {
-                let new_clip = logical_rect_to_az_rect(bounds.inner(), dpi_factor);
-                clip_stack.push(new_clip);
-            }
-            DisplayListItem::PopClip => {
-                clip_stack.pop();
-                if clip_stack.is_empty() {
-                    return Err("Clip stack underflow".to_string());
-                }
-            }
-            DisplayListItem::PushScrollFrame {
-                scroll_id,
-                ..
-            } => {
-                // Scroll frame = scroll offset only.
-                // The display list generator always emits PushClip before
-                // PushScrollFrame with the same clip bounds, so we don't
-                // need to push another clip here — that would double-clip.
-                transform_stack.push(transform_stack.last().cloned().unwrap_or_else(TransAffine::new));
-                let frame_offset = render_state.scroll_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
-                let new_scroll = (
-                    scroll_dx + frame_offset.0,
-                    scroll_dy + frame_offset.1,
-                );
-                scroll_offset_stack.push(new_scroll);
-            }
-            DisplayListItem::PopScrollFrame => {
-                // Only pop transform and scroll offset — the clip was pushed
-                // by a separate PushClip and will be popped by PopClip.
-                if transform_stack.len() > 1 {
-                    transform_stack.pop();
-                }
-                if scroll_offset_stack.len() > 1 {
-                    scroll_offset_stack.pop();
-                }
-            }
-            DisplayListItem::HitTestArea { bounds, tag } => {
-                // Hit test areas don't render anything
-            }
-            DisplayListItem::PushStackingContext { z_index, bounds } => {
-                // For CPU rendering, stacking contexts are already handled by display list order
-            }
-            DisplayListItem::PopStackingContext => {}
-            DisplayListItem::VirtualView {
-                child_dom_id,
-                bounds,
-                clip_rect,
-            } => {
-                let clip = *clip_stack.last().unwrap();
-                // Debug placeholder: semi-transparent blue overlay for virtual views
-                render_rect(
-                    pixmap,
-                    &scroll_rect(bounds.inner()),
-                    ColorU {
-                        r: 200,
-                        g: 200,
-                        b: 255,
-                        a: 128,
-                    },
-                    &BorderRadius::default(),
-                    clip,
-                    dpi_factor,
-                )?;
-            }
-            DisplayListItem::VirtualViewPlaceholder { .. } => {}
-
-            // Gradient rendering
-            DisplayListItem::LinearGradient {
-                bounds,
+        // Gradient rendering
+        DisplayListItem::LinearGradient {
+            bounds,
+            gradient,
+            border_radius,
+        } => {
+            let clip = *clip_stack.last().unwrap();
+            render_linear_gradient(
+                pixmap,
+                &scroll_rect(bounds.inner()),
                 gradient,
                 border_radius,
-            } => {
-                let clip = *clip_stack.last().unwrap();
-                render_linear_gradient(
-                    pixmap,
-                    &scroll_rect(bounds.inner()),
-                    gradient,
-                    border_radius,
-                    clip,
-                    dpi_factor,
-                    render_state.system_style.as_deref().map(|s| &s.colors),
-                )?;
-            }
-            DisplayListItem::RadialGradient {
-                bounds,
+                clip,
+                dpi_factor,
+                render_state.system_style.as_deref().map(|s| &s.colors),
+            )?;
+        }
+        DisplayListItem::RadialGradient {
+            bounds,
+            gradient,
+            border_radius,
+        } => {
+            let clip = *clip_stack.last().unwrap();
+            render_radial_gradient(
+                pixmap,
+                &scroll_rect(bounds.inner()),
                 gradient,
                 border_radius,
-            } => {
-                let clip = *clip_stack.last().unwrap();
-                render_radial_gradient(
-                    pixmap,
-                    &scroll_rect(bounds.inner()),
-                    gradient,
-                    border_radius,
-                    clip,
-                    dpi_factor,
-                    render_state.system_style.as_deref().map(|s| &s.colors),
-                )?;
-            }
-            DisplayListItem::ConicGradient {
-                bounds,
+                clip,
+                dpi_factor,
+                render_state.system_style.as_deref().map(|s| &s.colors),
+            )?;
+        }
+        DisplayListItem::ConicGradient {
+            bounds,
+            gradient,
+            border_radius,
+        } => {
+            let clip = *clip_stack.last().unwrap();
+            render_conic_gradient(
+                pixmap,
+                &scroll_rect(bounds.inner()),
                 gradient,
                 border_radius,
-            } => {
-                let clip = *clip_stack.last().unwrap();
-                render_conic_gradient(
-                    pixmap,
-                    &scroll_rect(bounds.inner()),
-                    gradient,
-                    border_radius,
-                    clip,
-                    dpi_factor,
-                    render_state.system_style.as_deref().map(|s| &s.colors),
-                )?;
-            }
+                clip,
+                dpi_factor,
+                render_state.system_style.as_deref().map(|s| &s.colors),
+            )?;
+        }
 
-            // BoxShadow
-            DisplayListItem::BoxShadow {
-                bounds,
+        // BoxShadow
+        DisplayListItem::BoxShadow {
+            bounds,
+            shadow,
+            border_radius,
+        } => {
+            render_box_shadow(
+                pixmap,
+                &scroll_rect(bounds.inner()),
                 shadow,
                 border_radius,
-            } => {
-                render_box_shadow(
-                    pixmap,
-                    &scroll_rect(bounds.inner()),
-                    shadow,
-                    border_radius,
-                    dpi_factor,
-                )?;
-            }
+                dpi_factor,
+            )?;
+        }
 
-            // --- Opacity layers ---
-            DisplayListItem::PushOpacity { bounds, opacity } => {
-                let rect = logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor);
-                if let Some(r) = rect {
-                    let snap = snapshot_region(pixmap, r.x as i32, r.y as i32, r.width as u32, r.height as u32);
-                    mask_stack.push(MaskEntry::Opacity {
-                        snapshot: snap,
-                        rect: r,
-                        opacity: *opacity,
-                    });
-                }
+        // --- Opacity layers ---
+        DisplayListItem::PushOpacity { bounds, opacity } => {
+            let rect = logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor);
+            if let Some(r) = rect {
+                let snap = snapshot_region(
+                    pixmap,
+                    r.x as i32,
+                    r.y as i32,
+                    r.width as u32,
+                    r.height as u32,
+                );
+                mask_stack.push(MaskEntry::Opacity {
+                    snapshot: snap,
+                    rect: r,
+                    opacity: *opacity,
+                });
             }
-            DisplayListItem::PopOpacity => {
-                if let Some(MaskEntry::Opacity { snapshot, rect, opacity }) = mask_stack.pop() {
-                    let x = rect.x as i32;
-                    let y = rect.y as i32;
-                    let w = rect.width as u32;
-                    let h = rect.height as u32;
-                    let pw = pixmap.width as i32;
-                    let ph = pixmap.height as i32;
-                    // Blend: result = snapshot + (current - snapshot) * opacity
-                    for py in 0..h as i32 {
-                        let dy = y + py;
-                        if dy < 0 || dy >= ph { continue; }
-                        for px in 0..w as i32 {
-                            let dx = x + px;
-                            if dx < 0 || dx >= pw { continue; }
-                            let pi = ((dy as u32 * pixmap.width + dx as u32) * 4) as usize;
-                            let si = ((py as u32 * w + px as u32) * 4) as usize;
-                            if pi + 3 >= pixmap.data.len() || si + 3 >= snapshot.len() { continue; }
-                            let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
-                            let inv_op = 255 - op;
-                            for c in 0..4 {
-                                let snap_c = snapshot[si + c] as u32;
-                                let cur_c = pixmap.data[pi + c] as u32;
-                                pixmap.data[pi + c] = ((cur_c * op + snap_c * inv_op) / 255) as u8;
-                            }
+        }
+        DisplayListItem::PopOpacity => {
+            if let Some(MaskEntry::Opacity {
+                snapshot,
+                rect,
+                opacity,
+            }) = mask_stack.pop()
+            {
+                let x = rect.x as i32;
+                let y = rect.y as i32;
+                let w = rect.width as u32;
+                let h = rect.height as u32;
+                let pw = pixmap.width as i32;
+                let ph = pixmap.height as i32;
+                // Blend: result = snapshot + (current - snapshot) * opacity
+                for py in 0..h as i32 {
+                    let dy = y + py;
+                    if dy < 0 || dy >= ph {
+                        continue;
+                    }
+                    for px in 0..w as i32 {
+                        let dx = x + px;
+                        if dx < 0 || dx >= pw {
+                            continue;
+                        }
+                        let pi = ((dy as u32 * pixmap.width + dx as u32) * 4) as usize;
+                        let si = ((py as u32 * w + px as u32) * 4) as usize;
+                        if pi + 3 >= pixmap.data.len() || si + 3 >= snapshot.len() {
+                            continue;
+                        }
+                        let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
+                        let inv_op = 255 - op;
+                        for c in 0..4 {
+                            let snap_c = snapshot[si + c] as u32;
+                            let cur_c = pixmap.data[pi + c] as u32;
+                            pixmap.data[pi + c] = ((cur_c * op + snap_c * inv_op) / 255) as u8;
                         }
                     }
                 }
             }
+        }
 
-            // --- Reference frames (CSS transforms) ---
-            DisplayListItem::PushReferenceFrame {
-                transform_key,
-                initial_transform,
-                bounds,
-            } => {
-                // Look up the current GPU-cached transform value for this key.
-                // For scrollbar thumbs, the GpuValueCache stores the up-to-date
-                // thumb translation. For CSS transforms, it stores the computed
-                // matrix. Falls back to the initial_transform baked in the DL.
-                let live_transform = render_state.transforms.get(&transform_key.id);
-                let m = match live_transform {
-                    Some(t) => &t.m,
-                    None => &initial_transform.m,
-                };
-                let tf = TransAffine::new_custom(
-                    m[0][0] as f64, m[0][1] as f64, // sx, shy
-                    m[1][0] as f64, m[1][1] as f64, // shx, sy
-                    m[3][0] as f64, m[3][1] as f64, // tx, ty
-                );
-                let current = transform_stack.last().cloned().unwrap_or_else(TransAffine::new);
-                let mut composed = tf;
-                composed.premultiply(&current);
-                transform_stack.push(composed);
-            }
-            DisplayListItem::PopReferenceFrame => {
-                if transform_stack.len() > 1 {
-                    transform_stack.pop();
-                }
-            }
-
-            // --- Filter effects ---
-            // TODO: proper compositing architecture with per-layer pixbufs
-            DisplayListItem::PushFilter { .. } => {}
-            DisplayListItem::PopFilter => {}
-            DisplayListItem::PushBackdropFilter { .. } => {}
-            DisplayListItem::PopBackdropFilter => {}
-            DisplayListItem::PushTextShadow { .. } => {}
-            DisplayListItem::PopTextShadow => {}
-
-            DisplayListItem::PushImageMaskClip {
-                bounds,
-                mask_image,
-                mask_rect,
-            } => {
-                let mr = &scroll_rect(mask_rect.inner());
-                let px_x = (mr.origin.x * dpi_factor) as i32;
-                let px_y = (mr.origin.y * dpi_factor) as i32;
-                let px_w = (mr.size.width * dpi_factor).ceil() as u32;
-                let px_h = (mr.size.height * dpi_factor).ceil() as u32;
-
-                if px_w > 0 && px_h > 0 {
-                    let snapshot = snapshot_region(pixmap, px_x, px_y, px_w, px_h);
-                    let mask_data = extract_mask_data(mask_image, px_w, px_h)
-                        .unwrap_or_else(|| vec![255u8; (px_w * px_h) as usize]);
-                    mask_stack.push(MaskEntry::ImageMask {
-                        snapshot,
-                        mask_data,
-                        origin_x: px_x,
-                        origin_y: px_y,
-                        width: px_w,
-                        height: px_h,
-                    });
-                }
-            }
-            DisplayListItem::PopImageMaskClip => {
-                if let Some(entry) = mask_stack.pop() {
-                    apply_mask(pixmap, &entry);
-                }
+        // --- Reference frames (CSS transforms) ---
+        DisplayListItem::PushReferenceFrame {
+            transform_key,
+            initial_transform,
+            bounds,
+        } => {
+            // Look up the current GPU-cached transform value for this key.
+            // For scrollbar thumbs, the GpuValueCache stores the up-to-date
+            // thumb translation. For CSS transforms, it stores the computed
+            // matrix. Falls back to the initial_transform baked in the DL.
+            let live_transform = render_state.transforms.get(&transform_key.id);
+            let m = match live_transform {
+                Some(t) => &t.m,
+                None => &initial_transform.m,
+            };
+            let tf = TransAffine::new_custom(
+                m[0][0] as f64,
+                m[0][1] as f64, // sx, shy
+                m[1][0] as f64,
+                m[1][1] as f64, // shx, sy
+                m[3][0] as f64,
+                m[3][1] as f64, // tx, ty
+            );
+            let current = transform_stack
+                .last()
+                .cloned()
+                .unwrap_or_else(TransAffine::new);
+            let mut composed = tf;
+            composed.premultiply(&current);
+            transform_stack.push(composed);
+        }
+        DisplayListItem::PopReferenceFrame => {
+            if transform_stack.len() > 1 {
+                transform_stack.pop();
             }
         }
+
+        // --- Filter effects ---
+        // TODO: proper compositing architecture with per-layer pixbufs
+        DisplayListItem::PushFilter { .. } => {}
+        DisplayListItem::PopFilter => {}
+        DisplayListItem::PushBackdropFilter { .. } => {}
+        DisplayListItem::PopBackdropFilter => {}
+        DisplayListItem::PushTextShadow { .. } => {}
+        DisplayListItem::PopTextShadow => {}
+
+        DisplayListItem::PushImageMaskClip {
+            bounds,
+            mask_image,
+            mask_rect,
+        } => {
+            let mr = &scroll_rect(mask_rect.inner());
+            let px_x = (mr.origin.x * dpi_factor) as i32;
+            let px_y = (mr.origin.y * dpi_factor) as i32;
+            let px_w = (mr.size.width * dpi_factor).ceil() as u32;
+            let px_h = (mr.size.height * dpi_factor).ceil() as u32;
+
+            if px_w > 0 && px_h > 0 {
+                let snapshot = snapshot_region(pixmap, px_x, px_y, px_w, px_h);
+                let mask_data = extract_mask_data(mask_image, px_w, px_h)
+                    .unwrap_or_else(|| vec![255u8; (px_w * px_h) as usize]);
+                mask_stack.push(MaskEntry::ImageMask {
+                    snapshot,
+                    mask_data,
+                    origin_x: px_x,
+                    origin_y: px_y,
+                    width: px_w,
+                    height: px_h,
+                });
+            }
+        }
+        DisplayListItem::PopImageMaskClip => {
+            if let Some(entry) = mask_stack.pop() {
+                apply_mask(pixmap, &entry);
+            }
+        }
+    }
 
     Ok(())
 }
@@ -3104,7 +3466,12 @@ fn render_rect(
         }
     }
 
-    let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
+    let agg_color = Rgba8::new(
+        color.r as u32,
+        color.g as u32,
+        color.b as u32,
+        color.a as u32,
+    );
 
     if border_radius.is_zero() {
         // Fast path: axis-aligned rectangle — use direct RendererBase::blend_bar
@@ -3113,9 +3480,7 @@ fn render_rect(
         let w = pixmap.width;
         let h = pixmap.height;
         let stride = (w * 4) as i32;
-        let mut ra = unsafe {
-            RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride)
-        };
+        let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride) };
         let mut pf = PixfmtRgba32::new(&mut ra);
         let mut rb = RendererBase::new(pf);
         if let Some(c) = clip {
@@ -3172,7 +3537,12 @@ fn render_text(
         }
     }
 
-    let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
+    let agg_color = Rgba8::new(
+        color.r as u32,
+        color.g as u32,
+        color.b as u32,
+        color.a as u32,
+    );
 
     // Try to get the parsed font
     let parsed_font: &ParsedFont = if let Some(fm) = font_manager {
@@ -3228,9 +3598,7 @@ fn render_text(
 
     // Create renderer infrastructure once, reuse for all glyphs in this text run.
     // Batches all glyph cells into a single rasterizer pass when possible.
-    let mut ra = unsafe {
-        RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride)
-    };
+    let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride) };
     let mut pf = PixfmtRgba32::new(&mut ra);
     let mut rb = RendererBase::new(pf);
     if let Some(c) = clip {
@@ -3257,16 +3625,28 @@ fn render_text(
             None => continue,
         };
 
-        let is_hinted = glyph_cache.get_or_build(
-            font_hash.font_hash, glyph_index, &glyph_data, parsed_font, ppem,
-        ).map(|c| c.is_hinted).unwrap_or(false);
+        let is_hinted = glyph_cache
+            .get_or_build(
+                font_hash.font_hash,
+                glyph_index,
+                &glyph_data,
+                parsed_font,
+                ppem,
+            )
+            .map(|c| c.is_hinted)
+            .unwrap_or(false);
 
         let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
 
         let (cells, int_x, int_y) = match glyph_cache.get_or_build_cells(
-            font_hash.font_hash, glyph_index, ppem,
-            glyph_x, glyph_baseline_y, scale, is_hinted,
+            font_hash.font_hash,
+            glyph_index,
+            ppem,
+            glyph_x,
+            glyph_baseline_y,
+            scale,
+            is_hinted,
         ) {
             Some(c) => c,
             None => continue,
@@ -3316,7 +3696,12 @@ fn render_border(
     }
 
     let scaled_width = width * dpi_factor;
-    let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
+    let agg_color = Rgba8::new(
+        color.r as u32,
+        color.g as u32,
+        color.b as u32,
+        color.a as u32,
+    );
 
     // 1. Build outer path (rounded rect at the nominal border radii)
     let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
@@ -3350,8 +3735,8 @@ fn render_border(
     match border_style {
         BorderStyle::Dashed | BorderStyle::Dotted => {
             // For dashed/dotted: stroke the border path with dash pattern
-            use agg_rust::conv_stroke::ConvStroke;
             use agg_rust::conv_dash::ConvDash;
+            use agg_rust::conv_stroke::ConvStroke;
 
             let half = sw / 2.0;
             let mut stroke_path = PathStorage::new();
@@ -3379,14 +3764,17 @@ fn render_border(
             let pw = pixmap.width;
             let ph = pixmap.height;
             let stride = (pw * 4) as i32;
-            let mut ra = unsafe {
-                RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), pw, ph, stride)
-            };
+            let mut ra =
+                unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), pw, ph, stride) };
             let mut pf = PixfmtRgba32::new(&mut ra);
             let mut rb = RendererBase::new(pf);
             if let Some(c) = clip {
-                rb.clip_box_i(c.x as i32, c.y as i32,
-                    (c.x + c.width) as i32 - 1, (c.y + c.height) as i32 - 1);
+                rb.clip_box_i(
+                    c.x as i32,
+                    c.y as i32,
+                    (c.x + c.width) as i32 - 1,
+                    (c.y + c.height) as i32 - 1,
+                );
             }
             let (xi, yi) = (x as i32, y as i32);
             let (x2i, y2i) = ((x + w) as i32 - 1, (y + h) as i32 - 1);
@@ -3451,13 +3839,57 @@ fn render_border_sides(
 
     let sides: [(f64, f64, f64, f64, f64, f64, f64, f64, ColorU, f32); 4] = [
         // Top trapezoid
-        (ox, oy, ox+ow, oy, ix+iw, iy, ix, iy, colors[0], widths[0]),
+        (
+            ox,
+            oy,
+            ox + ow,
+            oy,
+            ix + iw,
+            iy,
+            ix,
+            iy,
+            colors[0],
+            widths[0],
+        ),
         // Right trapezoid
-        (ox+ow, oy, ox+ow, oy+oh, ix+iw, iy+ih, ix+iw, iy, colors[1], widths[1]),
+        (
+            ox + ow,
+            oy,
+            ox + ow,
+            oy + oh,
+            ix + iw,
+            iy + ih,
+            ix + iw,
+            iy,
+            colors[1],
+            widths[1],
+        ),
         // Bottom trapezoid
-        (ox+ow, oy+oh, ox, oy+oh, ix, iy+ih, ix+iw, iy+ih, colors[2], widths[2]),
+        (
+            ox + ow,
+            oy + oh,
+            ox,
+            oy + oh,
+            ix,
+            iy + ih,
+            ix + iw,
+            iy + ih,
+            colors[2],
+            widths[2],
+        ),
         // Left trapezoid
-        (ox, oy+oh, ox, oy, ix, iy, ix, iy+ih, colors[3], widths[3]),
+        (
+            ox,
+            oy + oh,
+            ox,
+            oy,
+            ix,
+            iy,
+            ix,
+            iy + ih,
+            colors[3],
+            widths[3],
+        ),
     ];
 
     if _border_radius.is_zero() {
@@ -3465,38 +3897,68 @@ fn render_border_sides(
         let pw = pixmap.width;
         let ph = pixmap.height;
         let stride = (pw * 4) as i32;
-        let mut ra = unsafe {
-            RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), pw, ph, stride)
-        };
+        let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), pw, ph, stride) };
         let mut pf = PixfmtRgba32::new(&mut ra);
         let mut rb = RendererBase::new(pf);
         if let Some(c) = clip {
-            rb.clip_box_i(c.x as i32, c.y as i32,
-                (c.x + c.width) as i32 - 1, (c.y + c.height) as i32 - 1);
+            rb.clip_box_i(
+                c.x as i32,
+                c.y as i32,
+                (c.x + c.width) as i32 - 1,
+                (c.y + c.height) as i32 - 1,
+            );
         }
         // Top: full width, height = wt
         if widths[0] > 0.0 && colors[0].a > 0 {
             let c = colors[0];
             let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
-            rb.blend_bar(ox as i32, oy as i32, (ox+ow) as i32 - 1, iy as i32 - 1, &ac, 255);
+            rb.blend_bar(
+                ox as i32,
+                oy as i32,
+                (ox + ow) as i32 - 1,
+                iy as i32 - 1,
+                &ac,
+                255,
+            );
         }
         // Bottom
         if widths[2] > 0.0 && colors[2].a > 0 {
             let c = colors[2];
             let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
-            rb.blend_bar(ox as i32, (iy+ih) as i32, (ox+ow) as i32 - 1, (oy+oh) as i32 - 1, &ac, 255);
+            rb.blend_bar(
+                ox as i32,
+                (iy + ih) as i32,
+                (ox + ow) as i32 - 1,
+                (oy + oh) as i32 - 1,
+                &ac,
+                255,
+            );
         }
         // Left: between top and bottom
         if widths[3] > 0.0 && colors[3].a > 0 {
             let c = colors[3];
             let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
-            rb.blend_bar(ox as i32, iy as i32, ix as i32 - 1, (iy+ih) as i32 - 1, &ac, 255);
+            rb.blend_bar(
+                ox as i32,
+                iy as i32,
+                ix as i32 - 1,
+                (iy + ih) as i32 - 1,
+                &ac,
+                255,
+            );
         }
         // Right
         if widths[1] > 0.0 && colors[1].a > 0 {
             let c = colors[1];
             let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
-            rb.blend_bar((ix+iw) as i32, iy as i32, (ox+ow) as i32 - 1, (iy+ih) as i32 - 1, &ac, 255);
+            rb.blend_bar(
+                (ix + iw) as i32,
+                iy as i32,
+                (ox + ow) as i32 - 1,
+                (iy + ih) as i32 - 1,
+                &ac,
+                255,
+            );
         }
     } else {
         // Rounded borders: use trapezoid rasterizer
@@ -3512,7 +3974,12 @@ fn render_border_sides(
             path.line_to(x3, y3);
             path.close_polygon(PATH_FLAGS_NONE);
 
-            let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
+            let agg_color = Rgba8::new(
+                color.r as u32,
+                color.g as u32,
+                color.b as u32,
+                color.a as u32,
+            );
             agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
         }
     }
@@ -3520,10 +3987,7 @@ fn render_border_sides(
     Ok(())
 }
 
-fn logical_rect_to_az_rect(
-    bounds: &LogicalRect,
-    dpi_factor: f32,
-) -> Option<AzRect> {
+fn logical_rect_to_az_rect(bounds: &LogicalRect, dpi_factor: f32) -> Option<AzRect> {
     let x = bounds.origin.x * dpi_factor;
     let y = bounds.origin.y * dpi_factor;
     let width = bounds.size.width * dpi_factor;
@@ -3556,7 +4020,9 @@ fn render_image(
         DecodedImage::Raw((descriptor, data)) => {
             let w = descriptor.width as u32;
             let h = descriptor.height as u32;
-            if w == 0 || h == 0 { return Ok(()); }
+            if w == 0 || h == 0 {
+                return Ok(());
+            }
             let bytes = match data {
                 azul_core::resources::ImageData::Raw(shared) => shared.as_ref(),
                 _ => return Ok(()),
@@ -3566,15 +4032,24 @@ fn render_image(
                 azul_core::resources::RawImageFormat::BGRA8 => {
                     let mut out = Vec::with_capacity(bytes.len());
                     for chunk in bytes.chunks_exact(4) {
-                        let b = chunk[0]; let g = chunk[1]; let r = chunk[2]; let a = chunk[3];
-                        out.push(r); out.push(g); out.push(b); out.push(a);
+                        let b = chunk[0];
+                        let g = chunk[1];
+                        let r = chunk[2];
+                        let a = chunk[3];
+                        out.push(r);
+                        out.push(g);
+                        out.push(b);
+                        out.push(a);
                     }
                     out
                 }
                 azul_core::resources::RawImageFormat::R8 => {
                     let mut out = Vec::with_capacity(bytes.len() * 4);
                     for &v in bytes {
-                        out.push(v); out.push(v); out.push(v); out.push(v);
+                        out.push(v);
+                        out.push(v);
+                        out.push(v);
+                        out.push(v);
                     }
                     out
                 }
@@ -3611,7 +4086,12 @@ fn render_image(
 
     // Compute pixel-level clip bounds for the blit loop
     let (clip_x1, clip_y1, clip_x2, clip_y2) = if let Some(ref c) = clip {
-        (c.x as i32, c.y as i32, (c.x + c.width) as i32, (c.y + c.height) as i32)
+        (
+            c.x as i32,
+            c.y as i32,
+            (c.x + c.width) as i32,
+            (c.y + c.height) as i32,
+        )
     } else {
         (0, 0, pw as i32, ph as i32)
     };
@@ -3636,17 +4116,23 @@ fn render_image(
             if si + 3 < src_rgba.len() && di + 3 < pixmap.data.len() {
                 let sa = src_rgba[si + 3] as u32;
                 if sa == 255 {
-                    pixmap.data[di]     = src_rgba[si];
+                    pixmap.data[di] = src_rgba[si];
                     pixmap.data[di + 1] = src_rgba[si + 1];
                     pixmap.data[di + 2] = src_rgba[si + 2];
                     pixmap.data[di + 3] = 255;
                 } else if sa > 0 {
                     // Alpha blend: dst = src * sa + dst * (255 - sa)
                     let da = 255 - sa;
-                    pixmap.data[di]     = ((src_rgba[si] as u32 * sa + pixmap.data[di] as u32 * da) / 255) as u8;
-                    pixmap.data[di + 1] = ((src_rgba[si + 1] as u32 * sa + pixmap.data[di + 1] as u32 * da) / 255) as u8;
-                    pixmap.data[di + 2] = ((src_rgba[si + 2] as u32 * sa + pixmap.data[di + 2] as u32 * da) / 255) as u8;
-                    pixmap.data[di + 3] = ((sa + pixmap.data[di + 3] as u32 * da / 255).min(255)) as u8;
+                    pixmap.data[di] =
+                        ((src_rgba[si] as u32 * sa + pixmap.data[di] as u32 * da) / 255) as u8;
+                    pixmap.data[di + 1] = ((src_rgba[si + 1] as u32 * sa
+                        + pixmap.data[di + 1] as u32 * da)
+                        / 255) as u8;
+                    pixmap.data[di + 2] = ((src_rgba[si + 2] as u32 * sa
+                        + pixmap.data[di + 2] as u32 * da)
+                        / 255) as u8;
+                    pixmap.data[di + 3] =
+                        ((sa + pixmap.data[di + 3] as u32 * da / 255).min(255)) as u8;
                 }
             }
         }
@@ -3738,7 +4224,12 @@ impl Default for ComponentPreviewOptions {
             width: None,
             height: None,
             dpi_factor: 1.0,
-            background_color: ColorU { r: 255, g: 255, b: 255, a: 255 },
+            background_color: ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
         }
     }
 }
@@ -3801,21 +4292,17 @@ pub fn render_component_preview(
     opts: ComponentPreviewOptions,
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
 ) -> Result<ComponentPreviewResult, String> {
-    use std::collections::{BTreeMap, HashMap};
+    use crate::{
+        font_traits::TextLayoutCache,
+        solver3::{self, cache::LayoutCache, display_list::DisplayList},
+    };
     use azul_core::{
         dom::DomId,
         geom::{LogicalPosition, LogicalRect, LogicalSize},
         resources::{IdNamespace, RendererResources},
         selection::{SelectionState, TextSelection},
     };
-    use crate::{
-        solver3::{
-            self,
-            cache::LayoutCache,
-            display_list::DisplayList,
-        },
-        font_traits::TextLayoutCache,
-    };
+    use std::collections::{BTreeMap, HashMap};
 
     const MAX_SIZE: f32 = 4096.0;
 
@@ -3833,7 +4320,8 @@ pub fn render_component_preview(
     let mut preview_font_manager = FontManager::from_arc_shared(
         font_manager.fc_cache.clone(),
         font_manager.parsed_fonts.clone(),
-    ).map_err(|e| format!("Failed to create preview font manager: {:?}", e))?;
+    )
+    .map_err(|e| format!("Failed to create preview font manager: {:?}", e))?;
 
     // --- Font resolution ---
     {
@@ -3843,13 +4331,15 @@ pub fn render_component_preview(
         let platform = azul_css::system::Platform::current();
 
         let chains = collect_and_resolve_font_chains_with_registration(
-            &styled_dom, &preview_font_manager.fc_cache, &preview_font_manager, &platform,
+            &styled_dom,
+            &preview_font_manager.fc_cache,
+            &preview_font_manager,
+            &platform,
         );
         let loader = PathLoader::new();
-        let _failed = preview_font_manager.load_missing_for_chains(
-            &chains,
-            |bytes, index| loader.load_font_shared(bytes, index),
-        );
+        let _failed = preview_font_manager.load_missing_for_chains(&chains, |bytes, index| {
+            loader.load_font_shared(bytes, index)
+        });
         preview_font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
     }
 
@@ -3898,7 +4388,8 @@ pub fn render_component_preview(
         &azul_core::resources::ImageCache::default(),
         system_style.clone(),
         get_system_time_fn,
-    ).map_err(|e| format!("Layout failed: {:?}", e))?;
+    )
+    .map_err(|e| format!("Layout failed: {:?}", e))?;
 
     // --- Determine actual render size ---
     let (render_width, render_height) = if opts.width.is_some() && opts.height.is_some() {
@@ -3906,8 +4397,16 @@ pub fn render_component_preview(
     } else {
         match compute_content_bounds(&display_list) {
             Some((_min_x, _min_y, max_x, max_y)) => {
-                let w = if opts.width.is_some() { opts.width.unwrap() } else { max_x.max(1.0).ceil() };
-                let h = if opts.height.is_some() { opts.height.unwrap() } else { max_y.max(1.0).ceil() };
+                let w = if opts.width.is_some() {
+                    opts.width.unwrap()
+                } else {
+                    max_x.max(1.0).ceil()
+                };
+                let h = if opts.height.is_some() {
+                    opts.height.unwrap()
+                } else {
+                    max_y.max(1.0).ceil()
+                };
                 (w, h)
             }
             None => {
@@ -3935,8 +4434,8 @@ pub fn render_component_preview(
     pixmap.fill(bg.r, bg.g, bg.b, bg.a);
 
     let mut preview_glyph_cache = GlyphCache::new();
-    let preview_render_state = CpuRenderState::new(ScrollOffsetMap::new())
-        .with_system_style(system_style);
+    let preview_render_state =
+        CpuRenderState::new(ScrollOffsetMap::new()).with_system_style(system_style);
     render_display_list_with_state(
         &display_list,
         &mut pixmap,
@@ -3947,7 +4446,8 @@ pub fn render_component_preview(
         &preview_render_state,
     )?;
 
-    let png_data = pixmap.encode_png()
+    let png_data = pixmap
+        .encode_png()
         .map_err(|e| format!("PNG encoding failed: {}", e))?;
 
     Ok(ComponentPreviewResult {
@@ -3969,8 +4469,8 @@ pub fn render_dom_to_image(
     height: f32,
     dpi: f32,
 ) -> Result<Vec<u8>, String> {
-    use azul_core::styled_dom::StyledDom;
     use crate::font_traits::FontManager;
+    use azul_core::styled_dom::StyledDom;
 
     let styled_dom = StyledDom::create(&mut dom, css);
 
@@ -4009,30 +4509,41 @@ pub fn render_svg_to_png(
     target_width: u32,
     target_height: u32,
 ) -> Result<Vec<u8>, String> {
-    let svg_str = core::str::from_utf8(svg_data)
-        .map_err(|e| format!("SVG is not valid UTF-8: {e}"))?;
+    let svg_str =
+        core::str::from_utf8(svg_data).map_err(|e| format!("SVG is not valid UTF-8: {e}"))?;
 
-    let nodes = crate::xml::parse_xml_string(svg_str)
-        .map_err(|e| format!("XML parse error: {e}"))?;
+    let nodes =
+        crate::xml::parse_xml_string(svg_str).map_err(|e| format!("XML parse error: {e}"))?;
 
     // Find the <svg> root
     let node_slice: &[azul_core::xml::XmlNodeChild] = nodes.as_ref();
-    let svg_node = node_slice.iter().find_map(|n| {
-        if let azul_core::xml::XmlNodeChild::Element(e) = n {
-            let tag = e.node_type.as_str().to_lowercase();
-            if tag == "svg" { Some(e) } else { None }
-        } else { None }
-    }).ok_or_else(|| "No <svg> root element found".to_string())?;
+    let svg_node = node_slice
+        .iter()
+        .find_map(|n| {
+            if let azul_core::xml::XmlNodeChild::Element(e) = n {
+                let tag = e.node_type.as_str().to_lowercase();
+                if tag == "svg" {
+                    Some(e)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| "No <svg> root element found".to_string())?;
 
     // Parse viewBox for coordinate mapping
     let vb = parse_viewbox(svg_node);
-    let (vb_x, vb_y, vb_w, vb_h) = vb.unwrap_or((0.0, 0.0, target_width as f64, target_height as f64));
+    let (vb_x, vb_y, vb_w, vb_h) =
+        vb.unwrap_or((0.0, 0.0, target_width as f64, target_height as f64));
 
     let sx = target_width as f64 / vb_w;
     let sy = target_height as f64 / vb_h;
     let scale = sx.min(sy);
 
-    let root_transform = TransAffine::new_custom(scale, 0.0, 0.0, scale, -vb_x * scale, -vb_y * scale);
+    let root_transform =
+        TransAffine::new_custom(scale, 0.0, 0.0, scale, -vb_x * scale, -vb_y * scale);
 
     let mut pixmap = AzulPixmap::new(target_width, target_height)
         .ok_or_else(|| "Failed to create pixmap".to_string())?;
@@ -4040,34 +4551,47 @@ pub fn render_svg_to_png(
 
     render_svg_group(svg_node, &mut pixmap, &root_transform);
 
-    pixmap.encode_png().map_err(|e| format!("PNG encode error: {e}"))
+    pixmap
+        .encode_png()
+        .map_err(|e| format!("PNG encode error: {e}"))
 }
 
 #[cfg(all(feature = "std", feature = "xml"))]
 fn parse_viewbox(node: &azul_core::xml::XmlNode) -> Option<(f64, f64, f64, f64)> {
-    let vb = node.attributes.get_key("viewbox")
+    let vb = node
+        .attributes
+        .get_key("viewbox")
         .or_else(|| node.attributes.get_key("viewBox"))?;
-    let nums: Vec<f64> = vb.as_str()
+    let nums: Vec<f64> = vb
+        .as_str()
         .split(|c: char| c == ',' || c.is_ascii_whitespace())
         .filter(|s| !s.is_empty())
         .filter_map(|s| s.parse().ok())
         .collect();
-    if nums.len() == 4 { Some((nums[0], nums[1], nums[2], nums[3])) } else { None }
+    if nums.len() == 4 {
+        Some((nums[0], nums[1], nums[2], nums[3]))
+    } else {
+        None
+    }
 }
 
 /// Inherited SVG style (fill, stroke, stroke-width) that cascades from parent groups.
 #[cfg(all(feature = "std", feature = "xml"))]
 #[derive(Clone)]
 struct SvgInheritedStyle {
-    fill: Option<String>,       // None = not set (inherit default black)
-    stroke: Option<String>,     // None = not set (inherit default none)
+    fill: Option<String>,   // None = not set (inherit default black)
+    stroke: Option<String>, // None = not set (inherit default none)
     stroke_width: Option<f64>,
 }
 
 #[cfg(all(feature = "std", feature = "xml"))]
 impl Default for SvgInheritedStyle {
     fn default() -> Self {
-        Self { fill: None, stroke: None, stroke_width: None }
+        Self {
+            fill: None,
+            stroke: None,
+            stroke_width: None,
+        }
     }
 }
 
@@ -4077,7 +4601,12 @@ fn render_svg_group(
     pixmap: &mut AzulPixmap,
     parent_transform: &TransAffine,
 ) {
-    render_svg_group_with_style(node, pixmap, parent_transform, &SvgInheritedStyle::default());
+    render_svg_group_with_style(
+        node,
+        pixmap,
+        parent_transform,
+        &SvgInheritedStyle::default(),
+    );
 }
 
 #[cfg(all(feature = "std", feature = "xml"))]
@@ -4087,8 +4616,8 @@ fn render_svg_group_with_style(
     parent_transform: &TransAffine,
     parent_style: &SvgInheritedStyle,
 ) {
-    use azul_core::xml::{XmlNodeChild, XmlNode};
     use agg_rust::math_stroke::{LineCap, LineJoin};
+    use azul_core::xml::{XmlNode, XmlNodeChild};
 
     let group_transform = if let Some(t) = node.attributes.get_key("transform") {
         let mut tf = parse_svg_transform(t.as_str());
@@ -4100,13 +4629,19 @@ fn render_svg_group_with_style(
 
     // Inherit style from this group's attributes
     let group_style = SvgInheritedStyle {
-        fill: node.attributes.get_key("fill")
+        fill: node
+            .attributes
+            .get_key("fill")
             .map(|s| s.as_str().to_string())
             .or_else(|| parent_style.fill.clone()),
-        stroke: node.attributes.get_key("stroke")
+        stroke: node
+            .attributes
+            .get_key("stroke")
             .map(|s| s.as_str().to_string())
             .or_else(|| parent_style.stroke.clone()),
-        stroke_width: node.attributes.get_key("stroke-width")
+        stroke_width: node
+            .attributes
+            .get_key("stroke-width")
             .and_then(|s| s.as_str().parse().ok())
             .or(parent_style.stroke_width),
     };
@@ -4142,27 +4677,40 @@ fn render_svg_group_with_style(
                 };
 
                 // Fill: element overrides group
-                let fill_attr = child_node.attributes.get_key("fill")
+                let fill_attr = child_node
+                    .attributes
+                    .get_key("fill")
                     .map(|s| s.as_str().to_string())
                     .or_else(|| group_style.fill.clone());
                 let fill_color = match fill_attr.as_deref() {
                     Some("none") => None,
                     Some(c) => parse_svg_color(c),
-                    None => Some(Rgba8 { r: 0, g: 0, b: 0, a: 255 }), // SVG default
+                    None => Some(Rgba8 {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    }), // SVG default
                 };
 
-                let fill_opacity = child_node.attributes.get_key("fill-opacity")
+                let fill_opacity = child_node
+                    .attributes
+                    .get_key("fill-opacity")
                     .and_then(|s| s.as_str().parse::<f64>().ok())
                     .unwrap_or(1.0);
 
-                let opacity = child_node.attributes.get_key("opacity")
+                let opacity = child_node
+                    .attributes
+                    .get_key("opacity")
                     .and_then(|s| s.as_str().parse::<f64>().ok())
                     .unwrap_or(1.0);
 
                 if let Some(mut color) = fill_color {
                     color.a = ((color.a as f64) * fill_opacity * opacity).min(255.0) as u8;
 
-                    let fill_rule_str = child_node.attributes.get_key("fill-rule")
+                    let fill_rule_str = child_node
+                        .attributes
+                        .get_key("fill-rule")
                         .map(|s| s.as_str().to_string());
                     let rule = match fill_rule_str.as_deref() {
                         Some("evenodd") => FillingRule::EvenOdd,
@@ -4174,7 +4722,9 @@ fn render_svg_group_with_style(
                 }
 
                 // Stroke: element overrides group
-                let stroke_attr = child_node.attributes.get_key("stroke")
+                let stroke_attr = child_node
+                    .attributes
+                    .get_key("stroke")
                     .map(|s| s.as_str().to_string())
                     .or_else(|| group_style.stroke.clone());
                 let stroke_color = match stroke_attr.as_deref() {
@@ -4183,12 +4733,16 @@ fn render_svg_group_with_style(
                 };
 
                 if let Some(mut color) = stroke_color {
-                    let stroke_opacity = child_node.attributes.get_key("stroke-opacity")
+                    let stroke_opacity = child_node
+                        .attributes
+                        .get_key("stroke-opacity")
                         .and_then(|s| s.as_str().parse::<f64>().ok())
                         .unwrap_or(1.0);
                     color.a = ((color.a as f64) * stroke_opacity * opacity).min(255.0) as u8;
 
-                    let stroke_width = child_node.attributes.get_key("stroke-width")
+                    let stroke_width = child_node
+                        .attributes
+                        .get_key("stroke-width")
                         .and_then(|s| s.as_str().parse::<f64>().ok())
                         .or(group_style.stroke_width)
                         .unwrap_or(1.0);
@@ -4198,7 +4752,8 @@ fn render_svg_group_with_style(
                     conv_stroke.set_line_cap(LineCap::Round);
                     conv_stroke.set_line_join(LineJoin::Round);
 
-                    let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform.clone());
+                    let mut transformed =
+                        ConvTransform::new(&mut conv_stroke, elem_transform.clone());
                     agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
                 }
             }
@@ -4217,15 +4772,17 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
     match tag.as_str() {
         "path" => {
             let d = node.attributes.get_key("d")?;
-            let mp = azul_core::svg_path_parser::parse_svg_path_d(d.as_str()).ok()?;
+            let mp = azul_core::path_parser::parse_svg_path_d(d.as_str()).ok()?;
             Some(svg_multi_polygon_to_path_storage(&mp))
         }
         "circle" => {
             let cx = attr_f64(node, "cx");
             let cy = attr_f64(node, "cy");
             let r = attr_f64(node, "r");
-            if r <= 0.0 { return None; }
-            let mp = azul_core::svg_path_parser::svg_circle_to_paths(cx as f32, cy as f32, r as f32);
+            if r <= 0.0 {
+                return None;
+            }
+            let mp = azul_core::path_parser::svg_circle_to_paths(cx as f32, cy as f32, r as f32);
             let multi = azul_core::svg::SvgMultiPolygon {
                 rings: azul_core::svg::SvgPathVec::from_vec(vec![mp]),
             };
@@ -4239,9 +4796,15 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
             let rx = attr_f64(node, "rx");
             let ry = if let Some(v) = node.attributes.get_key("ry") {
                 v.as_str().parse().unwrap_or(rx)
-            } else { rx };
-            if w <= 0.0 || h <= 0.0 { return None; }
-            let mp = azul_core::svg_path_parser::svg_rect_to_path(x as f32, y as f32, w as f32, h as f32, rx as f32, ry as f32);
+            } else {
+                rx
+            };
+            if w <= 0.0 || h <= 0.0 {
+                return None;
+            }
+            let mp = azul_core::path_parser::svg_rect_to_path(
+                x as f32, y as f32, w as f32, h as f32, rx as f32, ry as f32,
+            );
             let multi = azul_core::svg::SvgMultiPolygon {
                 rings: azul_core::svg::SvgPathVec::from_vec(vec![mp]),
             };
@@ -4252,9 +4815,11 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
             let cy = attr_f64(node, "cy");
             let rx = attr_f64(node, "rx");
             let ry = attr_f64(node, "ry");
-            if rx <= 0.0 || ry <= 0.0 { return None; }
+            if rx <= 0.0 || ry <= 0.0 {
+                return None;
+            }
             // Use circle path with scaling
-            let mp = azul_core::svg_path_parser::svg_circle_to_paths(cx as f32, cy as f32, 1.0);
+            let mp = azul_core::path_parser::svg_circle_to_paths(cx as f32, cy as f32, 1.0);
             let multi = azul_core::svg::SvgMultiPolygon {
                 rings: azul_core::svg::SvgPathVec::from_vec(vec![mp]),
             };
@@ -4284,12 +4849,15 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
         }
         "polygon" | "polyline" => {
             let pts_str = node.attributes.get_key("points")?;
-            let nums: Vec<f64> = pts_str.as_str()
+            let nums: Vec<f64> = pts_str
+                .as_str()
                 .split(|c: char| c == ',' || c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
                 .filter_map(|s| s.parse().ok())
                 .collect();
-            if nums.len() < 4 { return None; }
+            if nums.len() < 4 {
+                return None;
+            }
             let mut path = PathStorage::new();
             path.move_to(nums[0], nums[1]);
             for chunk in nums[2..].chunks_exact(2) {
@@ -4306,7 +4874,8 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
 
 #[cfg(all(feature = "std", feature = "xml"))]
 fn attr_f64(node: &azul_core::xml::XmlNode, key: &str) -> f64 {
-    node.attributes.get_key(key)
+    node.attributes
+        .get_key(key)
         .and_then(|s| s.as_str().parse().ok())
         .unwrap_or(0.0)
 }
@@ -4331,7 +4900,12 @@ fn svg_multi_polygon_to_path_storage(mp: &azul_core::svg::SvgMultiPolygon) -> Pa
                         path.move_to(q.start.x as f64, q.start.y as f64);
                         first = false;
                     }
-                    path.curve3(q.ctrl.x as f64, q.ctrl.y as f64, q.end.x as f64, q.end.y as f64);
+                    path.curve3(
+                        q.ctrl.x as f64,
+                        q.ctrl.y as f64,
+                        q.end.x as f64,
+                        q.end.y as f64,
+                    );
                 }
                 azul_core::svg::SvgPathElement::CubicCurve(c) => {
                     if first {
@@ -4339,9 +4913,12 @@ fn svg_multi_polygon_to_path_storage(mp: &azul_core::svg::SvgMultiPolygon) -> Pa
                         first = false;
                     }
                     path.curve4(
-                        c.ctrl_1.x as f64, c.ctrl_1.y as f64,
-                        c.ctrl_2.x as f64, c.ctrl_2.y as f64,
-                        c.end.x as f64, c.end.y as f64,
+                        c.ctrl_1.x as f64,
+                        c.ctrl_1.y as f64,
+                        c.ctrl_2.x as f64,
+                        c.ctrl_2.y as f64,
+                        c.end.x as f64,
+                        c.end.y as f64,
                     );
                 }
             }
@@ -4369,7 +4946,10 @@ fn parse_svg_transform(s: &str) -> TransAffine {
         if nums.len() == 6 {
             return TransAffine::new_custom(nums[0], nums[1], nums[2], nums[3], nums[4], nums[5]);
         }
-    } else if let Some(inner) = s.strip_prefix("translate(").and_then(|s| s.strip_suffix(')')) {
+    } else if let Some(inner) = s
+        .strip_prefix("translate(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
         let nums = parse_nums(inner);
         let tx = nums.first().copied().unwrap_or(0.0);
         let ty = nums.get(1).copied().unwrap_or(0.0);
@@ -4412,14 +4992,54 @@ fn parse_svg_color(s: &str) -> Option<Rgba8> {
         };
     }
     match s.to_lowercase().as_str() {
-        "black" => Some(Rgba8 { r: 0, g: 0, b: 0, a: 255 }),
-        "white" => Some(Rgba8 { r: 255, g: 255, b: 255, a: 255 }),
-        "red" => Some(Rgba8 { r: 255, g: 0, b: 0, a: 255 }),
-        "green" => Some(Rgba8 { r: 0, g: 128, b: 0, a: 255 }),
-        "blue" => Some(Rgba8 { r: 0, g: 0, b: 255, a: 255 }),
-        "yellow" => Some(Rgba8 { r: 255, g: 255, b: 0, a: 255 }),
-        "orange" => Some(Rgba8 { r: 255, g: 165, b: 0, a: 255 }),
-        "gold" => Some(Rgba8 { r: 255, g: 215, b: 0, a: 255 }),
+        "black" => Some(Rgba8 {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        }),
+        "white" => Some(Rgba8 {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        }),
+        "red" => Some(Rgba8 {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        }),
+        "green" => Some(Rgba8 {
+            r: 0,
+            g: 128,
+            b: 0,
+            a: 255,
+        }),
+        "blue" => Some(Rgba8 {
+            r: 0,
+            g: 0,
+            b: 255,
+            a: 255,
+        }),
+        "yellow" => Some(Rgba8 {
+            r: 255,
+            g: 255,
+            b: 0,
+            a: 255,
+        }),
+        "orange" => Some(Rgba8 {
+            r: 255,
+            g: 165,
+            b: 0,
+            a: 255,
+        }),
+        "gold" => Some(Rgba8 {
+            r: 255,
+            g: 215,
+            b: 0,
+            a: 255,
+        }),
         _ => None,
     }
 }

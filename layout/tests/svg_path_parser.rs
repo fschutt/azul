@@ -1,7 +1,9 @@
 //! Tests for the SVG path `d=""` parser.
 
+use azul_core::path_parser::{
+    parse_svg_path_d, svg_circle_to_paths, svg_rect_to_path, SvgPathParseError,
+};
 use azul_core::svg::{SvgLine, SvgMultiPolygon, SvgPath, SvgPathElement};
-use azul_core::svg_path_parser::{parse_svg_path_d, svg_circle_to_paths, svg_rect_to_path, SvgPathParseError};
 use azul_css::props::basic::{SvgCubicCurve, SvgPoint, SvgQuadraticCurve};
 
 fn approx_eq(a: f32, b: f32) -> bool {
@@ -26,7 +28,7 @@ fn test_simple_triangle() {
     assert_eq!(rings(&mp).len(), 1);
     let elems = items(&rings(&mp)[0]);
     assert_eq!(elems.len(), 3); // 2 lines + closing line
-    // All should be lines
+                                // All should be lines
     for e in elems {
         assert!(matches!(e, SvgPathElement::Line(_)));
     }
@@ -225,8 +227,14 @@ fn test_rect_rounded() {
     let elems = path.items.as_ref();
     // 4 lines + 4 curves = 8 elements
     assert_eq!(elems.len(), 8);
-    let lines = elems.iter().filter(|e| matches!(e, SvgPathElement::Line(_))).count();
-    let curves = elems.iter().filter(|e| matches!(e, SvgPathElement::CubicCurve(_))).count();
+    let lines = elems
+        .iter()
+        .filter(|e| matches!(e, SvgPathElement::Line(_)))
+        .count();
+    let curves = elems
+        .iter()
+        .filter(|e| matches!(e, SvgPathElement::CubicCurve(_)))
+        .count();
     assert_eq!(lines, 4);
     assert_eq!(curves, 4);
 }

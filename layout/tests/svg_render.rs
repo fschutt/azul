@@ -3,10 +3,14 @@
 //! These tests exercise the full pipeline: SVG path parsing → DOM clip →
 //! layout → CPU render → PNG output.
 
-#[cfg(all(feature = "cpurender", feature = "text_layout", feature = "font_loading"))]
+#[cfg(all(
+    feature = "cpurender",
+    feature = "text_layout",
+    feature = "font_loading"
+))]
 mod tests {
     use azul_core::dom::{Dom, IdOrClass};
-    use azul_core::svg_path_parser::{parse_svg_path_d, svg_circle_to_paths, svg_rect_to_path};
+    use azul_core::path_parser::{parse_svg_path_d, svg_circle_to_paths, svg_rect_to_path};
     use azul_css::css::Css;
     use azul_layout::cpurender::render_dom_to_image;
 
@@ -62,7 +66,10 @@ mod tests {
             .with_ids_and_classes(target_class().into())
             .with_svg_clip_path(clip);
 
-        let css = css_for(".target", "width:200px;height:100px;background-color:green;");
+        let css = css_for(
+            ".target",
+            "width:200px;height:100px;background-color:green;",
+        );
         let png = render_dom_to_image(dom, css, 200.0, 100.0, 1.0).unwrap();
         assert!(!png.is_empty());
         // Write to tmp for manual inspection
@@ -71,8 +78,7 @@ mod tests {
 
     #[test]
     fn test_render_empty_dom() {
-        let dom = Dom::create_div()
-            .with_ids_and_classes(target_class().into());
+        let dom = Dom::create_div().with_ids_and_classes(target_class().into());
         let css = css_for(".target", "width:50px;height:50px;");
         let png = render_dom_to_image(dom, css, 50.0, 50.0, 1.0).unwrap();
         assert!(!png.is_empty());
@@ -82,8 +88,9 @@ mod tests {
     fn test_svg_clip_star_path() {
         // 5-pointed star
         let star = parse_svg_path_d(
-            "M 50,0 L 61,35 L 98,35 L 68,57 L 79,91 L 50,70 L 21,91 L 32,57 L 2,35 L 39,35 Z"
-        ).unwrap();
+            "M 50,0 L 61,35 L 98,35 L 68,57 L 79,91 L 50,70 L 21,91 L 32,57 L 2,35 L 39,35 Z",
+        )
+        .unwrap();
         let dom = Dom::create_div()
             .with_ids_and_classes(target_class().into())
             .with_svg_clip_path(star);
@@ -98,28 +105,38 @@ mod tests {
     fn test_render_tiger_svg() {
         use azul_layout::cpurender::render_svg_to_png;
 
-        let svg_data = std::fs::read(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/assets/svg/tiger.svg")
-        ).expect("Failed to read tiger.svg — check path");
+        let svg_data = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../examples/assets/svg/tiger.svg"
+        ))
+        .expect("Failed to read tiger.svg — check path");
 
         let png = render_svg_to_png(&svg_data, 900, 900).unwrap();
         assert!(!png.is_empty());
         assert_eq!(&png[0..4], &[0x89, b'P', b'N', b'G']);
         std::fs::write("/tmp/azul_tiger_svg.png", &png).unwrap();
-        eprintln!("Tiger rendered to /tmp/azul_tiger_svg.png ({} bytes)", png.len());
+        eprintln!(
+            "Tiger rendered to /tmp/azul_tiger_svg.png ({} bytes)",
+            png.len()
+        );
     }
 
     #[test]
     fn test_render_test_svg() {
         use azul_layout::cpurender::render_svg_to_png;
 
-        let svg_data = std::fs::read(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/assets/svg/test.svg")
-        ).expect("Failed to read test.svg");
+        let svg_data = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../examples/assets/svg/test.svg"
+        ))
+        .expect("Failed to read test.svg");
 
         let png = render_svg_to_png(&svg_data, 400, 400).unwrap();
         assert!(!png.is_empty());
         std::fs::write("/tmp/azul_test_svg.png", &png).unwrap();
-        eprintln!("Test SVG rendered to /tmp/azul_test_svg.png ({} bytes)", png.len());
+        eprintln!(
+            "Test SVG rendered to /tmp/azul_test_svg.png ({} bytes)",
+            png.len()
+        );
     }
 }

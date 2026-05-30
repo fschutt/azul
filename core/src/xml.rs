@@ -132,15 +132,31 @@ pub struct ComponentArgument {
     pub arg_type: AzString,
 }
 
-impl_vec!(ComponentArgument, ComponentArgumentVec, ComponentArgumentVecDestructor, ComponentArgumentVecDestructorType, ComponentArgumentVecSlice, OptionComponentArgument);
-impl_option!(ComponentArgument, OptionComponentArgument, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_vec!(
+    ComponentArgument,
+    ComponentArgumentVec,
+    ComponentArgumentVecDestructor,
+    ComponentArgumentVecDestructorType,
+    ComponentArgumentVecSlice,
+    OptionComponentArgument
+);
+impl_option!(
+    ComponentArgument,
+    OptionComponentArgument,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 impl_vec_debug!(ComponentArgument, ComponentArgumentVec);
 impl_vec_partialeq!(ComponentArgument, ComponentArgumentVec);
 impl_vec_eq!(ComponentArgument, ComponentArgumentVec);
 impl_vec_partialord!(ComponentArgument, ComponentArgumentVec);
 impl_vec_ord!(ComponentArgument, ComponentArgumentVec);
 impl_vec_hash!(ComponentArgument, ComponentArgumentVec);
-impl_vec_clone!(ComponentArgument, ComponentArgumentVec, ComponentArgumentVecDestructor);
+impl_vec_clone!(
+    ComponentArgument,
+    ComponentArgumentVec,
+    ComponentArgumentVecDestructor
+);
 impl_vec_mut!(ComponentArgument, ComponentArgumentVec);
 
 /// Holds the list of arguments and whether the component accepts text content.
@@ -222,9 +238,11 @@ pub struct MimeTypeHint {
 
 impl MimeTypeHint {
     pub fn new(s: &str) -> Self {
-        Self { inner: AzString::from(s) }
+        Self {
+            inner: AzString::from(s),
+        }
     }
-    
+
     pub fn from_extension(ext: &str) -> Self {
         let mime = match ext.to_lowercase().as_str() {
             // Images
@@ -258,7 +276,9 @@ impl MimeTypeHint {
             // Default
             _ => "application/octet-stream",
         };
-        Self { inner: AzString::from(mime) }
+        Self {
+            inner: AzString::from(mime),
+        }
     }
 }
 
@@ -292,7 +312,14 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(ExternalResource, ExternalResourceVec, ExternalResourceVecDestructor, ExternalResourceVecDestructorType, ExternalResourceVecSlice, OptionExternalResource);
+impl_vec!(
+    ExternalResource,
+    ExternalResourceVec,
+    ExternalResourceVecDestructor,
+    ExternalResourceVecDestructorType,
+    ExternalResourceVecSlice,
+    OptionExternalResource
+);
 impl_vec_mut!(ExternalResource, ExternalResourceVec);
 impl_vec_debug!(ExternalResource, ExternalResourceVec);
 impl_vec_partialeq!(ExternalResource, ExternalResourceVec);
@@ -300,7 +327,11 @@ impl_vec_eq!(ExternalResource, ExternalResourceVec);
 impl_vec_partialord!(ExternalResource, ExternalResourceVec);
 impl_vec_ord!(ExternalResource, ExternalResourceVec);
 impl_vec_hash!(ExternalResource, ExternalResourceVec);
-impl_vec_clone!(ExternalResource, ExternalResourceVec, ExternalResourceVecDestructor);
+impl_vec_clone!(
+    ExternalResource,
+    ExternalResourceVec,
+    ExternalResourceVecDestructor
+);
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[repr(C)]
@@ -310,7 +341,7 @@ pub struct Xml {
 
 impl Xml {
     /// Scan the XML/HTML document for external resource URLs.
-    /// 
+    ///
     /// This function traverses the entire document tree and extracts URLs from:
     /// - `<img src="...">` - Images
     /// - `<link href="...">` - Stylesheets, icons, fonts
@@ -322,14 +353,14 @@ impl Xml {
     /// - `<style>` blocks with @import or url()
     pub fn scan_external_resources(&self) -> ExternalResourceVec {
         let mut resources = Vec::new();
-        
+
         for child in self.root.as_ref().iter() {
             Self::scan_node_child(child, &mut resources);
         }
-        
+
         resources.into()
     }
-    
+
     fn scan_node_child(child: &XmlNodeChild, resources: &mut Vec<ExternalResource>) {
         match child {
             XmlNodeChild::Text(text) => {
@@ -341,17 +372,20 @@ impl Xml {
             }
         }
     }
-    
+
     fn scan_node(node: &XmlNode, resources: &mut Vec<ExternalResource>) {
         let tag_name = node.node_type.inner.as_str().to_lowercase();
-        
+
         // Get attribute lookup helper
         let get_attr = |name: &str| -> Option<String> {
-            node.attributes.inner.as_ref().iter()
+            node.attributes
+                .inner
+                .as_ref()
+                .iter()
                 .find(|pair| pair.key.as_str().eq_ignore_ascii_case(name))
                 .map(|pair| pair.value.as_str().to_string())
         };
-        
+
         match tag_name.as_str() {
             "img" => {
                 if let Some(src) = get_attr("src") {
@@ -383,7 +417,7 @@ impl Xml {
                     let rel = get_attr("rel").unwrap_or_default().to_lowercase();
                     let type_attr = get_attr("type");
                     let as_attr = get_attr("as").unwrap_or_default().to_lowercase();
-                    
+
                     let (kind, category) = if rel.contains("stylesheet") {
                         (ExternalResourceKind::Stylesheet, "stylesheet")
                     } else if rel.contains("icon") || rel.contains("apple-touch-icon") {
@@ -397,10 +431,11 @@ impl Xml {
                     } else {
                         (ExternalResourceKind::Unknown, "")
                     };
-                    
-                    let mime = type_attr.map(|t| MimeTypeHint::new(&t))
+
+                    let mime = type_attr
+                        .map(|t| MimeTypeHint::new(&t))
                         .or_else(|| Self::guess_mime_from_url(&href, category));
-                    
+
                     resources.push(ExternalResource {
                         url: AzString::from(href),
                         kind,
@@ -413,9 +448,10 @@ impl Xml {
             "script" => {
                 if let Some(src) = get_attr("src") {
                     let type_attr = get_attr("type");
-                    let mime = type_attr.map(|t| MimeTypeHint::new(&t))
+                    let mime = type_attr
+                        .map(|t| MimeTypeHint::new(&t))
                         .or_else(|| Some(MimeTypeHint::new("application/javascript")));
-                    
+
                     resources.push(ExternalResource {
                         url: AzString::from(src),
                         kind: ExternalResourceKind::Script,
@@ -463,14 +499,26 @@ impl Xml {
                 if let Some(src) = get_attr("src") {
                     let type_attr = get_attr("type");
                     // Determine kind based on type or parent (heuristic: assume video)
-                    let kind = if type_attr.as_ref().map(|t| t.starts_with("audio")).unwrap_or(false) {
+                    let kind = if type_attr
+                        .as_ref()
+                        .map(|t| t.starts_with("audio"))
+                        .unwrap_or(false)
+                    {
                         ExternalResourceKind::Audio
                     } else {
                         ExternalResourceKind::Video
                     };
-                    let mime = type_attr.map(|t| MimeTypeHint::new(&t))
-                        .or_else(|| Self::guess_mime_from_url(&src, if kind == ExternalResourceKind::Audio { "audio" } else { "video" }));
-                    
+                    let mime = type_attr.map(|t| MimeTypeHint::new(&t)).or_else(|| {
+                        Self::guess_mime_from_url(
+                            &src,
+                            if kind == ExternalResourceKind::Audio {
+                                "audio"
+                            } else {
+                                "video"
+                            },
+                        )
+                    });
+
                     resources.push(ExternalResource {
                         url: AzString::from(src),
                         kind,
@@ -530,12 +578,12 @@ impl Xml {
             }
             _ => {}
         }
-        
+
         // Check inline style attribute for url()
         if let Some(style) = get_attr("style") {
             Self::extract_css_urls(&style, resources);
         }
-        
+
         // Check for background attribute (deprecated but still used)
         if let Some(bg) = get_attr("background") {
             let mime = Self::guess_mime_from_url(&bg, "image");
@@ -547,18 +595,18 @@ impl Xml {
                 source_attribute: AzString::from("background"),
             });
         }
-        
+
         // Recurse into children
         for child in node.children.as_ref().iter() {
             Self::scan_node_child(child, resources);
         }
     }
-    
+
     /// Extract URLs from CSS content (handles url() and @import)
     fn extract_css_urls(css: &str, resources: &mut Vec<ExternalResource>) {
         // Simple regex-like parsing for url(...) and @import
         let mut remaining = css;
-        
+
         while let Some(pos) = remaining.find("url(") {
             let after_url = &remaining[pos + 4..];
             if let Some(url) = Self::extract_url_value(after_url) {
@@ -574,13 +622,13 @@ impl Xml {
             }
             remaining = after_url;
         }
-        
+
         // Handle @import "url" or @import url(...)
         remaining = css;
         while let Some(pos) = remaining.to_lowercase().find("@import") {
             let after_import = &remaining[pos + 7..];
             let trimmed = after_import.trim_start();
-            
+
             if trimmed.starts_with("url(") {
                 if let Some(url) = Self::extract_url_value(&trimmed[4..]) {
                     resources.push(ExternalResource {
@@ -600,11 +648,11 @@ impl Xml {
                     source_attribute: AzString::from("@import"),
                 });
             }
-            
+
             remaining = after_import;
         }
     }
-    
+
     /// Extract value from url(...) - handles quoted and unquoted URLs
     fn extract_url_value(s: &str) -> Option<String> {
         let trimmed = s.trim_start();
@@ -612,29 +660,30 @@ impl Xml {
             Self::extract_quoted_string(trimmed)
         } else if trimmed.starts_with('\'') {
             let end = trimmed[1..].find('\'')?;
-            Some(trimmed[1..1+end].to_string())
+            Some(trimmed[1..1 + end].to_string())
         } else {
             let end = trimmed.find(')')?;
             Some(trimmed[..end].trim().to_string())
         }
     }
-    
+
     /// Extract a quoted string value
     fn extract_quoted_string(s: &str) -> Option<String> {
         if s.starts_with('"') {
             let end = s[1..].find('"')?;
-            Some(s[1..1+end].to_string())
+            Some(s[1..1 + end].to_string())
         } else if s.starts_with('\'') {
             let end = s[1..].find('\'')?;
-            Some(s[1..1+end].to_string())
+            Some(s[1..1 + end].to_string())
         } else {
             None
         }
     }
-    
+
     /// Parse srcset attribute into individual URLs
     fn parse_srcset(srcset: &str) -> Vec<String> {
-        srcset.split(',')
+        srcset
+            .split(',')
             .filter_map(|entry| {
                 let trimmed = entry.trim();
                 // srcset format: "url 1x" or "url 100w"
@@ -643,32 +692,40 @@ impl Xml {
             .filter(|url| !url.is_empty())
             .collect()
     }
-    
+
     /// Check if a URL looks like a downloadable resource (not a page)
     fn looks_like_resource(url: &str) -> bool {
         let lower = url.to_lowercase();
         // Check for common resource extensions
         let resource_exts = [
-            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp",
-            ".ttf", ".otf", ".woff", ".woff2", ".eot",
-            ".css", ".js",
-            ".mp4", ".webm", ".ogg", ".mp3", ".wav",
+            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".ttf", ".otf",
+            ".woff", ".woff2", ".eot", ".css", ".js", ".mp4", ".webm", ".ogg", ".mp3", ".wav",
             ".pdf", ".zip", ".tar", ".gz",
         ];
         resource_exts.iter().any(|ext| lower.ends_with(ext))
     }
-    
+
     /// Guess the resource kind from URL based on file extension.
     fn guess_kind_from_url(url: &str) -> ExternalResourceKind {
         let lower = url.to_lowercase();
         // Strip query string before checking extension
         let path = lower.split('?').next().unwrap_or(&lower);
-        if path.ends_with(".png") || path.ends_with(".jpg") || path.ends_with(".jpeg")
-            || path.ends_with(".gif") || path.ends_with(".webp") || path.ends_with(".svg")
-            || path.ends_with(".bmp") || path.ends_with(".avif") {
+        if path.ends_with(".png")
+            || path.ends_with(".jpg")
+            || path.ends_with(".jpeg")
+            || path.ends_with(".gif")
+            || path.ends_with(".webp")
+            || path.ends_with(".svg")
+            || path.ends_with(".bmp")
+            || path.ends_with(".avif")
+        {
             ExternalResourceKind::Image
-        } else if path.ends_with(".ttf") || path.ends_with(".otf") || path.ends_with(".woff")
-            || path.ends_with(".woff2") || path.ends_with(".eot") {
+        } else if path.ends_with(".ttf")
+            || path.ends_with(".otf")
+            || path.ends_with(".woff")
+            || path.ends_with(".woff2")
+            || path.ends_with(".eot")
+        {
             ExternalResourceKind::Font
         } else if path.ends_with(".css") {
             ExternalResourceKind::Stylesheet
@@ -684,7 +741,7 @@ impl Xml {
             ExternalResourceKind::Unknown
         }
     }
-    
+
     /// Guess MIME type from URL based on extension
     fn guess_mime_from_url(url: &str, category: &str) -> Option<MimeTypeHint> {
         let lower = url.to_lowercase();
@@ -692,15 +749,13 @@ impl Xml {
         let ext = lower.rsplit('.').next()?;
         // Remove query string if present
         let ext = ext.split('?').next()?;
-        
+
         // Check if it's a valid extension
         let valid_exts = [
-            "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif",
-            "ttf", "otf", "woff", "woff2", "eot",
-            "css", "js", "mjs",
-            "mp4", "webm", "ogg", "mp3", "wav", "flac",
+            "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif", "ttf", "otf", "woff",
+            "woff2", "eot", "css", "js", "mjs", "mp4", "webm", "ogg", "mp3", "wav", "flac",
         ];
-        
+
         if valid_exts.contains(&ext) {
             Some(MimeTypeHint::from_extension(ext))
         } else if !category.is_empty() {
@@ -1129,15 +1184,31 @@ pub struct ComponentCallbackArg {
     pub arg_type: ComponentFieldType,
 }
 
-impl_vec!(ComponentCallbackArg, ComponentCallbackArgVec, ComponentCallbackArgVecDestructor, ComponentCallbackArgVecDestructorType, ComponentCallbackArgVecSlice, OptionComponentCallbackArg);
-impl_option!(ComponentCallbackArg, OptionComponentCallbackArg, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_vec!(
+    ComponentCallbackArg,
+    ComponentCallbackArgVec,
+    ComponentCallbackArgVecDestructor,
+    ComponentCallbackArgVecDestructorType,
+    ComponentCallbackArgVecSlice,
+    OptionComponentCallbackArg
+);
+impl_option!(
+    ComponentCallbackArg,
+    OptionComponentCallbackArg,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 impl_vec_debug!(ComponentCallbackArg, ComponentCallbackArgVec);
 impl_vec_partialeq!(ComponentCallbackArg, ComponentCallbackArgVec);
 impl_vec_eq!(ComponentCallbackArg, ComponentCallbackArgVec);
 impl_vec_partialord!(ComponentCallbackArg, ComponentCallbackArgVec);
 impl_vec_ord!(ComponentCallbackArg, ComponentCallbackArgVec);
 impl_vec_hash!(ComponentCallbackArg, ComponentCallbackArgVec);
-impl_vec_clone!(ComponentCallbackArg, ComponentCallbackArgVec, ComponentCallbackArgVecDestructor);
+impl_vec_clone!(
+    ComponentCallbackArg,
+    ComponentCallbackArgVec,
+    ComponentCallbackArgVecDestructor
+);
 
 /// Callback signature: return type + argument list.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1158,7 +1229,9 @@ pub struct ComponentFieldTypeBox {
 
 impl ComponentFieldTypeBox {
     pub fn new(t: ComponentFieldType) -> Self {
-        Self { ptr: Box::into_raw(Box::new(t)) }
+        Self {
+            ptr: Box::into_raw(Box::new(t)),
+        }
     }
 
     pub fn as_ref(&self) -> &ComponentFieldType {
@@ -1175,7 +1248,9 @@ impl Clone for ComponentFieldTypeBox {
 impl Drop for ComponentFieldTypeBox {
     fn drop(&mut self) {
         if !self.ptr.is_null() {
-            unsafe { let _ = Box::from_raw(self.ptr); }
+            unsafe {
+                let _ = Box::from_raw(self.ptr);
+            }
         }
     }
 }
@@ -1192,8 +1267,12 @@ impl fmt::Debug for ComponentFieldTypeBox {
 
 impl PartialEq for ComponentFieldTypeBox {
     fn eq(&self, other: &Self) -> bool {
-        if self.ptr.is_null() && other.ptr.is_null() { return true; }
-        if self.ptr.is_null() || other.ptr.is_null() { return false; }
+        if self.ptr.is_null() && other.ptr.is_null() {
+            return true;
+        }
+        if self.ptr.is_null() || other.ptr.is_null() {
+            return false;
+        }
         unsafe { *self.ptr == *other.ptr }
     }
 }
@@ -1220,7 +1299,9 @@ impl Ord for ComponentFieldTypeBox {
 impl core::hash::Hash for ComponentFieldTypeBox {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         if !self.ptr.is_null() {
-            unsafe { (*self.ptr).hash(state); }
+            unsafe {
+                (*self.ptr).hash(state);
+            }
         }
     }
 }
@@ -1234,7 +1315,9 @@ pub struct ComponentFieldValueBox {
 
 impl ComponentFieldValueBox {
     pub fn new(v: ComponentFieldValue) -> Self {
-        Self { ptr: Box::into_raw(Box::new(v)) }
+        Self {
+            ptr: Box::into_raw(Box::new(v)),
+        }
     }
 
     pub fn as_ref(&self) -> &ComponentFieldValue {
@@ -1251,7 +1334,9 @@ impl Clone for ComponentFieldValueBox {
 impl Drop for ComponentFieldValueBox {
     fn drop(&mut self) {
         if !self.ptr.is_null() {
-            unsafe { let _ = Box::from_raw(self.ptr); }
+            unsafe {
+                let _ = Box::from_raw(self.ptr);
+            }
         }
     }
 }
@@ -1268,8 +1353,12 @@ impl fmt::Debug for ComponentFieldValueBox {
 
 impl PartialEq for ComponentFieldValueBox {
     fn eq(&self, other: &Self) -> bool {
-        if self.ptr.is_null() && other.ptr.is_null() { return true; }
-        if self.ptr.is_null() || other.ptr.is_null() { return false; }
+        if self.ptr.is_null() && other.ptr.is_null() {
+            return true;
+        }
+        if self.ptr.is_null() || other.ptr.is_null() {
+            return false;
+        }
         unsafe { *self.ptr == *other.ptr }
     }
 }
@@ -1337,17 +1426,24 @@ impl ComponentFieldType {
         // Option<T>
         if let Some(inner) = s.strip_prefix("Option<").and_then(|r| r.strip_suffix('>')) {
             let inner_type = ComponentFieldType::parse(inner)?;
-            return Some(ComponentFieldType::OptionType(ComponentFieldTypeBox::new(inner_type)));
+            return Some(ComponentFieldType::OptionType(ComponentFieldTypeBox::new(
+                inner_type,
+            )));
         }
 
         // Vec<T>
         if let Some(inner) = s.strip_prefix("Vec<").and_then(|r| r.strip_suffix('>')) {
             let inner_type = ComponentFieldType::parse(inner)?;
-            return Some(ComponentFieldType::VecType(ComponentFieldTypeBox::new(inner_type)));
+            return Some(ComponentFieldType::VecType(ComponentFieldTypeBox::new(
+                inner_type,
+            )));
         }
 
         // Callback(signature)
-        if let Some(sig) = s.strip_prefix("Callback(").and_then(|r| r.strip_suffix(')')) {
+        if let Some(sig) = s
+            .strip_prefix("Callback(")
+            .and_then(|r| r.strip_suffix(')'))
+        {
             return Some(ComponentFieldType::Callback(ComponentCallbackSignature {
                 return_type: AzString::from(sig),
                 args: Vec::new().into(),
@@ -1365,7 +1461,10 @@ impl ComponentFieldType {
         }
 
         // StructRef(Name) — explicit
-        if let Some(name) = s.strip_prefix("StructRef(").and_then(|r| r.strip_suffix(')')) {
+        if let Some(name) = s
+            .strip_prefix("StructRef(")
+            .and_then(|r| r.strip_suffix(')'))
+        {
             return Some(ComponentFieldType::StructRef(AzString::from(name)));
         }
 
@@ -1429,11 +1528,27 @@ pub struct ComponentEnumVariant {
     pub fields: ComponentDataFieldVec,
 }
 
-impl_vec!(ComponentEnumVariant, ComponentEnumVariantVec, ComponentEnumVariantVecDestructor, ComponentEnumVariantVecDestructorType, ComponentEnumVariantVecSlice, OptionComponentEnumVariant);
-impl_option!(ComponentEnumVariant, OptionComponentEnumVariant, copy = false, [Debug, Clone, PartialEq]);
+impl_vec!(
+    ComponentEnumVariant,
+    ComponentEnumVariantVec,
+    ComponentEnumVariantVecDestructor,
+    ComponentEnumVariantVecDestructorType,
+    ComponentEnumVariantVecSlice,
+    OptionComponentEnumVariant
+);
+impl_option!(
+    ComponentEnumVariant,
+    OptionComponentEnumVariant,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 impl_vec_debug!(ComponentEnumVariant, ComponentEnumVariantVec);
 impl_vec_partialeq!(ComponentEnumVariant, ComponentEnumVariantVec);
-impl_vec_clone!(ComponentEnumVariant, ComponentEnumVariantVec, ComponentEnumVariantVecDestructor);
+impl_vec_clone!(
+    ComponentEnumVariant,
+    ComponentEnumVariantVec,
+    ComponentEnumVariantVecDestructor
+);
 
 /// A named enum model for code generation.
 /// Stored in `ComponentLibrary::enum_models`.
@@ -1448,11 +1563,27 @@ pub struct ComponentEnumModel {
     pub variants: ComponentEnumVariantVec,
 }
 
-impl_vec!(ComponentEnumModel, ComponentEnumModelVec, ComponentEnumModelVecDestructor, ComponentEnumModelVecDestructorType, ComponentEnumModelVecSlice, OptionComponentEnumModel);
-impl_option!(ComponentEnumModel, OptionComponentEnumModel, copy = false, [Debug, Clone, PartialEq]);
+impl_vec!(
+    ComponentEnumModel,
+    ComponentEnumModelVec,
+    ComponentEnumModelVecDestructor,
+    ComponentEnumModelVecDestructorType,
+    ComponentEnumModelVecSlice,
+    OptionComponentEnumModel
+);
+impl_option!(
+    ComponentEnumModel,
+    OptionComponentEnumModel,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 impl_vec_debug!(ComponentEnumModel, ComponentEnumModelVec);
 impl_vec_partialeq!(ComponentEnumModel, ComponentEnumModelVec);
-impl_vec_clone!(ComponentEnumModel, ComponentEnumModelVec, ComponentEnumModelVecDestructor);
+impl_vec_clone!(
+    ComponentEnumModel,
+    ComponentEnumModelVec,
+    ComponentEnumModelVecDestructor
+);
 
 /// Default value for a component field.
 #[derive(Debug, Clone, PartialEq)]
@@ -1488,7 +1619,12 @@ pub enum ComponentDefaultValue {
     Json(AzString),
 }
 
-impl_option!(ComponentDefaultValue, OptionComponentDefaultValue, copy = false, [Debug, Clone, PartialEq]);
+impl_option!(
+    ComponentDefaultValue,
+    OptionComponentDefaultValue,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 /// Default component instance for a StyledDom slot.
 #[derive(Debug, Clone, PartialEq)]
@@ -1512,11 +1648,27 @@ pub struct ComponentFieldOverride {
     pub source: ComponentFieldValueSource,
 }
 
-impl_vec!(ComponentFieldOverride, ComponentFieldOverrideVec, ComponentFieldOverrideVecDestructor, ComponentFieldOverrideVecDestructorType, ComponentFieldOverrideVecSlice, OptionComponentFieldOverride);
-impl_option!(ComponentFieldOverride, OptionComponentFieldOverride, copy = false, [Debug, Clone, PartialEq]);
+impl_vec!(
+    ComponentFieldOverride,
+    ComponentFieldOverrideVec,
+    ComponentFieldOverrideVecDestructor,
+    ComponentFieldOverrideVecDestructorType,
+    ComponentFieldOverrideVecSlice,
+    OptionComponentFieldOverride
+);
+impl_option!(
+    ComponentFieldOverride,
+    OptionComponentFieldOverride,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 impl_vec_debug!(ComponentFieldOverride, ComponentFieldOverrideVec);
 impl_vec_partialeq!(ComponentFieldOverride, ComponentFieldOverrideVec);
-impl_vec_clone!(ComponentFieldOverride, ComponentFieldOverrideVec, ComponentFieldOverrideVecDestructor);
+impl_vec_clone!(
+    ComponentFieldOverride,
+    ComponentFieldOverrideVec,
+    ComponentFieldOverrideVecDestructor
+);
 
 /// How a field value is sourced at the instance level.
 #[derive(Debug, Clone, PartialEq)]
@@ -1556,7 +1708,10 @@ pub enum ComponentFieldValue {
     /// Struct fields, in order
     Struct(ComponentFieldNamedValueVec),
     /// Enum variant
-    Enum { variant: AzString, fields: ComponentFieldNamedValueVec },
+    Enum {
+        variant: AzString,
+        fields: ComponentFieldNamedValueVec,
+    },
     /// Callback function reference (function name as string)
     Callback(AzString),
     /// Opaque reference-counted data
@@ -1571,17 +1726,37 @@ pub struct ComponentFieldNamedValue {
     pub value: ComponentFieldValue,
 }
 
-impl_vec!(ComponentFieldNamedValue, ComponentFieldNamedValueVec, ComponentFieldNamedValueVecDestructor, ComponentFieldNamedValueVecDestructorType, ComponentFieldNamedValueVecSlice, OptionComponentFieldNamedValue);
-impl_option!(ComponentFieldNamedValue, OptionComponentFieldNamedValue, copy = false, [Debug, Clone, PartialEq]);
+impl_vec!(
+    ComponentFieldNamedValue,
+    ComponentFieldNamedValueVec,
+    ComponentFieldNamedValueVecDestructor,
+    ComponentFieldNamedValueVecDestructorType,
+    ComponentFieldNamedValueVecSlice,
+    OptionComponentFieldNamedValue
+);
+impl_option!(
+    ComponentFieldNamedValue,
+    OptionComponentFieldNamedValue,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 impl_vec_debug!(ComponentFieldNamedValue, ComponentFieldNamedValueVec);
 impl_vec_partialeq!(ComponentFieldNamedValue, ComponentFieldNamedValueVec);
-impl_vec_clone!(ComponentFieldNamedValue, ComponentFieldNamedValueVec, ComponentFieldNamedValueVecDestructor);
+impl_vec_clone!(
+    ComponentFieldNamedValue,
+    ComponentFieldNamedValueVec,
+    ComponentFieldNamedValueVecDestructor
+);
 
 impl ComponentFieldNamedValueVec {
     /// Look up a field by name, return a reference to its value.
     pub fn get_field(&self, name: &str) -> Option<&ComponentFieldValue> {
         self.as_ref().iter().find_map(|v| {
-            if v.name.as_str() == name { Some(&v.value) } else { None }
+            if v.name.as_str() == name {
+                Some(&v.value)
+            } else {
+                None
+            }
         })
     }
 
@@ -1594,11 +1769,27 @@ impl ComponentFieldNamedValueVec {
     }
 }
 
-impl_vec!(ComponentFieldValue, ComponentFieldValueVec, ComponentFieldValueVecDestructor, ComponentFieldValueVecDestructorType, ComponentFieldValueVecSlice, OptionComponentFieldValue);
-impl_option!(ComponentFieldValue, OptionComponentFieldValue, copy = false, [Debug, Clone, PartialEq]);
+impl_vec!(
+    ComponentFieldValue,
+    ComponentFieldValueVec,
+    ComponentFieldValueVecDestructor,
+    ComponentFieldValueVecDestructorType,
+    ComponentFieldValueVecSlice,
+    OptionComponentFieldValue
+);
+impl_option!(
+    ComponentFieldValue,
+    OptionComponentFieldValue,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 impl_vec_debug!(ComponentFieldValue, ComponentFieldValueVec);
 impl_vec_partialeq!(ComponentFieldValue, ComponentFieldValueVec);
-impl_vec_clone!(ComponentFieldValue, ComponentFieldValueVec, ComponentFieldValueVecDestructor);
+impl_vec_clone!(
+    ComponentFieldValue,
+    ComponentFieldValueVec,
+    ComponentFieldValueVecDestructor
+);
 
 /// A field in the component's internal data model.
 #[derive(Debug, Clone, PartialEq)]
@@ -1616,11 +1807,27 @@ pub struct ComponentDataField {
     pub description: AzString,
 }
 
-impl_vec!(ComponentDataField, ComponentDataFieldVec, ComponentDataFieldVecDestructor, ComponentDataFieldVecDestructorType, ComponentDataFieldVecSlice, OptionComponentDataField);
-impl_option!(ComponentDataField, OptionComponentDataField, copy = false, [Debug, Clone, PartialEq]);
+impl_vec!(
+    ComponentDataField,
+    ComponentDataFieldVec,
+    ComponentDataFieldVecDestructor,
+    ComponentDataFieldVecDestructorType,
+    ComponentDataFieldVecSlice,
+    OptionComponentDataField
+);
+impl_option!(
+    ComponentDataField,
+    OptionComponentDataField,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 impl_vec_debug!(ComponentDataField, ComponentDataFieldVec);
 impl_vec_partialeq!(ComponentDataField, ComponentDataFieldVec);
-impl_vec_clone!(ComponentDataField, ComponentDataFieldVec, ComponentDataFieldVecDestructor);
+impl_vec_clone!(
+    ComponentDataField,
+    ComponentDataFieldVec,
+    ComponentDataFieldVecDestructor
+);
 
 /// A named data model (struct definition) for code generation.
 ///
@@ -1642,16 +1849,17 @@ pub struct ComponentDataModel {
 impl ComponentDataModel {
     /// Look up a field by name.
     pub fn get_field(&self, name: &str) -> Option<&ComponentDataField> {
-        self.fields.as_ref().iter().find(|f| f.name.as_str() == name)
+        self.fields
+            .as_ref()
+            .iter()
+            .find(|f| f.name.as_str() == name)
     }
 
     /// Look up a field's default value as a string, if it exists and is a String variant.
     pub fn get_default_string(&self, name: &str) -> Option<&AzString> {
-        self.get_field(name).and_then(|f| {
-            match &f.default_value {
-                OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => Some(s),
-                _ => None,
-            }
+        self.get_field(name).and_then(|f| match &f.default_value {
+            OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => Some(s),
+            _ => None,
         })
     }
 
@@ -1661,7 +1869,8 @@ impl ComponentDataModel {
         let mut fields_vec = core::mem::replace(
             &mut self.fields,
             ComponentDataFieldVec::from_const_slice(&[]),
-        ).into_library_owned_vec();
+        )
+        .into_library_owned_vec();
         for f in fields_vec.iter_mut() {
             if f.name.as_str() == name {
                 f.default_value = OptionComponentDefaultValue::Some(value);
@@ -1673,10 +1882,26 @@ impl ComponentDataModel {
     }
 }
 
-impl_vec!(ComponentDataModel, ComponentDataModelVec, ComponentDataModelVecDestructor, ComponentDataModelVecDestructorType, ComponentDataModelVecSlice, OptionComponentDataModel);
-impl_option!(ComponentDataModel, OptionComponentDataModel, copy = false, [Debug, Clone]);
+impl_vec!(
+    ComponentDataModel,
+    ComponentDataModelVec,
+    ComponentDataModelVecDestructor,
+    ComponentDataModelVecDestructorType,
+    ComponentDataModelVecSlice,
+    OptionComponentDataModel
+);
+impl_option!(
+    ComponentDataModel,
+    OptionComponentDataModel,
+    copy = false,
+    [Debug, Clone]
+);
 impl_vec_debug!(ComponentDataModel, ComponentDataModelVec);
-impl_vec_clone!(ComponentDataModel, ComponentDataModelVec, ComponentDataModelVecDestructor);
+impl_vec_clone!(
+    ComponentDataModel,
+    ComponentDataModelVec,
+    ComponentDataModelVecDestructor
+);
 impl_vec_mut!(ComponentDataModel, ComponentDataModelVec);
 
 // ============================================================================
@@ -1686,8 +1911,8 @@ impl_vec_mut!(ComponentDataModel, ComponentDataModelVec);
 #[cfg(feature = "serde-json")]
 mod serde_impl {
     use super::*;
-    use serde::{Serialize, Serializer, Deserialize, Deserializer};
     use serde::ser::SerializeStruct;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     // --- AzString helpers ---
 
@@ -1731,19 +1956,16 @@ mod serde_impl {
             ComponentFieldType::ImageRef => "ImageRef".into(),
             ComponentFieldType::FontRef => "FontRef".into(),
             ComponentFieldType::StyledDom => "Dom".into(),
-            ComponentFieldType::Callback(sig) => alloc::format!(
-                "Callback({})",
-                sig.return_type.as_str()
-            ),
+            ComponentFieldType::Callback(sig) => {
+                alloc::format!("Callback({})", sig.return_type.as_str())
+            }
             ComponentFieldType::RefAny(hint) => alloc::format!("RefAny({})", hint.as_str()),
-            ComponentFieldType::OptionType(inner) => alloc::format!(
-                "Option<{}>",
-                field_type_to_string(inner.as_ref())
-            ),
-            ComponentFieldType::VecType(inner) => alloc::format!(
-                "Vec<{}>",
-                field_type_to_string(inner.as_ref())
-            ),
+            ComponentFieldType::OptionType(inner) => {
+                alloc::format!("Option<{}>", field_type_to_string(inner.as_ref()))
+            }
+            ComponentFieldType::VecType(inner) => {
+                alloc::format!("Vec<{}>", field_type_to_string(inner.as_ref()))
+            }
             ComponentFieldType::StructRef(name) => alloc::format!("struct:{}", name.as_str()),
             ComponentFieldType::EnumRef(name) => alloc::format!("enum:{}", name.as_str()),
         }
@@ -1766,16 +1988,26 @@ mod serde_impl {
             "FontRef" | "Font" => ComponentFieldType::FontRef,
             "Dom" | "StyledDom" | "Children" => ComponentFieldType::StyledDom,
             other => {
-                if let Some(inner) = other.strip_prefix("Option<").and_then(|s| s.strip_suffix('>')) {
-                    ComponentFieldType::OptionType(ComponentFieldTypeBox::new(string_to_field_type(inner)))
-                } else if let Some(inner) = other.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
-                    ComponentFieldType::VecType(ComponentFieldTypeBox::new(string_to_field_type(inner)))
+                if let Some(inner) = other
+                    .strip_prefix("Option<")
+                    .and_then(|s| s.strip_suffix('>'))
+                {
+                    ComponentFieldType::OptionType(ComponentFieldTypeBox::new(
+                        string_to_field_type(inner),
+                    ))
+                } else if let Some(inner) =
+                    other.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>'))
+                {
+                    ComponentFieldType::VecType(ComponentFieldTypeBox::new(string_to_field_type(
+                        inner,
+                    )))
                 } else if let Some(name) = other.strip_prefix("struct:") {
                     ComponentFieldType::StructRef(AzString::from(name))
                 } else if let Some(name) = other.strip_prefix("enum:") {
                     ComponentFieldType::EnumRef(AzString::from(name))
                 } else if other.starts_with("Callback") {
-                    let ret = other.strip_prefix("Callback(")
+                    let ret = other
+                        .strip_prefix("Callback(")
                         .and_then(|s| s.strip_suffix(')'))
                         .unwrap_or("()");
                     ComponentFieldType::Callback(ComponentCallbackSignature {
@@ -1783,7 +2015,8 @@ mod serde_impl {
                         args: ComponentCallbackArgVec::from_const_slice(&[]),
                     })
                 } else if other.starts_with("RefAny") {
-                    let hint = other.strip_prefix("RefAny(")
+                    let hint = other
+                        .strip_prefix("RefAny(")
                         .and_then(|s| s.strip_suffix(')'))
                         .unwrap_or("");
                     ComponentFieldType::RefAny(AzString::from(hint))
@@ -1810,9 +2043,13 @@ mod serde_impl {
                 ComponentDefaultValue::Usize(v) => serializer.serialize_u64(*v as u64),
                 ComponentDefaultValue::F32(v) => serializer.serialize_f32(*v),
                 ComponentDefaultValue::F64(v) => serializer.serialize_f64(*v),
-                ComponentDefaultValue::ColorU(c) => {
-                    serializer.serialize_str(&alloc::format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a))
-                }
+                ComponentDefaultValue::ColorU(c) => serializer.serialize_str(&alloc::format!(
+                    "#{:02x}{:02x}{:02x}{:02x}",
+                    c.r,
+                    c.g,
+                    c.b,
+                    c.a
+                )),
                 ComponentDefaultValue::ComponentInstance(ci) => {
                     let mut map = serializer.serialize_map(Some(2))?;
                     map.serialize_entry("library", ci.library.as_str())?;
@@ -1909,7 +2146,9 @@ mod serde_impl {
                 #[serde(default)]
                 description: alloc::string::String,
             }
-            fn default_type() -> ComponentFieldType { ComponentFieldType::String }
+            fn default_type() -> ComponentFieldType {
+                ComponentFieldType::String
+            }
 
             let h = Helper::deserialize(deserializer)?;
             Ok(ComponentDataField {
@@ -1929,7 +2168,8 @@ mod serde_impl {
             let mut s = serializer.serialize_struct("ComponentDataModel", 3)?;
             s.serialize_field("name", self.name.as_str())?;
             s.serialize_field("description", self.description.as_str())?;
-            let fields: alloc::vec::Vec<&ComponentDataField> = self.fields.as_ref().iter().collect();
+            let fields: alloc::vec::Vec<&ComponentDataField> =
+                self.fields.as_ref().iter().collect();
             s.serialize_field("fields", &fields)?;
             s.end()
         }
@@ -2030,11 +2270,8 @@ impl_result!(
 ///
 /// The `data` parameter is typically `def.data_model` cloned and with caller-provided
 /// values substituted into the `default_value` fields.
-pub type ComponentRenderFn = fn(
-    &ComponentDef,
-    &ComponentDataModel,
-    &ComponentMap,
-) -> ResultStyledDomRenderDomError;
+pub type ComponentRenderFn =
+    fn(&ComponentDef, &ComponentDataModel, &ComponentMap) -> ResultStyledDomRenderDomError;
 
 /// Compile function type: takes component definition + target language + data model, returns source code.
 pub type ComponentCompileFn = fn(
@@ -2129,7 +2366,14 @@ impl fmt::Debug for ComponentDef {
     }
 }
 
-impl_vec!(ComponentDef, ComponentDefVec, ComponentDefVecDestructor, ComponentDefVecDestructorType, ComponentDefVecSlice, OptionComponentDef);
+impl_vec!(
+    ComponentDef,
+    ComponentDefVec,
+    ComponentDefVecDestructor,
+    ComponentDefVecDestructorType,
+    ComponentDefVecSlice,
+    OptionComponentDef
+);
 impl_option!(ComponentDef, OptionComponentDef, copy = false, [Clone]);
 impl_vec_debug!(ComponentDef, ComponentDefVec);
 impl_vec_clone!(ComponentDef, ComponentDefVec, ComponentDefVecDestructor);
@@ -2160,10 +2404,26 @@ pub struct ComponentLibrary {
     pub enum_models: ComponentEnumModelVec,
 }
 
-impl_vec!(ComponentLibrary, ComponentLibraryVec, ComponentLibraryVecDestructor, ComponentLibraryVecDestructorType, ComponentLibraryVecSlice, OptionComponentLibrary);
-impl_option!(ComponentLibrary, OptionComponentLibrary, copy = false, [Debug, Clone]);
+impl_vec!(
+    ComponentLibrary,
+    ComponentLibraryVec,
+    ComponentLibraryVecDestructor,
+    ComponentLibraryVecDestructorType,
+    ComponentLibraryVecSlice,
+    OptionComponentLibrary
+);
+impl_option!(
+    ComponentLibrary,
+    OptionComponentLibrary,
+    copy = false,
+    [Debug, Clone]
+);
 impl_vec_debug!(ComponentLibrary, ComponentLibraryVec);
-impl_vec_clone!(ComponentLibrary, ComponentLibraryVec, ComponentLibraryVecDestructor);
+impl_vec_clone!(
+    ComponentLibrary,
+    ComponentLibraryVec,
+    ComponentLibraryVecDestructor
+);
 impl_vec_mut!(ComponentLibrary, ComponentLibraryVec);
 
 /// The component map — holds libraries with namespaced components.
@@ -2204,9 +2464,11 @@ impl ComponentMap {
 
     /// Get all component definitions across all libraries
     pub fn all_components(&self) -> Vec<&ComponentDef> {
-        self.libraries.iter().flat_map(|lib| lib.components.iter()).collect()
+        self.libraries
+            .iter()
+            .flat_map(|lib| lib.components.iter())
+            .collect()
     }
-
 }
 
 // ============================================================================
@@ -2642,18 +2904,18 @@ fn builtin_compile_fn(
             if let Some(text_str) = text {
                 Ok(format!(
                     "AzDom_createText(AzString_fromConstStr(\"{}\"))",
-                    text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
-                ).into())
+                    text_str
+                        .as_str()
+                        .replace("\\", "\\\\")
+                        .replace("\"", "\\\"")
+                )
+                .into())
             } else {
                 Ok(format!("AzDom_create{}()", type_name).into())
             }
         }
-        CompileTarget::Cpp => {
-            Ok(format!("Dom::create_{}()", type_name.to_lowercase()).into())
-        }
-        CompileTarget::Python => {
-            Ok(format!("Dom.{}()", type_name.to_lowercase()).into())
-        }
+        CompileTarget::Cpp => Ok(format!("Dom::create_{}()", type_name.to_lowercase()).into()),
+        CompileTarget::Python => Ok(format!("Dom.{}()", type_name.to_lowercase()).into()),
     };
     r.into()
 }
@@ -2663,8 +2925,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn core
     use crate::dom::{Dom, NodeType};
     let text = alloc::format!("{}: {}", field_name, value);
     children.push(
-        Dom::create_node(NodeType::Div)
-            .with_children(alloc::vec![Dom::create_text(text)].into()),
+        Dom::create_node(NodeType::Div).with_children(alloc::vec![Dom::create_text(text)].into()),
     );
 }
 
@@ -2703,8 +2964,9 @@ pub fn user_defined_render_fn(
                     ComponentDefaultValue::String(s) => {
                         let text = s.as_str().trim();
                         if !text.is_empty() {
-                            let label_dom = Dom::create_node(NodeType::Div)
-                                .with_children(alloc::vec![Dom::create_text(text.to_string())].into());
+                            let label_dom = Dom::create_node(NodeType::Div).with_children(
+                                alloc::vec![Dom::create_text(text.to_string())].into(),
+                            );
                             children.push(label_dom);
                         }
                     }
@@ -2733,45 +2995,80 @@ pub fn user_defined_render_fn(
                         push_scalar_field(&mut children, field_name, v);
                     }
                     ComponentDefaultValue::ColorU(c) => {
-                        let text = alloc::format!("{}: #{:02x}{:02x}{:02x}{:02x}", field_name, c.r, c.g, c.b, c.a);
-                        children.push(Dom::create_node(NodeType::Div)
-                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                        let text = alloc::format!(
+                            "{}: #{:02x}{:02x}{:02x}{:02x}",
+                            field_name,
+                            c.r,
+                            c.g,
+                            c.b,
+                            c.a
+                        );
+                        children.push(
+                            Dom::create_node(NodeType::Div)
+                                .with_children(alloc::vec![Dom::create_text(text)].into()),
+                        );
                     }
                     ComponentDefaultValue::ComponentInstance(ci) => {
                         // Recursively instantiate sub-component from ComponentMap
-                        if let Some(sub_comp) = component_map.get(ci.library.as_str(), ci.component.as_str()) {
+                        if let Some(sub_comp) =
+                            component_map.get(ci.library.as_str(), ci.component.as_str())
+                        {
                             let sub_data = sub_comp.data_model.clone();
                             match (sub_comp.render_fn)(sub_comp, &sub_data, component_map) {
                                 ResultStyledDomRenderDomError::Ok(_styled_dom) => {
                                     // Sub-component rendered successfully — add a placeholder
                                     // (StyledDom cannot be directly converted back to Dom)
-                                    let text = alloc::format!("[{}:{}]", ci.library.as_str(), ci.component.as_str());
-                                    children.push(Dom::create_node(NodeType::Div)
-                                        .with_children(alloc::vec![Dom::create_text(text)].into()));
+                                    let text = alloc::format!(
+                                        "[{}:{}]",
+                                        ci.library.as_str(),
+                                        ci.component.as_str()
+                                    );
+                                    children.push(
+                                        Dom::create_node(NodeType::Div).with_children(
+                                            alloc::vec![Dom::create_text(text)].into(),
+                                        ),
+                                    );
                                 }
                                 ResultStyledDomRenderDomError::Err(_) => {
                                     // On error, show a placeholder
-                                    let text = alloc::format!("[Error rendering {}:{}]", ci.library.as_str(), ci.component.as_str());
-                                    children.push(Dom::create_node(NodeType::Div)
-                                        .with_children(alloc::vec![Dom::create_text(text)].into()));
+                                    let text = alloc::format!(
+                                        "[Error rendering {}:{}]",
+                                        ci.library.as_str(),
+                                        ci.component.as_str()
+                                    );
+                                    children.push(
+                                        Dom::create_node(NodeType::Div).with_children(
+                                            alloc::vec![Dom::create_text(text)].into(),
+                                        ),
+                                    );
                                 }
                             }
                         } else {
-                            let text = alloc::format!("[Unknown component {}:{}]", ci.library.as_str(), ci.component.as_str());
-                            children.push(Dom::create_node(NodeType::Div)
-                                .with_children(alloc::vec![Dom::create_text(text)].into()));
+                            let text = alloc::format!(
+                                "[Unknown component {}:{}]",
+                                ci.library.as_str(),
+                                ci.component.as_str()
+                            );
+                            children.push(
+                                Dom::create_node(NodeType::Div)
+                                    .with_children(alloc::vec![Dom::create_text(text)].into()),
+                            );
                         }
                     }
                     ComponentDefaultValue::CallbackFnPointer(name) => {
                         // Callbacks are not rendered, just acknowledged
                         let text = alloc::format!("{}: fn({})", field_name, name.as_str());
-                        children.push(Dom::create_node(NodeType::Div)
-                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                        children.push(
+                            Dom::create_node(NodeType::Div)
+                                .with_children(alloc::vec![Dom::create_text(text)].into()),
+                        );
                     }
                     ComponentDefaultValue::Json(json_str) => {
                         let text = alloc::format!("{}: {}", field_name, json_str.as_str());
-                        children.push(Dom::create_node(NodeType::Div)
-                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                        children.push(
+                            Dom::create_node(NodeType::Div)
+                                .with_children(alloc::vec![Dom::create_text(text)].into()),
+                        );
                     }
                     ComponentDefaultValue::None => {
                         // No default, skip
@@ -2820,7 +3117,10 @@ pub fn user_defined_compile_fn(
         CompileTarget::Rust => {
             let mut lines = Vec::new();
             lines.push(alloc::format!("{}// Component: {}", indent_str, tag));
-            lines.push(alloc::format!("{}let mut children: Vec<Dom> = Vec::new();", indent_str));
+            lines.push(alloc::format!(
+                "{}let mut children: Vec<Dom> = Vec::new();",
+                indent_str
+            ));
 
             for field in data.fields.as_ref().iter() {
                 let fname = field.name.as_str();
@@ -2829,7 +3129,8 @@ pub fn user_defined_compile_fn(
                         let escaped = s.as_str().replace("\\", "\\\\").replace("\"", "\\\"");
                         lines.push(alloc::format!(
                             "{}children.push(Dom::create_text(AzString::from_const_str(\"{}\")));",
-                            inner_indent, escaped
+                            inner_indent,
+                            escaped
                         ));
                     }
                     OptionComponentDefaultValue::Some(ComponentDefaultValue::Bool(b)) => {
@@ -2838,18 +3139,26 @@ pub fn user_defined_compile_fn(
                             inner_indent, fname, b
                         ));
                     }
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::ComponentInstance(ci)) => {
-                        let fn_name = alloc::format!("render_{}", ci.component.as_str().replace("-", "_"));
+                    OptionComponentDefaultValue::Some(
+                        ComponentDefaultValue::ComponentInstance(ci),
+                    ) => {
+                        let fn_name =
+                            alloc::format!("render_{}", ci.component.as_str().replace("-", "_"));
                         lines.push(alloc::format!(
                             "{}children.push({}()); // sub-component {}:{}",
-                            inner_indent, fn_name, ci.library.as_str(), ci.component.as_str()
+                            inner_indent,
+                            fn_name,
+                            ci.library.as_str(),
+                            ci.component.as_str()
                         ));
                     }
                     _ => {
                         // For other types, generate a placeholder comment
                         lines.push(alloc::format!(
                             "{}// field '{}': {:?}",
-                            inner_indent, fname, field.field_type
+                            inner_indent,
+                            fname,
+                            field.field_type
                         ));
                     }
                 }
@@ -2864,7 +3173,10 @@ pub fn user_defined_compile_fn(
         CompileTarget::C => {
             let mut lines = Vec::new();
             lines.push(alloc::format!("{}/* Component: {} */", indent_str, tag));
-            lines.push(alloc::format!("{}AzDom root = AzDom_createDiv();", indent_str));
+            lines.push(alloc::format!(
+                "{}AzDom root = AzDom_createDiv();",
+                indent_str
+            ));
 
             for field in data.fields.as_ref().iter() {
                 let fname = field.name.as_str();
@@ -2876,18 +3188,19 @@ pub fn user_defined_compile_fn(
                             inner_indent, escaped
                         ));
                     }
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::ComponentInstance(ci)) => {
-                        let fn_name = alloc::format!("render_{}", ci.component.as_str().replace("-", "_"));
+                    OptionComponentDefaultValue::Some(
+                        ComponentDefaultValue::ComponentInstance(ci),
+                    ) => {
+                        let fn_name =
+                            alloc::format!("render_{}", ci.component.as_str().replace("-", "_"));
                         lines.push(alloc::format!(
                             "{}AzDom_addChild(&root, {}());",
-                            inner_indent, fn_name
+                            inner_indent,
+                            fn_name
                         ));
                     }
                     _ => {
-                        lines.push(alloc::format!(
-                            "{}/* field '{}' */",
-                            inner_indent, fname
-                        ));
+                        lines.push(alloc::format!("{}/* field '{}' */", inner_indent, fname));
                     }
                 }
             }
@@ -2898,7 +3211,10 @@ pub fn user_defined_compile_fn(
         CompileTarget::Cpp => {
             let mut lines = Vec::new();
             lines.push(alloc::format!("{}// Component: {}", indent_str, tag));
-            lines.push(alloc::format!("{}auto root = Dom::create_div();", indent_str));
+            lines.push(alloc::format!(
+                "{}auto root = Dom::create_div();",
+                indent_str
+            ));
 
             for field in data.fields.as_ref().iter() {
                 let fname = field.name.as_str();
@@ -2907,21 +3223,23 @@ pub fn user_defined_compile_fn(
                         let escaped = s.as_str().replace("\\", "\\\\").replace("\"", "\\\"");
                         lines.push(alloc::format!(
                             "{}root.add_child(Dom::create_text(\"{}\"));",
-                            inner_indent, escaped
+                            inner_indent,
+                            escaped
                         ));
                     }
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::ComponentInstance(ci)) => {
-                        let fn_name = alloc::format!("render_{}", ci.component.as_str().replace("-", "_"));
+                    OptionComponentDefaultValue::Some(
+                        ComponentDefaultValue::ComponentInstance(ci),
+                    ) => {
+                        let fn_name =
+                            alloc::format!("render_{}", ci.component.as_str().replace("-", "_"));
                         lines.push(alloc::format!(
                             "{}root.add_child({}());",
-                            inner_indent, fn_name
+                            inner_indent,
+                            fn_name
                         ));
                     }
                     _ => {
-                        lines.push(alloc::format!(
-                            "{}// field '{}'",
-                            inner_indent, fname
-                        ));
+                        lines.push(alloc::format!("{}// field '{}'", inner_indent, fname));
                     }
                 }
             }
@@ -2938,24 +3256,30 @@ pub fn user_defined_compile_fn(
                 let fname = field.name.as_str();
                 match &field.default_value {
                     OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
-                        let escaped = s.as_str().replace("\\", "\\\\").replace("\"", "\\\"").replace("'", "\\'");
+                        let escaped = s
+                            .as_str()
+                            .replace("\\", "\\\\")
+                            .replace("\"", "\\\"")
+                            .replace("'", "\\'");
                         lines.push(alloc::format!(
                             "{}root.add_child(Dom.text('{}'))",
-                            inner_indent, escaped
+                            inner_indent,
+                            escaped
                         ));
                     }
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::ComponentInstance(ci)) => {
-                        let fn_name = alloc::format!("render_{}", ci.component.as_str().replace("-", "_"));
+                    OptionComponentDefaultValue::Some(
+                        ComponentDefaultValue::ComponentInstance(ci),
+                    ) => {
+                        let fn_name =
+                            alloc::format!("render_{}", ci.component.as_str().replace("-", "_"));
                         lines.push(alloc::format!(
                             "{}root.add_child({}())",
-                            inner_indent, fn_name
+                            inner_indent,
+                            fn_name
                         ));
                     }
                     _ => {
-                        lines.push(alloc::format!(
-                            "{}# field '{}'",
-                            inner_indent, fname
-                        ));
+                        lines.push(alloc::format!("{}# field '{}'", inner_indent, fname));
                     }
                 }
             }
@@ -2978,13 +3302,21 @@ pub fn user_defined_compile_fn(
 /// * `css` - Component-level CSS string. For most builtin elements this is `""` because
 ///   styling comes from `ua_css.rs` and the `SystemStyle`. Components that need extra
 ///   styling (e.g. a future high-level button widget) can pass CSS here.
-fn builtin_component_def(tag: &str, display_name: &str, default_text: Option<&str>, css: &str) -> ComponentDef {
+fn builtin_component_def(
+    tag: &str,
+    display_name: &str,
+    default_text: Option<&str>,
+    css: &str,
+) -> ComponentDef {
     let mut fields = builtin_data_model(tag);
     // If a default_text is provided, this element accepts text content
     if let Some(text) = default_text {
-        fields.push(data_field("text", ComponentFieldType::String,
+        fields.push(data_field(
+            "text",
+            ComponentFieldType::String,
             Some(ComponentDefaultValue::String(AzString::from(text))),
-            "Text content of the element"));
+            "Text content of the element",
+        ));
     }
     let model_name = format!("{}Data", display_name);
     ComponentDef {
@@ -3006,7 +3338,12 @@ fn builtin_component_def(tag: &str, display_name: &str, default_text: Option<&st
 }
 
 /// Helper to create a ComponentDataField with a rich type
-fn data_field(name: &str, ft: ComponentFieldType, default: Option<ComponentDefaultValue>, description: &str) -> ComponentDataField {
+fn data_field(
+    name: &str,
+    ft: ComponentFieldType,
+    default: Option<ComponentDefaultValue>,
+    description: &str,
+) -> ComponentDataField {
     let required = default.is_none();
     ComponentDataField {
         name: AzString::from(name),
@@ -3026,207 +3363,716 @@ fn data_field(name: &str, ft: ComponentFieldType, default: Option<ComponentDefau
 /// `src` for `<img>`). Universal HTML attributes (id, class, style, etc.)
 /// are NOT included here — they are added separately by the debug server.
 fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
-    use ComponentFieldType::*;
     use ComponentDefaultValue as D;
+    use ComponentFieldType::*;
     match tag {
         "a" => alloc::vec![
-            data_field("href", String, Some(D::String(AzString::from_const_str(""))), "URL the link points to"),
-            data_field("target", String, Some(D::String(AzString::from_const_str(""))), "Where to open the linked document (_blank, _self, _parent, _top)"),
-            data_field("rel", String, Some(D::String(AzString::from_const_str(""))), "Relationship between current and linked document"),
+            data_field(
+                "href",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "URL the link points to"
+            ),
+            data_field(
+                "target",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Where to open the linked document (_blank, _self, _parent, _top)"
+            ),
+            data_field(
+                "rel",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Relationship between current and linked document"
+            ),
         ],
         "img" | "image" => alloc::vec![
             data_field("src", String, None, "URL of the image"),
-            data_field("alt", String, Some(D::String(AzString::from_const_str(""))), "Alternative text for the image"),
-            data_field("width", String, Some(D::String(AzString::from_const_str(""))), "Width of the image"),
-            data_field("height", String, Some(D::String(AzString::from_const_str(""))), "Height of the image"),
+            data_field(
+                "alt",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Alternative text for the image"
+            ),
+            data_field(
+                "width",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Width of the image"
+            ),
+            data_field(
+                "height",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Height of the image"
+            ),
         ],
         "form" => alloc::vec![
-            data_field("action", String, Some(D::String(AzString::from_const_str(""))), "URL where form data is submitted"),
-            data_field("method", String, Some(D::String(AzString::from_const_str("GET"))), "HTTP method for form submission (GET or POST)"),
+            data_field(
+                "action",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "URL where form data is submitted"
+            ),
+            data_field(
+                "method",
+                String,
+                Some(D::String(AzString::from_const_str("GET"))),
+                "HTTP method for form submission (GET or POST)"
+            ),
         ],
-        "label" => alloc::vec![
-            data_field("for", String, Some(D::String(AzString::from_const_str(""))), "ID of the form element this label is for"),
-        ],
+        "label" => alloc::vec![data_field(
+            "for",
+            String,
+            Some(D::String(AzString::from_const_str(""))),
+            "ID of the form element this label is for"
+        ),],
         "button" => alloc::vec![
-            data_field("type", String, Some(D::String(AzString::from_const_str("button"))), "Button type (button, submit, reset)"),
-            data_field("disabled", Bool, Some(D::Bool(false)), "Whether the button is disabled"),
+            data_field(
+                "type",
+                String,
+                Some(D::String(AzString::from_const_str("button"))),
+                "Button type (button, submit, reset)"
+            ),
+            data_field(
+                "disabled",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether the button is disabled"
+            ),
         ],
         "td" | "th" => alloc::vec![
-            data_field("colspan", I32, Some(D::I32(1)), "Number of columns the cell spans"),
-            data_field("rowspan", I32, Some(D::I32(1)), "Number of rows the cell spans"),
+            data_field(
+                "colspan",
+                I32,
+                Some(D::I32(1)),
+                "Number of columns the cell spans"
+            ),
+            data_field(
+                "rowspan",
+                I32,
+                Some(D::I32(1)),
+                "Number of rows the cell spans"
+            ),
         ],
-        "icon" => alloc::vec![
-            data_field("name", String, Some(D::String(AzString::from_const_str(""))), "Icon name"),
-        ],
+        "icon" => alloc::vec![data_field(
+            "name",
+            String,
+            Some(D::String(AzString::from_const_str(""))),
+            "Icon name"
+        ),],
         "ol" => alloc::vec![
-            data_field("start", I32, Some(D::I32(1)), "Start value for the ordered list"),
-            data_field("type", String, Some(D::String(AzString::from_const_str("1"))), "Numbering type (1, A, a, I, i)"),
+            data_field(
+                "start",
+                I32,
+                Some(D::I32(1)),
+                "Start value for the ordered list"
+            ),
+            data_field(
+                "type",
+                String,
+                Some(D::String(AzString::from_const_str("1"))),
+                "Numbering type (1, A, a, I, i)"
+            ),
         ],
         // Form controls
         "input" => alloc::vec![
-            data_field("type", String, Some(D::String(AzString::from_const_str("text"))), "Input type (text, password, email, number, checkbox, radio, etc.)"),
-            data_field("name", String, Some(D::String(AzString::from_const_str(""))), "Name of the input for form submission"),
-            data_field("value", String, Some(D::String(AzString::from_const_str(""))), "Current value of the input"),
-            data_field("placeholder", String, Some(D::String(AzString::from_const_str(""))), "Placeholder text"),
-            data_field("disabled", Bool, Some(D::Bool(false)), "Whether the input is disabled"),
-            data_field("required", Bool, Some(D::Bool(false)), "Whether the input is required"),
-            data_field("readonly", Bool, Some(D::Bool(false)), "Whether the input is read-only"),
-            data_field("checked", Bool, Some(D::Bool(false)), "Whether the checkbox/radio is checked"),
-            data_field("min", String, Some(D::String(AzString::from_const_str(""))), "Minimum value (for number, range, date)"),
-            data_field("max", String, Some(D::String(AzString::from_const_str(""))), "Maximum value (for number, range, date)"),
-            data_field("step", String, Some(D::String(AzString::from_const_str(""))), "Step increment (for number, range)"),
-            data_field("pattern", String, Some(D::String(AzString::from_const_str(""))), "Regex pattern for validation"),
-            data_field("maxlength", String, Some(D::String(AzString::from_const_str(""))), "Maximum number of characters"),
+            data_field(
+                "type",
+                String,
+                Some(D::String(AzString::from_const_str("text"))),
+                "Input type (text, password, email, number, checkbox, radio, etc.)"
+            ),
+            data_field(
+                "name",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Name of the input for form submission"
+            ),
+            data_field(
+                "value",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Current value of the input"
+            ),
+            data_field(
+                "placeholder",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Placeholder text"
+            ),
+            data_field(
+                "disabled",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether the input is disabled"
+            ),
+            data_field(
+                "required",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether the input is required"
+            ),
+            data_field(
+                "readonly",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether the input is read-only"
+            ),
+            data_field(
+                "checked",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether the checkbox/radio is checked"
+            ),
+            data_field(
+                "min",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Minimum value (for number, range, date)"
+            ),
+            data_field(
+                "max",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Maximum value (for number, range, date)"
+            ),
+            data_field(
+                "step",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Step increment (for number, range)"
+            ),
+            data_field(
+                "pattern",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Regex pattern for validation"
+            ),
+            data_field(
+                "maxlength",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Maximum number of characters"
+            ),
         ],
         "select" => alloc::vec![
-            data_field("name", String, Some(D::String(AzString::from_const_str(""))), "Name for form submission"),
-            data_field("multiple", Bool, Some(D::Bool(false)), "Whether multiple options can be selected"),
-            data_field("disabled", Bool, Some(D::Bool(false)), "Whether the select is disabled"),
-            data_field("required", Bool, Some(D::Bool(false)), "Whether selection is required"),
-            data_field("size", String, Some(D::String(AzString::from_const_str(""))), "Number of visible options"),
+            data_field(
+                "name",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Name for form submission"
+            ),
+            data_field(
+                "multiple",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether multiple options can be selected"
+            ),
+            data_field(
+                "disabled",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether the select is disabled"
+            ),
+            data_field(
+                "required",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether selection is required"
+            ),
+            data_field(
+                "size",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Number of visible options"
+            ),
         ],
         "option" => alloc::vec![
-            data_field("value", String, Some(D::String(AzString::from_const_str(""))), "Value submitted with the form"),
-            data_field("selected", Bool, Some(D::Bool(false)), "Whether this option is selected"),
-            data_field("disabled", Bool, Some(D::Bool(false)), "Whether this option is disabled"),
+            data_field(
+                "value",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Value submitted with the form"
+            ),
+            data_field(
+                "selected",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether this option is selected"
+            ),
+            data_field(
+                "disabled",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether this option is disabled"
+            ),
         ],
         "optgroup" => alloc::vec![
-            data_field("label", String, Some(D::String(AzString::from_const_str(""))), "Label for the option group"),
-            data_field("disabled", Bool, Some(D::Bool(false)), "Whether the group is disabled"),
+            data_field(
+                "label",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Label for the option group"
+            ),
+            data_field(
+                "disabled",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether the group is disabled"
+            ),
         ],
         "textarea" => alloc::vec![
-            data_field("name", String, Some(D::String(AzString::from_const_str(""))), "Name for form submission"),
-            data_field("placeholder", String, Some(D::String(AzString::from_const_str(""))), "Placeholder text"),
+            data_field(
+                "name",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Name for form submission"
+            ),
+            data_field(
+                "placeholder",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Placeholder text"
+            ),
             data_field("rows", I32, Some(D::I32(2)), "Number of visible text lines"),
-            data_field("cols", I32, Some(D::I32(20)), "Visible width in average character widths"),
-            data_field("disabled", Bool, Some(D::Bool(false)), "Whether the textarea is disabled"),
-            data_field("required", Bool, Some(D::Bool(false)), "Whether content is required"),
-            data_field("readonly", Bool, Some(D::Bool(false)), "Whether the textarea is read-only"),
-            data_field("maxlength", String, Some(D::String(AzString::from_const_str(""))), "Maximum number of characters"),
+            data_field(
+                "cols",
+                I32,
+                Some(D::I32(20)),
+                "Visible width in average character widths"
+            ),
+            data_field(
+                "disabled",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether the textarea is disabled"
+            ),
+            data_field(
+                "required",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether content is required"
+            ),
+            data_field(
+                "readonly",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether the textarea is read-only"
+            ),
+            data_field(
+                "maxlength",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Maximum number of characters"
+            ),
         ],
-        "fieldset" => alloc::vec![
-            data_field("disabled", Bool, Some(D::Bool(false)), "Whether all controls in the fieldset are disabled"),
-        ],
+        "fieldset" => alloc::vec![data_field(
+            "disabled",
+            Bool,
+            Some(D::Bool(false)),
+            "Whether all controls in the fieldset are disabled"
+        ),],
         "output" => alloc::vec![
-            data_field("for", String, Some(D::String(AzString::from_const_str(""))), "IDs of elements that contributed to the output"),
-            data_field("name", String, Some(D::String(AzString::from_const_str(""))), "Name for form submission"),
+            data_field(
+                "for",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "IDs of elements that contributed to the output"
+            ),
+            data_field(
+                "name",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Name for form submission"
+            ),
         ],
         "progress" => alloc::vec![
-            data_field("value", String, Some(D::String(AzString::from_const_str(""))), "Current progress value"),
-            data_field("max", String, Some(D::String(AzString::from_const_str("1"))), "Maximum value"),
+            data_field(
+                "value",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Current progress value"
+            ),
+            data_field(
+                "max",
+                String,
+                Some(D::String(AzString::from_const_str("1"))),
+                "Maximum value"
+            ),
         ],
         "meter" => alloc::vec![
-            data_field("value", String, Some(D::String(AzString::from_const_str(""))), "Current value"),
-            data_field("min", String, Some(D::String(AzString::from_const_str("0"))), "Minimum value"),
-            data_field("max", String, Some(D::String(AzString::from_const_str("1"))), "Maximum value"),
-            data_field("low", String, Some(D::String(AzString::from_const_str(""))), "Low threshold"),
-            data_field("high", String, Some(D::String(AzString::from_const_str(""))), "High threshold"),
-            data_field("optimum", String, Some(D::String(AzString::from_const_str(""))), "Optimum value"),
+            data_field(
+                "value",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Current value"
+            ),
+            data_field(
+                "min",
+                String,
+                Some(D::String(AzString::from_const_str("0"))),
+                "Minimum value"
+            ),
+            data_field(
+                "max",
+                String,
+                Some(D::String(AzString::from_const_str("1"))),
+                "Maximum value"
+            ),
+            data_field(
+                "low",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Low threshold"
+            ),
+            data_field(
+                "high",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "High threshold"
+            ),
+            data_field(
+                "optimum",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Optimum value"
+            ),
         ],
         // Interactive
-        "details" => alloc::vec![
-            data_field("open", Bool, Some(D::Bool(false)), "Whether the details are visible"),
-        ],
-        "dialog" => alloc::vec![
-            data_field("open", Bool, Some(D::Bool(false)), "Whether the dialog is active and can be interacted with"),
-        ],
+        "details" => alloc::vec![data_field(
+            "open",
+            Bool,
+            Some(D::Bool(false)),
+            "Whether the details are visible"
+        ),],
+        "dialog" => alloc::vec![data_field(
+            "open",
+            Bool,
+            Some(D::Bool(false)),
+            "Whether the dialog is active and can be interacted with"
+        ),],
         // Embedded content
         "audio" | "video" => alloc::vec![
-            data_field("src", String, Some(D::String(AzString::from_const_str(""))), "URL of the media resource"),
-            data_field("controls", Bool, Some(D::Bool(false)), "Whether to show playback controls"),
-            data_field("autoplay", Bool, Some(D::Bool(false)), "Whether to start playing automatically"),
-            data_field("loop", Bool, Some(D::Bool(false)), "Whether to loop playback"),
-            data_field("muted", Bool, Some(D::Bool(false)), "Whether audio is muted"),
-            data_field("preload", String, Some(D::String(AzString::from_const_str("auto"))), "Preload hint (none, metadata, auto)"),
+            data_field(
+                "src",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "URL of the media resource"
+            ),
+            data_field(
+                "controls",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether to show playback controls"
+            ),
+            data_field(
+                "autoplay",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether to start playing automatically"
+            ),
+            data_field(
+                "loop",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether to loop playback"
+            ),
+            data_field(
+                "muted",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether audio is muted"
+            ),
+            data_field(
+                "preload",
+                String,
+                Some(D::String(AzString::from_const_str("auto"))),
+                "Preload hint (none, metadata, auto)"
+            ),
         ],
         "source" => alloc::vec![
             data_field("src", String, None, "URL of the media resource"),
-            data_field("type", String, Some(D::String(AzString::from_const_str(""))), "MIME type of the resource"),
+            data_field(
+                "type",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "MIME type of the resource"
+            ),
         ],
         "track" => alloc::vec![
             data_field("src", String, None, "URL of the track file"),
-            data_field("kind", String, Some(D::String(AzString::from_const_str("subtitles"))), "Kind of text track (subtitles, captions, descriptions, chapters, metadata)"),
-            data_field("srclang", String, Some(D::String(AzString::from_const_str(""))), "Language of the track text"),
-            data_field("label", String, Some(D::String(AzString::from_const_str(""))), "User-readable title for the track"),
-            data_field("default", Bool, Some(D::Bool(false)), "Whether this is the default track"),
+            data_field(
+                "kind",
+                String,
+                Some(D::String(AzString::from_const_str("subtitles"))),
+                "Kind of text track (subtitles, captions, descriptions, chapters, metadata)"
+            ),
+            data_field(
+                "srclang",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Language of the track text"
+            ),
+            data_field(
+                "label",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "User-readable title for the track"
+            ),
+            data_field(
+                "default",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether this is the default track"
+            ),
         ],
         "canvas" => alloc::vec![
-            data_field("width", String, Some(D::String(AzString::from_const_str("300"))), "Width of the canvas in pixels"),
-            data_field("height", String, Some(D::String(AzString::from_const_str("150"))), "Height of the canvas in pixels"),
+            data_field(
+                "width",
+                String,
+                Some(D::String(AzString::from_const_str("300"))),
+                "Width of the canvas in pixels"
+            ),
+            data_field(
+                "height",
+                String,
+                Some(D::String(AzString::from_const_str("150"))),
+                "Height of the canvas in pixels"
+            ),
         ],
         "embed" => alloc::vec![
             data_field("src", String, None, "URL of the resource to embed"),
-            data_field("type", String, Some(D::String(AzString::from_const_str(""))), "MIME type of the embedded content"),
-            data_field("width", String, Some(D::String(AzString::from_const_str(""))), "Width"),
-            data_field("height", String, Some(D::String(AzString::from_const_str(""))), "Height"),
+            data_field(
+                "type",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "MIME type of the embedded content"
+            ),
+            data_field(
+                "width",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Width"
+            ),
+            data_field(
+                "height",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Height"
+            ),
         ],
         "object" => alloc::vec![
-            data_field("data", String, Some(D::String(AzString::from_const_str(""))), "URL of the resource"),
-            data_field("type", String, Some(D::String(AzString::from_const_str(""))), "MIME type of the resource"),
-            data_field("width", String, Some(D::String(AzString::from_const_str(""))), "Width"),
-            data_field("height", String, Some(D::String(AzString::from_const_str(""))), "Height"),
+            data_field(
+                "data",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "URL of the resource"
+            ),
+            data_field(
+                "type",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "MIME type of the resource"
+            ),
+            data_field(
+                "width",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Width"
+            ),
+            data_field(
+                "height",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Height"
+            ),
         ],
         "param" => alloc::vec![
             data_field("name", String, None, "Name of the parameter"),
-            data_field("value", String, Some(D::String(AzString::from_const_str(""))), "Value of the parameter"),
+            data_field(
+                "value",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Value of the parameter"
+            ),
         ],
         "area" => alloc::vec![
-            data_field("shape", String, Some(D::String(AzString::from_const_str("default"))), "Shape of the area (default, rect, circle, poly)"),
-            data_field("coords", String, Some(D::String(AzString::from_const_str(""))), "Coordinates of the area"),
-            data_field("href", String, Some(D::String(AzString::from_const_str(""))), "URL for the area link"),
-            data_field("alt", String, Some(D::String(AzString::from_const_str(""))), "Alternative text"),
-            data_field("target", String, Some(D::String(AzString::from_const_str(""))), "Where to open the linked document"),
+            data_field(
+                "shape",
+                String,
+                Some(D::String(AzString::from_const_str("default"))),
+                "Shape of the area (default, rect, circle, poly)"
+            ),
+            data_field(
+                "coords",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Coordinates of the area"
+            ),
+            data_field(
+                "href",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "URL for the area link"
+            ),
+            data_field(
+                "alt",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Alternative text"
+            ),
+            data_field(
+                "target",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Where to open the linked document"
+            ),
         ],
-        "map" => alloc::vec![
-            data_field("name", String, None, "Name of the image map (referenced by usemap)"),
-        ],
+        "map" => alloc::vec![data_field(
+            "name",
+            String,
+            None,
+            "Name of the image map (referenced by usemap)"
+        ),],
         // Inline semantics with special attributes
-        "time" => alloc::vec![
-            data_field("datetime", String, Some(D::String(AzString::from_const_str(""))), "Machine-readable date/time value"),
-        ],
-        "data" => alloc::vec![
-            data_field("value", String, Some(D::String(AzString::from_const_str(""))), "Machine-readable value"),
-        ],
-        "abbr" | "acronym" | "dfn" => alloc::vec![
-            data_field("title", String, Some(D::String(AzString::from_const_str(""))), "Full expansion or definition"),
-        ],
-        "q" | "blockquote" => alloc::vec![
-            data_field("cite", String, Some(D::String(AzString::from_const_str(""))), "URL of the source of the quotation"),
-        ],
+        "time" => alloc::vec![data_field(
+            "datetime",
+            String,
+            Some(D::String(AzString::from_const_str(""))),
+            "Machine-readable date/time value"
+        ),],
+        "data" => alloc::vec![data_field(
+            "value",
+            String,
+            Some(D::String(AzString::from_const_str(""))),
+            "Machine-readable value"
+        ),],
+        "abbr" | "acronym" | "dfn" => alloc::vec![data_field(
+            "title",
+            String,
+            Some(D::String(AzString::from_const_str(""))),
+            "Full expansion or definition"
+        ),],
+        "q" | "blockquote" => alloc::vec![data_field(
+            "cite",
+            String,
+            Some(D::String(AzString::from_const_str(""))),
+            "URL of the source of the quotation"
+        ),],
         "del" | "ins" => alloc::vec![
-            data_field("cite", String, Some(D::String(AzString::from_const_str(""))), "URL explaining the change"),
-            data_field("datetime", String, Some(D::String(AzString::from_const_str(""))), "Date/time of the change"),
+            data_field(
+                "cite",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "URL explaining the change"
+            ),
+            data_field(
+                "datetime",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Date/time of the change"
+            ),
         ],
-        "bdo" => alloc::vec![
-            data_field("dir", String, Some(D::String(AzString::from_const_str("ltr"))), "Text direction (ltr, rtl)"),
-        ],
-        "col" | "colgroup" => alloc::vec![
-            data_field("span", I32, Some(D::I32(1)), "Number of columns the element spans"),
-        ],
+        "bdo" => alloc::vec![data_field(
+            "dir",
+            String,
+            Some(D::String(AzString::from_const_str("ltr"))),
+            "Text direction (ltr, rtl)"
+        ),],
+        "col" | "colgroup" => alloc::vec![data_field(
+            "span",
+            I32,
+            Some(D::I32(1)),
+            "Number of columns the element spans"
+        ),],
         // Metadata
         "meta" => alloc::vec![
-            data_field("name", String, Some(D::String(AzString::from_const_str(""))), "Metadata name"),
-            data_field("content", String, Some(D::String(AzString::from_const_str(""))), "Metadata value"),
-            data_field("charset", String, Some(D::String(AzString::from_const_str(""))), "Character encoding"),
-            data_field("http-equiv", String, Some(D::String(AzString::from_const_str(""))), "HTTP header equivalent"),
+            data_field(
+                "name",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Metadata name"
+            ),
+            data_field(
+                "content",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Metadata value"
+            ),
+            data_field(
+                "charset",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Character encoding"
+            ),
+            data_field(
+                "http-equiv",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "HTTP header equivalent"
+            ),
         ],
         "link" => alloc::vec![
             data_field("rel", String, None, "Relationship type"),
-            data_field("href", String, Some(D::String(AzString::from_const_str(""))), "URL of the linked resource"),
-            data_field("type", String, Some(D::String(AzString::from_const_str(""))), "MIME type of the linked resource"),
+            data_field(
+                "href",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "URL of the linked resource"
+            ),
+            data_field(
+                "type",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "MIME type of the linked resource"
+            ),
         ],
         "script" => alloc::vec![
-            data_field("src", String, Some(D::String(AzString::from_const_str(""))), "URL of external script"),
-            data_field("type", String, Some(D::String(AzString::from_const_str(""))), "MIME type or module"),
-            data_field("async", Bool, Some(D::Bool(false)), "Execute asynchronously"),
-            data_field("defer", Bool, Some(D::Bool(false)), "Defer execution until page load"),
+            data_field(
+                "src",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "URL of external script"
+            ),
+            data_field(
+                "type",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "MIME type or module"
+            ),
+            data_field(
+                "async",
+                Bool,
+                Some(D::Bool(false)),
+                "Execute asynchronously"
+            ),
+            data_field(
+                "defer",
+                Bool,
+                Some(D::Bool(false)),
+                "Defer execution until page load"
+            ),
         ],
-        "style" => alloc::vec![
-            data_field("type", String, Some(D::String(AzString::from_const_str("text/css"))), "MIME type of the style sheet"),
-        ],
+        "style" => alloc::vec![data_field(
+            "type",
+            String,
+            Some(D::String(AzString::from_const_str("text/css"))),
+            "MIME type of the style sheet"
+        ),],
         "base" => alloc::vec![
-            data_field("href", String, Some(D::String(AzString::from_const_str(""))), "Base URL for relative URLs"),
-            data_field("target", String, Some(D::String(AzString::from_const_str(""))), "Default target for hyperlinks"),
+            data_field(
+                "href",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Base URL for relative URLs"
+            ),
+            data_field(
+                "target",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Default target for hyperlinks"
+            ),
         ],
         _ => alloc::vec![],
     }
@@ -3294,14 +4140,15 @@ fn xml_attrs_to_data_model(
     let mut fields_vec = core::mem::replace(
         &mut model.fields,
         ComponentDataFieldVec::from_const_slice(&[]),
-    ).into_library_owned_vec();
+    )
+    .into_library_owned_vec();
 
     for field in fields_vec.iter_mut() {
         if let Some(attr_value) = xml_attributes.get_key(field.name.as_str()) {
             // Override the default_value with the XML attribute's string value
-            field.default_value = OptionComponentDefaultValue::Some(
-                ComponentDefaultValue::String(attr_value.clone()),
-            );
+            field.default_value = OptionComponentDefaultValue::Some(ComponentDefaultValue::String(
+                attr_value.clone(),
+            ));
         }
     }
 
@@ -3311,7 +4158,10 @@ fn xml_attrs_to_data_model(
     if let Some(text) = text_content {
         let prepared = prepare_string(text);
         if !prepared.is_empty() {
-            model = model.with_default("text", ComponentDefaultValue::String(AzString::from(prepared.as_str())));
+            model = model.with_default(
+                "text",
+                ComponentDefaultValue::String(AzString::from(prepared.as_str())),
+            );
         }
     }
 
@@ -3351,13 +4201,23 @@ fn builtin_if_render_fn(
     _component_map: &ComponentMap,
 ) -> ResultStyledDomRenderDomError {
     // Evaluate the condition field
-    let condition = data_model.fields.iter().find(|f| f.name.as_str() == "condition")
-        .and_then(|f| match &f.default_value { OptionComponentDefaultValue::Some(ComponentDefaultValue::Bool(b)) => Some(*b), _ => None })
+    let condition = data_model
+        .fields
+        .iter()
+        .find(|f| f.name.as_str() == "condition")
+        .and_then(|f| match &f.default_value {
+            OptionComponentDefaultValue::Some(ComponentDefaultValue::Bool(b)) => Some(*b),
+            _ => None,
+        })
         .unwrap_or(false);
 
-    let label = if condition { "if: true (then branch)" } else { "if: false (else branch)" };
-    let mut dom = Dom::create_node(NodeType::Div)
-        .with_children(alloc::vec![Dom::create_text(label)].into());
+    let label = if condition {
+        "if: true (then branch)"
+    } else {
+        "if: false (else branch)"
+    };
+    let mut dom =
+        Dom::create_node(NodeType::Div).with_children(alloc::vec![Dom::create_text(label)].into());
     let css = Css::empty();
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
 }
@@ -3390,15 +4250,21 @@ fn builtin_for_component() -> ComponentDef {
     ComponentDef {
         id: ComponentId::builtin("for"),
         display_name: AzString::from_const_str("For Loop"),
-        description: AzString::from_const_str("Iterative rendering: repeats children 'count' times."),
+        description: AzString::from_const_str(
+            "Iterative rendering: repeats children 'count' times.",
+        ),
         css: AzString::from_const_str(""),
         source: ComponentSource::Builtin,
         data_model: ComponentDataModel {
             name: AzString::from_const_str("ForData"),
             description: AzString::from_const_str("Data for iterative rendering"),
-            fields: alloc::vec![
-                data_field("count", ComponentFieldType::U32, Some(ComponentDefaultValue::U32(3)), "Number of iterations"),
-            ].into(),
+            fields: alloc::vec![data_field(
+                "count",
+                ComponentFieldType::U32,
+                Some(ComponentDefaultValue::U32(3)),
+                "Number of iterations"
+            ),]
+            .into(),
         },
         render_fn: builtin_for_render_fn,
         compile_fn: builtin_for_compile_fn,
@@ -3412,17 +4278,24 @@ fn builtin_for_render_fn(
     data_model: &ComponentDataModel,
     _component_map: &ComponentMap,
 ) -> ResultStyledDomRenderDomError {
-    let count = data_model.fields.iter().find(|f| f.name.as_str() == "count")
-        .and_then(|f| match &f.default_value { OptionComponentDefaultValue::Some(ComponentDefaultValue::U32(n)) => Some(*n), _ => None })
+    let count = data_model
+        .fields
+        .iter()
+        .find(|f| f.name.as_str() == "count")
+        .and_then(|f| match &f.default_value {
+            OptionComponentDefaultValue::Some(ComponentDefaultValue::U32(n)) => Some(*n),
+            _ => None,
+        })
         .unwrap_or(3);
 
     let mut items: alloc::vec::Vec<Dom> = alloc::vec::Vec::new();
     for i in 0..count {
-        items.push(Dom::create_node(NodeType::Div)
-            .with_children(alloc::vec![Dom::create_text(alloc::format!("Item {}", i))].into()));
+        items.push(
+            Dom::create_node(NodeType::Div)
+                .with_children(alloc::vec![Dom::create_text(alloc::format!("Item {}", i))].into()),
+        );
     }
-    let mut dom = Dom::create_node(NodeType::Div)
-        .with_children(items.into());
+    let mut dom = Dom::create_node(NodeType::Div).with_children(items.into());
     let css = Css::empty();
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
 }
@@ -3455,15 +4328,23 @@ fn builtin_map_component() -> ComponentDef {
     ComponentDef {
         id: ComponentId::builtin("map"),
         display_name: AzString::from_const_str("Map"),
-        description: AzString::from_const_str("Map data to DOM: applies a template to each item in a collection."),
+        description: AzString::from_const_str(
+            "Map data to DOM: applies a template to each item in a collection.",
+        ),
         css: AzString::from_const_str(""),
         source: ComponentSource::Builtin,
         data_model: ComponentDataModel {
             name: AzString::from_const_str("MapData"),
             description: AzString::from_const_str("Data for map rendering"),
-            fields: alloc::vec![
-                data_field("data_json", ComponentFieldType::String, Some(ComponentDefaultValue::String(AzString::from_const_str("[]"))), "JSON array of items to map over"),
-            ].into(),
+            fields: alloc::vec![data_field(
+                "data_json",
+                ComponentFieldType::String,
+                Some(ComponentDefaultValue::String(AzString::from_const_str(
+                    "[]"
+                ))),
+                "JSON array of items to map over"
+            ),]
+            .into(),
         },
         render_fn: builtin_map_render_fn,
         compile_fn: builtin_map_compile_fn,
@@ -3478,13 +4359,21 @@ fn builtin_map_render_fn(
     _component_map: &ComponentMap,
 ) -> ResultStyledDomRenderDomError {
     // For now, render a placeholder — actual mapping requires callback support
-    let data_str = data_model.fields.iter().find(|f| f.name.as_str() == "data_json")
-        .and_then(|f| match &f.default_value { OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => Some(s.as_str().to_string()), _ => None })
+    let data_str = data_model
+        .fields
+        .iter()
+        .find(|f| f.name.as_str() == "data_json")
+        .and_then(|f| match &f.default_value {
+            OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
+                Some(s.as_str().to_string())
+            }
+            _ => None,
+        })
         .unwrap_or_else(|| "[]".to_string());
 
     let label = alloc::format!("map: data_json={}", data_str);
-    let mut dom = Dom::create_node(NodeType::Div)
-        .with_children(alloc::vec![Dom::create_text(label)].into());
+    let mut dom =
+        Dom::create_node(NodeType::Div).with_children(alloc::vec![Dom::create_text(label)].into());
     let css = Css::empty();
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
 }
@@ -3655,14 +4544,14 @@ pub extern "C" fn register_builtin_components() -> ComponentLibrary {
             builtin_if_component(),
             builtin_for_component(),
             builtin_map_component(),
-        ].into(),
+        ]
+        .into(),
     }
 }
 
 // ============================================================================
 // End new component system types
 // ============================================================================
-
 
 /// Wrapper for the XML parser - necessary to easily create a Dom from
 /// XML without putting an XML solver into `azul-core`.
@@ -3753,7 +4642,14 @@ impl XmlNodeChild {
     }
 }
 
-impl_vec!(XmlNodeChild, XmlNodeChildVec, XmlNodeChildVecDestructor, XmlNodeChildVecDestructorType, XmlNodeChildVecSlice, OptionXmlNodeChild);
+impl_vec!(
+    XmlNodeChild,
+    XmlNodeChildVec,
+    XmlNodeChildVecDestructor,
+    XmlNodeChildVecDestructorType,
+    XmlNodeChildVecSlice,
+    OptionXmlNodeChild
+);
 impl_vec_mut!(XmlNodeChild, XmlNodeChildVec);
 impl_vec_debug!(XmlNodeChild, XmlNodeChildVec);
 impl_vec_partialeq!(XmlNodeChild, XmlNodeChildVec);
@@ -3815,7 +4711,14 @@ impl XmlNode {
     }
 }
 
-impl_vec!(XmlNode, XmlNodeVec, XmlNodeVecDestructor, XmlNodeVecDestructorType, XmlNodeVecSlice, OptionXmlNode);
+impl_vec!(
+    XmlNode,
+    XmlNodeVec,
+    XmlNodeVecDestructor,
+    XmlNodeVecDestructorType,
+    XmlNodeVecSlice,
+    OptionXmlNode
+);
 impl_vec_mut!(XmlNode, XmlNodeVec);
 impl_vec_debug!(XmlNode, XmlNodeVec);
 impl_vec_partialeq!(XmlNode, XmlNodeVec);
@@ -4110,7 +5013,6 @@ impl<'a> fmt::Display for RenderDomError {
     }
 }
 
-
 /// Find the one and only `<body>` node, return error if
 /// there is no app node or there are multiple app nodes
 pub fn get_html_node<'a>(root_nodes: &'a [XmlNodeChild]) -> Result<&'a XmlNode, DomXmlParseError> {
@@ -4141,23 +5043,26 @@ pub fn get_html_node<'a>(root_nodes: &'a [XmlNodeChild]) -> Result<&'a XmlNode, 
 /// there is no app node or there are multiple app nodes
 pub fn get_body_node<'a>(root_nodes: &'a [XmlNodeChild]) -> Result<&'a XmlNode, DomXmlParseError> {
     // First try to find body as a direct child (proper HTML structure)
-    let direct_body = root_nodes.iter().filter_map(|child| {
-        if let XmlNodeChild::Element(node) = child {
-            let node_type_normalized = normalize_casing(&node.node_type);
-            if &node_type_normalized == "body" {
-                Some(node)
+    let direct_body = root_nodes
+        .iter()
+        .filter_map(|child| {
+            if let XmlNodeChild::Element(node) = child {
+                let node_type_normalized = normalize_casing(&node.node_type);
+                if &node_type_normalized == "body" {
+                    Some(node)
+                } else {
+                    None
+                }
             } else {
                 None
             }
-        } else {
-            None
-        }
-    }).next();
-    
+        })
+        .next();
+
     if let Some(body) = direct_body {
         return Ok(body);
     }
-    
+
     // If not found as direct child, search recursively (for malformed HTML like example.com)
     // where <body> might be nested inside <head> due to missing </head> tag
     fn find_body_recursive<'a>(nodes: &'a [XmlNodeChild]) -> Option<&'a XmlNode> {
@@ -4175,17 +5080,14 @@ pub fn get_body_node<'a>(root_nodes: &'a [XmlNodeChild]) -> Result<&'a XmlNode, 
         }
         None
     }
-    
+
     find_body_recursive(root_nodes).ok_or(DomXmlParseError::NoBodyInHtml)
 }
 
 /// Searches in the the `root_nodes` for a `node_type`, convenience function in order to
 /// for example find the first <blah /> node in all these nodes.
 /// This function searches recursively through the entire tree.
-fn find_node_by_type<'a>(
-    root_nodes: &'a [XmlNodeChild],
-    node_type: &str,
-) -> Option<&'a XmlNode> {
+fn find_node_by_type<'a>(root_nodes: &'a [XmlNodeChild], node_type: &str) -> Option<&'a XmlNode> {
     // First check direct children
     for child in root_nodes {
         if let XmlNodeChild::Element(node) = child {
@@ -4194,7 +5096,7 @@ fn find_node_by_type<'a>(
             }
         }
     }
-    
+
     // If not found, search recursively (for malformed HTML)
     for child in root_nodes {
         if let XmlNodeChild::Element(node) = child {
@@ -4203,7 +5105,7 @@ fn find_node_by_type<'a>(
             }
         }
     }
-    
+
     None
 }
 
@@ -4600,21 +5502,23 @@ fn parse_svg_points(pts: &str, close: bool) -> Option<crate::svg::SvgMultiPolygo
         .map(|c| azul_css::props::basic::SvgPoint { x: c[0], y: c[1] })
         .collect();
     for w in points.windows(2) {
-        elements.push(crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(w[0], w[1])));
+        elements.push(crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(
+            w[0], w[1],
+        )));
     }
     if close && points.len() >= 2 {
         let first = points[0];
         let last = *points.last().unwrap();
         if (first.x - last.x).abs() > 0.001 || (first.y - last.y).abs() > 0.001 {
-            elements.push(crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(last, first)));
+            elements.push(crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(
+                last, first,
+            )));
         }
     }
     Some(crate::svg::SvgMultiPolygon {
-        rings: crate::svg::SvgPathVec::from_vec(vec![
-            crate::svg::SvgPath {
-                items: crate::svg::SvgPathElementVec::from_vec(elements),
-            }
-        ]),
+        rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
+            items: crate::svg::SvgPathElementVec::from_vec(elements),
+        }]),
     })
 }
 
@@ -4625,7 +5529,7 @@ fn xml_node_to_dom_fast<'a>(
     component_map: &'a ComponentMap,
     inside_svg: bool,
 ) -> Result<Dom, RenderDomError> {
-    use crate::dom::{Dom, NodeType, IdOrClass, TabIndex};
+    use crate::dom::{Dom, IdOrClass, NodeType, TabIndex};
 
     let component_name = normalize_casing(&xml_node.node_type);
 
@@ -4643,12 +5547,26 @@ fn xml_node_to_dom_fast<'a>(
             let width = xml_node
                 .attributes
                 .get_key("width")
-                .and_then(|w| w.as_str().trim().trim_end_matches("px").trim().parse::<usize>().ok())
+                .and_then(|w| {
+                    w.as_str()
+                        .trim()
+                        .trim_end_matches("px")
+                        .trim()
+                        .parse::<usize>()
+                        .ok()
+                })
                 .unwrap_or(0);
             let height = xml_node
                 .attributes
                 .get_key("height")
-                .and_then(|h| h.as_str().trim().trim_end_matches("px").trim().parse::<usize>().ok())
+                .and_then(|h| {
+                    h.as_str()
+                        .trim()
+                        .trim_end_matches("px")
+                        .trim()
+                        .parse::<usize>()
+                        .ok()
+                })
                 .unwrap_or(0);
             let image_ref = crate::resources::ImageRef::null_image(
                 width,
@@ -4656,7 +5574,8 @@ fn xml_node_to_dom_fast<'a>(
                 crate::resources::RawImageFormat::RGBA8,
                 src.as_str().as_bytes().to_vec(),
             );
-            dom.root.set_node_type(NodeType::Image(azul_css::css::BoxOrStatic::heap(image_ref)));
+            dom.root
+                .set_node_type(NodeType::Image(azul_css::css::BoxOrStatic::heap(image_ref)));
         }
     }
 
@@ -4677,7 +5596,11 @@ fn xml_node_to_dom_fast<'a>(
     }
 
     // Handle focusable attribute
-    if let Some(focusable) = xml_node.attributes.get_key("focusable").and_then(|f| parse_bool(f.as_str())) {
+    if let Some(focusable) = xml_node
+        .attributes
+        .get_key("focusable")
+        .and_then(|f| parse_bool(f.as_str()))
+    {
         match focusable {
             true => dom.root.set_tab_index(TabIndex::Auto),
             false => dom.root.set_tab_index(TabIndex::NoKeyboardFocus),
@@ -4685,7 +5608,11 @@ fn xml_node_to_dom_fast<'a>(
     }
 
     // Handle tabindex attribute
-    if let Some(tab_index) = xml_node.attributes.get_key("tabindex").and_then(|val| val.parse::<isize>().ok()) {
+    if let Some(tab_index) = xml_node
+        .attributes
+        .get_key("tabindex")
+        .and_then(|val| val.parse::<isize>().ok())
+    {
         match tab_index {
             0 => dom.root.set_tab_index(TabIndex::Auto),
             i if i > 0 => dom.root.set_tab_index(TabIndex::OverrideInParent(i as u32)),
@@ -4699,21 +5626,33 @@ fn xml_node_to_dom_fast<'a>(
         let mut attributes = Vec::new();
         for s in style.as_str().split(";") {
             let mut s = s.split(":");
-            let key = match s.next() { Some(s) => s, None => continue };
-            let value = match s.next() { Some(s) => s, None => continue };
+            let key = match s.next() {
+                Some(s) => s,
+                None => continue,
+            };
+            let value = match s.next() {
+                Some(s) => s,
+                None => continue,
+            };
             let _ = azul_css::parser2::parse_css_declaration(
-                key.trim(), value.trim(),
+                key.trim(),
+                value.trim(),
                 azul_css::parser2::ErrorLocationRange::default(),
-                &css_key_map, &mut Vec::new(), &mut attributes,
+                &css_key_map,
+                &mut Vec::new(),
+                &mut attributes,
             );
         }
-        let props = attributes.into_iter().filter_map(|s| {
-            use azul_css::dynamic_selector::CssPropertyWithConditions;
-            match s {
-                CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
-                _ => None,
-            }
-        }).collect::<Vec<_>>();
+        let props = attributes
+            .into_iter()
+            .filter_map(|s| {
+                use azul_css::dynamic_selector::CssPropertyWithConditions;
+                match s {
+                    CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
         if !props.is_empty() {
             dom.root.set_css_props(props.into());
         }
@@ -4722,15 +5661,18 @@ fn xml_node_to_dom_fast<'a>(
     // Handle SVG shape elements when inside an <svg> context
     let tag = component_name.as_str();
     let child_inside_svg = inside_svg || tag == "svg";
-    let is_svg_shape = inside_svg && matches!(tag, "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline");
+    let is_svg_shape = inside_svg
+        && matches!(
+            tag,
+            "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline"
+        );
 
     if is_svg_shape {
         let clip = match tag {
-            "path" => {
-                xml_node.attributes.get_key("d").and_then(|d| {
-                    crate::svg_path_parser::parse_svg_path_d(d.as_str()).ok()
-                })
-            }
+            "path" => xml_node
+                .attributes
+                .get_key("d")
+                .and_then(|d| crate::path_parser::parse_svg_path_d(d.as_str()).ok()),
             "circle" => {
                 let cx = parse_svg_float(xml_node.attributes.get_key("cx")).unwrap_or(0.0);
                 let cy = parse_svg_float(xml_node.attributes.get_key("cy")).unwrap_or(0.0);
@@ -4738,7 +5680,7 @@ fn xml_node_to_dom_fast<'a>(
                 if r > 0.0 {
                     Some(crate::svg::SvgMultiPolygon {
                         rings: crate::svg::SvgPathVec::from_vec(vec![
-                            crate::svg_path_parser::svg_circle_to_paths(cx, cy, r)
+                            crate::path_parser::svg_circle_to_paths(cx, cy, r),
                         ]),
                     })
                 } else {
@@ -4755,7 +5697,7 @@ fn xml_node_to_dom_fast<'a>(
                 if w > 0.0 && h > 0.0 {
                     Some(crate::svg::SvgMultiPolygon {
                         rings: crate::svg::SvgPathVec::from_vec(vec![
-                            crate::svg_path_parser::svg_rect_to_path(x, y, w, h, rx, ry)
+                            crate::path_parser::svg_rect_to_path(x, y, w, h, rx, ry),
                         ]),
                     })
                 } else {
@@ -4769,40 +5711,64 @@ fn xml_node_to_dom_fast<'a>(
                 let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(0.0);
                 if rx > 0.0 && ry > 0.0 {
                     // Approximate ellipse with 4 cubic beziers (using rx for x-kappa, ry for y-kappa)
-                    use azul_css::props::basic::{SvgPoint, SvgCubicCurve};
+                    use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
                     const KAPPA: f32 = 0.5522847498;
                     let kx = rx * KAPPA;
                     let ky = ry * KAPPA;
                     let elements = vec![
                         crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
                             start: SvgPoint { x: cx, y: cy - ry },
-                            ctrl_1: SvgPoint { x: cx + kx, y: cy - ry },
-                            ctrl_2: SvgPoint { x: cx + rx, y: cy - ky },
+                            ctrl_1: SvgPoint {
+                                x: cx + kx,
+                                y: cy - ry,
+                            },
+                            ctrl_2: SvgPoint {
+                                x: cx + rx,
+                                y: cy - ky,
+                            },
                             end: SvgPoint { x: cx + rx, y: cy },
                         }),
                         crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
                             start: SvgPoint { x: cx + rx, y: cy },
-                            ctrl_1: SvgPoint { x: cx + rx, y: cy + ky },
-                            ctrl_2: SvgPoint { x: cx + kx, y: cy + ry },
+                            ctrl_1: SvgPoint {
+                                x: cx + rx,
+                                y: cy + ky,
+                            },
+                            ctrl_2: SvgPoint {
+                                x: cx + kx,
+                                y: cy + ry,
+                            },
                             end: SvgPoint { x: cx, y: cy + ry },
                         }),
                         crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
                             start: SvgPoint { x: cx, y: cy + ry },
-                            ctrl_1: SvgPoint { x: cx - kx, y: cy + ry },
-                            ctrl_2: SvgPoint { x: cx - rx, y: cy + ky },
+                            ctrl_1: SvgPoint {
+                                x: cx - kx,
+                                y: cy + ry,
+                            },
+                            ctrl_2: SvgPoint {
+                                x: cx - rx,
+                                y: cy + ky,
+                            },
                             end: SvgPoint { x: cx - rx, y: cy },
                         }),
                         crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
                             start: SvgPoint { x: cx - rx, y: cy },
-                            ctrl_1: SvgPoint { x: cx - rx, y: cy - ky },
-                            ctrl_2: SvgPoint { x: cx - kx, y: cy - ry },
+                            ctrl_1: SvgPoint {
+                                x: cx - rx,
+                                y: cy - ky,
+                            },
+                            ctrl_2: SvgPoint {
+                                x: cx - kx,
+                                y: cy - ry,
+                            },
                             end: SvgPoint { x: cx, y: cy - ry },
                         }),
                     ];
                     Some(crate::svg::SvgMultiPolygon {
-                        rings: crate::svg::SvgPathVec::from_vec(vec![
-                            crate::svg::SvgPath { items: crate::svg::SvgPathElementVec::from_vec(elements) }
-                        ]),
+                        rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
+                            items: crate::svg::SvgPathElementVec::from_vec(elements),
+                        }]),
                     })
                 } else {
                     None
@@ -4814,30 +5780,26 @@ fn xml_node_to_dom_fast<'a>(
                 let x2 = parse_svg_float(xml_node.attributes.get_key("x2")).unwrap_or(0.0);
                 let y2 = parse_svg_float(xml_node.attributes.get_key("y2")).unwrap_or(0.0);
                 Some(crate::svg::SvgMultiPolygon {
-                    rings: crate::svg::SvgPathVec::from_vec(vec![
-                        crate::svg::SvgPath {
-                            items: crate::svg::SvgPathElementVec::from_vec(vec![
-                                crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(
-                                    azul_css::props::basic::SvgPoint { x: x1, y: y1 },
-                                    azul_css::props::basic::SvgPoint { x: x2, y: y2 },
-                                ))
-                            ]),
-                        }
-                    ]),
+                    rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
+                        items: crate::svg::SvgPathElementVec::from_vec(vec![
+                            crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(
+                                azul_css::props::basic::SvgPoint { x: x1, y: y1 },
+                                azul_css::props::basic::SvgPoint { x: x2, y: y2 },
+                            )),
+                        ]),
+                    }]),
                 })
             }
-            "polygon" | "polyline" => {
-                xml_node.attributes.get_key("points").and_then(|pts| {
-                    parse_svg_points(pts.as_str(), tag == "polygon")
-                })
-            }
+            "polygon" | "polyline" => xml_node
+                .attributes
+                .get_key("points")
+                .and_then(|pts| parse_svg_points(pts.as_str(), tag == "polygon")),
             _ => None,
         };
 
         if let Some(mp) = clip {
             dom.root.set_svg_data(crate::dom::SvgNodeData::Path(mp));
         }
-
     }
 
     // Recursively convert children
@@ -4907,7 +5869,9 @@ impl CompactDomBuilder {
 
         // Determine previous sibling from parent's last child tracking
         let prev_sibling_raw = if let Some(&(_, prev_child)) = self.stack.last() {
-            prev_child.map(|pi| NodeId::into_raw(&Some(NodeId::new(pi)))).unwrap_or(0)
+            prev_child
+                .map(|pi| NodeId::into_raw(&Some(NodeId::new(pi))))
+                .unwrap_or(0)
         } else {
             0
         };
@@ -4976,7 +5940,7 @@ fn xml_node_to_fast_dom<'a>(
     inside_svg: bool,
     builder: &mut CompactDomBuilder,
 ) -> Result<(), RenderDomError> {
-    use crate::dom::{Dom, NodeType, NodeData, IdOrClass, TabIndex};
+    use crate::dom::{Dom, IdOrClass, NodeData, NodeType, TabIndex};
 
     let component_name = normalize_casing(&xml_node.node_type);
     let node_type = tag_to_node_type(&component_name);
@@ -4990,12 +5954,26 @@ fn xml_node_to_fast_dom<'a>(
             let width = xml_node
                 .attributes
                 .get_key("width")
-                .and_then(|w| w.as_str().trim().trim_end_matches("px").trim().parse::<usize>().ok())
+                .and_then(|w| {
+                    w.as_str()
+                        .trim()
+                        .trim_end_matches("px")
+                        .trim()
+                        .parse::<usize>()
+                        .ok()
+                })
                 .unwrap_or(0);
             let height = xml_node
                 .attributes
                 .get_key("height")
-                .and_then(|h| h.as_str().trim().trim_end_matches("px").trim().parse::<usize>().ok())
+                .and_then(|h| {
+                    h.as_str()
+                        .trim()
+                        .trim_end_matches("px")
+                        .trim()
+                        .parse::<usize>()
+                        .ok()
+                })
                 .unwrap_or(0);
             let image_ref = crate::resources::ImageRef::null_image(
                 width,
@@ -5024,7 +6002,11 @@ fn xml_node_to_fast_dom<'a>(
     }
 
     // Handle focusable attribute
-    if let Some(focusable) = xml_node.attributes.get_key("focusable").and_then(|f| parse_bool(f.as_str())) {
+    if let Some(focusable) = xml_node
+        .attributes
+        .get_key("focusable")
+        .and_then(|f| parse_bool(f.as_str()))
+    {
         match focusable {
             true => node_data.set_tab_index(TabIndex::Auto),
             false => node_data.set_tab_index(TabIndex::NoKeyboardFocus),
@@ -5032,7 +6014,11 @@ fn xml_node_to_fast_dom<'a>(
     }
 
     // Handle tabindex attribute
-    if let Some(tab_index) = xml_node.attributes.get_key("tabindex").and_then(|val| val.parse::<isize>().ok()) {
+    if let Some(tab_index) = xml_node
+        .attributes
+        .get_key("tabindex")
+        .and_then(|val| val.parse::<isize>().ok())
+    {
         match tab_index {
             0 => node_data.set_tab_index(TabIndex::Auto),
             i if i > 0 => node_data.set_tab_index(TabIndex::OverrideInParent(i as u32)),
@@ -5046,21 +6032,33 @@ fn xml_node_to_fast_dom<'a>(
         let mut attributes = Vec::new();
         for s in style.as_str().split(";") {
             let mut s = s.split(":");
-            let key = match s.next() { Some(s) => s, None => continue };
-            let value = match s.next() { Some(s) => s, None => continue };
+            let key = match s.next() {
+                Some(s) => s,
+                None => continue,
+            };
+            let value = match s.next() {
+                Some(s) => s,
+                None => continue,
+            };
             let _ = azul_css::parser2::parse_css_declaration(
-                key.trim(), value.trim(),
+                key.trim(),
+                value.trim(),
                 azul_css::parser2::ErrorLocationRange::default(),
-                &css_key_map, &mut Vec::new(), &mut attributes,
+                &css_key_map,
+                &mut Vec::new(),
+                &mut attributes,
             );
         }
-        let props = attributes.into_iter().filter_map(|s| {
-            use azul_css::dynamic_selector::CssPropertyWithConditions;
-            match s {
-                CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
-                _ => None,
-            }
-        }).collect::<Vec<_>>();
+        let props = attributes
+            .into_iter()
+            .filter_map(|s| {
+                use azul_css::dynamic_selector::CssPropertyWithConditions;
+                match s {
+                    CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
         if !props.is_empty() {
             node_data.set_css_props(props.into());
         }
@@ -5069,15 +6067,18 @@ fn xml_node_to_fast_dom<'a>(
     // Handle SVG shape elements
     let tag = component_name.as_str();
     let child_inside_svg = inside_svg || tag == "svg";
-    let is_svg_shape = inside_svg && matches!(tag, "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline");
+    let is_svg_shape = inside_svg
+        && matches!(
+            tag,
+            "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline"
+        );
 
     if is_svg_shape {
         let clip = match tag {
-            "path" => {
-                xml_node.attributes.get_key("d").and_then(|d| {
-                    crate::svg_path_parser::parse_svg_path_d(d.as_str()).ok()
-                })
-            }
+            "path" => xml_node
+                .attributes
+                .get_key("d")
+                .and_then(|d| crate::path_parser::parse_svg_path_d(d.as_str()).ok()),
             "circle" => {
                 let cx = parse_svg_float(xml_node.attributes.get_key("cx")).unwrap_or(0.0);
                 let cy = parse_svg_float(xml_node.attributes.get_key("cy")).unwrap_or(0.0);
@@ -5085,7 +6086,7 @@ fn xml_node_to_fast_dom<'a>(
                 if r > 0.0 {
                     Some(crate::svg::SvgMultiPolygon {
                         rings: crate::svg::SvgPathVec::from_vec(vec![
-                            crate::svg_path_parser::svg_circle_to_paths(cx, cy, r)
+                            crate::path_parser::svg_circle_to_paths(cx, cy, r),
                         ]),
                     })
                 } else {
@@ -5102,7 +6103,7 @@ fn xml_node_to_fast_dom<'a>(
                 if w > 0.0 && h > 0.0 {
                     Some(crate::svg::SvgMultiPolygon {
                         rings: crate::svg::SvgPathVec::from_vec(vec![
-                            crate::svg_path_parser::svg_rect_to_path(x, y, w, h, rx, ry)
+                            crate::path_parser::svg_rect_to_path(x, y, w, h, rx, ry),
                         ]),
                     })
                 } else {
@@ -5115,40 +6116,64 @@ fn xml_node_to_fast_dom<'a>(
                 let rx = parse_svg_float(xml_node.attributes.get_key("rx")).unwrap_or(0.0);
                 let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(0.0);
                 if rx > 0.0 && ry > 0.0 {
-                    use azul_css::props::basic::{SvgPoint, SvgCubicCurve};
+                    use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
                     const KAPPA: f32 = 0.5522847498;
                     let kx = rx * KAPPA;
                     let ky = ry * KAPPA;
                     let elements = vec![
                         crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
                             start: SvgPoint { x: cx, y: cy - ry },
-                            ctrl_1: SvgPoint { x: cx + kx, y: cy - ry },
-                            ctrl_2: SvgPoint { x: cx + rx, y: cy - ky },
+                            ctrl_1: SvgPoint {
+                                x: cx + kx,
+                                y: cy - ry,
+                            },
+                            ctrl_2: SvgPoint {
+                                x: cx + rx,
+                                y: cy - ky,
+                            },
                             end: SvgPoint { x: cx + rx, y: cy },
                         }),
                         crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
                             start: SvgPoint { x: cx + rx, y: cy },
-                            ctrl_1: SvgPoint { x: cx + rx, y: cy + ky },
-                            ctrl_2: SvgPoint { x: cx + kx, y: cy + ry },
+                            ctrl_1: SvgPoint {
+                                x: cx + rx,
+                                y: cy + ky,
+                            },
+                            ctrl_2: SvgPoint {
+                                x: cx + kx,
+                                y: cy + ry,
+                            },
                             end: SvgPoint { x: cx, y: cy + ry },
                         }),
                         crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
                             start: SvgPoint { x: cx, y: cy + ry },
-                            ctrl_1: SvgPoint { x: cx - kx, y: cy + ry },
-                            ctrl_2: SvgPoint { x: cx - rx, y: cy + ky },
+                            ctrl_1: SvgPoint {
+                                x: cx - kx,
+                                y: cy + ry,
+                            },
+                            ctrl_2: SvgPoint {
+                                x: cx - rx,
+                                y: cy + ky,
+                            },
                             end: SvgPoint { x: cx - rx, y: cy },
                         }),
                         crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
                             start: SvgPoint { x: cx - rx, y: cy },
-                            ctrl_1: SvgPoint { x: cx - rx, y: cy - ky },
-                            ctrl_2: SvgPoint { x: cx - kx, y: cy - ry },
+                            ctrl_1: SvgPoint {
+                                x: cx - rx,
+                                y: cy - ky,
+                            },
+                            ctrl_2: SvgPoint {
+                                x: cx - kx,
+                                y: cy - ry,
+                            },
                             end: SvgPoint { x: cx, y: cy - ry },
                         }),
                     ];
                     Some(crate::svg::SvgMultiPolygon {
-                        rings: crate::svg::SvgPathVec::from_vec(vec![
-                            crate::svg::SvgPath { items: crate::svg::SvgPathElementVec::from_vec(elements) }
-                        ]),
+                        rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
+                            items: crate::svg::SvgPathElementVec::from_vec(elements),
+                        }]),
                     })
                 } else {
                     None
@@ -5160,23 +6185,20 @@ fn xml_node_to_fast_dom<'a>(
                 let x2 = parse_svg_float(xml_node.attributes.get_key("x2")).unwrap_or(0.0);
                 let y2 = parse_svg_float(xml_node.attributes.get_key("y2")).unwrap_or(0.0);
                 Some(crate::svg::SvgMultiPolygon {
-                    rings: crate::svg::SvgPathVec::from_vec(vec![
-                        crate::svg::SvgPath {
-                            items: crate::svg::SvgPathElementVec::from_vec(vec![
-                                crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(
-                                    azul_css::props::basic::SvgPoint { x: x1, y: y1 },
-                                    azul_css::props::basic::SvgPoint { x: x2, y: y2 },
-                                ))
-                            ]),
-                        }
-                    ]),
+                    rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
+                        items: crate::svg::SvgPathElementVec::from_vec(vec![
+                            crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(
+                                azul_css::props::basic::SvgPoint { x: x1, y: y1 },
+                                azul_css::props::basic::SvgPoint { x: x2, y: y2 },
+                            )),
+                        ]),
+                    }]),
                 })
             }
-            "polygon" | "polyline" => {
-                xml_node.attributes.get_key("points").and_then(|pts| {
-                    parse_svg_points(pts.as_str(), tag == "polygon")
-                })
-            }
+            "polygon" | "polyline" => xml_node
+                .attributes
+                .get_key("points")
+                .and_then(|pts| parse_svg_points(pts.as_str(), tag == "polygon")),
             _ => None,
         };
         if let Some(mp) = clip {
@@ -5228,9 +6250,8 @@ fn render_dom_from_body_node_fast<'a>(
     // Collect CSS rules from each source.
     let mut combined_rules: Vec<azul_css::css::CssRuleBlock> = Vec::new();
     if let Some(max_width) = max_width {
-        let max_width_css = Css::from_string(
-            format!("html {{ max-width: {max_width}px; }}").into(),
-        );
+        let max_width_css =
+            Css::from_string(format!("html {{ max-width: {max_width}px; }}").into());
         combined_rules.extend(max_width_css.rules.into_library_owned_vec());
     }
     if let Some(css) = global_css.take() {
@@ -5243,7 +6264,8 @@ fn render_dom_from_body_node_fast<'a>(
     fast_dom.css = vec![crate::dom::CssWithNodeId {
         node_id: 0, // Global scope (root)
         css: combined_css,
-    }].into();
+    }]
+    .into();
 
     // Create StyledDom via the fast path (no tree→arena conversion)
     let styled = StyledDom::create_from_fast_dom(fast_dom);
@@ -5415,7 +6437,10 @@ pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
                     } else {
                         (var_content, None)
                     };
-                    items.push(Var { name: var_name, format_spec });
+                    items.push(Var {
+                        name: var_name,
+                        format_spec,
+                    });
                     current_idx = current_idx + start_offset;
                     last_idx = current_idx;
                 } else {
@@ -5878,8 +6903,10 @@ pub fn compile_body_node_to_rust_code<'a>(
                     let text = text.trim();
                     if !text.is_empty() {
                         let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
-                        dom_string
-                            .push_str(&format!("{}Dom::create_text(\"{}\".into()),\r\n", t, escaped));
+                        dom_string.push_str(&format!(
+                            "{}Dom::create_text(\"{}\".into()),\r\n",
+                            t, escaped
+                        ));
                     }
                 }
             }
@@ -5999,7 +7026,11 @@ fn compile_node_to_rust_code_inner<'a>(
         let data_model = xml_attrs_to_data_model(
             &d.data_model,
             &node.attributes,
-            if text_content_trimmed.is_empty() { None } else { Some(text_content_trimmed) },
+            if text_content_trimmed.is_empty() {
+                None
+            } else {
+                Some(text_content_trimmed)
+            },
         );
         match (d.compile_fn)(d, &CompileTarget::Rust, &data_model, tabs) {
             ResultStringCompileError::Ok(s) => format!("{}{}", t2, s.as_str()),
@@ -6011,7 +7042,10 @@ fn compile_node_to_rust_code_inner<'a>(
         }
     } else {
         // Unknown component, generate div fallback
-        format!("{}Dom::create_node(NodeType::Div) /* {} */", t2, component_name)
+        format!(
+            "{}Dom::create_node(NodeType::Div) /* {} */",
+            t2, component_name
+        )
     };
 
     matcher.path.push(node_type);
@@ -6130,7 +7164,10 @@ fn compile_node_to_rust_code_inner<'a>(
                 } else {
                     let t2 = String::from("    ").repeat(tabs);
                     let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
-                    Some(Ok(format!("{}Dom::create_text(\"{}\".into())", t2, escaped)))
+                    Some(Ok(format!(
+                        "{}Dom::create_text(\"{}\".into())",
+                        t2, escaped
+                    )))
                 }
             }
         })
@@ -6248,9 +7285,18 @@ mod tests {
         let img_node = XmlNode {
             node_type: "img".into(),
             attributes: XmlAttributeMap::from(StringPairVec::from_vec(alloc::vec![
-                AzStringPair { key: "src".into(), value: "cat.jpg".into() },
-                AzStringPair { key: "width".into(), value: "300".into() },
-                AzStringPair { key: "height".into(), value: "169".into() },
+                AzStringPair {
+                    key: "src".into(),
+                    value: "cat.jpg".into()
+                },
+                AzStringPair {
+                    key: "width".into(),
+                    value: "300".into()
+                },
+                AzStringPair {
+                    key: "height".into(),
+                    value: "169".into()
+                },
             ])),
             children: alloc::vec::Vec::new().into(),
         };
@@ -6261,7 +7307,9 @@ mod tests {
 
         match dom.root.get_node_type() {
             NodeType::Image(image_ref) => match image_ref.as_ref().get_data() {
-                DecodedImage::NullImage { tag, width, height, .. } => {
+                DecodedImage::NullImage {
+                    tag, width, height, ..
+                } => {
                     assert_eq!(
                         core::str::from_utf8(tag).unwrap(),
                         "cat.jpg",
