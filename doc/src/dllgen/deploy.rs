@@ -1119,6 +1119,15 @@ fn is_large(filename: &str) -> bool {
         || filename.contains("/demos/")
 }
 
+/// LARGE assets that the deploy step uploads to the Release as `.tar.gz`
+/// (uncompressed binaries that compress ~2-3x): the static `.a` libs and the
+/// demo executables. Already-compressed packages (.deb/.rpm/...) upload raw.
+/// MUST stay in sync with the `*.a|*/demos/*` case in rust.yml's
+/// "Host LARGE assets on the GitHub Release" step.
+fn is_tarred(filename: &str) -> bool {
+    filename.ends_with(".a") || filename.starts_with("demos/") || filename.contains("/demos/")
+}
+
 /// Build the download URL for a release asset, routing LARGE assets to the
 /// GitHub Release and SMALL assets to the Pages-hosted release dir.
 ///
@@ -1128,9 +1137,11 @@ fn is_large(filename: &str) -> bool {
 fn asset_url(version: &str, filename: &str) -> String {
     if is_large(filename) {
         // GitHub Release assets are flat — strip any `demos/` path prefix so the
-        // link matches the uploaded asset name.
+        // link matches the uploaded asset name. Tarred assets (.a, demos) get a
+        // `.tar.gz` suffix to match what the deploy step uploaded.
         let basename = filename.rsplit('/').next().unwrap_or(filename);
-        format!("https://github.com/fschutt/azul/releases/download/{version}/{basename}")
+        let suffix = if is_tarred(filename) { ".tar.gz" } else { "" };
+        format!("https://github.com/fschutt/azul/releases/download/{version}/{basename}{suffix}")
     } else {
         format!("https://azul.rs/release/{version}/{filename}")
     }

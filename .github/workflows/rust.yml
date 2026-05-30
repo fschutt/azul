@@ -1125,8 +1125,16 @@ jobs:
           for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
             src="target/release/${demo}${{ matrix.bin_ext }}"
             if [ -f "$src" ]; then
-              cp "$src" "demos-staging/${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
-              echo "  [OK] staged ${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
+              dst="demos-staging/${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
+              cp "$src" "$dst"
+              # Strip debug/line-table symbols — the `release` profile keeps
+              # debug=1, so each statically-linked demo is ~40 MB unstripped
+              # (azul-demos-ubuntu was 278 MB). strip drops that to a few MB.
+              # Best-effort: macOS/Linux `strip`, Windows MinGW `strip.exe`.
+              before=$(wc -c < "$dst" 2>/dev/null || echo 0)
+              strip "$dst" 2>/dev/null || strip -S "$dst" 2>/dev/null || true
+              after=$(wc -c < "$dst" 2>/dev/null || echo 0)
+              echo "  [OK] staged ${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }} ($before -> $after bytes)"
             else
               echo "  [skip] $src not found (build absent or failed)"
             fi
@@ -1333,6 +1341,27 @@ jobs:
           T="target/${{ matrix.target }}/release"
           [ -f "$T/libazul.a" ] && cp "$T/libazul.a" "$OUT/" || true
           for ext in so dylib; do [ -f "$T/libazul.$ext" ] && cp "$T/libazul.$ext" "$OUT/" || true; done
+
+          # Strip debug/line-table symbols. The mobile libs build with the
+          # `release` profile (debug=1), so the static libazul.a + the .so/.dylib
+          # carry line tables that bloat them to ~170 MB/bundle. --strip-debug
+          # keeps the symbol table needed for linking but drops the debug info.
+          # Android ELF -> the NDK's llvm-strip; iOS Mach-O -> macOS `strip -S`.
+          if [[ "${{ matrix.label }}" == android* ]]; then
+            HOST="$(uname -s | tr '[:upper:]' '[:lower:]')-x86_64"
+            STRIP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$HOST/bin/llvm-strip"
+            [ -x "$STRIP" ] || STRIP="$(command -v llvm-strip || echo true)"
+          else
+            STRIP="strip"
+          fi
+          for f in "$OUT/libazul.a" "$OUT/libazul.so" "$OUT/libazul.dylib"; do
+            [ -f "$f" ] || continue
+            b=$(wc -c < "$f")
+            if [ "$STRIP" = "strip" ]; then strip -S "$f" 2>/dev/null || true
+            else "$STRIP" --strip-debug "$f" 2>/dev/null || true; fi
+            echo "  stripped $f ($b -> $(wc -c < "$f") bytes)"
+          done
+
           if [[ "${{ matrix.label }}" == android* ]]; then
             SYS="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${{ matrix.target }}/24"
             for l in c m dl log android; do cp "$SYS/lib$l.so" "$OUT/stubs/" 2>/dev/null || true; done
@@ -2411,11 +2440,28 @@ jobs:
               --title "Azul ${AZUL_VERSION}" \
               --notes "Azul ${AZUL_VERSION} release. Binaries attached; docs + small assets at https://azul.rs/release/${AZUL_VERSION}/." \
               2>/dev/null || true
-            gh release upload "${AZUL_VERSION}" "${LARGE[@]}" --clobber
+            # tar.gz the uncompressed big binaries (.a static libs + demo
+            # executables) before upload — they compress ~2-3x. Already-compressed
+            # packages (.deb/.rpm/.whl/.nupkg/.gem/.jar/.tgz) upload raw so users
+            # install them directly. deploy.rs links the .tar.gz for the former
+            # (asset_url -> <basename>.tar.gz when is_tarred()).
+            UPLOAD=()
+            for f in "${LARGE[@]}"; do
+              case "$f" in
+                *.a|*/demos/*)
+                  tar -czf "$f.tar.gz" -C "$(dirname "$f")" "$(basename "$f")"
+                  UPLOAD+=("$f.tar.gz")
+                  echo "tar.gz $(basename "$f") -> $(du -h "$f.tar.gz" | cut -f1)"
+                  ;;
+                *) UPLOAD+=("$f");;
+              esac
+            done
+            gh release upload "${AZUL_VERSION}" "${UPLOAD[@]}" --clobber
 
-            # Now drop the LARGE files from the Pages artifact so it stays < 1 GB.
+            # Drop the LARGE originals (+ any .tar.gz) from the Pages artifact so
+            # it stays < 1 GB.
             echo "=== trimming LARGE assets from the Pages artifact ==="
-            for f in "${LARGE[@]}"; do rm -f "$f" && echo "removed $f"; done
+            for f in "${LARGE[@]}"; do rm -f "$f" "$f.tar.gz" && echo "removed $f"; done
             rmdir "$REL/demos" 2>/dev/null || true
           fi
 
