@@ -7,7 +7,10 @@
 #   npm      azul.rs/npm/azul     (registry metadata doc + hosted .tgz)
 #   NuGet    azul.rs/nuget        (v3 service index + flat-container + nupkg)
 #   RubyGems azul.rs/gems         (flat: hosted .gem + a human index; see note)
-#   DNF/yum  azul.rs/rpm          (createrepo_c repodata over the built .rpm)
+#   DNF/yum/zypper azul.rs/rpm    (createrepo_c repodata; ONE repo serves all
+#                                  three — yum and zypper consume dnf repodata)
+#   pacman   azul.rs/arch         (repo-add db over the .pkg.tar.zst)
+#   Alpine apk  azul.rs/alpine     (apk index APKINDEX.tar.gz over the .apk)
 #   Homebrew azul.rs/homebrew-azul.git  (a real bare git repo = a tap)
 #   Chocolatey  azul.rs/nuget (the v3 feed also serves a `libazul` choco package)
 #
@@ -402,6 +405,50 @@ IDX
   echo "  [choco] libazul package added to the nuget v3 feed"
 }
 
+# --------------------------------------------------------------------------
+# pacman (Arch / Manjaro) — host the .pkg.tar.zst + a repo db.
+#   /etc/pacman.conf:  [azlin]
+#                      Server = https://azul.rs/arch/$arch
+#   pacman -Sy azlin-ui     (pacman -Syu keeps it updated)
+# repo-add (from pacman/pacman-contrib) builds the .db; if absent we still host
+# the package + a hand-written .files-less db is skipped (graceful, like rpm).
+# --------------------------------------------------------------------------
+build_pacman() {
+  local pkgs; pkgs=$(ls -1 "$ART"/artifacts-arch/*.pkg.tar.zst 2>/dev/null)
+  [ -n "$pkgs" ] || { echo "  [pacman] no .pkg.tar.zst artifacts — skip"; return; }
+  local arch_dir="$SITE/arch/x86_64"
+  mkdir -p "$arch_dir"
+  cp "$ART"/artifacts-arch/*.pkg.tar.zst "$arch_dir/" 2>/dev/null || true
+  if command -v repo-add >/dev/null 2>&1; then
+    ( cd "$arch_dir" && repo-add azlin.db.tar.gz ./*.pkg.tar.zst >/dev/null 2>&1 ) \
+      && echo "  [pacman] built azlin.db (repo-add)" \
+      || echo "  [pacman] hosted .pkg.tar.zst only (repo-add failed)"
+  else
+    echo "  [pacman] hosted .pkg.tar.zst only (no repo-add available)"
+  fi
+}
+
+# --------------------------------------------------------------------------
+# Alpine apk — host the .apk + an APKINDEX. apk repos are <baseurl>/<arch>/, so
+#   /etc/apk/repositories:  https://azul.rs/alpine/x86_64
+#   apk add --allow-untrusted azlin-ui   (until the index is signed)
+# `apk index` (apk-tools) builds APKINDEX.tar.gz; absent -> host the .apk only.
+# --------------------------------------------------------------------------
+build_apk() {
+  local pkgs; pkgs=$(ls -1 "$ART"/artifacts-apk/*.apk 2>/dev/null)
+  [ -n "$pkgs" ] || { echo "  [apk] no .apk artifacts — skip"; return; }
+  local apk_dir="$SITE/alpine/x86_64"
+  mkdir -p "$apk_dir"
+  cp "$ART"/artifacts-apk/*.apk "$apk_dir/" 2>/dev/null || true
+  if command -v apk >/dev/null 2>&1; then
+    ( cd "$apk_dir" && apk index -o APKINDEX.tar.gz ./*.apk >/dev/null 2>&1 ) \
+      && echo "  [apk] built APKINDEX.tar.gz (apk index)" \
+      || echo "  [apk] hosted .apk only (apk index failed)"
+  else
+    echo "  [apk] hosted .apk only (no apk-tools available)"
+  fi
+}
+
 echo "==> Building self-hosted registry mirrors under $SITE (v$V)"
 # .nojekyll: GitHub Pages' (legacy) Jekyll would drop dotfiles/_dirs; disable it
 # so the bare git repo (objects/, info/refs, HEAD) and every metadata file serve
@@ -413,6 +460,8 @@ build_npm
 build_nuget   # must run before build_choco (choco writes into the nuget tree)
 build_choco
 build_gems
-build_rpm
+build_rpm       # yum + zypper consume this same repo
+build_pacman
+build_apk
 build_homebrew
 echo "==> Registry mirrors done."
