@@ -7,7 +7,7 @@ use alloc::string::{String, ToString};
 use core::fmt;
 use crate::corety::AzString;
 
-use crate::{format_rust_code::FormatAsRustCode, props::formatter::PrintAsCssValue};
+use crate::{codegen::format::FormatAsRustCode, props::formatter::PrintAsCssValue};
 
 /// CSS `text-justify` property value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

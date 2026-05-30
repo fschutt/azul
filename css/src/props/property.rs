@@ -16,7 +16,7 @@ use crate::{
 };
 // Import all property types from their new locations
 use crate::{
-    format_rust_code::FormatAsRustCode,
+    codegen::format::FormatAsRustCode,
     props::{
         basic::{
             color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},

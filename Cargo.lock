@@ -756,13 +756,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "azul-doc-demo"
-version = "0.1.0"
-dependencies = [
- "azul-dll",
-]
-
-[[package]]
 name = "azul-examples"
 version = "0.0.1"
 dependencies = [
@@ -900,6 +893,13 @@ dependencies = [
 
 [[package]]
 name = "azul-video-app"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+]
+
+[[package]]
+name = "azul-writer"
 version = "0.1.0"
 dependencies = [
  "azul-dll",

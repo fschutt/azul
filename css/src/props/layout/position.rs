@@ -206,7 +206,7 @@ pub enum LayoutZIndex {
 }
 
 // Formatting to Rust code
-impl crate::format_rust_code::FormatAsRustCode for LayoutZIndex {
+impl crate::codegen::format::FormatAsRustCode for LayoutZIndex {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             LayoutZIndex::Auto => String::from("LayoutZIndex::Auto"),

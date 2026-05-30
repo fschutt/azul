@@ -17,7 +17,7 @@ use core::{
 
 use azul_css::{
     css::{BoxOrStatic, Css, NodeTypeTag},
-    format_rust_code::GetHash,
+    codegen::format::GetHash,
     props::{
         basic::{FloatValue, FontRef},
         layout::{LayoutDisplay, LayoutFloat, LayoutPosition},

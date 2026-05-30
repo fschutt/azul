@@ -141,7 +141,7 @@ impl PrintAsCssValue for BoxDecorationBreak {
 }
 
 // Formatting to Rust code
-impl crate::format_rust_code::FormatAsRustCode for PageBreak {
+impl crate::codegen::format::FormatAsRustCode for PageBreak {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             PageBreak::Auto => String::from("PageBreak::Auto"),
@@ -160,7 +160,7 @@ impl crate::format_rust_code::FormatAsRustCode for PageBreak {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for BreakInside {
+impl crate::codegen::format::FormatAsRustCode for BreakInside {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             BreakInside::Auto => String::from("BreakInside::Auto"),
@@ -171,19 +171,19 @@ impl crate::format_rust_code::FormatAsRustCode for BreakInside {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for Widows {
+impl crate::codegen::format::FormatAsRustCode for Widows {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("Widows {{ inner: {} }}", self.inner)
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for Orphans {
+impl crate::codegen::format::FormatAsRustCode for Orphans {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("Orphans {{ inner: {} }}", self.inner)
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for BoxDecorationBreak {
+impl crate::codegen::format::FormatAsRustCode for BoxDecorationBreak {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             BoxDecorationBreak::Slice => String::from("BoxDecorationBreak::Slice"),

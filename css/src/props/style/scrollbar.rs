@@ -471,22 +471,22 @@ impl PrintAsCssValue for ScrollbarStyle {
 }
 
 // Formatting to Rust code
-impl crate::format_rust_code::FormatAsRustCode for ScrollbarStyle {
+impl crate::codegen::format::FormatAsRustCode for ScrollbarStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
         let t1 = String::from("    ").repeat(tabs + 1);
         format!(
             "ScrollbarStyle {{\r\n{}horizontal: {},\r\n{}vertical: {},\r\n{}}}",
             t1,
-            crate::format_rust_code::format_scrollbar_info(&self.horizontal, tabs + 1),
+            crate::codegen::format::format_scrollbar_info(&self.horizontal, tabs + 1),
             t1,
-            crate::format_rust_code::format_scrollbar_info(&self.vertical, tabs + 1),
+            crate::codegen::format::format_scrollbar_info(&self.vertical, tabs + 1),
             t,
         )
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for LayoutScrollbarWidth {
+impl crate::codegen::format::FormatAsRustCode for LayoutScrollbarWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             LayoutScrollbarWidth::Auto => String::from("LayoutScrollbarWidth::Auto"),
@@ -496,20 +496,20 @@ impl crate::format_rust_code::FormatAsRustCode for LayoutScrollbarWidth {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for StyleScrollbarColor {
+impl crate::codegen::format::FormatAsRustCode for StyleScrollbarColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             StyleScrollbarColor::Auto => String::from("StyleScrollbarColor::Auto"),
             StyleScrollbarColor::Custom(c) => format!(
                 "StyleScrollbarColor::Custom(ScrollbarColorCustom {{ thumb: {}, track: {} }})",
-                crate::format_rust_code::format_color_value(&c.thumb),
-                crate::format_rust_code::format_color_value(&c.track)
+                crate::codegen::format::format_color_value(&c.thumb),
+                crate::codegen::format::format_color_value(&c.track)
             ),
         }
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for ScrollbarVisibilityMode {
+impl crate::codegen::format::FormatAsRustCode for ScrollbarVisibilityMode {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             ScrollbarVisibilityMode::Always => String::from("ScrollbarVisibilityMode::Always"),
@@ -519,13 +519,13 @@ impl crate::format_rust_code::FormatAsRustCode for ScrollbarVisibilityMode {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for ScrollbarFadeDelay {
+impl crate::codegen::format::FormatAsRustCode for ScrollbarFadeDelay {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("ScrollbarFadeDelay::new({})", self.ms)
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for ScrollbarFadeDuration {
+impl crate::codegen::format::FormatAsRustCode for ScrollbarFadeDuration {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("ScrollbarFadeDuration::new({})", self.ms)
     }

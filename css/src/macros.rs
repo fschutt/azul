@@ -1113,7 +1113,7 @@ macro_rules! impl_color_value_fmt {
 }
 
 macro_rules! impl_enum_fmt {($enum_name:ident, $($enum_type:ident),+) => (
-    impl crate::format_rust_code::FormatAsRustCode for $enum_name {
+    impl crate::codegen::format::FormatAsRustCode for $enum_name {
         fn format_as_rust_code(&self, _tabs: usize) -> String {
             match self {
                 $(

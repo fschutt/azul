@@ -198,7 +198,7 @@ impl PrintAsCssValue for ShapeImageThreshold {
 }
 
 // Formatting to Rust code
-impl crate::format_rust_code::FormatAsRustCode for ShapeOutside {
+impl crate::codegen::format::FormatAsRustCode for ShapeOutside {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             ShapeOutside::None => String::from("ShapeOutside::None"),
@@ -212,7 +212,7 @@ impl crate::format_rust_code::FormatAsRustCode for ShapeOutside {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for ShapeInside {
+impl crate::codegen::format::FormatAsRustCode for ShapeInside {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             ShapeInside::None => String::from("ShapeInside::None"),
@@ -226,7 +226,7 @@ impl crate::format_rust_code::FormatAsRustCode for ShapeInside {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for ClipPath {
+impl crate::codegen::format::FormatAsRustCode for ClipPath {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             ClipPath::None => String::from("ClipPath::None"),
@@ -240,20 +240,20 @@ impl crate::format_rust_code::FormatAsRustCode for ClipPath {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for ShapeMargin {
+impl crate::codegen::format::FormatAsRustCode for ShapeMargin {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "ShapeMargin {{ inner: {} }}",
-            crate::format_rust_code::format_pixel_value(&self.inner)
+            crate::codegen::format::format_pixel_value(&self.inner)
         )
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for ShapeImageThreshold {
+impl crate::codegen::format::FormatAsRustCode for ShapeImageThreshold {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "ShapeImageThreshold {{ inner: {} }}",
-            crate::format_rust_code::format_float_value(&self.inner)
+            crate::codegen::format::format_float_value(&self.inner)
         )
     }
 }

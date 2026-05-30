@@ -8,7 +8,7 @@ use alloc::{
 
 use crate::{
     corety::AzString,
-    format_rust_code::FormatAsRustCode,
+    codegen::format::FormatAsRustCode,
     impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash, impl_vec_mut,
     impl_vec_ord, impl_vec_partialeq, impl_vec_partialord,
     props::{basic::pixel::PixelValue, formatter::PrintAsCssValue},
@@ -822,14 +822,14 @@ impl FormatAsRustCode for LayoutJustifyItems {
 
 impl FormatAsRustCode for LayoutGap {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        use crate::format_rust_code::format_pixel_value;
+        use crate::codegen::format::format_pixel_value;
         format!("LayoutGap {{ inner: {} }}", format_pixel_value(&self.inner))
     }
 }
 
 impl FormatAsRustCode for GridTrackSizing {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        use crate::format_rust_code::format_pixel_value;
+        use crate::codegen::format::format_pixel_value;
         match self {
             GridTrackSizing::Fixed(pv) => {
                 format!("GridTrackSizing::Fixed({})", format_pixel_value(pv))

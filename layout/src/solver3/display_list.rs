@@ -31,7 +31,7 @@ use azul_core::{
 };
 use azul_css::{
     css::CssPropertyValue,
-    format_rust_code::GetHash,
+    codegen::format::GetHash,
     props::{
         basic::{ColorU, FontRef, PixelValue},
         layout::{LayoutDisplay, LayoutOverflow, LayoutPosition},

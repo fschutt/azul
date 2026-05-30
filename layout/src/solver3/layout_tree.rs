@@ -87,7 +87,7 @@ use azul_core::{
 use azul_css::{
     corety::LayoutDebugMessage,
     css::CssPropertyValue,
-    format_rust_code::GetHash,
+    codegen::format::GetHash,
     props::{
         basic::{
             pixel::DEFAULT_FONT_SIZE, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,

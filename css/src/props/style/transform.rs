@@ -15,7 +15,7 @@ use crate::props::basic::{
     parse::{parse_parentheses, ParenthesisParseError, ParenthesisParseErrorOwned},
 };
 use crate::{
-    format_rust_code::GetHash,
+    codegen::format::GetHash,
     props::{
         basic::{
             angle::{
@@ -91,23 +91,23 @@ impl PrintAsCssValue for StyleTransformOrigin {
 }
 
 // Formatting to Rust code
-impl crate::format_rust_code::FormatAsRustCode for StylePerspectiveOrigin {
+impl crate::codegen::format::FormatAsRustCode for StylePerspectiveOrigin {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "StylePerspectiveOrigin {{ x: {}, y: {} }}",
-            crate::format_rust_code::format_pixel_value(&self.x),
-            crate::format_rust_code::format_pixel_value(&self.y)
+            crate::codegen::format::format_pixel_value(&self.x),
+            crate::codegen::format::format_pixel_value(&self.y)
         )
     }
 }
 
 // Formatting to Rust code for StyleTransformOrigin
-impl crate::format_rust_code::FormatAsRustCode for StyleTransformOrigin {
+impl crate::codegen::format::FormatAsRustCode for StyleTransformOrigin {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "StyleTransformOrigin {{ x: {}, y: {} }}",
-            crate::format_rust_code::format_pixel_value(&self.x),
-            crate::format_rust_code::format_pixel_value(&self.y)
+            crate::codegen::format::format_pixel_value(&self.x),
+            crate::codegen::format::format_pixel_value(&self.y)
         )
     }
 }
@@ -187,7 +187,7 @@ impl PrintAsCssValue for StyleTransformVec {
 }
 
 // Formatting to Rust code for StyleTransformVec
-impl crate::format_rust_code::FormatAsRustCode for StyleTransformVec {
+impl crate::codegen::format::FormatAsRustCode for StyleTransformVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "StyleTransformVec::from_const_slice(STYLE_TRANSFORM_{}_ITEMS)",

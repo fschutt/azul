@@ -9,7 +9,7 @@ use core::fmt;
 use crate::corety::AzString;
 
 use crate::{
-    format_rust_code::FormatAsRustCode,
+    codegen::format::FormatAsRustCode,
     props::{
         basic::{
             error::{InvalidValueErr, InvalidValueErrOwned},
@@ -586,7 +586,7 @@ impl PrintAsCssValue for StyleVerticalAlign {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for StyleVerticalAlign {
+impl crate::codegen::format::FormatAsRustCode for StyleVerticalAlign {
     fn format_as_rust_code(&self, indent: usize) -> String {
         match self {
             StyleVerticalAlign::Baseline => "StyleVerticalAlign::Baseline".to_string(),
@@ -863,7 +863,7 @@ impl PrintAsCssValue for StyleTextIndent {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for StyleTextIndent {
+impl crate::codegen::format::FormatAsRustCode for StyleTextIndent {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "StyleTextIndent {{ inner: {}, each_line: {}, hanging: {} }}",
@@ -2135,11 +2135,11 @@ impl PrintAsCssValue for CaretColor {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for CaretColor {
+impl crate::codegen::format::FormatAsRustCode for CaretColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "CaretColor {{ inner: {} }}",
-            crate::format_rust_code::format_color_value(&self.inner)
+            crate::codegen::format::format_color_value(&self.inner)
         )
     }
 }
@@ -2171,7 +2171,7 @@ impl PrintAsCssValue for CaretAnimationDuration {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for CaretAnimationDuration {
+impl crate::codegen::format::FormatAsRustCode for CaretAnimationDuration {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "CaretAnimationDuration {{ inner: {} }}",
@@ -2213,7 +2213,7 @@ impl PrintAsCssValue for CaretWidth {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for CaretWidth {
+impl crate::codegen::format::FormatAsRustCode for CaretWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "CaretWidth {{ inner: {} }}",

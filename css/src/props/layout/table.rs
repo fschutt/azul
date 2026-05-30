@@ -11,7 +11,7 @@
 use alloc::string::{String, ToString};
 
 use crate::{
-    format_rust_code::FormatAsRustCode,
+    codegen::format::FormatAsRustCode,
     props::{
         basic::pixel::{CssPixelValueParseError, PixelValue},
         formatter::PrintAsCssValue,
@@ -158,7 +158,7 @@ impl PrintAsCssValue for LayoutBorderSpacing {
 
 impl FormatAsRustCode for LayoutBorderSpacing {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        use crate::format_rust_code::format_pixel_value;
+        use crate::codegen::format::format_pixel_value;
         format!(
             "LayoutBorderSpacing {{ horizontal: {}, vertical: {} }}",
             format_pixel_value(&self.horizontal),

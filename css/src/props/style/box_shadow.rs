@@ -97,7 +97,7 @@ impl PrintAsCssValue for StyleBoxShadow {
 }
 
 // Formatting to Rust code for StyleBoxShadow
-impl crate::format_rust_code::FormatAsRustCode for StyleBoxShadow {
+impl crate::codegen::format::FormatAsRustCode for StyleBoxShadow {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
         format!(
@@ -105,15 +105,15 @@ impl crate::format_rust_code::FormatAsRustCode for StyleBoxShadow {
              {},\r\n{}    blur_radius: {},\r\n{}    spread_radius: {},\r\n{}    clip_mode: \
              BoxShadowClipMode::{:?},\r\n{}}}",
             t,
-            crate::format_rust_code::format_pixel_value_no_percent(&self.offset_x),
+            crate::codegen::format::format_pixel_value_no_percent(&self.offset_x),
             t,
-            crate::format_rust_code::format_pixel_value_no_percent(&self.offset_y),
+            crate::codegen::format::format_pixel_value_no_percent(&self.offset_y),
             t,
-            crate::format_rust_code::format_color_value(&self.color),
+            crate::codegen::format::format_color_value(&self.color),
             t,
-            crate::format_rust_code::format_pixel_value_no_percent(&self.blur_radius),
+            crate::codegen::format::format_pixel_value_no_percent(&self.blur_radius),
             t,
-            crate::format_rust_code::format_pixel_value_no_percent(&self.spread_radius),
+            crate::codegen::format::format_pixel_value_no_percent(&self.spread_radius),
             t,
             self.clip_mode,
             t

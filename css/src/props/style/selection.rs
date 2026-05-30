@@ -39,11 +39,11 @@ impl PrintAsCssValue for SelectionBackgroundColor {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for SelectionBackgroundColor {
+impl crate::codegen::format::FormatAsRustCode for SelectionBackgroundColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "SelectionBackgroundColor {{ inner: {} }}",
-            crate::format_rust_code::format_color_value(&self.inner)
+            crate::codegen::format::format_color_value(&self.inner)
         )
     }
 }
@@ -79,11 +79,11 @@ impl PrintAsCssValue for SelectionColor {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for SelectionColor {
+impl crate::codegen::format::FormatAsRustCode for SelectionColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "SelectionColor {{ inner: {} }}",
-            crate::format_rust_code::format_color_value(&self.inner)
+            crate::codegen::format::format_color_value(&self.inner)
         )
     }
 }
@@ -122,7 +122,7 @@ impl PrintAsCssValue for SelectionRadius {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for SelectionRadius {
+impl crate::codegen::format::FormatAsRustCode for SelectionRadius {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         // Use the Display implementation of PixelValue to get a string like "5px" or "1em"
         format!(

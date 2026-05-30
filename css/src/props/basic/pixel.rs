@@ -251,7 +251,7 @@ impl crate::css::PrintAsCssValue for PixelValue {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for PixelValue {
+impl crate::codegen::format::FormatAsRustCode for PixelValue {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "PixelValue {{ metric: {:?}, number: FloatValue::new({}) }}",

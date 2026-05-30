@@ -21,7 +21,7 @@ impl PrintAsCssValue for CssDuration {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for CssDuration {
+impl crate::codegen::format::FormatAsRustCode for CssDuration {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("CssDuration {{ inner: {} }}", self.inner)
     }

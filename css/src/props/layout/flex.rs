@@ -5,7 +5,7 @@ use core::num::ParseFloatError;
 use crate::corety::AzString;
 
 use crate::{
-    format_rust_code::FormatAsRustCode,
+    codegen::format::FormatAsRustCode,
     props::{
         basic::{
             error::ParseFloatErrorWithInput,
@@ -804,14 +804,14 @@ impl PrintAsCssValue for LayoutFlexBasis {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for LayoutFlexBasis {
+impl crate::codegen::format::FormatAsRustCode for LayoutFlexBasis {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             LayoutFlexBasis::Auto => String::from("LayoutFlexBasis::Auto"),
             LayoutFlexBasis::Exact(px) => {
                 format!(
                     "LayoutFlexBasis::Exact({})",
-                    crate::format_rust_code::format_pixel_value(px)
+                    crate::codegen::format::format_pixel_value(px)
                 )
             }
         }

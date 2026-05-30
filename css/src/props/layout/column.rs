@@ -191,7 +191,7 @@ impl PrintAsCssValue for ColumnRuleColor {
 }
 
 // Formatting to Rust code
-impl crate::format_rust_code::FormatAsRustCode for ColumnCount {
+impl crate::codegen::format::FormatAsRustCode for ColumnCount {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             ColumnCount::Auto => String::from("ColumnCount::Auto"),
@@ -200,19 +200,19 @@ impl crate::format_rust_code::FormatAsRustCode for ColumnCount {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for ColumnWidth {
+impl crate::codegen::format::FormatAsRustCode for ColumnWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             ColumnWidth::Auto => String::from("ColumnWidth::Auto"),
             ColumnWidth::Length(px) => format!(
                 "ColumnWidth::Length({})",
-                crate::format_rust_code::format_pixel_value(px)
+                crate::codegen::format::format_pixel_value(px)
             ),
         }
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for ColumnSpan {
+impl crate::codegen::format::FormatAsRustCode for ColumnSpan {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             ColumnSpan::None => String::from("ColumnSpan::None"),
@@ -221,7 +221,7 @@ impl crate::format_rust_code::FormatAsRustCode for ColumnSpan {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for ColumnFill {
+impl crate::codegen::format::FormatAsRustCode for ColumnFill {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             ColumnFill::Auto => String::from("ColumnFill::Auto"),
@@ -230,16 +230,16 @@ impl crate::format_rust_code::FormatAsRustCode for ColumnFill {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for ColumnRuleWidth {
+impl crate::codegen::format::FormatAsRustCode for ColumnRuleWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "ColumnRuleWidth {{ inner: {} }}",
-            crate::format_rust_code::format_pixel_value(&self.inner)
+            crate::codegen::format::format_pixel_value(&self.inner)
         )
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for ColumnRuleStyle {
+impl crate::codegen::format::FormatAsRustCode for ColumnRuleStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
             "ColumnRuleStyle {{ inner: {} }}",
@@ -248,11 +248,11 @@ impl crate::format_rust_code::FormatAsRustCode for ColumnRuleStyle {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for ColumnRuleColor {
+impl crate::codegen::format::FormatAsRustCode for ColumnRuleColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "ColumnRuleColor {{ inner: {} }}",
-            crate::format_rust_code::format_color_value(&self.inner)
+            crate::codegen::format::format_color_value(&self.inner)
         )
     }
 }

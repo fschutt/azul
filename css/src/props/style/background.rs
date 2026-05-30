@@ -18,7 +18,7 @@ use crate::props::basic::{
 };
 use crate::{
     corety::AzString,
-    format_rust_code::GetHash,
+    codegen::format::GetHash,
     props::{
         basic::{
             angle::{
@@ -128,14 +128,14 @@ impl PrintAsCssValue for StyleBackgroundContent {
 
 // Formatting to Rust code for background-related vecs
 
-impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundContent {
+impl crate::codegen::format::FormatAsRustCode for StyleBackgroundContent {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         // Delegate to the CSS value representation for single backgrounds
         format!("StyleBackgroundContent::from_css(\"{}\")", self.print_as_css_value())
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundSizeVec {
+impl crate::codegen::format::FormatAsRustCode for StyleBackgroundSizeVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "StyleBackgroundSizeVec::from_const_slice(STYLE_BACKGROUND_SIZE_{}_ITEMS)",
@@ -144,7 +144,7 @@ impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundSizeVec {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundRepeatVec {
+impl crate::codegen::format::FormatAsRustCode for StyleBackgroundRepeatVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "StyleBackgroundRepeatVec::from_const_slice(STYLE_BACKGROUND_REPEAT_{}_ITEMS)",
@@ -153,7 +153,7 @@ impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundRepeatVec {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundContentVec {
+impl crate::codegen::format::FormatAsRustCode for StyleBackgroundContentVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "StyleBackgroundContentVec::from_const_slice(STYLE_BACKGROUND_CONTENT_{}_ITEMS)",
@@ -525,7 +525,7 @@ impl PrintAsCssValue for StyleBackgroundPositionVec {
 }
 
 // Formatting to Rust code for StyleBackgroundPositionVec
-impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundPositionVec {
+impl crate::codegen::format::FormatAsRustCode for StyleBackgroundPositionVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "StyleBackgroundPositionVec::from_const_slice(STYLE_BACKGROUND_POSITION_{}_ITEMS)",

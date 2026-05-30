@@ -154,13 +154,13 @@ impl PrintAsCssValue for StringSet {
 }
 
 // Formatting to Rust code
-impl crate::format_rust_code::FormatAsRustCode for Content {
+impl crate::codegen::format::FormatAsRustCode for Content {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("Content {{ inner: String::from({:?}) }}", self.inner)
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for CounterReset {
+impl crate::codegen::format::FormatAsRustCode for CounterReset {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         alloc::format!(
             "CounterReset {{ counter_name: AzString::from_const_str({:?}), value: {} }}",
@@ -170,7 +170,7 @@ impl crate::format_rust_code::FormatAsRustCode for CounterReset {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for CounterIncrement {
+impl crate::codegen::format::FormatAsRustCode for CounterIncrement {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         alloc::format!(
             "CounterIncrement {{ counter_name: AzString::from_const_str({:?}), value: {} }}",
@@ -180,7 +180,7 @@ impl crate::format_rust_code::FormatAsRustCode for CounterIncrement {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for StringSet {
+impl crate::codegen::format::FormatAsRustCode for StringSet {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("StringSet {{ inner: String::from({:?}) }}", self.inner)
     }

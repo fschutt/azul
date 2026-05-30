@@ -156,7 +156,7 @@ define_border_side_property!(StyleBorderBottomStyle, BorderStyle, BorderStyle::N
 define_border_side_property!(StyleBorderLeftStyle, BorderStyle, BorderStyle::None);
 
 // Formatting implementations for border side style values
-impl crate::format_rust_code::FormatAsRustCode for StyleBorderTopStyle {
+impl crate::codegen::format::FormatAsRustCode for StyleBorderTopStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
             "StyleBorderTopStyle {{ inner: {} }}",
@@ -165,7 +165,7 @@ impl crate::format_rust_code::FormatAsRustCode for StyleBorderTopStyle {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for StyleBorderRightStyle {
+impl crate::codegen::format::FormatAsRustCode for StyleBorderRightStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
             "StyleBorderRightStyle {{ inner: {} }}",
@@ -174,7 +174,7 @@ impl crate::format_rust_code::FormatAsRustCode for StyleBorderRightStyle {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for StyleBorderLeftStyle {
+impl crate::codegen::format::FormatAsRustCode for StyleBorderLeftStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
             "StyleBorderLeftStyle {{ inner: {} }}",
@@ -183,7 +183,7 @@ impl crate::format_rust_code::FormatAsRustCode for StyleBorderLeftStyle {
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for StyleBorderBottomStyle {
+impl crate::codegen::format::FormatAsRustCode for StyleBorderBottomStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
             "StyleBorderBottomStyle {{ inner: {} }}",

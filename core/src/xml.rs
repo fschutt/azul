@@ -31,7 +31,7 @@ use azul_css::{
         Css, CssDeclaration, CssPath, CssPathPseudoSelector, CssPathSelector, CssRuleBlock,
         NodeTypeTag,
     },
-    format_rust_code::VecContents,
+    codegen::format::VecContents,
     parser2::{CssParseErrorOwned, ErrorLocation},
     props::{
         basic::{ColorU, StyleFontFamilyVec},
@@ -6311,7 +6311,7 @@ fn set_stringified_attributes(
     }
 
     if !ids_and_classes.is_empty() {
-        use azul_css::format_rust_code::GetHash;
+        use azul_css::codegen::format::GetHash;
         let id = ids_and_classes.get_hash();
         dom_string.push_str(&format!(
             "\r\n{t0}.with_ids_and_classes({{\r\n{t}const IDS_AND_CLASSES_{id}: &[IdOrClass] = \
@@ -6873,7 +6873,7 @@ pub fn compile_body_node_to_rust_code<'a>(
     }
 
     if !body_node.children.as_ref().is_empty() {
-        use azul_css::format_rust_code::GetHash;
+        use azul_css::codegen::format::GetHash;
         let children_hash = body_node.children.as_ref().get_hash();
         dom_string.push_str(&format!("\r\n.with_children(DomVec::from_vec(vec![\r\n"));
 
