@@ -1095,7 +1095,12 @@ HAVE_WAIT_N=0
 
 run_one() {  # backgrounded per-lang worker: re-exec --single under a timeout.
   local lang="$1"
-  if _timeout "$LANG_TIMEOUT" bash "$SELF" --single "$lang"; then return 0; fi
+  # NB: capture the exit code via `&&` short-circuit, NOT `if …; then return; fi`.
+  # A bare `if <cmd>; then return 0; fi` whose condition is FALSE leaves the `if`
+  # statement's own exit status at 0 (no else-branch ran), so a following
+  # `local rc=$?` would always read 0 — masking real timeouts (124/137) as a
+  # bogus "driver error rc=0". With `&&`, the failed command's status survives.
+  _timeout "$LANG_TIMEOUT" bash "$SELF" --single "$lang" && return 0
   local rc=$?
   # Ensure a row exists even if the child was killed before it could record().
   # 124 = GNU timeout fired; 137 = SIGKILL (kill-after / OOM).
