@@ -1181,7 +1181,8 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     let common_head_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
-    let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Other);
+    // API search is useless on the release/download page — disable it here.
+    let search_script = String::new();
     let releasenotes =
         comrak::markdown_to_html(&versiondata.notes.join("\r\n"), &comrak::Options::default());
     let git = &versiondata.git;
@@ -1255,15 +1256,28 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // though the skeleton build doesn't placeholder these files. Spans x86 →
     // riscv: i686/aarch64/armv7, ppc64/s390x/riscv64 (big-endian + RISC-V),
     // Windows i686, macOS Intel, and rust9x (Win98/XP).
-    let cross_arch_assets: String = BinaryAsset::CROSS_ARCH_ASSETS
-        .iter()
-        .map(|a| release_link_li(version, a.filename, a.description))
-        .collect::<Vec<_>>()
-        .join("\n                ");
+    // "Additional architectures" grouped by OS (Windows / macOS / Linux), each
+    // as its own sub-list. Classify by filename: azul.i686.*/azul.rust9x.* are
+    // Windows, *macos*/*.x86_64.dylib are macOS, the rest (linux-*) are Linux.
+    fn cross_group(version: &str, want: fn(&str) -> bool) -> String {
+        BinaryAsset::CROSS_ARCH_ASSETS
+            .iter()
+            .filter(|a| want(a.filename))
+            .map(|a| release_link_li(version, a.filename, a.description))
+            .collect::<Vec<_>>()
+            .join("\n                ")
+    }
+    let cross_win = cross_group(version, |f| {
+        f.starts_with("azul.i686.") || f.starts_with("azul.rust9x.")
+    });
+    let cross_mac = cross_group(version, |f| f.contains("macos") || f.contains(".x86_64.dylib"));
+    let cross_lin = cross_group(version, |f| f.contains("linux-"));
     let cross_arch_section = format!(
-        "\n              <br/>\n              \
-         <strong>Additional architectures:</strong>\n              <ul>\n                {}\n              </ul>",
-        cross_arch_assets
+        "\n              <br/>\n              <strong>Additional architectures:</strong>\n              \
+         <p style='margin:6px 0 0;'>Windows</p>\n              <ul>\n                {win}\n              </ul>\n              \
+         <p style='margin:6px 0 0;'>macOS</p>\n              <ul>\n                {mac}\n              </ul>\n              \
+         <p style='margin:6px 0 0;'>Linux</p>\n              <ul>\n                {lin}\n              </ul>",
+        win = cross_win, mac = cross_mac, lin = cross_lin
     );
 
     // Generate API/examples links
@@ -1508,6 +1522,22 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               {releasenotes}
               </div>
 
+              <nav style='margin-top:18px;'>
+                <strong style='font-size:15px;'>Jump to:</strong>
+                <ul style='display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:6px;list-style:none;padding-left:0;font-size:15px;'>
+                  <li><a href='#native-libraries'>Native libraries</a></li>
+                  <li><a href='#debug-libraries'>Debug libraries</a></li>
+                  <li><a href='#linux-packages'>Linux packages</a></li>
+                  <li><a href='#demos'>Demos</a></li>
+                  <li><a href='#language-bindings'>Installation</a></li>
+                  <li><a href='#docs-guide'>Docs &amp; guide</a></li>
+                  <li><a href='#agentic'>Agentic</a></li>
+                  <li><a href='#coverage'>Coverage</a></li>
+                  <li><a href='#license'>License</a></li>
+                  <li><a href='#source'>Source</a></li>
+                </ul>
+              </nav>
+
               <br/>
 
               <h2 id='native-libraries'>Native libraries</h2>
@@ -1593,6 +1623,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <ul>
                 {demo_links}
               </ul>
+              <p style='color:grey;font-size:15px;max-width:700px;'><strong>macOS note:</strong> if macOS complains it cannot verify the developer, run <code>sh unquarantine.sh &lt;binary-name&gt;</code> (<a href='https://azul.rs/release/{version}/unquarantine.sh'>unquarantine.sh</a>).</p>
               <p style='font-size:15px;'>Installing &amp; debugging these, and going
               from Rust to a final <code>.apk</code>/<code>.ipa</code> cross-platform:
               <a href='https://azul.rs/guide/mobile'>guide: Mobile</a> &middot;
