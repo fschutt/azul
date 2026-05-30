@@ -21,6 +21,10 @@
 (function () {
   'use strict';
 
+  // Doc-site base path (e.g. '/ui'); set via window.AZS_DOC_BASE by
+  // get_search_init. Empty string when served from the domain root.
+  var AZS_BASE = (typeof window !== 'undefined' && window.AZS_DOC_BASE) ? window.AZS_DOC_BASE : '';
+
   // ---------- kind metadata ---------------------------------------------
 
   // Short kind code -> { label, badgeClass, weight }. Weight tweaks ranking
@@ -179,7 +183,7 @@
             return {
               type: 'api-index',
               version: index.v,
-              apiPageUrl: '/api/' + index.v + '.html',
+              apiPageUrl: AZS_BASE + '/api/' + index.v + '.html',
               // Expose the raw index so default-key resolution can do
               // direct name lookups without re-running the search ranker.
               _index: index,
@@ -196,7 +200,7 @@
   // Auto-discover: read /api/index.json (manifest produced by docgen) to
   // pick the latest version, then load that version's search.json.
   function apiDefaultAdapter() {
-    var manifestUrl = '/api/index.json';
+    var manifestUrl = AZS_BASE + '/api/index.json';
     return {
       load: function () {
         return fetch(manifestUrl, { credentials: 'omit' })
@@ -207,7 +211,7 @@
           .then(function (manifest) {
             var v = manifest.latest;
             if (!v) throw new Error('Manifest has no "latest" field');
-            return apiIndexAdapter('/api/' + v + '.search.json').load();
+            return apiIndexAdapter(AZS_BASE + '/api/' + v + '.search.json').load();
           });
       }
     };

@@ -900,6 +900,9 @@ pub fn get_search_init(kind: PageKind<'_>) -> String {
     format!(
         r#"<script src="{UI_PATH}/azul-search.js" defer></script>
 <script>
+// Set before the deferred search script runs so its api-index/search.json
+// fetches resolve under the docs sub-path (/ui) instead of the domain root.
+window.AZS_DOC_BASE = "{UI_PATH}";
 document.addEventListener('DOMContentLoaded', function () {{
   if (!window.AzulSearch) return;
   var mount = document.getElementById('azul-search-mount');
@@ -935,7 +938,6 @@ pub fn get_sidebar() -> String {
           <li><a href='https://azul.rs/ui'>overview</a></li>
           <li><a href='https://azul.rs/ui/releases'>releases</a></li>
           <li><a href='https://github.com/fschutt/azul'>code</a></li>
-          <li><a href='https://discord.gg/V96ZGKqQvn'>discord</a></li>
           <li><a href='https://azul.rs/ui/guide'>guide</a></li>
           <li><a href='https://azul.rs/ui/api'>api</a></li>
           <li><a href='https://azul.rs/ui/reftest'>reftests</a></li>

@@ -1586,6 +1586,12 @@ fn main() -> anyhow::Result<()> {
                 templates_dir.join("logo.svg"),
                 root_dir.join("logo.svg"),
             )?;
+            // Animated foam decoration for the landing hero (copied from the
+            // erp-site design; that repo ships no hero video, so only the SVG).
+            fs::copy(
+                templates_dir.join("foam.svg"),
+                root_dir.join("foam.svg"),
+            )?;
             fs::copy(
                 templates_dir.join("azlin-ws.html"),
                 root_dir.join("ws.html"),

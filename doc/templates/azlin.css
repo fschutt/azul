@@ -1596,8 +1596,11 @@ footer {
     text-transform: uppercase;
     vertical-align: middle;
 }
+/* Both states use solid gold so the badge is always legible (the old soft
+   tint vanished on the dark hero cards). "Available now" stays filled gold;
+   "Coming soon" is the same gold so it reads clearly on any card background. */
 .pill-live { background: var(--color-gold); color: var(--color-navy); }
-.pill-soon { background: rgba(0, 4, 40, 0.08); color: #004e92; }
+.pill-soon { background: var(--color-gold); color: var(--color-navy); }
 .products-section { padding: 40px 0 80px; }
 .products-section h2 { text-align: center; margin-bottom: 32px; }
 .section-intro {
@@ -1613,6 +1616,26 @@ footer {
     height: 30px;
     width: auto;
     display: block;
+}
+
+/* Foam decoration in the landing hero's second grid column (from the erp
+   design). Collapses out on mobile where the hero is a single column. */
+.hero-image-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 320px;
+}
+.hero-foam {
+    width: 100%;
+    max-width: 460px;
+    height: auto;
+    opacity: 0.9;
+    filter: drop-shadow(0 12px 48px rgba(0, 4, 40, 0.45));
+}
+@media (max-width: 900px) {
+    .hero-image-wrapper { display: none; }
 }
 
 /* ===== Responsive section headings (the erp h2 is a fixed 42px Playfair,

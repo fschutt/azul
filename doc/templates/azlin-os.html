@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Azlin OS - a cohesive desktop where every app shares one fast rendering engine. Coming soon.">
+    <meta name="description" content="Azlin OS - a cohesive desktop where every app shares one fast rendering engine. Built on the Azlin UI Toolkit. Coming soon.">
     <title>Azlin OS - coming soon</title>
     <link rel="stylesheet" href="/azlin.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,18 +20,18 @@
             <div class="nav-right">
                 <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" onclick="document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',document.body.classList.contains('nav-open'));"><span></span><span></span><span></span></button>
                 <div class="nav-links" role="menu">
-                    <a href="/ws.html" role="menuitem">Workspace</a>
-                    <a href="/ui/" role="menuitem">Azlin UI toolkit</a>
-                    <a href="/os.html" class="active" role="menuitem">OS</a>
+                    <a href="/ws.html" role="menuitem">/WS</a>
+                    <a href="/ui/" role="menuitem">/UI</a>
+                    <a href="/os.html" class="active" role="menuitem">/OS</a>
                 </div>
             </div>
         </div>
     </nav>
     <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
     <aside class="mobile-menu" aria-label="Mobile navigation">
-        <a href="/ws.html">Workspace</a>
-        <a href="/ui/">Azlin UI toolkit</a>
-        <a href="/os.html">OS</a>
+        <a href="/ws.html">/WS</a>
+        <a href="/ui/">/UI</a>
+        <a href="/os.html">/OS</a>
     </aside>
 
     <main id="main-content" role="main">
@@ -40,7 +40,7 @@
             <div class="hero-content">
                 <span class="hero-badge">Coming soon</span>
                 <h1 id="hero-heading" tabindex="0">Azlin OS</h1>
-                <p class="hero-subtitle" tabindex="0">A cohesive desktop where every application shares one fast rendering engine - so the whole system feels consistent, light and instant. It's the long-term vision of the project. Not yet available.</p>
+                <p class="hero-subtitle" tabindex="0">A cohesive desktop where every application shares one fast rendering engine - so the whole system feels consistent, light and instant. Built on the open-source <a href="/ui/">Azlin UI Toolkit</a>. It's the long-term vision of the project. Not yet available.</p>
                 <div class="cta-buttons">
                     <a href="/ui/" class="btn btn-secondary btn-hero-secondary">Explore the UI toolkit →</a>
                 </div>
@@ -51,7 +51,7 @@
 
     <footer role="contentinfo">
         <div class="container">
-            <p>© 2026 Azlin · Built on the open-source <a href="/ui/">Azul</a> engine · <a href="https://github.com/fschutt/azul" target="_blank" rel="noopener noreferrer">GitHub</a></p>
+            <p>© 2026 Azlin · Built on the open-source <a href="/ui/">Azlin UI Toolkit</a> · <a href="https://github.com/fschutt/azul" target="_blank" rel="noopener noreferrer">GitHub</a></p>
         </div>
     </footer>
     <script>document.querySelectorAll('.mobile-menu a, .nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>
