@@ -187,4 +187,4 @@ a real device uses, so you can exercise the capture + event paths in CI. See
 - [callbacks](callbacks.md) - the hook + `RefAny` mechanism.
 - [background-tasks](background-tasks.md) - the `Thread` that drives capture.
 - [timers](timers.md) - polling `Udp::recv` each frame.
-- [Mobile Deployment](mobile-deployment.md) - shipping this on iOS / Android.
+- [Mobile](mobile.md) - shipping this on iOS / Android.

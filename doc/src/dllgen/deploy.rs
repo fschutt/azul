@@ -1554,7 +1554,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
 
               <br/>
               <h2 id='debug-libraries'>Debug libraries</h2>
-              <p style='color:grey;font-size:15px;max-width:700px;'>The shipped <code>libazul</code> is lean (no debug server). Swap in the matching <code>azuldbg</code> build to enable <code>AZ_DEBUG=&lt;port&gt;</code> &mdash; see <a href='https://azul.rs/guide/debugging'>guide: Debugging</a>.</p>
+              <p style='color:grey;font-size:15px;max-width:700px;'>The shipped libazul is lean and has no debug server. Swap in the matching azuldbg build to enable the AZ_DEBUG inspector port &mdash; see the <a href='https://azul.rs/guide/debugging'>Debugging guide</a>.</p>
               <ul>
                 <li><a href='https://azul.rs/release/{version}/libazuldbg.so'>libazuldbg.so (Linux)</a></li>
                 <li><a href='https://azul.rs/release/{version}/libazuldbg.dylib'>libazuldbg.dylib (macOS)</a></li>
@@ -1563,12 +1563,9 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
 
               <br/>
               <strong>Mobile (iOS &amp; Android): drop-in libraries:</strong>
-              <p style='color:grey;font-size:15px;max-width:700px;'>Prebuilt lean <code>libazul</code>
-              (static <code>.a</code> + dynamic <code>.so</code>/<code>.dylib</code>) per mobile target,
-              bundled with the few NDK / iOS-SDK <em>link stubs</em> it needs: so you build an
-              Azul app in Rust and link it with <strong>no Android Studio and no Xcode</strong>. Drop the
-              right slice into your <code>.apk</code>/<code>.app</code> (a C <code>hello-world</code>
-              works too). See <a href='https://azul.rs/guide/mobile'>guide: Mobile</a>.</p>
+              <p style='color:grey;font-size:15px;max-width:700px;'>Prebuilt libazul slices plus the
+              link stubs you need to build an Azul app in Rust for iOS or Android &mdash; no Android
+              Studio, no Xcode. See the <a href='https://azul.rs/guide/mobile'>Mobile guide</a>.</p>
               <ul>
                 <li><a href='https://azul.rs/release/{version}/mobile/android-arm64/'>Android arm64-v8a</a>: <a href='https://github.com/fschutt/azul/releases/download/{version}/libazul-android-arm64.a.tar.gz'><code>libazul.a</code></a> / <code>libazul.so</code> + stubs</li>
                 <li><a href='https://azul.rs/release/{version}/mobile/android-x64/'>Android x86_64 (emulator)</a>: <a href='https://github.com/fschutt/azul/releases/download/{version}/libazul-android-x64.a.tar.gz'><code>libazul.a</code></a> / <code>libazul.so</code> + stubs</li>
@@ -1606,10 +1603,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                 {demo_links}
               </ul>
               <p style='color:grey;font-size:15px;max-width:700px;'><strong>macOS note:</strong> if macOS complains it cannot verify the developer, run <code>sh unquarantine.sh &lt;binary-name&gt;</code> (<a href='https://azul.rs/release/{version}/unquarantine.sh'>unquarantine.sh</a>).</p>
-              <p style='font-size:15px;'>Installing &amp; debugging these, and going
-              from Rust to a final <code>.apk</code>/<code>.ipa</code> cross-platform:
-              <a href='https://azul.rs/guide/mobile'>guide: Mobile</a> &middot;
-              <a href='https://azul.rs/guide/mobile-deployment'>guide: Mobile Deployment (install, sideload, debug)</a>.</p>
+              <p style='font-size:15px;'>Building, installing and debugging these &mdash; and going from Rust to a final .apk / .ipa cross-platform &mdash; is covered in the <a href='https://azul.rs/guide/mobile'>Mobile guide</a>.</p>
 
               <br/>
               <h2 id='language-bindings'>Installation instructions</h2>
