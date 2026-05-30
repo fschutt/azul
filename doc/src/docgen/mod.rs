@@ -807,7 +807,7 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
       <meta name='keywords' content='gui, rust, user interface'>
 
       <link rel='preload' as='font' href='{base_url}/fonts/Rubik-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
-      <link rel='preload' as='font' href='{base_url}/fonts/PlayfairDisplay-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='{base_url}/fonts/InstrumentSerif-Regular.ttf' type='font/ttf' crossorigin='anonymous'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
       <link rel='stylesheet' href='{base_url}/azul-search.css'>

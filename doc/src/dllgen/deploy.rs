@@ -1878,7 +1878,7 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     // Playfair Display (big headings), Imbue (subtitles/section headings, opsz+
     // wght), Red Hat Display (body), Red Hat Mono (code) — all self-hosted OFL.
     for f in [
-        "PlayfairDisplay-VariableFont_wght.ttf",
+        "InstrumentSerif-Regular.ttf",
         "Imbue-VariableFont_opsz,wght.ttf",
         "RedHatDisplay-VariableFont_wght.ttf",
         "RedHatMono-VariableFont_wght.ttf",

@@ -141,8 +141,9 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
         </aside>
 
         <main>
+            <div class='guide-layout'>
+            <div class='guide-main'>
             <h1>{title}</h1>
-            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
             <div id='api'>
             {notes}
             {content}
@@ -150,6 +151,11 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
             <p style='font-size:1.2em;margin-top:20px;'>
             <a href='{HTML_ROOT}/api'>Back to API index</a>
             </p>
+            </div>
+            <aside class='guide-search-col'>
+            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
+            </aside>
+            </div>
         </main>
 
         </div>
@@ -691,12 +697,18 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
         </aside>
 
         <main>
-            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
+            <div class='guide-layout'>
+            <div class='guide-main'>
             <h1>{title}</h1>
             <div>
             <ul style='margin-left:20px;'>
             {content}
             </ul>
+            </div>
+            </div>
+            <aside class='guide-search-col'>
+            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
+            </aside>
             </div>
         </main>
 
