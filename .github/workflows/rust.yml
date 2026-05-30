@@ -25,6 +25,11 @@ on:
         type: choice
         options:
           - ci
+          # website: build everything + deploy GitHub Pages, but do NOT run any
+          # registry-publish job (crates.io / PyPI / npm / RubyGems / NuGet /
+          # Maven / AUR / LuaRocks). Use this for a site-only release.
+          - website
+          # deploy: website + ALL registry publishes (token-gated).
           - deploy
         required: true
         default: 'ci'
@@ -67,7 +72,7 @@ jobs:
 
   lint_and_check:
     name: Lint & Static Checks
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -160,7 +165,7 @@ jobs:
   # This catches issues like missing Copy/Clone derives on stub types
   feature_matrix_check:
     name: Feature Matrix Check
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -208,7 +213,7 @@ jobs:
   # targets check the sub-crates and link-static only.
   cross_compile_check:
     name: Cross-Compile Check (${{ matrix.target }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -298,7 +303,7 @@ jobs:
   # and native runners for Windows/macOS cross-arch.
   cross_build_binaries:
     name: Cross-Build (${{ matrix.target }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ${{ matrix.runner }}
     # The solid targets (i686/aarch64/armv7-linux, i686-windows, x86_64-macos)
     # stay BLOCKING. The exotic Linux arches below carry `experimental: true`
@@ -424,7 +429,7 @@ jobs:
   # steps, so an un-primed/evicted cache can't false-fail the run.
   build_rust9x:
     name: Build rust9x (Win98/XP experimental)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: windows-2022
     # BLOCKING: when the compiler cache is present the Win98/XP build must
     # succeed. The cache-empty path skips the build (the build steps are gated
@@ -506,7 +511,7 @@ jobs:
 
   test_heavy:
     name: Run Heavy Tests (Miri + Reftests)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -555,7 +560,7 @@ jobs:
 
   coverage:
     name: Code Coverage
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -592,7 +597,7 @@ jobs:
 
   ffi_safety_tests:
     name: FFI Safety Tests (${{ matrix.os }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     strategy:
       fail-fast: false
       matrix:
@@ -657,7 +662,7 @@ jobs:
 
   build_binaries:
     name: Build Binaries (${{ matrix.os }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -1047,7 +1052,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build_demos:
     name: Build Demo Apps (${{ matrix.os }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     # Non-blocking: a demo that won't build on some platform must never fail the
     # pipeline or block the release. fail-fast: false already isolates each OS.
     continue-on-error: true
@@ -1156,7 +1161,7 @@ jobs:
   # ---------------------------------------------------------------------------
   e2e_native:
     name: Native AZ_E2E (${{ matrix.os }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     strategy:
       fail-fast: false
       matrix:
@@ -1269,7 +1274,7 @@ jobs:
   # ===========================================================================
   build_mobile:
     name: Mobile libazul (${{ matrix.label }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     continue-on-error: true
     runs-on: ${{ matrix.os }}
     strategy:
@@ -1375,7 +1380,7 @@ jobs:
   # ===========================================================================
   build_mobile_apps:
     name: Mobile demo apps (iOS)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     continue-on-error: true
     runs-on: macos-14
     # Hoist the signing secrets to job env so the optional cert-import step can
@@ -1456,7 +1461,7 @@ jobs:
   # demos light up as they adopt the cdylib+ctor pattern (see guide/mobile.md).
   build_mobile_apps_android:
     name: Mobile demo apps (Android)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     continue-on-error: true
     runs-on: ubuntu-22.04
     steps:
@@ -1510,7 +1515,7 @@ jobs:
 
   build_linux_packages:
     name: Build Linux Packages (.deb/.rpm)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     # cross_build_binaries is added so the per-arch .so artifacts (aarch64 +
     # the exotic ppc64/s390x/riscv64) are available to package. Its experimental
     # legs are job-level continue-on-error, so a failed exotic build still lets
@@ -1761,7 +1766,7 @@ jobs:
 
   build_website_skeleton:
     name: Build Website Skeleton
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -1835,7 +1840,8 @@ jobs:
 
   deploy_pages:
     name: Deploy to GitHub Pages
-    if: github.event.inputs.run_mode == 'deploy'
+    # Runs on BOTH 'website' (site-only) and 'deploy' (site + registry publishes).
+    if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android]
     runs-on: ubuntu-22.04
     # The top-level workflow permissions are `contents: read`; the GitHub Release
@@ -2442,7 +2448,7 @@ jobs:
 
   supply_chain:
     name: Supply chain (cargo-deny)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
@@ -2471,7 +2477,7 @@ jobs:
 
   unsafe_audit:
     name: Unsafe audit (cargo-geiger)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
@@ -2507,7 +2513,7 @@ jobs:
 
   clippy:
     name: Clippy
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
@@ -2537,7 +2543,7 @@ jobs:
 
   sanitizers:
     name: Sanitizers (C examples)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     continue-on-error: true
     env:
@@ -2584,7 +2590,7 @@ jobs:
 
   dep_tree:
     name: Dependency tree (${{ matrix.os }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ${{ matrix.os }}
     # The tree-rendering steps below are individually continue-on-error
     # (informational — they just populate the run Summary + an artifact). The
@@ -2647,7 +2653,7 @@ jobs:
   # blocks in the PDF while the web keeps the dark theme.
   docs_pdf:
     name: Docs PDF (artifact)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
