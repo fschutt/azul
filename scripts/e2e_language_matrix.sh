@@ -163,6 +163,23 @@ export AZ_BACKEND="${AZ_BACKEND:-headless}"
 export NO_COLOR=1
 export CARGO_TERM_COLOR=never
 
+# -----------------------------------------------------------------------------
+# Verbose diagnostics so a failed binding's log explains *why* it failed.
+#   - RUST_BACKTRACE / RUST_LIB_BACKTRACE: any Rust panic prints a full stack.
+#   - RUST_LOG: surfaces `plog_*!`/log-facade output for the bindings that
+#     install a logger (azul-self-test, python). No-op for the C/C++/rust e2e
+#     binaries (they install none) — harmless.
+#   - AZ_RECORD (wired per-language in the --single loop): makes libazul force
+#     DEBUG_ENABLED and dump its internal event-loop trace (every log_*! macro:
+#     App create, window setup, each E2E step, hit-test, callback) to a file we
+#     fold into the failure dump. This is what localizes a native crash to the
+#     last successful step. Set E2E_RECORD=0 to disable. Caller values win.
+# -----------------------------------------------------------------------------
+export RUST_BACKTRACE="${RUST_BACKTRACE:-full}"
+export RUST_LIB_BACKTRACE="${RUST_LIB_BACKTRACE:-1}"
+export RUST_LOG="${RUST_LOG:-azul=debug,azul_dll=debug,debug}"
+E2E_RECORD="${E2E_RECORD:-1}"
+
 if [ ! -f "$AZ_E2E" ]; then
   echo "FATAL: AZ_E2E scenario not found: $AZ_E2E" >&2
   exit 2
@@ -426,7 +443,16 @@ lang_rust() {
   (
     set -x
     cd "$REPO_ROOT" || exit 1
-    cargo build --release -p azul-examples --example hello-world || exit 1
+    # Link the PREBUILT dynamic lib (link-dynamic), NOT the default link-static.
+    # The AZ_E2E headless runner lives behind `#[cfg(feature = "debug-server")]`
+    # (dll/src/desktop/shell2/run.rs). link-static rebuilds azul-dll from source
+    # WITHOUT debug-server, so a static example silently ignores AZ_E2E, opens a
+    # headless stub window, never prints `test result: ok`, and hangs until the
+    # per-lang timeout kills it. link-dynamic instead links the prebuilt DLL
+    # (built with build-dll,debug-server) that build.rs finds in target/release,
+    # whose run() honors AZ_E2E — and it skips the multi-minute azul recompile.
+    cargo build --release -p azul-examples --example hello-world \
+      --no-default-features --features link-dynamic || exit 1
     ./target/release/examples/hello-world
   ) >"$f" 2>&1
   finish rust
@@ -1065,6 +1091,15 @@ if [ "$SINGLE" = 1 ]; then
   # blocking the whole matrix. No status board here — the parent prints it.
   for lang in "${NORM_LANGS[@]}"; do
     fn="lang_${lang}"
+    # Per-language AZ_RECORD trace file. libazul (debug-server build) writes its
+    # internal event-loop log here with DEBUG_ENABLED forced on; the failure
+    # dump shows its tail, so a native crash is pinned to the last step it
+    # reached (e.g. "App created successfully" → crash = teardown/run bug).
+    if [ "${E2E_RECORD:-1}" = 1 ]; then
+      export AZ_RECORD="$WORKDIR/${lang}.azrecord"
+    else
+      unset AZ_RECORD
+    fi
     if declare -F "$fn" >/dev/null 2>&1; then
       "$fn"
     else
@@ -1204,6 +1239,43 @@ echo ""
 emit_table
 echo ""
 echo "$TALLY"
+
+# --- Diagnostics: dump the tail of each FAILED shipped binding's log ----------
+# The per-language build/run output is captured only to $WORKDIR/<lang>.log,
+# which CI does NOT upload — so a board cell like "compile/link error (see log)"
+# previously pointed at a log nobody could read. Echo the tail of every failed
+# SHIPPED binding's log to stdout so each CI run is self-documenting (the only
+# rows that gate are shipped ones, so that's all we surface). Each dump is a
+# collapsible ::group:: in the Actions UI. Bounded to E2E_DUMP_FAIL_LINES lines;
+# set E2E_DUMP_FAIL_LOG=0 to disable.
+if [ "${E2E_DUMP_FAIL_LOG:-1}" = 1 ] && [ "$shipped_fails" -gt 0 ]; then
+  dump_lines="${E2E_DUMP_FAIL_LINES:-80}"
+  in_ci="${GITHUB_ACTIONS:-}"
+  echo ""
+  echo "===== FAILED shipped-binding logs (last ${dump_lines} lines each) ====="
+  for i in "${!RESULT_STATUS[@]}"; do
+    [ "${RESULT_STATUS[$i]}" = "FAILS" ] || continue
+    [ "$(tier_of "${RESULT_LANGS[$i]}")" = "shipped" ] || continue
+    d_lang="${RESULT_LANGS[$i]}"; d_note="${RESULT_NOTE[$i]}"
+    d_f="$(log_path "$d_lang")"
+    d_rec="$WORKDIR/${d_lang}.azrecord"
+    [ -n "$in_ci" ] && echo "::group::✗ ${d_lang} — ${d_note}"
+    echo "----- ${d_lang}: ${d_note} -----"
+    if [ -f "$d_f" ]; then
+      strip_ansi < "$d_f" | tail -n "$dump_lines"
+    else
+      echo "(no log at $d_f — the lang process was killed before it wrote output)"
+    fi
+    # libazul's internal event-loop trace (App create → window → E2E steps →
+    # callback). Its tail pins a native crash to the last step it reached.
+    if [ -s "$d_rec" ]; then
+      echo "--- ${d_lang} libazul AZ_RECORD trace (last ${dump_lines} lines) ---"
+      strip_ansi < "$d_rec" | tail -n "$dump_lines"
+    fi
+    [ -n "$in_ci" ] && echo "::endgroup::"
+  done
+  echo "===== end failed-binding logs ====="
+fi
 
 # --- GitHub step summary (markdown) ---
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
