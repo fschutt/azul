@@ -135,6 +135,16 @@ aside {
     display: block;
 }
 
+/* Version + date sit in their own right-aligned column at the top of the box;
+   the nav links stay left-aligned below. */
+#latestrelease .release-version {
+    text-align: right;
+    margin-bottom: 12px;
+}
+#latestrelease .release-version p {
+    margin: 0;
+}
+
 #latestrelease #azul-search-mount {
     margin-top: 12px;
     font-size: 0.83rem;
@@ -464,7 +474,7 @@ main > header h2 {
   font-size: 30px;
   font-weight: 100;
   line-height: 0.9;
-  font-family: "Playfair Display", serif;
+  font-family: "Instrument Serif", serif;
 }
 
 main > header h2 .first-letter {
@@ -569,6 +579,9 @@ main > header h3 {
   font-size: 11px;
   font-weight: bold;
   border-radius: 0;
+  /* Uniform width so single-char labels (C, JS) match Python/Rust. */
+  min-width: 64px;
+  box-sizing: border-box;
 }
 
 .lang-grid button.active {

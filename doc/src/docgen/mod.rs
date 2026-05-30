@@ -105,10 +105,11 @@ pub fn generate_docs(
     Ok(docs)
 }
 
-/// Languages always shown inline (above the fold). Everything else lives
-/// inside the collapsed `<details>` so the tab grid stays compact when
-/// the api ships with 10+ bindings.
-const PRIMARY_LANGUAGES: &[&str] = &["rust", "python", "c", "cpp"];
+/// Languages always shown inline (above the fold). We ship 11 solid bindings,
+/// so ALL of them are primary tabs now — there is no "more languages" overflow.
+const PRIMARY_LANGUAGES: &[&str] = &[
+    "rust", "python", "c", "cpp", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml",
+];
 
 /// Whitelist of languages that have a SOLID, working hello-world and may
 /// appear on the azul.rs frontpage install tabs. Every other binding still
