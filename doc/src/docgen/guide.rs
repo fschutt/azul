@@ -321,7 +321,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
 
     let css = "
         h1 {
-            font-family: 'Playfair Display', Georgia, serif;
+            font-family: 'Instrument Serif', Georgia, serif;
             font-size: 2em;
             font-weight: 700;
             line-height: 1.15;
@@ -371,7 +371,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             .guide-search-col .page-search {
                 max-width: 100%; margin: 0; pointer-events: auto;
                 background: var(--fade-bg);
-                padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+                padding: 12px 10px calc(12px + env(safe-area-inset-bottom));
             }
             /* fade: text dissolves into the content background above the bar */
             .guide-search-col::before {
@@ -380,7 +380,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
                 background: linear-gradient(to bottom, transparent, var(--fade-bg));
             }
             /* bar lives at the bottom -> results open UPWARD, full width */
-            .guide-search-col .azs-panel-inline { top: auto; bottom: calc(100% + 6px); left: 16px; right: 16px; }
+            .guide-search-col .azs-panel-inline { top: auto; bottom: calc(100% + 6px); left: 10px; right: 10px; }
         }
         #guide p { margin-bottom: 1em; }
         #guide img { max-width: 700px; margin-top: 15px; margin-bottom: 15px;}
@@ -662,7 +662,7 @@ pub fn generate_guide_mainpage(version: &str) -> String {
     let css = "
         #guide-index { max-width: 760px; }
         #guide-index h2 {
-            font-family: 'Playfair Display', Georgia, serif;
+            font-family: 'Instrument Serif', Georgia, serif;
             font-size: 1.6em;
             font-weight: normal;
             margin-top: 32px;
@@ -719,7 +719,8 @@ pub fn generate_guide_mainpage(version: &str) -> String {
             {sidebar}
         </aside>
         <main>
-            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
+            <div class='guide-layout'>
+            <div class='guide-main'>
             <h1>User Guide</h1>
             <style>{css}</style>
             <div id='guide-index'>
@@ -731,6 +732,11 @@ pub fn generate_guide_mainpage(version: &str) -> String {
 
                 <h2 id='contributors'><a href='#contributors' style='text-decoration:none;color:inherit;'>Contributors</a></h2>
                 {contributor}
+            </div>
+            </div>
+            <aside class='guide-search-col'>
+            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
+            </aside>
             </div>
         </main>
         </div>
@@ -928,10 +934,16 @@ pub fn generate_guide_index(versions: &[String]) -> String {
             {sidebar}
         </aside>
         <main>
-            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
+            <div class='guide-layout'>
+            <div class='guide-main'>
             <h1>Choose guide version</h1>
             <div>
             <ul>{version_items}</ul>
+            </div>
+            </div>
+            <aside class='guide-search-col'>
+            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
+            </aside>
             </div>
         </main>
         </div>

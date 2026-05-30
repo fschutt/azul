@@ -4,10 +4,9 @@
      some browsers silently reject the variable @font-face and fall back to a
      plain serif — which is why the big headings rendered as Georgia before. */
   @font-face {
-      font-family: "Playfair Display";
+      font-family: "Instrument Serif";
       font-style: normal;
-      font-weight: 400 900;
-      src: url("./fonts/PlayfairDisplay-VariableFont_wght.ttf") format("truetype-variations");
+      src: url("./fonts/InstrumentSerif-Regular.ttf");
   }
 
   /* Subtitles / section headings + the showcase title: Imbue (variable opsz
@@ -245,7 +244,7 @@ main {
 /* Big eye-catcher headings (hero h1, guide page <h1>) use Playfair Display.
    Subtitles / section headings (h2-h6) use Instrument Serif. */
 main h1, h1 {
-    font-family: "Playfair Display", Georgia, "Times New Roman", serif;
+    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
 }
 main h2, h2, h4, h5, h6 {
     font-family: "Imbue", Georgia, "Times New Roman", serif;
@@ -1013,14 +1012,13 @@ main > header h3 {
 /* R4-2: big eye-catcher headings use Imbue (bold), not Playfair. The #guide
    selector wins over each guide page's inline `h1 { font-family: Playfair }`
    by specificity, so guide titles switch too without touching guide.rs. */
-main h1, h1, #guide h1, main > header h1 {
-    font-family: "Imbue", Georgia, "Times New Roman", serif;
-    font-weight: 800;
-    font-optical-sizing: auto;
+main h1, h1, #guide h1, #guide-index h1, main > header h1 {
+    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+    font-weight: normal;
 }
 .feature-image h2.feature-title {
-    font-family: "Imbue", Georgia, "Times New Roman", serif;
-    font-weight: 800;
+    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+    font-weight: normal;
     text-shadow: none;
 }
 /* R4-3: default Imbue (subtitles / section headings) a little bolder. */
@@ -1038,3 +1036,33 @@ main h2, h2, h4, h5, h6, #guide h2 { font-weight: 500; }
 #latestrelease .release-links { order: 1; }
 #latestrelease .release-version { order: 2; text-align: right; margin-bottom: 0; }
 #latestrelease #azul-search-mount { order: 3; flex-basis: 100%; }
+
+/* ===== Round 5: shared content-page search layout (R5-2) =====
+   API + guide + guide-overview/index put the search in a sticky column beside
+   the content on desktop, and lock it to the bottom (with a fade-out) on
+   mobile. The homepage keeps its search in the release box (it has no
+   .page-search column), so it is unaffected. */
+.guide-layout { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 36px; }
+.guide-layout > .guide-main, .guide-layout > #guide { flex: 1 1 auto; min-width: 0; }
+.guide-search-col { flex: 0 0 320px; position: sticky; top: 20px; align-self: flex-start; --fade-bg: #ffffff; }
+.guide-search-col .page-search { max-width: 100%; }
+@media (prefers-color-scheme: dark) { .guide-search-col { --fade-bg: #15181f; } }
+@media (max-width: 1100px) {
+    .guide-layout { display: block; }
+    .guide-layout > .guide-main, .guide-layout > #guide { padding-bottom: 200px; }
+    .guide-search-col {
+        position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 9000;
+        margin: 0; padding: 0; pointer-events: none;
+    }
+    .guide-search-col .page-search {
+        max-width: 100%; margin: 0; pointer-events: auto;
+        background: var(--fade-bg);
+        padding: 12px 10px calc(12px + env(safe-area-inset-bottom));
+    }
+    .guide-search-col::before {
+        content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 96px;
+        pointer-events: none;
+        background: linear-gradient(to bottom, transparent, var(--fade-bg));
+    }
+    .guide-search-col .azs-panel-inline { top: auto; bottom: calc(100% + 6px); left: 10px; right: 10px; }
+}
