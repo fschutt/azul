@@ -1252,14 +1252,12 @@ jobs:
             echo "LD_LIBRARY_PATH=$PWD/target/release" >> "$GITHUB_ENV"
           fi
 
-      # Language binding status board. Builds + runs every shipped example's
-      # hello-world under AZ_E2E and reports the result to the run Summary:
-      # ✓ works / ✗ fails / ⊘ toolchain-unavailable. Replaces the old per-language
-      # steps (which surfaced as red continue-on-error failures); the script
-      # always exits 0, so the board is informational with no red X's. We install
-      # a few cheap toolchains best-effort; the runner's preinstalled ones (node,
-      # ruby, python, go, perl, php, java, dotnet) cover most of the rest, and
-      # anything still missing is reported ⊘ instead of failing.
+      # Language binding status board. Builds + runs every example's hello-world
+      # under AZ_E2E and reports the result to the run Summary:
+      # ✓ works / ✗ fails / ⊘ toolchain-unavailable, tagged by maturity tier
+      # (shipped / beta / alpha). We install a few cheap toolchains best-effort;
+      # the runner's preinstalled ones (node, ruby, python, go, perl, php, java,
+      # dotnet) cover most of the rest, and anything still missing is reported ⊘.
       - name: Install extra language toolchains (best-effort)
         continue-on-error: true
         shell: bash
@@ -1274,10 +1272,17 @@ jobs:
             # pwsh, node, ruby, dotnet, go, perl, php, java are already present.
             choco install luajit -y 2>/dev/null || true
           fi
-      - name: Language binding status board (AZ_E2E)
-        continue-on-error: true
+      # GATE on the SHIPPED tier only: the 11 bindings we officially ship
+      # (python, c, cpp, rust, csharp, java, kotlin, lua, ruby, node, ocaml) must
+      # PASS the counter E2E on any OS where they can run. --gate-shipped exits
+      # nonzero iff a SHIPPED binding FAILS; a binding whose toolchain is absent
+      # or that can't run on this OS (e.g. ocaml on Windows, python which has no
+      # counter example) is reported ⊘ SKIP and does NOT gate — so this is
+      # per-OS aware without a hardcoded table. BETA/ALPHA rows stay informational.
+      # NOT continue-on-error: a shipped-binding regression should fail CI.
+      - name: Language binding status board (AZ_E2E, gates shipped tier)
         shell: bash
-        run: bash scripts/e2e_language_matrix.sh
+        run: bash scripts/e2e_language_matrix.sh --gate-shipped
 
   # ===========================================================================
   # Mobile libazul — prebuilt drop-in libraries (+ the minimal link stubs).

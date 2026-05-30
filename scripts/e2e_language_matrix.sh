@@ -44,10 +44,16 @@
 #   bash scripts/e2e_language_matrix.sh c,rust,lua      # subset (comma list)
 #   bash scripts/e2e_language_matrix.sh --strict        # exit nonzero if any FAILS
 #   bash scripts/e2e_language_matrix.sh --strict c rust # strict + subset
+#   bash scripts/e2e_language_matrix.sh --gate-shipped  # exit nonzero only if a
+#                                                       # SHIPPED-tier binding FAILS
 #
-# Exit code: always 0 (status report, not a gate) UNLESS --strict is given, in
-# which case it exits 1 if any language is FAILS. SKIP (missing toolchain) and
-# WORKS never trip --strict.
+# Exit code: always 0 (status report, not a gate) UNLESS --strict or
+# --gate-shipped is given:
+#   --strict        exits 1 if ANY language is FAILS.
+#   --gate-shipped  exits 1 only if a SHIPPED-tier binding (the 11 we officially
+#                   ship) is FAILS — this is the CI gate.
+# SKIP (missing toolchain, or a binding that can't run on this OS) and WORKS
+# never trip either, so --gate-shipped is per-OS aware by construction.
 #
 # Per-language combined output (build + run) is captured to
 #   $TMPDIR/azul-e2e-matrix.XXXX/<lang>.log
@@ -88,10 +94,40 @@ ALL_LANGS=(
 )
 
 # -----------------------------------------------------------------------------
+# Maturity tiers.
+#
+#   SHIPPED  the 11 bindings we officially ship — a good hello-world and proper
+#            integration (string/vec/option/error wrappers, host-invoker, etc.).
+#            Matches api.json `installation.tabOrder`. These GATE CI.
+#   BETA     a real counter E2E that works on most platforms, but not part of
+#            the official shipped set yet.
+#   ALPHA    everything else: smoke-only, single-platform, or no counter example.
+#
+# The board prints each language's tier, and `--gate-shipped` fails only when a
+# SHIPPED binding FAILS. Because every recipe reports an absent toolchain (or a
+# binding that can't run on this OS — ocaml on Windows, python which has no
+# counter example) as SKIP, and SKIP never gates, the gate is per-OS aware
+# without an explicit per-(lang,OS) table.
+# -----------------------------------------------------------------------------
+SHIPPED_LANGS=(
+  python c cpp rust csharp java kotlin lua ruby node ocaml
+)
+BETA_LANGS=( go zig )
+
+# tier_of <lang> -> "shipped" | "beta" | "alpha"
+tier_of() {
+  local l="$1" s
+  for s in "${SHIPPED_LANGS[@]}"; do [ "$l" = "$s" ] && { echo shipped; return; }; done
+  for s in "${BETA_LANGS[@]}";    do [ "$l" = "$s" ] && { echo beta;    return; }; done
+  echo alpha
+}
+
+# -----------------------------------------------------------------------------
 # Arg parsing: optional --strict flag (anywhere) + optional subset list.
 # Subset may be space- or comma-separated, one arg or many.
 # -----------------------------------------------------------------------------
 STRICT=0
+GATE_SHIPPED=0    # CI gate: exit nonzero only if a SHIPPED-tier binding FAILS.
 SINGLE=0          # internal: run exactly the named langs in-process, write
                   # per-lang .status sidecars, skip the board (used by the
                   # parallel/timeout-bounded driver which re-execs `$0 --single`).
@@ -99,6 +135,7 @@ SUBSET_RAW=""
 for arg in "$@"; do
   case "$arg" in
     --strict) STRICT=1 ;;
+    --gate-shipped) GATE_SHIPPED=1 ;;
     --single) SINGLE=1 ;;
     -h|--help)
       sed -n '2,70p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -1111,13 +1148,14 @@ ICON_SKIP="⊘ SKIP"
 n_works=0; n_fails=0; n_skip=0
 
 emit_table() {
-  echo "| language | status | note |"
-  echo "|----------|--------|------|"
+  echo "| language | tier | status | note |"
+  echo "|----------|------|--------|------|"
   local i
   for i in "${!RESULT_LANGS[@]}"; do
     local lang="${RESULT_LANGS[$i]}"
     local st="${RESULT_STATUS[$i]}"
     local note="${RESULT_NOTE[$i]}"
+    local tier; tier="$(tier_of "$lang")"
     local icon
     case "$st" in
       WORKS) icon="$ICON_WORKS" ;;
@@ -1127,19 +1165,28 @@ emit_table() {
     esac
     # Escape pipe chars in notes so they don't break the markdown table.
     note="${note//|/\\|}"
-    printf '| %s | %s | %s |\n' "$lang" "$icon" "$note"
+    printf '| %s | %s | %s | %s |\n' "$lang" "$tier" "$icon" "$note"
   done
 }
 
-# Tally (count once, not per-output-stream).
+# Tally (count once, not per-output-stream). Also count SHIPPED-tier failures
+# separately: that's the set --gate-shipped acts on. BETA/ALPHA never gate, and
+# SKIP/WORKS never gate, so a shipped binding absent or unrunnable on this OS is
+# reported SKIP and is NOT counted here.
+shipped_fails=0
+shipped_failed_list=""
 for i in "${!RESULT_STATUS[@]}"; do
   case "${RESULT_STATUS[$i]}" in
     WORKS) n_works=$((n_works+1)) ;;
     FAILS) n_fails=$((n_fails+1)) ;;
     SKIP)  n_skip=$((n_skip+1))  ;;
   esac
+  if [ "${RESULT_STATUS[$i]}" = "FAILS" ] && [ "$(tier_of "${RESULT_LANGS[$i]}")" = "shipped" ]; then
+    shipped_fails=$((shipped_fails+1))
+    shipped_failed_list="$shipped_failed_list ${RESULT_LANGS[$i]}"
+  fi
 done
-TALLY="Tally: ${n_works} ✓ WORKS / ${n_fails} ✗ FAILS / ${n_skip} ⊘ SKIP  (of ${#RESULT_LANGS[@]} languages)"
+TALLY="Tally: ${n_works} ✓ WORKS / ${n_fails} ✗ FAILS / ${n_skip} ⊘ SKIP  (of ${#RESULT_LANGS[@]} languages); SHIPPED failures: ${shipped_fails}"
 
 # --- stdout ---
 echo ""
@@ -1168,9 +1215,19 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
 fi
 
 # =============================================================================
-# EXIT CODE: always 0, unless --strict and at least one FAILS.
-# (SKIP never trips strict — missing toolchains are not failures.)
+# EXIT CODE.
+#   default         always 0 (status report, not a gate).
+#   --gate-shipped  exit 1 if a SHIPPED-tier binding FAILS (the CI gate). SKIP
+#                   never trips it, so a shipped binding whose toolchain is absent
+#                   or that can't run on this OS is not a failure (per-OS aware).
+#   --strict        exit 1 if ANY language FAILS (the broad, all-tiers gate).
+# SKIP never trips either — missing toolchains are not failures.
 # =============================================================================
+if [ "$GATE_SHIPPED" = 1 ] && [ "$shipped_fails" -gt 0 ]; then
+  echo "" >&2
+  echo "--gate-shipped: ${shipped_fails} SHIPPED binding(s) FAILED ->${shipped_failed_list} -> exiting nonzero." >&2
+  exit 1
+fi
 if [ "$STRICT" = 1 ] && [ "$n_fails" -gt 0 ]; then
   echo "" >&2
   echo "--strict: ${n_fails} language(s) FAILED -> exiting nonzero." >&2
