@@ -24,7 +24,6 @@ exclude = [
     "tests",
     "experiments",
     "third_party",
-    "forks/libudev-sys",
 ]
 
 [workspace.dependencies]
@@ -35,8 +34,12 @@ gleam = "0.15.1"
 # Fork of libudev-sys that dlopen's libudev at runtime (libloading) instead of
 # link-binding it at build time, so gilrs (-> gilrs-core -> libudev-sys)
 # cross-compiles to hosts without libudev (e.g. `--target x86_64-unknown-linux-gnu`
-# from macOS). gilrs itself is unmodified. See forks/libudev-sys/src/lib.rs.
-libudev-sys = { path = "forks/libudev-sys" }
+# from macOS). gilrs itself is unmodified. The git repo's manifest keeps the
+# upstream name `libudev-sys` so this [patch] substitutes the transitive dep
+# (cargo matches a patch by crate name); the same tree is published to crates.io
+# as the `libudev-azul` package (https://crates.io/crates/libudev-azul) for
+# discoverability. tag 0.1.4 pins the exact tree.
+libudev-sys = { git = "https://github.com/fschutt/libudev-azul", tag = "0.1.4" }
 # Single azul-layout in the dll: point printpdf's azul-* at OUR local workspace
 # crates, and pull printpdf from its GitHub branch (whose font.rs targets our
 # current `ParsedFont` API: get_or_decode_glyph + original_bytes: Option<Arc<FontBytes>>).

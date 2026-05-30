@@ -4197,6 +4197,7 @@ dependencies = [
 [[package]]
 name = "libudev-sys"
 version = "0.1.4"
+source = "git+https://github.com/fschutt/libudev-azul?tag=0.1.4#46d08336a248760228ce94ff3f2517824a7dbd8e"
 dependencies = [
  "libc",
  "libloading",
