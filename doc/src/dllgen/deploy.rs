@@ -1685,9 +1685,9 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                   <p style='color:grey;font-family:monospace;'># grab one binding file directly (no examples.zip needed):</p>
                   <p style='color:black;font-family:monospace;'>curl -O https://azul.rs/release/{version}/Azul.hs</p>
                   <p style='color:grey;font-family:monospace;'># Python: install from the azul.rs index instead of PyPI:</p>
-                  <p style='color:black;font-family:monospace;'>pip install azul --index-url https://azul.rs/pypi/</p>
+                  <p style='color:black;font-family:monospace;'>pip install azul --index-url https://azul.rs/pypi/simple/</p>
                   <p style='color:grey;font-family:monospace;'># Java / Maven: add azul.rs as a repository, or grab the jar directly:</p>
-                  <p style='color:black;font-family:monospace;'>curl -O https://azul.rs/release/{version}/azul.jar</p>
+                  <p style='color:black;font-family:monospace;'>curl -O https://azul.rs/maven/rs/azul/azul/{version}/azul-{version}.jar</p>
               </div>
 
               <br/>
