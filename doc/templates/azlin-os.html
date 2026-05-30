@@ -15,7 +15,7 @@
     <nav class="navbar" role="navigation" aria-label="Main navigation">
         <div class="container">
             <a href="/" class="nav-brand-link" aria-label="Go to Azlin homepage">
-                <div class="nav-brand">Azlin</div>
+                <img src="/logo.svg" alt="Azlin" class="nav-brand-logo">
             </a>
             <div class="nav-right">
                 <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" onclick="document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',document.body.classList.contains('nav-open'));"><span></span><span></span><span></span></button>
@@ -28,6 +28,11 @@
         </div>
     </nav>
     <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
+    <aside class="mobile-menu" aria-label="Mobile navigation">
+        <a href="/ws.html">Workspace</a>
+        <a href="/ui/">Azlin UI toolkit</a>
+        <a href="/os.html">OS</a>
+    </aside>
 
     <main id="main-content" role="main">
     <section class="hero has-gradient" style="background: linear-gradient(135deg, #000428 0%, #004e92 50%, #0084ff 100%);" aria-labelledby="hero-heading">
@@ -49,6 +54,6 @@
             <p>© 2026 Azlin · Built on the open-source <a href="/ui/">Azul</a> engine · <a href="https://github.com/fschutt/azul" target="_blank" rel="noopener noreferrer">GitHub</a></p>
         </div>
     </footer>
-    <script>document.querySelectorAll('.nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>
+    <script>document.querySelectorAll('.mobile-menu a, .nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>
 </body>
 </html>

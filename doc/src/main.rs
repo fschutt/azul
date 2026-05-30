@@ -1581,6 +1581,11 @@ fn main() -> anyhow::Result<()> {
                 templates_dir.join("azlin.css"),
                 root_dir.join("azlin.css"),
             )?;
+            // Brand logo for the marketing nav (same asset the /ui docs use).
+            fs::copy(
+                templates_dir.join("logo.svg"),
+                root_dir.join("logo.svg"),
+            )?;
             fs::copy(
                 templates_dir.join("azlin-ws.html"),
                 root_dir.join("ws.html"),

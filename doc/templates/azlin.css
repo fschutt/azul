@@ -1573,7 +1573,6 @@ footer {
     border-color: var(--color-gold-dark);
     color: var(--color-navy);
 }
-/* Hero badge + product pills */
 .hero-badge {
     display: inline-block;
     margin-bottom: 16px;
@@ -1599,16 +1598,21 @@ footer {
 }
 .pill-live { background: var(--color-gold); color: var(--color-navy); }
 .pill-soon { background: rgba(0, 4, 40, 0.08); color: #004e92; }
-/* Products section shares feature-section spacing. */
 .products-section { padding: 40px 0 80px; }
 .products-section h2 { text-align: center; margin-bottom: 32px; }
-/* Centered lede under a section heading. */
 .section-intro {
     text-align: center;
     max-width: 640px;
     margin: -12px auto 32px;
     color: var(--color-text-light);
     font-size: 1.05rem;
+}
+
+/* Brand logo in the nav (image, smaller than the docs header logo). */
+.nav-brand-logo {
+    height: 30px;
+    width: auto;
+    display: block;
 }
 
 /* ===== Responsive section headings (the erp h2 is a fixed 42px Playfair,
@@ -1623,13 +1627,27 @@ h2 { line-height: 1.12; }
 }
 
 /* ===== Mobile flyout navigation =====
-   Desktop: the hamburger is hidden and .nav-links is the normal inline row.
-   Mobile (<=768px): hide the inline links, show the hamburger, and slide the
-   links in from the right as an overlay panel with a dimmed backdrop. Higher
-   specificity (.navbar ...) so these beat the base erp mobile rules. */
+   IMPORTANT: the drawer + overlay are BODY-LEVEL siblings of <nav>, never
+   descendants of .navbar. .navbar has transform + backdrop-filter, each of
+   which establishes a containing block for position:fixed, which would trap a
+   nested drawer inside the bar (that was the old bug). Keeping them at body
+   level means `position: fixed` anchors to the viewport. */
 .nav-toggle { display: none; }
-.nav-overlay { display: none; }
-@media (max-width: 768px) {
+.mobile-menu { display: none; }
+.nav-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 4, 40, 0.66);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    z-index: 1400;
+}
+body.nav-open .nav-overlay { opacity: 1; pointer-events: auto; }
+
+@media (max-width: 900px) {
+    /* hide the inline desktop links, show the hamburger */
+    .navbar .nav-links { display: none; }
     .navbar .nav-toggle {
         display: inline-flex;
         flex-direction: column;
@@ -1641,7 +1659,7 @@ h2 { line-height: 1.12; }
         background: transparent;
         border: 0;
         cursor: pointer;
-        z-index: 1002;
+        z-index: 1501;
     }
     .navbar .nav-toggle span {
         display: block;
@@ -1655,36 +1673,36 @@ h2 { line-height: 1.12; }
     body.nav-open .nav-toggle span:nth-child(2) { opacity: 0; }
     body.nav-open .nav-toggle span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
 
-    .navbar .nav-right { gap: 0; }
-    .navbar .nav-links {
+    /* the drawer itself: a full-height panel that starts fully offscreen */
+    .mobile-menu {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
         position: fixed;
         top: 0;
         right: 0;
         bottom: 0;
-        width: min(80vw, 320px);
-        flex-direction: column;
-        align-items: stretch;
-        gap: 4px;
+        width: min(82vw, 320px);
         background: var(--color-bg);
-        padding: 88px 20px 28px;
-        box-shadow: -8px 0 40px rgba(0, 4, 40, 0.18);
+        padding: 88px 20px calc(28px + env(safe-area-inset-bottom));
+        box-shadow: -8px 0 48px rgba(0, 4, 40, 0.35);
         transform: translateX(100%);
-        transition: transform 0.28s ease;
-        z-index: 1001;
+        transition: transform 0.3s ease;
+        z-index: 1500;
         overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
     }
-    body.nav-open .navbar .nav-links { transform: translateX(0); }
-    .navbar .nav-links a { font-size: 18px; padding: 14px 16px; }
+    body.nav-open .mobile-menu { transform: translateX(0); }
+    .mobile-menu a {
+        color: var(--color-text);
+        text-decoration: none;
+        font-size: 18px;
+        font-weight: 600;
+        padding: 14px 16px;
+        border-radius: 8px;
+    }
+    .mobile-menu a:hover,
+    .mobile-menu a:focus { background: rgba(0, 4, 40, 0.06); color: var(--color-accent); }
 
-    .nav-overlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 4, 40, 0.4);
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.28s ease;
-        z-index: 1000;
-    }
-    body.nav-open .nav-overlay { display: block; opacity: 1; pointer-events: auto; }
     body.nav-open { overflow: hidden; }
 }
