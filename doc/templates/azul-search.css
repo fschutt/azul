@@ -30,6 +30,21 @@
   line-height: 1.4;
 }
 
+/* Dark mode: re-theme the search surface so the inline bar + results panel
+   stay legible on a dark page. Tokens live on .azul-search (not :root). */
+@media (prefers-color-scheme: dark) {
+  .azul-search {
+    --azs-bg: #15181f;
+    --azs-fg: #e6e6e6;
+    --azs-muted: #9aa3ad;
+    --azs-accent: #4a9eff;
+    --azs-accent-soft: rgba(74, 158, 255, 0.15);
+    --azs-border: #3d4250;
+    --azs-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+    --azs-mark: #5a4a00;
+  }
+}
+
 .azul-search * { box-sizing: border-box; }
 
 /* ---- inline mode ---------------------------------------------------- */
@@ -56,9 +71,11 @@
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--azs-bg);
   border: 1px solid var(--azs-border);
   border-radius: 6px;
+  /* No box-shadow on the bar itself. */
+  box-shadow: none;
 }
 
 .azul-search.azs-inline .azs-input {
@@ -74,14 +91,16 @@
   padding: 2px 0;
 }
 
+/* Magnifier icon removed per design. */
 .azs-inline-icon {
-  color: var(--azs-accent);
-  font-size: 14px;
-  line-height: 1;
+  display: none;
 }
 
 .azul-search.azs-inline .azs-toggle-key {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  /* The "/" hint sits on the LEFT of the bar (order:-1 pulls it before the
+     input in the flex row). */
+  order: -1;
+  font-family: "Red Hat Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   font-size: 10px;
   padding: 1px 5px;
   background: var(--azs-accent-soft);
