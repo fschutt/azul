@@ -20,7 +20,7 @@
   --azs-muted: #555;
   --azs-accent: #004e92;
   --azs-accent-soft: #e8f0fa;
-  --azs-border: #c8d4e3;
+  --azs-border: #3f5168;
   --azs-shadow: 0 8px 30px rgba(0, 4, 40, 0.25);
   --azs-mark: #fff5a8;
 
@@ -39,7 +39,7 @@
     --azs-muted: #9aa3ad;
     --azs-accent: #4a9eff;
     --azs-accent-soft: rgba(74, 158, 255, 0.15);
-    --azs-border: #3d4250;
+    --azs-border: #6b7a90;
     --azs-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
     --azs-mark: #5a4a00;
   }
@@ -374,7 +374,7 @@
     --azs-muted: #9aa0a8;
     --azs-accent: #79b8ff;
     --azs-accent-soft: #1f2a3d;
-    --azs-border: #3d4250;
+    --azs-border: #6b7a90;
     --azs-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
     --azs-mark: #6e5c1c;
   }
@@ -399,3 +399,12 @@
     background: #1b1e25;
   }
 }
+
+/* ===== Round 4: square, high-contrast, bold search bar ===== */
+.azs-inline-row { border-radius: 0; border-width: 2px; }
+.azs-panel-inline { border-radius: 0; border-width: 2px; }
+.azs-input-row { border-radius: 0; }
+.azul-search.azs-inline .azs-input,
+.azs-input { font-weight: 700; }
+.azul-search.azs-inline .azs-input::placeholder,
+.azs-input::placeholder { font-weight: 700; opacity: 1; color: var(--azs-fg); }

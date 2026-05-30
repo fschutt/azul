@@ -1008,3 +1008,33 @@ main > header h3 {
     box-shadow: 0px 0px 20px #facb2633 !important;
   }
 }
+
+/* ===== Round 4 overrides ===== */
+/* R4-2: big eye-catcher headings use Imbue (bold), not Playfair. The #guide
+   selector wins over each guide page's inline `h1 { font-family: Playfair }`
+   by specificity, so guide titles switch too without touching guide.rs. */
+main h1, h1, #guide h1, main > header h1 {
+    font-family: "Imbue", Georgia, "Times New Roman", serif;
+    font-weight: 800;
+    font-optical-sizing: auto;
+}
+.feature-image h2.feature-title {
+    font-family: "Imbue", Georgia, "Times New Roman", serif;
+    font-weight: 800;
+    text-shadow: none;
+}
+/* R4-3: default Imbue (subtitles / section headings) a little bolder. */
+main h2, h2, h4, h5, h6, #guide h2 { font-weight: 500; }
+
+/* ===== Round 4: R4-5 release box ===== */
+/* Two columns via flexbox: links left, version right, search full width below. */
+#latestrelease {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px 16px;
+}
+#latestrelease .release-links { order: 1; }
+#latestrelease .release-version { order: 2; text-align: right; margin-bottom: 0; }
+#latestrelease #azul-search-mount { order: 3; flex-basis: 100%; }

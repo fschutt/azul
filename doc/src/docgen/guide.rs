@@ -346,15 +346,33 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         h3 { margin-top: 22px; margin-bottom: 10px; font-size: 1.3em; }
         h4 { margin-top: 18px; margin-bottom: 8px; font-size: 1.1em; }
         #guide { max-width: 700px; line-height: 1.7; font-size: 1.1em; }
-        /* D1: search lives in a column beside the article. flex-wrap means it
-           can never overflow — it sits next to the guide when there's room and
-           drops below it when the viewport is too narrow. */
-        .guide-layout { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 36px; }
-        .guide-layout > #guide { flex: 1 1 600px; }
-        .guide-search-col { flex: 0 1 300px; position: sticky; top: 20px; }
+        /* D1/R4-6: the search sits in a column beside the article when there
+           is room. When the viewport is too narrow for both, it does NOT push
+           the layout (and never displaces the h1) — instead it OVERLAYS the
+           text mobile-style: pinned to the bottom of the viewport, with a
+           gradient above it so the text appears to fade out underneath, and
+           extra bottom padding so the last lines never hide under the bar. */
+        .guide-layout { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 36px; }
+        .guide-layout > #guide { flex: 1 1 auto; min-width: 0; padding-bottom: 80px; }
+        .guide-search-col { flex: 0 0 300px; position: sticky; top: 20px; align-self: flex-start; }
         .guide-search-col .page-search { max-width: 100%; }
         @media (max-width: 1100px) {
-            .guide-search-col { position: static; flex-basis: 100%; max-width: 700px; }
+            .guide-layout { display: block; }
+            .guide-layout > #guide { padding-bottom: 160px; }
+            .guide-search-col {
+                position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 9000;
+                padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+                pointer-events: none;
+            }
+            .guide-search-col .page-search { max-width: 760px; margin: 0 auto; pointer-events: auto; }
+            /* fade-out: text dissolves into the page background above the bar */
+            .guide-search-col::before {
+                content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 72px;
+                pointer-events: none;
+                background: linear-gradient(to bottom, rgba(0, 4, 40, 0), #000428);
+            }
+            /* bar lives at the bottom -> results open UPWARD */
+            .guide-search-col .azs-panel-inline { top: auto; bottom: calc(100% + 6px); }
         }
         #guide p { margin-bottom: 1em; }
         #guide img { max-width: 700px; margin-top: 15px; margin-bottom: 15px;}
