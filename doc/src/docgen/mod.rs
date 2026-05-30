@@ -834,6 +834,11 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
 pub enum PageKind<'a> {
     Api,
     Guide(&'a [String]),
+    /// Individual guide page. Uses the API search index (not pagefind) so the
+    /// page's frontmatter `default_search_keys` resolve to real API entries,
+    /// which the JS auto-expands on load as direct links to the API docs for
+    /// the items mentioned on that page.
+    GuidePage(&'a [String]),
     Other,
 }
 
@@ -855,6 +860,16 @@ pub fn get_search_init(kind: PageKind<'_>) -> String {
             serde_json::to_string(defaults).unwrap_or_else(|_| "[]".to_string()),
             r#"{ type: 'pagefind', url: '/pagefind/' }"#.to_string(),
             "Search guide",
+        ),
+        // Individual guide page: search the API index and open new tabs so a
+        // click doesn't yank the reader off the tutorial. The frontmatter keys
+        // ride in as `defaults`; the JS auto-expands them into API-doc links.
+        PageKind::GuidePage(defaults) => (
+            false,
+            "_blank",
+            serde_json::to_string(defaults).unwrap_or_else(|_| "[]".to_string()),
+            r#"{ type: 'api-default' }"#.to_string(),
+            "Search API",
         ),
         PageKind::Other => (
             false,

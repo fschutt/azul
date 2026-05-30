@@ -259,7 +259,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
     let search_script = crate::docgen::get_search_init(
-        crate::docgen::PageKind::Guide(&guide.default_search_keys),
+        crate::docgen::PageKind::GuidePage(&guide.default_search_keys),
     );
 
     // Pre-process content: remove mermaid blocks and expand `azul-render`
@@ -346,6 +346,16 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         h3 { margin-top: 22px; margin-bottom: 10px; font-size: 1.3em; }
         h4 { margin-top: 18px; margin-bottom: 8px; font-size: 1.1em; }
         #guide { max-width: 700px; line-height: 1.7; font-size: 1.1em; }
+        /* D1: search lives in a column beside the article. flex-wrap means it
+           can never overflow — it sits next to the guide when there's room and
+           drops below it when the viewport is too narrow. */
+        .guide-layout { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 36px; }
+        .guide-layout > #guide { flex: 1 1 600px; }
+        .guide-search-col { flex: 0 1 300px; position: sticky; top: 20px; }
+        .guide-search-col .page-search { max-width: 100%; }
+        @media (max-width: 1100px) {
+            .guide-search-col { position: static; flex-basis: 100%; max-width: 700px; }
+        }
         #guide p { margin-bottom: 1em; }
         #guide img { max-width: 700px; margin-top: 15px; margin-bottom: 15px;}
         #guide ul, #guide ol {
@@ -576,16 +586,20 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         </aside>
 
         <main>
-            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
+            <div class='guide-layout'>
             <div id='guide'>
             <style>
                 {css}
             </style>
             {content}
-            </div>
             <p style='font-size:1.2em;margin-top:20px;'>
             <a href='{HTML_ROOT}/guide'>Back to guide index</a>
             </p>
+            </div>
+            <aside class='guide-search-col'>
+            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
+            </aside>
+            </div>
         </main>
 
         </div>
