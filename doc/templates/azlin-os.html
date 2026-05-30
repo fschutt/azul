@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Azlin OS — a cohesive desktop where every app shares one fast rendering engine. Coming soon.">
-    <title>Azlin OS — coming soon</title>
+    <meta name="description" content="Azlin OS - a cohesive desktop where every app shares one fast rendering engine. Coming soon.">
+    <title>Azlin OS - coming soon</title>
     <link rel="stylesheet" href="/azlin.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,17 +18,16 @@
                 <div class="nav-brand">Azlin</div>
             </a>
             <div class="nav-right">
+                <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" onclick="document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',document.body.classList.contains('nav-open'));"><span></span><span></span><span></span></button>
                 <div class="nav-links" role="menu">
-                    <a href="/#office" role="menuitem">Office</a>
                     <a href="/ws.html" role="menuitem">Workspace</a>
-                    <a href="/ui/" role="menuitem">UI Toolkit</a>
+                    <a href="/ui/" role="menuitem">Azlin UI toolkit</a>
                     <a href="/os.html" class="active" role="menuitem">OS</a>
-                    <a href="/#faq" role="menuitem">FAQ</a>
-                    <a href="https://github.com/fschutt/azul" target="_blank" rel="noopener noreferrer" role="menuitem">Code</a>
                 </div>
             </div>
         </div>
     </nav>
+    <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
 
     <main id="main-content" role="main">
     <section class="hero has-gradient" style="background: linear-gradient(135deg, #000428 0%, #004e92 50%, #0084ff 100%);" aria-labelledby="hero-heading">
@@ -36,7 +35,7 @@
             <div class="hero-content">
                 <span class="hero-badge">Coming soon</span>
                 <h1 id="hero-heading" tabindex="0">Azlin OS</h1>
-                <p class="hero-subtitle" tabindex="0">A cohesive desktop where every application shares one fast rendering engine — so the whole system feels consistent, light and instant. It's the long-term vision of the project. Not yet available.</p>
+                <p class="hero-subtitle" tabindex="0">A cohesive desktop where every application shares one fast rendering engine - so the whole system feels consistent, light and instant. It's the long-term vision of the project. Not yet available.</p>
                 <div class="cta-buttons">
                     <a href="/ui/" class="btn btn-secondary btn-hero-secondary">Explore the UI toolkit →</a>
                 </div>
@@ -50,5 +49,6 @@
             <p>© 2026 Azlin · Built on the open-source <a href="/ui/">Azul</a> engine · <a href="https://github.com/fschutt/azul" target="_blank" rel="noopener noreferrer">GitHub</a></p>
         </div>
     </footer>
+    <script>document.querySelectorAll('.nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>
 </body>
 </html>

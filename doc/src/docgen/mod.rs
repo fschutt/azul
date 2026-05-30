@@ -10,7 +10,21 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::api::{ApiData, Language, LoadedExample};
 
+// Site path configuration. To rename azul.rs -> azlin.io, or relocate the docs
+// under a different sub-path, change SITE_ROOT / UI_PATH here: every asset URL,
+// sidebar link, search source and font path derives from them, so a move never
+// silently breaks the CSS/asset links again. (HTML_ROOT is kept as the
+// fully-qualified docs root; the test below guards it against drift.)
+pub const SITE_ROOT: &str = "https://azul.rs";
+/// Sub-path the docs/UI site is served under. The marketing landing lives at the
+/// domain root; the whole generated docs site lives under SITE_ROOT + UI_PATH.
+pub const UI_PATH: &str = "/ui";
 const HTML_ROOT: &str = "https://azul.rs/ui";
+
+#[test]
+fn html_root_matches_site_and_ui() {
+    assert_eq!(HTML_ROOT, format!("{SITE_ROOT}{UI_PATH}"));
+}
 
 /// Generate all documentation files
 ///
@@ -784,10 +798,13 @@ document.addEventListener('DOMContentLoaded', function () {
 pub fn get_common_head_tags(inline_css: bool) -> String {
     // Base URL - use absolute paths for both production and development
     // This ensures subpages like /blog/foo.html correctly reference /fonts, /main.css etc.
-    let base_url = if inline_css {
-        "https://azul.rs"
+    // The whole docs site lives under /ui, so static assets resolve there too.
+    // Prod uses the fully-qualified HTML_ROOT (= https://azul.rs/ui); debug uses
+    // the root-relative /ui prefix (works against the local http.server).
+    let base_url: &str = if inline_css {
+        HTML_ROOT
     } else {
-        "" // Root-relative paths like /fonts/..., /main.css
+        UI_PATH // Root-relative paths like /ui/fonts/..., /ui/main.css
     };
 
     let css_tag = if inline_css {
@@ -796,7 +813,7 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
         format!("<style>\n{}\n</style>", css_content)
     } else {
         // Link to local stylesheet for development (main.css is copied to deploy folder)
-        "<link rel='stylesheet' type='text/css' href='/main.css'>".to_string()
+        format!("<link rel='stylesheet' type='text/css' href='{UI_PATH}/main.css'>")
     };
 
     format!("
@@ -858,7 +875,7 @@ pub fn get_search_init(kind: PageKind<'_>) -> String {
             false,
             "_blank",
             serde_json::to_string(defaults).unwrap_or_else(|_| "[]".to_string()),
-            r#"{ type: 'pagefind', url: '/pagefind/' }"#.to_string(),
+            format!("{{ type: 'pagefind', url: '{UI_PATH}/pagefind/' }}"),
             "Search guide",
         ),
         // Individual guide page: search the API index and open new tabs so a
@@ -881,7 +898,7 @@ pub fn get_search_init(kind: PageKind<'_>) -> String {
     };
 
     format!(
-        r#"<script src="/azul-search.js" defer></script>
+        r#"<script src="{UI_PATH}/azul-search.js" defer></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {{
   if (!window.AzulSearch) return;

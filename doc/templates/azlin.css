@@ -1610,3 +1610,81 @@ footer {
     color: var(--color-text-light);
     font-size: 1.05rem;
 }
+
+/* ===== Responsive section headings (the erp h2 is a fixed 42px Playfair,
+   which overflows + has a cramped line-height on phones). ===== */
+h2 { line-height: 1.12; }
+@media (max-width: 768px) {
+    h2 { font-size: 30px; line-height: 1.15; }
+    .section-intro { font-size: 1rem; }
+}
+@media (max-width: 600px) {
+    h2 { font-size: 25px; }
+}
+
+/* ===== Mobile flyout navigation =====
+   Desktop: the hamburger is hidden and .nav-links is the normal inline row.
+   Mobile (<=768px): hide the inline links, show the hamburger, and slide the
+   links in from the right as an overlay panel with a dimmed backdrop. Higher
+   specificity (.navbar ...) so these beat the base erp mobile rules. */
+.nav-toggle { display: none; }
+.nav-overlay { display: none; }
+@media (max-width: 768px) {
+    .navbar .nav-toggle {
+        display: inline-flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 5px;
+        width: 44px;
+        height: 44px;
+        padding: 11px;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        z-index: 1002;
+    }
+    .navbar .nav-toggle span {
+        display: block;
+        height: 2px;
+        width: 100%;
+        background: var(--color-text);
+        border-radius: 2px;
+        transition: transform 0.25s ease, opacity 0.2s ease;
+    }
+    body.nav-open .nav-toggle span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+    body.nav-open .nav-toggle span:nth-child(2) { opacity: 0; }
+    body.nav-open .nav-toggle span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+    .navbar .nav-right { gap: 0; }
+    .navbar .nav-links {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: min(80vw, 320px);
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        background: var(--color-bg);
+        padding: 88px 20px 28px;
+        box-shadow: -8px 0 40px rgba(0, 4, 40, 0.18);
+        transform: translateX(100%);
+        transition: transform 0.28s ease;
+        z-index: 1001;
+        overflow-y: auto;
+    }
+    body.nav-open .navbar .nav-links { transform: translateX(0); }
+    .navbar .nav-links a { font-size: 18px; padding: 14px 16px; }
+
+    .nav-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 4, 40, 0.4);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.28s ease;
+        z-index: 1000;
+    }
+    body.nav-open .nav-overlay { display: block; opacity: 1; pointer-events: auto; }
+    body.nav-open { overflow: hidden; }
+}
