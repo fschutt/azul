@@ -1467,12 +1467,12 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         ("azul-video-app", "AzVideo", "a video playback widget demo"),
         (
             "azul-meet",
-            "azul-meet",
+            "AzMeet",
             "a tiny video-call demo (UDP + audio sink + microphone)",
         ),
         (
             "azul-self-test",
-            "azul-self-test",
+            "AzSelfTest",
             "unattended camera/mic/UDP/sensors/gamepad smoke test (logs to a file and exits)",
         ),
     ];
@@ -1537,8 +1537,8 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
             let url = asset_url(version, &format!("{crate_name}.Dockerfile"));
             format!(
                 "<li><strong>{friendly}</strong>\n                      \
-                 <pre style='margin:4px 0 10px;padding:10px;background:rgb(236, 236, 236);font-size:13px;overflow-x:auto;'>\
-                 <code>docker build {url} -t {crate_name}\ndocker run -p 8080:8080 {crate_name}</code></pre></li>",
+                 <pre class='codeblock'>\
+                 <code class='language-bash'>docker build {url} -t {crate_name}\ndocker run -p 8080:8080 {crate_name}</code></pre></li>",
                 friendly = friendly,
                 url = url,
                 crate_name = crate_name
@@ -1585,6 +1585,17 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
             #releasenotes ul {{ list-style-type: initial; }} 
             #releasenotes ul li {{ margin-bottom: 2px; }} 
             #releasenotes p {{ margin-bottom: 10px; margin-top: 10px; }}
+            pre.codeblock {{ background: #15181f; color: #e6e6e6; padding: 12px 14px; border-radius: 6px; font-size: 12.5px; line-height: 1.5; overflow-x: auto; margin: 8px 0 14px; max-width: 700px; }}
+            pre.codeblock code {{ font-family: 'Red Hat Mono', ui-monospace, SFMono-Regular, Menlo, monospace; background: none; color: inherit; font-size: inherit; text-shadow: none; white-space: pre; }}
+            pre.codeblock .token.comment {{ color: #6a9955; font-style: italic; }}
+            pre.codeblock .token.string, pre.codeblock .token.attr-value {{ color: #ce9178; }}
+            pre.codeblock .token.keyword, pre.codeblock .token.atrule {{ color: #c586c0; }}
+            pre.codeblock .token.function {{ color: #dcdcaa; }}
+            pre.codeblock .token.number, pre.codeblock .token.boolean {{ color: #b5cea8; }}
+            pre.codeblock .token.operator, pre.codeblock .token.punctuation {{ color: #d4d4d4; }}
+            pre.codeblock .token.property, pre.codeblock .token.constant {{ color: #9cdcfe; }}
+            #demo-list, #demo-list ul {{ margin-left: 0; padding-left: 0; }}
+            #demo-list ul {{ margin-top: 4px; margin-bottom: 8px; }}
           </style>
           <div style='font-size:18px;'>
               
@@ -1624,7 +1635,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
 
               <br/>
               <h2 id='debug-libraries'>Debug libraries</h2>
-              <p style='color:grey;font-size:15px;max-width:700px;'>The shipped libazul is lean and has no debug server. Swap in the matching azuldbg build to enable the AZ_DEBUG inspector port &mdash; see the <a href='https://azul.rs/guide/debugging'>Debugging guide</a>.</p>
+              <p style='color:grey;font-size:15px;max-width:700px;'>For debugging desktop applications, see the <a href='https://azul.rs/guide/debugging'>Debugging guide</a>.</p>
               <ul>
                 <li><a href='https://azul.rs/release/{version}/libazuldbg.so'>libazuldbg.so (Linux)</a></li>
                 <li><a href='https://azul.rs/release/{version}/libazuldbg.dylib'>libazuldbg.dylib (macOS)</a></li>
@@ -1633,10 +1644,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
 
               <br/>
               <strong>Mobile (iOS &amp; Android): drop-in libraries:</strong>
-              <p style='color:grey;font-size:15px;max-width:700px;'>Prebuilt libazul slices for iOS and Android.
-              Each one ships the static <code>libazul.a</code>, the shared library (<code>.so</code> / <code>.dylib</code>)
-              and the link stubs you need to build an Azul app in Rust &mdash; no Android Studio, no Xcode. See the
-              <a href='https://azul.rs/guide/mobile'>Mobile guide</a>.</p>
+              <p style='color:grey;font-size:15px;max-width:700px;'>For shipping on mobile, see the <a href='https://azul.rs/guide/mobile'>mobile deploy guide</a>.</p>
               <ul>
                 <li><a href='https://github.com/fschutt/azul/releases/download/{version}/libazul-android-arm64.a.tar.gz'>Android arm64-v8a</a></li>
                 <li><a href='https://github.com/fschutt/azul/releases/download/{version}/libazul-android-x64.a.tar.gz'>Android x86_64 (emulator)</a></li>
@@ -1659,17 +1667,14 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
 
               <br/>
               <strong>apt (Debian / Ubuntu)</strong>
-              <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;font-size:14px;'>
-                  <p style='color:grey;font-family:monospace;'># self-hosted mirror on azul.rs, no third-party PPA (active once the release is signed)</p>
-                  <p style='color:black;font-family:monospace;'>curl -fsSL https://azul.rs/apt/azul-archive-keyring.asc | sudo tee /usr/share/keyrings/azul-archive-keyring.asc &gt;/dev/null</p>
-                  <p style='color:black;font-family:monospace;'>echo \"deb [signed-by=/usr/share/keyrings/azul-archive-keyring.asc] https://azul.rs/apt stable main\" | sudo tee /etc/apt/sources.list.d/azul.list</p>
-                  <p style='color:black;font-family:monospace;'>sudo apt update &amp;&amp; sudo apt install azul</p>
-              </div>
+              <pre class='codeblock'><code class='language-bash'># self-hosted mirror on azul.rs, no third-party PPA (active once the release is signed)
+curl -fsSL https://azul.rs/apt/azul-archive-keyring.asc | sudo tee /usr/share/keyrings/azul-archive-keyring.asc &gt;/dev/null
+echo \"deb [signed-by=/usr/share/keyrings/azul-archive-keyring.asc] https://azul.rs/apt stable main\" | sudo tee /etc/apt/sources.list.d/azul.list
+sudo apt update &amp;&amp; sudo apt install azul</code></pre>
 
               <br/>
               <h2 id='demos'>Demos</h2>
-              <p style='color:grey;font-size:15px;max-width:700px;'>Standalone apps built with Azul: download a prebuilt binary and run it (no install needed), or run any of them as a web app with Docker (bottom of the list).</p>
-              <ul>
+              <ul id='demo-list'>
                 {demo_links}
               </ul>
               <p style='color:grey;font-size:15px;max-width:700px;'><strong>macOS note:</strong> if macOS complains it cannot verify the developer, run <code>sh unquarantine.sh &lt;binary-name&gt;</code> (<a href='https://azul.rs/release/{version}/unquarantine.sh'>unquarantine.sh</a>).</p>
@@ -1681,27 +1686,23 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                 {binding_links}
               </ul>
               <p style='color:grey;font-size:15px;max-width:700px;margin-top:10px;'>Want a single binding file without the whole examples archive, or to install without the official package registries? Everything is mirrored on azul.rs:</p>
-              <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 12px;font-size:14px;'>
-                  <p style='color:grey;font-family:monospace;'># grab one binding file directly (no examples.zip needed):</p>
-                  <p style='color:black;font-family:monospace;'>curl -O https://azul.rs/release/{version}/Azul.hs</p>
-                  <p style='color:grey;font-family:monospace;'># Python: install from the azul.rs index instead of PyPI:</p>
-                  <p style='color:black;font-family:monospace;'>pip install azul --index-url https://azul.rs/pypi/simple/</p>
-                  <p style='color:grey;font-family:monospace;'># Java / Maven: add azul.rs as a repository, or grab the jar directly:</p>
-                  <p style='color:black;font-family:monospace;'>curl -O https://azul.rs/maven/rs/azul/azul/{version}/azul-{version}.jar</p>
-              </div>
+              <pre class='codeblock'><code class='language-bash'># grab one binding file directly (no examples.zip needed):
+curl -O https://azul.rs/release/{version}/Azul.hs
+# Python: install from the azul.rs index instead of PyPI:
+pip install azul --index-url https://azul.rs/pypi/simple/
+# Java / Maven: add azul.rs as a repository, or grab the jar directly:
+curl -O https://azul.rs/maven/rs/azul/azul/{version}/azul-{version}.jar</code></pre>
 
               <br/>
               <strong>Use Azul as a Rust dependency:</strong>
               <br/>
-              <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;font-size:14px;'>
-                  <p style='color:grey;font-family:monospace;'># Cargo.toml</p>
-                  <p style='color:black;font-family:monospace;'>[dependencies.azul]</p>
-                  <p style='color:black;font-family:monospace;'>version = \"{version}\"</p>
-                  <br/>
-                  <p style='color:grey;font-family:monospace;'># Dynamic linking:</p>
-                  <p style='color:grey;font-family:monospace;'># export AZ_LINK_PATH=/path/to/azul.dll</p>
-                  <p style='color:grey;font-family:monospace;'># features = ['link-dynamic']</p>
-              </div>
+              <pre class='codeblock'><code class='language-toml'># Cargo.toml
+[dependencies.azul]
+version = \"{version}\"
+
+# Dynamic linking:
+# export AZ_LINK_PATH=/path/to/azul.dll
+# features = ['link-dynamic']</code></pre>
 
               <br/>
               <h2 id='docs-guide'>Docs &amp; guide</h2>
@@ -1725,14 +1726,8 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <strong>Deploy a web app (pre-lifted WASM base image: experimental preview):</strong>
               <br/>
               <a href='https://azul.rs/guide/deploying-web'>Guide: deploying azul web apps</a>
-              <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;font-size:14px;'>
-                  <p style='color:grey;'>A <code>ghcr.io/fschutt/azul</code> base image with a pre-lifted
-                  azul-library WASM cache: so your app only lifts its own callbacks, not the whole
-                  library (seconds instead of minutes): is published to the GitHub Container Registry
-                  (<strong>experimental preview</strong>; the web backend is not yet stable):</p>
-                  <p style='color:black;font-family:monospace;'>docker pull ghcr.io/fschutt/azul:{version}</p>
-                  <p style='color:grey;'>Build it yourself from the <code>Dockerfile</code> in the repo root. See the guide above.</p>
-              </div>
+              <pre class='codeblock'><code class='language-bash'># prebuilt web base image (experimental; the web backend is not yet stable)
+docker pull ghcr.io/fschutt/azul:{version}</code></pre>
 
               <br/>
               <h2 id='statistics'>Statistics</h2>
