@@ -243,6 +243,16 @@ build_rpm() {
   local r="$SITE/rpm"
   mkdir -p "$r"
   cp "$ART"/artifacts-rpm/*.rpm "$r/" 2>/dev/null || true
+  # A ready-to-use .repo for `dnf config-manager --add-repo .../azul.repo`.
+  # gpgcheck=0 until the repo is signed (mirrors the apt "unsigned until signed"
+  # state). yum + zypper read this same baseurl.
+  cat > "$r/azul.repo" <<REPO
+[azul]
+name=Azul GUI framework
+baseurl=$BASE/rpm
+enabled=1
+gpgcheck=0
+REPO
   if command -v createrepo_c >/dev/null 2>&1; then
     createrepo_c "$r" >/dev/null 2>&1 && echo "  [rpm] built repodata (createrepo_c)" \
       || echo "  [rpm] hosted .rpm only (createrepo_c failed)"

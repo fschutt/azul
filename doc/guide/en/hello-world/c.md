@@ -51,8 +51,14 @@ simply use your systems package manager to install `libazul`:
 choco install libazul --source https://azul.rs/nuget/index.json
 # linux - Debian / Ubuntu (apt repo: https://azul.rs/apt)
 apt install libazul
-# linux - Fedora / RHEL / openSUSE (dnf repo: https://azul.rs/rpm)
+# linux - Fedora / RHEL (dnf/yum repo: https://azul.rs/rpm)
 dnf install libazul
+# linux - openSUSE (run once: zypper ar https://azul.rs/rpm azul)
+zypper install libazul
+# linux - Arch / Manjaro (add [azul] Server=https://azul.rs/arch/$arch to pacman.conf)
+pacman -S libazul
+# linux - Alpine (add https://azul.rs/alpine/x86_64 to /etc/apk/repositories)
+apk add libazul
 # macos (run once: brew tap fschutt/azul https://azul.rs/homebrew-azul.git)
 brew install libazul
 ```
