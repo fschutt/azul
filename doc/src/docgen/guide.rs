@@ -354,8 +354,9 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
            extra bottom padding so the last lines never hide under the bar. */
         .guide-layout { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 36px; }
         .guide-layout > #guide { flex: 1 1 auto; min-width: 0; padding-bottom: 80px; }
-        .guide-search-col { flex: 0 0 300px; position: sticky; top: 20px; align-self: flex-start; }
-        .guide-search-col .page-search { max-width: 100%; }
+        .guide-search-col { flex: 1 1 300px; min-width: 300px; position: sticky; top: 20px; align-self: flex-start; padding: 0; display: flex; }
+        .guide-search-col .page-search { max-width: 100%; display: flex; flex-grow: 1; min-width: 100%; }
+        .guide-search-col .azul-search { flex: 1 1 auto; min-width: 0; width: 100%; }
         /* overlay bar/fade colour = the guide content background, so the text
            dissolves cleanly under the bar. White in light mode, dark in dark. */
         .guide-search-col { --fade-bg: #ffffff; }

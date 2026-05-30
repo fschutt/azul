@@ -1044,8 +1044,9 @@ main h2, h2, h4, h5, h6, #guide h2 { font-weight: 500; }
    .page-search column), so it is unaffected. */
 .guide-layout { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 36px; }
 .guide-layout > .guide-main, .guide-layout > #guide { flex: 1 1 auto; min-width: 0; }
-.guide-search-col { flex: 0 0 320px; position: sticky; top: 20px; align-self: flex-start; --fade-bg: #ffffff; }
-.guide-search-col .page-search { max-width: 100%; }
+.guide-search-col { flex: 1 1 320px; min-width: 320px; position: sticky; top: 20px; align-self: flex-start; --fade-bg: #ffffff; padding: 0; display: flex; }
+.guide-search-col .page-search { max-width: 100%; display: flex; flex-grow: 1; min-width: 100%; }
+.guide-search-col .azul-search { flex: 1 1 auto; min-width: 0; width: 100%; }
 @media (prefers-color-scheme: dark) { .guide-search-col { --fade-bg: #15181f; } }
 @media (max-width: 1100px) {
     .guide-layout { display: block; }
