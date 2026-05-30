@@ -1558,10 +1558,10 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               right slice into your <code>.apk</code>/<code>.app</code> (a C <code>hello-world</code>
               works too). See <a href='https://azul.rs/guide/mobile'>guide: Mobile</a>.</p>
               <ul>
-                <li><a href='https://azul.rs/release/{version}/mobile/android-arm64/'>Android arm64-v8a</a>: <code>libazul.a</code> / <code>libazul.so</code> + stubs</li>
-                <li><a href='https://azul.rs/release/{version}/mobile/android-x64/'>Android x86_64 (emulator)</a>: <code>libazul.a</code> / <code>libazul.so</code> + stubs</li>
-                <li><a href='https://azul.rs/release/{version}/mobile/ios-arm64/'>iOS arm64 (device)</a>: <code>libazul.a</code> / <code>libazul.dylib</code> + .tbd stubs</li>
-                <li><a href='https://azul.rs/release/{version}/mobile/ios-sim-arm64/'>iOS arm64 (simulator)</a>: <code>libazul.a</code> / <code>libazul.dylib</code> + .tbd stubs</li>
+                <li><a href='https://azul.rs/release/{version}/mobile/android-arm64/'>Android arm64-v8a</a>: <a href='https://github.com/fschutt/azul/releases/download/{version}/libazul-android-arm64.a.tar.gz'><code>libazul.a</code></a> / <code>libazul.so</code> + stubs</li>
+                <li><a href='https://azul.rs/release/{version}/mobile/android-x64/'>Android x86_64 (emulator)</a>: <a href='https://github.com/fschutt/azul/releases/download/{version}/libazul-android-x64.a.tar.gz'><code>libazul.a</code></a> / <code>libazul.so</code> + stubs</li>
+                <li><a href='https://azul.rs/release/{version}/mobile/ios-arm64/'>iOS arm64 (device)</a>: <a href='https://github.com/fschutt/azul/releases/download/{version}/libazul-ios-arm64.a.tar.gz'><code>libazul.a</code></a> / <code>libazul.dylib</code> + .tbd stubs</li>
+                <li><a href='https://azul.rs/release/{version}/mobile/ios-sim-arm64/'>iOS arm64 (simulator)</a>: <a href='https://github.com/fschutt/azul/releases/download/{version}/libazul-ios-sim-arm64.a.tar.gz'><code>libazul.a</code></a> / <code>libazul.dylib</code> + .tbd stubs</li>
               </ul>
 
               <br/>

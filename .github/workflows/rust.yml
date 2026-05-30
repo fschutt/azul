@@ -2479,6 +2479,24 @@ jobs:
             rmdir "$REL/demos" 2>/dev/null || true
           fi
 
+          # Mobile static .a libs live at mobile/<label>/libazul.a (depth 3, so
+          # the maxdepth-1 collector above misses them) and were the ~480 MB that
+          # pushed the Pages artifact over its 1 GB limit. Offload them to the
+          # Release too, named per-label (the Release is FLAT, so all four bare
+          # "libazul.a" would collide) as libazul-<label>.a.tar.gz, then trim.
+          # The mobile/<label>/ dir keeps its .so/.dylib + link stubs on Pages.
+          # deploy.rs links these via the mobile section (is_tarred mobile .a).
+          for adir in "$REL"/mobile/*/; do
+            a="$adir/libazul.a"
+            [ -f "$a" ] || continue
+            label="$(basename "$adir")"
+            tgz="$REL/libazul-${label}.a.tar.gz"
+            tar -czf "$tgz" -C "$adir" libazul.a
+            echo "mobile .a $label -> $(du -h "$tgz" | cut -f1)"
+            gh release upload "${AZUL_VERSION}" "$tgz" --clobber || true
+            rm -f "$a" "$tgz"
+          done
+
           echo "release dir after:"; du -sh "$REL" || true
           echo "total website size:"; du -sh website || true
 
