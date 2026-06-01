@@ -1626,6 +1626,130 @@ pub struct RawImage {
     pub tag: U8Vec,
 }
 
+/// A soft round brush for the painting API. The same parameters drive the CPU
+/// rasterizer ([`RawImage::paint_dot`]) and the GPU brush shader, so a stroke
+/// looks identical whether it lands on a `RawImage` or a `Texture`.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Brush {
+    /// Brush color (its alpha scales the dab opacity together with `flow`).
+    pub color: ColorU,
+    /// Brush radius in pixels.
+    pub radius: f32,
+    /// Edge hardness, `0.0` (fully feathered) .. `1.0` (hard edge). Opaque out
+    /// to `hardness * radius`, then a smooth falloff to zero at the edge.
+    pub hardness: f32,
+    /// Per-dab opacity multiplier, `0.0`..`1.0`. Values < 1 let overlapping dabs
+    /// build up smoothly (the "metaball"-like blend).
+    pub flow: f32,
+    /// Spacing between stamped dabs along a stroke, as a fraction of `radius`
+    /// (e.g. `0.25` = a dab every quarter-radius). Smaller = smoother + slower.
+    pub spacing: f32,
+}
+
+impl Brush {
+    /// A sensible default brush: medium-soft, full flow, dense spacing.
+    pub fn new(color: ColorU, radius: f32) -> Self {
+        Self {
+            color,
+            radius,
+            hardness: 0.5,
+            flow: 1.0,
+            spacing: 0.25,
+        }
+    }
+}
+
+/// Brush dab coverage: `1.0` at the dab center, smoothly `0.0` at its edge.
+/// `t` is `distance / radius` in `[0, 1]`; `hardness` in `[0, 1]`. Single source
+/// of truth for the dab profile — the GPU brush shader computes the identical
+/// `1 - smoothstep(hardness, 1, t)` so CPU and GPU strokes match.
+#[inline]
+pub fn brush_dab_coverage(t: f32, hardness: f32) -> f32 {
+    let edge0 = hardness.max(0.0).min(1.0);
+    let denom = (1.0 - edge0).max(1.0e-4);
+    let x = ((t - edge0) / denom).max(0.0).min(1.0);
+    1.0 - (x * x * (3.0 - 2.0 * x))
+}
+
+impl RawImage {
+    /// CPU painting: stamp one brush dab centered at (`cx`, `cy`) in pixel
+    /// coordinates, alpha-over compositing a radial-falloff disc. Only 8-bit
+    /// `RGBA8`/`BGRA8` images are painted (other formats are left untouched).
+    /// This is the CPU mirror of the GPU brush shader.
+    pub fn paint_dot(&mut self, cx: f32, cy: f32, brush: &Brush) {
+        let r = brush.radius;
+        if !(r > 0.0) || self.width == 0 || self.height == 0 {
+            return;
+        }
+        let bgr = match self.data_format {
+            RawImageFormat::RGBA8 => false,
+            RawImageFormat::BGRA8 => true,
+            _ => return,
+        };
+        let (w, h) = (self.width as i32, self.height as i32);
+        let buf: &mut [u8] = match self.pixels {
+            RawImageData::U8(ref mut v) => v.as_mut(),
+            _ => return,
+        };
+        let flow = brush.flow.max(0.0).min(1.0) * (brush.color.a as f32 / 255.0);
+        let (cr, cg, cb) = (
+            brush.color.r as f32,
+            brush.color.g as f32,
+            brush.color.b as f32,
+        );
+        let x0 = (cx - r).floor().max(0.0) as i32;
+        let y0 = (cy - r).floor().max(0.0) as i32;
+        let x1 = ((cx + r).ceil() as i32).min(w);
+        let y1 = ((cy + r).ceil() as i32).min(h);
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let dx = x as f32 + 0.5 - cx;
+                let dy = y as f32 + 0.5 - cy;
+                let dist = (dx * dx + dy * dy).sqrt();
+                if dist > r {
+                    continue;
+                }
+                let a = brush_dab_coverage(dist / r, brush.hardness) * flow;
+                if a <= 0.0 {
+                    continue;
+                }
+                let idx = ((y * w + x) as usize) * 4;
+                let (ri, gi, bi, ai) = if bgr {
+                    (idx + 2, idx + 1, idx, idx + 3)
+                } else {
+                    (idx, idx + 1, idx + 2, idx + 3)
+                };
+                let inv = 1.0 - a;
+                buf[ri] = (cr * a + buf[ri] as f32 * inv).round().max(0.0).min(255.0) as u8;
+                buf[gi] = (cg * a + buf[gi] as f32 * inv).round().max(0.0).min(255.0) as u8;
+                buf[bi] = (cb * a + buf[bi] as f32 * inv).round().max(0.0).min(255.0) as u8;
+                buf[ai] =
+                    ((a + (buf[ai] as f32 / 255.0) * inv) * 255.0).round().max(0.0).min(255.0) as u8;
+            }
+        }
+    }
+
+    /// CPU painting: stamp a stroke by spacing dabs along the segment
+    /// (`x0`,`y0`)→(`x1`,`y1`). Call once per pointer move with the previous and
+    /// current positions for a continuous line.
+    pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: &Brush) {
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        let len = (dx * dx + dy * dy).sqrt();
+        let step = (brush.radius * brush.spacing.max(0.01)).max(0.5);
+        let n = (len / step).floor() as i32;
+        if n <= 0 {
+            self.paint_dot(x1, y1, brush);
+            return;
+        }
+        for i in 0..=n {
+            let t = i as f32 / n as f32;
+            self.paint_dot(x0 + dx * t, y0 + dy * t, brush);
+        }
+    }
+}
+
 impl RawImage {
     /// Returns a null / empty image
     pub fn null_image() -> Self {
