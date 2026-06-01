@@ -1190,26 +1190,40 @@ impl X11Window {
                     }
                     _ => RendererType::Hardware,
                 };
-                let gl_context_ptr = OptionGlContextPtr::Some(GlContextPtr::new(
-                    renderer_type,
-                    gl_functions.functions.clone(),
-                ));
-                log_debug!(
-                    LogCategory::Platform,
-                    "[X11] GPU rendering initialized ({}x{})",
-                    framebuffer_size.width,
-                    framebuffer_size.height
-                );
-
-                (
-                    RenderMode::Gpu(gl_context, gl_functions),
-                    Some(renderer),
-                    Some(render_api),
-                    Some(AsyncHitTester::Requested(hit_tester_request)),
-                    Some(document_id),
-                    Some(id_namespace),
-                    gl_context_ptr,
-                )
+                let gl_ptr = GlContextPtr::new(renderer_type, gl_functions.functions.clone());
+                // PROVE the context: if the shaders didn't compile (broken
+                // driver), is_gl_usable() is false — fall back to CPU rendering
+                // for this window instead of presenting a black/garbled GPU
+                // surface. (The probe lives in azul_core::gl::GlContextPtr::new.)
+                let gl_usable = gl_ptr.is_gl_usable();
+                if matches!(renderer_type, RendererType::Hardware) && !gl_usable {
+                    crate::plog_warn!(
+                        "[X11] GL context unusable (shaders failed to compile at any GLSL version) \
+                         — falling back to CPU rendering for this window"
+                    );
+                    drop(gl_ptr);
+                    let gc = unsafe {
+                        (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut())
+                    };
+                    (RenderMode::Cpu(Some(gc)), None, None, None, None, None, None.into())
+                } else {
+                    let gl_context_ptr = OptionGlContextPtr::Some(gl_ptr);
+                    log_debug!(
+                        LogCategory::Platform,
+                        "[X11] GPU rendering initialized ({}x{})",
+                        framebuffer_size.width,
+                        framebuffer_size.height
+                    );
+                    (
+                        RenderMode::Gpu(gl_context, gl_functions),
+                        Some(renderer),
+                        Some(render_api),
+                        Some(AsyncHitTester::Requested(hit_tester_request)),
+                        Some(document_id),
+                        Some(id_namespace),
+                        gl_context_ptr,
+                    )
+                }
             }
             Err(e) => {
                 log_warn!(
