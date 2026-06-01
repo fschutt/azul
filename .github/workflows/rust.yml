@@ -1359,6 +1359,22 @@ jobs:
           if [ "${{ matrix.os }}" = "ubuntu-22.04" ]; then
             sudo apt-get install -y --no-install-recommends \
               luajit php-cli gfortran gnucobol fp-compiler sbcl 2>/dev/null || true
+            # Ubuntu's apt luajit is 2.1.0-beta3 (2017) and ABORTS struct-by-value
+            # FFI calls with "NYI: cannot call this C function" -> the azul.lua
+            # binding FAILS. Build current LuaJIT 2.1 into /usr/local (which
+            # precedes /usr/bin on PATH and persists to later steps as a
+            # filesystem install) so `command -v luajit` picks up the new one.
+            if git clone --depth 1 https://github.com/LuaJIT/LuaJIT.git /tmp/luajit 2>/dev/null; then
+              make -C /tmp/luajit -j"$(nproc)" 2>/dev/null \
+                && sudo make -C /tmp/luajit install 2>/dev/null \
+                && sudo ldconfig 2>/dev/null || true
+              # `make install` lays down /usr/local/bin/luajit-2.1.x; give it the
+              # plain `luajit` name the recipe looks for.
+              newest="$(ls -1 /usr/local/bin/luajit-* 2>/dev/null | sort | tail -1)"
+              [ -n "$newest" ] && sudo ln -sf "$newest" /usr/local/bin/luajit || true
+            fi
+            hash -r 2>/dev/null || true
+            command -v luajit && luajit -v 2>&1 | head -1 || true
           elif [ "${{ matrix.os }}" = "macos-14" ]; then
             brew install luajit php fpc sbcl 2>/dev/null || true
           else
