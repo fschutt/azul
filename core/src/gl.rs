@@ -888,7 +888,7 @@ impl GlContextPtr {
     }
     /// Whether this hardware GL context proved usable at construction (the SVG
     /// shaders compiled+linked at some GLSL version). `false` means context
-    /// creation succeeded but the driver can't run our shaders — the caller
+    /// creation succeeded but the driver can't run our shaders -- the caller
     /// should fall back to CPU rendering. Always `false` for a Software context
     /// (which never compiles these shaders); only meaningful on the GPU path.
     pub fn is_gl_usable(&self) -> bool {
@@ -1119,7 +1119,7 @@ fn shader_with_glsl_version(src: &[u8], version_line: &[u8]) -> Vec<u8> {
 /// Try to compile+link a vertex+fragment program at a specific GLSL `#version`.
 /// Returns the linked program id, or `None` (after cleanup) on ANY compile or
 /// link failure. This is how we PROVE a GL context is actually usable and which
-/// `#version` its driver accepts — creating a context can succeed yet leave it
+/// `#version` its driver accepts -- creating a context can succeed yet leave it
 /// unable to compile our shaders (broken driver, or a GLES context that rejects
 /// the desktop `#version 150`).
 #[cfg(feature = "std")]
@@ -1186,7 +1186,7 @@ impl GlContextPtr {
         // compiling the SVG program at each candidate `#version` for this context
         // type (desktop GL 1.50/3.30/1.40, or GLES 3.00/1.00) and use the first
         // that compiles+links for ALL programs. A GLES GPU (mobile) rejects the
-        // desktop `#version 150`, and a broken driver rejects everything — in the
+        // desktop `#version 150`, and a broken driver rejects everything -- in the
         // latter case all program IDs stay 0 and `is_gl_usable()` returns false so
         // the window can fall back to CPU rendering.
         #[cfg(feature = "std")]
@@ -1215,7 +1215,7 @@ impl GlContextPtr {
                             .trim_start_matches("#version ")
                             .into();
                         eprintln!(
-                            "azul: GL usable — shaders compiled at GLSL {} ({:?})",
+                            "azul: GL usable -- shaders compiled at GLSL {} ({:?})",
                             ver_str.as_str(),
                             gl_type
                         );
@@ -1234,7 +1234,7 @@ impl GlContextPtr {
                     }
                     None => {
                         eprintln!(
-                            "azul: GL context UNUSABLE — no GLSL version ({:?}) compiled the SVG \
+                            "azul: GL context UNUSABLE -- no GLSL version ({:?}) compiled the SVG \
                              shaders; the window should fall back to CPU rendering (is_gl_usable()=false)",
                             gl_type
                         );
@@ -3042,13 +3042,13 @@ macro_rules! impl_traits_for_gl_object {
 impl Texture {
     /// GPU painting: stamp one soft-brush dab centered at (`cx`, `cy`) in texture
     /// pixel coordinates (origin top-left, matching [`RawImage::paint_dot`]).
-    /// No-op if the GL context is unusable — the caller should then use the CPU
+    /// No-op if the GL context is unusable -- the caller should then use the CPU
     /// `RawImage` path (`GlContextPtr::is_gl_usable`).
     pub fn paint_dot(&mut self, cx: f32, cy: f32, brush: Brush) {
         self.paint_stroke(cx, cy, cx, cy, brush);
     }
 
-    /// GPU painting: stamp dabs along (`x0`,`y0`)→(`x1`,`y1`) into this texture
+    /// GPU painting: stamp dabs along (`x0`,`y0`)->(`x1`,`y1`) into this texture
     /// via an FBO + the soft-brush shader, alpha-over blended. Same spacing +
     /// falloff as the CPU `RawImage::paint_stroke`. No-op if GL is unusable.
     pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: Brush) {
@@ -3114,7 +3114,7 @@ impl Texture {
             let nx = |x: f32| (x / tw) * 2.0 - 1.0;
             let ny = |y: f32| 1.0 - (y / th) * 2.0;
             let (l, rr, tp, bt) = (nx(px - r), nx(px + r), ny(py - r), ny(py + r));
-            // TRIANGLE_STRIP: TL, BL, TR, BR — interleaved (pos.x, pos.y, uv.x, uv.y).
+            // TRIANGLE_STRIP: TL, BL, TR, BR -- interleaved (pos.x, pos.y, uv.x, uv.y).
             let verts: [f32; 16] = [
                 l, tp, -1.0, -1.0, l, bt, -1.0, 1.0, rr, tp, 1.0, -1.0, rr, bt, 1.0, 1.0,
             ];
@@ -3140,7 +3140,7 @@ impl Texture {
     }
 
     /// Read this texture's pixels back into an RGBA8 `RawImage` (top-left origin)
-    /// — for exporting the painted canvas to disk. Binds an FBO + glReadPixels.
+    /// -- for exporting the painted canvas to disk. Binds an FBO + glReadPixels.
     pub fn copy_to_raw_image(&self) -> RawImage {
         let gl = self.gl_context.clone();
         let (w, h) = (self.size.width as i32, self.size.height as i32);

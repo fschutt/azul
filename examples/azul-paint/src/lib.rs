@@ -19,8 +19,7 @@ use azul::prelude::*;
 use azul::callbacks::{CallbackType, DatasetMergeCallbackType, RenderImageCallbackInfo};
 use azul::dom::{DatasetMergeCallback, RenderImageCallback};
 use azul::gl::Texture;
-use azul::image::{ImageRef, RawImage, RawImageData, RawImageFormat};
-use azul::misc::Brush;
+use azul::image::{Brush, ImageRef, RawImage, RawImageData, RawImageFormat};
 use azul::vec::U8VecRef;
 use azul::css::PhysicalSizeU32;
 
@@ -33,6 +32,7 @@ struct StrokePoint {
     /// `0.0..=1.0`, normalized. Finger touches default to `0.5`.
     pressure: f32,
     /// Barrel roll in radians (reserved; not used by the round brush yet).
+    #[allow(dead_code)]
     barrel_roll_rad: f32,
 }
 

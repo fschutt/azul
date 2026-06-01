@@ -1662,7 +1662,7 @@ impl Brush {
 
 /// Brush dab coverage: `1.0` at the dab center, smoothly `0.0` at its edge.
 /// `t` is `distance / radius` in `[0, 1]`; `hardness` in `[0, 1]`. Single source
-/// of truth for the dab profile — the GPU brush shader computes the identical
+/// of truth for the dab profile -- the GPU brush shader computes the identical
 /// `1 - smoothstep(hardness, 1, t)` so CPU and GPU strokes match.
 #[inline]
 pub fn brush_dab_coverage(t: f32, hardness: f32) -> f32 {
@@ -1731,7 +1731,7 @@ impl RawImage {
     }
 
     /// CPU painting: stamp a stroke by spacing dabs along the segment
-    /// (`x0`,`y0`)→(`x1`,`y1`). Call once per pointer move with the previous and
+    /// (`x0`,`y0`)->(`x1`,`y1`). Call once per pointer move with the previous and
     /// current positions for a continuous line.
     pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: Brush) {
         let dx = x1 - x0;
