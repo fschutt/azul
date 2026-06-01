@@ -264,8 +264,9 @@ impl CppDialect for Cpp11Generator {
         needs_destructor: bool,
     ) {
         if needs_destructor {
+            // Skip the delete on a moved-from / released wrapper.
             code.push_str(&format!(
-                "    ~{}() {{ {}_delete(&inner_); }}\r\n",
+                "    ~{}() {{ if (owned_) {}_delete(&inner_); }}\r\n",
                 class_name, c_type_name
             ));
         } else {
@@ -291,8 +292,34 @@ impl CppDialect for Cpp11Generator {
                 "    {}& operator=(const {}& other) noexcept {{ inner_ = other.inner_; return *this; }}\r\n",
                 class_name, class_name
             ));
+        } else if needs_destructor {
+            // Owning move: steal the value AND the ownership flag, leaving the
+            // source inert (its destructor becomes a no-op — no delete-of-zero).
+            code.push_str("\r\n");
+            code.push_str(&format!(
+                "    {}({}&& other) noexcept : inner_(other.inner_), owned_(other.owned_) {{\r\n",
+                class_name, class_name
+            ));
+            code.push_str("        other.owned_ = false;\r\n");
+            code.push_str("    }\r\n");
+
+            code.push_str(&format!(
+                "    {}& operator=({}&& other) noexcept {{\r\n",
+                class_name, class_name
+            ));
+            code.push_str("        if (this != &other) {\r\n");
+            code.push_str(&format!(
+                "            if (owned_) {}_delete(&inner_);\r\n",
+                c_type_name
+            ));
+            code.push_str("            inner_ = other.inner_;\r\n");
+            code.push_str("            owned_ = other.owned_;\r\n");
+            code.push_str("            other.owned_ = false;\r\n");
+            code.push_str("        }\r\n");
+            code.push_str("        return *this;\r\n");
+            code.push_str("    }\r\n");
         } else {
-            // Non-copy types get move semantics
+            // No destructor: zeroing the moved-from source is sufficient.
             code.push_str("\r\n");
             code.push_str(&format!(
                 "    {}({}&& other) noexcept : inner_(other.inner_) {{\r\n",
@@ -306,9 +333,6 @@ impl CppDialect for Cpp11Generator {
                 class_name, class_name
             ));
             code.push_str("        if (this != &other) {\r\n");
-            if needs_destructor {
-                code.push_str(&format!("            {}_delete(&inner_);\r\n", c_type_name));
-            }
             code.push_str("            inner_ = other.inner_;\r\n");
             code.push_str("            other.inner_ = {};\r\n");
             code.push_str("        }\r\n");
@@ -591,7 +615,15 @@ pub fn emit_class_declaration_cpp11_or_later(
 
     code.push_str(&format!("class {} {{\r\n", class_name));
     code.push_str("private:\r\n");
-    code.push_str(&format!("    {} inner_;\r\n\r\n", c_type_name));
+    code.push_str(&format!("    {} inner_;\r\n", c_type_name));
+    // Ownership flag: a moved-from/released owning wrapper must not delete
+    // again. `Az*_delete` is NOT safe on a zeroed struct (drops an invalid
+    // value -> e.g. a zeroed BTreeMap segfaults), so the destructor checks
+    // `owned_` rather than relying on delete-of-zero being a no-op.
+    if needs_dtor {
+        code.push_str("    bool owned_ = true;\r\n");
+    }
+    code.push_str("\r\n");
 
     if !is_copy_type {
         code.push_str(&format!(
@@ -635,17 +667,28 @@ pub fn emit_class_declaration_cpp11_or_later(
         "    {}* ptr() {{ return &inner_; }}\r\n",
         c_type_name
     ));
-    code.push_str(&format!(
-        "    {} release() {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
-        c_type_name, c_type_name
-    ));
-    // Implicit r-value conversion to the underlying C type so callbacks can
-    // `return Wrapper::create();` from a function whose signature returns the
-    // raw `Az*` type, without an explicit `.release()`.
-    code.push_str(&format!(
-        "    operator {}() && noexcept {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
-        c_type_name, c_type_name
-    ));
+    // `release()`/r-value conversion hand the raw value to a consuming C-ABI
+    // function. Owning types relinquish ownership (dtor must NOT delete after);
+    // non-owning types just return + zero the source.
+    if needs_dtor {
+        code.push_str(&format!(
+            "    {} release() {{ owned_ = false; return inner_; }}\r\n",
+            c_type_name
+        ));
+        code.push_str(&format!(
+            "    operator {}() && noexcept {{ owned_ = false; return inner_; }}\r\n",
+            c_type_name
+        ));
+    } else {
+        code.push_str(&format!(
+            "    {} release() {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
+            c_type_name, c_type_name
+        ));
+        code.push_str(&format!(
+            "    operator {}() && noexcept {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
+            c_type_name, c_type_name
+        ));
+    }
 
     if is_vec_type(struct_def) {
         gen.generate_vec_methods(code, struct_def, config);

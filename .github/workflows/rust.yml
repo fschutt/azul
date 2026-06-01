@@ -1223,6 +1223,10 @@ jobs:
           elif [ "${{ matrix.os }}" = "windows-2022" ]; then
             cp target/release/azul.dll        e2e-dll/release/
             cp target/release/azul.dll.lib    e2e-dll/release/ 2>/dev/null || true
+            # The rust family builds with link-dynamic, whose `-lazul` resolves
+            # to `azul.lib`; rustc emits the MSVC import lib as `azul.dll.lib`,
+            # so also stage it under the bare name or the link fails LNK1181.
+            cp target/release/azul.dll.lib    e2e-dll/release/azul.lib 2>/dev/null || true
           else
             cp target/release/libazul.so e2e-dll/release/
           fi
@@ -1301,6 +1305,16 @@ jobs:
         shell: bash
         run: opam install -y dune ctypes ctypes-foreign
 
+      # The JVM bindings (java/kotlin/scala) target Java 11+; the Windows runner's
+      # default `javac` is too old ("invalid target release: 11"), so pin a JDK.
+      # Also exports JAVA_HOME, which kotlinc/scala pick up.
+      - name: Set up JDK 17 (JVM bindings)
+        if: matrix.family.key == 'scripting'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Download prebuilt E2E DLL + codegen
         uses: actions/download-artifact@v8
         with:
@@ -1348,6 +1362,11 @@ jobs:
           else
             choco install luajit -y 2>/dev/null || true
           fi
+          # Ruby FFI gem — the azul.rb binding does `require 'ffi'`, which is NOT
+          # preinstalled on the runners (LoadError -> ruby FAILS). Try user then
+          # system install; harmless if already present.
+          gem install ffi --no-document 2>/dev/null \
+            || sudo gem install ffi --no-document 2>/dev/null || true
 
       - name: Language binding board (AZ_E2E, gates shipped tier)
         shell: bash

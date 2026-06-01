@@ -291,6 +291,10 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
+    crate::plog_info!(
+        "[macOS] run() entry — AZ_BACKEND={:?} (logging on by default; AZ_LOG=off to silence, AZ_LOG=trace for everything)",
+        std::env::var("AZ_BACKEND").ok()
+    );
 
     let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
 
@@ -717,6 +721,10 @@ pub fn run(
         return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
     log_trace!(LogCategory::Window, "[shell2::run] Windows run() called");
+    crate::plog_info!(
+        "[Windows] run() entry — AZ_BACKEND={:?} (logging on by default; AZ_LOG=off to silence, AZ_LOG=trace for everything)",
+        std::env::var("AZ_BACKEND").ok()
+    );
     use std::cell::RefCell;
 
     use azul_core::resources::AppTerminationBehavior;

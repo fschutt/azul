@@ -154,8 +154,9 @@ impl CppDialect for Cpp20Generator {
         needs_destructor: bool,
     ) {
         if needs_destructor {
+            // Skip the delete on a moved-from / released wrapper (owned_ == false).
             code.push_str(&format!(
-                "    ~{}() {{ {}_delete(&inner_); }}\r\n",
+                "    ~{}() {{ if (owned_) {}_delete(&inner_); }}\r\n",
                 class_name, c_type_name
             ));
         } else {
@@ -180,7 +181,35 @@ impl CppDialect for Cpp20Generator {
                 "    {}& operator=(const {}& other) noexcept {{ inner_ = other.inner_; return *this; }}\r\n",
                 class_name, class_name
             ));
+        } else if needs_destructor {
+            // Owning move: steal the value AND the ownership flag, leaving the
+            // source inert so its destructor is a no-op (no delete-of-zero).
+            code.push_str("\r\n");
+            code.push_str(&format!(
+                "    {}({}&& other) noexcept : inner_(other.inner_), owned_(other.owned_) {{\r\n",
+                class_name, class_name
+            ));
+            code.push_str("        other.owned_ = false;\r\n");
+            code.push_str("    }\r\n");
+
+            code.push_str(&format!(
+                "    {}& operator=({}&& other) noexcept {{\r\n",
+                class_name, class_name
+            ));
+            code.push_str("        if (this != &other) {\r\n");
+            code.push_str(&format!(
+                "            if (owned_) {}_delete(&inner_);\r\n",
+                c_type_name
+            ));
+            code.push_str("            inner_ = other.inner_;\r\n");
+            code.push_str("            owned_ = other.owned_;\r\n");
+            code.push_str("            other.owned_ = false;\r\n");
+            code.push_str("        }\r\n");
+            code.push_str("        return *this;\r\n");
+            code.push_str("    }\r\n");
         } else {
+            // No destructor: nothing to free, so zeroing the moved-from source
+            // is sufficient and the owned_ flag is omitted from the class.
             code.push_str("\r\n");
             code.push_str(&format!(
                 "    {}({}&& other) noexcept : inner_(other.inner_) {{\r\n",
@@ -194,9 +223,6 @@ impl CppDialect for Cpp20Generator {
                 class_name, class_name
             ));
             code.push_str("        if (this != &other) {\r\n");
-            if needs_destructor {
-                code.push_str(&format!("            {}_delete(&inner_);\r\n", c_type_name));
-            }
             code.push_str("            inner_ = other.inner_;\r\n");
             code.push_str("            other.inner_ = {};\r\n");
             code.push_str("        }\r\n");
@@ -558,7 +584,16 @@ fn emit_class_declaration_cpp20_or_later(
 
     code.push_str(&format!("class {} {{\r\n", class_name));
     code.push_str("private:\r\n");
-    code.push_str(&format!("    {} inner_;\r\n\r\n", c_type_name));
+    code.push_str(&format!("    {} inner_;\r\n", c_type_name));
+    // Ownership flag for types with a C-ABI destructor: a moved-from or
+    // released wrapper must NOT run `_delete` again. Zeroing `inner_` is NOT a
+    // safe substitute — `Az*_delete` on a zeroed struct drops an invalid value
+    // (e.g. a zeroed BTreeMap walks a null tree -> segfault), so the destructor
+    // checks `owned_` instead of relying on delete-of-zero being a no-op.
+    if needs_dtor {
+        code.push_str("    bool owned_ = true;\r\n");
+    }
+    code.push_str("\r\n");
 
     if !is_copy_type {
         code.push_str(&format!(
@@ -604,16 +639,31 @@ fn emit_class_declaration_cpp20_or_later(
         "    {}* ptr() {{ return &inner_; }}\r\n",
         c_type_name
     ));
-    code.push_str(&format!(
-        "    {} release() {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
-        c_type_name, c_type_name
-    ));
-    // Implicit r-value conversion: enables `return Wrapper::create();` from a
-    // C-ABI callback without explicit `.release()`.
-    code.push_str(&format!(
-        "    operator {}() && noexcept {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
-        c_type_name, c_type_name
-    ));
+    // `release()` hands the raw value to a consuming C-ABI function. For an
+    // owning type it relinquishes ownership (the dtor must NOT delete after
+    // this); for a non-owning type there is nothing to track, so it just
+    // returns + zeroes the source.
+    if needs_dtor {
+        code.push_str(&format!(
+            "    {} release() {{ owned_ = false; return inner_; }}\r\n",
+            c_type_name
+        ));
+        // Implicit r-value conversion: `return Wrapper::create();` from a C-ABI
+        // callback transfers ownership without an explicit `.release()`.
+        code.push_str(&format!(
+            "    operator {}() && noexcept {{ owned_ = false; return inner_; }}\r\n",
+            c_type_name
+        ));
+    } else {
+        code.push_str(&format!(
+            "    {} release() {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
+            c_type_name, c_type_name
+        ));
+        code.push_str(&format!(
+            "    operator {}() && noexcept {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
+            c_type_name, c_type_name
+        ));
+    }
 
     if is_vec_type(struct_def) {
         gen.generate_vec_methods(code, struct_def, config);
