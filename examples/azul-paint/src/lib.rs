@@ -31,8 +31,11 @@ struct StrokePoint {
     y: f32,
     /// `0.0..=1.0`, normalized. Finger touches default to `0.5`.
     pressure: f32,
-    /// Barrel roll in radians (reserved; not used by the round brush yet).
-    #[allow(dead_code)]
+    /// Pen tilt (left/right, fore/aft). Drives the metaball's elongation +
+    /// orientation so a tilted pen paints a directional, stretched blob.
+    tilt_x: f32,
+    tilt_y: f32,
+    /// Pen twist (barrel roll) in radians; rotates the elongated dab/metaball.
     barrel_roll_rad: f32,
 }
 
@@ -61,6 +64,10 @@ struct PaintState {
     current: Option<Stroke>,
     /// Current brush color (config).
     color: ColorU,
+    /// When true, strokes render as 2D **metaballs** (a scalar field summed from
+    /// every dab + thresholded, so nearby blobs merge organically) instead of
+    /// alpha-over brush dabs. A separate, binary-only effect from the core brush.
+    metaball_mode: bool,
     /// Bumps on every change so the canvas cache knows to re-rasterize.
     rev: u64,
 }
@@ -72,8 +79,14 @@ impl PaintState {
             undone: Vec::new(),
             current: None,
             color: ColorU { r: 30, g: 30, b: 40, a: 255 },
+            metaball_mode: true,
             rev: 1,
         }
+    }
+
+    fn toggle_metaballs(&mut self) {
+        self.metaball_mode = !self.metaball_mode;
+        self.rev += 1;
     }
 
     fn begin_stroke(&mut self, p: StrokePoint, is_eraser: bool) {
@@ -136,8 +149,11 @@ impl PaintState {
 struct CanvasCache {
     /// Shared handle to the app's PaintState (source of the strokes).
     paint: RefAny,
-    /// GPU canvas texture (when GL is usable); persisted via the merge callback.
+    /// GPU canvas texture (brush mode, when GL is usable); persisted via merge.
     texture: Option<Texture>,
+    /// CPU image (metaball mode, or the GL-unusable brush fallback); persisted
+    /// via merge so an idle relayout doesn't re-rasterize.
+    cpu_image: Option<ImageRef>,
     /// `PaintState.rev` the cache was last rasterized at.
     rendered_rev: u64,
 }
@@ -166,6 +182,85 @@ fn rasterize_stroke<F: FnMut(f32, f32, f32, f32, Brush)>(stroke: &Stroke, bg: Co
     }
 }
 
+/// Smoothstep (Hermite) used to anti-alias the metaball threshold edge.
+fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).max(0.0).min(1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// CPU 2D-metaball renderer (binary-only effect, separate from the core brush).
+/// Each stroke point becomes an anisotropic "ball" that reacts to the pen:
+/// **pressure -> size**, **tilt -> elongation + orientation**, **barrel-roll ->
+/// extra rotation**. A scalar field `Σ 1/((lx/ax)² + (ly/ay)² + ε)` is summed
+/// over every ball and thresholded at `1.0`, so nearby blobs grow connecting
+/// bridges and merge organically -- the thing alpha-over dabs can't do. Color
+/// is field-weighted so overlapping blobs blend. O(Σ per-ball bbox), not
+/// O(pixels·balls).
+fn render_metaballs(strokes: &[Stroke], w: u32, h: u32, bg: ColorU) -> RawImage {
+    let (wu, hu) = (w as usize, h as usize);
+    let n = wu.saturating_mul(hu).max(1);
+    let mut field = vec![0.0f32; n];
+    let mut acc = vec![[0.0f32; 3]; n]; // field-weighted RGB accumulator
+    for s in strokes {
+        let col = if s.is_eraser { bg } else { s.color };
+        let (cr, cg, cb) = (col.r as f32, col.g as f32, col.b as f32);
+        for p in &s.points {
+            // pressure -> ball size
+            let r = (BASE_RADIUS * (0.6 + p.pressure * 2.0)).max(2.0);
+            // tilt magnitude -> eccentricity; tilt direction (+ roll) -> angle
+            let tilt_mag = (p.tilt_x * p.tilt_x + p.tilt_y * p.tilt_y).sqrt();
+            let ecc = (tilt_mag / 60.0).max(0.0).min(0.85);
+            let theta = p.tilt_x.atan2(p.tilt_y) + p.barrel_roll_rad;
+            let ax = r * (1.0 + ecc * 1.6);
+            let ay = (r * (1.0 - ecc * 0.5)).max(r * 0.35);
+            let (st, ct) = theta.sin_cos();
+            let reach = ax.max(ay) * 2.2;
+            let x0 = (p.x - reach).floor().max(0.0) as usize;
+            let y0 = (p.y - reach).floor().max(0.0) as usize;
+            let x1 = ((p.x + reach).ceil().max(0.0) as usize).min(wu);
+            let y1 = ((p.y + reach).ceil().max(0.0) as usize).min(hu);
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let dx = x as f32 + 0.5 - p.x;
+                    let dy = y as f32 + 0.5 - p.y;
+                    let lx = dx * ct + dy * st; // into the ball's local frame
+                    let ly = -dx * st + dy * ct;
+                    let q = (lx / ax) * (lx / ax) + (ly / ay) * (ly / ay);
+                    let c = 1.0 / (q + 0.18);
+                    let idx = y * wu + x;
+                    field[idx] += c;
+                    acc[idx][0] += c * cr;
+                    acc[idx][1] += c * cg;
+                    acc[idx][2] += c * cb;
+                }
+            }
+        }
+    }
+    let mut buf = vec![0u8; n * 4];
+    for i in 0..n {
+        let f = field[i];
+        let a = smoothstep(0.85, 1.15, f); // AA rim around the 1.0 isosurface
+        let (r, g, b) = if f > 1.0e-4 {
+            (acc[i][0] / f, acc[i][1] / f, acc[i][2] / f)
+        } else {
+            (bg.r as f32, bg.g as f32, bg.b as f32)
+        };
+        let o = i * 4;
+        buf[o] = (bg.r as f32 * (1.0 - a) + r * a).round().max(0.0).min(255.0) as u8;
+        buf[o + 1] = (bg.g as f32 * (1.0 - a) + g * a).round().max(0.0).min(255.0) as u8;
+        buf[o + 2] = (bg.b as f32 * (1.0 - a) + b * a).round().max(0.0).min(255.0) as u8;
+        buf[o + 3] = 255;
+    }
+    RawImage {
+        pixels: RawImageData::U8(buf.into()),
+        width: wu,
+        height: hu,
+        premultiplied_alpha: true,
+        data_format: RawImageFormat::RGBA8,
+        tag: Vec::new().into(),
+    }
+}
+
 /// RenderImageCallback: produce the canvas image, re-rasterizing strokes only
 /// when `PaintState.rev` differs from the cache's `rendered_rev`.
 extern "C" fn render_canvas(mut data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
@@ -184,17 +279,30 @@ fn render_canvas_inner(
     let mut cache = data.downcast_mut::<CanvasCache>()?;
     let cache = &mut *cache;
 
-    // Snapshot the strokes + rev from the shared PaintState.
-    let (rev, strokes): (u64, Vec<Stroke>) = {
+    // Snapshot the strokes + rev + mode from the shared PaintState.
+    let (rev, strokes, metaball_mode): (u64, Vec<Stroke>, bool) = {
         let paint = cache.paint.downcast_ref::<PaintState>()?;
         let mut all = paint.strokes.clone();
         if let Some(cur) = paint.current.as_ref() {
             all.push(cur.clone());
         }
-        (paint.rev, all)
+        (paint.rev, all, paint.metaball_mode)
     };
 
     let bg = canvas_bg();
+
+    // Metaball effect (binary-only, CPU): render the strokes as a thresholded
+    // scalar field reacting to pressure/tilt/roll. Cached as a CPU image and
+    // re-rendered only when `rev` changed.
+    if metaball_mode {
+        if cache.rendered_rev != rev || cache.cpu_image.is_none() {
+            let img = render_metaballs(&strokes, w, h, bg);
+            cache.cpu_image = ImageRef::new_rawimage(img).into_option();
+            cache.rendered_rev = rev;
+        }
+        return cache.cpu_image.clone();
+    }
+
     let gl = info.get_gl_context().into_option();
 
     if let Some(gl) = gl {
@@ -252,12 +360,13 @@ fn render_canvas_inner(
 /// node to the new one across DOM rebuilds (so we don't re-allocate/re-paint
 /// every relayout). The new node's `paint` (current PaintState) is kept.
 extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
-    let (tex, rev) = match old_data.downcast_ref::<CanvasCache>() {
-        Some(old) => (old.texture.clone(), old.rendered_rev),
+    let (tex, img, rev) = match old_data.downcast_ref::<CanvasCache>() {
+        Some(old) => (old.texture.clone(), old.cpu_image.clone(), old.rendered_rev),
         None => return new_data,
     };
     if let Some(mut new) = new_data.downcast_mut::<CanvasCache>() {
         new.texture = tex;
+        new.cpu_image = img;
         new.rendered_rev = rev;
     }
     new_data
@@ -273,19 +382,20 @@ const CANVAS: &str = "flex-grow: 1; position: relative; overflow: hidden;";
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let (n_strokes, n_undone) = data
+    let (n_strokes, n_undone, metaballs) = data
         .downcast_ref::<PaintState>()
-        .map(|s| (s.strokes.len(), s.undone.len()))
-        .unwrap_or((0, 0));
+        .map(|s| (s.strokes.len(), s.undone.len(), s.metaball_mode))
+        .unwrap_or((0, 0, true));
+    let _ = n_undone;
 
+    let mode_label = if metaballs { "Effect: Metaballs" } else { "Effect: Brush" };
     let header = Dom::create_div()
         .with_css(HEADER)
         .with_child(Dom::create_text(format!("AzulPaint · {} strokes", n_strokes).as_str()))
         .with_child(button("Undo", data.clone(), on_undo))
         .with_child(button("Redo", data.clone(), on_redo))
-        .with_child(button("Clear", data.clone(), on_clear));
-
-    let _ = n_undone;
+        .with_child(button("Clear", data.clone(), on_clear))
+        .with_child(button(mode_label, data.clone(), on_toggle_mode));
 
     // The canvas: a single image driven by render_canvas. Its dataset is a
     // CanvasCache that shares the PaintState; the merge callback persists the
@@ -293,6 +403,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let cache = RefAny::new(CanvasCache {
         paint: data.clone(),
         texture: None,
+        cpu_image: None,
         rendered_rev: 0,
     });
 
@@ -330,6 +441,8 @@ fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
                     x: pen.position.x,
                     y: pen.position.y,
                     pressure: pen.pressure.max(0.05).min(1.0),
+                    tilt_x: pen.tilt.x_tilt,
+                    tilt_y: pen.tilt.y_tilt,
                     barrel_roll_rad: pen.barrel_roll_rad,
                 },
                 pen.is_eraser,
@@ -338,7 +451,14 @@ fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
     }
     let pos = info.get_cursor_relative_to_node().into_option()?;
     Some((
-        StrokePoint { x: pos.x, y: pos.y, pressure: 0.5, barrel_roll_rad: 0.0 },
+        StrokePoint {
+            x: pos.x,
+            y: pos.y,
+            pressure: 0.5,
+            tilt_x: 0.0,
+            tilt_y: 0.0,
+            barrel_roll_rad: 0.0,
+        },
         false,
     ))
 }
@@ -405,6 +525,14 @@ extern "C" fn on_redo(mut data: RefAny, _info: CallbackInfo) -> Update {
 extern "C" fn on_clear(mut data: RefAny, _info: CallbackInfo) -> Update {
     match data.downcast_mut::<PaintState>() {
         Some(mut s) => s.clear_all(),
+        None => return Update::DoNothing,
+    }
+    Update::RefreshDom
+}
+
+extern "C" fn on_toggle_mode(mut data: RefAny, _info: CallbackInfo) -> Update {
+    match data.downcast_mut::<PaintState>() {
+        Some(mut s) => s.toggle_metaballs(),
         None => return Update::DoNothing,
     }
     Update::RefreshDom
