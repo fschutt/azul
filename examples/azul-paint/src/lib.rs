@@ -18,9 +18,9 @@
 use azul::prelude::*;
 use azul::callbacks::{CallbackType, DatasetMergeCallbackType, RenderImageCallbackInfo};
 use azul::dom::{DatasetMergeCallback, RenderImageCallback};
-use azul::gl::Texture;
+use azul::gl::{GlContextPtr, Texture};
 use azul::image::{Brush, ImageRef, RawImage, RawImageData, RawImageFormat};
-use azul::vec::U8VecRef;
+use azul::vec::{F32VecRef, StringVec, U8VecRef};
 use azul::css::PhysicalSizeU32;
 use azul::dialog::FileDialog;
 use azul::error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError};
@@ -178,6 +178,9 @@ struct CanvasCache {
     /// CPU image (metaball mode, or the GL-unusable brush fallback); persisted
     /// via merge so an idle relayout doesn't re-rasterize.
     cpu_image: Option<ImageRef>,
+    /// Compiled GPU metaball program (lazy; persisted via merge). `None` until
+    /// first compiled, or if the shader couldn't be built (-> CPU fallback).
+    metaball_gpu: Option<MetaballGpu>,
     /// `PaintState.rev` the cache was last rasterized at.
     rendered_rev: u64,
 }
@@ -355,6 +358,159 @@ fn render_metaballs(strokes: &[Stroke], w: u32, h: u32, bg: ColorU, background: 
     }
 }
 
+// ───────── GPU metaballs (custom shader, mirrors the CPU render_metaballs) ──
+
+/// Max balls uploaded to the GPU shader as a uniform array (most-recent N when a
+/// drawing exceeds this; the CPU path is exact/unbounded).
+const MAX_GPU_BALLS: usize = 128;
+
+// Bodies have no `#version` line -- it is prepended at compile time from
+// `get_usable_glsl_version()` so the shader matches the context (desktop 150 vs
+// GLES "300 es"); the body is valid in both.
+static METABALL_VS_BODY: &str = "
+void main() {
+    float x = (gl_VertexID >= 2) ? 1.0 : -1.0;
+    float y = (gl_VertexID == 1 || gl_VertexID == 3) ? 1.0 : -1.0;
+    gl_Position = vec4(x, y, 0.0, 1.0);
+}";
+
+static METABALL_FS_BODY: &str = "
+precision highp float;
+out vec4 oFragColor;
+uniform vec2 uRes;
+uniform int uCount;
+uniform vec4 uBalls[128];   // xy = center (px, top-left), z = radius, w = angle
+uniform vec4 uBalls2[128];  // x = eccentricity, yzw = color (0..1)
+uniform vec3 uBg;
+void main() {
+    vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+    float field = 0.0;
+    vec3 col = vec3(0.0);
+    for (int i = 0; i < 128; i++) {
+        if (i >= uCount) break;
+        vec2 d = p - uBalls[i].xy;
+        float r = uBalls[i].z;
+        float ecc = uBalls2[i].x;
+        float ax = r * (1.0 + ecc * 1.6);
+        float ay = max(r * (1.0 - ecc * 0.5), r * 0.35);
+        float ct = cos(uBalls[i].w);
+        float st = sin(uBalls[i].w);
+        vec2 l = vec2(d.x * ct + d.y * st, -d.x * st + d.y * ct);
+        float q = (l.x / ax) * (l.x / ax) + (l.y / ay) * (l.y / ay);
+        float c = 1.0 / (q + 0.18);
+        field += c;
+        col += c * uBalls2[i].yzw;
+    }
+    float a = clamp((field - 0.85) / 0.30, 0.0, 1.0);
+    a = a * a * (3.0 - 2.0 * a);
+    vec3 blob = (field > 0.0001) ? (col / field) : uBg;
+    oFragColor = vec4(mix(uBg, blob, a), 1.0);
+}";
+
+/// Compiled metaball program + uniform locations; cached in `CanvasCache`.
+struct MetaballGpu {
+    program: u32,
+    u_res: i32,
+    u_count: i32,
+    u_balls: i32,
+    u_balls2: i32,
+    u_bg: i32,
+}
+
+const GL_VERTEX_SHADER: u32 = 0x8B31;
+const GL_FRAGMENT_SHADER: u32 = 0x8B30;
+const GL_FRAMEBUFFER: u32 = 0x8D40;
+const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
+const GL_TEXTURE_2D: u32 = 0x0DE1;
+const GL_TRIANGLE_STRIP: u32 = 0x0005;
+
+/// Compile + link the metaball program once (mirrors core's try_compile_program).
+fn compile_metaball_gpu(gl: &GlContextPtr) -> Option<MetaballGpu> {
+    let ver = gl.get_usable_glsl_version();
+    let ver = ver.as_str();
+    if ver.is_empty() {
+        return None;
+    }
+    let vs_src = format!("#version {}\n{}", ver, METABALL_VS_BODY);
+    let fs_src = format!("#version {}\n{}", ver, METABALL_FS_BODY);
+    let vs = gl.create_shader(GL_VERTEX_SHADER);
+    gl.shader_source(vs, StringVec::from_item(vs_src.as_str()));
+    gl.compile_shader(vs);
+    let fs = gl.create_shader(GL_FRAGMENT_SHADER);
+    gl.shader_source(fs, StringVec::from_item(fs_src.as_str()));
+    gl.compile_shader(fs);
+    let program = gl.create_program();
+    if program == 0 {
+        return None;
+    }
+    gl.attach_shader(program, vs);
+    gl.attach_shader(program, fs);
+    gl.link_program(program);
+    Some(MetaballGpu {
+        program,
+        u_res: gl.get_uniform_location(program, "uRes"),
+        u_count: gl.get_uniform_location(program, "uCount"),
+        u_balls: gl.get_uniform_location(program, "uBalls"),
+        u_balls2: gl.get_uniform_location(program, "uBalls2"),
+        u_bg: gl.get_uniform_location(program, "uBg"),
+    })
+}
+
+/// Render the strokes' metaball field into the texture via the shader + an FBO.
+fn render_metaballs_gpu(
+    mgpu: &MetaballGpu,
+    gl: &GlContextPtr,
+    texture_id: u32,
+    tw: u32,
+    th: u32,
+    strokes: &[Stroke],
+    bg: ColorU,
+) {
+    let mut balls: Vec<f32> = Vec::new();
+    let mut balls2: Vec<f32> = Vec::new();
+    for s in strokes {
+        let col = if s.is_eraser { bg } else { s.color };
+        let (cr, cg, cb) = (col.r as f32 / 255.0, col.g as f32 / 255.0, col.b as f32 / 255.0);
+        for p in &s.points {
+            let r = (BASE_RADIUS * (0.6 + p.pressure * 2.0)).max(2.0);
+            let tilt = (p.tilt_x * p.tilt_x + p.tilt_y * p.tilt_y).sqrt();
+            let ecc = (tilt / 60.0).max(0.0).min(0.85);
+            let ang = p.tilt_x.atan2(p.tilt_y) + p.barrel_roll_rad;
+            balls.extend_from_slice(&[p.x, p.y, r, ang]);
+            balls2.extend_from_slice(&[ecc, cr, cg, cb]);
+        }
+    }
+    let mut count = balls.len() / 4;
+    if count > MAX_GPU_BALLS {
+        let drop = (count - MAX_GPU_BALLS) * 4; // keep the most-recent balls
+        balls.drain(0..drop);
+        balls2.drain(0..drop);
+        count = MAX_GPU_BALLS;
+    }
+
+    let fbo = gl.gen_framebuffers(1).get(0).into_option().unwrap_or(0);
+    if fbo == 0 || texture_id == 0 || mgpu.program == 0 {
+        return;
+    }
+    gl.bind_framebuffer(GL_FRAMEBUFFER, fbo);
+    gl.framebuffer_texture_2d(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture_id, 0);
+    gl.viewport(0, 0, tw as i32, th as i32);
+    gl.use_program(mgpu.program);
+    gl.uniform_2fv(mgpu.u_res, F32VecRef::from(&[tw as f32, th as f32][..]));
+    gl.uniform_1i(mgpu.u_count, count as i32);
+    if count > 0 {
+        gl.uniform_4fv(mgpu.u_balls, F32VecRef::from(&balls[..]));
+        gl.uniform_4fv(mgpu.u_balls2, F32VecRef::from(&balls2[..]));
+    }
+    gl.uniform_3fv(
+        mgpu.u_bg,
+        F32VecRef::from(&[bg.r as f32 / 255.0, bg.g as f32 / 255.0, bg.b as f32 / 255.0][..]),
+    );
+    gl.draw_arrays(GL_TRIANGLE_STRIP, 0, 4);
+    gl.bind_framebuffer(GL_FRAMEBUFFER, 0u32);
+    gl.delete_framebuffers((&[fbo][..]).into());
+}
+
 /// RenderImageCallback: produce the canvas image, re-rasterizing strokes only
 /// when `PaintState.rev` differs from the cache's `rendered_rev`.
 extern "C" fn render_canvas(mut data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
@@ -395,8 +551,18 @@ fn render_canvas_inner(
     // GPU is used only for the plain brush with no imported background + a usable
     // GL context. Metaballs and an imported background composite on the CPU.
     let gl = info.get_gl_context().into_option();
-    let use_gpu =
-        !metaball_mode && background.is_none() && gl.as_ref().map_or(false, |g| g.is_gl_usable());
+    let gl_usable = gl.as_ref().map_or(false, |g| g.is_gl_usable());
+    // Lazy-compile the GPU metaball shader on first use (when GL is usable).
+    if metaball_mode && gl_usable && background.is_none() && cache.metaball_gpu.is_none() {
+        if let Some(g) = gl.as_ref() {
+            cache.metaball_gpu = compile_metaball_gpu(g);
+        }
+    }
+    // GPU for the brush whenever usable + no imported background; for metaballs
+    // only if the shader compiled (else fall through to the CPU metaball path).
+    let use_gpu = background.is_none()
+        && gl_usable
+        && (!metaball_mode || cache.metaball_gpu.is_some());
 
     if use_gpu {
         let gl = gl.unwrap();
@@ -410,7 +576,13 @@ fn render_canvas_inner(
             cache.rendered_rev = 0; // force a full re-rasterize
         }
         if cache.rendered_rev != rev {
-            if let Some(tex) = cache.texture.as_mut() {
+            if metaball_mode {
+                // GPU metaballs: render the thresholded field into the texture.
+                let tid = cache.texture.as_ref().map(|t| t.texture_id).unwrap_or(0);
+                if let Some(mgpu) = cache.metaball_gpu.as_ref() {
+                    render_metaballs_gpu(mgpu, &gl, tid, w, h, &strokes, bg);
+                }
+            } else if let Some(tex) = cache.texture.as_mut() {
                 tex.clear();
                 for s in &strokes {
                     rasterize_stroke(s, bg, |x0, y0, x1, y1, b| tex.paint_stroke(x0, y0, x1, y1, b));
@@ -460,14 +632,22 @@ fn clear_export(cache: &mut CanvasCache) {
 /// node to the new one across DOM rebuilds (so we don't re-allocate/re-paint
 /// every relayout). The new node's `paint` (current PaintState) is kept.
 extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
-    let (tex, img, rev) = match old_data.downcast_ref::<CanvasCache>() {
-        Some(old) => (old.texture.clone(), old.cpu_image.clone(), old.rendered_rev),
+    // Move the (non-Clone) compiled GPU program out of the old cache; clone the
+    // refcounted texture/image handles.
+    let (tex, img, rev, mgpu) = match old_data.downcast_mut::<CanvasCache>() {
+        Some(mut old) => (
+            old.texture.clone(),
+            old.cpu_image.clone(),
+            old.rendered_rev,
+            old.metaball_gpu.take(),
+        ),
         None => return new_data,
     };
     if let Some(mut new) = new_data.downcast_mut::<CanvasCache>() {
         new.texture = tex;
         new.cpu_image = img;
         new.rendered_rev = rev;
+        new.metaball_gpu = mgpu;
     }
     new_data
 }
@@ -506,6 +686,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         paint: data.clone(),
         texture: None,
         cpu_image: None,
+        metaball_gpu: None,
         rendered_rev: 0,
     });
 
