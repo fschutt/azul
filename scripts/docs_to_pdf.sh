@@ -48,13 +48,14 @@ command -v pdfunite >/dev/null || { echo "ERROR: pdfunite not found (apt: popple
 command -v node >/dev/null || { echo "ERROR: node not found (drives Chrome over CDP; needs Node 22+ for the built-in WebSocket)." >&2; exit 1; }
 
 # --- 1. generate the HTML site (debug = root-relative URLs for local serving) ---
-if [ "$SKIP_DEPLOY" -eq 1 ] && [ -d "$DEPLOY/guide" ]; then
+if [ "$SKIP_DEPLOY" -eq 1 ] && [ -d "$DEPLOY/ui/guide" ]; then
   echo "==> Reusing existing deploy at $DEPLOY (--skip-deploy)"
 else
   echo "==> Generating docs (azul-doc deploy debug)..."
   ( cd "$ROOT" && cargo run -r -p azul-doc deploy debug )
 fi
-[ -d "$DEPLOY/guide" ] || { echo "ERROR: no guide pages at $DEPLOY/guide" >&2; exit 1; }
+# The docs site moved under /ui (doc/src/main.rs writes <deploy>/ui/{guide,api,...}).
+[ -d "$DEPLOY/ui/guide" ] || { echo "ERROR: no guide pages at $DEPLOY/ui/guide" >&2; exit 1; }
 
 # --- 2. serve the deploy dir so /images, /main.css, etc. resolve -----------
 echo "==> Serving $DEPLOY on :$PORT ..."

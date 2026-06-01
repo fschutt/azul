@@ -106,7 +106,7 @@ const outline = [{ title: 'Azul Documentation', level: 0 }];
 books.forEach((b, i) => {
   const items = b.pages.map((g) => {
     const depth = (g.fileName.match(/\//g) || []).length;       // 0 = top level
-    return `<li class="d${depth}"><a href="${baseUrl}/guide/${g.fileName}.html">${esc(g.title)}</a></li>`;
+    return `<li class="d${depth}"><a href="${baseUrl}/ui/guide/${g.fileName}.html">${esc(g.title)}</a></li>`;
   }).join('\n');
   writeFileSync(join(deployDir, '_pdf', `book-${i}.html`), pageHtml(b.title,
     `<div class=booktitle><div class=num>${b.num}</div><h1>${esc(b.title)}</h1><div class=sub>${esc(b.sub)}</div></div>
@@ -114,7 +114,7 @@ books.forEach((b, i) => {
   urls.push(`${baseUrl}/_pdf/book-${i}.html`);
   outline.push({ title: `${b.num}: ${b.title}`, level: 0 });
   for (const g of b.pages) {
-    urls.push(`${baseUrl}/guide/${g.fileName}.html`);
+    urls.push(`${baseUrl}/ui/guide/${g.fileName}.html`);
     outline.push({ title: g.title, level: 1 });
   }
 });
