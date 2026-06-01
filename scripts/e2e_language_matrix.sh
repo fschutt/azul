@@ -364,9 +364,13 @@ run_bt() {
     echo ""
     echo "[e2e] '$1' died with exit $rc (signal $((rc - 128))) — re-running under a debugger for a backtrace:"
     if command -v lldb >/dev/null 2>&1; then
-      lldb --batch -o "run" -o "thread backtrace all" -o "quit" -- "$@" 2>&1 || true
+      lldb --batch -o "run" -o "thread backtrace all" -o "frame variable" \
+        -o "register read" -o "disassemble -c 8 -p" -o "quit" -- "$@" 2>&1 || true
     elif command -v gdb >/dev/null 2>&1; then
-      gdb -batch -ex "run" -ex "thread apply all bt" -ex "quit" --args "$@" 2>&1 || true
+      # bt full = locals per frame; registers + a few insns at $pc help read a
+      # corrupted slice (ptr in rdi/rsi, len in rsi/rdx) when symbols are thin.
+      gdb -batch -ex "run" -ex "thread apply all bt full" -ex "info registers" \
+        -ex "x/8i \$pc" -ex "quit" --args "$@" 2>&1 || true
     else
       echo "[e2e] no lldb/gdb available — install one for crash backtraces"
     fi
@@ -655,6 +659,15 @@ lang_java() {
     # explicitly so the build-helper source root is unambiguous.
     mvn -q package -Dazul.codegen.dir="$CODEGEN_DIR/java" || exit 1
     local JNA_JAR="$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar"
+    # Ensure the JNA jar is actually present at $JNA_JAR (the parallel driver may
+    # race on ~/.m2, or mvn's local repo may differ). Mirror the kotlin recipe:
+    # fetch it explicitly if missing, then guard. Diagnostic ls so a missing jar
+    # is obvious in the failure dump (manifests as NoClassDefFoundError jna).
+    if [ ! -f "$JNA_JAR" ]; then
+      mvn -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:get \
+        -Dartifact=net.java.dev.jna:jna:5.14.0 >/dev/null 2>&1 || true
+    fi
+    ls -la "$JNA_JAR" 2>&1 || echo "[e2e] JNA jar MISSING at $JNA_JAR"
     # Portable classpath. On Windows the JVM needs ';' AND Windows-style paths:
     # the MSYS '/c/Users/...' JNA path is unreadable to java.exe (-> JNA
     # NoClassDefFoundError), and ':' relies on fragile MSYS auto-conversion. Use
