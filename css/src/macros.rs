@@ -254,13 +254,23 @@ macro_rules! impl_vec {
             fn drop(&mut self) {
                 match self.destructor {
                     $destructor_name::DefaultRust => {
-                        let _ = unsafe {
-                            alloc::vec::Vec::from_raw_parts(
-                                self.ptr as *mut $struct_type,
-                                self.len,
-                                self.cap,
-                            )
-                        };
+                        // Defensive: a library-owned Vec only owns an allocation
+                        // when `ptr` is non-null and `cap != 0`. A zeroed / moved-
+                        // from FFI husk (e.g. a struct field a C++ wrapper move-
+                        // cleared, leaving destructor == DefaultRust [tag 0] with a
+                        // null ptr but a stale len) would otherwise hit
+                        // `Vec::from_raw_parts(null, len, _)` and deref 0x0 on drop.
+                        // Skip when there is nothing to free. (Empty Vecs have
+                        // cap == 0; valid non-empty Vecs are unaffected.)
+                        if !self.ptr.is_null() && self.cap != 0 {
+                            let _ = unsafe {
+                                alloc::vec::Vec::from_raw_parts(
+                                    self.ptr as *mut $struct_type,
+                                    self.len,
+                                    self.cap,
+                                )
+                            };
+                        }
                         self.destructor = $destructor_name::AlreadyDestroyed;
                     }
                     $destructor_name::External(f) => {
