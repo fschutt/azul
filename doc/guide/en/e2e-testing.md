@@ -170,6 +170,28 @@ A typical workflow:
 
 For per-PR feedback, every shell script in [`tests/e2e/`](https://github.com/fschutt/azul/tree/master/tests/e2e) is a `curl`-against-`AZ_DEBUG` driver that became a JSON test once it was stable.
 
+The language-binding board ([`scripts/e2e_language_matrix.sh`](https://github.com/fschutt/azul/blob/master/scripts/e2e_language_matrix.sh)) runs the same counter scenario against every binding and prints a status table. On a `--gate-shipped` failure it now dumps the tail of each failed binding's build/run log **and** its `AZ_RECORD` trace, so CI logs explain the failure without a local repro.
+
+## Language toolchain prerequisites
+
+Each binding drives the prebuilt library (built with `--features build-dll,debug-server`, which compiles in the `AZ_E2E` runner) and needs its own toolchain to build and run the hello-world. Missing toolchains report `⊘ SKIP` (they do not gate); a present-but-broken toolchain reports `✗ FAILS`. The shipped tier:
+
+| Binding | Toolchain | Notes / common gotchas |
+|---|---|---|
+| Rust   | `cargo`/`rustc` 1.88+ | The example links the prebuilt DLL with `--no-default-features --features link-dynamic` (not `link-static`, which rebuilds Azul without the `debug-server` E2E runner). On Windows the import lib must be reachable as both `azul.dll.lib` and `azul.lib`. |
+| C      | `clang`/`gcc`; MinGW on Windows (links `azul.dll.lib`) | Include the generated `azul.h`. |
+| C++    | `clang++`/`g++` with `-std=c++20` (also 03–23) | Include `azul20.hpp`. Wrapper types are move-only RAII; pass owning values with `std::move` — never copy a moved-from wrapper. |
+| Python | CPython 3.10+ | Uses the `azul` extension module (a separate build), not FFI. |
+| Node   | `node` + the `koffi` npm package | macOS strips `DYLD_*` from the hardened `node`, so `koffi` must find the lib by an explicit path or the lib must sit next to the script. |
+| C#     | .NET SDK (`dotnet`) | P/Invoke; the native lib must be loadable next to the build output. |
+| **Java**   | **JDK 17+** and **Maven (`mvn`)** + **JNA 5.14** | The build targets release 11, so a JDK older than 11 fails with `invalid target release: 11` — pin JDK 17 (e.g. `actions/setup-java@v4` with Temurin 17). On macOS the JVM needs `-XstartOnFirstThread`. |
+| **Kotlin** | **JDK 17+**, `kotlinc` (or Gradle) + **JNA 5.14** | Same JDK requirement as Java; `kotlinc` compiles `Azul.kt` + `HelloWorld.kt` against the JNA jar. |
+| **Ruby**   | `ruby` + the **`ffi` gem** | `require 'ffi'` fails with `LoadError` unless the gem is installed: `gem install ffi`. It is **not** preinstalled on CI runners. |
+| **Lua**    | **LuaJIT** (the stock PUC `lua` has no FFI) | Needs an FFI-complete LuaJIT — an old LuaJIT (e.g. Ubuntu's `2.1.0-beta3`) raises `NYI: cannot call this C function (yet)` on struct-by-value calls; use a current LuaJIT build. |
+| Go     | `go` toolchain + a C compiler (cgo) | — |
+
+`AZ_LOG` is on by default (see [Debugging](debugging.md)), so a binding that builds but exits early will print the platform-layer trace on stderr, which the board captures.
+
 ## Recording a test from the inspector
 
 The in-browser inspector at `http://localhost:<port>/` includes an E2E designer. Click "Record", interact with the running window normally, and the inspector captures each click, text input, scroll, and resize as a step. Click "Stop", review the steps, and either run them in place or export to JSON for `AZ_E2E`.

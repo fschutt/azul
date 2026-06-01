@@ -39,8 +39,9 @@ curl -s -X POST http://localhost:8765/ -d '{"op":"get_dom_tree"}'
 
 ## Environment flags
 
-Every flag is read once at process start. Unset means off. All are independent and can be combined.
+Every flag is read once at process start. Unset means off — **except `AZ_LOG`, which is ON by default** (see below). All are independent and can be combined.
 
+- `AZ_LOG=<level>`. Controls Azul's built-in stderr logger, **enabled by default**. Azul installs a logger automatically at `App::create` so the platform layer (windowing, event loop, layout, device backends) is never silent — if your app exits unexpectedly, the reason is on stderr. Levels: `off`/`0`/`false` silences it entirely; `error`, `warn`, `info`, `debug` (the default), `trace` (everything, including per-frame). It honors `NO_COLOR` and only colorizes a TTY. If your host already installs a logger (Python's `pyo3-log`, Android's `android_logger`, your own `env_logger`), Azul's logger steps aside and does not override it.
 - `AZ_DEBUG=<port>`. Binds the HTTP debug server on `127.0.0.1:<port>`. A bind failure exits the process.
 - `AZ_BACKEND=<mode>`. One of `auto`, `gpu`, `cpu`, or `headless`. Resolves the rendering backend. `headless` skips the OS window and is required by the E2E runner. Default `auto`.
 - `AZUL_HEADLESS=1`. Legacy alias for `AZ_BACKEND=headless`.
@@ -144,7 +145,9 @@ The inspector is a single HTML/JS bundle compiled into the binary and served bro
 
 ## Logging and crash handling
 
-Standard `log` crate output is filtered by `RUST_LOG` and mirrored to disk by `AZ_RECORD=<path>`. The debug server keeps its own ring buffer of recent log entries; query it with `{"op":"get_logs"}` to see what fired during the last command.
+By default Azul installs a built-in stderr logger at `App::create` (the `AZ_LOG` flag above), so every `log`-crate message — including the platform-layer traces (`App::run` entry, the selected display backend and `WAYLAND_DISPLAY`/`DISPLAY` on Linux, window creation, each layout pass, font loading) — prints to stderr without any extra setup. This is why an app that previously "just exited with no error" now tells you exactly which step it reached. Set `AZ_LOG=trace` for the full firehose, `AZ_LOG=off` to silence it, or install your own logger (which takes precedence). `RUST_LOG` further filters by target/level once a logger is installed, and `AZ_RECORD=<path>` mirrors every internal message (including the debug-server categories) to disk. The debug server also keeps its own ring buffer of recent entries; query it with `{"op":"get_logs"}` to see what fired during the last command.
+
+If `App::run` returns an error (e.g. no display server could be opened), it is always written to stderr on every platform — on Linux the GUI message box silently no-ops without `zenity`/`kdialog`, so stderr is the guaranteed channel.
 
 `App::create` installs a panic handler that captures and demangles the backtrace, logs the formatted panic at error level (visible in stdout, in `RUST_LOG`, in `AZ_RECORD`, and in `{"op":"get_logs"}`), and optionally opens a native `MsgBox` summarising the failure for the end user.
 
