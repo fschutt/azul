@@ -3264,20 +3264,43 @@ impl MacOSWindow {
             let hit_tester = render_api
                 .request_hit_tester(wr_translate_document_id(document_id))
                 .resolve();
-            let gl_ctx_ptr: OptionGlContextPtr = gl_context
+            let gl_ctx_inner =
+                gl_context.as_ref().map(|_| {
+                    GlContextPtr::new(RendererType::Hardware, gl_funcs.clone())
+                });
+            // PROVE the context: if our SVG/brush shaders won't compile at any
+            // GLSL version the driver is too broken for GPU rendering -- fall back
+            // to CPU (mirror the X11/Windows backends). The GPU renderer/render_api
+            // we just built are dropped here.
+            let gl_usable = gl_ctx_inner
                 .as_ref()
-                .map(|_| GlContextPtr::new(RendererType::Hardware, gl_funcs.clone()))
-                .into();
-
-            (
-                Some(renderer),
-                Some(render_api),
-                Some(document_id),
-                Some(id_namespace),
-                Some(AsyncHitTester::Resolved(hit_tester)),
-                gl_ctx_ptr,
-                RendererType::Hardware,
-            )
+                .map(|p| p.is_gl_usable())
+                .unwrap_or(false);
+            if gl_usable {
+                (
+                    Some(renderer),
+                    Some(render_api),
+                    Some(document_id),
+                    Some(id_namespace),
+                    Some(AsyncHitTester::Resolved(hit_tester)),
+                    gl_ctx_inner.into(),
+                    RendererType::Hardware,
+                )
+            } else {
+                crate::plog_warn!(
+                    "[macOS] GL context unusable (azul shaders failed to compile at any \
+                     GLSL version) -- falling back to CPU rendering for this window"
+                );
+                (
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    OptionGlContextPtr::None,
+                    RendererType::Software,
+                )
+            }
         } else {
             log_info!(
                 LogCategory::Rendering,

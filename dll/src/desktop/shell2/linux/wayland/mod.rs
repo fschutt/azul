@@ -1323,7 +1323,7 @@ impl WaylandWindow {
         self.common.hit_tester = Some(AsyncHitTester::Requested(hit_tester_request));
         // R1: software GL (llvmpipe/swrast) can't compile desktop GLSL-150 SVG/FXAA
         // shaders — detect it and mark the GlContextPtr Software so they're skipped.
-        let renderer_type = match crate::desktop::shell2::common::compositor::query_gpu_info(
+        let mut renderer_type = match crate::desktop::shell2::common::compositor::query_gpu_info(
             &gl_functions.functions,
         ) {
             crate::desktop::shell2::common::compositor::GpuCheckResult::Blacklisted {
@@ -1332,7 +1332,7 @@ impl WaylandWindow {
             } => {
                 log_warn!(
                     LogCategory::Platform,
-                    "[Wayland] software/blacklisted GL ({}): {} — skipping GPU SVG/FXAA shaders",
+                    "[Wayland] software/blacklisted GL ({}): {} -- skipping GPU SVG/FXAA shaders",
                     info.renderer,
                     reason
                 );
@@ -1340,6 +1340,23 @@ impl WaylandWindow {
             }
             _ => RendererType::Hardware,
         };
+        // PROVE the context: a non-blacklisted driver can still reject our
+        // SVG/brush shaders at every GLSL version. is_gl_usable() actually
+        // compiles them; on failure downgrade to Software so the GPU SVG/FXAA/
+        // brush shaders are skipped (WebRender, created above, keeps compositing).
+        // This is the Wayland analogue of the X11 "context unusable -> CPU"
+        // fallback -- here the already-committed WebRender renderer makes a
+        // Software downgrade the safe equivalent of a full CPU switch.
+        if matches!(renderer_type, RendererType::Hardware) {
+            let probe = GlContextPtr::new(RendererType::Hardware, gl_functions.functions.clone());
+            if !probe.is_gl_usable() {
+                crate::plog_warn!(
+                    "[Wayland] GL context unusable (shaders failed to compile at any GLSL \
+                     version) -- skipping GPU SVG/FXAA/brush shaders"
+                );
+                renderer_type = RendererType::Software;
+            }
+        }
         self.common.gl_context_ptr = OptionGlContextPtr::Some(GlContextPtr::new(
             renderer_type,
             gl_functions.functions.clone(),

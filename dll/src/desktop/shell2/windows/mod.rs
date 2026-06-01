@@ -304,10 +304,22 @@ impl Win32Window {
                         );
                     }
                     gl_functions.load();
-                    let gl_context_ptr = OptionGlContextPtr::Some(azul_core::gl::GlContextPtr::new(
+                    let gl_ctx_inner = azul_core::gl::GlContextPtr::new(
                         RendererType::Hardware,
                         gl_functions.functions.clone(),
-                    ));
+                    );
+                    // PROVE the context: if our SVG/brush shaders won't compile at
+                    // any GLSL version the driver is too broken for GPU rendering --
+                    // bail to the CPU path (mirrors the X11 backend). Returning Err
+                    // triggers the CPU fallback in the match below, and skips the
+                    // (now-pointless) WebRender renderer creation.
+                    if !gl_ctx_inner.is_gl_usable() {
+                        return Err(WindowError::PlatformError(
+                            "GL context unusable (azul shaders failed to compile at any GLSL version)"
+                                .into(),
+                        ));
+                    }
+                    let gl_context_ptr = OptionGlContextPtr::Some(gl_ctx_inner);
 
                     let (mut renderer, sender) = webrender::create_webrender_instance(
                         gl_functions.functions.clone(),
