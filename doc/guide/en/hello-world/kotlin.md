@@ -138,6 +138,14 @@ You should see the window pictured on the [hello-world landing page](../hello-wo
 - **Counter does not advance** — the click handler wrote `AzUpdate.DoNothing.value`.
 - **`NullPointerException` on `outPtr`** — the `!!` unwrap on the SAM's nullable
   `Pointer?` arg is required; keep it.
+- **Process hangs at exit on Windows** — the example builds and runs the whole
+  headless layout, but the JVM may not terminate afterwards. This is a known
+  JNA-on-Windows behaviour: the JVM exits only once **all non-daemon threads
+  end** and the native event queue is drained, so a native (libazul) thread or
+  window left on the JVM thread keeps it alive. The binding itself is fine — it
+  passes the full run on macOS, and the Java binding (same JVM) runs on Windows
+  — so a fix needs a Windows-host thread dump of the hung JVM. The E2E board
+  reports Kotlin `⊘ SKIP` on Windows for this reason.
 
 ## Coming Up Next
 
