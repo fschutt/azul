@@ -703,6 +703,20 @@ impl X11Window {
                         self.common.next_relayout_reason =
                             azul_core::callbacks::RelayoutReason::Resize;
                         self.regenerate_layout().ok();
+
+                        // Repaint the resized window. A traditional X server sends
+                        // an Expose after ConfigureNotify (which would render), but
+                        // XWayland and some compositors do NOT — so without this the
+                        // window relayouts on resize but never presents a new frame.
+                        // request_redraw() queues a self-Expose (reliable, unlike a
+                        // WM-generated one) and coalesces, so this is harmless on a
+                        // traditional X server too.
+                        crate::plog_info!(
+                            "[X11] ConfigureNotify resize -> {}x{}: relayout + request_redraw",
+                            new_width,
+                            new_height
+                        );
+                        self.request_redraw();
                     }
 
                     // F4: this geometry was REPORTED BY the WM (source = Os), so
@@ -1814,6 +1828,16 @@ impl X11Window {
                     self.common.next_relayout_reason =
                         azul_core::callbacks::RelayoutReason::Resize;
                     self.regenerate_layout().ok();
+
+                    // XWayland / some compositors don't send an Expose after
+                    // ConfigureNotify, so request a repaint explicitly (self-Expose,
+                    // coalesced) — otherwise resize relayouts but never presents.
+                    crate::plog_info!(
+                        "[X11] ConfigureNotify resize -> {}x{}: relayout + request_redraw",
+                        new_width,
+                        new_height
+                    );
+                    self.request_redraw();
                 }
 
                 crate::plog_trace!(
