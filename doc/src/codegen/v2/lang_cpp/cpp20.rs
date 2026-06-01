@@ -882,8 +882,13 @@ fn emit_method_declarations(
             continue;
         }
 
-        let is_const =
-            has_self && (matches!(func.kind, FunctionKind::Method) || func.is_const);
+        // value-self (consuming) methods are non-const (they relinquish inner_
+        // via release() in the impl; a const dtor-double-free would crash).
+        let self_is_value = has_self
+            && func.args.first().map(|a| a.ref_kind == ArgRefKind::Owned).unwrap_or(false);
+        let is_const = has_self
+            && !self_is_value
+            && (matches!(func.kind, FunctionKind::Method) || func.is_const);
         let const_suffix = if is_const { " const" } else { "" };
         let static_prefix = if !has_self { "static " } else { "" };
         let cpp_args =
@@ -1025,7 +1030,14 @@ fn generate_method_implementations_shared(
         let cpp_fn_name = escape_method_name(&func.method_name);
         let c_fn_name = &func.c_name;
         let has_self = func_has_self(func);
-        let is_const = has_self && (matches!(func.kind, FunctionKind::Method) || func.is_const);
+        // value-self (consuming) methods relinquish inner_ via release() (see
+        // below), so they are non-const -- a const method here would leave
+        // `this` owning the consumed inner_ and double-free it in its dtor.
+        let self_is_value = has_self
+            && func.args.first().map(|a| a.ref_kind == ArgRefKind::Owned).unwrap_or(false);
+        let is_const = has_self
+            && !self_is_value
+            && (matches!(func.kind, FunctionKind::Method) || func.is_const);
         let const_suffix = if is_const { " const" } else { "" };
         let cpp_return_type = get_cpp_return_type(func.return_type.as_deref(), ir);
         let substitute = should_substitute_callbacks(func);
@@ -1034,12 +1046,9 @@ fn generate_method_implementations_shared(
         let call_args = generate_call_args_ex(&func.args, ir, config, true, class_name, substitute);
 
         let full_call_args = if has_self {
-            let self_is_value = func
-                .args
-                .first()
-                .map(|a| a.ref_kind == ArgRefKind::Owned)
-                .unwrap_or(false);
-            let self_arg = if self_is_value { "inner_" } else { "&inner_" };
+            // release() relinquishes ownership (owned_=false / zero the source) so
+            // the C-ABI-consumed inner_ is not double-freed; by-ref borrows.
+            let self_arg = if self_is_value { "release()" } else { "&inner_" };
             if call_args.is_empty() {
                 self_arg.to_string()
             } else {
