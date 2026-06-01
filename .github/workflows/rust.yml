@@ -1280,7 +1280,9 @@ jobs:
 
       - name: Install dependencies (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+        # gdb: lets the language matrix capture a backtrace when a native binding
+        # (C/C++/Rust) crashes, so a "crash at runtime" reports a stack.
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev gdb
 
       # MinGW gives cgo/C/C++ a gcc that links the MSVC import lib (mirrors
       # build_binaries' Windows setup). Only the c-cpp + scripting (go) families

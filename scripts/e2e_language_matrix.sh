@@ -350,6 +350,30 @@ _timeout() {
 # skip <lang> <note>
 skip() { record "$1" "SKIP" "$2"; }
 
+# run_bt <cmd...>: run <cmd>; if it dies from a signal (segfault/abort/bus),
+# re-run it once under a debugger and print a full backtrace, so a native crash
+# is reported with a stack instead of a bare "Segmentation fault". MUST be called
+# inside a lang's `( ... ) >"$f" 2>&1` subshell — all output (including the
+# backtrace) flows to that language's log, which the failure dump then surfaces.
+# Returns the original exit code so classification is unaffected.
+run_bt() {
+  "$@"
+  local rc=$?
+  # 128+signal: 132=ILL, 134=ABRT, 136=FPE, 138=BUS, 139=SEGV.
+  if [ "$rc" -ge 128 ]; then
+    echo ""
+    echo "[e2e] '$1' died with exit $rc (signal $((rc - 128))) — re-running under a debugger for a backtrace:"
+    if command -v lldb >/dev/null 2>&1; then
+      lldb --batch -o "run" -o "thread backtrace all" -o "quit" -- "$@" 2>&1 || true
+    elif command -v gdb >/dev/null 2>&1; then
+      gdb -batch -ex "run" -ex "thread apply all bt" -ex "quit" --args "$@" 2>&1 || true
+    else
+      echo "[e2e] no lldb/gdb available — install one for crash backtraces"
+    fi
+  fi
+  return "$rc"
+}
+
 # Run a build+run recipe for a language, capturing combined output to its log,
 # then classify WORKS/FAILS from the log. Usage:
 #   run_lang <lang> <note-prefix> <<'RECIPE' ... RECIPE   (heredoc body is bash)
@@ -451,9 +475,17 @@ lang_rust() {
     # per-lang timeout kills it. link-dynamic instead links the prebuilt DLL
     # (built with build-dll,debug-server) that build.rs finds in target/release,
     # whose run() honors AZ_E2E — and it skips the multi-minute azul recompile.
+    # On Windows the link-dynamic build links the prebuilt MSVC import lib
+    # `azul.lib`; rustc/build.rs doesn't reliably put target/release on the
+    # linker search path, so add it explicitly. `-L` is ADDITIVE (emits an extra
+    # `/LIBPATH:`), so the system LIB paths (kernel32 etc.) are preserved —
+    # unlike overwriting the `LIB` env var.
+    if [ "$IS_WINDOWS" = 1 ]; then
+      export RUSTFLAGS="${RUSTFLAGS:-} -L native=$(cygpath -m "$RELEASE_DIR" 2>/dev/null || echo "$RELEASE_DIR")"
+    fi
     cargo build --release -p azul-examples --example hello-world \
       --no-default-features --features link-dynamic || exit 1
-    ./target/release/examples/hello-world
+    run_bt ./target/release/examples/hello-world
   ) >"$f" 2>&1
   finish rust
 }
@@ -481,13 +513,13 @@ lang_cpp() {
         -framework CoreText -framework CoreFoundation -o hello-world-e2e || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
       "$CXX" -g -O0 -std=c++20 -I. hello-world.cpp "$RELEASE_DIR/azul.dll.lib" -o hello-world-e2e.exe || exit 1
-      ./hello-world-e2e.exe
+      run_bt ./hello-world-e2e.exe
       exit $?
     else
       "$CXX" -g -O0 -std=c++20 -I. hello-world.cpp -L"$RELEASE_DIR" -lazul \
         -lpthread -lm -ldl -o hello-world-e2e || exit 1
     fi
-    ./hello-world-e2e
+    run_bt ./hello-world-e2e
   ) >"$f" 2>&1
   finish cpp
 }
@@ -623,7 +655,11 @@ lang_java() {
     # explicitly so the build-helper source root is unambiguous.
     mvn -q package -Dazul.codegen.dir="$CODEGEN_DIR/java" || exit 1
     local JNA_JAR="$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar"
-    local JVM_ARGS=(-Djna.library.path=. -cp "target/hello-world-1.0.0.jar:$JNA_JAR" com.azul.HelloWorld)
+    # Java's -cp separator is ';' on Windows, ':' elsewhere — using ':' on
+    # Windows makes the JVM treat the whole list as ONE bogus entry and the main
+    # class is not found.
+    local CPSEP=":"; [ "$IS_WINDOWS" = 1 ] && CPSEP=";"
+    local JVM_ARGS=(-Djna.library.path=. -cp "target/hello-world-1.0.0.jar${CPSEP}$JNA_JAR" com.azul.HelloWorld)
     if [ "$IS_MACOS" = 1 ]; then
       java -XstartOnFirstThread "${JVM_ARGS[@]}"
     else
@@ -658,12 +694,15 @@ lang_kotlin() {
       [ -f "$JNA_JAR" ] || { echo "JNA jar not found at $JNA_JAR"; exit 1; }
       kotlinc -J-Xmx4g -cp "$JNA_JAR" Azul.kt HelloWorld.kt \
         -include-runtime -d hello-world.jar || exit 1
+      # ';' classpath separator on Windows, ':' elsewhere (else the JVM can't
+      # find com.azul.HelloWorldKt -> ClassNotFoundException).
+      local CPSEP=":"; [ "$IS_WINDOWS" = 1 ] && CPSEP=";"
       if [ "$IS_MACOS" = 1 ]; then
         java -XstartOnFirstThread -Djna.library.path=. \
-          -cp "hello-world.jar:$JNA_JAR" com.azul.HelloWorldKt
+          -cp "hello-world.jar${CPSEP}$JNA_JAR" com.azul.HelloWorldKt
       else
         java -Djna.library.path=. \
-          -cp "hello-world.jar:$JNA_JAR" com.azul.HelloWorldKt
+          -cp "hello-world.jar${CPSEP}$JNA_JAR" com.azul.HelloWorldKt
       fi
     ) >"$f" 2>&1
     finish kotlin "kotlin build/run failed (kotlinc/JNA)"
