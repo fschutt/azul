@@ -883,6 +883,14 @@ impl GlContextPtr {
     pub fn get_svg_shader(&self) -> GLuint {
         self.ptr.svg_shader
     }
+    /// Whether this hardware GL context proved usable at construction (the SVG
+    /// shaders compiled+linked at some GLSL version). `false` means context
+    /// creation succeeded but the driver can't run our shaders — the caller
+    /// should fall back to CPU rendering. Always `false` for a Software context
+    /// (which never compiles these shaders); only meaningful on the GPU path.
+    pub fn is_gl_usable(&self) -> bool {
+        self.ptr.svg_shader != 0
+    }
     pub fn get_fxaa_shader(&self) -> GLuint {
         self.ptr.fxaa_shader
     }
@@ -998,6 +1006,9 @@ void main() {
 }";
 
 /// Checks if a shader compiled successfully. Logs an error under `std`.
+/// (Retained for diagnostics; the version probe in `GlContextPtr::new` now does
+/// its own status checks.)
+#[allow(dead_code)]
 fn check_shader_compile(gl_context: &GenericGlContext, shader: GLuint, _label: &str) {
     let mut status = [0_i32];
     unsafe { gl_context.get_shader_iv(shader, gl::COMPILE_STATUS, &mut status) };
@@ -1011,6 +1022,7 @@ fn check_shader_compile(gl_context: &GenericGlContext, shader: GLuint, _label: &
 }
 
 /// Checks if a program linked successfully. Logs an error under `std`.
+#[allow(dead_code)]
 fn check_program_link(gl_context: &GenericGlContext, program: GLuint, _label: &str) {
     let mut status = [0_i32];
     unsafe { gl_context.get_program_iv(program, gl::LINK_STATUS, &mut status) };
@@ -1023,88 +1035,139 @@ fn check_program_link(gl_context: &GenericGlContext, program: GLuint, _label: &s
     }
 }
 
+/// Swap the leading `#version ...` line of a bundled shader for `version_line`
+/// (which must include the trailing newline). The shader bodies branch on
+/// `__VERSION__`, so only the directive needs to change between GL and GLES.
+#[cfg(feature = "std")]
+fn shader_with_glsl_version(src: &[u8], version_line: &[u8]) -> Vec<u8> {
+    let body_start = src.iter().position(|&b| b == b'\n').map(|i| i + 1).unwrap_or(0);
+    let mut out = Vec::with_capacity(version_line.len() + src.len() - body_start);
+    out.extend_from_slice(version_line);
+    out.extend_from_slice(&src[body_start..]);
+    out
+}
+
+/// Try to compile+link a vertex+fragment program at a specific GLSL `#version`.
+/// Returns the linked program id, or `None` (after cleanup) on ANY compile or
+/// link failure. This is how we PROVE a GL context is actually usable and which
+/// `#version` its driver accepts — creating a context can succeed yet leave it
+/// unable to compile our shaders (broken driver, or a GLES context that rejects
+/// the desktop `#version 150`).
+#[cfg(feature = "std")]
+fn try_compile_program(
+    gl_context: &GenericGlContext,
+    vert_src: &[u8],
+    frag_src: &[u8],
+    version_line: &[u8],
+    attribs: &[(u32, &str)],
+) -> Option<GLuint> {
+    let vs = gl_context.create_shader(gl::VERTEX_SHADER);
+    gl_context.shader_source(vs, &[shader_with_glsl_version(vert_src, version_line).as_slice()]);
+    gl_context.compile_shader(vs);
+    let fs = gl_context.create_shader(gl::FRAGMENT_SHADER);
+    gl_context.shader_source(fs, &[shader_with_glsl_version(frag_src, version_line).as_slice()]);
+    gl_context.compile_shader(fs);
+
+    let mut s = [0_i32];
+    unsafe { gl_context.get_shader_iv(vs, gl::COMPILE_STATUS, &mut s) };
+    let vs_ok = s[0] == gl::TRUE as i32;
+    unsafe { gl_context.get_shader_iv(fs, gl::COMPILE_STATUS, &mut s) };
+    let fs_ok = s[0] == gl::TRUE as i32;
+    if !vs_ok || !fs_ok {
+        gl_context.delete_shader(vs);
+        gl_context.delete_shader(fs);
+        return None;
+    }
+
+    let prog = gl_context.create_program();
+    gl_context.attach_shader(prog, vs);
+    gl_context.attach_shader(prog, fs);
+    for (loc, name) in attribs {
+        gl_context.bind_attrib_location(prog, *loc, (*name).into());
+    }
+    gl_context.link_program(prog);
+    gl_context.delete_shader(vs);
+    gl_context.delete_shader(fs);
+
+    let mut l = [0_i32];
+    unsafe { gl_context.get_program_iv(prog, gl::LINK_STATUS, &mut l) };
+    if l[0] == gl::TRUE as i32 {
+        Some(prog)
+    } else {
+        gl_context.delete_program(prog);
+        None
+    }
+}
+
+/// GLSL `#version` directives to try, in preference order, per context type.
+/// The first that compiles+links the SVG shaders is used for every program.
+fn glsl_version_candidates(gl_type: GlType) -> &'static [&'static [u8]] {
+    match gl_type {
+        GlType::Gl => &[b"#version 150\n", b"#version 330\n", b"#version 140\n"],
+        GlType::Gles => &[b"#version 300 es\n", b"#version 100\n"],
+    }
+}
+
 impl GlContextPtr {
     pub fn new(renderer_type: RendererType, gl_context: Rc<GenericGlContext>) -> Self {
-        // R1: only compile the SVG/FXAA GL shaders for a real GPU. In
-        // Software/CPU mode nothing composites through them, and on a software
-        // GL stack (llvmpipe/swrast — GLES-only) compiling these *desktop*
-        // GLSL 1.50 shaders fails ("GLSL 1.50 is not supported"), which is the
-        // reported Linux error. Leave the program IDs 0 (unused) in that case.
+        // Only attempt the SVG/FXAA GL shaders for a real GPU. In Software/CPU
+        // mode nothing composites through them.
+        //
+        // PROVE the context is usable rather than trusting context creation: try
+        // compiling the SVG program at each candidate `#version` for this context
+        // type (desktop GL 1.50/3.30/1.40, or GLES 3.00/1.00) and use the first
+        // that compiles+links for ALL programs. A GLES GPU (mobile) rejects the
+        // desktop `#version 150`, and a broken driver rejects everything — in the
+        // latter case all program IDs stay 0 and `is_gl_usable()` returns false so
+        // the window can fall back to CPU rendering.
+        #[cfg(feature = "std")]
         let (svg_program_id, svg_multicolor_program_id, fxaa_program_id) =
             if matches!(renderer_type, RendererType::Hardware) {
-                // Compile basic shader
-                let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
-                gl_context.shader_source(vertex_shader_object, &[SVG_VERTEX_SHADER]);
-                gl_context.compile_shader(vertex_shader_object);
-                check_shader_compile(&gl_context, vertex_shader_object, "SVG vertex");
-
-                let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
-                gl_context.shader_source(fragment_shader_object, &[SVG_FRAGMENT_SHADER]);
-                gl_context.compile_shader(fragment_shader_object);
-                check_shader_compile(&gl_context, fragment_shader_object, "SVG fragment");
-
-                let svg_program_id = gl_context.create_program();
-
-                gl_context.attach_shader(svg_program_id, vertex_shader_object);
-                gl_context.attach_shader(svg_program_id, fragment_shader_object);
-                gl_context.bind_attrib_location(svg_program_id, 0, "vAttrXY".into());
-                gl_context.link_program(svg_program_id);
-                check_program_link(&gl_context, svg_program_id, "SVG");
-
-                gl_context.delete_shader(vertex_shader_object);
-                gl_context.delete_shader(fragment_shader_object);
-
-                // Compile multi-color SVG shader
-                let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
-                gl_context.shader_source(vertex_shader_object, &[SVG_MULTICOLOR_VERTEX_SHADER]);
-                gl_context.compile_shader(vertex_shader_object);
-                check_shader_compile(&gl_context, vertex_shader_object, "SVG multicolor vertex");
-
-                let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
-                gl_context.shader_source(fragment_shader_object, &[SVG_MULTICOLOR_FRAGMENT_SHADER]);
-                gl_context.compile_shader(fragment_shader_object);
-                check_shader_compile(&gl_context, fragment_shader_object, "SVG multicolor fragment");
-
-                let svg_multicolor_program_id = gl_context.create_program();
-
-                gl_context.attach_shader(svg_multicolor_program_id, vertex_shader_object);
-                gl_context.attach_shader(svg_multicolor_program_id, fragment_shader_object);
-                gl_context.bind_attrib_location(svg_multicolor_program_id, 0, "vAttrXY".into());
-                gl_context.bind_attrib_location(svg_multicolor_program_id, 1, "vColor".into());
-                gl_context.link_program(svg_multicolor_program_id);
-                check_program_link(&gl_context, svg_multicolor_program_id, "SVG multicolor");
-
-                gl_context.delete_shader(vertex_shader_object);
-                gl_context.delete_shader(fragment_shader_object);
-
-                // Compile FXAA shader
                 use crate::gl_fxaa::{FXAA_FRAGMENT_SHADER, FXAA_VERTEX_SHADER};
-
-                let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
-                gl_context.shader_source(vertex_shader_object, &[FXAA_VERTEX_SHADER]);
-                gl_context.compile_shader(vertex_shader_object);
-                check_shader_compile(&gl_context, vertex_shader_object, "FXAA vertex");
-
-                let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
-                gl_context.shader_source(fragment_shader_object, &[FXAA_FRAGMENT_SHADER]);
-                gl_context.compile_shader(fragment_shader_object);
-                check_shader_compile(&gl_context, fragment_shader_object, "FXAA fragment");
-
-                let fxaa_program_id = gl_context.create_program();
-
-                gl_context.attach_shader(fxaa_program_id, vertex_shader_object);
-                gl_context.attach_shader(fxaa_program_id, fragment_shader_object);
-                gl_context.bind_attrib_location(fxaa_program_id, 0, "vAttrXY".into());
-                gl_context.link_program(fxaa_program_id);
-                check_program_link(&gl_context, fxaa_program_id, "FXAA");
-
-                gl_context.delete_shader(vertex_shader_object);
-                gl_context.delete_shader(fragment_shader_object);
-
-                (svg_program_id, svg_multicolor_program_id, fxaa_program_id)
+                let gl_type: GlType = gl_context.get_type().into();
+                // Probe via the SVG program; the first version that links wins.
+                let mut svg = 0;
+                let mut chosen: Option<&'static [u8]> = None;
+                for ver in glsl_version_candidates(gl_type) {
+                    if let Some(p) = try_compile_program(
+                        &gl_context, SVG_VERTEX_SHADER, SVG_FRAGMENT_SHADER, ver, &[(0, "vAttrXY")],
+                    ) {
+                        svg = p;
+                        chosen = Some(ver);
+                        break;
+                    }
+                }
+                match chosen {
+                    Some(ver) => {
+                        eprintln!(
+                            "azul: GL usable — SVG/FXAA shaders compiled at GLSL {} ({:?})",
+                            core::str::from_utf8(ver).unwrap_or("?").trim(),
+                            gl_type
+                        );
+                        let mc = try_compile_program(
+                            &gl_context, SVG_MULTICOLOR_VERTEX_SHADER, SVG_MULTICOLOR_FRAGMENT_SHADER,
+                            ver, &[(0, "vAttrXY"), (1, "vColor")],
+                        ).unwrap_or(0);
+                        let fxaa = try_compile_program(
+                            &gl_context, FXAA_VERTEX_SHADER, FXAA_FRAGMENT_SHADER, ver, &[(0, "vAttrXY")],
+                        ).unwrap_or(0);
+                        (svg, mc, fxaa)
+                    }
+                    None => {
+                        eprintln!(
+                            "azul: GL context UNUSABLE — no GLSL version ({:?}) compiled the SVG \
+                             shaders; the window should fall back to CPU rendering (is_gl_usable()=false)",
+                            gl_type
+                        );
+                        (0, 0, 0)
+                    }
+                }
             } else {
                 (0, 0, 0)
             };
+        // no_std build keeps the original behavior (no probe / no shaders).
+        #[cfg(not(feature = "std"))]
+        let (svg_program_id, svg_multicolor_program_id, fxaa_program_id) = (0u32, 0u32, 0u32);
 
         Self {
             ptr: Box::new(Rc::new(GlContextPtrInner {
