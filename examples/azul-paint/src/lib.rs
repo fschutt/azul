@@ -22,6 +22,9 @@ use azul::gl::Texture;
 use azul::image::{Brush, ImageRef, RawImage, RawImageData, RawImageFormat};
 use azul::vec::U8VecRef;
 use azul::css::PhysicalSizeU32;
+use azul::dialog::FileDialog;
+use azul::error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError};
+use azul::option::OptionFileTypeList;
 
 // ───────── Model (the source of truth) ────────────────────────────────
 
@@ -68,6 +71,13 @@ struct PaintState {
     /// every dab + thresholded, so nearby blobs merge organically) instead of
     /// alpha-over brush dabs. A separate, binary-only effect from the core brush.
     metaball_mode: bool,
+    /// An imported image (PNG/JPEG/...) painted underneath the strokes. Part of
+    /// the canvas *input*, like the strokes -- not the derived texture.
+    background: Option<RawImage>,
+    /// A pending Export request: the render callback drains this, reads the
+    /// finished canvas back to RGBA8 (`Texture::copy_to_raw_image` on the GPU,
+    /// else the CPU `RawImage`), PNG-encodes it and writes it to this path.
+    export_path: Option<String>,
     /// Bumps on every change so the canvas cache knows to re-rasterize.
     rev: u64,
 }
@@ -80,12 +90,26 @@ impl PaintState {
             current: None,
             color: ColorU { r: 30, g: 30, b: 40, a: 255 },
             metaball_mode: true,
+            background: None,
+            export_path: None,
             rev: 1,
         }
     }
 
     fn toggle_metaballs(&mut self) {
         self.metaball_mode = !self.metaball_mode;
+        self.rev += 1;
+    }
+
+    fn set_background(&mut self, img: RawImage) {
+        self.background = Some(img);
+        self.rev += 1;
+    }
+
+    fn request_export(&mut self, path: String) {
+        self.export_path = Some(path);
+        // Bump so the render callback re-runs and drains the request even if the
+        // strokes are unchanged.
         self.rev += 1;
     }
 
@@ -188,6 +212,74 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// Fill an RGBA8 canvas buffer with the base layer: the imported background
+/// image (nearest-neighbor scaled to fit), else the solid canvas color.
+fn composite_base(buf: &mut [u8], w: u32, h: u32, bg: ColorU, background: Option<&RawImage>) {
+    if let Some(img) = background {
+        if let RawImageData::U8(ref src) = img.pixels {
+            let bgr = matches!(img.data_format, RawImageFormat::BGRA8);
+            let ok = matches!(img.data_format, RawImageFormat::RGBA8 | RawImageFormat::BGRA8);
+            if ok && img.width > 0 && img.height > 0 {
+                let src = src.as_ref();
+                let (sw, sh) = (img.width, img.height);
+                for y in 0..h as usize {
+                    let sy = (y * sh) / h as usize;
+                    for x in 0..w as usize {
+                        let sx = (x * sw) / w as usize;
+                        let si = (sy * sw + sx) * 4;
+                        let di = (y * w as usize + x) * 4;
+                        if si + 3 < src.len() && di + 3 < buf.len() {
+                            let (r, g, b) = if bgr {
+                                (src[si + 2], src[si + 1], src[si])
+                            } else {
+                                (src[si], src[si + 1], src[si + 2])
+                            };
+                            buf[di] = r;
+                            buf[di + 1] = g;
+                            buf[di + 2] = b;
+                            buf[di + 3] = 255;
+                        }
+                    }
+                }
+                return;
+            }
+        }
+    }
+    for px in buf.chunks_exact_mut(4) {
+        px[0] = bg.r;
+        px[1] = bg.g;
+        px[2] = bg.b;
+        px[3] = bg.a;
+    }
+}
+
+/// CPU brush rasterization into a fresh RGBA8 image over the base layer.
+fn render_brush_cpu(strokes: &[Stroke], w: u32, h: u32, bg: ColorU, background: Option<&RawImage>) -> RawImage {
+    let mut img = RawImage {
+        pixels: RawImageData::U8(vec![0u8; (w as usize) * (h as usize) * 4].into()),
+        width: w as usize,
+        height: h as usize,
+        premultiplied_alpha: true,
+        data_format: RawImageFormat::RGBA8,
+        tag: Vec::new().into(),
+    };
+    if let RawImageData::U8(ref mut v) = img.pixels {
+        composite_base(v.as_mut(), w, h, bg, background);
+    }
+    for s in strokes {
+        rasterize_stroke(s, bg, |x0, y0, x1, y1, b| img.paint_stroke(x0, y0, x1, y1, b));
+    }
+    img
+}
+
+/// PNG-encode a RawImage and write it to disk (best-effort; logs nothing).
+fn export_png(img: &RawImage, path: &str) {
+    let encoded = img.encode_png();
+    if let ResultU8VecEncodeImageError::Ok(ref bytes) = encoded {
+        let _ = std::fs::write(path, bytes.as_ref());
+    }
+}
+
 /// CPU 2D-metaball renderer (binary-only effect, separate from the core brush).
 /// Each stroke point becomes an anisotropic "ball" that reacts to the pen:
 /// **pressure -> size**, **tilt -> elongation + orientation**, **barrel-roll ->
@@ -196,7 +288,7 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 /// bridges and merge organically -- the thing alpha-over dabs can't do. Color
 /// is field-weighted so overlapping blobs blend. O(Σ per-ball bbox), not
 /// O(pixels·balls).
-fn render_metaballs(strokes: &[Stroke], w: u32, h: u32, bg: ColorU) -> RawImage {
+fn render_metaballs(strokes: &[Stroke], w: u32, h: u32, bg: ColorU, background: Option<&RawImage>) -> RawImage {
     let (wu, hu) = (w as usize, h as usize);
     let n = wu.saturating_mul(hu).max(1);
     let mut field = vec![0.0f32; n];
@@ -237,18 +329,20 @@ fn render_metaballs(strokes: &[Stroke], w: u32, h: u32, bg: ColorU) -> RawImage 
         }
     }
     let mut buf = vec![0u8; n * 4];
+    // Base layer first (imported image or solid bg), then composite the
+    // thresholded metaball blobs over it.
+    composite_base(&mut buf, w, h, bg, background);
     for i in 0..n {
         let f = field[i];
         let a = smoothstep(0.85, 1.15, f); // AA rim around the 1.0 isosurface
-        let (r, g, b) = if f > 1.0e-4 {
-            (acc[i][0] / f, acc[i][1] / f, acc[i][2] / f)
-        } else {
-            (bg.r as f32, bg.g as f32, bg.b as f32)
-        };
+        if a <= 0.0 || f <= 1.0e-4 {
+            continue; // keep the base layer
+        }
+        let (r, g, b) = (acc[i][0] / f, acc[i][1] / f, acc[i][2] / f);
         let o = i * 4;
-        buf[o] = (bg.r as f32 * (1.0 - a) + r * a).round().max(0.0).min(255.0) as u8;
-        buf[o + 1] = (bg.g as f32 * (1.0 - a) + g * a).round().max(0.0).min(255.0) as u8;
-        buf[o + 2] = (bg.b as f32 * (1.0 - a) + b * a).round().max(0.0).min(255.0) as u8;
+        buf[o] = (buf[o] as f32 * (1.0 - a) + r * a).round().max(0.0).min(255.0) as u8;
+        buf[o + 1] = (buf[o + 1] as f32 * (1.0 - a) + g * a).round().max(0.0).min(255.0) as u8;
+        buf[o + 2] = (buf[o + 2] as f32 * (1.0 - a) + b * a).round().max(0.0).min(255.0) as u8;
         buf[o + 3] = 255;
     }
     RawImage {
@@ -279,81 +373,87 @@ fn render_canvas_inner(
     let mut cache = data.downcast_mut::<CanvasCache>()?;
     let cache = &mut *cache;
 
-    // Snapshot the strokes + rev + mode from the shared PaintState.
-    let (rev, strokes, metaball_mode): (u64, Vec<Stroke>, bool) = {
+    // Snapshot strokes + rev + mode + imported background + export request.
+    let (rev, strokes, metaball_mode, background, export_path) = {
         let paint = cache.paint.downcast_ref::<PaintState>()?;
         let mut all = paint.strokes.clone();
         if let Some(cur) = paint.current.as_ref() {
             all.push(cur.clone());
         }
-        (paint.rev, all, paint.metaball_mode)
+        (
+            paint.rev,
+            all,
+            paint.metaball_mode,
+            paint.background.clone(),
+            paint.export_path.clone(),
+        )
     };
 
     let bg = canvas_bg();
+    let bg_ref = background.as_ref();
 
-    // Metaball effect (binary-only, CPU): render the strokes as a thresholded
-    // scalar field reacting to pressure/tilt/roll. Cached as a CPU image and
-    // re-rendered only when `rev` changed.
-    if metaball_mode {
-        if cache.rendered_rev != rev || cache.cpu_image.is_none() {
-            let img = render_metaballs(&strokes, w, h, bg);
-            cache.cpu_image = ImageRef::new_rawimage(img).into_option();
+    // GPU is used only for the plain brush with no imported background + a usable
+    // GL context. Metaballs and an imported background composite on the CPU.
+    let gl = info.get_gl_context().into_option();
+    let use_gpu =
+        !metaball_mode && background.is_none() && gl.as_ref().map_or(false, |g| g.is_gl_usable());
+
+    if use_gpu {
+        let gl = gl.unwrap();
+        let need_alloc = match cache.texture.as_ref() {
+            Some(t) => t.size.width != w || t.size.height != h,
+            None => true,
+        };
+        if need_alloc {
+            let tex = Texture::allocate_rgba8(gl.clone(), PhysicalSizeU32 { width: w, height: h }, bg);
+            cache.texture = Some(tex);
+            cache.rendered_rev = 0; // force a full re-rasterize
+        }
+        if cache.rendered_rev != rev {
+            if let Some(tex) = cache.texture.as_mut() {
+                tex.clear();
+                for s in &strokes {
+                    rasterize_stroke(s, bg, |x0, y0, x1, y1, b| tex.paint_stroke(x0, y0, x1, y1, b));
+                }
+            }
             cache.rendered_rev = rev;
         }
-        return cache.cpu_image.clone();
-    }
-
-    let gl = info.get_gl_context().into_option();
-
-    if let Some(gl) = gl {
-        if gl.is_gl_usable() {
-            // (Re)allocate the texture if missing or the canvas size changed.
-            let need_alloc = match cache.texture.as_ref() {
-                Some(t) => t.size.width != w || t.size.height != h,
-                None => true,
-            };
-            if need_alloc {
-                let tex = Texture::allocate_rgba8(gl.clone(), PhysicalSizeU32 { width: w, height: h }, bg);
-                cache.texture = Some(tex);
-                cache.rendered_rev = 0; // force a full re-rasterize
+        // Export: read the GPU texture back to RGBA8 bytes + PNG-encode it.
+        if let Some(path) = export_path.as_ref() {
+            if let Some(tex) = cache.texture.as_ref() {
+                export_png(&tex.copy_to_raw_image(), path.as_str());
             }
-            if cache.rendered_rev != rev {
-                if let Some(tex) = cache.texture.as_mut() {
-                    tex.clear();
-                    for s in &strokes {
-                        rasterize_stroke(s, bg, |x0, y0, x1, y1, b| tex.paint_stroke(x0, y0, x1, y1, b));
-                    }
-                }
-                cache.rendered_rev = rev;
-            }
-            return cache.texture.as_ref().map(|t| ImageRef::gl_texture(t.clone()));
+            clear_export(cache);
         }
+        return cache.texture.as_ref().map(|t| ImageRef::gl_texture(t.clone()));
     }
 
-    // CPU fallback: rasterize the strokes into a fresh RawImage each change.
-    let mut img = RawImage {
-        pixels: RawImageData::U8(vec![0u8; (w as usize) * (h as usize) * 4].into()),
-        width: w as usize,
-        height: h as usize,
-        premultiplied_alpha: true,
-        data_format: RawImageFormat::RGBA8,
-        tag: Vec::new().into(),
-    };
-    // fill background
-    if let RawImageData::U8(ref mut v) = img.pixels {
-        let buf = v.as_mut();
-        for px in buf.chunks_exact_mut(4) {
-            px[0] = bg.r;
-            px[1] = bg.g;
-            px[2] = bg.b;
-            px[3] = bg.a;
+    // CPU path: metaballs, or the brush with an imported background / no GL.
+    if cache.rendered_rev != rev || cache.cpu_image.is_none() || export_path.is_some() {
+        let img = if metaball_mode {
+            render_metaballs(&strokes, w, h, bg, bg_ref)
+        } else {
+            render_brush_cpu(&strokes, w, h, bg, bg_ref)
+        };
+        if let Some(path) = export_path.as_ref() {
+            export_png(&img, path.as_str());
         }
+        cache.cpu_image = ImageRef::new_rawimage(img).into_option();
+        cache.rendered_rev = rev;
     }
-    for s in &strokes {
-        rasterize_stroke(s, bg, |x0, y0, x1, y1, b| img.paint_stroke(x0, y0, x1, y1, b));
+    if export_path.is_some() {
+        clear_export(cache);
     }
-    cache.rendered_rev = rev;
-    ImageRef::new_rawimage(img).into_option()
+    cache.cpu_image.clone()
+}
+
+/// Drain a pending Export request from the shared PaintState. Best-effort: if
+/// the RefAny is momentarily borrowed elsewhere the request survives to the next
+/// frame (and just re-writes the same file), which is harmless.
+fn clear_export(cache: &mut CanvasCache) {
+    if let Some(mut paint) = cache.paint.downcast_mut::<PaintState>() {
+        paint.export_path = None;
+    }
 }
 
 /// Merge callback: carry the GPU texture + rendered_rev from the old canvas
@@ -395,7 +495,9 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(button("Undo", data.clone(), on_undo))
         .with_child(button("Redo", data.clone(), on_redo))
         .with_child(button("Clear", data.clone(), on_clear))
-        .with_child(button(mode_label, data.clone(), on_toggle_mode));
+        .with_child(button(mode_label, data.clone(), on_toggle_mode))
+        .with_child(button("Import", data.clone(), on_import))
+        .with_child(button("Export", data.clone(), on_export));
 
     // The canvas: a single image driven by render_canvas. Its dataset is a
     // CanvasCache that shares the PaintState; the merge callback persists the
@@ -533,6 +635,46 @@ extern "C" fn on_clear(mut data: RefAny, _info: CallbackInfo) -> Update {
 extern "C" fn on_toggle_mode(mut data: RefAny, _info: CallbackInfo) -> Update {
     match data.downcast_mut::<PaintState>() {
         Some(mut s) => s.toggle_metaballs(),
+        None => return Update::DoNothing,
+    }
+    Update::RefreshDom
+}
+
+// Import: pick an image file, decode it (PNG/JPEG/...) and set it as the canvas
+// background that strokes/metaballs paint over.
+extern "C" fn on_import(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let picked = FileDialog::open_file("Import image", OptionString::None, OptionFileTypeList::None);
+    let path = match picked.into_option() {
+        Some(p) => p,
+        None => return Update::DoNothing,
+    };
+    let bytes = match std::fs::read(path.as_str()) {
+        Ok(b) => b,
+        Err(_) => return Update::DoNothing,
+    };
+    let decoded = RawImage::decode_image_bytes_any(U8VecRef::from(&bytes[..]));
+    let img = match decoded {
+        ResultRawImageDecodeImageError::Ok(ref img) => img.clone(),
+        _ => return Update::DoNothing,
+    };
+    match data.downcast_mut::<PaintState>() {
+        Some(mut s) => s.set_background(img),
+        None => return Update::DoNothing,
+    }
+    Update::RefreshDom
+}
+
+// Export: pick a destination and request a PNG dump of the finished canvas; the
+// render callback drains the request (Texture::copy_to_raw_image on GPU, else
+// the CPU RawImage) and writes the file.
+extern "C" fn on_export(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let picked = FileDialog::save_file("Export PNG", OptionString::None);
+    let path = match picked.into_option() {
+        Some(p) => p,
+        None => return Update::DoNothing,
+    };
+    match data.downcast_mut::<PaintState>() {
+        Some(mut s) => s.request_export(path.as_str().to_string()),
         None => return Update::DoNothing,
     }
     Update::RefreshDom
