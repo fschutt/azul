@@ -3044,14 +3044,14 @@ impl Texture {
     /// pixel coordinates (origin top-left, matching [`RawImage::paint_dot`]).
     /// No-op if the GL context is unusable — the caller should then use the CPU
     /// `RawImage` path (`GlContextPtr::is_gl_usable`).
-    pub fn paint_dot(&mut self, cx: f32, cy: f32, brush: &Brush) {
+    pub fn paint_dot(&mut self, cx: f32, cy: f32, brush: Brush) {
         self.paint_stroke(cx, cy, cx, cy, brush);
     }
 
     /// GPU painting: stamp dabs along (`x0`,`y0`)→(`x1`,`y1`) into this texture
     /// via an FBO + the soft-brush shader, alpha-over blended. Same spacing +
     /// falloff as the CPU `RawImage::paint_stroke`. No-op if GL is unusable.
-    pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: &Brush) {
+    pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: Brush) {
         let gl = self.gl_context.clone();
         let prog = gl.get_brush_shader();
         let (tw, th) = (self.size.width as f32, self.size.height as f32);

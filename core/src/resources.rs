@@ -1677,7 +1677,7 @@ impl RawImage {
     /// coordinates, alpha-over compositing a radial-falloff disc. Only 8-bit
     /// `RGBA8`/`BGRA8` images are painted (other formats are left untouched).
     /// This is the CPU mirror of the GPU brush shader.
-    pub fn paint_dot(&mut self, cx: f32, cy: f32, brush: &Brush) {
+    pub fn paint_dot(&mut self, cx: f32, cy: f32, brush: Brush) {
         let r = brush.radius;
         if !(r > 0.0) || self.width == 0 || self.height == 0 {
             return;
@@ -1733,7 +1733,7 @@ impl RawImage {
     /// CPU painting: stamp a stroke by spacing dabs along the segment
     /// (`x0`,`y0`)→(`x1`,`y1`). Call once per pointer move with the previous and
     /// current positions for a continuous line.
-    pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: &Brush) {
+    pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: Brush) {
         let dx = x1 - x0;
         let dy = y1 - y0;
         let len = (dx * dx + dy * dy).sqrt();
