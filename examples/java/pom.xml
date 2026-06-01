@@ -131,6 +131,26 @@
                     </systemProperties>
                 </configuration>
             </plugin>
+            <!-- Bundle JNA into the app jar so a plain `java -cp
+                 target/hello-world-1.0.0.jar com.azul.HelloWorld` resolves
+                 com.sun.jna.* with no external classpath entry. On Windows the
+                 manual `-cp app.jar;jna.jar` launch failed at runtime with
+                 NoClassDefFoundError: com/sun/jna/Callback (the MSYS shell
+                 mangles the `;`-separated classpath / the .m2 jar is not picked
+                 up the way it is on Unix); an uber-jar makes JNA un-missable. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
