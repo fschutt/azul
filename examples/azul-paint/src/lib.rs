@@ -1,78 +1,96 @@
-//! AzulPaint — the P2 goal app from SUPER_PLAN_2.
+//! AzulPaint — a simple drawing app built on the azul painting API.
 //!
-//! A finger / stylus paint canvas. Exercises the mobile event surface
-//! that P2.1 (PenState population) and P2.2 (multi-touch TouchPointVec)
-//! shipped: any stroke landed by a finger gets a fixed brush radius, any
-//! stroke landed by an Apple Pencil / S-Pen gets a pressure-modulated
-//! radius and per-point tilt (used for an opacity gradient).
+//! Architecture (the "dumb widget" / video-widget pattern):
+//!   * **App data** (`PaintState`) holds ONLY the source of truth: the list of
+//!     strokes + their config (color / eraser), the undo + redo stacks, the
+//!     in-flight stroke, and a `rev` counter that bumps on every change.
+//!   * The **canvas** is a single `<img>` node whose pixels come from a
+//!     `RenderImageCallback`. The GPU `Texture` (or a CPU `RawImage`) is a
+//!     *derived cache* living in the node's own dataset (`CanvasCache`); a
+//!     **merge callback** carries that cache across DOM rebuilds, and the
+//!     render callback re-rasterizes the strokes only when `rev` changed
+//!     (reconciling the cached texture against the current strokes/config).
+//!   * Pen pressure scales the brush radius; barrel-roll is reserved for later.
 //!
-//! Strokes render as a stack of small absolutely-positioned circle
-//! `<div>`s — slow with many strokes but legal in the framework's
-//! current widget set (the engine has no `<canvas>` primitive yet —
-//! that's a follow-up sprint). Save-as-SVG / Save-as-PNG via the
-//! async file-picker handle is queued for the next tick; this tick
-//! lands the canvas + strokes + the Clear button.
-//!
-//! Compile-only on iOS until the Xcode SDK lands. Android builds and
-//! runs today via `bash scripts/build-android.sh azul-paint`.
+//! Undo/redo just move strokes between `strokes` and `undone` and bump `rev`;
+//! the texture is recreated from the strokes on the next frame.
 
 use azul::prelude::*;
+use azul::callbacks::{CallbackType, DatasetMergeCallbackType, RenderImageCallbackInfo};
+use azul::dom::{DatasetMergeCallback, RenderImageCallback};
+use azul::gl::Texture;
+use azul::image::{ImageRef, RawImage, RawImageData, RawImageFormat};
+use azul::misc::Brush;
+use azul::vec::U8VecRef;
+use azul::css::PhysicalSizeU32;
+
+// ───────── Model (the source of truth) ────────────────────────────────
 
 #[derive(Debug, Clone, Copy)]
 struct StrokePoint {
     x: f32,
     y: f32,
-    /// `0.0..=1.0`, normalized. Finger touches default to `0.5`
-    /// (the TouchPoint sentinel for "no pressure available").
+    /// `0.0..=1.0`, normalized. Finger touches default to `0.5`.
     pressure: f32,
-    /// Barrel roll in radians (Apple Pencil Pro / Surface Pen). `0.0`
-    /// when not reported. Orients the chisel nib so rolling the pen
-    /// turns the brush, like a real calligraphy tip.
+    /// Barrel roll in radians (reserved; not used by the round brush yet).
     barrel_roll_rad: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct Stroke {
     points: Vec<StrokePoint>,
-    /// `true` when the stroke was made by a stylus reporting eraser-tip
-    /// (Apple Pencil's tip-inverted mode, Android `ToolType::Eraser`).
+    /// Brush color for this stroke (config travels with the stroke).
+    color: ColorU,
+    /// Eraser strokes paint the canvas background instead of `color`.
     is_eraser: bool,
 }
 
+/// Base brush radius (px) at full pressure.
+const BASE_RADIUS: f32 = 6.0;
+/// Canvas background — also the eraser color.
+fn canvas_bg() -> ColorU {
+    ColorU { r: 250, g: 250, b: 246, a: 255 }
+}
+
 struct PaintState {
-    /// Committed strokes (one per pointer-down to pointer-up sequence).
+    /// Committed strokes — the source of truth (re-rasterized into the cache).
     strokes: Vec<Stroke>,
-    /// The stroke currently being drawn — `None` between pointer-up
-    /// and the next pointer-down.
+    /// Redo stack (strokes popped by undo).
+    undone: Vec<Stroke>,
+    /// The stroke currently being drawn.
     current: Option<Stroke>,
+    /// Current brush color (config).
+    color: ColorU,
+    /// Bumps on every change so the canvas cache knows to re-rasterize.
+    rev: u64,
 }
 
 impl PaintState {
     fn new() -> Self {
         Self {
             strokes: Vec::new(),
+            undone: Vec::new(),
             current: None,
+            color: ColorU { r: 30, g: 30, b: 40, a: 255 },
+            rev: 1,
         }
     }
 
     fn begin_stroke(&mut self, p: StrokePoint, is_eraser: bool) {
-        // Commit any in-flight stroke first (defensive — pointer-down
-        // without a matching pointer-up shouldn't happen but the diff
-        // pipeline can drop events under load).
         if let Some(active) = self.current.take() {
             if !active.points.is_empty() {
                 self.strokes.push(active);
             }
         }
-        self.current = Some(Stroke {
-            points: vec![p],
-            is_eraser,
-        });
+        self.undone.clear(); // a new stroke invalidates the redo stack
+        self.current = Some(Stroke { points: vec![p], color: self.color, is_eraser });
+        self.rev += 1;
     }
 
     fn extend_stroke(&mut self, p: StrokePoint) {
         if let Some(s) = self.current.as_mut() {
             s.points.push(p);
+            self.rev += 1;
         }
     }
 
@@ -82,156 +100,229 @@ impl PaintState {
                 self.strokes.push(active);
             }
         }
+        self.rev += 1;
+    }
+
+    fn undo(&mut self) {
+        if let Some(s) = self.strokes.pop() {
+            self.undone.push(s);
+            self.rev += 1;
+        }
+    }
+
+    fn redo(&mut self) {
+        if let Some(s) = self.undone.pop() {
+            self.strokes.push(s);
+            self.rev += 1;
+        }
     }
 
     fn clear_all(&mut self) {
-        self.strokes.clear();
+        if !self.strokes.is_empty() {
+            // keep the cleared strokes on the redo stack so Clear is undoable
+            self.undone.append(&mut self.strokes);
+        }
         self.current = None;
-    }
-
-    fn total_points(&self) -> usize {
-        self.strokes.iter().map(|s| s.points.len()).sum::<usize>()
-            + self.current.as_ref().map(|s| s.points.len()).unwrap_or(0)
+        self.rev += 1;
     }
 }
 
-// ───────── Rendering ──────────────────────────────────────────────────
+// ───────── Canvas cache (derived; reconciled by the merge callback) ─────
 
-const CANVAS_BG: &str = "background: #fafaf6; flex-grow: 1; position: relative; overflow: hidden;";
-const HEADER_BG: &str = "background: #2b2b2b; color: white; \
-    padding: 12px 20px; flex-direction: row; align-items: center; \
-    justify-content: space-between; font-family: sans-serif; font-size: 16px;";
-const CLEAR_BTN: &str = "background: #d04848; color: white; \
-    padding: 8px 16px; border-radius: 6px; font-size: 14px; cursor: pointer;";
+/// The canvas node's dataset: a derived GPU/CPU image of `paint`'s strokes.
+/// `paint` is a shared clone of the app `PaintState` (so the render callback
+/// can reach the strokes — `info.get_ctx()` is NOT the app data). The merge
+/// callback carries `texture`/`rendered_rev` across DOM rebuilds.
+struct CanvasCache {
+    /// Shared handle to the app's PaintState (source of the strokes).
+    paint: RefAny,
+    /// GPU canvas texture (when GL is usable); persisted via the merge callback.
+    texture: Option<Texture>,
+    /// `PaintState.rev` the cache was last rasterized at.
+    rendered_rev: u64,
+}
+
+/// A round brush for a stroke point at the given pressure.
+fn brush_for(color: ColorU, pressure: f32) -> Brush {
+    let mut b = Brush::new(color, BASE_RADIUS * pressure.max(0.05).min(1.0));
+    b.hardness = 0.6;
+    b.flow = 0.9;
+    b.spacing = 0.2;
+    b
+}
+
+/// Rasterize a stroke into a target via a `paint_stroke` closure between
+/// consecutive points (shared by the GPU + CPU paths).
+fn rasterize_stroke<F: FnMut(f32, f32, f32, f32, Brush)>(stroke: &Stroke, bg: ColorU, mut paint: F) {
+    let color = if stroke.is_eraser { bg } else { stroke.color };
+    if stroke.points.len() == 1 {
+        let p = stroke.points[0];
+        paint(p.x, p.y, p.x, p.y, brush_for(color, p.pressure));
+        return;
+    }
+    for seg in stroke.points.windows(2) {
+        let (a, c) = (seg[0], seg[1]);
+        paint(a.x, a.y, c.x, c.y, brush_for(color, (a.pressure + c.pressure) * 0.5));
+    }
+}
+
+/// RenderImageCallback: produce the canvas image, re-rasterizing strokes only
+/// when `PaintState.rev` differs from the cache's `rendered_rev`.
+extern "C" fn render_canvas(mut data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
+    let size = info.get_bounds().get_physical_size();
+    let (w, h) = (size.width.max(1), size.height.max(1));
+    let placeholder = ImageRef::null_image(w as usize, h as usize, RawImageFormat::RGBA8, U8VecRef::from(&[][..]));
+    render_canvas_inner(&mut data, &mut info, w, h).unwrap_or(placeholder)
+}
+
+fn render_canvas_inner(
+    data: &mut RefAny,
+    info: &mut RenderImageCallbackInfo,
+    w: u32,
+    h: u32,
+) -> Option<ImageRef> {
+    let mut cache = data.downcast_mut::<CanvasCache>()?;
+    let cache = &mut *cache;
+
+    // Snapshot the strokes + rev from the shared PaintState.
+    let (rev, strokes): (u64, Vec<Stroke>) = {
+        let paint = cache.paint.downcast_ref::<PaintState>()?;
+        let mut all = paint.strokes.clone();
+        if let Some(cur) = paint.current.as_ref() {
+            all.push(cur.clone());
+        }
+        (paint.rev, all)
+    };
+
+    let bg = canvas_bg();
+    let gl = info.get_gl_context().into_option();
+
+    if let Some(gl) = gl {
+        if gl.is_gl_usable() {
+            // (Re)allocate the texture if missing or the canvas size changed.
+            let need_alloc = match cache.texture.as_ref() {
+                Some(t) => t.size.width != w || t.size.height != h,
+                None => true,
+            };
+            if need_alloc {
+                let tex = Texture::allocate_rgba8(gl.clone(), PhysicalSizeU32 { width: w, height: h }, bg);
+                cache.texture = Some(tex);
+                cache.rendered_rev = 0; // force a full re-rasterize
+            }
+            if cache.rendered_rev != rev {
+                if let Some(tex) = cache.texture.as_mut() {
+                    tex.clear();
+                    for s in &strokes {
+                        rasterize_stroke(s, bg, |x0, y0, x1, y1, b| tex.paint_stroke(x0, y0, x1, y1, b));
+                    }
+                }
+                cache.rendered_rev = rev;
+            }
+            return cache.texture.as_ref().map(|t| ImageRef::gl_texture(t.clone()));
+        }
+    }
+
+    // CPU fallback: rasterize the strokes into a fresh RawImage each change.
+    let mut img = RawImage {
+        pixels: RawImageData::U8(vec![0u8; (w as usize) * (h as usize) * 4].into()),
+        width: w as usize,
+        height: h as usize,
+        premultiplied_alpha: true,
+        data_format: RawImageFormat::RGBA8,
+        tag: Vec::new().into(),
+    };
+    // fill background
+    if let RawImageData::U8(ref mut v) = img.pixels {
+        let buf = v.as_mut();
+        for px in buf.chunks_exact_mut(4) {
+            px[0] = bg.r;
+            px[1] = bg.g;
+            px[2] = bg.b;
+            px[3] = bg.a;
+        }
+    }
+    for s in &strokes {
+        rasterize_stroke(s, bg, |x0, y0, x1, y1, b| img.paint_stroke(x0, y0, x1, y1, b));
+    }
+    cache.rendered_rev = rev;
+    ImageRef::new_rawimage(img).into_option()
+}
+
+/// Merge callback: carry the GPU texture + rendered_rev from the old canvas
+/// node to the new one across DOM rebuilds (so we don't re-allocate/re-paint
+/// every relayout). The new node's `paint` (current PaintState) is kept.
+extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+    let (tex, rev) = match old_data.downcast_ref::<CanvasCache>() {
+        Some(old) => (old.texture.clone(), old.rendered_rev),
+        None => return new_data,
+    };
+    if let Some(mut new) = new_data.downcast_mut::<CanvasCache>() {
+        new.texture = tex;
+        new.rendered_rev = rev;
+    }
+    new_data
+}
+
+// ───────── Layout ──────────────────────────────────────────────────────
+
+const HEADER: &str = "background: #2b2b2b; color: white; padding: 12px 20px; \
+    flex-direction: row; align-items: center; font-family: sans-serif; font-size: 16px;";
+const BTN: &str = "background: #3a3a3a; color: white; padding: 8px 14px; margin-right: 8px; \
+    border-radius: 6px; font-size: 14px; cursor: pointer;";
+const CANVAS: &str = "flex-grow: 1; position: relative; overflow: hidden;";
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
 
-/// Render one point as an absolutely-positioned colored circle. Radius
-/// scales with pressure (so light pen-pressure → thin line, hard
-/// pen-pressure → fat line). Finger touches use the 0.5 sentinel which
-/// gives a uniform medium-weight stroke.
-fn render_point(p: StrokePoint, is_eraser: bool) -> Dom {
-    // The dab is a soft chisel nib: a rounded oval whose long axis scales
-    // with pressure and whose orientation follows the pen's barrel roll.
-    // With a finger / non-Pro stylus (roll = 0) it's a gentle horizontal
-    // oval; rolling an Apple Pencil Pro turns it like a calligraphy tip.
-    let major = (2.0 + p.pressure * 10.0).max(2.0) * 2.0;
-    let minor = (major * 0.7).max(2.0);
-    let left = p.x - major / 2.0;
-    let top = p.y - minor / 2.0;
-    let roll_deg = p.barrel_roll_rad.to_degrees();
-
-    let color = if is_eraser {
-        "rgba(250,250,246,0.95)" // eraser blends into canvas bg
-    } else {
-        "rgba(40,40,40,0.9)"
-    };
-
-    let style = format!(
-        "position: absolute; left: {:.1}px; top: {:.1}px; \
-         width: {:.1}px; height: {:.1}px; border-radius: 50%; \
-         background: {}; transform: rotate({:.1}deg);",
-        left, top, major, minor, color, roll_deg,
-    );
-    Dom::create_div().with_css(style.as_str())
-}
-
-fn render_stroke(stroke: &Stroke) -> Dom {
-    let mut container = Dom::create_div();
-    for p in &stroke.points {
-        container = container.with_child(render_point(*p, stroke.is_eraser));
-    }
-    container
-}
-
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    // Take a snapshot of the visible state into owned local data so we
-    // can release the borrow before building the DOM (with_callback
-    // needs another borrow of `data`).
-    let snapshot: Option<(String, Vec<Stroke>, Option<Stroke>)> = data
+    let (n_strokes, n_undone) = data
         .downcast_ref::<PaintState>()
-        .map(|state| {
-            let active_count = state.current.as_ref().map_or(0, |_| 1);
-            let header_text = format!(
-                "AzulPaint — {} strokes · {} points",
-                state.strokes.len() + active_count,
-                state.total_points(),
-            );
-            (header_text, state.strokes.clone(), state.current.clone())
-        });
-
-    let Some((header_text, strokes, current)) = snapshot else {
-        return Dom::create_body();
-    };
+        .map(|s| (s.strokes.len(), s.undone.len()))
+        .unwrap_or((0, 0));
 
     let header = Dom::create_div()
-        .with_css(HEADER_BG)
-        .with_child(Dom::create_text(header_text.as_str()))
-        .with_child(
-            Dom::create_div()
-                .with_css(CLEAR_BTN)
-                .with_child(Dom::create_text("Clear"))
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    data.clone(),
-                    on_clear,
-                ),
-        );
+        .with_css(HEADER)
+        .with_child(Dom::create_text(format!("AzulPaint · {} strokes", n_strokes).as_str()))
+        .with_child(button("Undo", data.clone(), on_undo))
+        .with_child(button("Redo", data.clone(), on_redo))
+        .with_child(button("Clear", data.clone(), on_clear));
 
-    let mut canvas = Dom::create_div()
-        .with_css(CANVAS_BG)
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseDown),
-            data.clone(),
-            on_pointer_down,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseOver),
-            data.clone(),
-            on_pointer_move,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseUp),
-            data.clone(),
-            on_pointer_up,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::TouchStart),
-            data.clone(),
-            on_pointer_down,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::TouchMove),
-            data.clone(),
-            on_pointer_move,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::TouchEnd),
-            data.clone(),
-            on_pointer_up,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::TouchCancel),
-            data,
-            on_pointer_up,
-        );
+    let _ = n_undone;
 
-    for stroke in &strokes {
-        canvas = canvas.with_child(render_stroke(stroke));
-    }
-    if let Some(active) = current.as_ref() {
-        canvas = canvas.with_child(render_stroke(active));
-    }
+    // The canvas: a single image driven by render_canvas. Its dataset is a
+    // CanvasCache that shares the PaintState; the merge callback persists the
+    // texture across rebuilds. Pointer callbacks mutate the PaintState.
+    let cache = RefAny::new(CanvasCache {
+        paint: data.clone(),
+        texture: None,
+        rendered_rev: 0,
+    });
 
-    Dom::create_body()
-        .with_css(ROOT)
-        .with_child(header)
-        .with_child(canvas)
+    let canvas = Dom::create_image(ImageRef::callback(
+        RenderImageCallback::create(render_canvas).to_core(),
+        cache.clone(),
+    ))
+    .with_css(CANVAS)
+    .with_dataset(OptionRefAny::Some(cache))
+    .with_merge_callback(DatasetMergeCallback::from(merge_cache as DatasetMergeCallbackType))
+    .with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), data.clone(), on_pointer_down)
+    .with_callback(EventFilter::Hover(HoverEventFilter::MouseOver), data.clone(), on_pointer_move)
+    .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data.clone(), on_pointer_up)
+    .with_callback(EventFilter::Hover(HoverEventFilter::TouchStart), data.clone(), on_pointer_down)
+    .with_callback(EventFilter::Hover(HoverEventFilter::TouchMove), data.clone(), on_pointer_move)
+    .with_callback(EventFilter::Hover(HoverEventFilter::TouchEnd), data, on_pointer_up);
+
+    Dom::create_body().with_css(ROOT).with_child(header).with_child(canvas)
 }
 
-// ───────── Callbacks ──────────────────────────────────────────────────
+fn button(label: &str, data: RefAny, cb: CallbackType) -> Dom {
+    Dom::create_div()
+        .with_css(BTN)
+        .with_child(Dom::create_text(label))
+        .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data, cb)
+}
+
+// ───────── Input ────────────────────────────────────────────────────────
 
 fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
-    // Prefer the stylus path: it gives pressure + is_eraser.
     if let Some(pen) = info.get_pen_state().into_option() {
         if pen.in_contact {
             return Some((
@@ -245,16 +336,9 @@ fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
             ));
         }
     }
-    // Fall back to cursor-relative-to-node (works for both mouse and
-    // touch on every backend). No barrel roll off a stylus → 0.
     let pos = info.get_cursor_relative_to_node().into_option()?;
     Some((
-        StrokePoint {
-            x: pos.x,
-            y: pos.y,
-            pressure: 0.5,
-            barrel_roll_rad: 0.0,
-        },
+        StrokePoint { x: pos.x, y: pos.y, pressure: 0.5, barrel_roll_rad: 0.0 },
         false,
     ))
 }
@@ -273,9 +357,6 @@ extern "C" fn on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
 }
 
 extern "C" fn on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Update {
-    // Only extend the current stroke if one is in flight. Hover-without-
-    // contact (Pencil hover, mouse-over without buttons) returns
-    // `in_contact = false` from get_pen_state and we ignore it here.
     {
         let read = match data.downcast_ref::<PaintState>() {
             Some(s) => s,
@@ -285,7 +366,7 @@ extern "C" fn on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Update {
             return Update::DoNothing;
         }
     }
-    let (point, _is_eraser) = match extract_point(&info) {
+    let (point, _) = match extract_point(&info) {
         Some(p) => p,
         None => return Update::DoNothing,
     };
@@ -298,25 +379,38 @@ extern "C" fn on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Update {
 }
 
 extern "C" fn on_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let mut state_guard = match data.downcast_mut::<PaintState>() {
-        Some(s) => s,
+    match data.downcast_mut::<PaintState>() {
+        Some(mut s) => s.end_stroke(),
         None => return Update::DoNothing,
-    };
-    state_guard.end_stroke();
+    }
+    Update::RefreshDom
+}
+
+extern "C" fn on_undo(mut data: RefAny, _info: CallbackInfo) -> Update {
+    match data.downcast_mut::<PaintState>() {
+        Some(mut s) => s.undo(),
+        None => return Update::DoNothing,
+    }
+    Update::RefreshDom
+}
+
+extern "C" fn on_redo(mut data: RefAny, _info: CallbackInfo) -> Update {
+    match data.downcast_mut::<PaintState>() {
+        Some(mut s) => s.redo(),
+        None => return Update::DoNothing,
+    }
     Update::RefreshDom
 }
 
 extern "C" fn on_clear(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let mut state = match data.downcast_mut::<PaintState>() {
-        Some(s) => s,
+    match data.downcast_mut::<PaintState>() {
+        Some(mut s) => s.clear_all(),
         None => return Update::DoNothing,
-    };
-    state.clear_all();
+    }
     Update::RefreshDom
 }
 
-/// Start the app. Desktop/iOS: blocks (iOS via UIApplicationMain in `App::run`).
-/// Android: `App::run` stashes the window options for libazul's `android_main`.
+/// Start the app. Desktop/iOS: blocks. Android: stashes window options.
 pub fn start() {
     let data = RefAny::new(PaintState::new());
     let config = AppConfig::create();
@@ -325,11 +419,8 @@ pub fn start() {
     app.run(window);
 }
 
-// Android has no `main()`: run `start()` from a load-time constructor so the
-// window options are stashed before libazul's `android_main` reads them. See
-// guide/mobile.md.
 #[cfg(target_os = "android")]
 #[ctor::ctor]
-fn azul_android_init() {
+fn android_ctor() {
     start();
 }
