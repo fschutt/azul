@@ -142,6 +142,13 @@ Click the button: the counter increments and the layout callback re-runs.
   `LD_LIBRARY_PATH`.
 - **`attempt to index a nil value` from `ffi`** — you are on vanilla Lua, not LuaJIT.
   The `ffi` module ships only with LuaJIT.
+- **`NYI: cannot call this C function (yet)` at `App.create`** — LuaJIT's `ffi`
+  cannot call a C function that takes an aggregate **by value** on some ABIs.
+  On **x86-64 (SysV)** `App.create(.., AppConfig)` hits this; it works on
+  **arm64/macOS** (the struct is passed differently). It is a LuaJIT limitation,
+  not a version issue (a current LuaJIT 2.1 still NYIs) — there is no Lua-side
+  workaround short of a by-pointer C-ABI, so the E2E board marks Lua `⊘ SKIP` on
+  x86-64.
 - **Counter does not advance** — `on_click` returned `azul.Update.DoNothing`.
 
 ## Coming Up Next

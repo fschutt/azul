@@ -187,7 +187,7 @@ Each binding drives the prebuilt library (built with `--features build-dll,debug
 | **Java**   | **JDK 17+** and **Maven (`mvn`)** + **JNA 5.14** | The build targets release 11, so a JDK older than 11 fails with `invalid target release: 11` — pin JDK 17 (e.g. `actions/setup-java@v4` with Temurin 17). On macOS the JVM needs `-XstartOnFirstThread`. |
 | **Kotlin** | **JDK 17+**, `kotlinc` (or Gradle) + **JNA 5.14** | Same JDK requirement as Java; `kotlinc` compiles `Azul.kt` + `HelloWorld.kt` against the JNA jar. |
 | **Ruby**   | `ruby` + the **`ffi` gem** | `require 'ffi'` fails with `LoadError` unless the gem is installed: `gem install ffi`. It is **not** preinstalled on CI runners. |
-| **Lua**    | **LuaJIT** (the stock PUC `lua` has no FFI) | Needs an FFI-complete LuaJIT — an old LuaJIT (e.g. Ubuntu's `2.1.0-beta3`) raises `NYI: cannot call this C function (yet)` on struct-by-value calls; use a current LuaJIT build. |
+| **Lua**    | **LuaJIT** (the stock PUC `lua` has no FFI); full E2E runs on **arm64/macOS**, not x86-64 | LuaJIT's `ffi` cannot call a C function that passes an aggregate **by value** on some ABIs: on **x86-64 (SysV)**, `App.create(.., AppConfig)` raises `NYI: cannot call this C function (yet)`. This is a LuaJIT limitation, **not** a version issue (a freshly-built current LuaJIT 2.1 still NYIs) and **not** a binding bug — the same `azul.lua` runs on arm64/macOS, where the struct is passed differently. CI therefore reports lua as `⊘ SKIP` on x86-64 (a toolchain limit, which never gates). |
 | Go     | `go` toolchain + a C compiler (cgo) | — |
 
 `AZ_LOG` is on by default (see [Debugging](debugging.md)), so a binding that builds but exits early will print the platform-layer trace on stderr, which the board captures.
