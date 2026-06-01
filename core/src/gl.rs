@@ -29,7 +29,10 @@ pub use crate::glconst::*;
 use crate::{
     geom::PhysicalSizeU32,
     hit_test::DocumentId,
-    resources::{Epoch, ExternalImageId, ImageDescriptor, ImageDescriptorFlags, RawImageFormat},
+    resources::{
+        Brush, Epoch, ExternalImageId, ImageDescriptor, ImageDescriptorFlags, RawImage,
+        RawImageData, RawImageFormat,
+    },
     svg::{TessellatedGPUSvgNode, TessellatedSvgNode},
     window::RendererType,
     OrderedMap,
@@ -891,6 +894,16 @@ impl GlContextPtr {
     pub fn is_gl_usable(&self) -> bool {
         self.ptr.svg_shader != 0
     }
+    /// The GLSL `#version` the driver accepted at construction (e.g. "150" or
+    /// "300 es"), discovered by the probe. Empty string if the context is
+    /// unusable / software. Exposed in the API so apps can report/branch on it.
+    pub fn get_usable_glsl_version(&self) -> AzString {
+        self.ptr.glsl_version.clone()
+    }
+    /// Soft-brush shader program for the GPU painting API (0 if unusable).
+    pub fn get_brush_shader(&self) -> GLuint {
+        self.ptr.brush_shader
+    }
     pub fn get_fxaa_shader(&self) -> GLuint {
         self.ptr.fxaa_shader
     }
@@ -905,6 +918,11 @@ pub struct GlContextPtrInner {
     pub svg_multicolor_shader: GLuint,
     /// FXAA shader program (library-internal use)
     pub fxaa_shader: GLuint,
+    /// Soft-brush shader program for the GPU painting API (0 if unusable).
+    pub brush_shader: GLuint,
+    /// The GLSL `#version` directive that compiled (e.g. "150" or "300 es"),
+    /// discovered by the probe in `new()`. Empty if the context is unusable.
+    pub glsl_version: AzString,
 }
 
 impl Drop for GlContextPtrInner {
@@ -912,6 +930,9 @@ impl Drop for GlContextPtrInner {
         self.ptr.delete_program(self.svg_shader);
         self.ptr.delete_program(self.svg_multicolor_shader);
         self.ptr.delete_program(self.fxaa_shader);
+        if self.brush_shader != 0 {
+            self.ptr.delete_program(self.brush_shader);
+        }
     }
 }
 
@@ -1003,6 +1024,54 @@ varying vec4 fColor;
 
 void main() {
     oFragColor = fColor;
+}";
+
+// Soft-brush shaders for the GPU painting API. A unit quad [-1,1]^2 (aUv) is
+// positioned in NDC (aPos); the fragment computes the same radial falloff as
+// the CPU `brush_dab_coverage` (1 - smoothstep(hardness, 1, dist)) so GPU and
+// CPU strokes match. Version-agnostic via `__VERSION__` like the SVG shaders.
+static BRUSH_VERTEX_SHADER: &[u8] = b"#version 150
+
+#if __VERSION__ != 100
+    #define varying out
+    #define attribute in
+#endif
+
+attribute vec2 aPos;
+attribute vec2 aUv;
+varying vec2 vUv;
+
+void main() {
+    vUv = aUv;
+    gl_Position = vec4(aPos, 0.0, 1.0);
+}";
+
+static BRUSH_FRAGMENT_SHADER: &[u8] = b"#version 150
+
+precision highp float;
+
+#if __VERSION__ != 100
+    #define varying in
+#endif
+
+#if __VERSION__ == 100
+    #define oFragColor gl_FragColor
+#else
+    out vec4 oFragColor;
+#endif
+
+uniform vec4 uColor;     // rgb + alpha (alpha already folds in flow * color.a)
+uniform float uHardness; // 0 = soft .. 1 = hard edge
+
+varying vec2 vUv;
+
+void main() {
+    float d = length(vUv);
+    if (d > 1.0) { discard; }
+    float edge0 = clamp(uHardness, 0.0, 1.0);
+    float x = clamp((d - edge0) / max(1.0 - edge0, 1.0e-4), 0.0, 1.0);
+    float cov = 1.0 - (x * x * (3.0 - 2.0 * x));
+    oFragColor = vec4(uColor.rgb, uColor.a * cov);
 }";
 
 /// Checks if a shader compiled successfully. Logs an error under `std`.
@@ -1121,7 +1190,7 @@ impl GlContextPtr {
         // latter case all program IDs stay 0 and `is_gl_usable()` returns false so
         // the window can fall back to CPU rendering.
         #[cfg(feature = "std")]
-        let (svg_program_id, svg_multicolor_program_id, fxaa_program_id) =
+        let (svg_program_id, svg_multicolor_program_id, fxaa_program_id, brush_program_id, glsl_version) =
             if matches!(renderer_type, RendererType::Hardware) {
                 use crate::gl_fxaa::{FXAA_FRAGMENT_SHADER, FXAA_VERTEX_SHADER};
                 let gl_type: GlType = gl_context.get_type().into();
@@ -1139,9 +1208,15 @@ impl GlContextPtr {
                 }
                 match chosen {
                     Some(ver) => {
+                        // "150" / "300 es": the directive minus "#version " and newline.
+                        let ver_str: AzString = core::str::from_utf8(ver)
+                            .unwrap_or("")
+                            .trim()
+                            .trim_start_matches("#version ")
+                            .into();
                         eprintln!(
-                            "azul: GL usable — SVG/FXAA shaders compiled at GLSL {} ({:?})",
-                            core::str::from_utf8(ver).unwrap_or("?").trim(),
+                            "azul: GL usable — shaders compiled at GLSL {} ({:?})",
+                            ver_str.as_str(),
                             gl_type
                         );
                         let mc = try_compile_program(
@@ -1151,7 +1226,11 @@ impl GlContextPtr {
                         let fxaa = try_compile_program(
                             &gl_context, FXAA_VERTEX_SHADER, FXAA_FRAGMENT_SHADER, ver, &[(0, "vAttrXY")],
                         ).unwrap_or(0);
-                        (svg, mc, fxaa)
+                        let brush = try_compile_program(
+                            &gl_context, BRUSH_VERTEX_SHADER, BRUSH_FRAGMENT_SHADER, ver,
+                            &[(0, "aPos"), (1, "aUv")],
+                        ).unwrap_or(0);
+                        (svg, mc, fxaa, brush, ver_str)
                     }
                     None => {
                         eprintln!(
@@ -1159,21 +1238,24 @@ impl GlContextPtr {
                              shaders; the window should fall back to CPU rendering (is_gl_usable()=false)",
                             gl_type
                         );
-                        (0, 0, 0)
+                        (0, 0, 0, 0, AzString::from_const_str(""))
                     }
                 }
             } else {
-                (0, 0, 0)
+                (0, 0, 0, 0, AzString::from_const_str(""))
             };
         // no_std build keeps the original behavior (no probe / no shaders).
         #[cfg(not(feature = "std"))]
-        let (svg_program_id, svg_multicolor_program_id, fxaa_program_id) = (0u32, 0u32, 0u32);
+        let (svg_program_id, svg_multicolor_program_id, fxaa_program_id, brush_program_id, glsl_version) =
+            (0u32, 0u32, 0u32, 0u32, AzString::from_const_str(""));
 
         Self {
             ptr: Box::new(Rc::new(GlContextPtrInner {
                 svg_shader: svg_program_id,
                 svg_multicolor_shader: svg_multicolor_program_id,
                 fxaa_shader: fxaa_program_id,
+                brush_shader: brush_program_id,
+                glsl_version,
                 ptr: gl_context,
             })),
             renderer_type,
@@ -2955,6 +3037,154 @@ macro_rules! impl_traits_for_gl_object {
             }
         }
     };
+}
+
+impl Texture {
+    /// GPU painting: stamp one soft-brush dab centered at (`cx`, `cy`) in texture
+    /// pixel coordinates (origin top-left, matching [`RawImage::paint_dot`]).
+    /// No-op if the GL context is unusable — the caller should then use the CPU
+    /// `RawImage` path (`GlContextPtr::is_gl_usable`).
+    pub fn paint_dot(&mut self, cx: f32, cy: f32, brush: &Brush) {
+        self.paint_stroke(cx, cy, cx, cy, brush);
+    }
+
+    /// GPU painting: stamp dabs along (`x0`,`y0`)→(`x1`,`y1`) into this texture
+    /// via an FBO + the soft-brush shader, alpha-over blended. Same spacing +
+    /// falloff as the CPU `RawImage::paint_stroke`. No-op if GL is unusable.
+    pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: &Brush) {
+        let gl = self.gl_context.clone();
+        let prog = gl.get_brush_shader();
+        let (tw, th) = (self.size.width as f32, self.size.height as f32);
+        if prog == 0 || self.texture_id == 0 || !(brush.radius > 0.0) || tw <= 0.0 || th <= 0.0 {
+            return;
+        }
+
+        let fbo = gl.gen_framebuffers(1).get(0).copied().unwrap_or(0);
+        let vbo = gl.gen_buffers(1).get(0).copied().unwrap_or(0);
+        if fbo == 0 || vbo == 0 {
+            if fbo != 0 {
+                gl.delete_framebuffers((&[fbo][..]).into());
+            }
+            if vbo != 0 {
+                gl.delete_buffers((&[vbo][..]).into());
+            }
+            return;
+        }
+
+        gl.bind_framebuffer(gl::FRAMEBUFFER, fbo);
+        gl.framebuffer_texture_2d(
+            gl::FRAMEBUFFER,
+            gl::COLOR_ATTACHMENT0,
+            gl::TEXTURE_2D,
+            self.texture_id,
+            0,
+        );
+        gl.viewport(0, 0, self.size.width as i32, self.size.height as i32);
+        gl.enable(gl::BLEND);
+        gl.blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        gl.use_program(prog);
+
+        let a = (brush.color.a as f32 / 255.0) * brush.flow.max(0.0).min(1.0);
+        gl.uniform_4f(
+            gl.get_uniform_location(prog, "uColor"),
+            brush.color.r as f32 / 255.0,
+            brush.color.g as f32 / 255.0,
+            brush.color.b as f32 / 255.0,
+            a,
+        );
+        gl.uniform_1f(gl.get_uniform_location(prog, "uHardness"), brush.hardness);
+
+        gl.bind_buffer(gl::ARRAY_BUFFER, vbo);
+        gl.enable_vertex_attrib_array(0);
+        gl.enable_vertex_attrib_array(1);
+        gl.vertex_attrib_pointer_f32(0, 2, false, 16, 0);
+        gl.vertex_attrib_pointer_f32(1, 2, false, 16, 8);
+
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        let len = (dx * dx + dy * dy).sqrt();
+        let step = (brush.radius * brush.spacing.max(0.01)).max(0.5);
+        let n = ((len / step).floor() as i32).max(0);
+        let r = brush.radius;
+        for i in 0..=n {
+            let t = if n == 0 { 1.0 } else { i as f32 / n as f32 };
+            let px = x0 + dx * t;
+            let py = y0 + dy * t;
+            // dab bbox -> NDC; y is flipped so (0,0) is top-left like the CPU path.
+            let nx = |x: f32| (x / tw) * 2.0 - 1.0;
+            let ny = |y: f32| 1.0 - (y / th) * 2.0;
+            let (l, rr, tp, bt) = (nx(px - r), nx(px + r), ny(py - r), ny(py + r));
+            // TRIANGLE_STRIP: TL, BL, TR, BR — interleaved (pos.x, pos.y, uv.x, uv.y).
+            let verts: [f32; 16] = [
+                l, tp, -1.0, -1.0, l, bt, -1.0, 1.0, rr, tp, 1.0, -1.0, rr, bt, 1.0, 1.0,
+            ];
+            gl.buffer_data_untyped(
+                gl::ARRAY_BUFFER,
+                (verts.len() * core::mem::size_of::<f32>()) as isize,
+                GlVoidPtrConst {
+                    ptr: verts.as_ptr() as *const GLvoid,
+                    run_destructor: false,
+                },
+                gl::STREAM_DRAW,
+            );
+            gl.draw_arrays(gl::TRIANGLE_STRIP, 0, 4);
+        }
+
+        gl.disable_vertex_attrib_array(0);
+        gl.disable_vertex_attrib_array(1);
+        gl.bind_buffer(gl::ARRAY_BUFFER, 0);
+        gl.disable(gl::BLEND);
+        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        gl.delete_buffers((&[vbo][..]).into());
+        gl.delete_framebuffers((&[fbo][..]).into());
+    }
+
+    /// Read this texture's pixels back into an RGBA8 `RawImage` (top-left origin)
+    /// — for exporting the painted canvas to disk. Binds an FBO + glReadPixels.
+    pub fn copy_to_raw_image(&self) -> RawImage {
+        let gl = self.gl_context.clone();
+        let (w, h) = (self.size.width as i32, self.size.height as i32);
+        if self.texture_id == 0 || w <= 0 || h <= 0 {
+            return RawImage::null_image();
+        }
+        let fbo = gl.gen_framebuffers(1).get(0).copied().unwrap_or(0);
+        if fbo == 0 {
+            return RawImage::null_image();
+        }
+        gl.bind_framebuffer(gl::FRAMEBUFFER, fbo);
+        gl.framebuffer_texture_2d(
+            gl::FRAMEBUFFER,
+            gl::COLOR_ATTACHMENT0,
+            gl::TEXTURE_2D,
+            self.texture_id,
+            0,
+        );
+        let pixels = gl.read_pixels(0, 0, w, h, gl::RGBA, gl::UNSIGNED_BYTE);
+        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        gl.delete_framebuffers((&[fbo][..]).into());
+
+        // glReadPixels uses a bottom-left origin; flip rows to top-left for saving.
+        let mut bytes = pixels.into_library_owned_vec();
+        let row = (w as usize) * 4;
+        let hh = h as usize;
+        if row > 0 && bytes.len() >= row * hh {
+            for y in 0..hh / 2 {
+                let yi = y * row;
+                let yo = (hh - 1 - y) * row;
+                for k in 0..row {
+                    bytes.swap(yi + k, yo + k);
+                }
+            }
+        }
+        RawImage {
+            pixels: RawImageData::U8(bytes.into()),
+            width: w as usize,
+            height: h as usize,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::RGBA8,
+            tag: Vec::new().into(),
+        }
+    }
 }
 
 impl_traits_for_gl_object!(Texture, texture_id);
