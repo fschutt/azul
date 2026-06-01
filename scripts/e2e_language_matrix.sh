@@ -655,11 +655,17 @@ lang_java() {
     # explicitly so the build-helper source root is unambiguous.
     mvn -q package -Dazul.codegen.dir="$CODEGEN_DIR/java" || exit 1
     local JNA_JAR="$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar"
-    # Java's -cp separator is ';' on Windows, ':' elsewhere — using ':' on
-    # Windows makes the JVM treat the whole list as ONE bogus entry and the main
-    # class is not found.
-    local CPSEP=":"; [ "$IS_WINDOWS" = 1 ] && CPSEP=";"
-    local JVM_ARGS=(-Djna.library.path=. -cp "target/hello-world-1.0.0.jar${CPSEP}$JNA_JAR" com.azul.HelloWorld)
+    # Portable classpath. On Windows the JVM needs ';' AND Windows-style paths:
+    # the MSYS '/c/Users/...' JNA path is unreadable to java.exe (-> JNA
+    # NoClassDefFoundError), and ':' relies on fragile MSYS auto-conversion. Use
+    # ';' + cygpath so both the app jar and the JNA jar resolve.
+    local CPSEP=":" APP_JAR="target/hello-world-1.0.0.jar" JNA_CP="$JNA_JAR"
+    if [ "$IS_WINDOWS" = 1 ]; then
+      CPSEP=";"
+      APP_JAR="$(cygpath -m "$APP_JAR" 2>/dev/null || echo "$APP_JAR")"
+      JNA_CP="$(cygpath -m "$JNA_JAR" 2>/dev/null || echo "$JNA_JAR")"
+    fi
+    local JVM_ARGS=(-Djna.library.path=. -cp "${APP_JAR}${CPSEP}${JNA_CP}" com.azul.HelloWorld)
     if [ "$IS_MACOS" = 1 ]; then
       java -XstartOnFirstThread "${JVM_ARGS[@]}"
     else
@@ -694,15 +700,20 @@ lang_kotlin() {
       [ -f "$JNA_JAR" ] || { echo "JNA jar not found at $JNA_JAR"; exit 1; }
       kotlinc -J-Xmx4g -cp "$JNA_JAR" Azul.kt HelloWorld.kt \
         -include-runtime -d hello-world.jar || exit 1
-      # ';' classpath separator on Windows, ':' elsewhere (else the JVM can't
-      # find com.azul.HelloWorldKt -> ClassNotFoundException).
-      local CPSEP=":"; [ "$IS_WINDOWS" = 1 ] && CPSEP=";"
+      # Portable classpath (see lang_java): ';' + Windows-style paths on Windows,
+      # else the JVM can't find com.azul.HelloWorldKt or the MSYS-path JNA jar.
+      local CPSEP=":" APP_JAR="hello-world.jar" JNA_CP="$JNA_JAR"
+      if [ "$IS_WINDOWS" = 1 ]; then
+        CPSEP=";"
+        APP_JAR="$(cygpath -m "$APP_JAR" 2>/dev/null || echo "$APP_JAR")"
+        JNA_CP="$(cygpath -m "$JNA_JAR" 2>/dev/null || echo "$JNA_JAR")"
+      fi
       if [ "$IS_MACOS" = 1 ]; then
         java -XstartOnFirstThread -Djna.library.path=. \
-          -cp "hello-world.jar${CPSEP}$JNA_JAR" com.azul.HelloWorldKt
+          -cp "${APP_JAR}${CPSEP}${JNA_CP}" com.azul.HelloWorldKt
       else
         java -Djna.library.path=. \
-          -cp "hello-world.jar${CPSEP}$JNA_JAR" com.azul.HelloWorldKt
+          -cp "${APP_JAR}${CPSEP}${JNA_CP}" com.azul.HelloWorldKt
       fi
     ) >"$f" 2>&1
     finish kotlin "kotlin build/run failed (kotlinc/JNA)"
