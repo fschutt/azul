@@ -706,16 +706,26 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 
     // Window menu bar. On Windows this resolves to a native HMENU, on macOS to the
     // app menu, and on Linux to the GNOME/DBus global menu (X11) or the CPU-rendered
-    // fallback popup (Wayland/KDE — menus aren't render-intensive so software is fine).
-    // NOTE: the public StringMenuItem API currently only exposes `create(label)` (no
-    // with_children/with_callback), so this is a flat top-level bar that exercises the
-    // per-OS menu resolution + fallback rendering; sub-menus/actions need those builders
-    // exposed in api.json (follow-up).
-    let menu = azul::menu::Menu::create(vec![
-        azul::menu::MenuItem::string(azul::menu::StringMenuItem::create("File")),
-        azul::menu::MenuItem::string(azul::menu::StringMenuItem::create("Edit")),
-        azul::menu::MenuItem::string(azul::menu::StringMenuItem::create("View")),
-        azul::menu::MenuItem::string(azul::menu::StringMenuItem::create("Help")),
+    // popup fallback (Wayland/KDE — menus aren't render-intensive so software is fine).
+    // Sub-menus exercise the popup path; click actions (with_callback) are a follow-up.
+    use azul::menu::{Menu, MenuItem, StringMenuItem};
+    let item = |label: &str| MenuItem::string(StringMenuItem::create(label));
+    let menu = Menu::create(vec![
+        MenuItem::string(StringMenuItem::create("File").with_children(vec![
+            item("New"),
+            item("Open…"),
+            item("Save…"),
+            item("Quit"),
+        ])),
+        MenuItem::string(StringMenuItem::create("Edit").with_children(vec![
+            item("Undo"),
+            item("Redo"),
+            item("Clear"),
+        ])),
+        MenuItem::string(StringMenuItem::create("View").with_children(vec![
+            item("Toggle Metaballs"),
+        ])),
+        item("Help"),
     ]);
 
     Dom::create_body()
