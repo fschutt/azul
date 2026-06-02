@@ -466,8 +466,44 @@ pub(super) extern "C" fn registry_global_handler(
                 );
             }
         }
+        "zxdg_decoration_manager_v1" => {
+            // xdg-decoration-unstable-v1: lets the client request server-side
+            // decorations (compositor-drawn titlebar). Unstable protocol, not
+            // exported by libwayland -> bind with a hand-built interface (same as
+            // the blur manager). The per-toplevel decoration object is created after
+            // the xdg_toplevel exists (see WaylandWindow::new).
+            let mgr = unsafe {
+                (window.wayland.wl_registry_bind)(
+                    registry,
+                    name,
+                    super::defines::get_zxdg_decoration_manager_v1_interface(),
+                    version.min(1),
+                ) as *mut zxdg_decoration_manager_v1
+            };
+            if !mgr.is_null() {
+                window.decoration_manager = Some(mgr);
+                crate::log_debug!(
+                    LogCategory::Platform,
+                    "[Wayland] Bound zxdg_decoration_manager_v1 - server-side decorations available"
+                );
+            }
+        }
         _ => {}
     }
+}
+
+/// `zxdg_toplevel_decoration_v1.configure` — the compositor tells us which
+/// decoration mode it will use (1 = client_side, 2 = server_side). Informational;
+/// we requested server-side, so this confirms whether the compositor honored it.
+pub(super) extern "C" fn toplevel_decoration_configure_handler(
+    _data: *mut c_void,
+    _deco: *mut zxdg_toplevel_decoration_v1,
+    mode: u32,
+) {
+    // Informational: we requested server-side (2); this reports what the compositor
+    // chose. A listener must exist for libwayland to dispatch the event, but we don't
+    // need to act on it (the compositor draws the decorations either way).
+    let _ = mode;
 }
 
 pub(super) extern "C" fn registry_global_remove_handler(
@@ -851,6 +887,12 @@ pub(super) extern "C" fn xdg_surface_configure_handler(
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     unsafe { (window.wayland.xdg_surface_ack_configure)(xdg_surface, serial) };
     window.configured = true;
+    // A configure is the initial map AND every resize. The frame that follows must
+    // be a FULL regeneration (relayout + rebuild + send the display-list transaction),
+    // not the lightweight image-only path — otherwise WebRender has no display list
+    // for this surface and renders an uncleared backbuffer (garbage). This mirrors
+    // the X11 ConfigureNotify path. request_redraw() additionally sets needs_redraw.
+    window.common.frame_needs_regeneration = true;
     window.request_redraw();
 }
 
@@ -983,7 +1025,8 @@ pub(super) extern "C" fn pointer_enter_handler(
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     // wl_fixed_t (24.8 fixed-point) -> logical f64.
-    window.handle_pointer_enter(serial, surface_x as f64 / 256.0, surface_y as f64 / 256.0);
+    let (x, y) = (surface_x as f64 / 256.0, surface_y as f64 / 256.0);
+    window.handle_pointer_enter(serial, x, y);
 }
 
 pub(super) extern "C" fn pointer_leave_handler(
@@ -1004,7 +1047,8 @@ pub(super) extern "C" fn pointer_motion_handler(
     surface_y: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.handle_pointer_motion(surface_x as f64 / 256.0, surface_y as f64 / 256.0);
+    let (x, y) = (surface_x as f64 / 256.0, surface_y as f64 / 256.0);
+    window.handle_pointer_motion(x, y);
 }
 
 pub(super) extern "C" fn pointer_button_handler(

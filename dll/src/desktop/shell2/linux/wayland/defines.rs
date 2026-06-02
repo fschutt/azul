@@ -37,6 +37,25 @@ pub struct org_kde_kwin_blur_manager {
 pub struct org_kde_kwin_blur {
     _private: [u8; 0],
 }
+
+// xdg-decoration-unstable-v1 (server-side window decorations / titlebar).
+#[repr(C)]
+pub struct zxdg_decoration_manager_v1 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zxdg_toplevel_decoration_v1 {
+    _private: [u8; 0],
+}
+
+/// Listener for `zxdg_toplevel_decoration_v1`. The single `configure` event
+/// reports the decoration mode the compositor chose (1 = client_side,
+/// 2 = server_side).
+#[repr(C)]
+pub struct zxdg_toplevel_decoration_v1_listener {
+    pub configure:
+        extern "C" fn(data: *mut core::ffi::c_void, deco: *mut zxdg_toplevel_decoration_v1, mode: u32),
+}
 #[repr(C)]
 pub struct wl_surface {
     _private: [u8; 0],
@@ -632,6 +651,57 @@ pub fn get_kde_blur_interface() -> &'static wl_interface {
             name: b"org_kde_kwin_blur\0".as_ptr() as _, version: 1,
             method_count: 3, methods: requests.as_ptr(),
             event_count: 0, events: std::ptr::null(),
+        }))
+    })).0
+}
+
+/// Minimal `zxdg_decoration_manager_v1` interface (xdg-decoration-unstable-v1).
+/// Not exported by libwayland (it's an unstable protocol extension), so we build
+/// it by hand like the xdg_shell / blur tables. v1 requests, in opcode order:
+/// destroy() = "", get_toplevel_decoration(new_id<zxdg_toplevel_decoration_v1>,
+/// object<xdg_toplevel>) = "no". No events.
+pub fn get_zxdg_decoration_manager_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
+    INTERFACE.get_or_init(|| SyncInterface({
+        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
+        ]));
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"destroy\0".as_ptr() as _,                 signature: b"\0".as_ptr() as _,  types: nt.as_ptr() },
+            wl_message { name: b"get_toplevel_decoration\0".as_ptr() as _,  signature: b"no\0".as_ptr() as _, types: nt.as_ptr() },
+        ]));
+        Box::leak(Box::new(wl_interface {
+            name: b"zxdg_decoration_manager_v1\0".as_ptr() as _, version: 1,
+            method_count: 2, methods: requests.as_ptr(),
+            event_count: 0, events: std::ptr::null(),
+        }))
+    })).0
+}
+
+/// Minimal `zxdg_toplevel_decoration_v1` interface (the per-toplevel decoration
+/// object returned by `get_toplevel_decoration`). v1 requests, in opcode order:
+/// destroy() = "", set_mode(uint mode) = "u", unset_mode() = "". One event:
+/// configure(uint mode) = "u" (mode: 1 = client_side, 2 = server_side).
+pub fn get_zxdg_toplevel_decoration_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
+    INTERFACE.get_or_init(|| SyncInterface({
+        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
+        ]));
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"destroy\0".as_ptr() as _,    signature: b"\0".as_ptr() as _,  types: nt.as_ptr() },
+            wl_message { name: b"set_mode\0".as_ptr() as _,   signature: b"u\0".as_ptr() as _, types: nt.as_ptr() },
+            wl_message { name: b"unset_mode\0".as_ptr() as _, signature: b"\0".as_ptr() as _,  types: nt.as_ptr() },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"configure\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: nt.as_ptr() },
+        ]));
+        Box::leak(Box::new(wl_interface {
+            name: b"zxdg_toplevel_decoration_v1\0".as_ptr() as _, version: 1,
+            method_count: 3, methods: requests.as_ptr(),
+            event_count: 1, events: events.as_ptr(),
         }))
     })).0
 }

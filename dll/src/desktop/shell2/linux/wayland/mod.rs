@@ -170,6 +170,12 @@ pub struct WaylandWindow {
     blur_manager: Option<*mut defines::org_kde_kwin_blur_manager>,
     current_blur: Option<*mut defines::org_kde_kwin_blur>,
 
+    // xdg-decoration-unstable-v1 (server-side titlebar). Bound from the registry;
+    // the per-toplevel decoration is created after the xdg_toplevel and asked for
+    // server-side mode so the compositor draws move/close decorations.
+    decoration_manager: Option<*mut defines::zxdg_decoration_manager_v1>,
+    toplevel_decoration: Option<*mut defines::zxdg_toplevel_decoration_v1>,
+
     // Tooltip
     tooltip: Option<tooltip::TooltipWindow>,
 
@@ -496,10 +502,38 @@ impl WaylandWindow {
         // Check timers and threads before processing Wayland events
         self.check_timers_and_threads();
 
-        if unsafe {
+        // Drain the Wayland socket non-blockingly. The old code only called
+        // wl_display_dispatch_queue_pending, which dispatches events ALREADY queued but
+        // never READS the fd -- so the socket was only ever drained as a side effect of
+        // eglSwapBuffers. An idle window (not rendering) therefore processed no events at
+        // all, including xdg_toplevel.close, so it couldn't be closed from the taskbar
+        // and ignored input until something forced a redraw. Use libwayland's canonical
+        // race-free non-blocking read: prepare_read (retrying after draining if the queue
+        // isn't empty), flush our requests, poll the fd with timeout 0, then read_events
+        // if readable or cancel_read if not, and finally dispatch what we read.
+        let dispatched = unsafe {
+            while (self.wayland.wl_display_prepare_read_queue)(self.display, self.event_queue) != 0 {
+                // Queue not empty -> dispatch what's already there, then retry prepare.
+                (self.wayland.wl_display_dispatch_queue_pending)(self.display, self.event_queue);
+            }
+
+            (self.wayland.wl_display_flush)(self.display);
+
+            let fd = (self.wayland.wl_display_get_fd)(self.display);
+            let mut pfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+            let readable =
+                libc::poll(&mut pfd, 1, 0) > 0 && (pfd.revents & libc::POLLIN) != 0;
+
+            if readable {
+                (self.wayland.wl_display_read_events)(self.display);
+            } else {
+                (self.wayland.wl_display_cancel_read)(self.display);
+            }
+
             (self.wayland.wl_display_dispatch_queue_pending)(self.display, self.event_queue)
-        } > 0
-        {
+        };
+
+        if dispatched > 0 {
             Some(WaylandEvent::Redraw) // Events were processed, a redraw might be needed.
         } else {
             None
@@ -904,6 +938,8 @@ impl WaylandWindow {
             subcompositor: None,
             blur_manager: None,
             current_blur: None,
+            decoration_manager: None,
+            toplevel_decoration: None,
             tooltip: None,
             screensaver_inhibit_cookie: None,
             dbus_connection: None,
@@ -998,14 +1034,16 @@ impl WaylandWindow {
             }
         }
 
-        let listener = defines::wl_registry_listener {
+        // 'static: the proxy keeps the pointer (a stack-local would be a
+        // use-after-free once globals arrive after this frame, e.g. hotplug).
+        static REGISTRY_LISTENER: defines::wl_registry_listener = defines::wl_registry_listener {
             global: events::registry_global_handler,
             global_remove: events::registry_global_remove_handler,
         };
         unsafe {
             (window.wayland.wl_proxy_add_listener)(
                 registry as _,
-                &listener as *const _ as _,
+                &REGISTRY_LISTENER as *const _ as _,
                 &mut window as *mut _ as *mut _,
             )
         };
@@ -1026,14 +1064,14 @@ impl WaylandWindow {
             unsafe { (window.wayland.wl_compositor_create_surface)(window.compositor) };
 
         // Add wl_surface listener to track which monitors the window is on
-        let surface_listener = defines::wl_surface_listener {
+        static SURFACE_LISTENER: defines::wl_surface_listener = defines::wl_surface_listener {
             enter: events::wl_surface_enter_handler,
             leave: events::wl_surface_leave_handler,
         };
         unsafe {
             (window.wayland.wl_surface_add_listener)(
                 window.surface,
-                &surface_listener,
+                &SURFACE_LISTENER,
                 &mut window as *mut _ as *mut _,
             )
         };
@@ -1042,13 +1080,16 @@ impl WaylandWindow {
             (window.wayland.xdg_wm_base_get_xdg_surface)(window.xdg_wm_base, window.surface)
         };
 
-        let xdg_surface_listener = defines::xdg_surface_listener {
+        // 'static: wl_proxy_add_listener stores the pointer, so the listener must
+        // outlive the proxy (a stack-local here is a use-after-free that only
+        // "works" until the stack frame is reused).
+        static XDG_SURFACE_LISTENER: defines::xdg_surface_listener = defines::xdg_surface_listener {
             configure: events::xdg_surface_configure_handler,
         };
         unsafe {
             (window.wayland.xdg_surface_add_listener)(
                 window.xdg_surface,
-                &xdg_surface_listener,
+                &XDG_SURFACE_LISTENER,
                 &mut window as *mut _ as *mut _,
             )
         };
@@ -1057,7 +1098,7 @@ impl WaylandWindow {
             unsafe { (window.wayland.xdg_surface_get_toplevel)(window.xdg_surface) };
 
         // Attach listener to receive configure and close events from compositor
-        let xdg_toplevel_listener = defines::xdg_toplevel_listener {
+        static XDG_TOPLEVEL_LISTENER: defines::xdg_toplevel_listener = defines::xdg_toplevel_listener {
             configure: events::xdg_toplevel_configure_handler,
             close: events::xdg_toplevel_close_handler,
             configure_bounds: events::xdg_toplevel_configure_bounds_handler,
@@ -1066,10 +1107,58 @@ impl WaylandWindow {
         unsafe {
             (window.wayland.xdg_toplevel_add_listener)(
                 window.xdg_toplevel,
-                &xdg_toplevel_listener,
+                &XDG_TOPLEVEL_LISTENER,
                 &mut window as *mut _ as *mut _,
             )
         };
+
+        // Request server-side decorations (xdg-decoration-unstable-v1) so the
+        // compositor draws a titlebar (move / close), instead of relying on
+        // client-side decorations azul doesn't render -> the window was an
+        // immovable, uncloseable bare rectangle on Wayland. get_toplevel_decoration:
+        // opcode 1, "no" (new_id<zxdg_toplevel_decoration_v1>, object<xdg_toplevel>),
+        // then set_mode(server_side=2): opcode 1, "u". The compositor confirms via the
+        // configure event (toplevel_decoration_configure_handler).
+        if let Some(mgr) = window.decoration_manager {
+            unsafe {
+                let deco_iface = defines::get_zxdg_toplevel_decoration_v1_interface();
+                // Use wl_proxy_marshal_constructor (proxy, opcode, new-interface,
+                // NULL new_id placeholder, ...args) -- the same proven path as
+                // xdg_surface_get_toplevel etc. (The wl_proxy_marshal_flags variant
+                // returned NULL here.) get_toplevel_decoration: opcode 0, "no".
+                type GetDecoCtor = unsafe extern "C" fn(
+                    *mut defines::wl_proxy, u32, *const defines::wl_interface,
+                    *mut std::ffi::c_void, *mut defines::xdg_toplevel,
+                ) -> *mut defines::wl_proxy;
+                let f: GetDecoCtor =
+                    std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
+                // opcode 1 = get_toplevel_decoration (opcode 0 is `destroy`!).
+                let deco = f(mgr as *mut defines::wl_proxy, 1, deco_iface,
+                             std::ptr::null_mut(), window.xdg_toplevel);
+                if !deco.is_null() {
+                    static DECO_LISTENER: defines::zxdg_toplevel_decoration_v1_listener =
+                        defines::zxdg_toplevel_decoration_v1_listener {
+                            configure: events::toplevel_decoration_configure_handler,
+                        };
+                    (window.wayland.wl_proxy_add_listener)(
+                        deco,
+                        &DECO_LISTENER as *const _ as *const _,
+                        &mut window as *mut _ as *mut _,
+                    );
+                    // set_mode(server_side = 2): opcode 1, signature "u".
+                    type SetModeFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32, u32);
+                    let set_mode_fn: SetModeFn =
+                        std::mem::transmute(window.wayland.wl_proxy_marshal);
+                    set_mode_fn(deco, 1, 2);
+                    window.toplevel_decoration =
+                        Some(deco as *mut defines::zxdg_toplevel_decoration_v1);
+                    log_info!(
+                        LogCategory::Platform,
+                        "[Wayland] Requested server-side decorations (xdg-decoration)"
+                    );
+                }
+            }
+        }
 
         let title = CString::new(options.window_state.title.as_str()).unwrap();
         unsafe { (window.wayland.xdg_toplevel_set_title)(window.xdg_toplevel, title.as_ptr()) };
@@ -2790,31 +2879,74 @@ impl WaylandWindow {
             }
         }
 
+        // Synchronously flush the scene builder so the transaction we just sent is
+        // fully built before we render + present (this mirrors the working X11 path).
+        // Without it, the GPU branch's old non-blocking readiness check bailed before
+        // the very first swap, so the wl_surface never received a buffer and the
+        // xdg_toplevel was never mapped -- the compositor showed only a taskbar icon.
+        if let Some(ref mut render_api) = self.common.render_api {
+            render_api.flush_scene_builder();
+        }
+
         self.needs_redraw = false;
 
         match &mut self.render_mode {
-            RenderMode::Gpu(gl_context, _) => {
-                // 1. Wait for WebRender to be ready
+            RenderMode::Gpu(gl_context, gl_functions) => {
                 if let Some(renderer) = &mut self.common.renderer {
-                    let (lock, cvar) = &*self.new_frame_ready;
-                    let mut ready = lock.lock().unwrap();
-
-                    // Non-blocking check - don't wait if not ready
-                    if !*ready {
-                        return;
+                    // Scene builder was flushed above -> the frame is ready. Clear the
+                    // async readiness flag and render unconditionally; the previous
+                    // `if !ready { return }` skipped the first present and left the
+                    // window unmapped.
+                    {
+                        let (lock, _cvar) = &*self.new_frame_ready;
+                        if let Ok(mut ready) = lock.lock() {
+                            *ready = false;
+                        }
                     }
-                    *ready = false;
-                    drop(ready); // Release lock before rendering
+
+                    // 1.5. Clear the EGL window backbuffer before WebRender draws.
+                    // On this Wayland/EGL surface the default framebuffer comes back
+                    // as uninitialized VRAM after each swap; WebRender's clear_color
+                    // only clears its own offscreen render targets, so undrawn regions
+                    // of the on-screen FBO showed stray pixels ("garbage dots"). Bind
+                    // FBO 0, set the full viewport, and clear to the window background.
+                    // (GenericGlContext is the same fn table used on macOS/X11.)
+                    let physical_size = self.common.current_window_state.size.get_physical_size();
+                    use azul_core::gl as gl_types;
+                    gl_context.make_current();
+                    gl_functions
+                        .functions
+                        .bind_framebuffer(gl_types::FRAMEBUFFER, 0);
+                    gl_functions.functions.viewport(
+                        0,
+                        0,
+                        physical_size.width as gl_types::GLint,
+                        physical_size.height as gl_types::GLint,
+                    );
+                    gl_functions.functions.clear_color(0.937, 0.941, 0.945, 1.0);
+                    gl_functions
+                        .functions
+                        .clear(gl_types::COLOR_BUFFER_BIT | gl_types::DEPTH_BUFFER_BIT);
 
                     // 2. Update and render
                     renderer.update();
-                    let physical_size = self.common.current_window_state.size.get_physical_size();
                     let device_size = webrender::api::units::DeviceIntSize::new(
                         physical_size.width as i32,
                         physical_size.height as i32,
                     );
+                    // Present only when WebRender actually drew something. A no-op redraw
+                    // (e.g. a lightweight frame, or a regen that rebuilds an unchanged
+                    // scene after a duplicate compositor configure) renders 0 draw calls;
+                    // since the EGL surface is multi-buffered, swapping that empty buffer
+                    // would wipe the last good frame on the alternate buffer and blank the
+                    // window. X11 only renders on real events so it never hit this; the
+                    // Wayland frame-callback loop did. Gate strictly on draw calls.
+                    let mut should_present = false;
                     match renderer.render(device_size, 0) {
                         Ok(results) => {
+                            if results.stats.total_draw_calls > 0 {
+                                should_present = true;
+                            }
                             // Store dirty rects for wl_surface_damage per-rect hints.
                             let dpi_scale = self.common.current_window_state.size.dpi as f32 / 96.0;
                             self.gpu_damage_rects = results.dirty_rects.iter().map(|dr| {
@@ -2840,43 +2972,47 @@ impl WaylandWindow {
                         }
                     }
 
-                    // 3. Swap buffers
-                    if let Err(e) = gl_context.swap_buffers() {
-                        log_error!(
-                            LogCategory::Rendering,
-                            "[Wayland] Swap buffers failed: {:?}",
-                            e
-                        );
-                        return;
-                    }
+                    // 3. Present — but only if this frame actually drew content (see
+                    // should_present above). Swapping an empty (0-draw-call) buffer would
+                    // wipe the last good frame, since the EGL surface is multi-buffered.
+                    if should_present {
+                        if let Err(e) = gl_context.swap_buffers() {
+                            log_error!(
+                                LogCategory::Rendering,
+                                "[Wayland] Swap buffers failed: {:?}",
+                                e
+                            );
+                            return;
+                        }
 
-                    // 3.5. Inform Wayland compositor which regions changed (GPU damage hints).
-                    // EGL handles buffer attachment via eglSwapBuffers, but explicit
-                    // wl_surface_damage calls let the compositor skip recompositing
-                    // unchanged regions.
-                    if !self.gpu_damage_rects.is_empty() {
-                        for dr in &self.gpu_damage_rects {
+                        // 3.5. Inform Wayland compositor which regions changed (GPU damage
+                        // hints). EGL handles buffer attachment via eglSwapBuffers, but
+                        // explicit wl_surface_damage calls let the compositor skip
+                        // recompositing unchanged regions.
+                        if !self.gpu_damage_rects.is_empty() {
+                            for dr in &self.gpu_damage_rects {
+                                unsafe {
+                                    (self.wayland.wl_surface_damage)(
+                                        self.surface,
+                                        dr.origin.x as i32,
+                                        dr.origin.y as i32,
+                                        dr.size.width as i32,
+                                        dr.size.height as i32,
+                                    );
+                                }
+                            }
+                            self.gpu_damage_rects.clear();
+                        } else if self.common.display_list_initialized {
+                            // No damage rects computed — full surface damage as fallback
+                            let physical_size = self.common.current_window_state.size.get_physical_size();
                             unsafe {
                                 (self.wayland.wl_surface_damage)(
                                     self.surface,
-                                    dr.origin.x as i32,
-                                    dr.origin.y as i32,
-                                    dr.size.width as i32,
-                                    dr.size.height as i32,
+                                    0, 0,
+                                    physical_size.width as i32,
+                                    physical_size.height as i32,
                                 );
                             }
-                        }
-                        self.gpu_damage_rects.clear();
-                    } else if self.common.display_list_initialized {
-                        // No damage rects computed — full surface damage as fallback
-                        let physical_size = self.common.current_window_state.size.get_physical_size();
-                        unsafe {
-                            (self.wayland.wl_surface_damage)(
-                                self.surface,
-                                0, 0,
-                                physical_size.width as i32,
-                                physical_size.height as i32,
-                            );
                         }
                     }
 
@@ -3038,12 +3174,16 @@ impl WaylandWindow {
         // 4. Set up frame callback for next frame (VSync)
         unsafe {
             let frame_callback = (self.wayland.wl_surface_frame)(self.surface);
-            let listener = defines::wl_callback_listener {
-                done: frame_done_callback,
-            };
+            // The listener MUST outlive the proxy: wl_proxy_add_listener stores the
+            // POINTER, not a copy. A stack-local listener here was a use-after-free —
+            // when the compositor later sent `done`, libwayland dereferenced freed
+            // stack and jumped to a garbage fn pointer (SIGSEGV in ffi_call). Use a
+            // 'static listener, like every other listener in this file.
+            static FRAME_CALLBACK_LISTENER: defines::wl_callback_listener =
+                defines::wl_callback_listener { done: frame_done_callback };
             (self.wayland.wl_callback_add_listener)(
                 frame_callback,
-                &listener,
+                &FRAME_CALLBACK_LISTENER,
                 self as *mut _ as *mut _,
             );
             (self.wayland.wl_surface_commit)(self.surface);
@@ -3245,6 +3385,14 @@ impl Drop for WaylandWindow {
             }
             if let Some(blur_manager) = self.blur_manager.take() {
                 (self.wayland.wl_proxy_destroy)(blur_manager as _);
+            }
+
+            // Clean up xdg-decoration resources
+            if let Some(deco) = self.toplevel_decoration.take() {
+                (self.wayland.wl_proxy_destroy)(deco as _);
+            }
+            if let Some(deco_manager) = self.decoration_manager.take() {
+                (self.wayland.wl_proxy_destroy)(deco_manager as _);
             }
 
             // Clean up cursor resources
@@ -3734,21 +3882,22 @@ impl WaylandPopup {
         });
         let listener_context_ptr = Box::into_raw(listener_context);
 
-        // 7. Add xdg_surface listener (configure events)
-        let xdg_surface_listener = xdg_surface_listener {
+        // 7. Add xdg_surface listener (configure events). 'static: the proxy stores
+        // the pointer, so a stack-local would be a use-after-free.
+        static POPUP_XDG_SURFACE_LISTENER: xdg_surface_listener = xdg_surface_listener {
             configure: popup_xdg_surface_configure,
         };
 
         unsafe {
             (wayland.xdg_surface_add_listener)(
                 xdg_surface,
-                &xdg_surface_listener,
+                &POPUP_XDG_SURFACE_LISTENER,
                 listener_context_ptr as *mut _,
             );
         }
 
         // 8. Add xdg_popup listener
-        let popup_listener = xdg_popup_listener {
+        static POPUP_LISTENER: xdg_popup_listener = xdg_popup_listener {
             configure: popup_configure,
             popup_done,
         };
@@ -3756,7 +3905,7 @@ impl WaylandPopup {
         unsafe {
             (wayland.xdg_popup_add_listener)(
                 xdg_popup,
-                &popup_listener,
+                &POPUP_LISTENER,
                 listener_context_ptr as *mut _,
             );
         }

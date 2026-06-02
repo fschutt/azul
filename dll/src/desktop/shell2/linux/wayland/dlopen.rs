@@ -40,6 +40,12 @@ pub struct Wayland {
     pub wl_event_queue_destroy: unsafe extern "C" fn(queue: *mut wl_event_queue),
     pub wl_display_flush: unsafe extern "C" fn(display: *mut wl_display) -> i32,
     pub wl_display_get_fd: unsafe extern "C" fn(display: *mut wl_display) -> i32,
+    // Non-blocking read protocol (lets poll_event drain the socket without blocking,
+    // so an idle window still processes events incl. xdg_toplevel.close).
+    pub wl_display_prepare_read_queue:
+        unsafe extern "C" fn(display: *mut wl_display, queue: *mut wl_event_queue) -> i32,
+    pub wl_display_read_events: unsafe extern "C" fn(display: *mut wl_display) -> i32,
+    pub wl_display_cancel_read: unsafe extern "C" fn(display: *mut wl_display),
 
     // Note: These are variadic C functions. Rust doesn't support variadic fn pointers,
     // so we store them as raw pointers and cast when calling.
@@ -295,6 +301,13 @@ impl Wayland {
             wl_event_queue_destroy: load_symbol!(lib_client, _, "wl_event_queue_destroy"),
             wl_display_flush: load_symbol!(lib_client, _, "wl_display_flush"),
             wl_display_get_fd: load_symbol!(lib_client, _, "wl_display_get_fd"),
+            wl_display_prepare_read_queue: load_symbol!(
+                lib_client,
+                _,
+                "wl_display_prepare_read_queue"
+            ),
+            wl_display_read_events: load_symbol!(lib_client, _, "wl_display_read_events"),
+            wl_display_cancel_read: load_symbol!(lib_client, _, "wl_display_cancel_read"),
 
             wl_proxy_marshal_constructor: wl_proxy_marshal_constructor_ptr,
             wl_proxy_marshal: wl_proxy_marshal_ptr,
