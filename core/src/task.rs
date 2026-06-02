@@ -17,6 +17,7 @@ use alloc::{
 use core::{
     ffi::c_void,
     fmt,
+    mem::ManuallyDrop,
     sync::atomic::{AtomicUsize, Ordering},
 };
 #[cfg(feature = "std")]
@@ -310,8 +311,15 @@ impl SystemTick {
 /// Allows crossing FFI boundaries while maintaining proper memory management.
 #[repr(C)]
 pub struct InstantPtr {
+    /// `ManuallyDrop` so the owned `Box` is freed ONLY when `run_destructor` is
+    /// still set (see `Drop`). The codegen FFI wrappers (`AzTimerCallbackInfo`
+    /// etc.) embed this by value AND have their own `Drop` that `drop_in_place`s
+    /// the real type first; Rust's drop glue would then drop this `ptr` field a
+    /// SECOND time on the same bytes. Gating the `Box` free on `run_destructor`
+    /// (cleared by the first drop) makes that second drop a safe no-op. Layout is
+    /// unchanged: `ManuallyDrop<Box<T>>` is one pointer, like the old `Box<T>`.
     #[cfg(feature = "std")]
-    pub ptr: Box<StdInstant>,
+    pub ptr: ManuallyDrop<Box<StdInstant>>,
     #[cfg(not(feature = "std"))]
     pub ptr: *const c_void,
     pub clone_fn: InstantPtrCloneCallback,
@@ -409,7 +417,7 @@ impl Ord for InstantPtr {
 #[cfg(feature = "std")]
 impl InstantPtr {
     fn get(&self) -> StdInstant {
-        *(self.ptr).clone()
+        (**self.ptr).clone()
     }
 }
 
@@ -423,7 +431,7 @@ impl Clone for InstantPtr {
 extern "C" fn std_instant_clone(ptr: *const InstantPtr) -> InstantPtr {
     let az_instant_ptr = unsafe { &*ptr };
     InstantPtr {
-        ptr: az_instant_ptr.ptr.clone(),
+        ptr: ManuallyDrop::new((*az_instant_ptr.ptr).clone()),
         clone_fn: az_instant_ptr.clone_fn.clone(),
         destructor: az_instant_ptr.destructor.clone(),
         run_destructor: true,
@@ -434,7 +442,7 @@ extern "C" fn std_instant_clone(ptr: *const InstantPtr) -> InstantPtr {
 impl From<StdInstant> for InstantPtr {
     fn from(s: StdInstant) -> InstantPtr {
         Self {
-            ptr: Box::new(s),
+            ptr: ManuallyDrop::new(Box::new(s)),
             clone_fn: InstantPtrCloneCallback {
                 cb: std_instant_clone,
             },
@@ -458,6 +466,15 @@ impl Drop for InstantPtr {
         if self.run_destructor {
             self.run_destructor = false;
             (self.destructor.cb)(self);
+            // Free the owned Box exactly once, here under the run_destructor guard.
+            // A second drop on the same bytes (the codegen wrapper's field-drop after
+            // its own `_delete` already ran the real drop) sees run_destructor=false
+            // and skips this -> no double-free. (non-std `ptr` is a raw POD pointer
+            // freed by the destructor callback above, so nothing to drop here.)
+            #[cfg(feature = "std")]
+            unsafe {
+                ManuallyDrop::drop(&mut self.ptr);
+            }
         }
     }
 }

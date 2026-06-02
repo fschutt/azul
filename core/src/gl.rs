@@ -11,6 +11,7 @@ use alloc::{
 use core::{
     ffi, fmt,
     hash::{Hash, Hasher},
+    mem::ManuallyDrop,
     sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
 };
 
@@ -860,7 +861,15 @@ pub struct GlShaderPrecisionFormatReturn {
 
 #[repr(C)]
 pub struct GlContextPtr {
-    pub ptr: Box<Rc<GlContextPtrInner>>,
+    /// `ManuallyDrop` so the owned `Box` is freed ONLY when `run_destructor` is
+    /// still set (see `Drop`). The codegen FFI wrappers (`AzTexture` etc.) embed
+    /// this by value AND have their own `Drop` that `drop_in_place`s the real
+    /// type first; Rust's drop glue would then drop this field a SECOND time on
+    /// the same bytes. Gating the `Box` free on `run_destructor` (which the first
+    /// drop clears in the shared memory) makes that second drop a safe no-op.
+    /// Layout is unchanged: `ManuallyDrop<Box<T>>` is a single pointer, identical
+    /// to the old `Box<T>` and to the FFI `*mut c_void`.
+    pub ptr: ManuallyDrop<Box<Rc<GlContextPtrInner>>>,
     /// Whether to force a hardware or software renderer
     pub renderer_type: RendererType,
     pub run_destructor: bool,
@@ -869,7 +878,7 @@ pub struct GlContextPtr {
 impl Clone for GlContextPtr {
     fn clone(&self) -> Self {
         Self {
-            ptr: self.ptr.clone(),
+            ptr: ManuallyDrop::new((*self.ptr).clone()),
             renderer_type: self.renderer_type.clone(),
             run_destructor: true,
         }
@@ -878,7 +887,14 @@ impl Clone for GlContextPtr {
 
 impl Drop for GlContextPtr {
     fn drop(&mut self) {
-        self.run_destructor = false;
+        // Only free the owned Box if this instance still owns it. The FFI wrapper
+        // double-drop (see the struct doc) hits these same bytes a second time
+        // with `run_destructor` already cleared by the first drop -> no-op, no
+        // double-free.
+        if self.run_destructor {
+            self.run_destructor = false;
+            unsafe { ManuallyDrop::drop(&mut self.ptr); }
+        }
     }
 }
 
@@ -1249,18 +1265,19 @@ impl GlContextPtr {
         let (svg_program_id, svg_multicolor_program_id, fxaa_program_id, brush_program_id, glsl_version) =
             (0u32, 0u32, 0u32, 0u32, AzString::from_const_str(""));
 
-        Self {
-            ptr: Box::new(Rc::new(GlContextPtrInner {
+        let me = Self {
+            ptr: ManuallyDrop::new(Box::new(Rc::new(GlContextPtrInner {
                 svg_shader: svg_program_id,
                 svg_multicolor_shader: svg_multicolor_program_id,
                 fxaa_shader: fxaa_program_id,
                 brush_shader: brush_program_id,
                 glsl_version,
                 ptr: gl_context,
-            })),
+            }))),
             renderer_type,
             run_destructor: true,
-        }
+        };
+        me
     }
 
     pub fn get<'a>(&'a self) -> &'a Rc<GenericGlContext> {
