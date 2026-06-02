@@ -545,6 +545,10 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     };
 
     style.theme = if is_dark { Theme::Dark } else { Theme::Light };
+    // KDE Plasma's default UI font is Noto Sans, not GNOME's Cantarell (which
+    // the gnome_adwaita base sets). Overridden below if kdeglobals General/font
+    // is set; otherwise this is the correct KDE default instead of Cantarell.
+    style.fonts.ui_font = OptionString::Some("Noto Sans".into());
 
     // Font discovery
     if let Ok(font_str) = run_command_with_timeout(
@@ -593,6 +597,31 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
                 style.colors.accent = OptionColorU::Some(ColorU::new_rgb(r, g, b));
             }
         }
+    }
+
+    // Exact KDE palette from kdeglobals. Previously window-bg/text fell back to
+    // the GNOME Adwaita base (a few RGB off from KDE Breeze); read the real
+    // Colors:Window / Colors:View groups so the detected style matches KDE.
+    let read_kde_color = |group: &str, key: &str| -> Option<ColorU> {
+        let v = run_command_with_timeout(kread, &["--group", group, "--key", key], 1000).ok()?;
+        let p: Vec<&str> = v.split(',').collect();
+        if p.len() < 3 {
+            return None;
+        }
+        Some(ColorU::new_rgb(
+            p[0].trim().parse::<u8>().ok()?,
+            p[1].trim().parse::<u8>().ok()?,
+            p[2].trim().parse::<u8>().ok()?,
+        ))
+    };
+    if let Some(c) = read_kde_color("Colors:Window", "BackgroundNormal") {
+        style.colors.window_background = OptionColorU::Some(c);
+    }
+    if let Some(c) = read_kde_color("Colors:View", "BackgroundNormal") {
+        style.colors.background = OptionColorU::Some(c);
+    }
+    if let Some(c) = read_kde_color("Colors:View", "ForegroundNormal") {
+        style.colors.text = OptionColorU::Some(c);
     }
 
     // Window decoration button layout
@@ -1032,6 +1061,7 @@ pub(crate) fn discover() -> SystemStyle {
     let portal_result = query_xdg_portal();
 
     if let Some((color_scheme, accent_rgb)) = portal_result {
+        crate::plog_debug!("system style: xdg-desktop-portal color-scheme={}", color_scheme);
         let mut style = match color_scheme {
             1 => defaults::gnome_adwaita_dark(),   // prefer-dark
             2 => defaults::gnome_adwaita_light(),   // prefer-light
@@ -1056,6 +1086,10 @@ pub(crate) fn discover() -> SystemStyle {
         style.app_specific_stylesheet = load_app_specific_stylesheet().map(Box::new);
         return style;
     }
+
+    // Portal probe unavailable or rejected (e.g. the raw-D-Bus handshake) —
+    // non-fatal; fall back to CLI/defaults. Visible only with AZ_LOG on.
+    crate::plog_debug!("system style: xdg-desktop-portal unavailable; falling back to CLI/defaults");
 
     // ── 2. CLI-based discovery ──────────────────────────────────────
     // `AZ_RICING=force` reorders the chain so riced-desktop sources

@@ -789,6 +789,11 @@ name = "transpile_fn"
 path = "examples/transpile_fn.rs"
 required-features = ["web", "link-static"]
 
+[[example]]
+name = "system_style"
+path = "examples/system_style.rs"
+required-features = ["link-static"]
+
 # -----------------------------------------------------------------------------
 # Package Metadata
 # -----------------------------------------------------------------------------
