@@ -799,6 +799,11 @@ name = "css_double_drop"
 path = "examples/css_double_drop.rs"
 required-features = ["link-static"]
 
+[[example]]
+name = "appconfig_double_drop"
+path = "examples/appconfig_double_drop.rs"
+required-features = ["link-static"]
+
 # -----------------------------------------------------------------------------
 # Package Metadata
 # -----------------------------------------------------------------------------

@@ -43,6 +43,7 @@ use alloc::{
     vec::Vec,
 };
 use core::fmt;
+use core::mem::ManuallyDrop;
 
 #[cfg(feature = "std")]
 use std::sync::Mutex;
@@ -186,13 +187,36 @@ impl Default for IconProviderInner {
 /// - First-match-wins lookup across all packs
 #[repr(C)]
 pub struct IconProviderHandle {
-    /// Boxed inner data - Box<T> is repr(C) compatible (single pointer)
-    pub inner: Box<IconProviderInner>,
+    /// Boxed inner data - Box<T> is repr(C) compatible (single pointer).
+    /// `ManuallyDrop` so the Box is freed ONLY by our `Drop` (gated on
+    /// `run_destructor`), never by drop-glue. The codegen Az wrapper nests an
+    /// `AzIconProviderHandle` field (in `AzAppConfig`) whose own `Drop` re-runs
+    /// `_delete` -> `drop_in_place::<IconProviderHandle>` on the SAME bytes; with
+    /// a bare `Box` the glue freed it a second time -> double free. Same
+    /// convention as GlContextPtr / CssPropertyCachePtr.
+    pub inner: ManuallyDrop<Box<IconProviderInner>>,
+    pub run_destructor: bool,
 }
 
 impl Clone for IconProviderHandle {
     fn clone(&self) -> Self {
-        Self { inner: Box::new((*self.inner).clone()) }
+        Self {
+            inner: ManuallyDrop::new(Box::new((**self.inner).clone())),
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for IconProviderHandle {
+    fn drop(&mut self) {
+        // First drop (run_destructor still true) frees the Box and clears the flag
+        // in the shared bytes; the codegen's redundant second drop sees false -> no-op.
+        if self.run_destructor {
+            self.run_destructor = false;
+            unsafe {
+                ManuallyDrop::drop(&mut self.inner);
+            }
+        }
     }
 }
 
@@ -222,20 +246,22 @@ impl IconProviderHandle {
     /// or use `with_resolver()` to create with a custom resolver.
     pub fn new() -> Self {
         Self {
-            inner: Box::new(IconProviderInner {
+            inner: ManuallyDrop::new(Box::new(IconProviderInner {
                 icons: BTreeMap::new(),
                 resolver: default_icon_resolver,
-            })
+            })),
+            run_destructor: true,
         }
     }
 
     /// Create with a custom resolver callback
     pub fn with_resolver(resolver: IconResolverCallbackType) -> Self {
         Self {
-            inner: Box::new(IconProviderInner {
+            inner: ManuallyDrop::new(Box::new(IconProviderInner {
                 icons: BTreeMap::new(),
                 resolver,
-            })
+            })),
+            run_destructor: true,
         }
     }
     
@@ -243,8 +269,12 @@ impl IconProviderHandle {
     ///
     /// This consumes the Box and creates an Arc. Called by App::run() to create
     /// the shared icon provider that gets cloned to each window.
-    pub(crate) fn into_shared(self) -> Arc<Mutex<IconProviderInner>> {
-        Arc::new(Mutex::new(*self.inner))
+    pub(crate) fn into_shared(mut self) -> Arc<Mutex<IconProviderInner>> {
+        // Take the Box out and disarm our Drop so it doesn't free the moved-out
+        // allocation (ManuallyDrop::take leaves `inner` logically uninitialized).
+        let inner = unsafe { ManuallyDrop::take(&mut self.inner) };
+        self.run_destructor = false;
+        Arc::new(Mutex::new(*inner))
     }
 
     /// Set the resolver callback
