@@ -68,8 +68,11 @@ In `dll/src/desktop/shell2/linux/x11/mod.rs` (~line 1132, the 7-tuple `match gl:
 - In the `Ok` arm, when `query_gpu_info` is `Blacklisted` (software) AND backend != `Gpu`: drop the GL ctx and return the CPU tuple (instead of just `RendererType::Software`).
 The X11 CPU path uses `RenderMode::Cpu(Some(gc))` (XImage/`XPutImage` via cpurender). Software-GL won't trigger on this machine's hardware GL, so it must be tested on a software-GL/CPU X11 setup.
 
-### Systemic alternative (#23)
-A codegen-generator fix (emit `ManuallyDrop` mirror fields, or `ptr::read` in `_delete`) would close the whole double-drop class without per-type `run_destructor`. Bigger/riskier; the per-leaf fixes have handled every *known* case (GlContextPtr, InstantPtr, CssPropertyCachePtr, IconProviderHandle).
+### Systemic approach (#23 / #33) — DETECTION shipped; auto-fix abandoned
+Auto-rewriting (ManuallyDrop on all mirror fields) was tried + reverted — it broke public/user struct construction (`ManuallyDrop<AzU8Vec>: From<Vec>` in azul-paint) and `has_custom_drop` is unreliable. Instead (per the user) **azul-doc now DETECTS the risk and forces the maintainer to gate it** (commit `74b7db461`, `ir_builder.rs::validate_api_json`): flags non-Copy structs owning a raw ptr/Box (ConstPtr/MutPtr/Boxed/OptionBoxed) without a `run_destructor`/`destructor` gate, excluding slice/Vec views (`len`/`cap` field). Prints a WARNING with the full WHY (codegen `_delete` + parent drop-glue = double free) + the fix (ManuallyDrop+run_destructor, see GlContextPtr).
+REMAINING (follow-ups, in priority order):
+1. **Gate the 9 flagged types**, then flip the warning to a hard ERROR (`errors.push` instead of `eprintln`) to prevent regressions. Flagged: VirtualViewCallbackInfo, LayoutCallbackInfo, TimerCallbackInfo, RenderImageCallbackInfo, NodeData, GridMinMax, **SystemStyle** (proven AppConfig-drop offender), ComponentFieldTypeBox, GlVoidPtrMut (verify — likely a borrow false-positive → mark Copy or refine the detector). Each: in the real type add `run_destructor: bool` + `ManuallyDrop<...>` the owned field + gate Drop; add the field to api.json struct_fields; `azul-doc codegen all` + rebuild; verify with `appconfig_double_drop.rs` (it should run clean once SystemStyle + the rest are gated). Consider a `impl_ffi_owned_destructor!` macro in azul_core to reduce boilerplate.
+2. **Auto-gen per-type drop memtests** (user idea): extend the codegen `memtest` (`target/codegen/memtest.rs`, generator.rs:179, config `memtest()`) so each non-Copy type is constructed (default/ctor) + dropped (and nested + dropped by value) in a loop → catches double-free/leak, proving each gate is correct. Like `css_double_drop`/`appconfig_double_drop` but auto-generated for all types.
 
 ---
 
