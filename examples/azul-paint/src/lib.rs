@@ -704,7 +704,25 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     .with_callback(EventFilter::Hover(HoverEventFilter::TouchMove), data.clone(), on_pointer_move)
     .with_callback(EventFilter::Hover(HoverEventFilter::TouchEnd), data, on_pointer_up);
 
-    Dom::create_body().with_css(ROOT).with_child(header).with_child(canvas)
+    // Window menu bar. On Windows this resolves to a native HMENU, on macOS to the
+    // app menu, and on Linux to the GNOME/DBus global menu (X11) or the CPU-rendered
+    // fallback popup (Wayland/KDE — menus aren't render-intensive so software is fine).
+    // NOTE: the public StringMenuItem API currently only exposes `create(label)` (no
+    // with_children/with_callback), so this is a flat top-level bar that exercises the
+    // per-OS menu resolution + fallback rendering; sub-menus/actions need those builders
+    // exposed in api.json (follow-up).
+    let menu = azul::menu::Menu::create(vec![
+        azul::menu::MenuItem::string(azul::menu::StringMenuItem::create("File")),
+        azul::menu::MenuItem::string(azul::menu::StringMenuItem::create("Edit")),
+        azul::menu::MenuItem::string(azul::menu::StringMenuItem::create("View")),
+        azul::menu::MenuItem::string(azul::menu::StringMenuItem::create("Help")),
+    ]);
+
+    Dom::create_body()
+        .with_css(ROOT)
+        .with_menu_bar(menu)
+        .with_child(header)
+        .with_child(canvas)
 }
 
 fn button(label: &str, data: RefAny, cb: CallbackType) -> Dom {
