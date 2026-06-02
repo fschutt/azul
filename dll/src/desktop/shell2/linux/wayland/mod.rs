@@ -1878,41 +1878,28 @@ impl WaylandWindow {
             }
         }
 
-        // V2: Process events through state-diffing system
+        // V2: Process events through the SHARED state-diffing handler — same as the
+        // pointer/motion/touch paths. The old inline match here swallowed
+        // ShouldUpdateDisplayList / ShouldIncrementalRelayout in `_ => {}` and never
+        // requested a redraw after a DOM regen, so typed text only became visible on the
+        // next event that happened to repaint (e.g. a mouse click).
         let result = self.process_window_events(0);
-
-        // Process the result
-        match result {
-            ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
-                if let Err(e) = self.regenerate_layout() {
-                    log_error!(
-                        LogCategory::Layout,
-                        "[Wayland] Layout regeneration error: {}",
-                        e
-                    );
-                }
-            }
-            ProcessEventResult::ShouldReRenderCurrentWindow => {
-                self.request_redraw();
-            }
-            _ => {}
-        }
+        self.handle_process_event_result(result);
     }
 
     fn handle_process_event_result(&mut self, result: ProcessEventResult) {
         match result {
             ProcessEventResult::ShouldRegenerateDomCurrentWindow
-            | ProcessEventResult::ShouldRegenerateDomAllWindows => {
-                if let Err(e) = self.regenerate_layout() {
-                    log_error!(
-                        LogCategory::Layout,
-                        "[Wayland] Layout regeneration error: {}",
-                        e
-                    );
-                }
-            }
-            ProcessEventResult::ShouldIncrementalRelayout
+            | ProcessEventResult::ShouldRegenerateDomAllWindows
+            | ProcessEventResult::ShouldIncrementalRelayout
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                // Layout/content changed → take the FULL rebuild path:
+                // generate_frame_if_needed() runs regenerate_layout + rebuilds the CPU
+                // hit-tester + builds & sends the WebRender transaction + presents, but
+                // only when frame_needs_regeneration is set. Calling regenerate_layout()
+                // directly here does NOT build/send the transaction on Wayland, so the
+                // change never reached the screen until a later redraw — that was why
+                // typed text (a content change) only appeared on the next mouse click.
                 self.common.frame_needs_regeneration = true;
                 self.request_redraw();
             }
