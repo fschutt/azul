@@ -232,9 +232,9 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     ContentEditableDataRef_delete(&ref);
     
-    // Parse and apply CSS
-    AzCss css = AzCss_fromString(AZ_STR(CSS_STYLE));
-    return AzDom_style(root, css);
+    // Apply CSS inline and return the Dom (the layout callback returns AzDom now;
+    // AzDom_style -> StyledDom was removed — with_css parses + attaches inline CSS).
+    return AzDom_withCss(root, AZ_STR(CSS_STYLE));
 }
 
 // ============================================================================
