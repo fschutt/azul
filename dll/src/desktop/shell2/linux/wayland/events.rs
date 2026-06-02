@@ -741,6 +741,7 @@ pub(super) extern "C" fn seat_capabilities_handler(
 
     if capabilities & WL_SEAT_CAPABILITY_KEYBOARD != 0 {
         let keyboard = unsafe { (window.wayland.wl_seat_get_keyboard)(seat) };
+        window.keyboard = keyboard; // stored so rebind_listeners() can re-point it
         unsafe {
             (window.wayland.wl_keyboard_add_listener)(keyboard, &WL_KEYBOARD_LISTENER, data)
         };
@@ -748,6 +749,7 @@ pub(super) extern "C" fn seat_capabilities_handler(
 
     if capabilities & WL_SEAT_CAPABILITY_TOUCH != 0 {
         let touch = unsafe { (window.wayland.wl_seat_get_touch)(seat) };
+        window.touch = touch; // stored so rebind_listeners() can re-point it
         unsafe { (window.wayland.wl_touch_add_listener)(touch, &WL_TOUCH_LISTENER, data) };
     }
 }

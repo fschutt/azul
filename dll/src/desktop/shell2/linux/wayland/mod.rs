@@ -156,10 +156,16 @@ pub struct WaylandWindow {
     event_queue: *mut defines::wl_event_queue,
     keyboard_state: events::WaylandKeyboardState,
     pointer_state: events::PointerState,
+    // wl_keyboard / wl_touch proxies (created in seat_capabilities_handler). Stored so
+    // rebind_listeners() can re-point their listener user-data to the stable boxed `self`.
+    keyboard: *mut defines::wl_keyboard,
+    touch: *mut defines::wl_touch,
     tablet_manager: *mut defines::zwp_tablet_manager_v2,
     tablet_seat: *mut defines::zwp_tablet_seat_v2,
     tablet_initialized: bool,
     tablet_pen: events::TabletPenPending,
+    // False until the first poll rebinds all proxy listeners to the stable boxed `self`.
+    listeners_rebound: bool,
     is_open: bool,
     configured: bool,
 
@@ -499,6 +505,10 @@ fn translate_keysym_to_virtual_keycode(keysym: u32) -> azul_core::window::Virtua
 
 impl WaylandWindow {
     pub fn poll_event(&mut self) -> Option<WaylandEvent> {
+        // First pump after the run loop boxed us: re-point all listeners to this stable
+        // address (they were registered against the now-moved `new()` stack frame).
+        self.ensure_listeners_rebound();
+
         // Check timers and threads before processing Wayland events
         self.check_timers_and_threads();
 
@@ -606,6 +616,58 @@ impl WaylandWindow {
             crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
         }
         self.is_open = false;
+    }
+
+    /// Re-point every proxy's listener user-data to this (now stable, boxed) `self`.
+    ///
+    /// All Wayland listeners are registered in `new()` against the stack-local
+    /// `&mut window`, which the run loop then MOVES into a heap `Box`. libwayland stores
+    /// the user-data *pointer* (not a copy) and hands that exact pointer to every event
+    /// callback — so without this fixup every event (configure, close, pointer, keyboard,
+    /// touch, IME, …) is delivered with a dangling `new()`-stack pointer. The most visible
+    /// symptom: `xdg_toplevel.close` writes `is_open = false` into the dead stack copy, so
+    /// the run loop (reading the live boxed copy) never sees it and the window won't close.
+    /// Other state updates leak through shared heap pointers as use-after-free, producing
+    /// erratic, focus-dependent input behaviour. Verified empirically: registration addr
+    /// `0x7ffe…` (stack) vs live boxed addr `0x5bcb…` (heap).
+    fn rebind_listeners(&mut self) {
+        let set = self.wayland.wl_proxy_set_user_data;
+        // Snapshot every proxy that carries a listener which dereferences `data as
+        // *mut WaylandWindow`, BEFORE taking the raw self-pointer. Proxies created later
+        // (frame callbacks, tablet tools) are made by handlers that — after this rebind —
+        // already hold the stable pointer, so they inherit it automatically.
+        let proxies: [*mut std::ffi::c_void; 10] = [
+            self.registry as _,
+            self.surface as _,
+            self.xdg_surface as _,
+            self.xdg_toplevel as _,
+            self.seat as _,
+            self.pointer_state.pointer as _,
+            self.keyboard as _,
+            self.touch as _,
+            self.tablet_manager as _,
+            self.tablet_seat as _,
+        ];
+        let opt_proxies: [*mut std::ffi::c_void; 2] = [
+            self.text_input.map_or(std::ptr::null_mut(), |p| p as _),
+            self.toplevel_decoration.map_or(std::ptr::null_mut(), |p| p as _),
+        ];
+        let me = self as *mut Self as *mut std::ffi::c_void;
+        for p in proxies.iter().chain(opt_proxies.iter()) {
+            if !p.is_null() {
+                unsafe { set(*p as *mut defines::wl_proxy, me) };
+            }
+        }
+    }
+
+    /// Rebind listeners to the stable `self` exactly once, on the first event pump after
+    /// the window has been boxed by the run loop. Safe to call every poll.
+    #[inline]
+    fn ensure_listeners_rebound(&mut self) {
+        if !self.listeners_rebound {
+            self.rebind_listeners();
+            self.listeners_rebound = true;
+        }
     }
     /// Process pending accessibility actions from assistive technology (e.g. Orca)
     #[cfg(feature = "a11y")]
@@ -990,6 +1052,9 @@ impl WaylandWindow {
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
             keyboard_state: events::WaylandKeyboardState::new(),
             pointer_state: events::PointerState::new(),
+            keyboard: std::ptr::null_mut(),
+            touch: std::ptr::null_mut(),
+            listeners_rebound: false,
             tablet_manager: std::ptr::null_mut(),
             tablet_seat: std::ptr::null_mut(),
             tablet_initialized: false,
@@ -1511,6 +1576,10 @@ impl WaylandWindow {
 
     pub fn wait_for_events(&mut self) -> Result<(), WindowError> {
         use super::super::common::event::PlatformWindow;
+
+        // Re-point listeners to this stable address before the first dispatch (see
+        // ensure_listeners_rebound / rebind_listeners).
+        self.ensure_listeners_rebound();
 
         // First, dispatch any pending events without blocking
         let pending = unsafe {

@@ -157,6 +157,103 @@ The header CSS DOES set `flex-direction: row` (examples/azul-paint/src/lib.rs:65
 
 ### Priority for "fully working azul-paint": A (click dispatch — DONE, verify) → B (typing) → C (IME/contenteditable) → G (flex-row layout) → D (file drop) → F (menus) → E (a11y verify). A was the keystone (committed 1f8a36cc8). Fixing the debug-server DOM access (§7b-A) unblocks autonomous verification of A/B/C.
 
+## 9. Session 2026-06-03 — contenteditable visual testing + the stale-self-pointer close bug
+
+Tested `tests/e2e/contenteditable.c` (CPU mode: `AZ_BACKEND=cpu ./contenteditable_test`, compiled
+`cc contenteditable.c -I../../target/codegen -L../../target/release/ -lazul -o contenteditable_test -Wl,-rpath,<abs>/target/release`).
+GPU path SIGSEGVs on this DOM (separate WebRender bug — not chased; user stays on CPU).
+
+### 9a. CPU hit-test fix LANDED and works (commit after `1f8a36cc8`)
+Root cause of dead mouse in CPU mode: `cpu_hit_tester` (created `mod.rs:973 CpuHitTester::new()`) was
+never `rebuild_from_layout`'d — the earlier hit-test fix (`1f8a36cc8`) only refreshed the **GPU**
+WebRender hit-tester. Fix added in `generate_frame_if_needed` (mod.rs ~2835, after
+`frame_needs_regeneration = false`):
+```rust
+if let (Some(cpu_ht), Some(lw)) = (
+    self.common.cpu_hit_tester.as_mut(),
+    self.common.layout_window.as_ref(),
+) { cpu_ht.rebuild_from_layout(&lw.layout_results); }
+```
+**User-verified WORKING:** hit-testing, text selection (drag), hover cursor change, blue `:focus` border renders.
+
+### 9b. STILL BROKEN (user visual feedback, 2026-06-03) — priority order set by user
+1. **Window CLOSE doesn't work** (titlebar X *and* taskbar) — **debug FIRST** (user directive). Root cause below.
+2. **Caret not positioned on click** — clicking text doesn't place the insertion caret at the click point
+   (selection-by-drag works, but single-click caret placement doesn't). Likely the click→caret-index hit
+   path (cursor index from hit point) isn't wired in CPU mode, or focus isn't committed on click.
+3. **Focus is tied to WINDOW activation, not ELEMENT focus** — the blue `:focus` border shows "by default"
+   when the window is focused and disappears when the window is unfocused. So `:focus` is being driven by
+   xdg_toplevel *activated* state, not by which DOM node has focus. The focus model conflates
+   window-active with element-focused. (See `events.rs:917 is_activated` from xdg_toplevel.configure
+   states — currently `let _ = is_activated` discarded at :937, but something else is mis-applying focus.)
+4. **Text input "extremely strange"** and "makes a difference if the window is focused or not" — classic
+   signature of the stale-self-pointer UB below (non-deterministic because it depends on whether the
+   optimizer happened to elide a move).
+
+### 9c. ROOT CAUSE: listeners registered against a stack-local `&mut window` that is then MOVED
+All Wayland listener user-data pointers are registered inside `WaylandWindow::new()` as
+`&mut window as *mut _ as *mut _` (mod.rs:**1047** registry, **1075** wl_surface, **1093** xdg_surface,
+**1111** xdg_toplevel, **1146** seat). `window` is a **stack local** (`mod.rs:916 let mut window = Self{..}`)
+returned by value (`mod.rs:1413 Ok(window)`), then:
+`LinuxWindow::Wayland(w)` (linux/mod.rs:128) → `let mut window` (run.rs:1056) →
+`Box::into_raw(Box::new(window))` (run.rs:**1076**) = the **stable** address the run loop polls.
+So every listener's user-data points at the dead `new()` stack frame, NOT the boxed window.
+
+- Close handler `events.rs:990 xdg_toplevel_close_handler` does `window.is_open = false` on the **stale**
+  address; the run loop checks `is_open()` on the **boxed** window (run.rs:**1142**) → never sees false → never closes.
+- `seat_capabilities_handler` (events.rs:728) passes the **same** stale `data` to
+  `wl_pointer/keyboard/touch_add_listener` → those are stale too.
+- There is **NO** user-data fixup anywhere (`wl_proxy_set_user_data` is NOT in the binding table — would
+  need adding to the dlopen table in `dll/src/desktop/shell2/linux/wayland/{defines,dlopen}.rs`).
+
+**CONTRADICTION RESOLVED — PROVEN by measurement (2026-06-03).** Added `eprintln!("{:p}")` probes:
+```
+new(): registering listeners, data=&window = 0x7ffe860506e0   ← STACK
+run loop: LIVE boxed wayland_window      = 0x5bcb51e0db50      ← HEAP
+CONFIGURE handler fired, data            = 0x7ffe860506e0      ← STACK (STALE — never the live window)
+```
+So EVERY handler fires with the dead `new()` stack pointer, never the live heap window. Why some input
+"kind of works" but close never does:
+- `is_open` is a **plain inline `bool`**. The close handler writes `false` into the dead stack copy; the
+  run loop reads `is_open` on the live heap copy → stays `true` → **deterministically can't close.**
+- Hover/selection state reaches hit-testing through **heap pointers** (`Box`/`Arc`/`Rc`) that the move
+  bit-copied, so stale and live structs alias the SAME heap objects and writes leak through — UAF of a
+  stack frame that other calls progressively clobber → erratic, focus-dependent, "extremely strange."
+libwayland stores the user-data *pointer* (not a copy) and passes it verbatim to every callback, so the
+referenced object MUST stay at a stable address (confirmed via libwayland docs).
+
+### 9d. THE FIX (IMPLEMENTED 2026-06-03) — rebind every proxy to the stable boxed `self` on first poll
+Done (pending user re-test of the close button — addresses self-verified):
+1. `dll/.../wayland/dlopen.rs`: added `wl_proxy_set_user_data` to the fn table + dlsym loader.
+2. `wayland/mod.rs`: added fields `keyboard: *mut wl_keyboard`, `touch: *mut wl_touch`,
+   `listeners_rebound: bool` to `WaylandWindow` (+ init in `new()`); `events.rs seat_capabilities_handler`
+   now stores `window.keyboard` / `window.touch`.
+3. `wayland/mod.rs`: `rebind_listeners(&mut self)` calls `wl_proxy_set_user_data(proxy, self_ptr)` for
+   registry/surface/xdg_surface/xdg_toplevel/seat/pointer/keyboard/touch/tablet_manager/tablet_seat and the
+   Option proxies text_input/toplevel_decoration. `ensure_listeners_rebound(&mut self)` runs it ONCE,
+   gated by `listeners_rebound`, called at the top of `poll_event` AND `wait_for_events` — i.e. the first
+   event pump after the run loop boxed the window (when `self` is finally at its permanent address). This
+   covers ALL create paths (main/child/popup/e2e) with no run.rs or `LinuxWindow` enum changes. Proxies
+   created later (frame callbacks via `self`, tablet tools via the rebound `tablet_seat`) inherit the
+   stable pointer automatically.
+   - Rejected alternative: `new() -> Box<Self>` + register-after-boxing (cleaner but ripples the enum type
+     through ~10 match arms — higher risk for a blind change).
+4. `[ADDR]` probes left in for ONE verification build — after the fix, `CONFIGURE`/`CLOSE` must print the
+   live heap addr, not `0x7ffe…`. **Remove the probes** (`grep -n '\[ADDR\]'` in mod.rs/events.rs/run.rs)
+   before committing the fix.
+5. This likely also fixes the focus/caret/"strange text input" symptoms (all were UAF of the stale copy).
+   Re-test after the rebind lands. Confound found this session: TWO `contenteditable_test` procs were
+   running at once (an old build + the new) — always `pkill` before relaunch.
+
+### 9e. OWED: "Push B" — menu xdg_popup loop-integration (user said "do it blindly... Then push B")
+Status: **NOT done.** `WaylandPopup` struct (mod.rs:258) is fully built — `new()` @3828 does positioner +
+`xdg_surface_get_popup`; `close()` @4026; Drop @4066 — but it is **not loop-integrated**. Needed:
+(1) a `LinuxWindow`/registry storage path for popups (no `Popup` variant exists; the run loop only knows
+toplevels), (2) wire the `WindowType::Menu` create (`run.rs:~1228` comment; `wayland/menu.rs:108` sets
+`window_type = Menu`) → `WaylandPopup::new` with `trigger_rect` from `MenuLayoutData`, (3) force the popup
+to `RenderMode::Cpu`. Defer until the close/focus bugs (9c/9d) are fixed — popups inherit the same
+stale-pointer infrastructure and would be doubly broken otherwise.
+
 ## 8. Key codebase pointers
 
 - Wayland backend: `dll/src/desktop/shell2/linux/wayland/{mod,events,defines,dlopen,gl}.rs`

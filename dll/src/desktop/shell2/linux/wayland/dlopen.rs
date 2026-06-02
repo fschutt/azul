@@ -58,6 +58,13 @@ pub struct Wayland {
         unsafe extern "C" fn(*mut wl_proxy, *const c_void, *mut c_void) -> i32,
     pub wl_proxy_destroy: unsafe extern "C" fn(proxy: *mut wl_proxy),
     pub wl_proxy_set_queue: unsafe extern "C" fn(proxy: *mut wl_proxy, queue: *mut wl_event_queue),
+    // Re-point a proxy's listener user-data after construction. All listeners are
+    // registered in WaylandWindow::new() against the stack-local `&mut window`, which is
+    // then MOVED to a heap Box by the run loop — leaving every listener pointing at a dead
+    // stack frame. We rebind to the stable boxed `self` on the first poll. (Verified:
+    // registration addr 0x7ffe… vs live boxed addr 0x5bcb….)
+    pub wl_proxy_set_user_data:
+        unsafe extern "C" fn(proxy: *mut wl_proxy, user_data: *mut c_void),
 
     // Protocol interfaces (needed for wl_registry_bind)
     // F3: wl_registry_interface is the return-interface for wl_display.get_registry,
@@ -317,6 +324,7 @@ impl Wayland {
             wl_proxy_add_listener: load_symbol!(lib_client, _, "wl_proxy_add_listener"),
             wl_proxy_destroy: load_symbol!(lib_client, _, "wl_proxy_destroy"),
             wl_proxy_set_queue: load_symbol!(lib_client, _, "wl_proxy_set_queue"),
+            wl_proxy_set_user_data: load_symbol!(lib_client, _, "wl_proxy_set_user_data"),
 
             wl_registry_interface: unsafe {
                 *load_symbol!(lib_client, *const wl_interface, "wl_registry_interface")
