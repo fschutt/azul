@@ -93,6 +93,9 @@ impl<'a> IRBuilder<'a> {
     /// 3. Non-FFI-safe types (NonZeroUsize, std library types, etc.)
     fn validate_api_json(&self) -> Result<()> {
         let mut errors: Vec<String> = Vec::new();
+        // FFI double-drop risk: non-Copy structs that own a raw pointer / Box but lack a
+        // `run_destructor` (or `destructor`) gate field — collected and reported below.
+        let mut double_drop_risks: Vec<String> = Vec::new();
 
         // Types that are not FFI-safe and should not appear in the public API
         // These must be checked with careful pattern matching to avoid false positives
@@ -189,6 +192,36 @@ impl<'a> IRBuilder<'a> {
                                 ));
                             }
                         }
+                    }
+
+                    // FFI double-drop detection: a non-Copy struct that OWNS a heap
+                    // resource through a raw pointer / Box, but has no `run_destructor`
+                    // (or Vec/String `destructor`) gate field, will be double-freed.
+                    use crate::api::RefKind;
+                    let is_copy = class_data
+                        .derive
+                        .as_ref()
+                        .map_or(false, |d| d.iter().any(|t| t == "Copy"));
+                    let has_gate = struct_fields.iter().any(|fm| {
+                        fm.contains_key("run_destructor") || fm.contains_key("destructor")
+                    });
+                    // A `len` field means it's a slice/Vec view: either a borrowed `*Ref`
+                    // (owns nothing -> safe to double-drop) or a Vec (gated by `destructor`).
+                    // Exclude those to avoid false positives on borrow wrappers.
+                    let is_slice_like = struct_fields
+                        .iter()
+                        .any(|fm| fm.contains_key("len") || fm.contains_key("cap"));
+                    let owns_heap = struct_fields.iter().flat_map(|fm| fm.values()).any(|fd| {
+                        matches!(
+                            fd.ref_kind,
+                            RefKind::ConstPtr
+                                | RefKind::MutPtr
+                                | RefKind::Boxed
+                                | RefKind::OptionBoxed
+                        )
+                    });
+                    if !is_copy && owns_heap && !has_gate && !is_slice_like {
+                        double_drop_risks.push(class_name.clone());
                     }
                 }
 
@@ -408,6 +441,37 @@ impl<'a> IRBuilder<'a> {
                     }
                 }
             }
+        }
+
+        if !double_drop_risks.is_empty() {
+            // WHY this matters (the codegen double-drop / double-free class):
+            // For a non-Copy type AzX, codegen emits `impl Drop for AzX { AzX_delete(self) }`
+            // where `AzX_delete` = `drop_in_place::<RealX>(self)` — it drops the REAL type's
+            // fields exactly once. But when an AzX is held as a *field* of another Az wrapper
+            // AzParent, dropping AzParent runs (1) AzParent's Drop (= drop_in_place::<RealParent>,
+            // which drops the real X once) AND THEN (2) Rust's drop-glue for AzParent's own
+            // fields, which drops the AzX field AGAIN — re-running `AzX_delete` on the SAME bytes.
+            // So a type that owns a heap resource through a raw pointer / Box is freed TWICE
+            // -> double free / use-after-free (this is exactly the GlContextPtr resize crash,
+            // the InstantPtr timer crash, the CssPropertyCachePtr StyledDom-drop crash, and the
+            // IconProviderHandle AppConfig-drop crash).
+            //
+            // THE FIX (the run_destructor convention): wrap the owned field in
+            // `core::mem::ManuallyDrop`, add a `run_destructor: bool` field, and in `Drop` free
+            // the resource ONLY while `run_destructor` is still set, then clear it — so the
+            // redundant second drop sees `run_destructor == false` and is a no-op. See
+            // `azul_core::gl::GlContextPtr` / `core::prop_cache::CssPropertyCachePtr` for the
+            // pattern (Vec/String use the equivalent `destructor` enum gate instead).
+            eprintln!(
+                "\n[azul-doc] WARNING — {} non-Copy FFI type(s) own a heap resource (raw pointer / \
+                 Box) WITHOUT a `run_destructor`/`destructor` gate field and will DOUBLE-FREE when \
+                 nested in another Az wrapper and dropped by value:\n  - {}\n\
+                 Gate each one (ManuallyDrop + run_destructor, freeing only while run_destructor; \
+                 see GlContextPtr), or mark it Copy if it owns nothing. See the comment in \
+                 ir_builder.rs::validate_api_json for the full rationale.\n",
+                double_drop_risks.len(),
+                double_drop_risks.join("\n  - ")
+            );
         }
 
         if errors.is_empty() {
