@@ -142,7 +142,13 @@ User report: clicking azul-paint buttons does **nothing** (no callback response)
 - AccessKit IS integrated under `#[cfg(feature="a11y")]`: `accessibility_adapter: LinuxAccessibilityAdapter` (AT-SPI/atspi adapter), `process_accessibility_actions` polled each loop, `a11y_dirty` tree-push. On Linux this exposes the UI over **AT-SPI2 (D-Bus)** regardless of X11/Wayland.
 - HOW TO TEST/VERIFY: build with `--features a11y`; run; then inspect the AT-SPI tree with **Accerciser** or **`busctl`/at-spi2 tools**, or run **Orca** screen reader and confirm it announces azul-paint's widgets; verify `process_accessibility_action` handles activate/focus actions (e.g. Orca-triggered button activation should fire the same callback as a click — and is a good cross-check for item A). On KDE Wayland, AT-SPI works via D-Bus (not Wayland-protocol-specific). ACTION: confirm the adapter actually publishes a non-empty tree (it depends on `a11y_dirty` → tree rebuild) and that actions round-trip.
 
-### Priority for "fully working azul-paint": A (click dispatch) → B (typing) → C (IME/contenteditable) → D (file drop) → E (a11y verify). A is the keystone (hit-test/callback dispatch); it likely also unblocks #20 and is shared with X11.
+### F. Menus / context menus (Wayland)
+Popup infra EXISTS (`wayland/menu.rs`: MenuLayoutData, create_menu_popup_options, calculate_menu_size; `wayland/mod.rs` WaylandPopupWindow + xdg_popup listeners). BUT `run.rs:~1226` has a TODO: when `window_state.flags.window_type == WindowType::Menu` the pending-window-create path still makes a fresh xdg_toplevel instead of an xdg_popup parented via `xdg_surface.get_popup` + an `xdg_positioner` anchored to the trigger rect (stashed in `MenuLayoutData::trigger_rect`). So native menus/context-menus don't pop up correctly yet. ACTION: wire the Menu window-type to the xdg_popup path (positioner from trigger_rect, parent serial for the grab). `try_show_context_menu` (right-click) already runs in handle_pointer_button.
+
+### G. azul-paint header buttons stacked vertically (#19)
+The header CSS DOES set `flex-direction: row` (examples/azul-paint/src/lib.rs:658, `HEADER` const; applied at line ~672) yet buttons render in a column → the **layout engine isn't honoring `flex-direction: row`** (default is column). Likely a solver3 flex-axis bug OR `flex-direction` not parsed/applied. ACTION: minimal repro (a flex-row div with 2 children) through solver3; check `flex-direction` parse → LayoutFlexDirection → main-axis selection. Deep (layout engine), shared across all OSes.
+
+### Priority for "fully working azul-paint": A (click dispatch — DONE, verify) → B (typing) → C (IME/contenteditable) → G (flex-row layout) → D (file drop) → F (menus) → E (a11y verify). A was the keystone (committed 1f8a36cc8). Fixing the debug-server DOM access (§7b-A) unblocks autonomous verification of A/B/C.
 
 ## 8. Key codebase pointers
 
