@@ -24,6 +24,7 @@
 extern crate alloc;
 
 use alloc::{boxed::Box, string::String, vec::Vec};
+use core::mem::ManuallyDrop;
 
 use crate::dom::NodeType;
 
@@ -1670,25 +1671,39 @@ impl CssPropertyCache {
 #[repr(C)]
 #[derive(Debug, PartialEq, Clone)]
 pub struct CssPropertyCachePtr {
-    pub ptr: Box<CssPropertyCache>,
+    // `ManuallyDrop` so the owned `Box` is freed ONLY by our `Drop` (gated on
+    // `run_destructor`), never by drop-glue. The codegen Az wrapper (AzStyledDom)
+    // nests an AzCssPropertyCachePtr field whose own `Drop` re-runs
+    // `_delete` -> `drop_in_place::<CssPropertyCachePtr>` on the SAME bytes; with a
+    // bare `Box` the glue freed it a second time -> double free. Layout is
+    // unchanged (one pointer), so the AzCssPropertyCachePtr<->CssPropertyCachePtr
+    // FFI transmute stays valid. Matches the GlContextPtr / InstantPtr convention.
+    pub ptr: ManuallyDrop<Box<CssPropertyCache>>,
     pub run_destructor: bool,
 }
 
 impl CssPropertyCachePtr {
     pub fn new(cache: CssPropertyCache) -> Self {
         Self {
-            ptr: Box::new(cache),
+            ptr: ManuallyDrop::new(Box::new(cache)),
             run_destructor: true,
         }
     }
     pub fn downcast_mut<'a>(&'a mut self) -> &'a mut CssPropertyCache {
-        &mut *self.ptr
+        &mut **self.ptr
     }
 }
 
 impl Drop for CssPropertyCachePtr {
     fn drop(&mut self) {
-        self.run_destructor = false;
+        // First drop (run_destructor still true) frees the Box and clears the flag in
+        // the shared bytes; the codegen's redundant second drop sees false -> no-op.
+        if self.run_destructor {
+            self.run_destructor = false;
+            unsafe {
+                ManuallyDrop::drop(&mut self.ptr);
+            }
+        }
     }
 }
 

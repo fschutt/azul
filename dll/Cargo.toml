@@ -794,6 +794,11 @@ name = "system_style"
 path = "examples/system_style.rs"
 required-features = ["link-static"]
 
+[[example]]
+name = "css_double_drop"
+path = "examples/css_double_drop.rs"
+required-features = ["link-static"]
+
 # -----------------------------------------------------------------------------
 # Package Metadata
 # -----------------------------------------------------------------------------

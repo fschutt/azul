@@ -1409,13 +1409,13 @@ impl StyledDom {
     /// Returns an immutable reference to the CSS property cache.
     #[inline]
     pub fn get_css_property_cache<'a>(&'a self) -> &'a CssPropertyCache {
-        &*self.css_property_cache.ptr
+        &**self.css_property_cache.ptr
     }
 
     /// Returns a mutable reference to the CSS property cache.
     #[inline]
     pub fn get_css_property_cache_mut<'a>(&'a mut self) -> &'a mut CssPropertyCache {
-        &mut *self.css_property_cache.ptr
+        &mut **self.css_property_cache.ptr
     }
 
     /// Returns the current state (hover, active, focus) of a styled node.
