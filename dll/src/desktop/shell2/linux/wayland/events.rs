@@ -369,21 +369,18 @@ pub(super) extern "C" fn registry_global_handler(
             };
         }
         "zwp_text_input_manager_v3" => {
-            // Bind text-input v3 manager using the same raw approach as KDE blur
             let manager_interface = defines::get_text_input_manager_v3_interface();
             let text_input_interface = defines::get_text_input_v3_interface();
 
-            type WlRegistryBindFn = unsafe extern "C" fn(
-                *mut wl_proxy,
-                u32,
-                *const wl_interface,
-                u32,
-            ) -> *mut wl_proxy;
-            let bind_fn: WlRegistryBindFn =
-                unsafe { std::mem::transmute(window.wayland.wl_proxy_marshal_constructor) };
+            // Bind via the normal registry path. The previous code transmuted
+            // wl_proxy_marshal_constructor and passed `name` as the OPCODE (the
+            // registry only has opcode 0 = bind) while omitting the bind-specific
+            // string/version arguments -> a malformed `wl_registry.bind`. Use
+            // `wl_registry_bind` which marshals the special "usun" bind signature
+            // correctly (same fix as the KDE blur-manager bind).
             let manager = unsafe {
-                bind_fn(
-                    registry as *mut wl_proxy,
+                (window.wayland.wl_registry_bind)(
+                    registry,
                     name,
                     manager_interface,
                     version.min(1),
@@ -396,22 +393,35 @@ pub(super) extern "C" fn registry_global_handler(
                 // Create text_input instance via get_text_input(seat)
                 // Opcode 1 = get_text_input, args: new_id + seat
                 if !window.seat.is_null() {
-                    type GetTextInputFn = unsafe extern "C" fn(
-                        *mut wl_proxy,
-                        u32,
-                        *const wl_interface,
-                        *mut wl_seat,
-                    ) -> *mut wl_proxy;
-                    let get_fn: GetTextInputFn = unsafe {
-                        std::mem::transmute(window.wayland.wl_proxy_marshal_constructor)
-                    };
+                    // get_text_input(id: new_id<zwp_text_input_v3>, seat: object<wl_seat>),
+                    // signature "no". A new_id request needs the NULL new_id placeholder
+                    // BEFORE the object in the marshalled varargs (libwayland's own
+                    // wrapper passes `NULL, seat`); the previous code omitted it, so the
+                    // compositor rejected the request ("invalid arguments ... get_text_input"
+                    // -> fatal wl_display error). Marshal via wl_proxy_marshal_flags with
+                    // the interface + NULL new_id + seat (fallback to marshal_constructor).
                     let text_input = unsafe {
-                        get_fn(
-                            manager as *mut wl_proxy,
-                            defines::ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT,
-                            text_input_interface,
-                            window.seat,
-                        ) as *mut zwp_text_input_v3
+                        let version = (window.wayland.wl_proxy_get_version)(manager as *mut wl_proxy);
+                        if !window.wayland.wl_proxy_marshal_flags.is_null() {
+                            type GetFlags = unsafe extern "C" fn(
+                                *mut wl_proxy, u32, *const wl_interface, u32, u32,
+                                *mut std::ffi::c_void, *mut wl_seat,
+                            ) -> *mut wl_proxy;
+                            let f: GetFlags = std::mem::transmute(window.wayland.wl_proxy_marshal_flags);
+                            f(manager as *mut wl_proxy,
+                              defines::ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT,
+                              text_input_interface, version, 0,
+                              std::ptr::null_mut(), window.seat) as *mut zwp_text_input_v3
+                        } else {
+                            type GetCtor = unsafe extern "C" fn(
+                                *mut wl_proxy, u32, *const wl_interface,
+                                *mut std::ffi::c_void, *mut wl_seat,
+                            ) -> *mut wl_proxy;
+                            let f: GetCtor = std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
+                            f(manager as *mut wl_proxy,
+                              defines::ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT,
+                              text_input_interface, std::ptr::null_mut(), window.seat) as *mut zwp_text_input_v3
+                        }
                     };
 
                     if !text_input.is_null() {
@@ -434,30 +444,18 @@ pub(super) extern "C" fn registry_global_handler(
             }
         }
         "org_kde_kwin_blur_manager" => {
-            // KDE Plasma blur protocol - allows client-requested blur effects
-            // We use wl_registry_bind (which is wl_proxy_marshal_constructor transmuted)
-            // with a null interface since org_kde_kwin_blur_manager is not in the core protocol
+            // KDE Plasma blur protocol - allows client-requested blur effects. Not in
+            // the core protocol, so libwayland doesn't export its wl_interface; bind it
+            // through the normal `wl_registry_bind` (marshal_flags) with a hand-built
+            // minimal interface. Binding with a NULL interface (the old code) made
+            // libwayland reject the request -- a new-id bind REQUIRES a valid interface
+            // to create the typed proxy ("null value passed for arg 3").
             let blur_manager = unsafe {
-                // wl_registry.bind signature: new_id<interface>(name: uint, interface: string, version: uint)
-                type WlRegistryBindFn = unsafe extern "C" fn(
-                    *mut wl_proxy,
-                    u32,
-                    *const wl_interface,
-                    u32,
-                    *const c_char,
-                    u32,
-                    *const std::ffi::c_void,
-                ) -> *mut wl_proxy;
-                let bind_fn: WlRegistryBindFn =
-                    std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
-                bind_fn(
-                    registry as *mut wl_proxy,
-                    0,                // wl_registry.bind opcode
-                    std::ptr::null(), // No interface definition for KDE extension
+                (window.wayland.wl_registry_bind)(
+                    registry,
                     name,
-                    b"org_kde_kwin_blur_manager\0".as_ptr() as *const c_char,
-                    1u32, // version
-                    std::ptr::null::<std::ffi::c_void>(),
+                    super::defines::get_kde_blur_manager_interface(),
+                    version.min(1),
                 ) as *mut org_kde_kwin_blur_manager
             };
             if !blur_manager.is_null() {
@@ -731,34 +729,74 @@ pub(super) extern "C" fn keyboard_keymap_handler(
     _keyboard: *mut wl_keyboard,
     format: u32,
     fd: i32,
-    _size: u32,
+    size: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    if format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 {
+    if format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 || size == 0 {
         unsafe { libc::close(fd) };
         return;
     }
 
-    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
-    let mut string = String::new();
-    use std::io::Read;
-    if file.read_to_string(&mut string).is_err() {
+    // The keymap is delivered as a (read-only, NUL-terminated) shared-memory fd of
+    // `size` bytes; the canonical way to read it is mmap, NOT read()/read_to_string
+    // (which is unreliable on a sealed shm fd and keeps the trailing/padding NULs).
+    // We mmap, take the bytes up to the first NUL, build a C string, and compile it.
+    // Every failure path degrades gracefully (no panic, no NULL xkb_state deref).
+    let map = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            size as usize,
+            libc::PROT_READ,
+            libc::MAP_PRIVATE,
+            fd,
+            0,
+        )
+    };
+    if map == libc::MAP_FAILED {
+        unsafe { libc::close(fd) };
         return;
     }
+    let bytes = unsafe { std::slice::from_raw_parts(map as *const u8, size as usize) };
+    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    let c_string = std::ffi::CString::new(&bytes[..end]).ok();
+    unsafe {
+        libc::munmap(map, size as usize);
+        libc::close(fd);
+    }
+    let c_string = match c_string {
+        Some(c) => c,
+        None => return,
+    };
 
-    window.keyboard_state.context = unsafe { (window.xkb.xkb_context_new)(XKB_CONTEXT_NO_FLAGS) };
-    let c_string = std::ffi::CString::new(string).unwrap();
-
-    window.keyboard_state.keymap = unsafe {
+    let context = unsafe { (window.xkb.xkb_context_new)(XKB_CONTEXT_NO_FLAGS) };
+    if context.is_null() {
+        return;
+    }
+    let keymap = unsafe {
         (window.xkb.xkb_keymap_new_from_string)(
-            window.keyboard_state.context,
+            context,
             c_string.as_ptr(),
             XKB_KEYMAP_FORMAT_TEXT_V1,
             XKB_KEYMAP_COMPILE_NO_FLAGS,
         )
     };
-    window.keyboard_state.state =
-        unsafe { (window.xkb.xkb_state_new)(window.keyboard_state.keymap) };
+    if keymap.is_null() {
+        // Keymap failed to compile (e.g. a layout xkbcommon can't parse). Keep any
+        // previous working keymap/state rather than installing a NULL one (a NULL
+        // xkb_state would segfault in the key/modifier handlers).
+        crate::log_warn!(
+            LogCategory::Platform,
+            "[Wayland] xkb_keymap_new_from_string failed to parse the keymap; keyboard input disabled"
+        );
+        return;
+    }
+    let state = unsafe { (window.xkb.xkb_state_new)(keymap) };
+    if state.is_null() {
+        return;
+    }
+    window.keyboard_state.context = context;
+    window.keyboard_state.keymap = keymap;
+    window.keyboard_state.state = state;
 }
 
 pub(super) extern "C" fn keyboard_key_handler(
@@ -770,6 +808,11 @@ pub(super) extern "C" fn keyboard_key_handler(
     state: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // No usable keymap/state (compositor sent an unparseable keymap) -> skip rather
+    // than deref a NULL xkb_state in the translation path.
+    if window.keyboard_state.state.is_null() {
+        return;
+    }
     window.handle_key(key, state);
 }
 
@@ -783,6 +826,9 @@ pub(super) extern "C" fn keyboard_modifiers_handler(
     group: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    if window.keyboard_state.state.is_null() {
+        return;
+    }
     unsafe {
         (window.xkb.xkb_state_update_mask)(
             window.keyboard_state.state,

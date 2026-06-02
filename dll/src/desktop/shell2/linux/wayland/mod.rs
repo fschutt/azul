@@ -869,7 +869,7 @@ impl WaylandWindow {
             ));
         }
 
-        let event_queue = unsafe { (wayland.wl_display_create_event_queue)(display) };
+        let event_queue = unsafe { (wayland.wl_display_create_queue)(display) };
         let registry = unsafe { (wayland.wl_display_get_registry)(display) };
         unsafe { (wayland.wl_proxy_set_queue)(registry as _, event_queue) };
 
@@ -1009,7 +1009,18 @@ impl WaylandWindow {
                 &mut window as *mut _ as *mut _,
             )
         };
-        unsafe { (window.wayland.wl_display_roundtrip)(display) };
+        // The registry — and every object bound from it — lives on our custom
+        // `event_queue`, so the initial global-binding roundtrip MUST dispatch
+        // THAT queue. `wl_display_roundtrip()` pumps only the default queue,
+        // leaving wl_compositor/xdg_wm_base unbound (null) → segfault below in
+        // create_surface. Use the queue-aware roundtrip.
+        unsafe { (window.wayland.wl_display_roundtrip_queue)(display, window.event_queue) };
+
+        if window.compositor.is_null() || window.xdg_wm_base.is_null() {
+            return Err(WindowError::PlatformError(
+                "Wayland: required globals (wl_compositor / xdg_wm_base) not advertised by compositor".into(),
+            ));
+        }
 
         window.surface =
             unsafe { (window.wayland.wl_compositor_create_surface)(window.compositor) };
@@ -2592,17 +2603,18 @@ impl WaylandWindow {
     /// Remove any existing KDE blur effect from the surface
     fn remove_kde_blur(&mut self) {
         if let Some(blur) = self.current_blur.take() {
-            if let Some(ref blur_manager) = self.blur_manager {
-                unsafe {
-                    // org_kde_kwin_blur_release is opcode 0
-                    // We use wl_proxy_destroy since we don't have a dedicated release function
-                    (self.wayland.wl_proxy_destroy)(blur as *mut defines::wl_proxy);
-                }
-                log_debug!(
-                    LogCategory::Platform,
-                    "[Wayland] Removed KDE blur effect from surface"
-                );
+            unsafe {
+                // org_kde_kwin_blur.release: opcode 2 (destructor). Tell the server to
+                // drop the blur, then free the client-side proxy.
+                type ReleaseFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
+                let release_fn: ReleaseFn = std::mem::transmute(self.wayland.wl_proxy_marshal);
+                release_fn(blur as *mut defines::wl_proxy, 2);
+                (self.wayland.wl_proxy_destroy)(blur as *mut defines::wl_proxy);
             }
+            log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Removed KDE blur effect from surface"
+            );
         }
     }
 
@@ -2619,28 +2631,34 @@ impl WaylandWindow {
         // Remove any existing blur first
         self.remove_kde_blur();
 
-        // Create new blur object for this surface
-        // org_kde_kwin_blur_manager.create opcode is 0
-        // Signature: create(id: new_id<org_kde_kwin_blur>, surface: object<wl_surface>)
+        // Create the per-surface blur object.
+        // org_kde_kwin_blur_manager.create: opcode 0, signature "no"
+        //   (new_id<org_kde_kwin_blur> id, object<wl_surface> surface).
+        // A `new_id` REQUIRES a valid interface so libwayland can build the typed
+        // proxy — the previous code passed a null interface (which libwayland
+        // rejects: "null value passed for arg N"). We pass the hand-built
+        // org_kde_kwin_blur interface and marshal via wl_proxy_marshal_flags
+        // (with a wl_proxy_marshal_constructor fallback for libwayland < 1.20).
         unsafe {
-            // Transmute to specific signature for this call
-            type CreateBlurFn = unsafe extern "C" fn(
-                *mut defines::wl_proxy,
-                u32,
-                *const defines::wl_interface,
-                *const std::ffi::c_void,
-                *mut defines::wl_surface,
-            ) -> *mut defines::wl_proxy;
-            let create_fn: CreateBlurFn =
-                std::mem::transmute(self.wayland.wl_proxy_marshal_constructor);
-
-            let blur = create_fn(
-                blur_manager as *mut defines::wl_proxy,
-                0,                                    // create opcode
-                std::ptr::null(), // org_kde_kwin_blur has no interface constant, use null
-                std::ptr::null::<std::ffi::c_void>(), // new_id placeholder
-                self.surface,
-            );
+            let blur_iface = defines::get_kde_blur_interface();
+            let version = (self.wayland.wl_proxy_get_version)(blur_manager as *mut defines::wl_proxy);
+            let blur = if !self.wayland.wl_proxy_marshal_flags.is_null() {
+                type CreateFlags = unsafe extern "C" fn(
+                    *mut defines::wl_proxy, u32, *const defines::wl_interface, u32, u32,
+                    *mut std::ffi::c_void, *mut defines::wl_surface,
+                ) -> *mut defines::wl_proxy;
+                let f: CreateFlags = std::mem::transmute(self.wayland.wl_proxy_marshal_flags);
+                f(blur_manager as *mut defines::wl_proxy, 0, blur_iface, version, 0,
+                  std::ptr::null_mut(), self.surface)
+            } else {
+                type CreateCtor = unsafe extern "C" fn(
+                    *mut defines::wl_proxy, u32, *const defines::wl_interface,
+                    *mut std::ffi::c_void, *mut defines::wl_surface,
+                ) -> *mut defines::wl_proxy;
+                let f: CreateCtor = std::mem::transmute(self.wayland.wl_proxy_marshal_constructor);
+                f(blur_manager as *mut defines::wl_proxy, 0, blur_iface,
+                  std::ptr::null_mut(), self.surface)
+            };
 
             if blur.is_null() {
                 log_debug!(
@@ -2649,29 +2667,19 @@ impl WaylandWindow {
                 );
                 return;
             }
-
             let blur = blur as *mut defines::org_kde_kwin_blur;
 
-            // Set blur region to cover entire surface (NULL = entire surface)
-            // org_kde_kwin_blur.set_region opcode is 1
-            // Signature: set_region(region: object<wl_region>)
+            // set_region(NULL) => blur the entire surface. opcode 1, signature "?o".
             type SetRegionFn =
                 unsafe extern "C" fn(*mut defines::wl_proxy, u32, *const defines::wl_region);
             let set_region_fn: SetRegionFn = std::mem::transmute(self.wayland.wl_proxy_marshal);
-            set_region_fn(
-                blur as *mut defines::wl_proxy,
-                1,                                      // set_region opcode
-                std::ptr::null::<defines::wl_region>(), // NULL = entire surface
-            );
+            set_region_fn(blur as *mut defines::wl_proxy, 1, std::ptr::null::<defines::wl_region>());
 
-            // Commit the blur
-            // org_kde_kwin_blur.commit opcode is 2
+            // commit() => apply. opcode 0 (NOT 2 — opcode 2 is `release`, the
+            // destructor; the old code committed with 2 and tore the blur down).
             type CommitFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
             let commit_fn: CommitFn = std::mem::transmute(self.wayland.wl_proxy_marshal);
-            commit_fn(
-                blur as *mut defines::wl_proxy,
-                2, // commit opcode
-            );
+            commit_fn(blur as *mut defines::wl_proxy, 0);
 
             self.current_blur = Some(blur);
 

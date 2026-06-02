@@ -51,15 +51,49 @@ impl GlContext {
         let egl = Egl::new()
             .map_err(|e| WindowError::PlatformError(format!("Failed to load libEGL: {:?}", e)))?;
 
-        let egl_display = unsafe { (egl.eglGetDisplay)(display as EGLNativeDisplayType) };
+        // On Wayland, plain eglGetDisplay(wl_display) is ambiguous when both
+        // DISPLAY and WAYLAND_DISPLAY are set (Mesa can't infer the platform),
+        // and eglInitialize then fails. Request the Wayland platform explicitly
+        // via eglGetPlatformDisplay[EXT] (resolved through eglGetProcAddress, so
+        // no extra dlsym), falling back to legacy eglGetDisplay.
+        const EGL_PLATFORM_WAYLAND_KHR: u32 = 0x31D8;
+        type GetPlatformDisplay =
+            unsafe extern "C" fn(u32, *mut core::ffi::c_void, *const isize) -> EGLDisplay;
+        let egl_display = unsafe {
+            let mut gpd = (egl.eglGetProcAddress)(b"eglGetPlatformDisplay\0".as_ptr() as *const _);
+            if gpd.is_null() {
+                gpd = (egl.eglGetProcAddress)(b"eglGetPlatformDisplayEXT\0".as_ptr() as *const _);
+            }
+            let mut d: EGLDisplay = std::ptr::null_mut();
+            if !gpd.is_null() {
+                let f: GetPlatformDisplay = std::mem::transmute(gpd);
+                d = f(
+                    EGL_PLATFORM_WAYLAND_KHR,
+                    display as *mut core::ffi::c_void,
+                    std::ptr::null(),
+                );
+                if !d.is_null() {
+                    log_debug!(LogCategory::Platform, "[EGL] Using Wayland platform display");
+                }
+            }
+            if d.is_null() {
+                (egl.eglGetDisplay)(display as EGLNativeDisplayType)
+            } else {
+                d
+            }
+        };
         if egl_display.is_null() {
-            return Err(WindowError::PlatformError("eglGetDisplay failed".into()));
+            return Err(WindowError::PlatformError("eglGetDisplay/PlatformDisplay failed".into()));
         }
 
         let mut major = 0;
         let mut minor = 0;
         if unsafe { (egl.eglInitialize)(egl_display, &mut major, &mut minor) } == 0 {
-            return Err(WindowError::PlatformError("eglInitialize failed".into()));
+            let ec = unsafe { (egl.eglGetError)() };
+            return Err(WindowError::PlatformError(format!(
+                "eglInitialize failed (EGL error 0x{:04x})",
+                ec
+            )));
         }
         log_debug!(
             LogCategory::Platform,

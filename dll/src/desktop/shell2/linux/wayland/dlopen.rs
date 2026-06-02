@@ -29,11 +29,13 @@ pub struct Wayland {
     pub wl_display_disconnect: unsafe extern "C" fn(display: *mut wl_display),
     pub wl_display_get_registry: unsafe extern "C" fn(display: *mut wl_display) -> *mut wl_registry,
     pub wl_display_roundtrip: unsafe extern "C" fn(display: *mut wl_display) -> i32,
+    pub wl_display_roundtrip_queue:
+        unsafe extern "C" fn(display: *mut wl_display, queue: *mut wl_event_queue) -> i32,
     pub wl_display_dispatch_queue:
         unsafe extern "C" fn(display: *mut wl_display, queue: *mut wl_event_queue) -> i32,
     pub wl_display_dispatch_queue_pending:
         unsafe extern "C" fn(display: *mut wl_display, queue: *mut wl_event_queue) -> i32,
-    pub wl_display_create_event_queue:
+    pub wl_display_create_queue:
         unsafe extern "C" fn(display: *mut wl_display) -> *mut wl_event_queue,
     pub wl_event_queue_destroy: unsafe extern "C" fn(queue: *mut wl_event_queue),
     pub wl_display_flush: unsafe extern "C" fn(display: *mut wl_display) -> i32,
@@ -278,16 +280,17 @@ impl Wayland {
             // which aborted Wayland init. Marshal it ourselves like the others.
             wl_display_get_registry: wl_display_get_registry_impl,
             wl_display_roundtrip: load_symbol!(lib_client, _, "wl_display_roundtrip"),
+            wl_display_roundtrip_queue: load_symbol!(lib_client, _, "wl_display_roundtrip_queue"),
             wl_display_dispatch_queue: load_symbol!(lib_client, _, "wl_display_dispatch_queue"),
             wl_display_dispatch_queue_pending: load_symbol!(
                 lib_client,
                 _,
                 "wl_display_dispatch_queue_pending"
             ),
-            wl_display_create_event_queue: load_symbol!(
+            wl_display_create_queue: load_symbol!(
                 lib_client,
                 _,
-                "wl_display_create_event_queue"
+                "wl_display_create_queue"
             ),
             wl_event_queue_destroy: load_symbol!(lib_client, _, "wl_event_queue_destroy"),
             wl_display_flush: load_symbol!(lib_client, _, "wl_display_flush"),
@@ -324,9 +327,9 @@ impl Wayland {
             wl_output_interface: unsafe {
                 *load_symbol!(lib_client, *const wl_interface, "wl_output_interface")
             },
-            xdg_wm_base_interface: unsafe {
-                *load_symbol!(lib_client, *const wl_interface, "xdg_wm_base_interface")
-            },
+            // xdg-shell interfaces are NOT exported by libwayland-client (they are
+            // wayland-scanner-generated); use our hand-built descriptors instead.
+            xdg_wm_base_interface: *get_xdg_wm_base_interface(),
             wl_surface_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_surface_interface") },
             wl_pointer_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_pointer_interface") },
             wl_keyboard_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_keyboard_interface") },
@@ -336,10 +339,10 @@ impl Wayland {
             wl_shm_pool_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_shm_pool_interface") },
             wl_buffer_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_buffer_interface") },
             wl_subsurface_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_subsurface_interface") },
-            xdg_surface_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "xdg_surface_interface") },
-            xdg_toplevel_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "xdg_toplevel_interface") },
-            xdg_popup_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "xdg_popup_interface") },
-            xdg_positioner_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "xdg_positioner_interface") },
+            xdg_surface_interface: *get_xdg_surface_interface(),
+            xdg_toplevel_interface: *get_xdg_toplevel_interface(),
+            xdg_popup_interface: *get_xdg_popup_interface(),
+            xdg_positioner_interface: *get_xdg_positioner_interface(),
 
             wl_registry_bind: wl_registry_bind_impl,
             wl_compositor_create_surface: wl_compositor_create_surface_impl,
@@ -456,6 +459,7 @@ struct WlMarshalCtx {
     marshal: *const c_void,
     marshal_constructor: *const c_void,
     marshal_constructor_versioned: *const c_void,
+    marshal_flags: *const c_void,
     wl_registry: *const wl_interface,
     wl_surface: *const wl_interface,
     wl_pointer: *const wl_interface,
@@ -482,6 +486,7 @@ fn init_marshal_ctx(w: &Wayland) {
         marshal: w.wl_proxy_marshal,
         marshal_constructor: w.wl_proxy_marshal_constructor,
         marshal_constructor_versioned: w.wl_proxy_marshal_constructor_versioned,
+        marshal_flags: w.wl_proxy_marshal_flags,
         wl_registry: &w.wl_registry_interface,
         wl_surface: &w.wl_surface_interface,
         wl_pointer: &w.wl_pointer_interface,
@@ -521,7 +526,35 @@ unsafe extern "C" fn wl_registry_bind_impl(
     version: u32,
 ) -> *mut c_void {
     let c = ctx();
-    // wl_registry.bind op 0; varargs: name, interface->name(string), version, NULL new_id.
+    // wl_registry.bind (op 0), signature "usun": name, interface->name, version, new_id.
+    // Modern libwayland (>=1.20) routes bind through wl_proxy_marshal_flags; the
+    // legacy wl_proxy_marshal_constructor_versioned rejects the NULL new-id
+    // placeholder on newer libwayland ("null value passed for arg 3"). Prefer
+    // marshal_flags when present (flags=0), fall back to the versioned ctor.
+    if !c.marshal_flags.is_null() {
+        let f: unsafe extern "C" fn(
+            *mut wl_proxy,
+            u32,
+            *const wl_interface,
+            u32,
+            u32,
+            u32,
+            *const c_char,
+            u32,
+            *mut c_void,
+        ) -> *mut wl_proxy = std::mem::transmute(c.marshal_flags);
+        return f(
+            registry as *mut wl_proxy,
+            0,
+            interface,
+            version,
+            0,
+            name,
+            (*interface).name,
+            version,
+            std::ptr::null_mut(),
+        ) as *mut c_void;
+    }
     let f: unsafe extern "C" fn(
         *mut wl_proxy,
         u32,
@@ -624,7 +657,7 @@ unsafe extern "C" fn xdg_surface_get_popup_impl(
     let c = ctx();
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, *mut xdg_surface, *mut xdg_positioner) -> *mut wl_proxy =
         std::mem::transmute(c.marshal_constructor);
-    f(xs as *mut wl_proxy, 3, c.xdg_popup, std::ptr::null_mut(), parent, positioner) as *mut xdg_popup
+    f(xs as *mut wl_proxy, 2, c.xdg_popup, std::ptr::null_mut(), parent, positioner) as *mut xdg_popup
 }
 unsafe extern "C" fn wl_seat_get_keyboard_impl(seat: *mut wl_seat) -> *mut wl_keyboard {
     let c = ctx();
@@ -713,23 +746,23 @@ unsafe extern "C" fn xdg_toplevel_set_title_impl(t: *mut xdg_toplevel, title: *c
 }
 unsafe extern "C" fn xdg_toplevel_set_minimized_impl(t: *mut xdg_toplevel) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
-    f(t as *mut wl_proxy, 12);
+    f(t as *mut wl_proxy, 13);
 }
 unsafe extern "C" fn xdg_toplevel_set_maximized_impl(t: *mut xdg_toplevel) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
-    f(t as *mut wl_proxy, 10);
+    f(t as *mut wl_proxy, 9);
 }
 unsafe extern "C" fn xdg_toplevel_unset_maximized_impl(t: *mut xdg_toplevel) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
-    f(t as *mut wl_proxy, 11);
+    f(t as *mut wl_proxy, 10);
 }
 unsafe extern "C" fn xdg_toplevel_set_fullscreen_impl(t: *mut xdg_toplevel, output: *mut wl_output) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_output) = std::mem::transmute(ctx().marshal);
-    f(t as *mut wl_proxy, 13, output);
+    f(t as *mut wl_proxy, 11, output);
 }
 unsafe extern "C" fn xdg_toplevel_unset_fullscreen_impl(t: *mut xdg_toplevel) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
-    f(t as *mut wl_proxy, 14);
+    f(t as *mut wl_proxy, 12);
 }
 unsafe extern "C" fn xdg_toplevel_set_min_size_impl(t: *mut xdg_toplevel, w: i32, h: i32) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32) = std::mem::transmute(ctx().marshal);
@@ -753,15 +786,15 @@ unsafe extern "C" fn xdg_positioner_set_anchor_rect_impl(p: *mut xdg_positioner,
 }
 unsafe extern "C" fn xdg_positioner_set_anchor_impl(p: *mut xdg_positioner, anchor: u32) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32) = std::mem::transmute(ctx().marshal);
-    f(p as *mut wl_proxy, 4, anchor);
+    f(p as *mut wl_proxy, 3, anchor);
 }
 unsafe extern "C" fn xdg_positioner_set_gravity_impl(p: *mut xdg_positioner, gravity: u32) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32) = std::mem::transmute(ctx().marshal);
-    f(p as *mut wl_proxy, 5, gravity);
+    f(p as *mut wl_proxy, 4, gravity);
 }
 unsafe extern "C" fn xdg_positioner_set_constraint_adjustment_impl(p: *mut xdg_positioner, adj: u32) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32) = std::mem::transmute(ctx().marshal);
-    f(p as *mut wl_proxy, 6, adj);
+    f(p as *mut wl_proxy, 5, adj);
 }
 unsafe extern "C" fn xdg_positioner_destroy_impl(p: *mut xdg_positioner) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);

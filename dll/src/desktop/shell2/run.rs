@@ -1007,6 +1007,23 @@ pub fn run(
         std::env::var("XDG_SESSION_TYPE").ok(),
     );
     let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
+
+    // AZ_E2E_TEST: deterministic headless resize/tick scenario runner — takes
+    // over the run entirely and exits after the scenario. This hook existed in
+    // the macOS run() but was missing here, so AZ_E2E_TEST was silently ignored
+    // on Linux (the app opened a normal window instead of running the scenario).
+    #[cfg(feature = "e2e-test")]
+    if let Some(path) = super::common::e2e_test::scenario_path() {
+        return super::common::e2e_test::run_e2e_scenario(
+            &path,
+            app_data,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+        );
+    }
+
     #[cfg(feature = "web")]
     if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window) {
         crate::plog_info!("[Linux] backend resolved to Web");
