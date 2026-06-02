@@ -2181,38 +2181,16 @@ impl WaylandWindow {
 
     /// Update hit test at current cursor position
     fn update_hit_test(&mut self, position: LogicalPosition) {
-        use azul_core::geom::PhysicalPosition;
-
-        if let Some(AsyncHitTester::Resolved(ref hit_tester)) = self.common.hit_tester {
-            let physical_pos_u32 = position.to_physical(
-                self.common.current_window_state
-                    .size
-                    .get_hidpi_factor()
-                    .inner
-                    .get(),
-            );
-            let physical_pos =
-                PhysicalPosition::new(physical_pos_u32.x as f32, physical_pos_u32.y as f32);
-
-            let hit_test_result =
-                hit_tester.hit_test(wr_translate2::translate_world_point(physical_pos));
-            // Get focused node from FocusManager
-            let focused_node = self
-                .common.layout_window
-                .as_ref()
-                .and_then(|lw| lw.focus_manager.get_focused_node().copied());
-            let layout_results_ref = self.common.layout_window.as_ref().map(|lw| &lw.layout_results);
-            let empty_map = alloc::collections::BTreeMap::new();
-            let hit_test = wr_translate2::translate_hit_test_result(
-                hit_test_result,
-                focused_node,
-                layout_results_ref.unwrap_or(&empty_map),
-            );
-            if let Some(ref mut layout_window) = self.common.layout_window {
-                layout_window
-                    .hover_manager
-                    .push_hit_test(InputPointId::Mouse, hit_test);
-            }
+        // Delegate to the shared CommonWindowState::perform_hit_test, which resolves
+        // the (now-refreshed, see generate_frame_if_needed) WebRender hit-tester in GPU
+        // mode and falls back to the cpu_hit_tester in CPU mode. The previous inline
+        // logic only acted `if let Resolved(..)`, but the hit-tester was left in the
+        // `Requested` state forever -> it never ran -> no hover/click callbacks.
+        let hit_test = self.common.perform_hit_test(position);
+        if let Some(ref mut layout_window) = self.common.layout_window {
+            layout_window
+                .hover_manager
+                .push_hit_test(InputPointId::Mouse, hit_test);
         }
     }
 
@@ -2929,6 +2907,18 @@ impl WaylandWindow {
         // xdg_toplevel was never mapped -- the compositor showed only a taskbar icon.
         if let Some(ref mut render_api) = self.common.render_api {
             render_api.flush_scene_builder();
+            // Refresh the WebRender hit-tester so it reflects the freshly-built
+            // display list. AsyncHitTester::resolve() CACHES the resolved tester and
+            // never re-resolves a newer scene, so a tester first resolved against the
+            // initial (empty) display list stays stale forever -> hit tests return
+            // nothing -> no hover/click callbacks fire (dead buttons). Re-requesting
+            // after each flush (as macOS does) keeps it current. CPU mode has no
+            // render_api, so it falls through to the cpu_hit_tester in perform_hit_test.
+            if let Some(doc_id) = self.common.document_id {
+                let req = render_api
+                    .request_hit_tester(wr_translate2::wr_translate_document_id(doc_id));
+                self.common.hit_tester = Some(AsyncHitTester::Requested(req));
+            }
         }
 
         self.needs_redraw = false;
