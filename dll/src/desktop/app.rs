@@ -42,8 +42,45 @@ impl Default for App {
     }
 }
 
+/// Set `SIGPIPE` to `SIG_IGN` exactly once per process.
+///
+/// A C/C++/Python host that `dlopen`s libazul never runs Rust's runtime, which
+/// is what normally installs this. Without it the default `SIGPIPE` disposition
+/// (`SIG_DFL` = terminate) kills the whole process on the first write to a
+/// closed socket/pipe — e.g. the D-Bus theme probe in `discover_system_style`,
+/// or a dropped Wayland/X11/debug-server connection. Idempotent, and harmless
+/// for Rust hosts (whose runtime already ignores SIGPIPE).
+#[cfg(unix)]
+fn ignore_sigpipe_once() {
+    use core::sync::atomic::{AtomicBool, Ordering};
+    static DONE: AtomicBool = AtomicBool::new(false);
+    if DONE.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    // SIGPIPE = 13 and SIG_IGN = 1 are ABI-stable across Linux/macOS/*BSD.
+    // Declared inline (like `getuid` in system_style.rs) so this works whether
+    // or not the optional `libc` feature is enabled.
+    const SIGPIPE: i32 = 13;
+    const SIG_IGN: usize = 1;
+    extern "C" {
+        fn signal(signum: i32, handler: usize) -> usize;
+    }
+    // SAFETY: installing SIG_IGN for SIGPIPE is async-signal-safe and has no
+    // memory effects; the handler value 1 (SIG_IGN) is the documented constant.
+    unsafe {
+        signal(SIGPIPE, SIG_IGN);
+    }
+}
+
+#[cfg(not(unix))]
+fn ignore_sigpipe_once() {}
+
 impl App {
     pub fn create(initial_data: RefAny, mut app_config: AppConfig) -> Self {
+        // C/C++/Python hosts never run Rust's runtime, so install our own
+        // SIGPIPE -> SIG_IGN before any socket/pipe I/O happens (see fn docs).
+        ignore_sigpipe_once();
+
         // Initialize AZ_RECORD file logging before anything else
         debug_server::init_recording();
 
