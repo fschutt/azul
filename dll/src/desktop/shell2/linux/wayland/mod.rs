@@ -2834,6 +2834,17 @@ impl WaylandWindow {
             }
             self.common.frame_needs_regeneration = false;
 
+            // Rebuild the CPU hit-tester from the fresh layout. CPU mode has no
+            // WebRender hit-tester (render_api is None), and without this rebuild every
+            // hit test returns nothing -> dead mouse hover / click / text selection /
+            // focus. (GPU mode has cpu_hit_tester == None and uses the WebRender tester.)
+            if let (Some(cpu_ht), Some(lw)) = (
+                self.common.cpu_hit_tester.as_mut(),
+                self.common.layout_window.as_ref(),
+            ) {
+                cpu_ht.rebuild_from_layout(&lw.layout_results);
+            }
+
             // Send the full transaction (regenerate_layout only re-runs layout, doesn't
             // build/send the WebRender transaction on Wayland)
             if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) = (
