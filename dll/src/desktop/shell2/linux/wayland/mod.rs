@@ -1166,23 +1166,66 @@ impl WaylandWindow {
         let width = options.window_state.size.dimensions.width as i32;
         let height = options.window_state.size.dimensions.height as i32;
 
-        let render_mode = match gl::GlContext::new(&wayland, display, window.surface, width, height)
-        {
-            Ok(mut gl_context) => {
-                gl_context.configure_vsync(options.window_state.renderer_options.vsync);
-                let gl_functions =
-                    GlFunctions::initialize(gl_context.egl.as_ref().unwrap()).unwrap();
-                RenderMode::Gpu(gl_context, gl_functions)
-            }
-            Err(e) => {
-                log_warn!(
-                    LogCategory::Rendering,
-                    "[Wayland] GPU context failed: {:?}. Falling back to CPU.",
-                    e
-                );
-                RenderMode::Cpu(Some(CpuFallbackState::new(
-                    &wayland, window.shm, width, height,
-                )?))
+        // Backend selection.
+        //  - AZ_BACKEND=cpu (or HwAcceleration::Disabled): NO GL trial at all —
+        //    render purely on the CPU (wl_shm + cpurender, zero Mesa), leaving
+        //    gl_context_ptr = None so image/canvas callbacks produce CPU pixmaps
+        //    instead of GL textures.
+        //  - AZ_BACKEND=gpu: force GL even if it turns out to be a software driver.
+        //  - default (Auto): try GL, but if the driver is a software rasteriser
+        //    (llvmpipe/swrast) drop it and render on the CPU — tiny-skia cpurender
+        //    is faster than software GL and avoids desktop-GLSL shader issues.
+        use crate::desktop::shell2::common::compositor::{AzBackend, GpuCheckResult};
+        let backend = AzBackend::resolve(options.renderer.as_option().map(|r| r.hw_accel));
+        let force_cpu = matches!(backend, AzBackend::Cpu);
+        let force_gpu = matches!(backend, AzBackend::Gpu);
+
+        let render_mode = if force_cpu {
+            log_info!(
+                LogCategory::Rendering,
+                "[Wayland] AZ_BACKEND=cpu -> CPU rendering (no GL context created)"
+            );
+            RenderMode::Cpu(Some(CpuFallbackState::new(
+                &wayland, window.shm, width, height,
+            )?))
+        } else {
+            match gl::GlContext::new(&wayland, display, window.surface, width, height) {
+                Ok(mut gl_context) => {
+                    gl_context.configure_vsync(options.window_state.renderer_options.vsync);
+                    let gl_functions =
+                        GlFunctions::initialize(gl_context.egl.as_ref().unwrap()).unwrap();
+                    // Detect a software rasteriser; under Auto, prefer cpurender.
+                    gl_context.make_current();
+                    let is_software = matches!(
+                        crate::desktop::shell2::common::compositor::query_gpu_info(
+                            &gl_functions.functions,
+                        ),
+                        GpuCheckResult::Blacklisted { .. }
+                    );
+                    if is_software && !force_gpu {
+                        log_info!(
+                            LogCategory::Rendering,
+                            "[Wayland] software GL (llvmpipe/swrast) detected -> CPU rendering \
+                             (cpurender is faster; set AZ_BACKEND=gpu to override)"
+                        );
+                        drop(gl_context);
+                        RenderMode::Cpu(Some(CpuFallbackState::new(
+                            &wayland, window.shm, width, height,
+                        )?))
+                    } else {
+                        RenderMode::Gpu(gl_context, gl_functions)
+                    }
+                }
+                Err(e) => {
+                    log_warn!(
+                        LogCategory::Rendering,
+                        "[Wayland] GPU context failed: {:?}. Falling back to CPU.",
+                        e
+                    );
+                    RenderMode::Cpu(Some(CpuFallbackState::new(
+                        &wayland, window.shm, width, height,
+                    )?))
+                }
             }
         };
         window.render_mode = render_mode;
