@@ -1027,6 +1027,23 @@ impl LayoutTree {
         None
     }
 
+    /// Return the layout index of the IFC root that owns `layout_index`'s inline content.
+    /// If the node IS an IFC root (has its own `inline_layout_result`) or has no
+    /// `ifc_membership`, returns `layout_index` unchanged. Inline text nodes never get
+    /// their own box position (it stays the `f32::MIN` sentinel) — their geometry lives
+    /// in the IFC root's content box, so selection/inline painting must anchor to the
+    /// IFC root's position, not the text node's. See `get_inline_layout_for_node`.
+    pub fn get_ifc_root_layout_index(&self, layout_index: usize) -> usize {
+        if let Some(warm) = self.warm.get(layout_index) {
+            if warm.inline_layout_result.is_none() {
+                if let Some(ifc_membership) = &warm.ifc_membership {
+                    return ifc_membership.ifc_root_layout_index;
+                }
+            }
+        }
+        layout_index
+    }
+
     /// Get the content size of a node (for scrollbar calculations).
     pub fn get_content_size(&self, index: usize) -> LogicalSize {
         let warm = match self.warm.get(index) {

@@ -1932,17 +1932,30 @@ where
             .copied()
             .unwrap_or_default();
 
-        // Selection rects are relative to content-box origin
-        let bp = node.box_props.unpack();
-        let padding = &bp.padding;
-        let border = &bp.border;
-        let content_box_offset_x = node_pos.x + padding.left + border.left;
-        let content_box_offset_y = node_pos.y + padding.top + border.top;
+        // Selection rects from `get_selection_rects` are in the IFC root's content-box
+        // coordinate space. For an inline text node, the node's OWN box position is never
+        // assigned (stays the `f32::MIN` sentinel), so we must anchor to the IFC root's
+        // position + padding/border — exactly the box that owns the inline layout. (The
+        // caret avoids this because paint_cursor runs on the IFC-root node directly.)
+        let ifc_root_index = self.positioned_tree.tree.get_ifc_root_layout_index(node_index);
+        let anchor_pos = self
+            .positioned_tree
+            .calculated_positions
+            .get(ifc_root_index)
+            .copied()
+            .unwrap_or(node_pos);
+        let anchor_bp = self
+            .positioned_tree
+            .tree
+            .get(ifc_root_index)
+            .map(|n| n.box_props.unpack())
+            .unwrap_or_else(|| node.box_props.unpack());
+        let content_box_offset_x = anchor_pos.x + anchor_bp.padding.left + anchor_bp.border.left;
+        let content_box_offset_y = anchor_pos.y + anchor_bp.padding.top + anchor_bp.border.top;
 
         // Check if text is selectable (respects CSS user-select property)
         let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
         let is_selectable = super::getters::is_text_selectable(self.ctx.styled_dom, dom_id, node_state);
-
         if !is_selectable {
             return Ok(());
         }
@@ -1951,7 +1964,6 @@ where
         if let Some(text_selection) = self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id) {
             if let Some(range) = text_selection.affected_nodes.get(&dom_id) {
                 let is_collapsed = text_selection.is_collapsed();
-                
                 // Only draw selection highlight if NOT collapsed
                 if !is_collapsed {
                     let rects = layout.get_selection_rects(range);
