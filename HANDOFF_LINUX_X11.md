@@ -380,3 +380,13 @@ Pinpointed via a node-rect dump: the **root/body computes height ≈ 80px** (= t
 - `pkill -x contenteditable_test` and `pgrep -x` FAIL — comm is truncated to 15 chars ("contenteditable"). Use `pkill contenteditable` (matches comm, not bash) or `killall`. **Do NOT `pkill -f contenteditable_test`** — it matches your own shell command and kills it. Leaked instances stack windows.
 - `xwininfo` "Absolute upper-left" returned `0,0` (reparented) — use `wmctrl -lG` for real window position.
 - Close button (user-reported broken on X11): `XSetWMProtocols`+`WM_DELETE` handler look correct (`x11/mod.rs:1122`/`781`/`1775`); my kill-test was inconclusive. Re-test.
+
+### ✅ BREAKTHROUGH — capture was the LOCKSCREEN, not a driver bug; autonomous loop now works
+The all-black captures were the **active lockscreen** (light-locker), NOT broken XGetImage. Lock/sleep now disabled (light-locker killed, DPMS off, `xset s off`). The autonomous VISUAL loop is operational via the **AZ_DEBUG server**, compiled in with `cargo build -r -p azul-dll --features build-dll,debug-server`:
+- Run: `AZ_DEBUG=8765 AZ_WINDOW=x11 AZ_BACKEND=cpu ./tests/e2e/contenteditable_test`
+- **Verify on-screen**: `curl -s localhost:8765 -d '{"op":"take_native_screenshot"}'` → base64 PNG in `data.value.data` (strip `data:image/png;base64,`). Use **take_native_screenshot** (real window) — NOT `take_screenshot` (headless re-render; doesn't show what's actually on screen).
+- `get_state` + synthetic input ops via curl; `AZ_E2E` for scenarios.
+- **CONFIRMED**: the X11 app renders correctly (dark bg + label + single-line input + blue focus border) — the X11 render/present fixes (`6d28e5a14`) work. The visible bug is **#41** (body clipped to ~80px).
+- **Crash fixed** (`a30e2292b`): `update_hit_test` `.unwrap()` on the None `hit_tester` in CPU mode → panic on mouse-over. **Class = CPU-mode unwraps on GPU-only fields** (`document_id`/`hit_tester`/`render_api`/`id_namespace`); MORE to audit (`wayland/mod.rs:1519`, `macos/mod.rs`).
+- **Autonomous cron** (job `2a47e6c0`, every 10 min, session-only/7-day) drives the priority order: crashes → stability → functionality → features.
+- Gotchas: `pkill contenteditable` only (NEVER `pkill -f contenteditable_test` → kills your own shell; `pkill -x`/`pgrep -x` fail, comm truncated to 15 chars).
