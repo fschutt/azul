@@ -139,7 +139,7 @@ pub enum Theme {
 }
 
 /// A unified collection of discovered system style properties.
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct SystemStyle {
     pub fonts: SystemFonts,
@@ -187,6 +187,68 @@ pub struct SystemStyle {
     pub icon_style: IconStyleOptions,
     /// Audio feedback preferences (event sounds, input sounds)
     pub audio: AudioMetrics,
+    /// FFI double-drop guard. `SystemStyle` owns two heap pointers
+    /// (`app_specific_stylesheet`, `scrollbar`). The codegen Az wrapper
+    /// (`AzSystemStyle`) gets an `impl Drop` -> `AzSystemStyle_delete` ->
+    /// `drop_in_place::<SystemStyle>`, and is nested by value as
+    /// `AzAppConfig.system_style`. Dropping an `AzAppConfig` by value
+    /// therefore drops the real `SystemStyle` once (freeing both Boxes) and
+    /// then re-runs `_delete` on the SAME bytes via drop-glue -> double free.
+    /// Same class as GlContextPtr / IconProviderHandle (see core/src/icon.rs).
+    /// The first `Drop` disarms this flag; the second sees it cleared and
+    /// neutralizes itself (takes + forgets the already-freed Boxes) so the
+    /// redundant drop-glue is a no-op. Defaults to `true` (own + free once).
+    pub run_destructor: bool,
+}
+
+impl Default for SystemStyle {
+    fn default() -> Self {
+        SystemStyle {
+            fonts: Default::default(),
+            metrics: Default::default(),
+            linux: Default::default(),
+            platform: Default::default(),
+            focus_visuals: Default::default(),
+            language: Default::default(),
+            app_specific_stylesheet: None,
+            scrollbar: None,
+            scroll_physics: Default::default(),
+            theme: Default::default(),
+            os_version: Default::default(),
+            prefers_reduced_motion: Default::default(),
+            prefers_high_contrast: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            colors: Default::default(),
+            icon_style: Default::default(),
+            audio: Default::default(),
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for SystemStyle {
+    fn drop(&mut self) {
+        // Gate the heap frees on `run_destructor` to defuse the codegen
+        // double-drop (see the `run_destructor` field docs). drop_in_place
+        // runs THIS method, then the field drop-glue; so:
+        //  * FIRST drop (flag set): disarm the flag, then let the field
+        //    drop-glue free the two Boxes exactly once.
+        //  * SECOND drop on the same bytes (flag cleared by the first): the
+        //    Boxes are already freed but the fields still hold dangling
+        //    `Some(ptr)`. Take them out (-> None) and forget the dangling
+        //    values so the trailing drop-glue is a no-op (never derefs/frees).
+        if self.run_destructor {
+            self.run_destructor = false;
+        } else {
+            core::mem::forget(self.app_specific_stylesheet.take());
+            core::mem::forget(self.scrollbar.take());
+        }
+    }
 }
 
 /// Icon-specific styling options for accessibility and theming.
@@ -1997,13 +2059,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_LIGHT))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::WIN_11,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
             scroll_physics: ScrollPhysics::windows(),
-            ..Default::default()
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 
@@ -2036,13 +2107,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_DARK))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::WIN_11,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
             scroll_physics: ScrollPhysics::windows(),
-            ..Default::default()
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 
@@ -2075,13 +2155,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::WIN_7,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
             scroll_physics: ScrollPhysics::windows(),
-            ..Default::default()
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 
@@ -2114,13 +2203,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_CLASSIC))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::WIN_XP,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
             scroll_physics: ScrollPhysics::windows(),
-            ..Default::default()
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 
@@ -2156,13 +2254,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_LIGHT))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::MACOS_SONOMA,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
             scroll_physics: ScrollPhysics::macos(),
-            ..Default::default()
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 
@@ -2203,13 +2310,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_DARK))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::MACOS_SONOMA,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
             scroll_physics: ScrollPhysics::macos(),
-            ..Default::default()
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 
@@ -2241,13 +2357,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_AQUA))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::MACOS_TIGER,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
             scroll_physics: ScrollPhysics::macos(),
-            ..Default::default()
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 
@@ -2280,12 +2405,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
-            ..Default::default()
+            scroll_physics: Default::default(),
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 
@@ -2316,12 +2451,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_DARK))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
-            ..Default::default()
+            scroll_physics: Default::default(),
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 
@@ -2351,12 +2496,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::LINUX_2_6,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
-            ..Default::default()
+            scroll_physics: Default::default(),
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 
@@ -2386,12 +2541,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_KDE_OXYGEN))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
-            ..Default::default()
+            scroll_physics: Default::default(),
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 
@@ -2423,13 +2588,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_LIGHT))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::ANDROID_14,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
             scroll_physics: ScrollPhysics::android(),
-            ..Default::default()
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 
@@ -2459,13 +2633,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_DARK))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::ANDROID_ICE_CREAM_SANDWICH,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
             scroll_physics: ScrollPhysics::android(),
-            ..Default::default()
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 
@@ -2495,13 +2678,22 @@ pub mod defaults {
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_IOS_LIGHT))),
             app_specific_stylesheet: None,
+            run_destructor: true,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
             os_version: OsVersion::IOS_17,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
             scroll_physics: ScrollPhysics::ios(),
-            ..Default::default()
+            linux: Default::default(),
+            focus_visuals: Default::default(),
+            accessibility: Default::default(),
+            input: Default::default(),
+            text_rendering: Default::default(),
+            scrollbar_preferences: Default::default(),
+            visual_hints: Default::default(),
+            animation: Default::default(),
+            audio: Default::default(),
         }
     }
 }
