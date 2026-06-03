@@ -1462,9 +1462,11 @@ impl DisplayListBuilder {
     }
 
     pub fn push_cursor_rect(&mut self, bounds: LogicalRect, color: ColorU) {
-        if color.a > 0 {
-            self.push_item(DisplayListItem::CursorRect { bounds: bounds.into(), color });
-        }
+        // Always emit the caret item — even with alpha == 0 in the blink-off phase — so
+        // the display-list item COUNT stays stable across blink phases. That lets
+        // compute_display_list_damage diff it down to a caret-sized rect instead of
+        // falling back to a full-window repaint every ~530ms.
+        self.push_item(DisplayListItem::CursorRect { bounds: bounds.into(), color });
     }
     pub fn push_clip(&mut self, bounds: LogicalRect, border_radius: BorderRadius) {
         self.push_item(DisplayListItem::PushClip {
@@ -1984,10 +1986,11 @@ where
         builder: &mut DisplayListBuilder,
         node_index: usize,
     ) -> Result<()> {
-        // Early exit if cursor is not visible (blinking off phase)
-        if !self.ctx.cursor_is_visible {
-            return Ok(());
-        }
+        // NOTE: we deliberately do NOT early-return in the blink-off phase. Emitting the
+        // caret item every frame — with alpha forced to 0 when invisible (see caret_color
+        // below) — keeps the display-list item COUNT stable across blink phases, so
+        // compute_display_list_damage yields a tiny caret-sized damage rect instead of
+        // bailing to a full-window repaint on every ~530ms blink toggle.
 
         // Early exit if no cursor locations
         if self.ctx.cursor_locations.is_empty() {
@@ -2080,7 +2083,14 @@ where
             rect.origin.y += content_box_offset_y;
             rect.size.width = style.width;
 
-            builder.push_cursor_rect(rect, style.color);
+            // Blink: keep the caret item present every frame (stable item count for
+            // incremental damage) but make it invisible in the off phase by zeroing alpha.
+            let caret_color = if self.ctx.cursor_is_visible {
+                style.color
+            } else {
+                ColorU { a: 0, ..style.color }
+            };
+            builder.push_cursor_rect(rect, caret_color);
 
             // Preedit underline only on the primary cursor for this node
             let is_primary = primary_idx_for_this_node == Some(i);

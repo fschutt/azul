@@ -2446,7 +2446,18 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
         .get_caret_color(node_data, &node_id, node_state)
         .and_then(|c| c.get_property().cloned())
         .map(|c| c.inner)
-        .unwrap_or(ColorU::BLACK);
+        // CSS `caret-color: auto` (the initial value) resolves to currentColor — the
+        // element's text color — which by construction contrasts with the background.
+        // Falling back to BLACK made the caret invisible on dark backgrounds / dark
+        // system themes (and `color` IS inherited while `caret-color` may not be, so a
+        // child text node still gets the right colour here).
+        .unwrap_or_else(|| {
+            styled_dom
+                .css_property_cache
+                .ptr
+                .get_text_color_or_default(node_data, &node_id, node_state)
+                .inner
+        });
 
     let width = styled_dom
         .css_property_cache
