@@ -568,3 +568,28 @@ demo (overflowing body, bright items). Findings:
   provably bottlenecks on the **solver3 layout class (#41: flex/height/overflow not
   applied)**. #41 is the keystone and is now the only unblocked-able path forward; the
   user's tier-6 plan ("make contenteditable.c colorful → fix #41") is the next item.
+
+### Cron firing 9 (tier 6) — #41 REFRAMED: it's a CSS cascade bug, NOT flex layout
+Did the tier-6 plan: made contenteditable.c colorful (committed) then dug into #41. The
+colorful render + debug-server layout/CSS dumps REDIRECT the root cause:
+- **It is NOT "flex-column root main-size in solver3."** The flex engine is correct — it
+  faithfully laid out `body { height: 80px }`. The bug is that the body GOT height:80.
+- **#41 = CSS selector-matching/cascade: class rules land on the wrong nodes.**
+  - `body` (node 0, no class) computes `height:80` + `min-height:300` + `max-height:400`
+    — absorbed from `.single-line-input` + `.multi-line-textarea` (classes it lacks).
+    `get_css_height(body)=Exact(Px(80))` → Taffy `Length(80)` → body=80px → clip.
+  - EVERY `<div>` (nodes 1,3,5,7,9, any class) gets the IDENTICAL set: `color:#000000`
+    (.label) + `font-size:32px` (.label) + `white-space:nowrap` (.single-line-input) +
+    `line-height:140%` (.multi-line-textarea) + `cursor:text` — a union of INHERITED props
+    from multiple classes, never the element's own. The real single-input doesn't get its
+    `font-size:48px`/`height:80`/green bg. No element gets its bg (no colored bands render).
+  - Pattern: inherited props mis-merged onto all divs; non-inherited box heights leaked
+    UP onto the parent body; bg/padding/border didn't reach the divs.
+- Applied via `AzDom_withCss(root, stylesheet)` (core/src/dom.rs:2959). **Next firing:
+  fix the cascade/selector matching** — core/src/styled_dom.rs, core/src/prop_cache.rs,
+  css/src/compact_cache.rs (likely a node-index misalignment attaching rules to wrong
+  nodes + inherited-prop propagation). Verify with the colorful test (each element shows
+  its own bg). This SAME bug explains scrolling.c (height:300/overflow ignored), and is the
+  keystone for tier-3 click-to-focus and tier-5 scroll.
+- Tooling added this firing: `get_all_nodes_layout` (per-node computed rect) and
+  `get_node_css_properties` (per-node matched props) are the way to diagnose cascade bugs.
