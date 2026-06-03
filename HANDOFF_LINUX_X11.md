@@ -474,3 +474,30 @@ text edits via native screenshot, not the HTML value.
   `time_until_next_timer_ms()` (layout/src/window.rs:2013, defined-but-unused). Empirical
   on-screen checks still owed: scroll momentum-after-release (blocked by #41 clipping the
   textarea) and caret-blink toggle (verifiable now via Tab-focus + two timed screenshots).
+### Cron firing 5 (tier 1 audit clean + tier 3 input VERIFIED, selection gap found)
+- **Tier-1 common-path crash audit = CLEAN.** Firing 3 only swept `x11/`; this swept the
+  shared `common/` shell path. The only GPU-only-field `.expect()`s are 5 accessors in the
+  `impl_platform_window_getters!` macro (common/event.rs:758-776: `get_hit_tester_mut`,
+  `get_document_id`, `get_id_namespace`, `get_render_api`/`_mut`) — but they have **ZERO
+  callers anywhere in `dll/src/`** (dead trait methods). Not a live CPU-mode crash. Combined
+  with firing 3 (x11 dir clean) + firing 4 (SystemStyle double-free fixed), **tier-1
+  crashes/memory are clear on the verifiable X11+CPU path.**
+- **Tier-3 keyboard EDITING = VERIFIED on screen** (X11+CPU, Tab-focus, native screenshots,
+  single-step isolation): Home → caret to start; Right×5 → caret after "Hello", insert
+  "|" → "Hello| World…"; End → caret to end, insert "#" → "…type!#"; Backspace + Delete
+  both correct. Caret renders at the right position. (Compound rapid-fire xdotool sequences
+  can corrupt the text — a key-timing artifact, NOT a real bug; single-step is the reliable
+  signal.)
+- **Tier-3 SELECTION = BROKEN (new task #44).** Shift+Home produced no highlight and a
+  following keystroke appended at the END instead of replacing the selection. Traced: the
+  live handler core/events.rs:3107 DOES build `Extend` mode on shift → apply_selection_op
+  (window.rs:2396) → move_all_cursors(extend) creates a `Range` — so the gap is in
+  selection PAINTING (build_text_selections_map → paint_selections) and/or type-over-replace,
+  NOT cursor movement. `handle_cursor_movement` (window.rs:2474) is a legacy MoveCursor*
+  path that ignores `extend_selection` (verify dead/remove). See #44.
+- **Timer multi-window note (per user, #43)**: the hardcoded 16ms `select` is a placeholder;
+  intent is to compute `time_until_next_timer_ms()` and pass `(deadline − elapsed)` so the OS
+  wakes exactly at the soonest timer. There is NO built-in CSS-animation engine yet —
+  animations = manual `CallbackInfo::start_timer` + `setCssProperty`; CSS animations will
+  later desugar to starting timers. So #43 "verify animations" = verify a user-started timer
+  fires + repaints, not a built-in engine.
