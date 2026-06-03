@@ -390,3 +390,13 @@ The all-black captures were the **active lockscreen** (light-locker), NOT broken
 - **Crash fixed** (`a30e2292b`): `update_hit_test` `.unwrap()` on the None `hit_tester` in CPU mode → panic on mouse-over. **Class = CPU-mode unwraps on GPU-only fields** (`document_id`/`hit_tester`/`render_api`/`id_namespace`); MORE to audit (`wayland/mod.rs:1519`, `macos/mod.rs`).
 - **Autonomous cron** (job `2a47e6c0`, every 10 min, session-only/7-day) drives the priority order: crashes → stability → functionality → features.
 - Gotchas: `pkill contenteditable` only (NEVER `pkill -f contenteditable_test` → kills your own shell; `pkill -x`/`pgrep -x` fail, comm truncated to 15 chars).
+
+### Cron firing 1 (tier 1 = crashes) — VERIFIED CLEAR
+Stress-exercised X11+CPU via xdotool + debug server: mousemove, click, type, Backspace,
+Return, scroll, right-click (context menu), Tab nav, Escape, rapid-resize storm,
+scrollbar-area click, native screenshot — **no crash on any path** (the only X11+CPU crash
+was the `update_hit_test` None-`hit_tester` unwrap, fixed in `a30e2292b`). **WM close now
+works** — `WM_DELETE` → clean exit (code 0); resolves the user-reported "close broken on
+X11" (the forced-initial-render + running event loop let the ClientMessage handler fire).
+Crash tier clear for the testable GUI paths. Next tier-1 sub-item: memory/leaks — the
+double-drop audit (§4: 9 codegen-detected ungated types) + run under a leak check if available.
