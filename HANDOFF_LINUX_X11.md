@@ -620,3 +620,30 @@ class rules never reached their elements (every div got a union of inherited pro
   are refinements; the keystone #41 is resolved.
 - **CAVEAT**: `with_css` is used by ALL azul apps — run the layout reftest suite before
   relying on this broadly (the fix is semantically correct + verified for the desktop path).
+
+### Cron firing 11–12 (tier 6 follow-on) — CSS UNIFIED to one @scope-like model
+After #41, the with_css path was reworked into ONE css model (per the user):
+- **`Dom::with_css(&str)`** is now the single CSS API: string → `Css` struct → pushed onto
+  the node's `.css` vec → cascade selector-matches it against that node's SUBTREE, like CSS
+  `@scope`. "Inline css" = a one-node scope (subtree len 1). A bare-decl string parses to
+  `* { … }` (whole subtree); a selector string matches within the subtree.
+- **`with_component_css(Css)` REMOVED** (`13e1e445e`) — it was with_css minus the parse.
+  C/C++/Python `AzDom_withComponentCss` binding gone; `add_component_css(Css)` kept as the
+  internal Css-push. Callers + debug-server project-gen + examples + api.json + the styling
+  guide (doc/guide/en/styling.md) all updated. Verified: contenteditable still renders
+  correctly (body h=635).
+- **Process note (learn from this)**: firing-10's first cut routed with_css→.css with a
+  WRONG mental model (I thought `.css` matched globally and feared a bare-decl regression;
+  it's subtree-scoped). The user stopped it; I reverted (`e399b99d9`) and redid it as the
+  deliberate unification (`64a442ff0`). Lesson: verify cascade semantics empirically, don't
+  assert them from a guess.
+- **STILL BROKEN — the real cascade bug (#47)**: `collect_css_from_dom` (styled_dom.rs:2108)
+  flattens EVERY node's `.css` into one global Css matched against the whole tree, so the
+  @scope subtree-scoping is NOT actually enforced — a non-root node's `with_css` leaks to the
+  whole tree. Works for contenteditable only because its CSS is on the ROOT (subtree = whole
+  tree). The recursive `create_from_dom` path drops the per-node scope that `CssWithNodeId`
+  carries. Fix: scope each node's `.css` matches to that node's subtree.
+- **Newly EXPOSED by #41 (were masked by the 80px collapse), tier 2/3 follow-ups**:
+  #45 text doesn't relayout on resize (text-layout cache not invalidated — reflows boxes,
+  repaints stale text); #46 mouse text-editing input not hooked up (can't scroll an overflow
+  container, can't click-to-position the caret, can't drag-select). Keyboard paths work.
