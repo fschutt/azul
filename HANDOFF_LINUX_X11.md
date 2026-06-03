@@ -413,3 +413,29 @@ scroll leak. App stayed alive throughout. `valgrind`/`heaptrack` are NOT install
 so the heavyweight allocation-site audit (and a concrete double-drop §4 repro) is deferred until
 they can be installed. Tier 1 (crashes + leaks) considered clear for the testable paths;
 next firing advances to **tier 2 = resizing/repaint correctness**.
+
+### Cron firing 3 (tier 2 repaint + tier 3 backspace) — RESIZE CLEAN, BACKSPACE FIXED
+Verified on X11+CPU via native screenshots (`take_native_screenshot`):
+- **Window resize repaint = CLEAN.** Shrink 1200x800→600x400 (content reflows to the
+  narrower width, no stale pixels), grow →1400x900 (newly-exposed area fills correctly,
+  no garbage), and a rapid resize-storm settling at 1300x850 (final frame correct). No
+  crash, no clip-artifacts, no stale framebuffer on any transition.
+- **Backspace tofu FIXED (`ddc938a3e`)** — the X11 twin of the Wayland fix (40da9e554).
+  `handle_key_event` recorded every `XLookupString` byte as text, incl. control chars
+  (Backspace 0x08 etc.) → tofu rect. Now filtered with `chars().all(is_control)`.
+  **Verified on screen**: Tab-focus input, type `ABC`, Backspace×2 → field shows
+  `...type!A` with caret, NO tofu. Closes the X11 half of #36.
+- **Incidental confirmations**: repaint-on-input is live & correct (tier 2), the caret
+  renders when the field is focused (tier 4 / #38 looking good on X11+CPU), and
+  **Tab-key focus works** (`focused_node` → 3).
+
+**Key blocker finding for the next tiers.** On-screen verification of *click-to-focus*,
+scroll, and the textarea is **blocked by #41**: the body collapses to 80px (`height:80px`
+on `<body>` wins over `min-height:300px`), so node 3 (the input) and the textarea below
+it are clipped out of the clickable region — `hit_test(200,65)` lands on the label
+(node 1), and the debug `focus` op + raw clicks don't set `focused_node` (only Tab does,
+because Tab walks the focus chain regardless of geometry). Net: **#41 is not merely
+cosmetic — it gates click/scroll/caret verification for tiers 2–5.** Recommend pulling
+#41 forward despite its "last" ordering; it is the keystone unblocker. Also note:
+`get_html_string` returns the **static DOM**, not the live edit buffer — always verify
+text edits via native screenshot, not the HTML value.
