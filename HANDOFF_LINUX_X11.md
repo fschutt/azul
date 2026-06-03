@@ -109,7 +109,7 @@ The X11 CPU path uses `RenderMode::Cpu(Some(gc))` (XImage/`XPutImage` via cpuren
 ### Systemic approach (#23 / #33) — DETECTION shipped; auto-fix abandoned
 Auto-rewriting (ManuallyDrop on all mirror fields) was tried + reverted — it broke public/user struct construction (`ManuallyDrop<AzU8Vec>: From<Vec>` in azul-paint) and `has_custom_drop` is unreliable. Instead (per the user) **azul-doc now DETECTS the risk and forces the maintainer to gate it** (commit `74b7db461`, `ir_builder.rs::validate_api_json`): flags non-Copy structs owning a raw ptr/Box (ConstPtr/MutPtr/Boxed/OptionBoxed) without a `run_destructor`/`destructor` gate, excluding slice/Vec views (`len`/`cap` field). Prints a WARNING with the full WHY (codegen `_delete` + parent drop-glue = double free) + the fix (ManuallyDrop+run_destructor, see GlContextPtr).
 REMAINING (follow-ups, in priority order):
-1. **Gate the 9 flagged types**, then flip the warning to a hard ERROR (`errors.push` instead of `eprintln`) to prevent regressions. Flagged: VirtualViewCallbackInfo, LayoutCallbackInfo, TimerCallbackInfo, RenderImageCallbackInfo, NodeData, GridMinMax, **SystemStyle** (proven AppConfig-drop offender), ComponentFieldTypeBox, GlVoidPtrMut (verify — likely a borrow false-positive → mark Copy or refine the detector). Each: in the real type add `run_destructor: bool` + `ManuallyDrop<...>` the owned field + gate Drop; add the field to api.json struct_fields; `azul-doc codegen all` + rebuild; verify with `appconfig_double_drop.rs` (it should run clean once SystemStyle + the rest are gated). Consider a `impl_ffi_owned_destructor!` macro in azul_core to reduce boilerplate.
+1. **Gate the flagged types**, then flip the warning to a hard ERROR (`errors.push` instead of `eprintln`) to prevent regressions. Flagged: VirtualViewCallbackInfo, LayoutCallbackInfo, TimerCallbackInfo, RenderImageCallbackInfo, NodeData, GridMinMax, ~~**SystemStyle** (proven AppConfig-drop offender)~~ **DONE `9091544f7`** — `appconfig_double_drop` now runs clean (200k, no double-free), so the AppConfig nest is fully gated; the rest below are NOT reachable via AppConfig and need their own repros, ComponentFieldTypeBox, GlVoidPtrMut (verify — likely a borrow false-positive → mark Copy or refine the detector). Per-leaf recipe: add `run_destructor: bool` + gate `Drop`. Two viable gate styles: (a) `ManuallyDrop<...>` the owned field (used by GlContextPtr/IconProviderHandle — thin handles, no `..base` users); (b) for "rich" types with many `..Default::default()` constructions (E0509 once they impl Drop), keep the field type and use the `take()+forget()` second-drop trick + expand the spread literals (used by SystemStyle). Then sync api.json via `azul-doc autofix`/`autofix apply`/`normalize` (NOT hand-edit) + `codegen all` + rebuild; verify with the relevant `*_double_drop.rs` repro (link-static).
 2. **Auto-gen per-type drop memtests** (user idea): extend the codegen `memtest` (`target/codegen/memtest.rs`, generator.rs:179, config `memtest()`) so each non-Copy type is constructed (default/ctor) + dropped (and nested + dropped by value) in a loop → catches double-free/leak, proving each gate is correct. Like `css_double_drop`/`appconfig_double_drop` but auto-generated for all types.
 
 ---
@@ -439,3 +439,38 @@ cosmetic — it gates click/scroll/caret verification for tiers 2–5.** Recomme
 #41 forward despite its "last" ordering; it is the keystone unblocker. Also note:
 `get_html_string` returns the **static DOM**, not the live edit buffer — always verify
 text edits via native screenshot, not the HTML value.
+
+### Cron firing 4 (tier 1 = memory) — SystemStyle double-free FIXED + timer/scroll plan
+- **SystemStyle double-free FIXED (`9091544f7`)** — the next ungated leaf after
+  IconProviderHandle. `AzAppConfig.system_style: AzSystemStyle` re-ran
+  `AzSystemStyle_delete` (drop_in_place::<SystemStyle>) on the same bytes after the real
+  AppConfig drop already freed both Boxes (`app_specific_stylesheet`, `scrollbar`).
+  Gated on a new `run_destructor: bool` WITHOUT ManuallyDrop: gated `Drop` frees once on
+  the first drop (disarming the flag) and `take()+forget()`s the dangling ptrs on the
+  second. Because `SystemStyle` now impls `Drop`, the 14 `..Default::default()` discover
+  literals hit E0509 ("cannot move out of a Drop type") and were expanded to explicit
+  field lists. **Verified**: `dll/examples/appconfig_double_drop` (link-static, 200k
+  AppConfig create+drop) aborted `free(): double free detected` before → now prints
+  `OK: ... no double-free`. The full AzAppConfig drop path is now clean (SystemStyle was
+  the last reachable leaf in that nest; see §4 for the other flagged types not reachable
+  via AppConfig — they'd need their own repros).
+- **api.json WORKFLOW (per user)** — never hand-edit api.json (a `json.dump` reformats the
+  whole 4MB file → 92k-line diff). Use `azul-doc autofix` (parses live Rust source,
+  detects struct-field/derive/custom-impl drift, writes patches to
+  `target/autofix/patches/NNNN_modify_<Type>.patch.json` — it does NOT edit api.json, and
+  "0 additions" in the summary ≠ no patch) → `azul-doc autofix apply <patch>` → `normalize`
+  → `codegen all`. It correctly detected the `Drop`/`Default` custom-impls + new bool.
+- **Timer / scroll-physics plan (#43, per user "check that scrolling + scroll-physics
+  timer actually works; requires timers; also fixes animations")**: mapped the timer pump.
+  Timers ARE pumped on both Linux loops via `timerfd` + `poll(-1)` in `wait_for_events`
+  (x11/mod.rs:1686, wayland/mod.rs:1577) AND `check_timers_and_threads()` on every
+  `poll_event` (x11:574, wayland:513). Scroll momentum = `SCROLL_MOMENTUM_TIMER_ID` →
+  `scroll_physics_timer_callback` (layout/src/scroll_timer.rs:132), registered on first
+  scroll input (x11/events.rs:636, wayland/mod.rs:2180). Caret blink = ~530ms repeating
+  timer (`cursor_blink_timer_callback`, layout/src/window.rs:205) started on text input
+  (common/event.rs:1878). **Gaps to chase next**: (a) NO dedicated CSS-animation timer
+  found — animations likely not timer-driven at all (matches user's "also fixes
+  animations"); (b) multi-window idle path uses a hardcoded 16ms `select` and never calls
+  `time_until_next_timer_ms()` (layout/src/window.rs:2013, defined-but-unused). Empirical
+  on-screen checks still owed: scroll momentum-after-release (blocked by #41 clipping the
+  textarea) and caret-blink toggle (verifiable now via Tab-focus + two timed screenshots).
