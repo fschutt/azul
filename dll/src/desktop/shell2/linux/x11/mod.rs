@@ -579,6 +579,23 @@ impl X11Window {
         }
         self.process_pending_menu_callbacks();
 
+        // Force a render whenever a (re)layout is pending. X11 rendering is otherwise
+        // purely Expose-driven, but a compositing WM (e.g. xfwm4, which Mint/XFCE runs by
+        // default) does NOT send an Expose when the window is first mapped — so without
+        // this the very first frame is never drawn and the window stays blank/black.
+        // `frame_needs_regeneration` starts true and is cleared inside render_and_present,
+        // so this fires once for the initial frame (and again only when a real relayout is
+        // queued, e.g. resize) — it does not busy-loop.
+        if self.common.frame_needs_regeneration {
+            if let Err(e) = self.render_and_present() {
+                log_error!(
+                    LogCategory::Rendering,
+                    "[X11] forced initial render_and_present failed: {:?}",
+                    e
+                );
+            }
+        }
+
         while unsafe { (self.xlib.XPending)(self.display) } > 0 {
             let mut event: XEvent = unsafe { std::mem::zeroed() };
             unsafe { (self.xlib.XNextEvent)(self.display, &mut event) };
@@ -1129,6 +1146,17 @@ impl X11Window {
 
         let ime_manager = events::ImeManager::new(&xlib, display, window_handle);
 
+        // Honor an explicit CPU-render request (AZ_BACKEND=cpu / HwAcceleration::Disabled):
+        // skip the GL context and use the cpurender (XPutImage) path. Previously X11 always
+        // tried GL and only fell back to CPU when GL *failed*, so AZ_BACKEND=cpu was ignored.
+        // (Mirrors the Wayland force-CPU path; also avoids the very slow WebRender shader
+        // compilation on software / weak GPUs such as nouveau.)
+        let force_cpu = matches!(
+            crate::desktop::shell2::common::compositor::AzBackend::resolve(
+                options.renderer.as_option().map(|r| r.hw_accel)
+            ),
+            crate::desktop::shell2::common::compositor::AzBackend::Cpu
+        );
         let (
             render_mode,
             renderer,
@@ -1137,7 +1165,15 @@ impl X11Window {
             document_id,
             id_namespace,
             gl_context_ptr,
-        ) = match gl::GlContext::new(&xlib, &egl, display, window_handle) {
+        ) = if force_cpu {
+            log_debug!(
+                LogCategory::Platform,
+                "[X11] CPU rendering requested (AZ_BACKEND=cpu) — skipping GL context (cpurender)"
+            );
+            let gc = unsafe { (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut()) };
+            (RenderMode::Cpu(Some(gc)), None, None, None, None, None, None.into())
+        } else {
+            match gl::GlContext::new(&xlib, &egl, display, window_handle) {
             Ok(gl_context) => {
                 gl_context.make_current();
                 gl_context.configure_vsync(options.window_state.renderer_options.vsync);
@@ -1242,6 +1278,7 @@ impl X11Window {
                     None,
                     None.into(),
                 )
+            }
             }
         };
 
@@ -2205,8 +2242,43 @@ impl X11Window {
 
                                     unsafe {
                                         let screen = (self.xlib.XDefaultScreen)(self.display);
-                                        let visual = (self.xlib.XDefaultVisual)(self.display, screen);
-                                        let depth = (self.xlib.XDefaultDepth)(self.display, screen);
+                                        // XCreateImage needs the visual and depth to be
+                                        // consistent. The window uses a 32-bit ARGB visual;
+                                        // pairing depth=32 (below) with the 24-bit DEFAULT
+                                        // visual makes XCreateImage return NULL → the blit is
+                                        // skipped → the window stays black. Re-find the
+                                        // matching 32-bit visual (XMatchVisualInfo is
+                                        // client-side — no server round-trip).
+                                        let visual = if self.has_argb_visual {
+                                            let mut vinfo: defines::XVisualInfo =
+                                                std::mem::zeroed();
+                                            if (self.xlib.XMatchVisualInfo)(
+                                                self.display,
+                                                screen,
+                                                32,
+                                                defines::TrueColor,
+                                                &mut vinfo,
+                                            ) != 0
+                                            {
+                                                vinfo.visual
+                                            } else {
+                                                (self.xlib.XDefaultVisual)(self.display, screen)
+                                            }
+                                        } else {
+                                            (self.xlib.XDefaultVisual)(self.display, screen)
+                                        };
+                                        // XPutImage requires the image depth to EQUAL the
+                                        // drawable (window) depth. The window uses a 32-bit
+                                        // ARGB visual (for transparency), not the screen
+                                        // default (usually 24) — so using XDefaultDepth here
+                                        // made XPutImage fail with BadMatch (opcode 72 /
+                                        // error code 8) and the window stayed black. Match
+                                        // the window's actual depth.
+                                        let depth: c_uint = if self.has_argb_visual {
+                                            32
+                                        } else {
+                                            (self.xlib.XDefaultDepth)(self.display, screen) as c_uint
+                                        };
 
                                         let ximage = (self.xlib.XCreateImage)(
                                             self.display,
