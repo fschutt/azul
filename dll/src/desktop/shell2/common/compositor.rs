@@ -108,6 +108,9 @@ impl AzBackend {
                 "cpu" => return AzBackend::Cpu,
                 "gpu" | "opengl" | "gl" => return AzBackend::Gpu,
                 "auto" => return AzBackend::Auto,
+                // Windowing selectors (consumed by LinuxWindow::select_backend) — not a
+                // render mode; leave the render backend at Auto rather than warning.
+                "x11" | "wayland" => return AzBackend::Auto,
                 _ => {
                     // Try parsing web://ip:port[?options]
                     #[cfg(feature = "web")]

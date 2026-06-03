@@ -127,7 +127,8 @@ impl LinuxWindow {
                 match wayland::WaylandWindow::new(options.clone(), resources.clone()) {
                     Ok(w) => Ok(LinuxWindow::Wayland(w)),
                     Err(e) => {
-                        let forced = std::env::var("AZ_BACKEND")
+                        let forced = std::env::var("AZ_WINDOW")
+                            .or_else(|_| std::env::var("AZ_BACKEND"))
                             .map(|b| b.eq_ignore_ascii_case("wayland"))
                             .unwrap_or(false);
                         if forced {
@@ -147,25 +148,34 @@ impl LinuxWindow {
         }
     }
 
-    /// Detect and select appropriate backend.
+    /// Detect and select the windowing backend (X11 vs Wayland).
     ///
-    /// Priority:
-    /// 1. Check AZ_BACKEND environment variable
-    /// 2. Try Wayland (if WAYLAND_DISPLAY set and feature enabled)
-    /// 3. Fall back to X11 (if DISPLAY set)
+    /// This is a SEPARATE axis from the render backend (CPU vs GPU), which is read from
+    /// `AZ_BACKEND` by [`AzBackend::resolve`]. The two used to collide in a single
+    /// `AZ_BACKEND` variable, so "X11 + CPU" could not be expressed. Now:
+    ///   - `AZ_WINDOW=x11|wayland|auto` selects the windowing backend (highest priority).
+    ///   - `AZ_BACKEND=x11|wayland` is still honored for backward compatibility, but
+    ///     `AZ_WINDOW` wins. (`AZ_BACKEND`'s render values cpu/gpu/auto are ignored here.)
+    ///   - Otherwise auto-detect: Wayland if `WAYLAND_DISPLAY`, else X11 if `DISPLAY`.
+    ///
+    /// e.g. `AZ_WINDOW=x11 AZ_BACKEND=cpu` → X11 windowing + CPU rendering.
     pub fn select_backend() -> Result<BackendType, WindowError> {
-        // Check environment variable override
-        if let Ok(backend) = std::env::var("AZ_BACKEND") {
-            match backend.to_lowercase().as_str() {
+        // Windowing preference: AZ_WINDOW first, then legacy AZ_BACKEND=x11|wayland.
+        let win_pref = std::env::var("AZ_WINDOW").ok().or_else(|| {
+            std::env::var("AZ_BACKEND")
+                .ok()
+                .filter(|b| matches!(b.to_lowercase().as_str(), "x11" | "wayland"))
+        });
+        if let Some(pref) = win_pref {
+            match pref.to_lowercase().as_str() {
                 "x11" => return Ok(BackendType::X11),
                 "wayland" => return Ok(BackendType::Wayland),
-                _ => {
-                    log_warn!(
-                        LogCategory::Platform,
-                        "Warning: Invalid AZ_BACKEND='{}', auto-detecting",
-                        backend
-                    );
-                }
+                "auto" => {} // explicit auto-detect → fall through
+                other => log_warn!(
+                    LogCategory::Platform,
+                    "Warning: Invalid AZ_WINDOW='{}', auto-detecting",
+                    other
+                ),
             }
         }
 
