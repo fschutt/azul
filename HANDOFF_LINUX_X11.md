@@ -400,3 +400,16 @@ works** — `WM_DELETE` → clean exit (code 0); resolves the user-reported "clo
 X11" (the forced-initial-render + running event loop let the ClientMessage handler fire).
 Crash tier clear for the testable GUI paths. Next tier-1 sub-item: memory/leaks — the
 double-drop audit (§4: 9 codegen-detected ungated types) + run under a leak check if available.
+
+### Cron firing 2 (tier 1 = memory/leaks) — NO RESIZE/INTERACTION LEAK
+Resize-stress leak check on X11+CPU via debug server + xdotool. Measured RSS at a **fixed**
+1000x700 window after batches of (resize-storm + type + scroll) iterations:
+- baseline @1000x700: **49152 kB**
+- after 80 iters @1000x700: **53508 kB**
+- after 160 iters @1000x700: **53508 kB** (identical to the 80-iter reading)
+RSS **plateaus** — the ~4 MB of initial growth is caches that stabilize, and there is **no
+growth between 80 and 160 iterations** measured at the same window size, so no resize/type/
+scroll leak. App stayed alive throughout. `valgrind`/`heaptrack` are NOT installed on this box,
+so the heavyweight allocation-site audit (and a concrete double-drop §4 repro) is deferred until
+they can be installed. Tier 1 (crashes + leaks) considered clear for the testable paths;
+next firing advances to **tier 2 = resizing/repaint correctness**.
