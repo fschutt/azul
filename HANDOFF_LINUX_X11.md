@@ -317,3 +317,44 @@ transaction split) — it only got some fixes. Per-bug verdict:
 | **Blank window / present-empty-buffer** | **SAFE** | X11 is event-driven (renders only on real Expose) and short-circuits no-op frames (`x11/mod.rs:2321-2337`), so it never swaps an empty buffer over good content. |
 
 **Priority before testing `contenteditable.c` on X11:** (1) text-input repaint [highest, hits the test directly], (2) CPU hit-tester rebuild [if the box falls back to CPU — this nouveau machine does when shaders fail to compile, `x11/mod.rs:1198-1208`], (3) FBO-0 clear [GPU cosmetic].
+
+## 11. Session 2026-06-03 (cont.) — incremental rendering, caret, the focus blocker, X11 plan
+
+### Committed (Wayland/KDE/CPU; ✅ = user-verified)
+| Commit | Fix | |
+|---|---|---|
+| `7406dd9ef` | CPU hit-tester rebuilt each frame (hover/selection) | ✅ |
+| `5e74e30d7` | stale-self-pointer: rebind wl listeners to boxed self → **window close** | ✅ |
+| `3d94a56d3` | keyboard input triggers redraw → **typing updates live** | ✅ |
+| `ee43319dc` | docs: handoff §0/§10 + `X11_API_REFERENCE.md` | |
+| _this commit_ | **backspace control-char filter** + **caret stable-item (blink damage)** + **caret-color → currentColor** + `DAMAGE_RENDERING.md` | ⏳ unverified (focus blocker) |
+
+### 🔴 CRITICAL BLOCKER — focus model is inverted (NEW, blocks caret + text-input verification)
+On Wayland/CPU the user observes: the contenteditable field shows a **blue `:focus` border BY DEFAULT** (tied to *window* activation), **clicking the field UNFOCUSES it** (border→gray, text jumps down a bit), and **no caret ever shows** (any colour). So `:focus` is being driven by window-active rather than element-focus, and the click→focus path clears/inverts focus. The caret literally cannot render — `paint_cursor` early-returns when `cursor_locations` is empty, which it is without a properly focused contenteditable.
+- Pointers: focus is set via `CallbackChange::SetFocusTarget` → `focus_manager.set_focused_node` (`common/event.rs:1245-1301`); the click→focus path runs through hit-testing; `handle_key` sets `window_focused=true` on keypress (`wayland/mod.rs:~1800`). Suspect the click handler clears focus and/or `:focus` styling reads `window_focused` instead of the focused node.
+- **This is the keystone to fix first on X11** (where it's auto-testable). Everything caret/IME/text-selection depends on it.
+
+### Incremental rendering (the big effort) — see `DAMAGE_RENDERING.md` for full architecture + plan
+Goal (user): cursor-blink / scroll / resize each repaint ONLY the changed region, on **CPU and GPU**, all **4 platforms**, + the OS compositor gets the real dirty rects. Two agent investigations mapped it. Highlights:
+- WebRender **already** computes dirty rects (`max_partial_present_rects:1`, `wr_translate2.rs:218`) and is consumed into `gpu_damage_rects` on all platforms; WR 0.62 **always** tile-caches → GPU raster is already incremental. `partial_present:None` is correct (keep it).
+- CPU bugs: **scroll frozen** (offset not in DL → empty damage → stale re-blit), **caret blink full-rasters** (item-count change), **resize full-reallocs**.
+- **Caret fix DONE this commit** (shared `layout/src/solver3/display_list.rs`): always emit `CursorRect` (alpha forced to 0 in blink-off) → stable item count → blink diffs to a caret rect; `push_cursor_rect` no longer drops alpha-0. + caret colour now defaults to currentColor not BLACK (`getters.rs:get_caret_style`). Couldn't runtime-verify (focus blocker). Measured caveat: even with the fix, blink damage was still **coarse** (`1184×587` textarea-region) → other items change per blink-regen (the DL regen isn't stable beyond the caret) → tighten later.
+
+### 📋 TODO — everything still open (priority-ordered)
+1. 🔴 **Focus model inverted** (above) — fix + verify on X11. Blocks caret/IME/selection. `event.rs:1245-1301`.
+2. **`AZ_BACKEND` rework — x11 and cpu not individually selectable.** Windowing reads it (`linux/mod.rs:158`, values `x11`/`wayland`) AND render reads the SAME var (`compositor.rs:105`, values `auto`/`gpu`/`cpu`/`headless`/`web`). So you can't say "X11 + CPU". Split into two axes — e.g. keep `AZ_BACKEND` for render and add `AZ_WINDOW=x11|wayland|auto` (or accept `AZ_BACKEND=x11-cpu`). Easy; do on X11.
+3. **Scroll** — implement Design 1 (viewport-rect damage → `render_display_list_damaged`) then Design 2 (pixel-shift via `scroll_layer`/`compute_exposed_rects`). `DAMAGE_RENDERING.md`. CPU frozen on all 4 platforms today.
+4. **Resize** — grow-only partial repaint (`resize_grow_only`+`compute_resize_damage`, mirror headless). `DAMAGE_RENDERING.md`.
+5. **Caret verify** — colour + blink-damage, on X11 once focus works.
+6. **Caret damage coarseness** — make DL regen stable so blink = caret-only damage (investigate what items change per regen; a `[DMG-ITEM]` probe in `compute_display_list_damage` names them).
+7. **Backspace** control-char filter — verify no tofu (X11 + Wayland). (Committed this session.)
+8. **GPU incremental** — caret as opacity-animated property (avoid macOS scene rebuild) + Wayland `eglSwapBuffersWithDamageKHR` ordering bug (`swap` commits before `wl_surface_damage`; no commit after — `wayland/mod.rs:3084-3122`). `DAMAGE_RENDERING.md` §, `X11_API_REFERENCE.md` §1.
+9. **X11 ports** (§10): text-input result routing, CPU hit-tester rebuild + guard the `hit_tester.unwrap()` (`x11/events.rs:863`), FBO-0 clear.
+10. **Per-platform compositor sub-rect damage** — table in `DAMAGE_RENDERING.md` (Wayland `wl_surface_damage_buffer`, X11 `XPutImage` sub-rect, macOS `setNeedsDisplayInRect:`, Windows `InvalidateRect` rect + `StretchDIBits` dst).
+11. **Autonomous testing on X11** — need input injection + screenshot. This machine has ONLY `xwd` (no `xdotool`/`scrot`/`import`/`convert`); on X11 install `xdotool` + `imagemagick` (or `scrot`) **[sudo, in a REAL terminal — `!`/Bash tool have no TTY for the password]**. Then loop: launch → `xdotool` click/type → screenshot → `Read` the PNG → inspect. (The app's own debug server — feature `debug-server`, `AZ_DEBUG` — could do synthetic input + `take_screenshot` with no external tools, but it's NOT in the default build and "might itself be buggy"; `take_screenshot` already flagged broken on X11 (#21). Verify before relying on it.)
+12. **IME (Japanese)** — install `fcitx5 fcitx5-mozc fcitx5-configtool` **[sudo, REAL terminal]**, set KDE Virtual Keyboard = Fcitx 5, write `~/.config/environment.d/im.conf`, restart kwin. App uses `zwp_text_input_v3` (`wayland/events.rs:1198`/`1223`). ⚠️ A sudo password was accidentally echoed into the shell/history this session (`sudo -v -S <pw>`) — recommend changing it.
+13. **Earlier-reported, re-test after focus fix**: can't resize window past a certain size (#3); multiline textarea clipped to ~2 lines, ≠ macOS (#6, layout); Tab shifts content (#5).
+14. **GPU SIGSEGV** on the contenteditable DOM (Wayland; separate WebRender bug) — stay on CPU.
+
+### Companion docs
+`DAMAGE_RENDERING.md` (incremental-rendering architecture + per-platform plan), `X11_API_REFERENCE.md` (Xlib/EGL: FBO-0 clear, event loop, `XLookupString`/XIM text+IME, XShm blit).
