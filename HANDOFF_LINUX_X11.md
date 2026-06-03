@@ -546,3 +546,25 @@ No code change — tier-4 caret behavior verified working on X11+CPU via debug s
   blink phase by the curl round-trip (~150ms), so a `vis()`-then-screenshot pair can
   mislabel the phase — confirm blink by comparing several burst frames visually, not by the
   pre-shot label.
+
+### Cron firing 8 (tier 5 = dirty-rects/scroll) — SCROLL BLOCKED BY LAYOUT (solver3), not a handler bug
+Goal: verify scroll incremental-repaint independent of #41, via the dedicated `scrolling.c`
+demo (overflowing body, bright items). Findings:
+- Modernized `scrolling.c` (it used removed `AzDom_setInlineStyle`/`AzDom_style`; → `withCss`).
+  Committed; builds + runs + renders on X11+CPU (header + alternating red/green items).
+- **Scroll does NOT work** — debug `scroll` op AND mouse-wheel ×4 leave the content
+  identical (Item 1–7 from the top, no movement, no scrollbar).
+- **Root cause = layout, not the scroll handler.** The container has `height:300px;
+  overflow:auto`, but the render shows items overflowing the full 500px window (no 300px
+  box, no scrollbar, footer pushed off). `get_display_list` confirms `final_scroll_depth:0`
+  — there is NO scroll frame/clip anywhere; the single stacking context spans the full
+  `584×2093` content height. So solver3 never created a scroll region → scroll has nothing
+  to act on. This is the SAME solver3 height/overflow/flex class as #41 (heights not
+  applied), surfacing in a different example. So tier-5 scroll (and the scroll-physics
+  timer #43 momentum check) are gated on the solver3 layout fix.
+- **Strategic state after 8 firings**: tiers 1–4 are DONE/verified on X11+CPU (crashes,
+  memory/double-free, resize repaint, backspace, core editing, selection highlight,
+  caret+blink). EVERY remaining item — tier-3 click-to-focus, tier-5 scroll, tier-6 — now
+  provably bottlenecks on the **solver3 layout class (#41: flex/height/overflow not
+  applied)**. #41 is the keystone and is now the only unblocked-able path forward; the
+  user's tier-6 plan ("make contenteditable.c colorful → fix #41") is the next item.
