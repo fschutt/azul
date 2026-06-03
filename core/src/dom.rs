@@ -5847,12 +5847,21 @@ impl Dom {
     /// ");
     /// ```
     pub fn set_css(&mut self, style: &str) {
+        // A CSS string with selectors (`body {}`, `.class {}`) is a STYLESHEET, not a
+        // single element's inline declarations. Push it into `self.css` — the Dom-level
+        // stylesheet list that the cascade SELECTOR-MATCHES against the whole subtree
+        // (see `collect_css_from_dom` / `CssPropertyCache::restyle`) — rather than
+        // merging every rule's declarations into the ROOT node's inline style
+        // (`root.style.rules`, consumed node-locally via `iter_inline_properties`, which
+        // ignores the selector). The old behaviour dumped e.g. `.single-line-input {
+        // height: 80px }` onto the `<body>`, collapsing flex-column roots and making
+        // class rules land on the wrong nodes. See #41.
         let parsed = azul_css::css::Css::parse_inline(style);
-        let mut current: azul_css::css::CssRuleBlockVec = Vec::new().into();
-        mem::swap(&mut current, &mut self.root.style.rules);
+        let mut current: azul_css::css::CssVec = Vec::new().into();
+        mem::swap(&mut current, &mut self.css);
         let mut v = current.into_library_owned_vec();
-        v.extend(parsed.rules.into_library_owned_vec());
-        self.root.style.rules = v.into();
+        v.push(parsed);
+        self.css = v.into();
     }
 
     /// Builder method for `set_css`
