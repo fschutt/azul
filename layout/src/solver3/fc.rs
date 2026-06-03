@@ -2493,6 +2493,21 @@ fn layout_ifc<T: ParsedFontTrait>(
             .warm(node_index)
             .and_then(|n| n.inline_layout_result.as_ref());
 
+        // Only reuse the cached inline layout when the available WIDTH is unchanged.
+        // This fast path was built for text edits (content changes, width constant); on a
+        // viewport/container resize the width differs and the text must RE-WRAP, so the
+        // cached old-width layout must NOT be reused — fall through to full layout_flow()
+        // below. Without this guard, resizing kept the stale line breaks (#45). Real
+        // text-edit incremental relayout (with dirty items) lives in
+        // LayoutWindow::try_incremental_text_relayout.
+        let resize_has_floats = constraints
+            .bfc_state
+            .as_ref()
+            .map(|s| !s.floats.floats.is_empty())
+            .unwrap_or(false);
+        let cached_ifc =
+            cached_ifc.filter(|c| c.is_valid_for(constraints.available_width_type, resize_has_floats));
+
         if let Some(cached) = cached_ifc {
             if let Some(ref line_breaks) = cached.line_breaks {
                 // Collect per-item advance widths from cached metrics
