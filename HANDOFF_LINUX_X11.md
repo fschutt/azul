@@ -6,6 +6,44 @@ work (KDE Plasma / Wayland / nouveau, software-GL-capable) to a fresh session on
 
 ---
 
+## 0. STATUS @ 2026-06-03 (read this first)
+
+Latest commits on `mobile-ios-android` (NOT pushed). Newest session below; older table in §1.
+
+### Fixed + USER-VERIFIED this session (Wayland, KDE/CPU)
+| Commit | Fix | Verified |
+|---|---|---|
+| (after `1f8a36cc8`) | **CPU hit-tester rebuilt each frame** in `generate_frame_if_needed` (`cpu_ht.rebuild_from_layout`). CPU/software-GL mode had `render_api=None` so hit-testing was dead (no hover/click/selection/focus). | ✅ hover/selection work |
+| `5e74e30d7` | **Stale-self-pointer: rebind all wl listeners to the boxed `self` on first poll** (`wl_proxy_set_user_data`). Listeners were registered against `new()`'s stack `&mut window`, which the run loop MOVES to a heap Box → every event hit a dead stack frame. PROVEN by `[ADDR]` probes (reg `0x7ffe…` vs live `0x6492…`). Killed: window-won't-close + erratic/UAF input. Detail §9. | ✅ close works |
+| `3d94a56d3` | **Redraw on keyboard input** — `handle_key` swallowed result variants & DOM-regen never presented (`regenerate_layout` alone doesn't build/send the WR txn on Wayland). Now routes through `handle_process_event_result` w/ full present path. | ✅ typing live |
+
+### Bugs DISCOVERED, NOT yet fixed (tackle tomorrow — Wayland first, then X11)
+- **Backspace inserts a tofu rect** (Wayland + X11). `handle_key` (`wayland/mod.rs:1870-1877`) and X11 (`x11/events.rs:727-734`) feed ANY xkb/`XLookupString` UTF-8 — incl. control bytes (Backspace `0x08`, Tab, Enter, Esc, Del `0x7f`) — into `record_text_input`, so it's inserted as a glyph. Deletion itself already works via the `VirtualKeyCode::Back` → `delete_selection` path (`common/event.rs:2245`). **FIX:** skip `record_text_input` when the string is all control chars (`s.chars().all(|c| c.is_control())`). Trivial; applies to BOTH backends.
+- **Mouse-wheel scroll doesn't update visually** (Wayland; scrollbar now renders). Wheel → `handle_pointer_axis` (`wayland/mod.rs:2125`) → `scroll_manager.record_scroll_from_hit_test` queues a **physics-timer** animation; the lightweight path in `generate_frame_if_needed` (`:2944`) ticks it (`scroll_manager.tick` → `calculate_scrollbar_states`). Likely the scroll physics timer isn't driving redraws on Wayland — verify `check_timers_and_threads` pumps it and that each tick calls `generate_frame_if_needed`/`request_redraw`. **Needs investigation.**
+- **From earlier user feedback, still open / re-test after the above:** caret not placed at click point; (focus-follows-window vs element — may be resolved by the rebind, re-test); can't resize window past a size (#3); multiline textarea clipped to 2 lines ≠ macOS (#6, layout); Tab shifts content (#5). GPU path SIGSEGVs on this DOM (separate WebRender bug; stay on CPU).
+
+### X11 ports owed (same fixes; X11 is the un-patched ancestor — see §10 audit)
+1. **Text-input result routing** (highest — hits contenteditable directly): port `handle_process_event_result`, call from `poll_event` + `handle_event`.
+2. **CPU hit-tester rebuild** (CPU/software-GL): add `rebuild_from_layout`; also guard the `hit_tester.unwrap()` at `x11/events.rs:863`.
+3. **FBO-0 clear** (GPU cosmetic).
+4. **Backspace control-char filter** (same as Wayland).
+X11 is SAFE from the stale-pointer, close, and blank-window bugs (polling architecture).
+
+### X11 API reference (for tomorrow's X11 fixes)
+See **`X11_API_REFERENCE.md`** (primary-source-grounded). Load-bearing facts:
+- **FBO-0 clear:** EGL spec — back-buffer color is *undefined* after `eglSwapBuffers` unless
+  `EGL_SWAP_BEHAVIOR==EGL_BUFFER_PRESERVED` (needs a config bit; don't assume). Fix = `glBindFramebuffer(0)`
+  + `glViewport` + `glClear` every frame. Damage/partial-present do NOT preserve untouched pixels.
+- **X11 text/IME:** `setlocale`+`XSetLocaleModifiers("")` before `XOpenIM`; `XFilterEvent(&ev,None)` on
+  EVERY event (missing this = the classic broken-IME cause); `Xutf8LookupString` on `KeyPress` only, insert
+  only on `XLookupChars`/`XLookupBoth` (control keysyms = command, not text — the X11 analog of the
+  backspace-tofu fix). Root-window style `XIMPreeditNothing|XIMStatusNothing` is the safe default for
+  fcitx5/ibus Japanese input.
+- **X11 CPU blit:** `ZPixmap`, depth must match drawable, swizzle RGBA→BGRX; MIT-SHM (gate on
+  `XShmQueryExtension`+local) with `XPutImage` fallback; wait on `ShmCompletion` before reusing a segment.
+
+---
+
 ## 1. What was done this session (committed)
 
 All on `mobile-ios-android`, NOT pushed (no push without explicit ask).
@@ -263,3 +301,19 @@ stale-pointer infrastructure and would be doubly broken otherwise.
 - CPU render: `azul-layout` `cpurender` (tiny-skia `AzulPixmap`)
 - Double-drop convention: every FFI leaf owning a `Box`/resource must gate its free on `run_destructor` (via `ManuallyDrop`) or a refcount/destructor-enum, else the codegen `_delete`+drop-glue double-frees when the wrapper is nested. Fixed leaves: GlContextPtr, InstantPtr, CssPropertyCachePtr, IconProviderHandle.
 - Run loop: `dll/src/desktop/shell2/run.rs` (Linux `run` ~line 992; tears down `!is_open()` windows).
+
+## 10. Do the Wayland bugs also exist on X11? (audit 2026-06-03)
+
+X11 is the UN-patched ancestor of Wayland (same `CommonWindowState`, same lightweight/full
+transaction split) — it only got some fixes. Per-bug verdict:
+
+| Bug (Wayland) | X11 | Why |
+|---|---|---|
+| **Stale self-pointer** (listeners on moved stack `&mut window`) | **SAFE** | X11 polls via `XNextEvent`/`XPending` and gets the window fresh from the registry each event (`run.rs:1121`); no C-callback user-data `self`. XIM callbacks point at a `Box`ed `ImePreeditSink` (`x11/events.rs:92-208`); a11y uses an `Arc<Mutex<…>>` channel; debug timer stores no self-ptr. |
+| **Window close** (is_open on stale copy) | **SAFE** | Consequence of the above. `is_open=false` set on the live registry window — `poll_event` `x11/mod.rs:786`, `handle_event` `:1780`; run loop reads same object `run.rs:1142`. |
+| **Text input only updates on click** | **EXISTS (worst)** | Both X11 result sites do a blanket `if result != DoNothing { request_redraw() }` (`x11/mod.rs:826-828` and `:1924-1927`) — never set `frame_needs_regeneration`, so typed content (`ApplyTextChangeset` → `ShouldIncrementalRelayout`/`ShouldUpdateDisplayList`) goes through the lightweight image-only path and isn't shown until a later regen (a click). FIX: port the post-fix `handle_process_event_result` (`wayland/mod.rs:1890-1912`) and call it from BOTH `poll_event` and `handle_event`. |
+| **CPU hit-tester never rebuilt** | **EXISTS (CPU/software-GL only)** | `rebuild_from_layout` is called NOWHERE in `x11/` (only `CpuHitTester::new()` at `x11/mod.rs:1297`). CPU mode → empty hit-tester → dead hover/click/selection/focus. Also `x11/events.rs:863` does `.unwrap()` on `hit_tester` (None in pure-CPU → panic). FIX: add the `rebuild_from_layout` call (cf. `wayland/mod.rs:2897-2902`) to X11 `regenerate_layout`/`generate_frame_if_needed` + guard the unwrap. |
+| **glClear FBO 0** (GPU garbage) | **EXISTS (GPU only, cosmetic)** | X11 GPU present (`x11/mod.rs:2298-2444`) has no FBO-0 bind/viewport/clear; bare `eglSwapBuffers` (`x11/gl.rs:227-234`). FIX: clear FBO 0 before render (cf. `wayland/mod.rs:3007-3029`). |
+| **Blank window / present-empty-buffer** | **SAFE** | X11 is event-driven (renders only on real Expose) and short-circuits no-op frames (`x11/mod.rs:2321-2337`), so it never swaps an empty buffer over good content. |
+
+**Priority before testing `contenteditable.c` on X11:** (1) text-input repaint [highest, hits the test directly], (2) CPU hit-tester rebuild [if the box falls back to CPU — this nouveau machine does when shaders fail to compile, `x11/mod.rs:1198-1208`], (3) FBO-0 clear [GPU cosmetic].
