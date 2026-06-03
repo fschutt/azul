@@ -5847,12 +5847,14 @@ impl Dom {
     /// ");
     /// ```
     pub fn set_css(&mut self, style: &str) {
-        let parsed = azul_css::css::Css::parse_inline(style);
-        let mut current: azul_css::css::CssRuleBlockVec = Vec::new().into();
-        mem::swap(&mut current, &mut self.root.style.rules);
-        let mut v = current.into_library_owned_vec();
-        v.extend(parsed.rules.into_library_owned_vec());
-        self.root.style.rules = v.into();
+        // Unified, `@scope`-like model: a CSS string parses into a `Css` struct that is
+        // pushed onto THIS Dom subtree's `.css` vec, where the cascade selector-matches
+        // it against the subtree (`collect_css_from_dom` → `CssPropertyCache::restyle`).
+        // `with_css` is the single CSS entry point — there is no separate node-only inline
+        // path, and the old `with_component_css` is folded into this. A bare-declaration
+        // string (`color: red`) parses to `* { color: red }` and so applies to the whole
+        // subtree, exactly like attaching a `@scope { :scope { ... } }` block.
+        self.add_component_css(azul_css::css::Css::parse_inline(style));
     }
 
     /// Builder method for `set_css`
