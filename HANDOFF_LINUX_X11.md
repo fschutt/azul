@@ -593,3 +593,30 @@ colorful render + debug-server layout/CSS dumps REDIRECT the root cause:
   keystone for tier-3 click-to-focus and tier-5 scroll.
 - Tooling added this firing: `get_all_nodes_layout` (per-node computed rect) and
   `get_node_css_properties` (per-node matched props) are the way to diagnose cascade bugs.
+
+### Cron firing 10 (tier 6) — #41 FIXED on screen 🎉 (CSS stylesheet routing)
+Root-caused + fixed the keystone bug. `Dom::set_css`/`with_css` (core/src/dom.rs) parsed the
+CSS string into a real stylesheet (rule blocks WITH selectors) but merged every rule's
+declarations into `root.style.rules` — the root NodeData's INLINE style, consumed node-locally
+via `iter_inline_properties()` with NO selector matching. So `AzDom_withCss(root, stylesheet)`
+dumped the ENTIRE stylesheet onto the `<body>`: body absorbed `.single-line-input{height:80}`
++ `.multi-line-textarea{min/max-height}` → flex-column root collapsed to 80px → clip; and
+class rules never reached their elements (every div got a union of inherited props).
+- **Fix (`fdcda233d`)**: push the parsed `Css` into `self.css` — the Dom-level stylesheet
+  list the cascade SELECTOR-MATCHES against the subtree (`collect_css_from_dom` →
+  `CssPropertyCache::restyle` → `matches_html_element`). `parse_inline` already parsed the
+  selectors right; only the destination field was wrong. ~13 lines.
+- **VERIFIED on X11+CPU** (colorful test, `get_all_nodes_layout` + native screenshot): body
+  h=635 (was 80, fits content); single-line-input gets its own font-size:48 + green bg (was
+  `.label`'s 32px); orange labels / green input / blue textarea / red status all render with
+  their own bg at correct stacked positions. The collapse is GONE.
+- **Unblocks**: tier-3 click-to-focus (#39 — input no longer clipped, now clickable), tier-5
+  scroll (#37 — the scroll container's height:300/overflow now applies → real scroll region),
+  and the scrolling.c demo (#37/#41 class).
+- **Minor follow-ups observed** (NOT the collapse; lower priority): textarea computed h=468
+  vs `max-height:400` (max-height not perfectly clamping); single-input h=55.9 vs explicit
+  `height:80` (box-sizing/content-box?); `get_node_css_properties(body)` reported a
+  `background:#264f78` (the `::selection` color) — possible `::selection` over-match. These
+  are refinements; the keystone #41 is resolved.
+- **CAVEAT**: `with_css` is used by ALL azul apps — run the layout reftest suite before
+  relying on this broadly (the fix is semantically correct + verified for the desktop path).
