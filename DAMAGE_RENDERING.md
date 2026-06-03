@@ -96,3 +96,37 @@ scroll→viewport rect, resize→edge strips — not full-window. Then remove th
   renderer/mod.rs:4324(calculate_dirty_rects),5516(RenderResults)}`.
 - CPU render arms: Wayland `linux/wayland/mod.rs:3136`; X11 `linux/x11/mod.rs:2069`; macOS
   `macos/mod.rs:5520`; Windows `windows/mod.rs:757`. Per-platform present+damage refs in the table above.
+
+## Damage as a MOVE, not a repaint — "linked" dirty rects (scroll fast-path)
+
+Target design for the dirty-rect work (user request 2026-06-03). A plain dirty rect says
+"repaint region R". But the most common expensive case — **vertical scrolling** — isn't a
+repaint, it's a **translation**: the existing content slides by `(0, -dy)` and only a thin
+strip at the leading edge is newly exposed. Re-rasterizing the whole viewport every scroll
+frame is wasteful when the bytes already exist.
+
+**Idea: a damage primitive that LINKS two rects by a delta** — i.e. `Move { src_rect,
+dst_rect }` (same size, `dst = src + delta`) instead of (or alongside) `Repaint { rect }`.
+Then:
+
+- **CPU mode (tiny-skia / cpurender):** a `Move` becomes a `memmove`/`copy_within` of the
+  retained pixmap rows by `delta` (cheap, no rasterization), then `Repaint` only the
+  newly-exposed strip (`compute_exposed_rects`). This is exactly what `LayerTree::scroll_layer`
+  (`cpurender.rs:477`) + `shift_pixbuf` (`:690`) already do — they're just not wired into the
+  desktop render arms yet. Wiring them + emitting `Move` damage for scroll-only frames is the
+  efficient CPU scroll path (supersedes Design 1's "re-raster the viewport").
+- **Compositor / present:** forward the move as a copy/scroll hint where the OS supports it —
+  Wayland `wl_surface` (the buffer already holds the shifted content; just `damage_buffer` the
+  exposed strip), X11 `XCopyArea` (server-side blit of the unchanged region) + `XPutImage` the
+  strip, Windows DXGI `Present1` `pScrollRect`/`pScrollOffset`, macOS `scrollRect:by:`. GPU
+  (WebRender) already does this implicitly via the scroll-frame spatial-node offset.
+
+**How to detect "this area simply shifted":** the scroll system already knows the per-node
+scroll delta (`ScrollManager` offsets). So damage computation for a scroll-only frame can emit
+`Move { src = viewport, dst = viewport, delta = (0,-dy) }` + `Repaint(exposed_strip)` directly
+from the scroll delta — no pixel-diffing needed. (Diffing two frames to *infer* a shift is the
+fallback for the general case; for scroll we know the delta up front.)
+
+Net: vertical scroll = one `memmove` + a thin strip raster + a strip-sized compositor damage —
+O(strip), not O(viewport). This is the efficiency target the user called out; implement it as
+part of priority tier 5 (dirty-rects), reusing `scroll_layer`/`shift_pixbuf`/`compute_exposed_rects`.
