@@ -850,18 +850,14 @@ impl X11Window {
 
     /// Update hit test at given position and store in current_window_state
     fn update_hit_test(&mut self, position: LogicalPosition) {
-        if let Some(layout_window) = self.common.layout_window.as_mut() {
-            let cursor_position = CursorPosition::InWindow(position);
-            // Get focused node from FocusManager
-            let focused_node = layout_window.focus_manager.get_focused_node().copied();
-            let hit_test = crate::desktop::wr_translate2::fullhittest_new_webrender(
-                &*self.common.hit_tester.as_mut().unwrap().resolve(),
-                self.common.document_id.unwrap(),
-                focused_node,
-                &layout_window.layout_results,
-                &cursor_position,
-                self.common.current_window_state.size.get_hidpi_factor(),
-            );
+        // Delegate to the shared CommonWindowState::perform_hit_test, which uses the
+        // WebRender hit-tester in GPU mode and the cpu_hit_tester in CPU mode (returning
+        // an empty hit-test if neither is ready). The previous inline logic
+        // unconditionally `.unwrap()`'d self.common.hit_tester — which is None in CPU
+        // mode — so the first mouse-crossing event (handle_mouse_crossing) panicked and
+        // aborted the process. (Mirrors the Wayland update_hit_test.)
+        let hit_test = self.common.perform_hit_test(position);
+        if let Some(ref mut layout_window) = self.common.layout_window {
             layout_window
                 .hover_manager
                 .push_hit_test(InputPointId::Mouse, hit_test);
