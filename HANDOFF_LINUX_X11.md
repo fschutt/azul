@@ -501,3 +501,27 @@ text edits via native screenshot, not the HTML value.
   animations = manual `CallbackInfo::start_timer` + `setCssProperty`; CSS animations will
   later desugar to starting timers. So #43 "verify animations" = verify a user-started timer
   fires + repaints, not a built-in engine.
+
+### Cron firing 6 (tier 3 = input) — TEXT SELECTION HIGHLIGHT FIXED (#44)
+Root-caused via debug-server (`get_selection_state`/`dump_selection_manager`) + temporary
+`[SELDBG]` instrumentation in `paint_selections` and `cpurender`. The selection MODEL was
+always correct (Shift+nav builds a `Range`; `get_selection_rects` returned a valid rect),
+but `paint_selections` (display_list.rs) offset the rect by the matched node's OWN box
+position — and for the inline `<text>` node (node 4) that position is the **`f32::MIN`
+sentinel** (never assigned; only IFC roots / block boxes get positioned). So the rect was
+pushed at `(-3.4e38, -3.4e38)` and clipped out. Text glyphs + caret rendered fine because
+glyphs use the IFC inline-layout coords and `paint_cursor` runs on the IFC-root node
+(node 3, valid position).
+- **Fix (`4a937b146`)**: added `LayoutTree::get_ifc_root_layout_index()` and anchored the
+  selection's content-box offset to the **IFC root's** position + padding/border (the box
+  the inline-layout coordinates are relative to), not the text node's.
+- **Verified on screen (X11+CPU)**: Shift+End → whole line highlighted blue; Shift+Right×11
+  → exactly "Hello World" (range 0..11) highlighted at the right spot; type-over replaces a
+  selection ("X!" after selecting the line and typing X). The firing-5 "type-over appends"
+  reading was a MISDIAGNOSIS — type-over-replace works. #44 fully resolved.
+- **Debug-server gotcha**: `get_selection_state`'s `rectangles` field is hardcoded
+  `Vec::new()` (full.rs:8315) — it is NOT evidence of empty geometry; use a screenshot or
+  `get_display_list`. Also `get_display_list` positions may reflect the headless layout.
+- Note: this is the SAME f32::MIN / IFC-position class that #41 touches — selection now
+  positions correctly because it anchors to the IFC root, independent of the #41 body
+  collapse. Other inline-relative overlays (future) should use `get_ifc_root_layout_index`.
