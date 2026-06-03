@@ -1868,8 +1868,14 @@ impl WaylandWindow {
                 // Use safe UTF-8 validation — XKB should always produce valid UTF-8,
                 // but a corrupt keymap could cause UB with unchecked conversion.
                 if let Ok(utf8_str) = std::str::from_utf8(raw_bytes) {
-                    // Record text input in TextInputManager
-                    if !utf8_str.is_empty() {
+                    // Don't feed CONTROL characters into text input. xkb returns a byte
+                    // for keys like Backspace (0x08), Tab (0x09), Enter (0x0d), Escape
+                    // (0x1b) and Delete (0x7f); recording those inserts a glyphless
+                    // "tofu" rect. The edit commands themselves (delete a char / newline
+                    // / etc.) are driven by the VirtualKeyCode path in
+                    // process_window_events below — only PRINTABLE text belongs here.
+                    let is_control_only = utf8_str.chars().all(|c| c.is_control());
+                    if !utf8_str.is_empty() && !is_control_only {
                         if let Some(ref mut layout_window) = self.common.layout_window {
                             layout_window.record_text_input(utf8_str);
                         }
