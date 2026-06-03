@@ -358,3 +358,25 @@ Goal (user): cursor-blink / scroll / resize each repaint ONLY the changed region
 
 ### Companion docs
 `DAMAGE_RENDERING.md` (incremental-rendering architecture + per-platform plan), `X11_API_REFERENCE.md` (Xlib/EGL: FBO-0 clear, event loop, `XLookupString`/XIM text+IME, XShm blit).
+
+## 12. Session on the X11 box (Mint 22.2 / XFCE / X11 / nouveau, 2026-06-03)
+
+Same `/home/fs` filesystem, all branch commits present. `DISPLAY=:0.0`, real X11, GPU = NV126 (Mesa 4.3). Tools installed: `xdotool maim imagemagick` (+ pre-existing `wmctrl xwininfo glxinfo xwd`).
+
+### ✅ Committed X11 fixes
+| Commit | What |
+|---|---|
+| `901e507e6` | **`AZ_WINDOW` / `AZ_BACKEND` split** — windowing (`AZ_WINDOW=x11\|wayland\|auto`) vs render (`AZ_BACKEND=cpu\|gpu\|auto`) now independent; `AZ_BACKEND=x11/wayland` kept for back-compat. (#40 done.) `AZ_WINDOW=x11 AZ_BACKEND=cpu` = X11+CPU. |
+| `6d28e5a14` | **4 X11 render fixes** (all in `x11/mod.rs`): (1) honor `AZ_BACKEND=cpu` (was GPU-only unless GL failed → skip GL, use cpurender); (2) **force initial render** in `poll_event` when `frame_needs_regeneration` — xfwm4 compositor sends NO Expose on map, so X11's Expose-driven render never fired the first frame ("only renders first frame" / black); (3) **XPutImage depth** = 32 (window is ARGB; was using XDefaultDepth 24 → `BadMatch` opcode 72/code 8 flood); (4) **XCreateImage visual** = matching 32-bit (depth 32 + 24-bit default visual → XCreateImage returns NULL → blit skipped). |
+
+### 🔴 CRITICAL: screenshot capture is BROKEN on this box
+**Both `maim` and `xwd` capture the bare desktop as uniformly pure black** (mean 0, stddev 0) — XGetImage front-buffer readback is non-functional under nouveau/this Xorg (with compositing on AND off). So **the autonomous *visual* loop does NOT work here** — every "black window" during this session was the capture tool, NOT the app. **All other evidence says the app renders correctly**: the cpurender pixmap is verified `#1e1e1e`/opaque (`[30,30,30,255]`), `XPutImage` succeeds (no BadMatch after the fix), layout + display-list run. **Unblock options for autonomous testing:** (a) add a debug **pixmap→PNG dump** to the app (writes the cpurender `AzulPixmap` directly via `png`/tiny-skia `save_png`, bypassing X capture) — the cleanest path; or (b) a human looks at the screen. `xdotool` input injection DOES work; only *capture* is broken.
+→ **NEXT SESSION: visually confirm the X11+CPU window now shows content** (`AZ_WINDOW=x11 AZ_BACKEND=cpu ./contenteditable_test`) — expect a dark window with the top label + single-line input (clipped, per below).
+
+### 📌 Dominant remaining VISUAL bug: body-height collapse (#6, shared/all platforms)
+Pinpointed via a node-rect dump: the **root/body computes height ≈ 80px** (= the single-line input's fixed height) while its children are laid out correctly down to **y≈604** (textarea `#7` = `1146×436` at y=133). So the flex-column root doesn't expand to contain its children (or fill the viewport) → content overflows an 80px body → clips to the top strip + the scrollbar lands at the body's top-right (your "scrollbar in the wrong place"). This is the layout-engine bug behind "textbox 2 lines, rest cut off" (#6) and is **not X11-specific**. FIX next in `layout/src/solver3/` (sizing/flex: root/body main-size). Repro DOM = `contenteditable.c`; node dump via a temp loop in `generate_display_list` (display_list.rs ~1695).
+
+### Gotchas found
+- `pkill -x contenteditable_test` and `pgrep -x` FAIL — comm is truncated to 15 chars ("contenteditable"). Use `pkill contenteditable` (matches comm, not bash) or `killall`. **Do NOT `pkill -f contenteditable_test`** — it matches your own shell command and kills it. Leaked instances stack windows.
+- `xwininfo` "Absolute upper-left" returned `0,0` (reparented) — use `wmctrl -lG` for real window position.
+- Close button (user-reported broken on X11): `XSetWMProtocols`+`WM_DELETE` handler look correct (`x11/mod.rs:1122`/`781`/`1775`); my kill-test was inconclusive. Re-test.
