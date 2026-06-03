@@ -240,7 +240,7 @@ pub fn regenerate_layout(
 
     // 1.5. Flatten recursive Dom → StyledDom (single deferred cascade pass)
     //
-    // The user callback now returns a recursive `Dom` with CSS attached via `.with_component_css()`.
+    // The user callback now returns a recursive `Dom` with CSS attached via `.with_css()` (@scope-like).
     // We collect all CSS objects, flatten the tree, and run a single cascade pass.
     let mut user_styled_dom = azul_core::styled_dom::StyledDom::create_from_dom(user_dom);
     azul_layout::probe::emit_phase_heap("after_create_from_dom");

@@ -5351,7 +5351,7 @@ struct Data { }
 
 extern \"C\" fn render(_: RefAny, _: LayoutCallbackInfo) -> Dom {
     let dom = crate::ui::render();
-    dom.with_component_css(Css::empty()) // styles are applied inline
+    dom.with_css(\"\") // per-node with_css attaches @scope-like component CSS
 }
 
 fn main() {

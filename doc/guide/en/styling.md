@@ -90,43 +90,49 @@ body { font-family: sans-serif; padding: 20px; background: white; }
 </html>
 ```
 
-## Three ways to attach styles
+## Two ways to attach styles
 
-Pick the one that matches scope. They all parse to the same `CssProperty`
-enum and feed the same cascade. The difference is *where* the rules live.
+There is **one** CSS model, and it works like the web's [`@scope`][scope]:
+every stylesheet is *scoped to the subtree of the node it is attached to*.
 
-- **`Dom::with_css(s)`** scopes to *this node only*. The CSS string is
-  parsed and pushed onto the node's inline-property list. Use it for
-  inline tweaks and component-local styles.
-- **`Dom::with_component_css(css)`** scopes to *this subtree*. The parsed
-  `Css` is attached to the subtree root and the cascade walks it during
-  the per-frame pass. Use it for component themes and per-page stylesheets.
-- **`Dom::with_css_property(p)`** scopes to *this node*, programmatic
-  single-property override. Use it when you have a typed `CssProperty`
-  value and don't want to round-trip through string parsing.
+- **`Dom::with_css(s)`** — the main entry point. The CSS string is parsed
+  into a `Css` struct and **pushed onto that node's `.css` vec**. The
+  cascade selector-matches it against the node's subtree during the
+  single per-frame pass. A string with selectors (`body { … } .btn { … }`)
+  matches elements in the subtree; a bare-declaration string (`color: red`)
+  parses to `* { color: red }`, so it applies to the whole subtree — and
+  on a **leaf node (subtree length 1) that is exactly an "inline style."**
+  There is no separate node-only path: inline *is* a one-node `@scope`.
+- **`Dom::with_css_property(p)`** — programmatic single-property override
+  for when you already hold a typed `CssProperty` and don't want to
+  round-trip through string parsing. Highest priority short of `!important`.
 
 ```rust,no_run
 use azul::prelude::*;
 
-// 1. Inline string on one node
+// 1. "Inline" — a bare-declaration string on a leaf node (subtree len 1)
 let _ = Dom::create_div()
     .with_css("color: blue; padding: 4px; :hover { color: red; }");
 
-// 2. Stylesheet attached to a subtree
-let theme = Css::from_string(".btn { background: #1976d2; color: white; }".into());
+// 2. A stylesheet scoped to a subtree — selectors match within it
 let _ = Dom::create_body()
-    .with_component_css(theme)
+    .with_css(".btn { background: #1976d2; color: white; }")
     .with_child(
         Dom::create_button("Save", SmallAriaInfo::label("Save"))
             .with_class("btn".into())
     );
 ```
 
-`with_css` parses on every call but doesn't cascade. The parsed
-properties get pushed onto the node's inline-property list. Matching and
-inheritance happen once after `layout()` returns, in a single pass.
-[The DOM page](dom.md#when-does-css-actually-apply-not-until-after-layout)
+> **Note:** the old `with_component_css(Css)` API has been removed — it was
+> the same thing as `with_css(&str)` minus the string parse. Pass a CSS
+> string to `with_css`; if you already have a parsed `Css`, the low-level
+> `Dom::add_component_css(css)` still pushes onto the `.css` vec.
+
+Matching and inheritance happen once after `layout()` returns, in a single
+cascade pass. [The DOM page](dom.md#when-does-css-actually-apply-not-until-after-layout)
 walks through the timing.
+
+[scope]: https://developer.mozilla.org/en-US/docs/Web/CSS/@scope
 
 For a static stylesheet shared across many nodes, build the `Css` once at
 app startup and pass it through `style()`. Multiple `style()` calls stack.

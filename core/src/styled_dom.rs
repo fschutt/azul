@@ -376,7 +376,7 @@ fn test_css_styling_with_nested_divs() {
     ";
 
     let css = azul_css::parser2::new_from_str(s);
-    let _styled_dom = Dom::create_body()
+    let mut _styled_dom = Dom::create_body()
         .with_children(
             vec![Dom::create_div()
                 .with_ids_and_classes(
@@ -384,8 +384,8 @@ fn test_css_styling_with_nested_divs() {
                 )
                 .with_children(vec![Dom::create_div()].into())]
             .into(),
-        )
-        .with_component_css(css.0);
+        );
+    _styled_dom.add_component_css(css.0);
 }
 
 /// Regression test for the calc.c "frame ≥2 loses all backgrounds" bug:

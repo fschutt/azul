@@ -121,9 +121,9 @@ extern "C" fn icon_demo_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom 
         .with_child(action_row)
         .with_child(note);
     
-    Dom::create_body()
-        .with_child(container)
-        .with_component_css(css)
+    let mut body = Dom::create_body().with_child(container);
+    body.add_component_css(css);
+    body
 }
 
 fn main() {

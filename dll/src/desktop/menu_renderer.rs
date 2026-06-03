@@ -182,7 +182,7 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
 
 /// Create a menu DOM with deferred CSS for use in layout callbacks.
 ///
-/// Returns a `Dom` with component CSS pushed via `.with_component_css()`
+/// Returns a `Dom` with component CSS pushed via `.add_component_css()`
 /// (deferred cascade). Use this in `LayoutCallbackType` callbacks which
 /// return `Dom` instead of `StyledDom`.
 pub fn create_menu_dom_with_css(
@@ -190,9 +190,10 @@ pub fn create_menu_dom_with_css(
     system_style: &SystemStyle,
     menu_window_data: RefAny,
 ) -> Dom {
-    let dom = create_menu_dom(menu, &menu_window_data);
+    let mut dom = create_menu_dom(menu, &menu_window_data);
     let css = system_style.create_menu_stylesheet();
-    dom.with_component_css(css)
+    dom.add_component_css(css);
+    dom
 }
 
 /// Create menu DOM structure with callbacks attached (internal helper)

@@ -5353,7 +5353,7 @@ impl Dom {
 
     /// Creates an empty style element for embedded CSS.
     ///
-    /// **Note**: In Azul, use `.with_component_css()` instead for styling.
+    /// **Note**: In Azul, use `.with_css()` instead for styling.
     /// This creates a `<style>` HTML element for embedded stylesheets.
     #[inline(always)]
     pub const fn create_style() -> Self {
@@ -5367,7 +5367,7 @@ impl Dom {
 
     /// Creates a style element for embedded CSS with the given stylesheet text.
     ///
-    /// **Note**: In Azul, use `.with_component_css()` instead for styling.
+    /// **Note**: In Azul, use `.with_css()` instead for styling.
     /// This creates a `<style>` HTML element for embedded stylesheets.
     #[inline]
     pub fn create_style_with_text<S: Into<AzString>>(text: S) -> Self {
@@ -5637,18 +5637,11 @@ impl Dom {
         self.estimated_total_children + 1
     }
 
-    /// Push a component-level stylesheet onto this Dom subtree's
-    /// stylesheet list. The cascade pass in `regenerate_layout()` merges
-    /// every component-level `Css` together with the inline rules.
-    /// Later `with_component_css(...)` calls have higher cascade priority
-    /// (override earlier ones at equal specificity).
-    pub fn with_component_css(mut self, css: azul_css::css::Css) -> Self {
-        self.add_component_css(css);
-        self
-    }
-
-    /// Mutating form of `with_component_css`. Pushes a stylesheet onto
-    /// the subtree's component-level CSS list in place.
+    /// Push a parsed `Css` onto this Dom subtree's `.css` list (the
+    /// `@scope`-like mechanism that `with_css(&str)` also feeds — a string
+    /// parses to a `Css` and lands here). The cascade selector-matches every
+    /// entry against the subtree; later pushes win at equal specificity.
+    /// This is the low-level Css-struct entry point; prefer `with_css(&str)`.
     pub fn add_component_css(&mut self, css: azul_css::css::Css) {
         let mut v = Vec::new().into();
         core::mem::swap(&mut v, &mut self.css);
