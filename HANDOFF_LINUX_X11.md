@@ -525,3 +525,24 @@ glyphs use the IFC inline-layout coords and `paint_cursor` runs on the IFC-root 
 - Note: this is the SAME f32::MIN / IFC-position class that #41 touches — selection now
   positions correctly because it anchors to the IFC root, independent of the #41 body
   collapse. Other inline-relative overlays (future) should use `get_ifc_root_layout_index`.
+
+### Cron firing 7 (tier 4 = caret/cursor) — CARET + BLINK VERIFIED, focus model OK
+No code change — tier-4 caret behavior verified working on X11+CPU via debug server
+(`get_cursor_state`) + native screenshots:
+- **Field is NOT focused-by-default**: at startup `focused_node=None`, `has_cursor=false`.
+  The #39 "field focused-by-default / no caret" symptom is NOT present on X11 (it was an
+  older Wayland/KDE observation). Tab focuses the input (`focused_node→3`), caret appears.
+- **Caret renders at the correct position** after Home/End/Left/Right (firing 5) and after
+  focus (caret bar before "Hello").
+- **Caret BLINKS on screen** (~530ms): `is_visible` toggles cleanly True/False over time
+  (sampled ~every 150ms), AND the screen reflects it — an on-phase frame shows the caret
+  bar, an off-phase frame shows none. So the blink timer fires AND triggers a repaint each
+  toggle (validates the 56ddfbe45 incremental-damage caret work on X11, and partially #43:
+  the timer pump drives caret-blink frames).
+- Remaining #39 piece — *click*-to-focus / "click unfocuses" — is still blocked by #41
+  (the input box is clipped out of the clickable hit region; Tab-focus is the workaround).
+  So tier-4 is clear EXCEPT the click-focus path, which is gated on #41.
+- Verification-tooling note: `get_cursor_state` `is_visible` read via curl lags the actual
+  blink phase by the curl round-trip (~150ms), so a `vis()`-then-screenshot pair can
+  mislabel the phase — confirm blink by comparing several burst frames visually, not by the
+  pre-shot label.
