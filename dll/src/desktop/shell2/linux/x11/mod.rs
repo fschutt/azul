@@ -1254,6 +1254,49 @@ impl X11Window {
             )
         };
 
+        // EWMH _NET_WM_WINDOW_TYPE hint: tells the WM/compositor what kind of
+        // window this is (menu/tooltip/dialog). Menus/tooltips are also
+        // override_redirect (set above) so the WM doesn't manage their geometry,
+        // but compositors still read this atom to apply the right effects
+        // (menu drop-shadows, fade-in) and stacking. Without it a popup menu
+        // is just an anonymous frameless window the compositor can't classify.
+        {
+            use azul_core::window::WindowType;
+            let type_atom_name: Option<&[u8]> = match options.window_state.flags.window_type {
+                WindowType::Menu => Some(b"_NET_WM_WINDOW_TYPE_POPUP_MENU\0".as_slice()),
+                WindowType::Tooltip => Some(b"_NET_WM_WINDOW_TYPE_TOOLTIP\0".as_slice()),
+                WindowType::Dialog => Some(b"_NET_WM_WINDOW_TYPE_DIALOG\0".as_slice()),
+                WindowType::Normal => None,
+            };
+            if let Some(name) = type_atom_name {
+                unsafe {
+                    let net_wm_window_type = (xlib.XInternAtom)(
+                        display,
+                        b"_NET_WM_WINDOW_TYPE\0".as_ptr() as *const c_char,
+                        0,
+                    );
+                    let type_atom = (xlib.XInternAtom)(
+                        display,
+                        name.as_ptr() as *const c_char,
+                        0,
+                    );
+                    // format=32 properties are arrays of C `long` on the wire side
+                    // of Xlib (it packs to 32-bit); pass a c_long, not a u32.
+                    let type_atom_long: std::os::raw::c_long = type_atom as std::os::raw::c_long;
+                    (xlib.XChangeProperty)(
+                        display,
+                        window_handle,
+                        net_wm_window_type,
+                        defines::XA_ATOM,
+                        32,
+                        defines::PropModeReplace,
+                        &type_atom_long as *const std::os::raw::c_long as *const u8,
+                        1,
+                    );
+                }
+            }
+        }
+
         let ime_manager = events::ImeManager::new(&xlib, display, window_handle);
 
         // Honor an explicit CPU-render request (AZ_BACKEND=cpu / HwAcceleration::Disabled):

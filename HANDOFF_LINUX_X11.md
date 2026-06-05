@@ -1535,3 +1535,51 @@ contenteditable links libazul.so via rpath → auto-fresh on rebuild (no recompi
 4. textarea hover I-beam cursor; exit-time GL texture-cache TLS-dtor crash; azul-paint self-close
    (window unmaps/closes → run.rs:1323 process::exit → crash dropping the gl_texture_cache BTreeMap).
 Cron loop relaunched (job fff9ac48, every ~10 min). libazul.so rebuilding.
+
+### Cron firing 34/35 — X11-API stability fixes DONE+committed; menu architecture clarified by USER
+**X11-API stability fixes — committed 7244a16c8 (builds clean):** full XPending drain after poll() (both
+paths, finding 10); XI2 pen valuators by ev.sourceid not deviceid (finding 9); Xutf8LookupString instead
+of XmbLookupString (finding 6). Deferred: XNFilterEvents (needs variadic XGetICValues; static mask ok).
+**X11 _NET_WM_WINDOW_TYPE hint — building/committing:** menu/tooltip/dialog windows now set the EWMH
+window-type atom (POPUP_MENU/TOOLTIP/DIALOG) after XSetWMProtocols (mod.rs ~1257) so compositors classify
+popups (shadows/effects). Used c_long (correct format-32 width; the existing set_is_top_level `as u32`
+over-reads on LP64 — fix later).
+
+**SCROLL physics timer + CURSOR BLINK:** should be FIXED by the firing-33 redraw-architecture change
+(needs_redraw intent flag — timer callbacks call request_redraw → needs_redraw=true → render_and_present
+no longer skips). User confirmed CHARACTER RENDERING works; scroll-momentum + cursor-blink await the
+user's interactive confirm (both are timer→request_redraw→render, same path now honored).
+
+**MENU ARCHITECTURE — AUTHORITATIVE USER DIRECTIVE (do it THIS way, no "separate menu flow"):**
+A menu is just a REGULAR multi-window: a callback (AzCallbackInfo::create_window — layout/callbacks.rs:929,
+the spawn-menu entry) pushes a `WindowCreateOptions` whose `layout_callback` is the framework's
+`menu_layout_callback` (desktop/menu.rs:354 → menu_renderer::create_menu_dom_with_css, already styled from
+SystemStyle via create_menu_stylesheet) → goes through the SAME pending_window_creates / multi-window loop
+as any window. The ONLY menu-specific behaviour vs a normal window:
+  1. **`size_to_content`** — size the popup window to its laid-out content. EXISTS on Windows
+     (windows/mod.rs:449-643: create 1×1 placeholder → layout → resize). **NOT implemented on X11 or
+     Wayland** — implement it there (after creating the menu window, run layout, measure the root content
+     size, XResizeWindow / wl resize). This is why menus are mis-sized on Linux.
+  2. **RELATIVE positioning via `WindowCreateOptions.parent_window`** (OptionHwndHandle, window.rs:1119) +
+     an offset — NOT absolute screen coords. Refactor desktop/menu.rs show_menu to set parent_window +
+     relative offset (cursor/trigger-rect relative to the parent) instead of computing absolute positions
+     (position_relative_to_cursor/_rect). The backend positions relative to the parent:
+       - X11: parent window's screen position + offset (override_redirect, exact placement).
+       - Wayland: **xdg_popup** via get_popup(parent_xdg_surface) + xdg_positioner anchored to the
+         trigger_rect (relative — Wayland has NO absolute window positioning). Scaffold: wayland/mod.rs:256
+         WaylandPopupWindow, wayland/menu.rs trigger_rect. THIS is the Wayland relative-positioning ask.
+Keep reusing the multi-window loop; do not fork a menu-specific code path. Goal: dropdowns, menu-bar
+menus, and div context-menus all flow through create_window + size_to_content + parent-relative.
+
+**ALSO REQUESTED (user, this firing) — queue after the menu:**
+- **IME cursor positioning** (so the candidate/preedit popup follows the caret): X11 = XSetICValues with
+  XNPreeditAttributes/XNSpotLocation (XPoint at the caret, in window px) on each caret move; Wayland =
+  zwp_text_input_v3 set_cursor_rectangle. sync_ime_position_to_os (x11/mod.rs) is the hook to fill in.
+- **a11y integration scan** (AccessKit/AT-SPI adapter completeness — tree push, focus, actions) and
+  **clipboard integration scan** (the firing-30 persistent-owner X11/XWayland path + native wl_data_device
+  still owed). Proper review, not surface.
+
+**PRIORITY ORDER NOW:** (1) finish+commit _NET_WM_WINDOW_TYPE hint → (2) MENU per the architecture above
+(size_to_content on X11+Wayland → parent-relative positioning → Wayland xdg_popup) → (3) IME cursor
+positioning (x11+wl) → (4) a11y scan → (5) clipboard scan (incl native wl_data_device) → (6) rest of
+backlog (textarea cursor, exit crash, azul-paint self-close, #47/#48/hit-tester). User tests live.
