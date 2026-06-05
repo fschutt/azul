@@ -645,6 +645,27 @@ pub type XDrawString = unsafe extern "C" fn(
 ) -> c_int;
 pub type XFlush = unsafe extern "C" fn(*mut Display) -> c_int;
 pub type XSync = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
+
+// --- Pointer grab (used for menu / popup click-outside dismissal) ---
+pub type Time = c_ulong;
+pub const CurrentTime: Time = 0;
+pub const GrabModeSync: c_int = 0;
+pub const GrabModeAsync: c_int = 1;
+pub const GrabSuccess: c_int = 0;
+/// XGrabPointer(display, grab_window, owner_events, event_mask, pointer_mode,
+///   keyboard_mode, confine_to, cursor, time) -> status
+pub type XGrabPointer = unsafe extern "C" fn(
+    *mut Display,
+    Window,
+    c_int,
+    c_uint,
+    c_int,
+    c_int,
+    Window,
+    Cursor,
+    Time,
+) -> c_int;
+pub type XUngrabPointer = unsafe extern "C" fn(*mut Display, Time) -> c_int;
 pub type XConnectionNumber = unsafe extern "C" fn(*mut Display) -> c_int;
 pub type XSetLocaleModifiers = unsafe extern "C" fn(*const c_char) -> *mut c_char;
 pub type XOpenIM = unsafe extern "C" fn(*mut Display, *mut c_void, *mut c_char, *mut c_char) -> XIM;

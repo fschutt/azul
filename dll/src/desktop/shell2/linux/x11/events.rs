@@ -437,6 +437,29 @@ impl X11Window {
         let is_down = event.type_ == ButtonPress;
         let position = LogicalPosition::new(event.x as f32, event.y as f32);
 
+        // Menu/popup dismissal: the menu grabbed the pointer (owner_events=False),
+        // so a press whose coords fall OUTSIDE the menu's own bounds is a "click
+        // outside" → dismiss it (the run loop drops it on !is_open; close()
+        // ungrabs). A press inside is an item click → fall through. event.x/y are
+        // relative to the grab (menu) window, so outside = negative or >= size.
+        if is_down
+            && self.common.current_window_state.flags.window_type
+                == azul_core::window::WindowType::Menu
+        {
+            let size = self.common.current_window_state.size.dimensions;
+            if position.x < 0.0
+                || position.y < 0.0
+                || position.x >= size.width
+                || position.y >= size.height
+            {
+                unsafe {
+                    (self.xlib.XUngrabPointer)(self.display, CurrentTime);
+                }
+                self.is_open = false;
+                return ProcessEventResult::DoNothing;
+            }
+        }
+
         // Map X11 button to MouseButton
         let button = match event.button {
             1 => MouseButton::Left,
@@ -709,6 +732,20 @@ impl X11Window {
             };
             (Some(chars), Some(keysym))
         };
+
+        // Escape dismisses an open menu/popup (close() ungrabs the pointer; the
+        // run loop drops the window on !is_open).
+        if is_down
+            && keysym == Some(XK_Escape as KeySym)
+            && self.common.current_window_state.flags.window_type
+                == azul_core::window::WindowType::Menu
+        {
+            unsafe {
+                (self.xlib.XUngrabPointer)(self.display, CurrentTime);
+            }
+            self.is_open = false;
+            return ProcessEventResult::DoNothing;
+        }
 
         // Save previous state BEFORE making changes.
         // Detect key repeat: if the key is already in pressed_virtual_keycodes,

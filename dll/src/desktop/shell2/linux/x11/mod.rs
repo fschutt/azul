@@ -840,6 +840,12 @@ impl X11Window {
                 crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
             }
             unsafe {
+                // Release a menu/popup's pointer grab on close (no-op otherwise).
+                if self.common.current_window_state.flags.window_type
+                    == azul_core::window::WindowType::Menu
+                {
+                    (self.xlib.XUngrabPointer)(self.display, defines::CurrentTime);
+                }
                 (self.xlib.XDestroyWindow)(self.display, self.window);
                 // Free the ARGB colormap if we created one
                 if let Some(colormap) = self.argb_colormap.take() {
@@ -2047,6 +2053,27 @@ impl X11Window {
             //    final_size, so the popup never appears at the tiny measure size.
             (self.xlib.XMapWindow)(self.display, self.window);
             (self.xlib.XFlush)(self.display);
+            // Menu/popup windows grab the pointer so a click ANYWHERE outside the
+            // menu (another window, the root, …) is delivered here for dismissal.
+            // owner_events=False routes every pointer event to the menu;
+            // handle_mouse_button's bounds-check decides item-click vs click-outside.
+            if self.common.current_window_state.flags.window_type
+                == azul_core::window::WindowType::Menu
+            {
+                (self.xlib.XGrabPointer)(
+                    self.display,
+                    self.window,
+                    0, // owner_events = False
+                    (defines::ButtonPressMask
+                        | defines::ButtonReleaseMask
+                        | defines::PointerMotionMask) as u32,
+                    defines::GrabModeAsync,
+                    defines::GrabModeAsync,
+                    0, // confine_to = None
+                    0, // cursor = None
+                    defines::CurrentTime,
+                );
+            }
         }
 
         // 5. Re-layout at the final size (drops the scrollbars the tiny pass added).
