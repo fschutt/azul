@@ -1479,3 +1479,59 @@ verifiable-here limit is reached. Everything left needs USER ACTION:
 This session landed 5 fixes (6 code commits + docs): #9 scroll redraw (x11+wl), setlocale input,
 CFF glyph decode, Hangul cmap-fallback, Wayland clipboard reliability. 2 visually verified, scroll
 code-proven, rest await re-login.
+
+### Cron firing 33 — USER RE-LOGGED, tested on NATIVE X11 (xfwm4); X11 redraw ARCHITECTURE + crash FIXED
+User re-logged into a native X11 session (DISPLAY=:0.0, xfwm4 WM, GPU/WebRender — GL works now, not
+the CPU-fallback the headless tests used). Tested azul-paint + the contenteditable C example
+(tests/e2e/contenteditable.c, built vs target/release/libazul.so). USER-REPORTED bugs:
+- redraw doesn't work on resize; scroll + caret positioning don't update; cursor blink stuck (all
+  "needs a repaint that never happens").
+- single-line edit shows I-beam cursor on hover; multi-line textarea does NOT.
+- crash after clicking minimize/maximize.
+- azul-paint: only draws first frame, no click response (window self-closes — see below).
+
+**X11-API AUDIT (subagent, vs official Xlib/EWMH/XInput2/XIM docs) — KEY FINDINGS (persist these):**
+1. (ROOT of no-repaint) GPU render_and_present skipped rendering after frame 1 unless
+   scroll/scrollbar-fade/virtual-view active — dropped resize/caret/blink/physics-scroll. AND
+   handle_event's Expose arm re-posted an Expose (request_redraw) instead of render → blocking idle
+   path never painted. Synthetic-Expose-via-XSendEvent is NOT a valid app redraw primitive (Xlib docs);
+   idiomatic = dirty-flag + drain-then-render.
+2. The two event paths (poll_event inline match vs handle_event) DIVERGE (Expose, etc.) — should be one
+   shared dispatch.
+3. (minimize/maximize crash) GPU path fed a 0-size ConfigureNotify into renderer.render(0,0)/glViewport
+   with no clamp (CPU path already guarded w/h>0). Also no MapNotify/UnmapNotify handling → renders an
+   unmapped/0-size window.
+4. XIM: must OR XNFilterEvents into XSelectInput (never queried). Use Xutf8LookupString (UTF-8) not
+   XmbLookupString (locale-encoded). Handle XBufferOverflow.
+5. XI2: key pen valuators on ev.sourceid (slave) not ev.deviceid (master); add scroll-class valuators
+   for smooth scroll.
+6. After poll() wakes, DRAIN fully (while XPending) — Xlib buffers events; fd-readability ≠ queue-empty.
+(EWMH _NET_WM_STATE maximize message + XFilterEvent-on-every-event + setlocale/XSetLocaleModifiers order
+were CONFIRMED CORRECT.)
+
+**FIXED + COMMITTED (fd6fa89d9, architecture):**
+- Single `needs_redraw` render-intent flag: request_redraw() sets it; render_and_present() CONSUMES it
+  and renders whenever set (replaces the incomplete skip-heuristic). Any requested repaint now paints.
+- handle_event Expose arm renders directly (matches poll_event).
+- Crash: WebRender framebuffer clamped to ≥1×1 + render_and_present skips when window size==0 (chose a
+  size-guard over Map/Unmap tracking — WM-independent, can't wrongly blank a visible window). MapNotify
+  requests a repaint.
+COMPILES (the is_mapped variant built clean @16:38; the size-guard edit only removes code + adds a
+3-line guard using the existing physical_size pattern). **NOT live-verified** — see env quirk.
+
+**ENV QUIRK (important for future firings):** this dev shell KILLS foreground `sleep` and commands
+>~120s (exit 144). Earlier I mis-read 144s as crashes + over-relaunched GUI apps (the churn the handoff
+warns against). LESSON: builds via run_in_background (they detach + finish even if the task reports 144 —
+poll the libazul.so timestamp; NEVER foreground-`sleep`); do NOT pkill+relaunch GUI apps in a loop.
+contenteditable links libazul.so via rpath → auto-fresh on rebuild (no recompile needed).
+
+**STILL OPEN (next firings, priority order set by user — context menus next):**
+1. Verify fd6fa89d9 compiles + (user) live-tests resize/scroll/caret/blink/minimize.
+2. **CONTEXT MENUS** (user priority): cpurendered screen-positioned popup windows for dropdowns, window
+   menus, div context-menus. Scaffolding: x11/menu.rs, wayland/menu.rs, events.rs:904
+   try_show_context_menu→show_window_based_context_menu, mod.rs:3221 show_menu_from_callback,
+   pending_window_creates + override_redirect. Architecture first.
+3. Remaining audit API fixes (#4/#5/#6 above).
+4. textarea hover I-beam cursor; exit-time GL texture-cache TLS-dtor crash; azul-paint self-close
+   (window unmaps/closes → run.rs:1323 process::exit → crash dropping the gl_texture_cache BTreeMap).
+Cron loop relaunched (job fff9ac48, every ~10 min). libazul.so rebuilding.
