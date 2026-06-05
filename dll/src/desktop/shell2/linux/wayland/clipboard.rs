@@ -18,6 +18,21 @@ use x11_clipboard::Clipboard;
 use super::super::super::common::debug_server::LogCategory;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
+/// Process-wide persistent clipboard owner — same rationale as the X11 backend
+/// (`x11/clipboard.rs`): `x11_clipboard::Clipboard` spawns a thread that OWNS
+/// the selection, so the copied content only survives while that `Clipboard`
+/// stays alive. Creating + dropping one per copy (the previous behaviour here)
+/// killed the owner thread and lost the selection immediately — Ctrl+C appeared
+/// to do nothing and Ctrl+V pasted stale content. Keep ONE alive for the
+/// process. NOTE: this is still the XWayland fallback; native `wl_data_device`
+/// (for pure-Wayland sessions) is task #7 and not yet implemented.
+fn clipboard() -> Option<std::sync::MutexGuard<'static, Option<Clipboard>>> {
+    static CLIPBOARD: std::sync::OnceLock<std::sync::Mutex<Option<Clipboard>>> =
+        std::sync::OnceLock::new();
+    let m = CLIPBOARD.get_or_init(|| std::sync::Mutex::new(Clipboard::new().ok()));
+    m.lock().ok()
+}
+
 /// Synchronize clipboard manager content to Wayland system clipboard
 ///
 /// This is called after user callbacks to commit clipboard changes.
@@ -49,7 +64,8 @@ pub fn get_clipboard_content() -> Option<String> {
 
 /// Write string to Wayland clipboard
 pub(crate) fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
-    let clipboard = Clipboard::new().map_err(|_| ClipboardError::InitFailed)?;
+    let guard = clipboard().ok_or(ClipboardError::InitFailed)?;
+    let clipboard = guard.as_ref().ok_or(ClipboardError::InitFailed)?;
 
     clipboard
         .store(
@@ -62,7 +78,8 @@ pub(crate) fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
 
 /// Read string from Wayland clipboard
 fn read_from_clipboard() -> Result<String, ClipboardError> {
-    let clipboard = Clipboard::new().map_err(|_| ClipboardError::InitFailed)?;
+    let guard = clipboard().ok_or(ClipboardError::InitFailed)?;
+    let clipboard = guard.as_ref().ok_or(ClipboardError::InitFailed)?;
 
     let data = clipboard
         .load(

@@ -1373,3 +1373,37 @@ Hangul fix (on top of scroll+setlocale+CFF).
 **CJK+Hangul glyph rendering✓ (FIXED)**, remaining = IME real-input verify post re-login →
 (3) #7 Wayland clipboard (implement now/test later — NEXT actionable code item) → (4) #11 a11y on X11.
 (Deferred: #47 @scope, #48 events, hit-tester unify.)
+
+### Cron firing 30 — #7 Wayland clipboard: XWayland-fallback reliability bug FIXED; native wl_data_device SCOPED
+Started #7. Found `wayland/clipboard.rs` does NOT implement native Wayland clipboard — it uses
+`x11_clipboard::Clipboard` (XWayland) AND had the SAME create-drop bug the X11 backend fixed in firing
+18: it built a fresh `Clipboard::new()` per copy/read and dropped it, killing the selection-owner thread
+→ copy lost / paste stale. (Only broke on pure-Wayland or after the owner thread died.)
+
+**FIX (committed):** added the process-persistent `clipboard()` owner (OnceLock<Mutex<Option<Clipboard>>>)
+to `wayland/clipboard.rs`, mirroring `x11/clipboard.rs` exactly; `write_to_clipboard`/`read_from_clipboard`
+now use the live owner. Low-risk (proven pattern). Improves the XWayland-fallback path. NOTE: this is
+still NOT native Wayland — on a pure-Wayland session with no XWayland, `Clipboard::new()` fails and
+clipboard is unavailable. Can't visually verify here (WM wedged; also this box is XWayland not native wl).
+
+**NATIVE wl_data_device — IMPLEMENTATION PLAN (next focused firing; large, untestable on this box):**
+Hand-roll the protocol like the firing-1 decoration manager (interfaces via `wl_proxy_marshal_constructor`):
+1. Bind `wl_data_device_manager` global in the registry handler (store the proxy on WaylandWindow).
+2. `wl_data_device_manager.get_data_device(seat)` → `wl_data_device`; add a listener for `data_offer`
+   (new offer), `selection` (current clipboard offer or null), `enter/leave/motion/drop` (DnD, ignore for
+   clipboard). Track the latest `wl_data_offer` from `selection`.
+3. COPY: on copy, `create_data_source`, `wl_data_source.offer("text/plain;charset=utf-8")` (+ "UTF8_STRING",
+   "text/plain"), `wl_data_device.set_selection(source, serial)` using the last input serial (track it from
+   keyboard/pointer enter events). Listen for `wl_data_source.send(mime, fd)` → write the text to `fd`,
+   close it; and `cancelled` → drop the source.
+4. PASTE: from the tracked selection `wl_data_offer`, `pipe2()`, `wl_data_offer.receive(mime, write_fd)`,
+   `wl_display_roundtrip`/dispatch, read the read_fd to EOF → UTF-8 string.
+5. Runtime routing: in `wayland::clipboard`, prefer native (if `wl_data_device_manager` bound) else fall
+   back to the x11_clipboard path (current). Needs serial threading + fd/pipe handling + interface defs in
+   `wayland/dlopen.rs`/interfaces. ~200-400 lines. Verify on a real Wayland session (not this XWayland box).
+
+**ARTIFACTS:** libazul.so + azul-paint being rebuilt to carry scroll+setlocale+CFF+Hangul+clipboard fixes.
+
+**PRIORITY ORDER NOW:** (1) #9 scroll (real-wheel verify post re-login) → (2) #10 input✓ + CJK/Hangul✓
+(IME real-input verify post re-login) → (3) #7 clipboard: reliability fix✓, **native wl_data_device =
+next focused firing (plan above)** → (4) #11 a11y on X11. (Deferred: #47, #48, hit-tester unify.)
