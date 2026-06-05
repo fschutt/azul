@@ -8286,7 +8286,7 @@ pub fn split_text_for_whitespace(
     } else {
         StyleWhiteSpace::Normal
     };
-    
+
     let mut result = Vec::new();
 
     // +spec:white-space-processing:3a0f58 - HTML newlines normalized to U+000A, each treated as segment break

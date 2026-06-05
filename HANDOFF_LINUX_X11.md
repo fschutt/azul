@@ -883,3 +883,58 @@ runtime routing. Verify on a Wayland session.
 **TOOLING NOTE:** plain `xdotool key`/`click` (XTEST) lands at wrong screen coords on this
 multi-head box; use `xdotool ... --window <wid> X Y` (window-relative) for reliable scripted
 input. Real hardware input is unaffected.
+
+---
+
+### Cron firing 19 (user-reported) — text layout instability ROOT-CAUSED (compact-cache white-space divergence); fix deferred
+User: "the line breaking is for whatever reason breaking everything onto one line, only sometimes
+it correctly breaks 'Line 1:', 'Line 2:' — debug root cause of this text layout instability."
+
+**REPRODUCED (deterministic on fresh launch):** the multi-line textarea (node 7, class
+`.multi-line-textarea`, CSS `white-space: pre-wrap`, content has real `\n`) renders as ONE
+wrapped paragraph (h≈469) — the `\n` are collapsed instead of forced breaks. 4/4 fresh launches
+continuous. (The "sometimes correct per-line" the user sees = the unstable cache occasionally
+holding the right value.) Edits/resize/clicks did NOT flip it this session.
+
+**ROOT CAUSE (proven via [WSPROBE] in split_text_for_whitespace, now stripped):**
+- `\n` → forced break is decided in `split_text_for_whitespace` (solver3/fc.rs:8250) by reading
+  the parent's `white-space` via `get_white_space_property`. For pre/pre-wrap/pre-line it splits
+  text into `InlineContent::LineBreak`s; for Normal it collapses. The line-breaker
+  (text3/cache.rs break_one_line) correctly honors `ShapedItem::Break`.
+- At layout time `get_white_space_property(node 7)` returns **`Exact(Normal)`** (WSPROBE:
+  `ws=Normal has_nl=true`), so no split → continuous. But the debug server
+  `get_node_css_properties` reads node 7 (and inherited node 8) as **`white-space: pre-wrap`**.
+  The two readers DISAGREE.
+- WHY: `get_white_space_property`'s fast path (solver3/getters.rs:624-627) returns the
+  **compact cache** value UNCONDITIONALLY for normal-state nodes (never falls through to the slow
+  path). The COMPACT CACHE holds `Normal` for node 7's white-space; the slow path / author CSS
+  (what the debug server reads) holds the cascaded `pre-wrap`. So the compact cache wasn't
+  populated with node 7's cascaded white-space, and the stale value masks the correct one.
+- The compact builder `build_compact_cache_with_inheritance` (core/src/compact.rs:445) Step 3
+  (line 648) applies per-node props from `self.css_props.get_slice(i)` via
+  `apply_css_property_to_compact` (handles WhiteSpace at :854 set_tier1!). The slow-path getter
+  reads via `css_property_cache.get_white_space(...)`. These two stores DIVERGE for node 7's
+  white-space → the instability.
+
+**EXACT NEXT DIAGNOSTIC (do first next firing):** add a probe in build_compact_cache_with_inheritance
+Step 3 logging, for the textarea node, whether `css_props.get_slice(i)` contains a
+`CssProperty::WhiteSpace` entry and its `get_property()` value; compare against
+`self.get_white_space(nd, id, normal_state)` (the slow-path method). Two cases:
+  (a) css_props[node] LACKS WhiteSpace(pre-wrap) but the method returns it → cascade-matching /
+      property-storage divergence (css_props vs cascaded_props); fix the store that feeds the
+      compact builder so class-matched inherited Tier-1 enums land in css_props.
+  (b) css_props[node] HAS it but Step 3 doesn't write it (get_property() None, or a later
+      inheritance/overwrite) → fix the apply/ordering.
+Likely (a). After fixing, VERIFY: fresh launch → textarea renders each "Line N:" on its own row
+(h grows to ~700 at 1200px wide); `white-space` getter (fast path) == debug-server value; check a
+couple OTHER Tier-1 enum props (display/text-align) on a few nodes for the same divergence — this
+is a GENERAL compact-cache-vs-cascade sync bug, white-space is just where it surfaced. High blast
+radius (compact CSS cache, all nodes/props) — verify broadly before commit. Do NOT paper over by
+making white-space skip the fast path.
+
+State: probe stripped, tree clean/builds. Task #8 stays OPEN (root-caused, fix pending).
+
+**PRIORITY ORDER NOW:** (1) #8 compact-cache white-space divergence fix (above — top, user-reported).
+(2) #9 scrolling + timers on x11/wayland (bounce/overscroll). (3) #48 event-system rework.
+(4) hit-tester unification. (5) #47 @scope scoping (related to this cascade-store issue).
+(6) #7 native Wayland clipboard.
