@@ -1944,3 +1944,26 @@ touch text_input (it sets cursor:text explicitly). User-test: hover the textarea
 STATUS: menu = feature-complete (build-verified, NOT runtime-tested — user should test). Non-menu open:
 exit-GL-crash (analysis above), native wl_data_device clipboard, XNFilterEvents (low-value). The bulk of
 this whole effort is build-verified only; USER RUNTIME TESTING is now the bottleneck/highest-value step.
+
+### Cron firing 48 — EXIT-GL-CRASH root-cause FIX applied (commit 94101c497, builds clean)
+Implemented the teardown-ordering fix from firing 47's analysis. ROOT CAUSE confirmed: the EGL
+`gl::GlContext` lives in the `render_mode` STRUCT FIELD (enum RenderMode::Gpu(GlContext, GlFunctions),
+mod.rs:97), which dropped AFTER X11Window::drop()'s self.close() — so eglDestroyContext ran against a
+destroyed window / closed X display (close() does XDestroyWindow + XCloseDisplay) → exit crash.
+FIX: added a transient `RenderMode::None` variant + one match arm (present()); Drop now does
+`self.render_mode = RenderMode::None;` BEFORE self.close(), dropping the EGL context while the window +
+display are still alive — correct order (handles → GL context → X window → X display). render_mode holds
+the ONLY EGL-context ref (Textures + WebRender hold the separate GlFunctions table = harmless to drop
+late). Dropping it earlier is STRICTLY SAFER than after XCloseDisplay regardless of other holders.
+CAVEAT: build-verified only. A gdb run on the actual exit would confirm no OTHER GlContext holder drops
+after close() (e.g. if WebRender unexpectedly owns the EGL context). If the crash persists, gdb-backtrace
+it: the next suspects are (a) WebRender/renderer in self.common dropping its GL state after close(), or
+(b) the TEXTURE_CACHE TLS-dtor (gl_texture_cache.rs) — make it mem::forget handles at thread exit.
+
+OVERALL after firings 26-48: scroll redraw, setlocale/CFF/Hangul/IME-cursor, X11-API stability, redraw
+architecture, minimize crash, EWMH hints, a11y activation, option-(b) shared-display refactor (steps 0-5),
+RefreshDomAllWindows, full context-menu (cursor-positioned/content-sized/clamped+scroll/shared-loop/
+click-outside-dismiss), menu positioning, textarea I-beam, and now the exit-GL teardown fix — ALL
+build-verified, almost NONE runtime-tested here. HIGHEST-VALUE NEXT STEP = USER INTERACTIVE TEST PASS +
+gdb for any residual crash. Remaining build-able-blind work is niche/big/low-value (HiDPI, submenu,
+Wayland xdg_popup, native wl_data_device, XNFilterEvents).
