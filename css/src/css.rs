@@ -1843,6 +1843,32 @@ mod root_scope_tests {
         let s = CssPathSelector::Root(CssScopeRange { start: 2, end: 6 });
         assert_eq!(format!("{}", s), ":root(2..=6)");
     }
+
+    #[test]
+    fn parse_inline_keeps_layout_and_style_decls() {
+        // set_css("width: 200px; height: 100px; background: red") must keep all
+        // three declarations (layout + style) as Static props in the parsed rule.
+        let css = Css::parse_inline("width: 200px; height: 100px; background: red");
+        let mut types = Vec::new();
+        for r in css.rules.as_ref() {
+            for d in r.declarations.as_ref() {
+                if let crate::css::CssDeclaration::Static(p) = d {
+                    types.push(alloc::format!("{:?}", p.get_type()));
+                }
+            }
+        }
+        println!("INLINE PROP TYPES: {:?}", types);
+        assert!(
+            types.iter().any(|t| t.contains("width")),
+            "width must survive parse_inline as a Static decl; got {:?}",
+            types
+        );
+        assert!(
+            types.iter().any(|t| t.contains("height")),
+            "height must survive parse_inline; got {:?}",
+            types
+        );
+    }
 }
 
 #[cfg(test)]
