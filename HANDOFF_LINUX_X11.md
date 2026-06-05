@@ -998,3 +998,31 @@ FIX OPTIONS (pick in a fresh focused session — delicate core, high blast radiu
 State: both probes stripped, tree clean/builds. Task #8 stays OPEN (precisely root-caused, fix
 pending — it's a core prune/recompute lifecycle fix). Priority unchanged: #8 first, then #9 scroll/
 timers, then #48, hit-tester unify, #47, #7.
+
+---
+
+### Cron firing 22 — #8 line-break instability FIXED (`1624df855`)
+Pinned with paired probes ([WSCACHE] in build_compact_cache_with_inheritance + [WSPROBE] in
+split_text_for_whitespace, both stripped):
+  build#1 (create):    node7 css_props_ws=PreWrap → compact_bits=PreWrap
+  build#2 (recompute): node7 css_props_ws=None    → compact_bits=Normal  ← CLOBBER
+  split_text reads compact → Normal → \n collapsed → continuous.
+ROOT: `prune_compact_normal_props` (prop_cache.rs) dropped compact-encoded Normal props from
+`css_props` after the create build, assuming the compact cache is permanent. But
+`regenerate_layout` calls `recompute_inheritance_and_compact_cache()` EVERY frame (CSD/append_child
+composition), which REBUILDS the compact cache from `css_props` (Step 3). The 2nd build read pruned
+css_props → white-space:pre-wrap reset to Normal → split_text collapsed \n. Intermittent = whether
+the recompute ran before the read.
+FIX: don't prune `css_props` (recompute reads it). cascaded_props prune kept (rebuild's inheritance
+uses parent COMPACT, not cascaded_props). TODO: re-enable css_props prune once recompute is
+incremental. Affected ALL Tier-1 enums (display/text-align/visibility/…), not just white-space —
+white-space surfaced it via \n breaks.
+VERIFIED on screen: textarea renders each "Line N:" on its own row + overflow scrollbar; single-line
+input stays one line (nowrap). (Native screenshot needs the window mapped — intermittent WM mapping
+issue on this box; verified via headless render = same display list. NOTE for next firings: if
+take_native_screenshot returns "XGetImage failed", the window is IsUnMapped — relaunch or fall back
+to take_screenshot for layout verification.)
+
+**PRIORITY ORDER NOW:** (1) #9 scroll + timers on x11/wayland (bounce/overscroll) — user-requested,
+verifiable via real wheel (xdotool button 4/5). (2) #48 event-system rework. (3) hit-tester
+unification (user directive). (4) #47 @scope subtree-scoping. (5) #7 native Wayland clipboard.
