@@ -1407,3 +1407,36 @@ Hand-roll the protocol like the firing-1 decoration manager (interfaces via `wl_
 **PRIORITY ORDER NOW:** (1) #9 scroll (real-wheel verify post re-login) → (2) #10 input✓ + CJK/Hangul✓
 (IME real-input verify post re-login) → (3) #7 clipboard: reliability fix✓, **native wl_data_device =
 next focused firing (plan above)** → (4) #11 a11y on X11. (Deferred: #47, #48, hit-tester unify.)
+
+### Cron firing 31 — artifacts confirmed; #7 native-clipboard plan SHARPENED; session at productive limit
+**ARTIFACTS (all 5 fixes built + verified to compile in release):** `target/release/libazul.so` (15:14)
+and `target/release/azul-paint` (15:16) now carry: #9 scroll redraw (x11+wl), setlocale input,
+CFF glyph decode, Hangul cmap-fallback, Wayland clipboard persistent-owner. Ready for the user to test
+after re-login.
+
+**#7 native wl_data_device — KEY SIMPLIFICATION found:** unlike the firing-1 decoration manager (which
+had to hand-build its `wl_interface` because it's a protocol EXTENSION), `wl_data_device_manager` /
+`wl_data_device` / `wl_data_source` / `wl_data_offer` are **CORE Wayland** — libwayland EXPORTS their
+`wl_interface` symbols (dlsym them in `wayland/dlopen.rs` exactly like the existing
+`wl_seat_interface`/`wl_compositor_interface` at dlopen.rs:73-75). So NO hand-rolled interface signatures
+— much smaller/safer than feared. Implementation (next fresh-context firing; ~200-250 lines):
+1. dlopen.rs: dlsym `wl_data_device_manager_interface`, `wl_data_device_interface`,
+   `wl_data_source_interface`, `wl_data_offer_interface`.
+2. registry_global_handler (events.rs ~448): bind `wl_data_device_manager` (like seat) → store on window.
+3. `get_data_device(seat)` via `wl_proxy_marshal_constructor` (template: the decoration manager's
+   get_ctor at events.rs:407-420); add wl_data_device listener (track latest `selection` wl_data_offer;
+   ignore enter/leave/motion/drop).
+4. COPY: create_data_source, `.offer("text/plain;charset=utf-8"/"UTF8_STRING"/"text/plain")`,
+   `set_selection(source, serial)` using `self.pointer_state.serial` (already tracked, mod.rs:2218/2055);
+   on `wl_data_source.send(mime, fd)` write text+close fd; on `cancelled` drop source.
+5. PASTE: from tracked offer `pipe2()` + `receive(mime, wfd)` + roundtrip + read rfd to EOF → UTF-8.
+6. Route in `wayland::clipboard`: prefer native when manager bound, else current x11_clipboard fallback.
+   Verify on a REAL Wayland session (this box is XWayland).
+
+**SESSION PRODUCTIVE LIMIT:** all tractable+verifiable-here bugs are fixed. Everything remaining needs
+either (a) **WM re-login** — #9 real-wheel scroll, #10 dead-key/IME real-input, #11 a11y screen-reader —
+or (b) a focused fresh-context session for the ~250-line native wl_data_device impl (plan above), best
+done where it can be runtime-tested (real Wayland). **RECOMMEND: re-login to verify the landed fixes**
+(scroll, CJK/Hangul render is already screenshot-verified; é/IME + a11y + real-wheel are the open checks),
+then restart the loop for native clipboard + a11y. Cron loop left running; next firings will reiterate
+this until re-login or a fresh session.
