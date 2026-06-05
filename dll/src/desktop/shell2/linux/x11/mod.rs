@@ -2040,6 +2040,35 @@ impl X11Window {
             );
         }
         self.common.current_window_state.size = final_size;
+
+        // Re-clamp a menu's position to the monitor work-area now that its TRUE
+        // size is known (show_menu positioned it from a size ESTIMATE). Keeps a
+        // menu whose real content exceeds the estimate from spilling off-screen
+        // right/bottom. (DPI=1 assumption: position is physical, work_area logical.)
+        if self.common.current_window_state.flags.window_type
+            == azul_core::window::WindowType::Menu
+        {
+            use azul_core::window::WindowPosition;
+            if let WindowPosition::Initialized(pos) = self.common.current_window_state.position {
+                let posf = azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32);
+                if let Some(display) = crate::desktop::display::get_display_at_point(posf) {
+                    let wa = display.work_area;
+                    let w = final_size.dimensions.width;
+                    let h = final_size.dimensions.height;
+                    let nx = posf.x.min(wa.origin.x + wa.size.width - w).max(wa.origin.x);
+                    let ny = posf.y.min(wa.origin.y + wa.size.height - h).max(wa.origin.y);
+                    if (nx - posf.x).abs() > 0.5 || (ny - posf.y).abs() > 0.5 {
+                        self.common.current_window_state.position = WindowPosition::Initialized(
+                            azul_core::geom::PhysicalPositionI32::new(nx as i32, ny as i32),
+                        );
+                        unsafe {
+                            (self.xlib.XMoveWindow)(self.display, self.window, nx as i32, ny as i32);
+                        }
+                    }
+                }
+            }
+        }
+
         let phys = final_size.get_physical_size();
         unsafe {
             (self.xlib.XResizeWindow)(
