@@ -2010,3 +2010,32 @@ rebuild from tests/e2e/contenteditable.c). Next suspects to read: solver3 displa
 generation for scroll frames, text3 inline line positioning near clip, and the scroll-into-view initial
 offset. This is a GOOD next target precisely because it's headless-reproducible (unlike the X11
 interactive work).
+
+### Cron firing 51/52 — OVERFLOW-RENDER BUG ROOT-CAUSED + FIXED + VERIFIED (commit ae0752918)
+Took the firing-50 headless-reproducible bug and FIXED it (the rare verifiable target). Isolated with
+headless re-renders: overflow-y:visible (no scroll frame) rendered the multi-line text PERFECTLY → so the
+multi-line LAYOUT is correct; the bug was purely in cpurender's overflow-y:scroll SCROLL-FRAME handling.
+TWO bugs in layout/src/cpurender.rs's layer system (render_layers / render_display_list_range):
+  1. DOUBLE-DRAW: render_layers renders each layer's display_list_range; the ROOT layer's range is the
+     WHOLE list, so scroll-frame content was drawn in the root layer AND again in the scroll-frame child
+     layer. FIX: render_display_list_range now takes `skip_ranges` (the child layers' ranges) + skips them.
+  2. MIS-POSITION: render_display_list_range received offset_x/offset_y (layer origin) but NEVER APPLIED
+     them → child content drawn at ABSOLUTE coords then composited at +origin (double-offset → text fell
+     to the bottom of the box). FIX: seed scroll_offset_stack with (offset_x, offset_y) (renderer
+     translates pos-scroll, so this places content relative to the layer pixbuf). Also fixed the 2nd
+     caller (scroll_layer) to pass skip_ranges.
+VERIFIED HEADLESS (before→after PNGs): textarea now renders Lines 1-5 from the top, correctly clipped at
+the overflow boundary, NO overlap + NO mis-position. Single-line + rest of app still perfect.
+IMPACT: fixes ALL cpurendered overflow:scroll/auto content — the contenteditable textarea AND cpurendered
+OVER-TALL scrolling MENUS (the firing-46 height-clamp+scroll, .menu-container overflow-y:auto). So the
+firing-46 over-tall-menu scroll now actually renders correctly on the cpurender path. cpurender-ONLY
+(GPU/WebRender path unaffected; WebRender handles scroll frames natively).
+METHOD NOTE (valuable): the headless-render verification loop (build libazul.so → run a C/Rust app with
+AZ_BACKEND=headless + AZ_HEADLESS_SNAPSHOT_PATH → Read the PNG → diff visually) is the ONLY way found to
+verify RENDER fixes without a live window. Isolation trick: cp the test .c, patch one CSS prop (e.g.
+overflow-y), cc-relink against libazul.so (fast, no azul rebuild), re-render. Used it to isolate
+layout-vs-scroll-frame here. Good for any future render/layout bug.
+STATUS: backlog essentially complete. X11-interactive work (menu, shared-display, IME, exit-crash) is
+build-verified only → needs USER interactive test + gdb. The render pipeline + this overflow fix ARE
+headless-verified. Remaining blind items: HiDPI menu pos, submenu chains, Wayland xdg_popup, native
+wl_data_device — all niche/big/Wayland.
