@@ -1149,3 +1149,61 @@ survives the upcoming context compaction.
 ⚠️ ENV: WM was wedged earlier (orphan xfwm4 frames from my app restart-churn) → window unmapped →
 real-wheel + native-screenshot blocked. NEEDS RE-LOGIN. Headless take_screenshot works regardless.
 Do NOT pkill+relaunch the app repeatedly (reuse the running instance) — that's what wedged the WM.
+
+### Cron firing 26 — #9 SCROLL ROOT-CAUSED + FIXED (redraw-drop in wait_for_events; X11 + Wayland)
+Autonomous loop restarted (cron job `0fc338cf`, every 10 min, session-only/7-day). Candidate (b) from
+firing 25 CONFIRMED via code reading and FIXED. Candidate (a) assessed as NOT the bug on this box.
+
+**ROOT CAUSE (candidate b — the real one):** Both Linux backends have a single-window blocking idle
+path `wait_for_events` (x11/mod.rs:1756, wayland/mod.rs:1577) that `poll(2)`s the display fd + all
+timerfds. When a timerfd fired it called **`process_timers_and_threads()` and DISCARDED the return
+bool** (x11:1832, wl:1650) — so the scroll-physics timer callback ran every tick, advanced the offset
+via `CallbackChange::ScrollTo`→`apply_user_change`(returns `ShouldReRenderCurrentWindow`), but **no
+redraw was ever requested**. The momentum offset updated invisibly; the window only repainted when some
+unrelated event arrived. The sibling `check_timers_and_threads` (called from `poll_event`) does it
+right (`if process_timers_and_threads() { request_redraw() }`), and macOS `tickTimers:` does it right
+(`if needs_redraw { setNeedsDisplay }`) — `wait_for_events` was a duplicated half-implementation that
+forgot the redraw half. This is why "scrollbar shows but wheel doesn't scroll," and why the user saw
+"the physics scroll timer isn't hit" — it IS hit (in wait_for_events), it just never painted.
+
+**FIX (committed):** both `wait_for_events` now delegate to `check_timers_and_threads()` (the single
+source of truth for pump+redraw) instead of the bare `process_timers_and_threads()`. X11 →
+`request_redraw()` (Expose); Wayland → `needs_redraw=true; generate_frame_if_needed()`. Removes the
+duplication (architecture cleanup). Compiles dev + release; `libazul.so` rebuilt.
+
+**Why candidate (a) [XI2 scroll-valuators] is NOT the bug here:** `handle_mouse_button` already maps
+buttons 4/5 → `handle_scroll` (x11/events.rs:441-448), and `start_timer` registers the Timer in
+`layout_window.timers` AND creates the timerfd (x11/mod.rs:3065). On XWayland (this box) and modern
+Xorg/libinput the server DOES emit emulated XI_ButtonPress 4/5 (alongside smooth-scroll valuators), so
+`handle_scroll` IS reached and the timer DOES start + pump. (a) — decoding `XIScrollClassInfo`
+valuators in `handle_xi_event` (mod.rs:421) + skipping `XIPointerEmulated` buttons to avoid
+double-count — remains an OPTIONAL robustness/hi-res-smooth-scroll enhancement, **not** required for
+basic wheel scroll. Deliberately NOT done blind (double-count regression risk, untestable now).
+
+**macOS:** confirmed CORRECT — `start_timer` schedules an NSTimer→`tickTimers:`→
+`process_timers_and_threads`→`setNeedsDisplay` (mod.rs:596-606, 2391+). No change needed.
+**Multi-window X11 idle** (`wait_for_x11_connection_activity`, run.rs:1349): NOT affected — it `select`s
+with a 16ms timeout and pumps via `poll_event`→`check_timers_and_threads` (which redraws). Only the
+single-window `wait_for_events` path was broken.
+
+**Headless:** the timer pump there was already correct (loop checks `process_timers_and_threads()`
+return, headless/mod.rs:857-863), but **`HeadlessEvent::Scroll` was a no-op** ("not yet wired"). NOW
+WIRED to the real physics path (record_scroll_from_hit_test + start SCROLL_MOMENTUM_TIMER), mirroring
+the desktop backends. This unblocks automated/headless scroll verification (azul-self-test) — a prior
+MouseMove must leave the hover over a scrollable node, then `Scroll{delta}` queues + animates.
+
+**VERIFICATION:** dev+release compile pass for azul-dll; headless wiring compiles. Real-wheel visual
+verification BLOCKED by the wedged WM (needs re-login). azul-paint rebuilt for post-re-login testing.
+
+**POST-RE-LOGIN EMPIRICAL CHECKS (do these to close #9):**
+1. `AZ_BACKEND=x11 ./target/release/azul-paint` → wheel over a scrollable area → content should scroll
+   with momentum + edge bounce (NOT just the scrollbar; the content moves).
+2. `AZ_BACKEND=wayland ./target/release/azul-paint` → same.
+3. If X11 still doesn't scroll: add a probe `eprintln` in `handle_xi_event` (x11/mod.rs:421) logging
+   `evtype`+`ev.detail`+valuator mask on a wheel tick. If only smooth-scroll XI_Motion arrives and NO
+   emulated XI_ButtonPress 4/5 → implement candidate (a) (decode XIScrollClass valuators → handle_scroll,
+   skip XIPointerEmulated buttons). If buttons 4/5 DO arrive, scroll should now work (the redraw fix).
+
+**PRIORITY ORDER NOW** (firing 25 list, item 1 fix landed pending real-wheel confirm):
+(1) #9 scroll — FIX LANDED, awaiting real-wheel verify after re-login → (2) #10 X11 dead-key/IME/CJK →
+(3) #7 Wayland clipboard → (4) #11 a11y on X11. (Deferred: #47 @scope, #48 events, hit-tester unify.)

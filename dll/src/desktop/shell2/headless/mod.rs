@@ -834,10 +834,59 @@ impl HeadlessWindow {
                         self.common.current_window_state.size.dimensions.height = height;
                         events_need_redraw = true;
                     }
-                    HeadlessEvent::Scroll { .. } => {
-                        // Scroll requires the physics-based scroll momentum
-                        // timer system (ScrollInputQueue + ScrollPhysicsState).
-                        // Not yet wired for headless.
+                    HeadlessEvent::Scroll { delta_x, delta_y } => {
+                        // Drive the SAME physics-timer scroll path the desktop
+                        // backends use: record_scroll_from_hit_test queues the
+                        // delta against the scroll node under the pointer and
+                        // the SCROLL_MOMENTUM_TIMER applies it over time.
+                        // delta_x/delta_y are pixel deltas (positive delta_y
+                        // scrolls content DOWN, increasing the offset). A prior
+                        // MouseMove must have left the hover hit-test over a
+                        // scrollable node — otherwise this is a no-op (just like
+                        // wheeling over a non-scrollable area on the desktop).
+                        let queue = if let Some(lw) = self.common.layout_window.as_mut() {
+                            let now = azul_core::task::Instant::from(std::time::Instant::now());
+                            match lw.scroll_manager.record_scroll_from_hit_test(
+                                delta_x,
+                                delta_y,
+                                azul_layout::managers::scroll_state::ScrollInputSource::WheelDiscrete,
+                                &lw.hover_manager,
+                                &azul_layout::managers::hover::InputPointId::Mouse,
+                                now,
+                            ) {
+                                Some((_, _, true)) => Some(lw.scroll_manager.get_input_queue()),
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        };
+
+                        // Start the momentum timer only on the first pending
+                        // input (subsequent deltas are picked up by the running
+                        // timer via the shared ScrollInputQueue).
+                        if let Some(queue) = queue {
+                            let physics_state =
+                                azul_layout::scroll_timer::ScrollPhysicsState::new(
+                                    queue,
+                                    self.common.system_style.scroll_physics.clone(),
+                                );
+                            let interval_ms =
+                                self.common.system_style.scroll_physics.timer_interval_ms;
+                            let timer = azul_layout::timer::Timer::create(
+                                azul_core::refany::RefAny::new(physics_state),
+                                azul_layout::scroll_timer::scroll_physics_timer_callback
+                                    as azul_layout::timer::TimerCallbackType,
+                                azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
+                                    .get_system_time_fn,
+                            )
+                            .with_interval(azul_core::task::Duration::System(
+                                azul_core::task::SystemTimeDiff::from_millis(interval_ms as u64),
+                            ));
+                            self.start_timer(
+                                azul_core::task::SCROLL_MOMENTUM_TIMER_ID.id,
+                                timer,
+                            );
+                        }
                     }
                 }
             }

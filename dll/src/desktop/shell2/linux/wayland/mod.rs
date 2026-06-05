@@ -1646,9 +1646,17 @@ impl WaylandWindow {
                     }
                 }
 
-                // Invoke expired timer and thread callbacks
+                // Invoke expired timer and thread callbacks via the shared
+                // check_timers_and_threads, which ALSO marks needs_redraw and
+                // generates a frame when a callback produced a visual change.
+                // Calling the bare process_timers_and_threads here (the
+                // previous behaviour) advanced timer state — e.g. the
+                // scroll-physics momentum offset — but discarded the redraw
+                // signal, so real mouse-wheel scrolling updated the offset
+                // invisibly and the window appeared frozen until some unrelated
+                // event forced a repaint.
                 if any_timer_fired {
-                    self.process_timers_and_threads();
+                    self.check_timers_and_threads();
                 }
             }
             // result == 0: timeout (shouldn't happen with -1)
