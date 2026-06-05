@@ -1882,3 +1882,16 @@ REMAINING (menu), priority order:
 5. **Wayland xdg_popup** (relative pos + popup_done dismissal).
 6. **LIFETIME:** close child menus before parent (shared display).
 MENU NOW (X11): appears at cursor, content-sized, shares parent event loop, dismisses on click-outside.
+
+### Cron firing 45 — menu reposition-after-size (commit 813e1baa7, builds clean)
+apply_size_to_content now re-clamps a WindowType::Menu window's position to the monitor work-area using
+the TRUE measured size (get_display_at_point + XMoveWindow), since show_menu positioned it from a size
+ESTIMATE — so a menu whose real content exceeds the estimate (esp. near a screen edge) no longer spills
+off-screen right/bottom. DPI=1 assumption (position physical, work_area logical).
+REMAINING (menu): (1) height-clamp = min(natural, work_area.h) for menus TALLER than the monitor — needs
+the menu DOM to SCROLL first (menu_renderer create_menu_stylesheet: add overflow-y:auto + a height that
+fills the window; LOW risk, clipping is the current fallback) → then clamp final_size.height in
+apply_size_to_content. (2) HiDPI position scaling. (3) Escape XGrabKeyboard (test-gated — frozen-input
+risk). (4) submenu chains + RefAny-destructor cleanup. (5) Wayland xdg_popup. (6) close children before
+parent (shared display lifetime). MENU NOW: cursor-positioned, content-sized, on-screen-clamped, shares
+the parent event loop, click-outside dismiss. User should runtime-test the full menu interaction now.
