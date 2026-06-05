@@ -647,3 +647,60 @@ After #41, the with_css path was reworked into ONE css model (per the user):
   #45 text doesn't relayout on resize (text-layout cache not invalidated — reflows boxes,
   repaints stale text); #46 mouse text-editing input not hooked up (can't scroll an overflow
   container, can't click-to-position the caret, can't drag-select). Keyboard paths work.
+
+### Cron firing 13 (tier 6 follow-on → tier 2/3) — CSS unified, resize re-wrap, click root-caused
+Big session. State after this firing (all committed; tree clean):
+
+**COMMITTED FIXES**
+- #41 CSS cascade (DONE): `with_css(&str)` unified to the ONE `@scope`-like model — string →
+  `Css` struct → pushed to the node's `.css` vec → cascade selector-matches against the
+  subtree. `with_component_css` REMOVED (api.json + codegen + callers + debug-gen + guide).
+  Commits `64a442ff0` (unify) + `13e1e445e` (remove) + guide `doc/guide/en/styling.md`.
+  Verified: contenteditable renders correctly (body h=635, each class on its element).
+- #45 resize re-wrap (DONE, `2b6219bd4`): `layout_ifc` Phase 2d reused the cached inline
+  layout via a trivial GlyphSwap even when the available WIDTH changed → text kept stale
+  line breaks + clipped on resize. Gated the fast path on
+  `cached.is_valid_for(available_width_type, has_floats)`; width change → fall through to
+  re-wrap. Verified: textarea h 468→822 on 1200→600 resize, text re-wraps.
+  NOTE: shaping is cached width-independently (ShapedItemsKey has no width), so re-wrap
+  reuses glyphs and only re-runs line-breaking — not a full re-shape. Granular cache plan:
+  text-edit single-word reshape (try_incremental_text_relayout, window.rs) is WIRED; the
+  resize→reline-break-only path falls back to full layout_flow (which still reuses the shape
+  cache) — a dedicated reline-break entry is the only remaining micro-opt, low priority.
+
+**ROOT-CAUSED, NOT YET FIXED (next firing — highest priority, tier 3)**
+- #46 mouse click → no caret (+ no drag-select, no mouse-scroll). PINNED via instrumentation
+  on X11+CPU clicking (150,80) inside node 3 (single-line-input x8 y53 w1184 h55):
+  `handle_mouse_down` IS called (state-diff detects MouseDown) but its `FullHitTest` has
+  EMPTY hovered_nodes → `get_first_hovered_node()`=None → bails → no `TextSelectionClick` →
+  `process_mouse_click_for_selection` never runs → no caret. WHY empty:
+  `perform_hit_test` (dll/src/desktop/shell2/common/event.rs:650) takes the CPU path
+  (cpu_hit_tester is Some) but `cpu_ht.hit_test(150,80)` returns **0 hits** for an in-bounds
+  point → the **CpuHitTester is empty/stale, not populated with current layout geometry**.
+  `convert_cpu_hit_test_to_full` is fine (fills regular_hit_test_nodes when hits non-empty).
+  The debug-server `hit_test` op returns node 3 because it uses a DIFFERENT path
+  (layout_results directly), not cpu_hit_tester. FIX: populate/refresh
+  `self.cpu_hit_tester` (azul_layout::headless::CpuHitTester) from the layout after each
+  (re)layout on the X11+CPU render path so hit_test(pos) returns hits. This unblocks
+  click-caret, drag-select, AND mouse-wheel scroll (all route through this hit-test).
+
+**ARCHITECTURAL (user directive, large) — #48**
+- Rework the "V2" window-state-DIFFING event system → distinguish USER events (discrete OS
+  input) from SYSTEM events (programmatic state changes). State-diffing causes DOUBLE events
+  and FALSE "no change" drops (click same spot, key-repeat, click already-down/focused).
+  Touches common/event.rs (process_window_events/determination), core/events.rs
+  (handle_mouse_*/key), all platform handlers. Design first.
+
+**ALSO OPEN**
+- #47 collect_css_from_dom (styled_dom.rs:2108) flattens every node's `.css` into ONE global
+  Css matched against the whole tree → @scope subtree-scoping NOT enforced (non-root
+  with_css leaks tree-wide). Works for contenteditable only because its CSS is on the root.
+  CssWithNodeId carries node_id (FastDom path); create_from_dom drops it. Fix: scope each
+  node's `.css` matches to its subtree.
+- #43 timer/scroll-physics/animation verification (timers ARE pumped; no CSS-anim engine;
+  multi-window idle uses hardcoded 16ms vs time_until_next_timer_ms).
+
+DIAGNOSTIC TOOLING: debug server `get_all_nodes_layout` (per-node computed rect),
+`get_node_css_properties`, `get_selection_state`/`get_cursor_state`/`dump_selection_manager`.
+For event/hit-test bugs, temporary `eprintln!("[TAG] ...")` probes at perform_hit_test /
+handle_mouse_down / the SystemChange dispatch pinpoint the break fast (strip before commit).
