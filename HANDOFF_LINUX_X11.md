@@ -704,3 +704,35 @@ DIAGNOSTIC TOOLING: debug server `get_all_nodes_layout` (per-node computed rect)
 `get_node_css_properties`, `get_selection_state`/`get_cursor_state`/`dump_selection_manager`.
 For event/hit-test bugs, temporary `eprintln!("[TAG] ...")` probes at perform_hit_test /
 handle_mouse_down / the SystemChange dispatch pinpoint the break fast (strip before commit).
+
+---
+
+### Cron firing 14 (tier 3 → tier architectural) — #46 FIXED on screen; #48 now top priority
+State after this firing (committed; tree clean at the #46 commit):
+
+**COMMITTED FIX**
+- #46 click→no caret (DONE, `488ac0b9b`): X11's `regenerate_layout()` was the ONLY platform
+  layout chokepoint that never rebuilt the CPU hit-tester (macOS/Wayland/iOS/Android/headless
+  all call `cpu_ht.rebuild_from_layout()`). So `cpu_hit_tester` stayed `CpuHitTester::new()`
+  (empty) → `perform_hit_test` CPU branch returned 0 hits for in-bounds points → empty
+  hovered_nodes → no `TextSelectionClick` → no caret/drag-select/wheel-scroll. Fix: 13-line
+  rebuild at the end of `regenerate_layout()` (x11/mod.rs:~2037), mirroring macOS; `is_some()`
+  guard keeps it CPU-only. VERIFIED on screen: click (150,80) → focused_node=3,
+  get_cursor_state has_cursor=true pos=5 is_visible=true, native screenshot shows the caret
+  after "Hello". The debug-server `click`/`MouseDown` ops DO exercise the real path
+  (modify_window_state → apply_user_change → process_window_events → perform_hit_test), so
+  they are a valid end-to-end test — only the `hit_test` op uses the layout_results shortcut.
+
+**USER DIRECTIVE (2026-06-05, away-at-work autonomous run)**
+- Strategy chosen: **"Prioritize #48 aggressively"** — after #46, go straight at the #48
+  event-system rework: design first, then implement in VERIFIABLE INCREMENTS (each commit
+  must build + verify on screen). Authority granted: find ROOT CAUSES, do not paper over,
+  fix architectural mistakes, MAY break api.json (regen via azul-doc autofix → apply →
+  normalize → codegen all; never hand-edit), verify APIs empirically.
+- A 10-min cron (`*/10`, session-only, job a3a61200) drives the autonomous loop. Cron prompt:
+  read this handoff tail → pick highest-priority UNFINISHED item → root-cause → fix → build →
+  verify → commit → update handoff → stop; ONE build at a time; don't start a new item while a
+  build/verify is pending.
+
+**CURRENT PRIORITY ORDER** (updated): #48 (event-system rework, IN PROGRESS — see below) →
+#47 (collect_css_from_dom @scope subtree-scoping) → #43 (timer/scroll/anim verification).
