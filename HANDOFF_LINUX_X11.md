@@ -2059,3 +2059,18 @@ menu (root-scoped CSS) — so not a menu blocker, but a fundamental general-app 
 NOTE: also still TODO from this: the original firing-49 flex-grow question is now UNANSWERABLE via inline
 set_css (the leak masks it) — re-test flex-grow with CLASS-based CSS (a stylesheet, like contenteditable),
 not inline, once #47 is understood/fixed.
+
+### Cron firing 55 — #47 EXACT mechanism pinpointed (memory updated); fix deferred as focused effort
+Found the precise leak: CssPropertyCache::restyle (core/src/prop_cache.rs:1030) splits rules into
+GLOBAL-ONLY (selector == one `*`/Global) vs SPECIFIC; global-only declarations go into self.global_css_props
+(prop_cache.rs:1077-1086) and are applied to EVERY node (a perf optimization skipping per-node matching).
+set_css("x:y") → `* { x:y }` → GLOBAL-ONLY → so every NON-ROOT node's set_css leaks tree-wide. css also
+sort_by_specificity()s (:1046), so the owner can't be tracked by a parallel index Vec — it must travel WITH
+the rule. FULL mechanism + 2 fix options in MEMORY azul-css-cascade-model. FIX DEFERRED: it's a core-cascade
+change (option a: add owner field to CssRuleBlock + api.json/codegen + per-node subtree gate in restyle;
+option b: collect-time rewrite non-root `*` rules to a synthetic `.__azs<id>` self+descendant scope). Both
+non-trivial + high-blast-radius (memory's lesson: don't guess the cascade — verify empirically). It IS
+headless-verifiable (single-div repro), so a strong focused target, but not a rush-it-blind change.
+DECISION: ending the 3-firing CSS dig here — it's a precisely-located, fix-optioned, verifiable bug now.
+Doesn't block the menu (root CSS). Next firings should pick a DIFFERENT item (the X11-interactive work
+needs the user; or attempt #47 as a dedicated careful effort if the user asks).
