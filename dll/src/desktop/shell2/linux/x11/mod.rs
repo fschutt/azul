@@ -1129,6 +1129,23 @@ impl X11Window {
             }
         };
 
+        // Establish the C library's LC_CTYPE locale from the environment
+        // BEFORE XOpenDisplay / XOpenIM. Without this the process stays in the
+        // default "C" (ASCII) locale, so XmbLookupString and the whole XIM
+        // machinery can neither compose dead-keys (´ + e → é) nor produce CJK
+        // text — keyboard input silently degrades to ASCII regardless of the
+        // user's layout/IME. Xlib reads LC_CTYPE specifically (XSupportsLocale,
+        // the Xmb*/Xutf8* codeset), so only LC_CTYPE is set — LC_NUMERIC stays
+        // "C" so a locale with a comma decimal separator can't break float
+        // parsing in C dependencies. Process-wide, runs once.
+        {
+            use std::sync::Once;
+            static SET_LOCALE: Once = Once::new();
+            SET_LOCALE.call_once(|| unsafe {
+                libc::setlocale(libc::LC_CTYPE, b"\0".as_ptr() as *const libc::c_char);
+            });
+        }
+
         let display = unsafe { (xlib.XOpenDisplay)(std::ptr::null()) };
         if display.is_null() {
             return Err(WindowError::PlatformError(

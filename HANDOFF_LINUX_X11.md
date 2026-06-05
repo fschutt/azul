@@ -1205,5 +1205,32 @@ verification BLOCKED by the wedged WM (needs re-login). azul-paint rebuilt for p
    skip XIPointerEmulated buttons). If buttons 4/5 DO arrive, scroll should now work (the redraw fix).
 
 **PRIORITY ORDER NOW** (firing 25 list, item 1 fix landed pending real-wheel confirm):
-(1) #9 scroll — FIX LANDED, awaiting real-wheel verify after re-login → (2) #10 X11 dead-key/IME/CJK →
-(3) #7 Wayland clipboard → (4) #11 a11y on X11. (Deferred: #47 @scope, #48 events, hit-tester unify.)
+(1) #9 scroll — FIX LANDED, awaiting real-wheel verify after re-login → (2) #10 X11 dead-key/IME/CJK
+(input side fix landed, see below; glyph-fallback + verify remain) → (3) #7 Wayland clipboard →
+(4) #11 a11y on X11. (Deferred: #47 @scope, #48 events, hit-tester unify.)
+
+#### Firing 26 (cont.) — #10 INPUT root-caused + partial fix (missing `setlocale`)
+Got ahead onto #10's INPUT side while #9 awaits re-login. The X11 IME stack is already substantial
+(`ImeManager`: XOpenIM + style negotiation + XCreateIC on-the-spot/over-the-spot/rooted + XmbLookupString
++ XFilterEvent + preedit callbacks; control-char filter at events.rs:734). The missing piece:
+**`setlocale` was NEVER called anywhere** — `ImeManager::new` calls `XSetLocaleModifiers("")` but the
+process stayed in the default `"C"` (ASCII) locale, so `XmbLookupString`/XIM cannot compose dead-keys
+(´+e→é) or emit CJK — input silently degrades to ASCII. This is exactly the gap `X11_API_REFERENCE.md`
+flagged ("setlocale + XSetLocaleModifiers before XOpenIM").
+
+**FIX (committed):** `libc::setlocale(LC_CTYPE, "")` once (std::sync::Once) at the top of
+`X11Window::new_with_resources`, BEFORE `XOpenDisplay`/`XOpenIM` → correct ordering
+setlocale→XSetLocaleModifiers→XOpenIM. Scoped to **LC_CTYPE only** (the category Xlib actually reads for
+codeset) so LC_NUMERIC stays "C" and a comma-decimal locale can't break float parsing in C deps. Helps
+when the user's env has a UTF-8 locale (the normal case); no-op + no regression otherwise. Compiles.
+
+**STILL OPEN for #10 (next firings):**
+- **CJK GLYPH RENDERING** is a SEPARATE problem from input: even with correct UTF-8 CJK chars, the font
+  must HAVE CJK glyphs (font fallback). Investigate `font_manager` glyph fallback / fc_cache for CJK
+  (Noto CJK etc.) — tofu = font fallback gap, not input. Likely the bigger remaining piece.
+- **Encoding robustness:** `XmbLookupString` returns LOCALE-encoded bytes (treated as UTF-8 here). Fine
+  under a UTF-8 locale; under a non-UTF-8 locale it'd mojibake. Optional: switch to `Xutf8LookupString`
+  (always UTF-8) — needs that symbol added to dlopen.rs. Low priority (UTF-8 locales are universal now).
+- **VERIFY after re-login:** type `é` via dead-key/compose; type Japanese via fcitx5/ibus (preedit inline,
+  commit on Enter); confirm CJK glyphs actually render (not tofu). Probe: log `XmbLookupString` status +
+  bytes on a compose key.
