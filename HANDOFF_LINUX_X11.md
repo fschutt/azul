@@ -1440,3 +1440,42 @@ done where it can be runtime-tested (real Wayland). **RECOMMEND: re-login to ver
 (scroll, CJK/Hangul render is already screenshot-verified; é/IME + a11y + real-wheel are the open checks),
 then restart the loop for native clipboard + a11y. Cron loop left running; next firings will reiterate
 this until re-login or a fresh session.
+
+### Cron firing 32 — native wl_data_device recon TURN-KEY; autonomous loop PAUSED (productive limit)
+Did the full code-level recon for native wl_data_device — it's turn-key now (do it in a fresh-context
+session, ideally one that can run AZ_BACKEND=wayland with a mapped window to actually test copy/paste):
+- **Interfaces (core → libwayland exports them):** dlsym `wl_data_device_manager_interface`,
+  `wl_data_device_interface`, `wl_data_source_interface`, `wl_data_offer_interface` in `wayland/dlopen.rs`
+  EXACTLY like `wl_seat_interface` (dlopen.rs:345 — `*load_symbol!(lib_client, *const wl_interface, "…")`),
+  add the 4 fields to the `Wayland` struct (near :77/:93).
+- **Bind + get device:** add a `"wl_data_device_manager"` arm to `registry_global_handler`
+  (events.rs:491) — copy the `zwp_text_input_manager_v3` arm (events.rs:371-444) verbatim: `wl_registry_bind`
+  the manager, then `get_data_device(seat)` (opcode 1, new_id+object) via the marshal_flags/constructor
+  template at events.rs:403-424, then `wl_proxy_add_listener` for the data_device.
+- **Opcodes (stable core protocol):** data_device_manager: create_data_source=0, get_data_device=1.
+  data_device requests: start_drag=0, set_selection=1(source,serial), release=2; events: data_offer=0,
+  enter=1, leave=2, motion=3, drop=4, selection=5(offer). data_source requests: offer=0(mime), destroy=1,
+  set_actions=2; events: target=0, send=1(mime,fd), cancelled=2. data_offer requests: accept=0, receive=1(mime,fd),
+  destroy=2; events: offer=0(mime), source_actions=1, action=2.
+- **COPY:** create_data_source (marshal_constructor, new_id) → offer "text/plain;charset=utf-8"/"UTF8_STRING"/"text/plain"
+  → set_selection(source, self.pointer_state.serial [mod.rs:2218/2055]). On data_source.send(mime,fd):
+  write text + close fd; on cancelled: destroy source.
+- **PASTE:** from tracked selection wl_data_offer: `libc::pipe2`, receive(mime, wfd) (opcode 1, 'sh' sig —
+  wl_proxy_marshal passes the fd as an int arg, libwayland does SCM_RIGHTS via the interface signature),
+  close wfd, wl_display_roundtrip, read rfd to EOF → UTF-8. **fd-marshalling precedent:** shm create_pool
+  (tooltip.rs:220, `wl_shm_create_pool(shm, fd, size)`).
+- **Route:** `wayland::clipboard` free fns have no window; thread native through `WaylandWindow::sync_clipboard`
+  (mod.rs:704, has &mut self + wl objects). Prefer native when `data_device_manager` is bound, else the
+  current x11_clipboard fallback (now reliable after firing-30 persistent-owner fix).
+
+**AUTONOMOUS LOOP PAUSED** (cron `0fc338cf` deleted) — same call as firing 24: the productive,
+verifiable-here limit is reached. Everything left needs USER ACTION:
+- **RE-LOGIN (highest value):** unblocks on-screen verification of all 5 landed+committed fixes —
+  #9 real mouse-wheel scroll (+ momentum/bounce), #10 dead-key `é` + fcitx5/ibus Japanese IME preedit,
+  #11 a11y (Orca). CJK/Hangul GLYPH rendering is ALREADY screenshot-verified. azul-paint + libazul.so are
+  rebuilt with everything.
+- **THEN** re-issue the `/loop` cron command to resume: next focused tasks are native wl_data_device
+  (turn-key recipe above) and #11 a11y on X11.
+This session landed 5 fixes (6 code commits + docs): #9 scroll redraw (x11+wl), setlocale input,
+CFF glyph decode, Hangul cmap-fallback, Wayland clipboard reliability. 2 visually verified, scroll
+code-proven, rest await re-login.
