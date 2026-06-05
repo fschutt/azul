@@ -45,10 +45,11 @@ cascading.
 ## 4. Design
 
 ### 4.1 New selector variant
-`CssPathSelector::Root(usize)` in `css/src/css.rs:1520` — the `usize` is the **flat
-NodeId** of the owning node (the css's node). Distinct from `Global` (genuine `*`), so
-there is **no 0-ambiguity** (a `Root(0)` legitimately scopes to the root node; UA/system
-`*` stays `Global`).
+`CssPathSelector::Root(usize, usize)` in `css/src/css.rs` — the owning node's **subtree
+range** `[start, end]` (inclusive flat NodeIds; `end = start + estimated_total_children`,
+since the flat arena lays subtrees out contiguously). Matches a node iff
+`start <= node <= end`. A LEAF owner has `end == start` (matches only itself). Distinct
+from `Global` (genuine `*`); UA/system `*` stays `Global`.
 
 ### 4.2 Scoping = `push_front(Root(n))` onto every inline rule's selector path
 A CSS block is matched against a `Vec<CssPathSelector>` (`CssPath.selectors`). "Inline css"
@@ -151,5 +152,22 @@ to preserve as a seam (no threads/rayon now):
   we capture owners (it can — we capture before/at the walk, not from `NodeData`).
 - **Anonymous nodes** (tables) get flat ids too; `Root(n)` on an author node won't target
   them — fine.
-- **api.json/codegen**: `CssPathSelector` is FFI-exposed; adding `Root(usize)` regenerates
-  bindings. Acceptable (we own the crates).
+- **api.json/codegen**: `CssPathSelector` is FFI-exposed; adding `Root(CssScopeRange)`
+  (a new `#[repr(C)]` struct) regenerates bindings. Acceptable (we own the crates).
+
+## 9. Status
+- [x] **Step 1** — `azul-css`: `CssPathSelector::Root(CssScopeRange{start,end})` +
+  `CssScopeRange::contains` + `Display` + codegen arm. `cargo build -p azul-css` ✓.
+- [x] **Step 2** — `azul-css`: `CssPath::push_front_scope` + `root_scope_tests` (3 tests).
+  `cargo test -p azul-css root_scope` ✓.
+- [x] **Step 3** — `azul-core` `style.rs`: candidate `NodeId` threaded into
+  `selector_group_matches`/`match_single_selector`; `Root(range)` range-test arm.
+- [x] **Step 4** — `azul-core` `styled_dom.rs`: `scope_inline_css` (pre-order, matches
+  flatten ids) push_front-s `Root([id, id+estimated_total_children])` onto every inline
+  rule in `create_from_dom`. End-to-end test `core/tests/css_scope_47.rs` ✓ (red/blue
+  siblings: each own bg, differ, **body none = no leak**). All ~476 core tests pass.
+- [ ] **Step 5** — app build + headless red/blue render (final visual confirmation).
+- [ ] **Follow-up** — FastDom/XML path (`create_from_fast_dom`) still merges css globally;
+  apply the same `Root(range)` scoping there (range from the owner node_id's subtree).
+
+Committed: `58bcce130` (code + tests).
