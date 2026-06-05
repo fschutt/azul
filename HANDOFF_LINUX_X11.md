@@ -1612,3 +1612,34 @@ menu_renderer::create_menu_dom_with_css. Windows' size_to_content is also still 
 parent-relative positioning (parent_window offset; Wayland xdg_popup) — the big multi-firing item →
 (2) a11y integration scan (next bounded item) → (3) clipboard scan (native wl_data_device owed) →
 (4) rest of backlog. (IME cursor = DONE; scroll/cursor-blink = fixed pending live confirm.)
+
+### Cron firing 37 — a11y scan FIX committed; clipboard scan done
+**a11y scan → FIXED (commit eaeee0c5c, builds clean):** the X11 accesskit ActivationHandler's
+`request_initial_tree()` returned None — but `update_tree` uses `update_if_active` (no-op until the
+adapter is ACTIVE), and the adapter only activates when request_initial_tree returns Some. So a screen
+reader connecting after the first layout saw an empty tree (a11y inert). Now a shared
+`last_tree: Arc<Mutex<Option<TreeUpdate>>>` is stored by update_tree and returned from
+request_initial_tree → adapter activates with the live tree. Rest of the X11 a11y path verified SOUND:
+update_a11y_tree builds roles/text/cursor/selection/focus (window.rs:2925) and pushes after every layout;
+actions decode + route via process_accessibility_action (run loop polls process_accessibility_actions).
+Remaining a11y: live-verify with Orca; review macOS/Windows parity later.
+
+**clipboard scan → findings (no quick code fix; the real fix is the owed native wl path):**
+- ClipboardManager flow is clean: copy = On::Copy → set_copy_content / get_copy_content → sync_clipboard;
+  paste = Ctrl+V → get_system_clipboard → set_paste_content → On::Paste reads get_clipboard_content.
+- **Routing gap:** `get_system_clipboard()` (common/event.rs:269-271) is hardcoded to
+  `linux::x11::clipboard::get_clipboard_content()` for ALL Linux — there is NO runtime branch for the
+  Wayland backend, so the firing-30 `wayland::clipboard` persistent-owner fix is effectively DEAD CODE
+  (never routed to). Works under XWayland (x11_clipboard bridges via the X server); FAILS on pure
+  Wayland (no X). Both x11/wayland clipboard modules use x11_clipboard anyway, so there's no cheap fix.
+- **Proper fix = native wl_data_device + runtime backend routing** (the firing-32 TURN-KEY plan: dlsym
+  the 4 core interfaces, bind manager in registry, get_data_device + listeners, copy via
+  source+offer+set_selection(serial), paste via pipe+receive, then route get_system_clipboard/sync to the
+  active backend). Best done with a real Wayland session to test.
+
+**PRIORITY ORDER NOW:** (1) **MENU refactor** (size_to_content intrinsic measure-pass on X11+Wayland →
+parent-relative positioning, Wayland xdg_popup) — the big remaining item, user's top priority → (2)
+native wl_data_device + clipboard runtime routing → (3) rest of backlog (textarea hover cursor, exit-time
+GL texture-cache TLS crash, azul-paint self-close, #47/#48/hit-tester). DONE this session: scroll redraw,
+setlocale, CFF+Hangul glyphs, X11-API stability (drain/sourceid/Xutf8), redraw architecture + minimize
+crash, EWMH window-type hint, IME cursor (verified), a11y request_initial_tree. Awaiting user live test.
