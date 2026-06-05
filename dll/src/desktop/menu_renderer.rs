@@ -556,7 +556,7 @@ impl SystemStyleMenuExt for SystemStyle {
         css.push_str(&format!(
             ".menu-container {{\nbackground: rgb({}, {}, {});\nborder: 1px solid rgb(180, 180, \
              180);\nborder-radius: {}px;\nbox-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);\npadding: \
-             4px 0;\nmin-width: 160px;\n}}\n",
+             4px 0;\nmin-width: 160px;\noverflow-y: auto;\n}}\n",
             bg_color.r, bg_color.g, bg_color.b, corner_radius
         ));
 

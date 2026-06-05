@@ -2053,6 +2053,14 @@ impl X11Window {
                 let posf = azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32);
                 if let Some(display) = crate::desktop::display::get_display_at_point(posf) {
                     let wa = display.work_area;
+                    // Height-clamp: a menu taller than the monitor work-area is
+                    // capped to it so it never runs off the bottom of the screen.
+                    // The menu DOM scrolls within the capped height (overflow-y:auto
+                    // on the menu container in menu_renderer).
+                    if final_size.dimensions.height > wa.size.height {
+                        final_size.dimensions.height = wa.size.height;
+                        self.common.current_window_state.size = final_size;
+                    }
                     let w = final_size.dimensions.width;
                     let h = final_size.dimensions.height;
                     let nx = posf.x.min(wa.origin.x + wa.size.width - w).max(wa.origin.x);
