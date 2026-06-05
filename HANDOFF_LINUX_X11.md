@@ -1288,3 +1288,54 @@ Fix this AFTER the CFF decode (otherwise can't see Hangul render anyway).
 input✓(setlocale); **CJK glyph rendering = implement CFF outline decode (top of next firing)**, then
 Hangul coverage; then IME verify post re-login → (3) #7 Wayland clipboard → (4) #11 a11y on X11.
 (Deferred: #47 @scope, #48 events, hit-tester unify.)
+
+### Cron firing 28 — #10 CJK GLYPH RENDERING **FIXED + VISUALLY VERIFIED** (CFF outline decode)
+Implemented the firing-27 fix plan and confirmed it on screen via headless render.
+
+**FIX (committed):** added `ParsedFont::decode_cff_glyph_into` in `layout/src/font.rs`.
+`decode_glyph_inner`'s `resolve_loca_glyf()`-is-`None` branch (CFF / OpenType-PostScript fonts) now,
+instead of returning an empty outline, reads the `CFF ` table from `original_bytes` via
+`FontData::table_provider` and decodes the glyph with allsorts `cff::outline::CFFOutlines` into the same
+`GlyphOutlineCollector` the glyf path uses (bbox via `compute_outline_bbox`). allsorts resolves
+CID-keyed CFF (incl. local subrs) internally — needed because Noto Sans/Serif CJK are CID-keyed CFF.
+
+**VISUAL VERIFICATION (headless):** rebuilt `hello-world` with a CJK test label, ran
+`AZ_BACKEND=headless AZ_HEADLESS_SNAPSHOT_PATH=/tmp/cjk_fixed.png` → inspected PNG:
+**日本語 (kanji), 中文, あいう (hiragana), é à ü ñ ALL RENDER** now (vs blank-after-advance before the
+fix). The CPU/headless rasterizer can now draw CFF fonts — fixes CJK AND any `.otf`/PostScript font on
+the cpurender path (and the Linux CPU-fallback this nouveau box uses). macOS/WebRender were unaffected.
+
+**STILL OPEN — Korean Hangul (한국어) drops at COVERAGE (separate bug, not CFF):** the headless render
+shows a blank gap where 한국어 should be. `AZ_FONT_FALLBACK_DEBUG=1` confirms `split_text_by_font_coverage`
+→ `font_chain.resolve_char` returns `None` for Hangul (those bytes get NO segment), while Han + Hiragana
+resolve to the CJK font fine. NotoSansCJK covers Hangul, so the resolved chain's per-font coverage
+(`UnicodeRange`) is missing the Hangul Syllables block (U+AC00–U+D7AF). HYPOTHESIS (firing 28): the
+legacy chain path (`resolve_font_chains_with_registry` + `prune_chain_to_used_chars`, used when
+`font_manager.registry` is None) derives coverage from the cached `FontMatch.unicode_ranges`, which
+rust-fontconfig builds from the **OS/2 ulUnicodeRange bits**, not the actual cmap. Noto Sans CJK ships
+as separate JP/KR/SC/TC faces that share glyphs but set DIFFERENT OS/2 range bits — the **JP** face
+(picked first for 日本語) likely does NOT set the Hangul bit, so `fm_covers`/`resolve_char` reject it for
+Hangul even though its cmap has the glyphs. rust-fontconfig is a crates.io dep (not editable in place);
+`fm_covers` (getters.rs:3762) + `prune_chain_to_used_chars` are azul-side and editable. NEXT firing:
+(a) confirm whether the headless/registry path is None here (→ legacy OS/2 path), (b) decide fix:
+prefer the cmap-probe `resolve_font_chains_fast` path (registry) which checks real cmap coverage, or add
+an azul-side cmap-coverage fallback in `fm_covers` when OS/2 ranges disagree with the actual cmap. Probe:
+`AZ_FONT_FALLBACK_DEBUG=1` already shows the drop; add a log of the candidate fonts' `unicode_ranges`
+for a Hangul codepoint.
+
+**PERF NOTE:** `decode_cff_glyph_into` re-parses FontData+CFF index per glyph, but `get_or_decode_glyph`
+caches the resulting `OwnedGlyph` per gid, so it runs once per unique glyph (acceptable; CFF::read is
+index-level, not all-charstrings). Optional later opt: cache the parsed CFF table on the face.
+
+**ARTIFACTS:** font.rs is in azul-layout → libazul.so + azul-paint need a rebuild to carry the CFF fix
+(scroll+setlocale builds predate it). Rebuilding post-commit.
+
+**VERIFY recipe (reuse):** edit `examples/rust/src/hello-world.rs` label to a SHORT, CJK-FIRST string
+(window is ~640px, no wrap — long lines push CJK off-screen-right and the clip check drops it),
+`cargo build -r -p azul-examples --example hello-world`, then
+`AZ_FONT_FALLBACK_DEBUG=1 AZ_BACKEND=headless AZ_HEADLESS_SNAPSHOT_PATH=/tmp/x.png ./target/release/examples/hello-world`,
+Read /tmp/x.png.
+
+**PRIORITY ORDER NOW:** (1) #9 scroll FIX LANDED (real-wheel verify post re-login) → (2) #10: input✓,
+**CJK glyph rendering✓ (FIXED)**, remaining = Korean Hangul coverage + IME verify post re-login →
+(3) #7 Wayland clipboard → (4) #11 a11y on X11. (Deferred: #47 @scope, #48 events, hit-tester unify.)

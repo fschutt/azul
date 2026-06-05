@@ -1424,6 +1424,13 @@ pub mod parsed {
             // actual `LocaGlyf::load` happens on first access, paid once
             // per face that ever decodes a glyph.
             let Some(loca_glyf_arc) = self.resolve_loca_glyf() else {
+                // No usable loca+glyf → CFF / OpenType-PostScript font
+                // (Noto Sans/Serif CJK and most .otf). Decode the glyph
+                // from the `CFF ` table instead; the TrueType-only glyf
+                // path below can't see these, which left every CFF glyph
+                // blank on the cpurender/headless path (CJK rendered as
+                // empty space with the hmtx advance still reserved).
+                self.decode_cff_glyph_into(gid, &mut record);
                 return record;
             };
             let Ok(mut loca_glyf) = loca_glyf_arc.lock() else {
@@ -1512,6 +1519,47 @@ pub mod parsed {
             }
 
             record
+        }
+
+        /// Decode a single glyph outline from the `CFF ` (OpenType
+        /// PostScript) table into `record`. Used for fonts with no `glyf`
+        /// table — `decode_glyph_inner`'s TrueType path returns an empty
+        /// outline for them, so without this every CFF glyph rasterised as
+        /// blank on the CPU renderer. Notably this hit ALL CJK text: the
+        /// installed Noto Sans/Serif CJK fonts are CID-keyed CFF. allsorts'
+        /// `CFFOutlines` feeds the same `GlyphOutlineCollector` the glyf
+        /// path uses and resolves CID-keyed local subrs internally.
+        fn decode_cff_glyph_into(&self, gid: u16, record: &mut OwnedGlyph) {
+            use allsorts::cff::{outline::CFFOutlines, CFF};
+
+            let Some(ref original) = self.original_bytes else {
+                return;
+            };
+            let bytes: &[u8] = original.as_slice();
+            let Ok(font_data) = ReadScope::new(bytes).read::<FontData<'_>>() else {
+                return;
+            };
+            let Ok(provider) = font_data.table_provider(self.original_index) else {
+                return;
+            };
+            let Ok(Some(cff_data)) = provider.table_data(tag::CFF) else {
+                return;
+            };
+            let Ok(cff) = ReadScope::new(&cff_data).read::<CFF<'_>>() else {
+                return;
+            };
+            let mut outlines = CFFOutlines { table: &cff };
+            let mut collector = GlyphOutlineCollector::new();
+            if outlines.visit(gid, None, &mut collector).is_ok() {
+                record.outline = collector.into_outlines();
+                let (min_x, min_y, max_x, max_y) = compute_outline_bbox(&record.outline);
+                record.bounding_box = OwnedGlyphBoundingBox {
+                    min_x,
+                    min_y,
+                    max_x,
+                    max_y,
+                };
+            }
         }
 
         /// Parse PDF-specific font metrics from HEAD, HHEA, and OS/2 tables
