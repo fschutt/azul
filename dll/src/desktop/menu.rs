@@ -386,6 +386,31 @@ pub fn show_menu(
     cursor_position: Option<LogicalPosition>,
     parent_menu_id: Option<u64>,
 ) -> WindowCreateOptions {
+    // Position the popup at the cursor / trigger with edge-flip + work-area clamp
+    // (was hard-coded to (0,0), so menus opened in the top-left corner).
+    // size_to_content later resizes the WINDOW to its true content; this size
+    // estimate only drives the flip/clamp so the menu opens at the cursor and
+    // stays on-screen. cursor_position is parent-window-relative, but
+    // calculate_menu_position wants an absolute (screen) cursor, so offset it by
+    // the parent's position. (DPI=1 assumption: logical ~= physical; HiDPI
+    // repositioning is a follow-up.)
+    let item_count = menu.items.as_slice().len().max(1);
+    let estimated_size = LogicalSize::new(220.0, item_count as f32 * 28.0 + 8.0);
+    let abs_cursor = cursor_position.map(|c| {
+        LogicalPosition::new(parent_window_position.x + c.x, parent_window_position.y + c.y)
+    });
+    let menu_pos = calculate_menu_position(
+        if trigger_rect.is_some() {
+            MenuPopupPosition::AutoHitRect
+        } else {
+            MenuPopupPosition::AutoCursor
+        },
+        abs_cursor,
+        trigger_rect,
+        estimated_size,
+        parent_window_position,
+    );
+
     let menu_data = MenuWindowData {
         menu,
         system_style,
@@ -406,7 +431,10 @@ pub fn show_menu(
     window_state.flags.is_resizable = false;
     window_state.title = "Menu".into();
     window_state.window_id = "azul-menu".into();
-    window_state.position = WindowPosition::Initialized(PhysicalPosition::new(0, 0));
+    window_state.position = WindowPosition::Initialized(PhysicalPosition::new(
+        menu_pos.x as i32,
+        menu_pos.y as i32,
+    ));
 
     window_state.layout_callback = LayoutCallback {
         cb: menu_layout_callback,
