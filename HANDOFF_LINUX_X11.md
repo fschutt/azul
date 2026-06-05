@@ -830,3 +830,18 @@ and risk breaking ALL rendering with the user away. Implement when env is health
    (root CSS still applies tree-wide). (c) A scoped-CSS example screenshot showing no leak.
 Risk: core cascade path used by ALL apps — needs the unit test + on-screen regression, hence
 deferred until the env is restored.
+
+---
+
+### Cron firing 17 — #49 VERIFIED on real hardware mouse (after user re-login)
+User re-logged in → WM restored, input works again. #49 (XI2 mouse delivery) CONFIRMED with a
+real hardware mouse: clicks place AND reposition the caret in the single-line input, and the
+user actively edited the field (status bar "Changes: 26"). Independent check: window-relative
+clicks moved the caret node 7 pos17 → node 3 pos26; native screenshot shows the caret in the
+single-line input. #49 DONE+VERIFIED (commit c813ef046). (#46 prerequisite also confirmed.)
+NOTE: plain xdotool screen-coord clicks landed at the wrong spot on this multi-head display
+(requested 512,256 → pointer 996,0) — a local xdotool/coordinate quirk, NOT a fix issue; use
+`xdotool ... --window <wid> X Y` (window-relative) for reliable scripted clicks here.
+
+NEXT (env now healthy, input verifiable): #48 event-system rework (user's aggressive pick) →
+hit-tester unification (user directive) → #47 @scope scoping (plan in firing 16) → #43.
