@@ -566,6 +566,12 @@ pub struct X11Window {
     pub gtk_im: Option<Rc<Gtk3Im>>,           // Optional GTK IM context for IME
     pub gtk_im_context: Option<*mut dlopen::GtkIMContext>, // GTK IM context instance
     pub display: *mut Display,
+    /// True if THIS window opened `display` (and must XCloseDisplay it on Drop +
+    /// drain/dispatch its event queue). False for CHILD windows (menus/dialogs)
+    /// that reuse a parent's display (resolved from `parent_window_id`): the
+    /// OWNER drains the shared connection and dispatches each event to the
+    /// target window by `XAnyEvent.window`, so children neither drain nor close it.
+    pub owns_display: bool,
     pub window: Window,
     pub is_open: bool,
     wm_delete_window_atom: Atom,
@@ -697,11 +703,31 @@ impl X11Window {
             }
         }
 
-        while unsafe { (self.xlib.XPending)(self.display) } > 0 {
-            let mut event: XEvent = unsafe { std::mem::zeroed() };
-            unsafe { (self.xlib.XNextEvent)(self.display, &mut event) };
+        // Only the display OWNER drains the connection. Child windows (menus,
+        // dropdowns, dialogs) share the owner's display (owns_display == false);
+        // the owner drains the single shared queue and dispatches each event to
+        // its target window by XAnyEvent.window. Children therefore skip draining
+        // — otherwise owner and children would race on one queue and misroute
+        // each other's events. (option-(b) shared-display pump.)
+        if self.owns_display {
+            while unsafe { (self.xlib.XPending)(self.display) } > 0 {
+                let mut event: XEvent = unsafe { std::mem::zeroed() };
+                unsafe { (self.xlib.XNextEvent)(self.display, &mut event) };
 
-            self.handle_event(&mut event);
+                let target = unsafe { event.any.window } as u64;
+                if target == self.window {
+                    self.handle_event(&mut event);
+                } else if let Some(wptr) = unsafe { super::registry::get_window(target) } {
+                    // Dispatch to the child window that owns this X window.
+                    match unsafe { &mut *wptr } {
+                        super::LinuxWindow::X11(child) => child.handle_event(&mut event),
+                        _ => self.handle_event(&mut event),
+                    }
+                } else {
+                    // Unknown/just-closed target — handle on self so it isn't lost.
+                    self.handle_event(&mut event);
+                }
+            }
         }
 
         None
@@ -819,7 +845,10 @@ impl X11Window {
                 if let Some(colormap) = self.argb_colormap.take() {
                     (self.xlib.XFreeColormap)(self.display, colormap);
                 }
-                (self.xlib.XCloseDisplay)(self.display);
+                // Only close a display we OWN; child windows share a parent's.
+                if self.owns_display {
+                    (self.xlib.XCloseDisplay)(self.display);
+                }
             }
         }
     }
@@ -940,7 +969,28 @@ impl X11Window {
             });
         }
 
-        let display = unsafe { (xlib.XOpenDisplay)(std::ptr::null()) };
+        // Child windows (menus/dropdowns/dialogs) REUSE the parent's display so a
+        // single event pump (the owner's poll_event) drains one connection and
+        // dispatches by XAnyEvent.window. The parent is identified by
+        // `parent_window_id` (the window-registry key) — resolve it to the
+        // parent's live display. Fall back to opening our own if there is no
+        // parent or the parent isn't an X11 window.
+        let shared_parent_display: Option<*mut Display> = if options.parent_window_id != 0 {
+            unsafe {
+                super::registry::get_window(options.parent_window_id).and_then(|wptr| {
+                    match &*wptr {
+                        super::LinuxWindow::X11(parent) => Some(parent.display),
+                        _ => None,
+                    }
+                })
+            }
+        } else {
+            None
+        };
+        let (display, owns_display) = match shared_parent_display {
+            Some(d) => (d, false),
+            None => (unsafe { (xlib.XOpenDisplay)(std::ptr::null()) }, true),
+        };
         if display.is_null() {
             return Err(WindowError::PlatformError(
                 "Failed to open X display".into(),
@@ -1215,6 +1265,7 @@ impl X11Window {
             gtk_im,
             gtk_im_context,
             display,
+            owns_display,
             window: window_handle,
             is_open: true,
             wm_delete_window_atom,
@@ -3159,7 +3210,7 @@ impl X11Window {
         };
 
         // Create menu window options
-        let menu_options = crate::desktop::menu::show_menu(
+        let mut menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.common.system_style.clone(),
             parent_pos,
@@ -3167,6 +3218,9 @@ impl X11Window {
             Some(position), // Position for menu
             None,           // No parent menu
         );
+        // Parent the menu to THIS window so it reuses our X display (single
+        // shared event pump) and is positioned relative to us.
+        menu_options.parent_window_id = self.window as u64;
 
         // Queue window creation request
         log_debug!(

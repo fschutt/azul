@@ -970,7 +970,7 @@ impl X11Window {
         };
 
         // Create menu window options using unified menu system
-        let menu_options = crate::desktop::menu::show_menu(
+        let mut menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.resources.system_style.clone(),
             parent_pos,
@@ -978,6 +978,9 @@ impl X11Window {
             Some(position), // Cursor position
             None,           // No parent menu
         );
+        // Parent the menu to THIS window so it reuses our X display (single
+        // shared event pump) and is positioned relative to us.
+        menu_options.parent_window_id = self.window as u64;
 
         log_debug!(
             LogCategory::Window,
