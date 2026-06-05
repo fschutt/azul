@@ -166,8 +166,21 @@ to preserve as a seam (no threads/rayon now):
   flatten ids) push_front-s `Root([id, id+estimated_total_children])` onto every inline
   rule in `create_from_dom`. End-to-end test `core/tests/css_scope_47.rs` ✓ (red/blue
   siblings: each own bg, differ, **body none = no leak**). All ~476 core tests pass.
-- [ ] **Step 5** — app build + headless red/blue render (final visual confirmation).
-- [ ] **Follow-up** — FastDom/XML path (`create_from_fast_dom`) still merges css globally;
-  apply the same `Root(range)` scoping there (range from the owner node_id's subtree).
+- [~] **Step 5** — headless render (firing 56): CONFIRMS the leak is gone — the window is
+  WHITE, not the all-red of firing 53. BUT the two test divs render with no visible box:
+  bare-`set_css` LAYOUT props (width/height) don't size the node. Hard data from the test:
+  `css_props[divA] = ["background"]` only (paint), NO width/height; `css_props[body] = []`
+  (no leak ✓). So restyle routes layout-hot props differently from paint props, and they
+  don't land for a `set_css`-matched rule.
+- [ ] **FOLLOW-UP A (HIGH — verify regression vs pre-existing)** — bare-`set_css`
+  width/height don't reach `css_props`/layout. `parse_inline` keeps them (test added);
+  background scopes fine. Trace restyle's layout-hot pipeline (the "Tier 1/2/2b direct
+  typed getters" the `get_property` comment names, prop_cache.rs:1934): does it match rules
+  with a SEPARATE matcher that does NOT handle the new `Root` selector? If so, the `Root`
+  push_front broke layout-prop application (a regression to fix — likely add the `Root` arm
+  there too). If bare-`set_css` layout props never worked (examples size via classes /
+  content), it's pre-existing. The #47 LEAK fix is correct + verified independent of this.
+- [ ] **FOLLOW-UP B** — FastDom/XML path (`create_from_fast_dom`) still merges css globally;
+  apply the same `Root(range)` scoping (range from the owner node_id's subtree).
 
-Committed: `58bcce130` (code + tests).
+Committed: `58bcce130` (fix+tests), `6f5df0569` (plan), `438d8d46a` (parse_inline test).

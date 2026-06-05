@@ -2074,3 +2074,26 @@ headless-verifiable (single-div repro), so a strong focused target, but not a ru
 DECISION: ending the 3-firing CSS dig here — it's a precisely-located, fix-optioned, verifiable bug now.
 Doesn't block the menu (root CSS). Next firings should pick a DIFFERENT item (the X11-interactive work
 needs the user; or attempt #47 as a dedicated careful effort if the user asks).
+
+### Cron firing 56 — #47 IMPLEMENTED with the user (Root(range) selector) + VERIFIED; one follow-up
+User drove the design live; full plan + status in CSS_ROOT_SCOPE_REFACTOR.md. Implemented the clean,
+node-id-based fix (no synthetic classes):
+- azul-css: `CssPathSelector::Root(CssScopeRange{start,end})` (repr(C) struct for FFI) — inclusive flat-
+  NodeId subtree range; matches iff start<=node<=end. `CssPath::push_front_scope`. (commit 58bcce130)
+- azul-core flatten (`scope_inline_css` in create_from_dom): walks pre-order like
+  convert_dom_into_compact_dom and push_front-s `Root([id, id+estimated_total_children])` onto every
+  inline rule. Root compounds with the parse_inline `*` wrapper → confined to the owner's subtree; a
+  user `* {}` becomes Root(range)* = the subtree, never global. The contiguous range IS the future
+  parallel-cascade slice (prepared, not implemented, per user).
+- azul-core matcher (style.rs): candidate NodeId threaded into selector matching; `Root(range)` arm is a
+  pure range test. Root rules auto-leave the global-only fast path; genuine UA `*` stays global.
+VERIFIED via UNIT TESTS (no app rebuild — fast): cargo test -p azul-css root_scope (4 tests: range,
+push_front, display, parse_inline-keeps-decls) + -p azul-core --test css_scope_47 (two sibling divs
+red/blue: each own bg, differ, body NONE = NO LEAK). All ~476 existing core tests still pass (no
+matcher/cascade regression). Headless render confirms the leak is GONE (window white, not the firing-53
+all-red).
+FOLLOW-UP A (HIGH, flagged): the headless render also showed bare-`set_css` WIDTH/HEIGHT don't size the
+node (divs collapse). Data: css_props[divA]=["background"] only — layout-hot props (width/height) take a
+different restyle pipeline ("Tier 1/2/2b", prop_cache.rs:1934) and don't land for a set_css-matched rule.
+MUST verify regression-vs-pre-existing (does the layout-hot matcher need the Root arm too?). The #47 LEAK
+fix is correct independent of this. FOLLOW-UP B: FastDom/XML path still merges globally — scope it too.
