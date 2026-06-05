@@ -1068,3 +1068,34 @@ scroll_timer); verify the Wayland event loop's animation-driving + timer pumping
     continuous-animation driving. (2) #47 @scope subtree-scoping — UNIT-TEST verifiable (cargo
     test), WM-INDEPENDENT, good to do while the WM is wedged; related to the #8 cascade work.
 (3) #48 event-system rework. (4) hit-tester unification. (5) #7 native Wayland clipboard.
+
+---
+
+### Cron firing 24 — autonomous loop hit its productive limit (WM still wedged); #47 reassessed as bigger than planned
+WM still wedged (no re-login: session unchanged since 09:14, xeyes IsUnMapped). So on-screen
+real-input verification (#9-animation real wheel, #48, hit-tester) stays BLOCKED.
+
+#47 reassessed (was flagged "WM-independent, do next"): it's bigger/more delicate than the firing-16
+plan implied. The SLOW path `collect_css_from_dom` (styled_dom.rs:2108) runs on the `Dom` TREE,
+BEFORE NodeIds are assigned (NodeIds come during convert_dom_into_compact_dom), and create_from_dom
+then MERGES all rules into ONE `combined_css` (create_from_dom:~1186) with no origin. So threading a
+per-rule origin requires: (a) capturing each rule's Dom-tree position at collection, (b) mapping
+that to the final NodeId after compaction, (c) a subtree-aware matcher change in restyle/
+prop_cache (CssRuleBlock has no origin field — either add one [touches azul-css public type +
+api.json regen] or thread a parallel rule→origin map through create→restyle→match). High blast
+radius (the cascade matcher affects ALL apps). The FastDom path has node_id already; the slow path
+is the hard part. Conservative scoping (root/global unchanged, only node-originated CSS scoped)
+limits risk and is unit-test + headless-regression verifiable — but it's a focused multi-file core
+change best done in a FRESH session, not at extreme context depth.
+
+ASSESSMENT: this autonomous session has delivered a lot (#46, #49, Delete/Backspace+Ctrl+A,
+clipboard C/X/V, #8 line-break, #9 scroll core verified). The remaining backlog is now all either
+(a) on-screen-verification BLOCKED by the wedged WM (re-login needed): #9-animation, #48,
+hit-tester; or (b) large/delicate core changes best done with fresh context: #47, #48, hit-tester;
+or (c) untestable on this box: #7 Wayland clipboard, Wayland scroll. No safe + fully-verifiable +
+tractable-at-depth item remains. Continuing to fire the 10-min cron now just spins.
+
+ACTION: paused the cron (deleted job d317fa59) to avoid wasteful spinning. TO RESUME productive
+work: (1) re-login to clear the wedged WM (restores window mapping → real-wheel/native-screenshot
+verification), then (2) start a FRESH session (full context budget) and re-create the cron. Next
+items in order: #9-animation real-wheel verify → #47 (plan above) → #48 → hit-tester → #7.
