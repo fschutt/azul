@@ -1160,13 +1160,27 @@ impl X11Window {
             (RenderMode::Cpu(Some(gc)), None, None, None, None, None, None.into())
         } else {
             match gl::GlContext::new(&xlib, &egl, display, window_handle) {
-            Ok(gl_context) => {
+            Ok(gl_context) => 'gpu: {
                 gl_context.make_current();
                 gl_context.configure_vsync(options.window_state.renderer_options.vsync);
-                let gl_functions = GlFunctions::initialize(&egl).unwrap();
+                // ANY failure past this point falls back to CPU rendering in THIS
+                // window — "GPU init failed" must never mean "no window".
+                let gl_functions = match GlFunctions::initialize(&egl) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        crate::plog_warn!(
+                            "[X11] GL function loading failed: {:?} — falling back to CPU rendering",
+                            e
+                        );
+                        let gc = unsafe {
+                            (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut())
+                        };
+                        break 'gpu (RenderMode::Cpu(Some(gc)), None, None, None, None, None, None.into());
+                    }
+                };
 
                 let new_frame_ready = Arc::new((Mutex::new(false), Condvar::new()));
-                let (renderer, sender) = webrender::create_webrender_instance(
+                let (renderer, sender) = match webrender::create_webrender_instance(
                     gl_functions.functions.clone(),
                     Box::new(Notifier {
                         new_frame_ready: new_frame_ready.clone(),
@@ -1176,10 +1190,19 @@ impl X11Window {
                         wr_translate2::create_program_cache(&gl_functions.functions),
                     ),
                     None,
-                )
-                .map_err(|e| {
-                    WindowError::PlatformError(format!("WebRender init failed: {:?}", e))
-                })?;
+                ) {
+                    Ok(rs) => rs,
+                    Err(e) => {
+                        crate::plog_warn!(
+                            "[X11] WebRender init failed: {:?} — falling back to CPU rendering",
+                            e
+                        );
+                        let gc = unsafe {
+                            (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut())
+                        };
+                        break 'gpu (RenderMode::Cpu(Some(gc)), None, None, None, None, None, None.into());
+                    }
+                };
 
                 let render_api = sender.create_api();
                 let framebuffer_size = webrender::api::units::DeviceIntSize::new(

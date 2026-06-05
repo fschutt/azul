@@ -1255,10 +1255,26 @@ impl WaylandWindow {
             )?))
         } else {
             match gl::GlContext::new(&wayland, display, window.surface, width, height) {
-                Ok(mut gl_context) => {
+                Ok(mut gl_context) => 'gpu: {
                     gl_context.configure_vsync(options.window_state.renderer_options.vsync);
-                    let gl_functions =
-                        GlFunctions::initialize(gl_context.egl.as_ref().unwrap()).unwrap();
+                    // GL function loading must never dead-end to "no window".
+                    let gl_functions = match gl_context
+                        .egl
+                        .as_ref()
+                        .and_then(|egl| GlFunctions::initialize(egl).ok())
+                    {
+                        Some(f) => f,
+                        None => {
+                            log_warn!(
+                                LogCategory::Rendering,
+                                "[Wayland] GL function loading failed — falling back to CPU rendering"
+                            );
+                            drop(gl_context);
+                            break 'gpu RenderMode::Cpu(Some(CpuFallbackState::new(
+                                &wayland, window.shm, width, height,
+                            )?));
+                        }
+                    };
                     // Detect a software rasteriser; under Auto, prefer cpurender.
                     gl_context.make_current();
                     let is_software = matches!(
@@ -1295,11 +1311,33 @@ impl WaylandWindow {
         };
         window.render_mode = render_mode;
 
-        if let RenderMode::Gpu(gl_context, gl_functions) = &mut window.render_mode {
+        // Initialize WebRender on the GPU context; if it fails (e.g. shaders won't
+        // compile on this driver) fall back to CPU rendering for this window rather
+        // than failing window creation — "GPU init failed" must never mean "no window".
+        let webrender_failed = if let RenderMode::Gpu(gl_context, gl_functions) =
+            &mut window.render_mode
+        {
             gl_context.make_current();
             // Borrow gl_functions separately to avoid double mutable borrow
             let gl_funcs_ref = gl_functions as *const GlFunctions;
-            window.initialize_webrender(&options, unsafe { &*gl_funcs_ref })?;
+            match window.initialize_webrender(&options, unsafe { &*gl_funcs_ref }) {
+                Ok(_) => false,
+                Err(e) => {
+                    log_warn!(
+                        LogCategory::Rendering,
+                        "[Wayland] WebRender init failed: {:?} — falling back to CPU rendering",
+                        e
+                    );
+                    true
+                }
+            }
+        } else {
+            false
+        };
+        if webrender_failed {
+            window.render_mode = RenderMode::Cpu(Some(CpuFallbackState::new(
+                &wayland, window.shm, width, height,
+            )?));
         }
 
         unsafe { (window.wayland.wl_surface_commit)(window.surface) };

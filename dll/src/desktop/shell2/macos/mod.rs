@@ -3218,13 +3218,40 @@ impl MacOSWindow {
             wr_hit_tester,
             gl_context_ptr,
             renderer_type,
-        ) = if backend == RenderBackend::OpenGL {
+        ) = 'gpu: {
+            // CPU backend: skip all WebRender/GL initialization entirely.
+            if backend != RenderBackend::OpenGL {
+                log_info!(
+                    LogCategory::Rendering,
+                    "[Window Init] CPU backend — skipping WebRender/GL initialization"
+                );
+                break 'gpu (
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    OptionGlContextPtr::None,
+                    RendererType::Software,
+                );
+            }
             let gl_funcs = match &gl_functions {
                 Some(f) => f.functions.clone(),
                 None => {
-                    return Err(WindowError::PlatformError(
-                        "OpenGL backend requires GL functions".into(),
-                    ));
+                    // Defensive: OpenGL backend selected but GL functions missing.
+                    // Never dead-end to no-window — fall back to CPU rendering.
+                    crate::plog_warn!(
+                        "[macOS] OpenGL backend but no GL functions — falling back to CPU rendering"
+                    );
+                    break 'gpu (
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        OptionGlContextPtr::None,
+                        RendererType::Software,
+                    );
                 }
             };
 
@@ -3237,15 +3264,32 @@ impl MacOSWindow {
                 new_frame_ready: new_frame_ready.clone(),
             };
 
-            let (mut renderer, sender) = webrender::create_webrender_instance(
+            let (mut renderer, sender) = match webrender::create_webrender_instance(
                 gl_funcs.clone(),
                 Box::new(notifier),
                 default_renderer_options(&options, create_program_cache(&gl_funcs)),
                 None,
-            )
-            .map_err(|e| {
-                WindowError::PlatformError(format!("WebRender initialization failed: {:?}", e))
-            })?;
+            ) {
+                Ok(rs) => rs,
+                Err(e) => {
+                    // WebRender failed to initialize on a context we thought was good.
+                    // Never dead-end to no-window — fall back to CPU rendering.
+                    crate::plog_warn!(
+                        "[macOS] WebRender initialization failed: {:?} — falling back to CPU \
+                         rendering for this window",
+                        e
+                    );
+                    break 'gpu (
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        OptionGlContextPtr::None,
+                        RendererType::Software,
+                    );
+                }
+            };
 
             renderer.set_external_image_handler(Box::new(WrCompositor::default()));
 
@@ -3301,20 +3345,6 @@ impl MacOSWindow {
                     RendererType::Software,
                 )
             }
-        } else {
-            log_info!(
-                LogCategory::Rendering,
-                "[Window Init] CPU backend — skipping WebRender/GL initialization"
-            );
-            (
-                None,
-                None,
-                None,
-                None,
-                None,
-                OptionGlContextPtr::None,
-                RendererType::Software,
-            )
         };
 
         // Initialize window state with actual HiDPI factor from screen
