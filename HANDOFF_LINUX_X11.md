@@ -2039,3 +2039,23 @@ STATUS: backlog essentially complete. X11-interactive work (menu, shared-display
 build-verified only → needs USER interactive test + gdb. The render pipeline + this overflow fix ARE
 headless-verified. Remaining blind items: HiDPI menu pos, submenu chains, Wayland xdg_popup, native
 wl_data_device — all niche/big/Wayland.
+
+### Cron firing 53/54 — chased the firing-49 "flex-grow" observation → ROOT-CAUSED a fundamental bug (#47)
+Used the headless loop to investigate the firing-49 "flex-grow button doesn't expand" note. A minimal test
+(a flex-row with sized children) rendered ALL-RED; narrowed with a SINGLE inline-sized div
+(`div{width:200px;height:100px;background:red}` in a white body) which ALSO rendered the whole window red.
+=> ROOT CAUSE = known bug #47 (the CSS @scope/cascade bug): `set_css`/`with_css` parses a bare decl string
+to `* { … }` and pushes it to the node's `.css` vec (meant to be subtree-scoped like @scope), but
+`collect_css_from_dom` FLATTENS every node's `.css` into one GLOBAL stylesheet (styled_dom.rs
+create_from_fast_dom:966-976 has the literal `// TODO: respect node_id scoping`; recursive path :1182-1197),
+so a NON-ROOT node's set_css LEAKS to the whole tree → the div's `background:red` painted body+root red.
+The contenteditable/menu examples only work because their CSS is on the ROOT (subtree = whole tree).
+FULL details + minimal repro + fix approach saved to MEMORY `azul-css-cascade-model` (empirically confirmed
+section). FIX = a CORE-CASCADE change (tag each rule with its owner NodeId + subtree-membership gate in the
+matcher) — high blast radius (wrong fix breaks ALL styling), so deferred to a focused, careful effort; it
+IS headless-verifiable (the single-div repro). Example reverted (no code change committed this firing).
+IMPACT: any app using set_css on a NON-ROOT node is broken (props leak tree-wide). Does NOT affect the
+menu (root-scoped CSS) — so not a menu blocker, but a fundamental general-app bug.
+NOTE: also still TODO from this: the original firing-49 flex-grow question is now UNANSWERABLE via inline
+set_css (the leak masks it) — re-test flex-grow with CLASS-based CSS (a stylesheet, like contenteditable),
+not inline, once #47 is understood/fixed.
