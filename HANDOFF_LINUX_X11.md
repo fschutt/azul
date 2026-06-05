@@ -1967,3 +1967,21 @@ click-outside-dismiss), menu positioning, textarea I-beam, and now the exit-GL t
 build-verified, almost NONE runtime-tested here. HIGHEST-VALUE NEXT STEP = USER INTERACTIVE TEST PASS +
 gdb for any residual crash. Remaining build-able-blind work is niche/big/low-value (HiDPI, submenu,
 Wayland xdg_popup, native wl_data_device, XNFilterEvents).
+
+### Cron firing 49 — HEADLESS RENDER VERIFICATION (the library still renders correctly)
+Backlog is essentially exhausted (everything safe/valuable/actionable done, build-verified). Instead of
+another blind change, did a real VERIFICATION via the headless harness (memory azul-runtime-debug-knobs):
+`cargo build -r -p azul-examples --example hello-world` (3m12s clean) then
+`AZ_BACKEND=headless AZ_HEADLESS_SNAPSHOT_PATH=/tmp/hello_headless.png ./target/release/examples/hello-world`.
+RESULT (640x480 PNG, read visually): CORRECT — green background-color applied, "0" counter label renders
+at font-size:50px (correct glyph, no tofu), "Increase counter" button styled + text correct, layout +
+text shaping all intact. => The core init/layout/font/render pipeline is NOT broken by firings 26-48's
+X11/menu/cursor changes. (Headless = cpurender, so this does NOT exercise the X11 GL path, the event-loop/
+menu/grab changes, or the GL-teardown exit fix — those still need a real window + the user's interactive
+test. But it rules out a render-pipeline regression.)
+PRE-EXISTING observation (NOT from this effort — did not touch the flex solver): in hello-world the
+`flex-grow:1` button does not expand and the label+button sit in a row; worth a separate look if that's
+unintended. 
+NET: no code change this firing — a verification. The loop has reached the point where USER RUNTIME
+TESTING (interactive X11 window + gdb for the exit path) is strictly more valuable than further blind
+edits. Recommend pausing the autonomous loop for a test pass.
