@@ -1985,3 +1985,28 @@ unintended.
 NET: no code change this firing — a verification. The loop has reached the point where USER RUNTIME
 TESTING (interactive X11 window + gdb for the exit path) is strictly more valuable than further blind
 edits. Recommend pausing the autonomous loop for a test pass.
+
+### Cron firing 50 — HEADLESS VERIFICATION OF THE C ABI + contenteditable: FOUND A REAL BUG
+Extended firing 49's verification to the C ABI + the user's actual test app. Built tests/e2e/
+contenteditable.c against the CURRENT libazul.so (cc -I target/codegen -L target/release -lazul) — LINKS
+CLEAN (C ABI intact: codegen headers + symbols match). Rendered it headless (AZ_BACKEND=headless +
+AZ_HEADLESS_SNAPSHOT_PATH=/tmp/ce_headless.png /tmp/ce_headless_test) → 1200x800 PNG, NO crash.
+MOSTLY CORRECT: single-line contenteditable (green box, "Hello World - Click here and type!", 48px) renders
+PERFECTLY; the labels, status bar, and textarea box all render; text shaping clean.
+**BUG FOUND (reproducible headless):** the multi-line textarea (overflow-y:scroll, 10 lines of 48px text in
+a 300-400px box, line-height 1.4) renders Lines 1-4 cleanly but the line(s) at the BOTTOM CLIP BOUNDARY
+are OVERLAPPING/garbled — two text runs superimposed at ~the same y. The single-line input (NO overflow)
+is clean, so the bug correlates with OVERFLOW-Y scroll/clip text rendering at the boundary (likely the
+display-list clip for scrollable text, or the initial scroll-offset / scroll-into-view, or a
+line-position bug near the clip). 
+RELEVANCE: this is the SAME overflow-y rendering path my firing-46 over-tall-menu height-clamp+scroll
+(overflow-y:auto on .menu-container) relies on — so an OVER-TALL MENU likely has the same overlap. The
+user should verify a long (taller-than-screen) menu specifically.
+CAVEATS: (1) headless = cpurender (tiny-skia); the GPU/WebRender path the user actually runs MIGHT clip
+correctly (different clip impl) — so this could be cpurender-only. Verify on the real GPU window.
+(2) NOT a regression from firings 26-49 (none touched text/overflow rendering); pre-existing.
+REPRO for next firing (VERIFIABLE — fix → re-render headless → check PNG): /tmp/ce_headless_test (or
+rebuild from tests/e2e/contenteditable.c). Next suspects to read: solver3 display_list overflow/clip
+generation for scroll frames, text3 inline line positioning near clip, and the scroll-into-view initial
+offset. This is a GOOD next target precisely because it's headless-reproducible (unlike the X11
+interactive work).
