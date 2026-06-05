@@ -6937,30 +6937,72 @@ impl LayoutWindow {
         &self,
         dom_id: &DomId,
     ) -> Option<crate::managers::selection::ClipboardContent> {
-        use crate::{
-            managers::selection::{ClipboardContent, StyledTextRun},
-            text3::cache::ShapedItem,
-        };
+        use crate::managers::selection::ClipboardContent;
+        use crate::text3::edit::cursor_byte_offset_in_run;
 
-        // Get selection ranges — prefer multi-cursor ranges, fall back to legacy
-        let ranges = if let Some(ref mc) = self.text_edit_manager.multi_cursor {
-            mc.selections.iter().filter_map(|s| match &s.selection {
-                azul_core::selection::Selection::Range(r) => Some(*r),
-                _ => None,
-            }).collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+        let node_id = mc.node_id.node.into_crate_internal()?;
+
+        // Collect range selections (collapsed cursors contribute nothing to a copy).
+        let ranges: Vec<_> = mc.selections.iter().filter_map(|s| match &s.selection {
+            azul_core::selection::Selection::Range(r) => Some(*r),
+            _ => None,
+        }).collect();
         if ranges.is_empty() {
             return None;
         }
 
-        // TODO: iterate over live text layouts to extract selected content.
-        // Previously walked `text_cache.layouts` which was never populated
-        // (dead field, removed). Needs re-plumbing against the current per-DOM
-        // layout store before selection-based copy can return real content.
-        let _ = ranges;
-        None
+        // Most editables are a single text run (the whole string, newlines and
+        // all), so source_run is 0 and the single-run branch handles everything.
+        // The multi-run branch is a best-effort for rich (multi-span) content.
+        // Byte offsets are affinity-aware (cursor_byte_offset_in_run), so a
+        // select-all whose end cursor is Trailing on the last cluster copies the
+        // full text — matching the affinity fix in delete_range.
+        let content = self.get_text_before_textinput(*dom_id, node_id);
+        let mut plain = String::new();
+        for r in &ranges {
+            let sr = r.start.cluster_id.source_run as usize;
+            let er = r.end.cluster_id.source_run as usize;
+            if sr == er {
+                if let Some(InlineContent::Text(run)) = content.get(sr) {
+                    let a = cursor_byte_offset_in_run(&run.text, &r.start);
+                    let b = cursor_byte_offset_in_run(&run.text, &r.end);
+                    let (lo, hi) = (a.min(b), a.max(b));
+                    if hi <= run.text.len() && lo < hi {
+                        plain.push_str(&run.text[lo..hi]);
+                    }
+                }
+            } else {
+                // Multi-run: walk runs in document order, taking the tail of the
+                // first run, all middle runs, and the head of the last.
+                let (first_idx, first_cur, last_idx, last_cur) = if sr <= er {
+                    (sr, r.start, er, r.end)
+                } else {
+                    (er, r.end, sr, r.start)
+                };
+                for ri in first_idx..=last_idx {
+                    if let Some(InlineContent::Text(run)) = content.get(ri) {
+                        if ri == first_idx {
+                            let off = cursor_byte_offset_in_run(&run.text, &first_cur).min(run.text.len());
+                            plain.push_str(&run.text[off..]);
+                        } else if ri == last_idx {
+                            let off = cursor_byte_offset_in_run(&run.text, &last_cur).min(run.text.len());
+                            plain.push_str(&run.text[..off]);
+                        } else {
+                            plain.push_str(&run.text);
+                        }
+                    }
+                }
+            }
+        }
+
+        if plain.is_empty() {
+            return None;
+        }
+        Some(ClipboardContent {
+            plain_text: plain.into(),
+            styled_runs: Vec::new().into(),
+        })
     }
 
     /// Process image callback updates from callback changes

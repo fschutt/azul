@@ -149,7 +149,7 @@ pub fn apply_edit_to_selection(
 /// after it. This mirrors the affinity handling in `insert_text` /
 /// `delete_backward` / `delete_forward`, and is what lets a select-all range
 /// (whose end cursor is `Trailing` on the last cluster) cover the whole text.
-fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usize {
+pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usize {
     use unicode_segmentation::UnicodeSegmentation;
     let csb = cursor.cluster_id.start_byte_in_run as usize;
     match cursor.affinity {

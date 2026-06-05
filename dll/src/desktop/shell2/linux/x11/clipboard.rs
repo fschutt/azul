@@ -3,6 +3,7 @@
 //! This module provides clipboard synchronization between azul-layout's ClipboardManager
 //! and the X11 system clipboard (both PRIMARY and CLIPBOARD selections).
 
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 use azul_layout::managers::clipboard::ClipboardManager;
@@ -10,6 +11,25 @@ use x11_clipboard::Clipboard;
 
 use super::super::super::common::debug_server::LogCategory;
 use crate::log_error;
+
+/// Process-wide persistent X11 clipboard owner.
+///
+/// CRITICAL: `x11_clipboard::Clipboard` spawns a background thread that OWNS the
+/// X selection; the copied content only persists while that `Clipboard` (and its
+/// thread) stays alive. The previous code created a fresh `Clipboard` per copy
+/// and dropped it on return — which closed `_drop_fd`, exited the owner thread,
+/// and lost the selection immediately. The symptom: Ctrl+C appeared to do
+/// nothing and a following Ctrl+V pasted stale/foreign clipboard contents.
+///
+/// Keeping ONE instance alive for the whole process fixes that: `store()`
+/// updates the content the live owner thread serves. `Clipboard` is `Send`
+/// (its background thread already moves an `Arc<Context>`), so a `static Mutex`
+/// is sound.
+fn clipboard() -> Option<MutexGuard<'static, Option<Clipboard>>> {
+    static CLIPBOARD: OnceLock<Mutex<Option<Clipboard>>> = OnceLock::new();
+    let m = CLIPBOARD.get_or_init(|| Mutex::new(Clipboard::new().ok()));
+    m.lock().ok()
+}
 
 /// Synchronize clipboard manager content to X11 system clipboard
 ///
@@ -31,10 +51,12 @@ pub fn sync_clipboard(clipboard_manager: &mut ClipboardManager) {
 
 /// Write text to the X11 clipboard
 ///
-/// Writes to both CLIPBOARD (Ctrl+C/V) and PRIMARY (middle-click) selections.
+/// Writes to both CLIPBOARD (Ctrl+C/V) and PRIMARY (middle-click) selections,
+/// using the persistent owner so the content survives this call.
 /// Returns Ok(()) if successful, Err if clipboard access fails.
 pub fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
-    let clipboard = Clipboard::new().map_err(|_| ClipboardError::InitFailed)?;
+    let guard = clipboard().ok_or(ClipboardError::InitFailed)?;
+    let clipboard = guard.as_ref().ok_or(ClipboardError::InitFailed)?;
 
     // Store to CLIPBOARD selection (Ctrl+C/V)
     clipboard
@@ -65,7 +87,8 @@ pub fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
 /// Note: Each selection read uses a 3-second timeout, so this function may
 /// block for up to 6 seconds in the worst case (both selections time out).
 pub fn get_clipboard_content() -> Option<String> {
-    let clipboard = Clipboard::new().ok()?;
+    let guard = clipboard()?;
+    let clipboard = guard.as_ref()?;
     let timeout = Duration::from_secs(3);
 
     // Try CLIPBOARD first (Ctrl+C/V)
@@ -75,7 +98,11 @@ pub fn get_clipboard_content() -> Option<String> {
         clipboard.getter.atoms.property,
         timeout,
     ) {
-        return String::from_utf8(data).ok();
+        if let Ok(s) = String::from_utf8(data) {
+            if !s.is_empty() {
+                return Some(s);
+            }
+        }
     }
 
     // Fall back to PRIMARY (middle-click)
@@ -85,7 +112,11 @@ pub fn get_clipboard_content() -> Option<String> {
         clipboard.getter.atoms.property,
         timeout,
     ) {
-        return String::from_utf8(data).ok();
+        if let Ok(s) = String::from_utf8(data) {
+            if !s.is_empty() {
+                return Some(s);
+            }
+        }
     }
 
     None
