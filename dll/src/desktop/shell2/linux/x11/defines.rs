@@ -259,6 +259,8 @@ pub const LeaveNotify: c_int = 8;
 pub const FocusIn: c_int = 9;
 pub const FocusOut: c_int = 10;
 pub const Expose: c_int = 12;
+pub const UnmapNotify: c_int = 18;
+pub const MapNotify: c_int = 19;
 pub const ConfigureNotify: c_int = 22;
 pub const ClientMessage: c_int = 33;
 

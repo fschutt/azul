@@ -623,6 +623,14 @@ pub struct X11Window {
     /// Damage rects for incremental rendering (CPU and GPU)
     gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
 
+    /// Render-intent flag: the authoritative "a repaint is needed" signal.
+    /// Set by request_redraw()/Expose/events/timers; CONSUMED by
+    /// render_and_present (which renders whenever it is set). This replaces the
+    /// old GPU skip-heuristic that guessed "did anything change?" from only
+    /// scroll/scrollbar-fade/virtual-view and so dropped resize, caret move/
+    /// blink, physics-scroll and a11y repaints.
+    needs_redraw: bool,
+
     // Accessibility
     /// Linux accessibility adapter
     #[cfg(feature = "a11y")]
@@ -731,6 +739,11 @@ impl X11Window {
                     // Window lost focus
                     self.common.current_window_state.window_focused = false;
                     self.dynamic_selector_context.window_focused = false;
+                    ProcessEventResult::DoNothing
+                }
+                defines::MapNotify => {
+                    // Window (re)mapped — e.g. de-iconified. Repaint.
+                    self.needs_redraw = true;
                     ProcessEventResult::DoNothing
                 }
                 defines::ConfigureNotify => {
@@ -971,6 +984,11 @@ impl X11Window {
     /// If GPU damage rects are available, sends per-rect Expose events
     /// for incremental invalidation; otherwise sends a full-surface Expose.
     pub fn request_redraw(&mut self) {
+        // Record render intent (the authoritative signal render_and_present
+        // consumes) AND post a synthetic Expose to wake the blocking event
+        // loop so the repaint happens promptly. The flag is what guarantees
+        // the frame actually paints; the Expose is just the wake-up.
+        self.needs_redraw = true;
         // Use per-rect Expose events when damage rects available
         if !self.gpu_damage_rects.is_empty() {
             let rects: Vec<_> = self.gpu_damage_rects.drain(..).collect();
@@ -1466,6 +1484,7 @@ impl X11Window {
             #[cfg(feature = "cpurender")]
             bgra_buffer: Vec::new(),
             gpu_damage_rects: Vec::new(),
+            needs_redraw: true,
             #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::LinuxAccessibilityAdapter::new(),
         };
@@ -1892,7 +1911,16 @@ impl X11Window {
         // Process event with V2 handlers
         let result = match unsafe { event.type_ } {
             defines::Expose => {
-                self.request_redraw();
+                // A real (WM) or synthetic Expose means "repaint now". Render
+                // directly — the previous code re-posted ANOTHER Expose here
+                // (request_redraw), so in the blocking idle path the repaint
+                // request ping-ponged and the frame never actually painted
+                // (resize/timer/caret repaints appeared frozen). This now
+                // matches poll_event's Expose arm.
+                self.needs_redraw = true;
+                if let Err(e) = self.render_and_present() {
+                    log_warn!(LogCategory::Rendering, "[X11] handle_event Expose render failed: {:?}", e);
+                }
                 ProcessEventResult::DoNothing
             }
             defines::ClientMessage => {
@@ -1932,6 +1960,10 @@ impl X11Window {
             defines::FocusOut => {
                 self.common.current_window_state.window_focused = false;
                 self.dynamic_selector_context.window_focused = false;
+                ProcessEventResult::DoNothing
+            }
+            defines::MapNotify => {
+                self.needs_redraw = true;
                 ProcessEventResult::DoNothing
             }
             defines::ConfigureNotify => {
@@ -2199,6 +2231,24 @@ impl X11Window {
     /// 3. Call renderer.update() and renderer.render()
     /// 4. Swap buffers to show the rendered frame
     pub fn render_and_present(&mut self) -> Result<(), WindowError> {
+        // Consume the render-intent flag: this call satisfies it. The GPU
+        // skip-heuristic below honours `want_redraw`, so any explicitly
+        // requested repaint (resize, caret move/blink, physics-scroll, a11y,
+        // real Expose) is never skipped — only a truly idle speculative call is.
+        let want_redraw = self.needs_redraw;
+        self.needs_redraw = false;
+
+        // Skip rendering a degenerate (0-size) window. A reparenting/compositing
+        // WM delivers a 0-size ConfigureNotify on iconify (minimize) and during
+        // some maximize transitions; laying out / rendering at 0 crashes the GPU
+        // path (the CPU path already guarded width/height > 0). Gating on the
+        // actual size is reliable and WM-independent — unlike tracking
+        // MapNotify/UnmapNotify ordering, which varies between window managers.
+        let phys = self.common.current_window_state.size.get_physical_size();
+        if phys.width == 0 || phys.height == 0 {
+            return Ok(());
+        }
+
         // Step 1: Regenerate layout if needed, otherwise send lightweight transaction
         let layout_was_regenerated = if self.common.frame_needs_regeneration {
             if let Err(e) = self.regenerate_layout() {
@@ -2508,10 +2558,10 @@ impl X11Window {
                 let virtual_view_pending = self.common.layout_window.as_ref()
                     .map(|lw| !lw.pending_virtual_view_updates.is_empty())
                     .unwrap_or(false);
-                if !scroll_active && !scrollbar_fade && !virtual_view_pending {
+                if !want_redraw && !scroll_active && !scrollbar_fade && !virtual_view_pending {
                     log_trace!(
                         LogCategory::Rendering,
-                        "[X11] No visual changes — skipping GPU render"
+                        "[X11] No redraw requested and no animation active — skipping GPU render"
                     );
                     return Ok(());
                 }
@@ -2583,9 +2633,13 @@ impl X11Window {
 
         // Step 5: Render frame
         let physical_size = self.common.current_window_state.size.get_physical_size();
+        // Clamp to >= 1x1: a reparenting/compositing WM delivers a 0-size
+        // ConfigureNotify on iconify (minimize) and during some maximize
+        // transitions; feeding 0 into WebRender render()/glViewport crashes
+        // (the CPU path already guards width/height > 0; the GPU path did not).
         let framebuffer_size = webrender::api::units::DeviceIntSize::new(
-            physical_size.width as i32,
-            physical_size.height as i32,
+            (physical_size.width as i32).max(1),
+            (physical_size.height as i32).max(1),
         );
 
         match renderer.render(framebuffer_size, 0) {
