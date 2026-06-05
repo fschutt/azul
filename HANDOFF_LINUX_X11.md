@@ -938,3 +938,63 @@ State: probe stripped, tree clean/builds. Task #8 stays OPEN (root-caused, fix p
 (2) #9 scrolling + timers on x11/wayland (bounce/overscroll). (3) #48 event-system rework.
 (4) hit-tester unification. (5) #47 @scope scoping (related to this cascade-store issue).
 (6) #7 native Wayland clipboard.
+
+---
+
+### Cron firing 20-21 (user-reported) — line-break instability PRECISELY root-caused: prune vs recompute drops Tier-1 enums
+Continued #8. Added [WSCACHE] probe in build_compact_cache_with_inheritance (now stripped) logging,
+per node, white-space in css_props vs cascaded_props vs the final compact tier1 bits. DECISIVE:
+
+  [WSCACHE] node=7 css=Some(WhiteSpace(Exact(PreWrap))) casc=None compact_bits=3(PreWrap)
+  [WSCACHE] node=8 css=None casc=Some(WhiteSpace(Exact(PreWrap))) compact_bits=3
+
+BUT the textarea STILL rendered continuous (h=469) this run despite compact=PreWrap. So the
+create-time compact cache is correct, yet the layout reads Normal. Mechanism (precise):
+1. CREATE: `build_compact_cache_with_inheritance` reads `css_props[7]=PreWrap` → compact=PreWrap
+   (WSCACHE confirms). White-space is a direct rule on node 7 → lands in css_props, NOT
+   cascaded_props (cascaded_props=inherited-from-parent; node 7's parent is Normal → casc=None).
+2. PRUNE (core/src/prop_cache.rs:868-886 `keep` predicate): compact-encoded Normal props that the
+   compact cache "fully captured" are DROPPED from BOTH css_props AND cascaded_props. White-space
+   (Tier-1 enum) is dropped. Now NEITHER store has node 7's white-space; only the compact cache.
+3. UNRESOLVED CONTRADICTION (this run): only ONE WSCACHE line per node appeared (compact=PreWrap),
+   so the create build ran and recompute did NOT re-run — yet the textarea STILL rendered continuous
+   (h=469). So compact=PreWrap but the LAYOUT behaved as Normal. CORRECTION to an earlier guess:
+   `recompute_inheritance_and_compact_cache` (styled_dom.rs:1353) uses
+   build_compact_cache_with_inheritance (NOT the getter-only builder); my WSCACHE probe is inside
+   that builder, so a recompute would have logged a 2nd line — it didn't here. So the clobber is NOT
+   a recompute this run. Either: (a) `split_text_for_whitespace`'s `get_white_space_property` reads
+   Normal DESPITE compact=PreWrap (a SECOND compact cache / a different StyledDom instance between
+   the builder that WSCACHE saw and the layout reader), or (b) it reads PreWrap and splits, but the
+   inline-layout cache (#45 area: layout_ifc Phase 2d GlyphSwap reuse) serves a STALE continuous
+   layout that doesn't invalidate on white-space.
+
+ROOT (still): white-space is correct in css_props + the compact cache at create, but the value the
+LAYOUT uses ends up Normal. The css_props/cascaded_props PRUNE (prop_cache.rs:868-886 drops Tier-1
+enums from BOTH stores) makes ANY rebuild-from-pruned path lose Tier-1 enums, so it's implicated in
+the recompute variant of this bug regardless. Non-deterministic across runs (HashMap-seeded cascade
+order is a suspect for css_props presence/ordering). Other Tier-1 enums (text-align/display/...)
+likely regress the same way on recompute — verify broadly.
+
+EXACT NEXT DIAGNOSTIC (do FIRST next firing — pins it in ONE build): add BOTH probes together —
+[WSCACHE] in build_compact_cache_with_inheritance AND [WSPROBE] in split_text_for_whitespace (also
+logging whether the inline layout was a cache HIT) — fresh launch, compare for node 7/8. If
+split_text reads PreWrap but render is continuous → inline-layout cache staleness (invalidate the
+IFC cache on white-space/constraints change, cf #45). If split_text reads Normal while WSCACHE wrote
+PreWrap → two compact caches / StyledDom instances (layout reads a different/stale one) → reconcile.
+
+FIX OPTIONS (pick in a fresh focused session — delicate core, high blast radius; do NOT paper over):
+  (A) Recompute should PRESERVE the existing compact tier1 values (incremental) instead of
+      rebuilding from pruned css_props — re-do only inheritance, keep directly-set compact bits.
+  (B) Don't run the getter-only `build_compact_cache` on recompute; route recompute through
+      with_inheritance AND ensure it reads an un-pruned source (keep Tier-1 enums in css_props —
+      i.e. exclude Tier-1 enums from the `keep`-predicate drop). Costs some memory (the prune's
+      purpose) — a real correctness-vs-memory tradeoff; may warrant a user decision.
+  (C) Skip the redundant recompute right after create (it clobbers a just-correct compact cache);
+      only recompute when style/DOM actually changed, not on every layout/resize.
+  VERIFY after fix: fresh launch (×several, for the non-determinism) → textarea each "Line N:" on
+  its own row (h≈700 @1200w); spot-check other Tier-1 enums (text-align/display) survive a
+  resize-triggered recompute; contenteditable screenshot unchanged otherwise.
+
+State: both probes stripped, tree clean/builds. Task #8 stays OPEN (precisely root-caused, fix
+pending — it's a core prune/recompute lifecycle fix). Priority unchanged: #8 first, then #9 scroll/
+timers, then #48, hit-tester unify, #47, #7.
