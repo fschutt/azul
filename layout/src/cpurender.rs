@@ -370,13 +370,24 @@ impl CompositorState {
         glyph_cache: &mut GlyphCache,
     ) -> Result<(), String> {
         // Collect layer IDs and their display list ranges
-        let layer_ranges: Vec<(LayerId, (usize, usize), LogicalRect)> = self
+        let layer_ranges: Vec<(LayerId, (usize, usize), LogicalRect, Vec<(usize, usize)>)> = self
             .layers
             .iter()
-            .map(|(id, layer)| (*id, layer.display_list_range, layer.bounds))
+            .map(|(id, layer)| {
+                // Ranges of this layer's DIRECT children (nested scroll frames /
+                // opacity / transform groups). They render into their own
+                // pixbufs, so they must be skipped when rendering this layer's
+                // range (which, for the root, spans the whole display list).
+                let child_ranges: Vec<(usize, usize)> = layer
+                    .children
+                    .iter()
+                    .filter_map(|cid| self.layers.get(cid).map(|c| c.display_list_range))
+                    .collect();
+                (*id, layer.display_list_range, layer.bounds, child_ranges)
+            })
             .collect();
 
-        for (layer_id, range, layer_bounds) in &layer_ranges {
+        for (layer_id, range, layer_bounds, child_ranges) in &layer_ranges {
             let (start, end) = *range;
             if start >= end || start >= display_list.items.len() {
                 continue;
@@ -399,6 +410,7 @@ impl CompositorState {
                 &mut layer.pixbuf,
                 start,
                 end.min(display_list.items.len()),
+                child_ranges,
                 offset_x,
                 offset_y,
                 dpi_factor,
@@ -525,11 +537,23 @@ impl CompositorState {
         let bounds = layer.bounds;
         let offset_x = bounds.origin.x;
         let offset_y = bounds.origin.y;
+        // Child-layer ranges to skip (rendered separately) — same as render_layers.
+        let child_ranges: Vec<(usize, usize)> = self
+            .layers
+            .get(&layer_id)
+            .map(|l| {
+                l.children
+                    .iter()
+                    .filter_map(|cid| self.layers.get(cid).map(|c| c.display_list_range))
+                    .collect()
+            })
+            .unwrap_or_default();
         render_display_list_range(
             display_list,
             &mut self.layers.get_mut(&layer_id).unwrap().pixbuf,
             range.0,
             range.1.min(display_list.items.len()),
+            &child_ranges,
             offset_x,
             offset_y,
             dpi_factor,
@@ -949,6 +973,12 @@ fn render_display_list_range(
     pixmap: &mut AzulPixmap,
     start: usize,
     end: usize,
+    // Index ranges (start..end) that belong to CHILD layers (nested scroll
+    // frames / opacity / transform groups). Those items render into the child's
+    // OWN pixbuf, so they must be skipped here — otherwise they're drawn twice
+    // (once in this layer at absolute coords AND once in the child layer),
+    // which produced overlapping / ghosted text in overflow:scroll content.
+    skip_ranges: &[(usize, usize)],
     offset_x: f32,
     offset_y: f32,
     dpi_factor: f32,
@@ -961,9 +991,20 @@ fn render_display_list_range(
     let mut transform_stack = vec![TransAffine::new()];
     let mut clip_stack: Vec<Option<AzRect>> = vec![None];
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
-    let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+    // Apply the layer origin offset: content is translated by -(offset_x,offset_y)
+    // so it's rendered RELATIVE to this layer's pixbuf origin (which is then
+    // composited back at +layer_origin). The renderer translates positions by
+    // `pos - scroll_offset`, so seeding the scroll-offset stack with the layer
+    // origin achieves the relative placement. Previously offset_x/offset_y were
+    // ignored, so child layers were double-offset (content drawn at absolute
+    // coords then composited at +origin) — text fell to the bottom of the box.
+    let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(offset_x, offset_y)];
 
     for i in start..end {
+        // Skip items rendered by a child layer (see skip_ranges doc above).
+        if skip_ranges.iter().any(|(s, e)| i >= *s && i < *e) {
+            continue;
+        }
         let item = &display_list.items[i];
         render_single_item(
             item,
