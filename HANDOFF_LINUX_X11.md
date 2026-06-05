@@ -845,3 +845,41 @@ NOTE: plain xdotool screen-coord clicks landed at the wrong spot on this multi-h
 
 NEXT (env now healthy, input verifiable): #48 event-system rework (user's aggressive pick) →
 hit-tester unification (user directive) → #47 @scope scoping (plan in firing 16) → #43.
+
+---
+
+### Cron firing 18 (user-reported) — text editing: Delete/Ctrl+A FIXED, clipboard Ctrl+C/X/V IMPLEMENTED
+User: "entf doesn't work correctly and ctrl+a doesn't select all text. also please work on
+ctrl+c/v/x (wayland, x11, macos, windows)." All reproduced + fixed + verified on X11 with real
+keys (xdotool). The event routing (KeyboardShortcut→SystemChange) + SystemChange handlers were
+already wired; the bugs were downstream.
+
+**FIXED + VERIFIED (X11, real keys):**
+- Ctrl+A select-all (`7522a02bf` + `3368ed278`): handler set the full range then immediately
+  `set_single_cursor` → collapsed it to a caret-at-end (no-op). Removed the collapse. ALSO the
+  highlight wasn't drawn — SelectAllText only returned ShouldUpdateDisplayList (re-render stale
+  DL); now calls `regenerate_display_list_for_dom` like apply_selection_op does, so
+  build_text_selections_map runs and the highlight shows. Verified: whole field highlighted cyan.
+- Delete/Backspace with selection (`7522a02bf`): `delete_range` only drained when
+  start_byte <= end_byte, so BACKWARD ranges (Shift+Home, right-to-left) silently no-op'd —
+  the "entf doesn't work correctly". Normalized via min/max. ALSO it ignored cursor AFFINITY
+  (used raw cluster start_byte), so select-all-then-Delete left the LAST char (end cursor is
+  Trailing). Added affinity-aware `cursor_byte_offset_in_run` (mirrors insert/delete_*). Verified:
+  Ctrl+A→Delete empties fully; Ctrl+A→type replaces all ("REPLACED"→"NEW", no leftover);
+  Shift+Home→Backspace deletes the backward selection.
+- Clipboard Ctrl+C/X/V (`0f363c431`): TWO bugs. (1) `get_selected_content_for_clipboard` was a
+  STUB returning None → copy extracted nothing → paste read stale X clipboard. Implemented it
+  (slice selection out of the run via the affinity-aware offset; single-run common path,
+  multi-run best-effort). (2) X11 `write_to_clipboard` created+dropped an x11_clipboard::Clipboard
+  per call → its selection-owner thread died → copy lost. Now keeps ONE persistent Clipboard
+  (OnceLock<Mutex<Option<Clipboard>>>; Clipboard is Send). Verified: copy "ZZZ" → empty field →
+  paste = "ZZZ" (persists across edits); Ctrl+X empties, Ctrl+V restores.
+
+**CROSS-PLATFORM STATUS:** copy extraction is shared layout code (helps macOS/Windows, whose
+clipboard backends already exist — untested here). NATIVE Wayland still routes to x11::clipboard
+(works under XWayland, NOT native wl) — task #7: implement wayland::clipboard (wl_data_device) +
+runtime routing. Verify on a Wayland session.
+
+**TOOLING NOTE:** plain `xdotool key`/`click` (XTEST) lands at wrong screen coords on this
+multi-head box; use `xdotool ... --window <wid> X Y` (window-relative) for reliable scripted
+input. Real hardware input is unaffected.
