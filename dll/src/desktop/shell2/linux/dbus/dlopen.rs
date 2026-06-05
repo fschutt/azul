@@ -97,6 +97,12 @@ pub struct DBusLib {
     pub dbus_error_init: unsafe extern "C" fn(*mut DBusError),
     pub dbus_error_is_set: unsafe extern "C" fn(*const DBusError) -> c_int,
     pub dbus_error_free: unsafe extern "C" fn(*mut DBusError),
+
+    // Name ownership query — used to detect whether a global-menu registrar
+    // (`com.canonical.AppMenu.Registrar`: KDE Global Menu / Unity / appmenu-gtk)
+    // is present on the session bus.
+    pub dbus_bus_name_has_owner:
+        unsafe extern "C" fn(*mut DBusConnection, *const c_char, *mut DBusError) -> c_int,
 }
 
 // Safety: DBusLib only holds the dlopen handle (an opaque, process-wide
@@ -381,6 +387,11 @@ impl DBusLib {
                 lib,
                 unsafe extern "C" fn(*mut DBusError),
                 "dbus_error_free"
+            ),
+            dbus_bus_name_has_owner: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusConnection, *const c_char, *mut DBusError) -> c_int,
+                "dbus_bus_name_has_owner"
             ),
 
             _lib: lib,
