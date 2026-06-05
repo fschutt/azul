@@ -1895,3 +1895,24 @@ apply_size_to_content. (2) HiDPI position scaling. (3) Escape XGrabKeyboard (tes
 risk). (4) submenu chains + RefAny-destructor cleanup. (5) Wayland xdg_popup. (6) close children before
 parent (shared display lifetime). MENU NOW: cursor-positioned, content-sized, on-screen-clamped, shares
 the parent event loop, click-outside dismiss. User should runtime-test the full menu interaction now.
+
+### Cron firing 46 — height-clamp + scroll for over-tall menus (commit a95fc3206, builds clean)
+apply_size_to_content now caps final_size.height to the monitor work-area height for WindowType::Menu
+(in the same reposition block, reusing its get_display_at_point), and menu_renderer gives .menu-container
+`overflow-y: auto` so items scroll within the capped window. Does NOT break size_to_content: the measure
+reads overflow_content_size (natural extent), independent of the capped window. (Scroll behaviour is
+build-verified only — user should confirm a long menu scrolls.)
+
+MENU (X11) IS NOW FEATURE-COMPLETE FOR THE COMMON CASE: cursor-positioned (firing 44), content-sized
+(size_to_content), on-screen-clamped width+height with scroll (firings 45/46), shares the parent event
+loop (option-(b) shared-display pump, firings 40-42), click-outside dismissal (firing 43).
+NOTE: ALL of this is BUILD-VERIFIED ONLY — none runtime-tested in this shell. User should now do a full
+interactive pass (right-click a div w/ a context menu; try near screen edges + a long menu).
+
+REMAINING (menu, all niche/big/test-gated): (1) HiDPI position scaling (currently DPI=1). (2) Escape
+XGrabKeyboard + arrow-nav (test-gated — frozen-input risk). (3) submenu chains + RefAny-destructor cleanup
+(parent_menu_id/child_menu_ids; root keeps the grab; close-chain). (4) Wayland xdg_popup (relative pos +
+popup_done). (5) close children before parent (shared-display lifetime). 
+NON-MENU backlog (diversify if menu testing stalls): textarea hover I-beam (contenteditable default
+cursor:text in CursorTypeHitTest, NOT text_input); exit-time GL texture-cache TLS-dtor crash; native
+wl_data_device clipboard + runtime routing; XNFilterEvents (deferred, low-value).
