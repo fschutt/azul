@@ -1631,8 +1631,11 @@ impl X11Window {
             }
             use azul_core::callbacks::Update;
             match update {
-                Update::RefreshDom | Update::RefreshDomAllWindows => {
+                Update::RefreshDom => {
                     event_result = event_result.max(azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                }
+                Update::RefreshDomAllWindows => {
+                    event_result = event_result.max(azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows);
                 }
                 Update::DoNothing => {}
             }
@@ -1640,8 +1643,26 @@ impl X11Window {
             // Handle the event result
             use azul_core::events::ProcessEventResult;
             match event_result {
+                ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                    // Refresh EVERY registered window, not just this one
+                    // (Update::RefreshDomAllWindows previously behaved like
+                    // RefreshDom). Skip self in the loop to avoid aliasing the
+                    // &mut self borrow; handle it explicitly afterwards.
+                    for wid in super::registry::get_all_window_ids() {
+                        if wid == self.window as u64 {
+                            continue;
+                        }
+                        if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                            if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
+                                w.common.frame_needs_regeneration = true;
+                                w.request_redraw();
+                            }
+                        }
+                    }
+                    self.common.frame_needs_regeneration = true;
+                    self.request_redraw();
+                }
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
-                | ProcessEventResult::ShouldRegenerateDomAllWindows
                 | ProcessEventResult::ShouldIncrementalRelayout
                 | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                     self.common.frame_needs_regeneration = true;
