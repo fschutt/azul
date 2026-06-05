@@ -1762,3 +1762,35 @@ MENU-CLOSE (user's design, can be done BEFORE/independent of the connection refa
 PRIORITY NOW: (0) consolidate poll_event↔handle_event → (1-4) shared display + pump + wait →
 (5) RefreshDomAllWindows-all → menu-close (grab+closed-flag) → height-clamp into calculate_menu_position
 → Wayland xdg_popup. Build-verify each step (user runtime-tests later).
+
+### Cron firing 40 — STEP 0 DONE (handler dedup); STEP 1+2 refined plan
+**STEP 0 DONE — commit 8b80aa716, builds clean.** poll_event's own 244-line `match event.type_` was a
+DUPLICATE of handle_event (the divergent-handler risk). handle_event is a complete superset, so
+poll_event's while-loop body is now just `XNextEvent; self.handle_event(&mut event)`. -244 lines, one
+dispatch. Behavior-preserving (handle_event's ClientMessage sets is_open=false; the run loop closes on
+!is_open). This UNBLOCKS the pump (which dispatches via handle_event).
+
+**STEP 1+2 (shared display + single pump) — REFINED PLAN + the complication found:**
+- Current sites (post-dedup): X11Window::new_with_resources at mod.rs:867 opens its OWN XOpenDisplay at
+  mod.rs:943; XCloseDisplay at mod.rs:822 + Drop at mod.rs:3226. Per-window timer_fds:BTreeMap<usize,i32>
+  at mod.rs:598. run.rs: LinuxWindow::new_with_resources (run.rs:1056, backend-agnostic wrapper, picks
+  X11/Wayland INSIDE), pending-window X11Window::new_with_resources (run.rs:1173), wait
+  wait_for_x11_connection_activity (run.rs:1298/1349), per-window drain (run.rs:1120).
+- COMPLICATION: window creation goes through the backend-agnostic LinuxWindow wrapper, so "open ONE
+  display in run() before any window" fights the X11/Wayland abstraction (Wayland has no XOpenDisplay).
+- RECOMMENDED approach (handles the actual menu use-case cleanly, less invasive than a global rewrite):
+  CHILDREN (menus/dialogs from pending_window_creates) REUSE THE PARENT's display instead of opening
+  their own → add an optional `shared_display: Option<*mut Display>` param to X11Window::new_with_resources;
+  when Some, skip XOpenDisplay (mod.rs:943) AND skip XCloseDisplay in Drop (only the owner closes).
+  Then the parent's display carries the menu's events too.
+- PUMP: replace run.rs:1120's `for wid { while poll_event() }` with, per OWNER display, a single drain that
+  dispatches by xany.window: `while XPending(disp){ XNextEvent(disp,&ev); if let Some(w)=registry::get_window(ev.xany.window as u64){ (&mut *w).handle_event(&ev) } }`. (registry keys by X Window id — run.rs:1086.)
+- SPLIT poll_event: it currently does pre-loop POST-processing (timers/gnome/menu-cbs/size_to_content/
+  frame_needs_regeneration render, mod.rs:~667-699) THEN the drain (now 1-liner). Move the drain to the
+  pump; rename the rest to `tick()` called per-window after the pump.
+- WAIT (run.rs:1349): poll(owner_display_fd + EVERY window's timer_fds) — gather timerfds across the
+  registry. Single-window keeps wait_for_events.
+- Then (5) RefreshDomAllWindows: iterate registry → set frame_needs_regeneration on all (common/event.rs:3809
+  currently bundles it with RefreshDom = current window only).
+NOTE: each sub-step build-verifies; do shared-display+pump together (a shared display breaks per-window
+poll_event routing, so they can't land separately). User runtime-tests after.
