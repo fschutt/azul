@@ -51,3 +51,35 @@ fn inline_css_scopes_to_subtree_no_leak() {
         "body must have NO background — inline css must not leak to the root (#47)"
     );
 }
+
+/// Node-only semantics (#47): a parent's NON-inherited property (background) must
+/// NOT apply to its children. Subtree (`range.contains`) matching would wrongly
+/// paint the child with the parent's background; node-only (`node==range.start`)
+/// matching keeps it on the owner only. This is the case that made the red/blue
+/// boxes render white (the root body's `background:white` covered everything).
+#[test]
+fn parent_non_inherited_prop_does_not_leak_to_child() {
+    // body[0]
+    //   parent div[1]  set_css("background: red")
+    //     child div[2]  (no css)
+    let child = Dom::create_div();
+    let parent = Dom::create_div().with_css("background: red").with_child(child);
+    let dom = Dom::create_body().with_child(parent);
+    let styled_dom = StyledDom::create_from_dom(dom);
+
+    let cache = styled_dom.get_css_property_cache();
+    let nd = styled_dom.node_data.as_container();
+    let sn = styled_dom.styled_nodes.as_container();
+    let bg = |i: usize| {
+        let id = NodeId::new(i);
+        cache
+            .get_background_content(&nd[id], &id, &sn[id].styled_node_state)
+            .cloned()
+    };
+
+    assert!(bg(1).is_some(), "parent div should have its own background (red)");
+    assert!(
+        bg(2).is_none(),
+        "child div must NOT receive the parent's background — set_css is node-only, not subtree"
+    );
+}

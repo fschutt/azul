@@ -963,11 +963,28 @@ impl StyledDom {
     pub fn create_from_fast_dom(fast_dom: crate::dom::FastDom) -> Self {
         use azul_css::css::Css;
 
-        // 1. Merge CSS from CssWithNodeIdVec into a single Css
-        //    (TODO: respect node_id scoping for sub-tree cascading)
+        // 1. Merge CSS from CssWithNodeIdVec into a single Css, scoping each
+        //    node-attached stylesheet to its owner's subtree (#47): push_front a
+        //    Root([owner, owner+subtree_len]) selector so inline/XML css can't leak
+        //    globally — the same scoping the recursive create_from_dom path applies
+        //    via scope_inline_css. `node_id` is the owner's flat id (0 = root).
         let mut combined_rules: Vec<azul_css::css::CssRuleBlock> = Vec::new();
-        for css_with_id in fast_dom.css.into_library_owned_vec() {
-            combined_rules.extend(css_with_id.css.rules.into_library_owned_vec());
+        let css_entries = fast_dom.css.into_library_owned_vec();
+        {
+            let hierarchy = fast_dom.node_hierarchy.as_container();
+            for css_with_id in css_entries {
+                let owner = css_with_id.node_id;
+                let end = if owner < hierarchy.len() {
+                    owner + hierarchy.subtree_len(NodeId::new(owner))
+                } else {
+                    owner
+                };
+                let range = azul_css::css::CssScopeRange { start: owner, end };
+                for mut rule in css_with_id.css.rules.into_library_owned_vec() {
+                    rule.path.push_front_scope(range);
+                    combined_rules.push(rule);
+                }
+            }
         }
         let combined_css = if combined_rules.is_empty() {
             Css::empty()

@@ -454,10 +454,16 @@ fn match_single_selector(
 
     match selector {
         Global => true,
-        // `Root(range)` (scope marker, #47): matches iff this node's flat id is in
-        // the owning subtree's range. push_front-ed onto inline (with_css) rules so
-        // they scope to a subtree instead of leaking to the whole tree.
-        Root(range) => range.contains(node_id.index()),
+        // `Root(range)` (scope marker, #47): matches ONLY the OWNER node (range.start).
+        // push_front-ed onto inline (with_css) rules so a bare-decl rule applies to the
+        // owner node ONLY (node-only / inline-style semantics — inherited props then
+        // cascade to descendants normally). It must NOT match the whole subtree, which
+        // would wrongly paint every descendant with the owner's NON-inherited props
+        // (e.g. a parent `background:white` would override every child's background).
+        // As a scope-ancestor in a `Root(range) <descendant>` selector it matches the
+        // owner, confining the descendant selector to the owner's subtree. The range's
+        // `end` carries the subtree extent for future per-subtree cascade slicing.
+        Root(range) => node_id.index() == range.start,
         Type(t) => node_data.get_node_type().get_path() == *t,
         Class(c) => node_data.has_class(c.as_str()),
         Id(id) => node_data.has_id(id.as_str()),
