@@ -408,20 +408,28 @@ fn x11_event_name(t: i32) -> &'static str {
     }
 }
 
-/// Handle an XI2 GenericEvent: feed pen pressure/tilt + multi-touch into the
-/// window state (mirrors the iOS/Android/Windows/macOS feed). The core pointer
-/// events still drive the cursor + click; XI2 only adds pressure + touch points.
-fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
+/// Handle an XI2 GenericEvent.
+///
+/// IMPORTANT: this window `XISelectEvents`'d for XI_ButtonPress/Release/Motion
+/// (see window creation), which makes the X server deliver pointer events ONLY
+/// as XI2 GenericEvents and STOP sending the equivalent core ButtonPress /
+/// MotionNotify to this client. So this function is the *sole* delivery path for
+/// mouse button/motion — it translates them into the shared core handlers
+/// (`handle_mouse_button` / `handle_mouse_move`). It also feeds pen
+/// pressure/tilt and multi-touch (which core events can't express). Keyboard is
+/// NOT XI-selected, so keys still arrive as core KeyPress events.
+fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) -> ProcessEventResult {
     let cookie = unsafe { &mut xev.xcookie };
     if cookie.extension != win.xi_opcode {
-        return;
+        return ProcessEventResult::DoNothing;
     }
     if win.xi.is_none() {
-        return;
+        return ProcessEventResult::DoNothing;
     }
+    let mut result = ProcessEventResult::DoNothing;
     unsafe {
         if (win.xlib.XGetEventData)(win.display, cookie) == 0 {
-            return;
+            return ProcessEventResult::DoNothing;
         }
         let ev = &*(cookie.data as *const defines::XIDeviceEvent);
         let evtype = ev.evtype;
@@ -453,31 +461,96 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
             }
             ts.touch_points = TouchPointVec::from_vec(pts);
             ts.num_touches = ts.touch_points.len();
-        } else if let Some(&(p, tx, ty, pmax)) = win.pen_valuators.get(&ev.deviceid) {
-            // Pen/tablet device: feed pressure/tilt (cursor follows via core events).
-            let pressure = decode_valuator(ev, p)
-                .map(|v| (v / pmax).clamp(0.0, 1.0) as f32)
-                .unwrap_or(0.0);
-            let tilt_x = decode_valuator(ev, tx).unwrap_or(0.0) as f32;
-            let tilt_y = decode_valuator(ev, ty).unwrap_or(0.0) as f32;
-            let in_contact = pressure > 0.0;
-            if let Some(lw) = win.common.layout_window.as_mut() {
-                lw.gesture_drag_manager.update_pen_state_full(
-                    pos,
-                    pressure,
-                    (tilt_x, tilt_y),
-                    in_contact,
-                    false, // eraser: identified via tool/button labels, not valuators
-                    false,
-                    ev.deviceid as u64,
-                    0.0,
-                    0.0,
-                    0,
-                );
+        } else {
+            // Pointer event from a mouse OR a pen/tablet. This window
+            // XISelectEvents'd for XI_ButtonPress/Release/Motion at creation, so
+            // the X server STOPS delivering the equivalent CORE ButtonPress /
+            // MotionNotify to this client and routes them here as XI2
+            // GenericEvents instead. The core dispatch arms in poll_event /
+            // handle_event therefore never fire for the mouse — so we MUST
+            // translate XI2 pointer events back into the shared core handlers,
+            // otherwise every click / move / wheel is silently dropped (dead
+            // caret, hover, drag-select, scroll).
+
+            // Pen/tablet: additionally feed pressure/tilt for known pen devices.
+            if let Some(&(p, tx, ty, pmax)) = win.pen_valuators.get(&ev.deviceid) {
+                let pressure = decode_valuator(ev, p)
+                    .map(|v| (v / pmax).clamp(0.0, 1.0) as f32)
+                    .unwrap_or(0.0);
+                let tilt_x = decode_valuator(ev, tx).unwrap_or(0.0) as f32;
+                let tilt_y = decode_valuator(ev, ty).unwrap_or(0.0) as f32;
+                let in_contact = pressure > 0.0;
+                if let Some(lw) = win.common.layout_window.as_mut() {
+                    lw.gesture_drag_manager.update_pen_state_full(
+                        pos,
+                        pressure,
+                        (tilt_x, tilt_y),
+                        in_contact,
+                        false, // eraser: identified via tool/button labels, not valuators
+                        false,
+                        ev.deviceid as u64,
+                        0.0,
+                        0.0,
+                        0,
+                    );
+                }
+            }
+
+            // Translate the XI2 pointer event into the equivalent core event and
+            // run it through the same handler the core dispatch would have used.
+            // Coordinates are passed as raw device pixels (as core events carry
+            // them) so behaviour is identical to the core path.
+            match evtype {
+                defines::XI_ButtonPress | defines::XI_ButtonRelease => {
+                    let btn = defines::XButtonEvent {
+                        type_: if evtype == defines::XI_ButtonPress {
+                            defines::ButtonPress
+                        } else {
+                            defines::ButtonRelease
+                        },
+                        serial: ev.serial,
+                        send_event: ev.send_event,
+                        display: ev.display,
+                        window: ev.event,
+                        root: ev.root,
+                        subwindow: ev.child,
+                        time: ev.time,
+                        x: ev.event_x as c_int,
+                        y: ev.event_y as c_int,
+                        x_root: ev.root_x as c_int,
+                        y_root: ev.root_y as c_int,
+                        state: ev.mods.effective as u32,
+                        button: ev.detail as u32,
+                        same_screen: 1,
+                    };
+                    result = win.handle_mouse_button(&btn);
+                }
+                defines::XI_Motion => {
+                    let mot = defines::XMotionEvent {
+                        type_: defines::MotionNotify,
+                        serial: ev.serial,
+                        send_event: ev.send_event,
+                        display: ev.display,
+                        window: ev.event,
+                        root: ev.root,
+                        subwindow: ev.child,
+                        time: ev.time,
+                        x: ev.event_x as c_int,
+                        y: ev.event_y as c_int,
+                        x_root: ev.root_x as c_int,
+                        y_root: ev.root_y as c_int,
+                        state: ev.mods.effective as u32,
+                        is_hint: 0,
+                        same_screen: 1,
+                    };
+                    result = win.handle_mouse_move(&mot);
+                }
+                _ => {}
             }
         }
         (win.xlib.XFreeEventData)(win.display, cookie);
     }
+    result
 }
 
 pub struct X11Window {
@@ -809,10 +882,7 @@ impl X11Window {
                     self.handle_mouse_button(unsafe { &event.button })
                 }
                 defines::MotionNotify => self.handle_mouse_move(unsafe { &event.motion }),
-                defines::GenericEvent => {
-                    handle_xi_event(self, &mut event);
-                    ProcessEventResult::DoNothing
-                }
+                defines::GenericEvent => handle_xi_event(self, &mut event),
                 defines::KeyPress | defines::KeyRelease => {
                     self.handle_keyboard(unsafe { &mut event.key })
                 }
@@ -1822,6 +1892,7 @@ impl X11Window {
                 self.handle_mouse_button(unsafe { &event.button })
             }
             defines::MotionNotify => self.handle_mouse_move(unsafe { &event.motion }),
+            defines::GenericEvent => handle_xi_event(self, event),
             defines::KeyPress | defines::KeyRelease => {
                 self.handle_keyboard(unsafe { &mut event.key })
             }
