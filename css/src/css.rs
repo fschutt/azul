@@ -1497,6 +1497,20 @@ impl CssPath {
             selectors: selectors.into(),
         }
     }
+
+    /// Prepend a `Root(range)` scope selector (push_front), confining this rule to
+    /// the subtree `range`. Used to scope inline (`with_css`/`set_css`) css to its
+    /// owning node's subtree so it cannot leak to the whole tree (#47). Because
+    /// there is no combinator between `Root(range)` and the original leading `*`
+    /// wrapper, they compound: a bare-decl rule `[Global]` becomes
+    /// `[Root(range), Global]` (= the subtree), and a nested selector keeps
+    /// matching, now confined to the subtree.
+    pub fn push_front_scope(&mut self, range: CssScopeRange) {
+        let mut selectors = Vec::with_capacity(self.selectors.as_ref().len() + 1);
+        selectors.push(CssPathSelector::Root(range));
+        selectors.extend(self.selectors.as_ref().iter().cloned());
+        self.selectors = selectors.into();
+    }
 }
 
 impl fmt::Display for CssPath {
@@ -1514,6 +1528,28 @@ impl fmt::Debug for CssPath {
     }
 }
 
+/// Inclusive range of flat `NodeId`s describing a node's subtree `[start, end]`
+/// (`end = start + estimated_total_children`, since the flat arena lays subtrees
+/// out contiguously). Carried by [`CssPathSelector::Root`] to scope inline css to
+/// a subtree, and is the unit of future parallel per-subtree cascading.
+/// `repr(C)` for FFI / api.json codegen.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub struct CssScopeRange {
+    /// First flat NodeId of the subtree (the owning node itself).
+    pub start: usize,
+    /// Last flat NodeId of the subtree, inclusive (`start` for a leaf).
+    pub end: usize,
+}
+
+impl CssScopeRange {
+    /// True if `node` (a flat NodeId index) is inside this subtree range.
+    #[inline]
+    pub fn contains(&self, node: usize) -> bool {
+        self.start <= node && node <= self.end
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 #[derive(Default)]
@@ -1521,6 +1557,15 @@ pub enum CssPathSelector {
     /// Represents the `*` selector
     #[default]
     Global,
+    /// Scope marker carrying a node's **subtree range** `[start, end]` (inclusive
+    /// flat `NodeId`s; `end = start + estimated_total_children`). Matches a node
+    /// iff `start <= node <= end`. Synthesized at flatten time and `push_front`-ed
+    /// onto every inline (`with_css`/`set_css`) rule's path, so the rule compounds
+    /// with the `parse_inline` `*` wrapper (`[Root(s,e), Global, …]`) and is scoped
+    /// to that node's subtree instead of leaking to the whole tree (#47). Because
+    /// the flat arena lays subtrees out contiguously, this range is also the unit
+    /// of future parallel per-subtree cascading.
+    Root(CssScopeRange),
     /// `div`, `p`, etc.
     Type(NodeTypeTag),
     /// `.something`
@@ -1599,6 +1644,7 @@ impl fmt::Display for CssPathSelector {
         use self::CssPathSelector::*;
         match &self {
             Global => write!(f, "*"),
+            Root(r) => write!(f, ":root({}..={})", r.start, r.end),
             Type(n) => write!(f, "{}", n),
             Class(c) => write!(f, ".{}", c),
             Id(i) => write!(f, "#{}", i),
@@ -1753,6 +1799,49 @@ impl Css {
                 CssDeclaration::Dynamic(_) => None,
             })
         })
+    }
+}
+
+#[cfg(test)]
+mod root_scope_tests {
+    use super::*;
+
+    #[test]
+    fn scope_range_contains() {
+        let r = CssScopeRange { start: 3, end: 7 };
+        assert!(r.contains(3) && r.contains(5) && r.contains(7));
+        assert!(!r.contains(2) && !r.contains(8));
+        // leaf: start == end matches only itself
+        let leaf = CssScopeRange { start: 4, end: 4 };
+        assert!(leaf.contains(4));
+        assert!(!leaf.contains(3) && !leaf.contains(5));
+    }
+
+    #[test]
+    fn push_front_scope_compounds_with_wrapper() {
+        // a bare-decl `set_css` path is `[Global]` (the parse_inline `*` wrapper).
+        let range = CssScopeRange { start: 5, end: 9 };
+        let mut p = CssPath::new(vec![CssPathSelector::Global]);
+        p.push_front_scope(range);
+        assert_eq!(
+            p.selectors.as_ref(),
+            &[CssPathSelector::Root(range), CssPathSelector::Global][..]
+        );
+        // a nested selector path stays intact behind the scope prefix.
+        let mut p2 = CssPath::new(vec![
+            CssPathSelector::Global,
+            CssPathSelector::Children,
+            CssPathSelector::Class("foo".to_string().into()),
+        ]);
+        p2.push_front_scope(range);
+        assert_eq!(p2.selectors.as_ref()[0], CssPathSelector::Root(range));
+        assert_eq!(p2.selectors.as_ref().len(), 4);
+    }
+
+    #[test]
+    fn root_display_roundtrips() {
+        let s = CssPathSelector::Root(CssScopeRange { start: 2, end: 6 });
+        assert_eq!(format!("{}", s), ":root(2..=6)");
     }
 }
 

@@ -345,6 +345,10 @@ pub fn format_selectors(selectors: &[CssPathSelector], tabs: usize) -> String {
 pub fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
     match p {
         CssPathSelector::Global => "CssPathSelector::Global".to_string(),
+        CssPathSelector::Root(r) => format!(
+            "CssPathSelector::Root(CssScopeRange {{ start: {}, end: {} }})",
+            r.start, r.end
+        ),
         CssPathSelector::Type(ntp) => format!("CssPathSelector::Type({})", format_node_type(ntp)),
         CssPathSelector::Class(class) => {
             format!("CssPathSelector::Class(String::from({:?}))", class)

@@ -1174,7 +1174,15 @@ impl StyledDom {
     pub fn create_from_dom(mut dom: Dom) -> Self {
         use azul_css::css::Css;
 
-        // 1. Collect all CSS objects from the recursive Dom tree
+        // #47: scope each node's inline css to its subtree BEFORE collecting, so a
+        // non-root node's with_css cannot leak to the whole tree. Uses the same
+        // pre-order ids the flatten (convert_dom_into_compact_dom) will assign;
+        // needs estimated_total_children populated first.
+        dom.fixup_children_estimated();
+        let mut next_scope_id = 0usize;
+        scope_inline_css(&mut dom, &mut next_scope_id);
+
+        // 1. Collect all CSS objects from the recursive Dom tree (now scoped)
         let mut all_css = Vec::new();
         collect_css_from_dom(&dom, &mut all_css);
 
@@ -2099,6 +2107,30 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
             internal: node_data,
         },
         root: root_node_id,
+    }
+}
+
+/// #47: scope every node's inline css to its own subtree. Walks the tree in the
+/// SAME pre-order `convert_dom_into_compact_dom` uses to assign flat NodeIds, so the
+/// `[flat_id, flat_id + estimated_total_children]` range pushed onto each rule (via
+/// `CssPath::push_front_scope`) matches the ids the cascade will later see. After
+/// this, a node's `with_css`/`set_css` rules can only match nodes inside its subtree
+/// — they can no longer leak to the whole tree. `fixup_children_estimated()` must
+/// have run first so `estimated_total_children` is populated/exact.
+fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
+    let start = *next_id;
+    let range = azul_css::css::CssScopeRange {
+        start,
+        end: start + dom.estimated_total_children,
+    };
+    for css in dom.css.as_mut().iter_mut() {
+        for rule in css.rules.as_mut().iter_mut() {
+            rule.path.push_front_scope(range);
+        }
+    }
+    *next_id += 1;
+    for child in dom.children.as_mut().iter_mut() {
+        scope_inline_css(child, next_id);
     }
 }
 

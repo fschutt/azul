@@ -83,6 +83,7 @@ pub fn matches_html_element(
         first_group,
         &html_node_tree[node_id],
         &node_data[node_id],
+        node_id,
         &expected_path_ending,
         is_last_content_group,
     ) {
@@ -104,7 +105,7 @@ pub fn matches_html_element(
                 let parent = find_non_anonymous_parent(current_node, node_hierarchy, node_data);
                 match parent {
                     Some(p) if selector_group_matches(
-                        content_group, &html_node_tree[p], &node_data[p],
+                        content_group, &html_node_tree[p], &node_data[p], p,
                         &expected_path_ending, is_last,
                     ) => { current_node = p; }
                     _ => return false,
@@ -116,7 +117,7 @@ pub fn matches_html_element(
                 let mut found = false;
                 while let Some(anc) = ancestor {
                     if selector_group_matches(
-                        content_group, &html_node_tree[anc], &node_data[anc],
+                        content_group, &html_node_tree[anc], &node_data[anc], anc,
                         &expected_path_ending, is_last,
                     ) {
                         current_node = anc;
@@ -134,7 +135,7 @@ pub fn matches_html_element(
                 let sibling = find_non_anonymous_prev_sibling(current_node, node_hierarchy, node_data);
                 match sibling {
                     Some(s) if selector_group_matches(
-                        content_group, &html_node_tree[s], &node_data[s],
+                        content_group, &html_node_tree[s], &node_data[s], s,
                         &expected_path_ending, is_last,
                     ) => { current_node = s; }
                     _ => return false,
@@ -146,7 +147,7 @@ pub fn matches_html_element(
                 let mut found = false;
                 while let Some(sib) = sibling {
                     if selector_group_matches(
-                        content_group, &html_node_tree[sib], &node_data[sib],
+                        content_group, &html_node_tree[sib], &node_data[sib], sib,
                         &expected_path_ending, is_last,
                     ) {
                         current_node = sib;
@@ -424,6 +425,7 @@ fn selector_group_matches(
     selectors: &[&CssPathSelector],
     html_node: &CascadeInfo,
     node_data: &NodeData,
+    node_id: NodeId,
     expected_path_ending: &Option<CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
@@ -432,6 +434,7 @@ fn selector_group_matches(
             selector,
             html_node,
             node_data,
+            node_id,
             expected_path_ending,
             is_last_content_group,
         )
@@ -443,6 +446,7 @@ fn match_single_selector(
     selector: &CssPathSelector,
     html_node: &CascadeInfo,
     node_data: &NodeData,
+    node_id: NodeId,
     expected_path_ending: &Option<CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
@@ -450,6 +454,10 @@ fn match_single_selector(
 
     match selector {
         Global => true,
+        // `Root(range)` (scope marker, #47): matches iff this node's flat id is in
+        // the owning subtree's range. push_front-ed onto inline (with_css) rules so
+        // they scope to a subtree instead of leaking to the whole tree.
+        Root(range) => range.contains(node_id.index()),
         Type(t) => node_data.get_node_type().get_path() == *t,
         Class(c) => node_data.has_class(c.as_str()),
         Id(id) => node_data.has_id(id.as_str()),
