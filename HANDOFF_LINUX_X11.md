@@ -1832,3 +1832,29 @@ the options + RefAny-custom-destructors for cleanup.
    shared display is freed under the child → the close-chain (menu hierarchy) MUST close children before
    the parent. Common case (menu closes first) is fine; handle in the menu-close step.
 User runtime-tests the shared-display + menu rendering interactively.
+
+### Cron firing 43 — MENU CLICK-OUTSIDE DISMISSAL done (commit aa70c6c8b, builds clean)
+The user-visible "missing piece". Added XGrabPointer/XUngrabPointer + Time/CurrentTime/GrabModeAsync/
+GrabSuccess to x11 dlopen+defines. On open (apply_size_to_content, after XMapWindow) a WindowType::Menu
+window grabs the pointer with owner_events=FALSE → ALL pointer events (incl. clicks on other windows /
+root) are delivered to the menu (xany.window = the grab/menu window, so the owner-dispatch pump routes
+them to it). handle_mouse_button (events.rs) checks the press coords (menu-relative under the grab):
+inside [0,w]x[0,h] = item click (falls through); outside = dismiss → is_open=false (run loop drops it;
+close() now XUngrabPointer's for WindowType::Menu). Escape (handle_keyboard) also dismisses.
+
+REMAINING (menu), priority order:
+1. **Escape keyboard-focus follow-up:** override_redirect menus don't auto-get WM focus + only the POINTER
+   is grabbed, so KeyPress (Escape) only reaches the menu if it happens to be focused. Add XGrabKeyboard
+   on menu open (or XSetInputFocus to the menu) for reliable Escape + arrow-key navigation. Pointer
+   click-outside is already solid.
+2. **Height-clamp:** menu_size.height = min(natural, work_area.height) feeding calculate_menu_position;
+   let the menu DOM scroll when taller than the monitor.
+3. **Submenu chains + RefAny-destructor cleanup (user hint):** opening a submenu as a child (parent_menu_id/
+   child_menu_ids); the root menu keeps the grab; dismiss walks children→parent + ungrabs once. Put the
+   ungrab + close-chain in a RefAny custom destructor on the menu's data so it fires on drop.
+4. **Wayland xdg_popup:** relative positioning + popup_done = click-outside dismissal for free.
+5. **LIFETIME:** parent-owns-shared-display → close child menus BEFORE the parent (else the child's display
+   is freed under it). Wire into the close-chain (#3).
+Also still open (non-menu): textarea hover I-beam cursor (contenteditable default cursor, NOT text_input —
+user said leave text_input alone); exit-time GL texture-cache TLS-dtor crash; native wl_data_device
+clipboard + runtime routing. User runtime-tests menus interactively (right-click a div w/ a context menu).
