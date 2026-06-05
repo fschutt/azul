@@ -879,7 +879,19 @@ impl CssPropertyCache {
             }
             false
         };
-        self.css_props.retain(keep);
+        // DO NOT prune css_props: regenerate_layout calls
+        // recompute_inheritance_and_compact_cache() every frame, which REBUILDS the
+        // compact cache from css_props (build_compact_cache_with_inheritance reads
+        // css_props in its per-node Step 3). If we drop compact-encoded Normal props
+        // here, that rebuild reads pruned css_props and resets those props to their
+        // CSS-initial value — e.g. white-space:pre-wrap on a node regressed to Normal
+        // on the 2nd (recompute) build, collapsing \n in pre-wrap text into one line
+        // (#8, intermittently — depends on whether the recompute ran). The doc's
+        // premise ("the compact cache is the source of truth", implying permanence)
+        // is false given that per-frame recompute. cascaded_props is NOT read by the
+        // rebuild (Step 1 inherits from the parent's COMPACT value, not cascaded_props),
+        // so pruning it remains safe. TODO: re-enable css_props pruning once recompute
+        // becomes incremental (preserve directly-set compact values instead of rebuilding).
         if !self.cascaded_props.is_flattened() {
             self.cascaded_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
         }
