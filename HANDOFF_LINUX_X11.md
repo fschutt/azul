@@ -1583,3 +1583,32 @@ menus, and div context-menus all flow through create_window + size_to_content + 
 (size_to_content on X11+Wayland → parent-relative positioning → Wayland xdg_popup) → (3) IME cursor
 positioning (x11+wl) → (4) a11y scan → (5) clipboard scan (incl native wl_data_device) → (6) rest of
 backlog (textarea cursor, exit crash, azul-paint self-close, #47/#48/hit-tester). User tests live.
+
+### Cron firing 36 — IME cursor positioning VERIFIED already-implemented; menu size_to_content reality
+**IME CURSOR POSITIONING (user asked to "implement") = ALREADY DONE on BOTH backends** (verified
+end-to-end this firing; user to confirm live):
+- Both X11 (mod.rs:2242 `update_ime_position_from_cursor`) and Wayland (same fn) compute the caret rect
+  via `layout_window.get_focused_cursor_rect_viewport()` and set `current_window_state.ime_position`,
+  then call `sync_ime_position_to_os()` — and crucially this runs AFTER EVERY LAYOUT (x11 mod.rs:2234,
+  in regenerate_layout's tail), so the spot follows the caret on every text/caret change.
+- X11 `sync_ime_position_to_os` (mod.rs:3411): XSetICValues with XNSpotLocation wrapped in a
+  XNPreeditAttributes nested list (correct per XIM spec; consulted under XIMPreeditPosition style).
+- Wayland `sync_ime_position_to_os` (mod.rs:4185): zwp_text_input_v3 `set_cursor_rectangle` (opcode 6) +
+  commit + flush, with a GTK-IM fallback (GdkRectangle).
+  → No reimplementation needed. If the candidate window mis-tracks live, debug
+  `get_focused_cursor_rect_viewport` coords, not the plumbing.
+
+**MENU size_to_content REALITY (correctness note for the next firing):** `LayoutTree::get_content_size(0)`
+exists (layout_tree.rs:1048) and returns overflow_content_size/used_size+inline bounds — BUT it reads the
+size the root was LAID OUT at, i.e. constrained to the placeholder WINDOW size. For a true
+shrink-to-fit menu it must be measured with an UNCONSTRAINED available width (intrinsic/measure pass) OR
+the menu root DOM must be `width:fit-content`/auto so the natural size falls out. So size_to_content is
+NOT a naive post-layout read — it needs either a measure-pass (layout the menu DOM at +inf width once,
+read get_content_size, then create/resize the window to it) or a fit-content menu root in
+menu_renderer::create_menu_dom_with_css. Windows' size_to_content is also still a commented TODO
+(windows/mod.rs:449) — implement it once in a shared place and call from all backends.
+
+**PRIORITY ORDER NOW:** (1) MENU: size_to_content (intrinsic measure-pass, see above) on X11+Wayland →
+parent-relative positioning (parent_window offset; Wayland xdg_popup) — the big multi-firing item →
+(2) a11y integration scan (next bounded item) → (3) clipboard scan (native wl_data_device owed) →
+(4) rest of backlog. (IME cursor = DONE; scroll/cursor-blink = fixed pending live confirm.)
