@@ -1234,3 +1234,57 @@ when the user's env has a UTF-8 locale (the normal case); no-op + no regression 
 - **VERIFY after re-login:** type `é` via dead-key/compose; type Japanese via fcitx5/ibus (preedit inline,
   commit on Enter); confirm CJK glyphs actually render (not tofu). Probe: log `XmbLookupString` status +
   bytes on a compose key.
+
+### Cron firing 27 — #10 CJK GLYPH RENDERING root-caused VISUALLY: CPU rasterizer can't decode CFF outlines
+Verified azul-paint rebuilt w/ both firing-26 fixes (scroll + setlocale). Then attacked #10's CJK glyph
+side with a **headless render + PNG inspection** harness (the visual verification the wedged WM blocks
+for real input). RESULT: a real, confirmed bug — and it's NOT in input or shaping.
+
+**Harness (reproducible):** edit `examples/rust/src/hello-world.rs` label to a CJK string (keep it SHORT
+and CJK-FIRST — the demo window is ~640px and does NOT wrap, so a long line pushes CJK off the right
+edge and `render_text`'s clip check silently drops it — I chased that artifact for a bit), then:
+`cargo build -r -p azul-examples --example hello-world` →
+`AZ_FONT_FALLBACK_DEBUG=1 AZ_BACKEND=headless AZ_HEADLESS_SNAPSHOT_PATH=/tmp/cjk.png ./target/release/examples/hello-world`
+→ Read /tmp/cjk.png. (`AZ_HEADLESS_SNAPSHOT_PATH` renders the initial layout via cpurender to a PNG, then exits.)
+
+**VISUAL FINDINGS:**
+- Accented Latin (é à ü ñ) renders CORRECTLY → the "composite chars" GLYPH path is fine; the dead-key
+  *input* path is the separate firing-26 setlocale fix.
+- CJK (日本語 中文 あいう) renders BLANK — but the layout RESERVES its advance width (following text is
+  pushed right by the CJK run width). So it's shaped+measured but the glyphs are invisible. NOT clipping
+  (confirmed by putting CJK first, in-view — still blank).
+- `AZ_FONT_FALLBACK_DEBUG=1` proves shaping is CORRECT: 日本語/中文/あいう are assigned a CJK fallback
+  font and `shape_text_correctly` runs on them (no "NOT loaded" msg). `render_text` prints NO
+  "Font hash not found". So input✓, chain✓, shaping✓, font-load✓ — the drop is at RASTERIZATION.
+
+**ROOT CAUSE (confirmed by code):** the CPU glyph decoder only handles TrueType `glyf` outlines.
+`cpurender::render_text` (cpurender.rs:3623) does `get_or_decode_glyph(gid)` then `None => continue` —
+silently skips the glyph. `ParsedFont::loca_glyf` is `LocaGlyfState::Loaded(None)` for **CFF /
+OpenType-PostScript** fonts (font.rs:365, 469 `FontType::OpenTypeCFF`), so `get_or_decode_glyph`
+returns `None` for every CFF glyph → blank. **NotoSansCJK (the installed CJK font) is CID-keyed CFF**,
+so ALL CJK → blank. Advances still come from `hmtx` (works for CFF) → reserved-but-invisible. This is
+why it "worked on macOS" (CoreText/WebRender rasterize CFF) but not the Linux CPU-fallback path (this
+nouveau box falls back to cpurender when shaders fail). **Impact is broader than CJK: ANY .otf/CFF font
+renders blank on the cpurender/headless path.**
+
+**FIX PLAN (next firing — focused, real work):** add CFF outline decoding to `font.rs`
+`decode_glyph_inner`/`get_or_decode_glyph`. `allsorts-azul 0.16.4` HAS it: `src/cff/outline.rs`
+`CFFOutlines: OutlineBuilder` with `visit<S: OutlineSink>(gid, &mut sink)` (handles CID-keyed CFF +
+subrs internally). Reuse the existing `GlyphOutlineCollector` (font.rs:210, already an `OutlineSink`
+for the glyf path) + `BoundingBoxSink` for the bbox; advance from `hmtx`; build the same `OwnedGlyph`
+the glyf path produces; cache identically. The CFF table bytes are available (the font retains its
+bytes for lazy decode; `FontType::OpenTypeCFF(Vec<u8>)` also stores them). Then re-run the harness →
+CJK should render. Also re-check the GPU/WebRender path isn't double-affected.
+
+**SECONDARY BUG (separate, lower priority):** Korean **한국어 (Hangul) is DROPPED at coverage** —
+`split_text_by_font_coverage` (cache.rs:6458) → `font_chain.resolve_char(fc_cache, ch)` returns `None`
+for Hangul, so those bytes get no segment at all (absent from the FONT FALLBACK output), even though
+NotoSansCJK covers Hangul. JP/CN/hiragana resolve fine. So the resolved fallback chain lacks a
+Hangul-covering font → investigate `rust_fontconfig` `resolve_char`/`UnicodeRange` coverage + how the
+chain is built/pruned for Hangul (likely the script→fallback selection or codepoint-prune drops it).
+Fix this AFTER the CFF decode (otherwise can't see Hangul render anyway).
+
+**PRIORITY ORDER NOW:** (1) #9 scroll FIX LANDED (awaiting real-wheel verify post re-login) → (2) #10:
+input✓(setlocale); **CJK glyph rendering = implement CFF outline decode (top of next firing)**, then
+Hangul coverage; then IME verify post re-login → (3) #7 Wayland clipboard → (4) #11 a11y on X11.
+(Deferred: #47 @scope, #48 events, hit-tester unify.)
