@@ -2034,6 +2034,19 @@ impl X11Window {
             }
         }
 
+        // Rebuild the CPU hit-tester from the fresh layout. CPU mode has no
+        // WebRender hit-tester (render_api is None), so without this rebuild
+        // every hit test returns 0 hits -> dead mouse hover / click / caret /
+        // drag-select / wheel-scroll / focus (#46). GPU mode has
+        // cpu_hit_tester == None and uses the WebRender tester instead, so the
+        // is_some() guard naturally restricts this to the CPU path.
+        if let (Some(cpu_ht), Some(lw)) = (
+            self.common.cpu_hit_tester.as_mut(),
+            self.common.layout_window.as_ref(),
+        ) {
+            cpu_ht.rebuild_from_layout(&lw.layout_results);
+        }
+
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
         self.sync_ime_position_to_os();
