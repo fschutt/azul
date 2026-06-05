@@ -790,3 +790,43 @@ divergence. New issue candidate.
 **PRIORITY ORDER NOW**: (1) user re-login → verify #49 real mouse (task #3) → if broken,
 re-instrument handle_xi_event. (2) #48 event-system rework (still the big one). (3) hit-tester
 unification (user directive). (4) #47 @scope scoping. (5) #43 timer/scroll/anim.
+
+---
+
+### Cron firing 16 (env still wedged) — #47 root-caused + planned; NOT implemented (deliberate)
+Checked env: NO live WM, xfce4-session still pid 1146 (user has NOT re-logged in), `xeyes`
+maps but pointer returns window:0 → input still corrupted. So #49 real-mouse verify (top
+priority) remains BLOCKED on user re-login. #48 + hit-tester unification both need real input
+to verify empirically → also blocked. Deleted the still-running cron `a3a61200` (user said they
+killed it; it wasn't dead; nothing left for the loop to do unattended).
+
+Took #47 as far as is SAFE without a working env: full root-cause + implementation plan. Did
+NOT implement — it's a delicate, high-blast-radius cascade change and I can't do on-screen
+regression testing while the WM is wedged; shipping it blind would violate "verify empirically"
+and risk breaking ALL rendering with the user away. Implement when env is healthy.
+
+**#47 ROOT CAUSE (confirmed, both paths flatten CSS globally → no @scope subtree-scoping):**
+- Slow path `collect_css_from_dom` (core/src/styled_dom.rs:2108): recursively pushes every
+  `dom.css` entry into a flat `Vec<Css>`, DROPPING which node each came from.
+- Fast path `create_from_fast_dom` (styled_dom.rs:~966-976): flattens `CssWithNodeIdVec` into
+  one `combined_css`, ignoring `css_with_id.node_id` (explicit `TODO: respect node_id scoping`).
+- Both feed a single global `Css` to `create_from_compact_dom` → the cascade matches every rule
+  against the WHOLE tree. A non-root `with_css(".foo{…}")` leaks to `.foo` anywhere in the tree.
+  contenteditable is unaffected only because its CSS sits on the ROOT (subtree == whole tree).
+
+**#47 IMPLEMENTATION PLAN (do when env healthy):**
+1. Carry origin node through collection: keep `Vec<(Option<NodeId>, Css)>` (None = root/global,
+   Some(n) = scoped to node n's subtree). Slow path: thread the current node's NodeId in
+   `collect_css_from_dom`. Fast path: keep `css_with_id.node_id`.
+2. Make the cascade matcher subtree-aware: when matching a rule that originated at node N, only
+   match candidate nodes that are within N's subtree (descendant-or-self of N). Likely in the
+   rule-match step under `create_from_compact_dom` / `construct_html_cascade_tree` (find where a
+   CssRuleBlock is tested against a node and add a subtree-membership gate keyed by origin).
+3. Subtree test: precompute each node's [start,end] DFS index range (or walk parents) so
+   "is candidate in N's subtree" is O(1)/O(depth).
+4. VERIFY (needs healthy env): (a) UNIT TEST in core — DOM with `.foo` both inside and outside a
+   non-root scoped node; assert only the in-subtree `.foo` gets the property (get via
+   CssPropertyCache). (b) On-screen no-regression: contenteditable screenshot unchanged
+   (root CSS still applies tree-wide). (c) A scoped-CSS example screenshot showing no leak.
+Risk: core cascade path used by ALL apps — needs the unit test + on-screen regression, hence
+deferred until the env is restored.
