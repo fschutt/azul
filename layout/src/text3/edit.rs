@@ -143,6 +143,31 @@ pub fn apply_edit_to_selection(
     }
 }
 
+/// Absolute byte offset of a cursor within its run's text, honoring affinity.
+///
+/// `Leading` = at the start of the referenced grapheme cluster; `Trailing` =
+/// after it. This mirrors the affinity handling in `insert_text` /
+/// `delete_backward` / `delete_forward`, and is what lets a select-all range
+/// (whose end cursor is `Trailing` on the last cluster) cover the whole text.
+fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usize {
+    use unicode_segmentation::UnicodeSegmentation;
+    let csb = cursor.cluster_id.start_byte_in_run as usize;
+    match cursor.affinity {
+        CursorAffinity::Leading => csb.min(text.len()),
+        CursorAffinity::Trailing => {
+            if csb >= text.len() {
+                text.len()
+            } else {
+                text[csb..]
+                    .grapheme_indices(true)
+                    .next()
+                    .map(|(_, g)| csb + g.len())
+                    .unwrap_or(text.len())
+            }
+        }
+    }
+}
+
 /// Deletes the content within a given range.
 pub fn delete_range(
     content: &[InlineContent],
@@ -161,19 +186,36 @@ pub fn delete_range(
     let start_run_idx = range.start.cluster_id.source_run as usize;
     let end_run_idx = range.end.cluster_id.source_run as usize;
 
+    // The range may be "backward" (start after end) when the user selected
+    // right-to-left, e.g. Shift+Home or Shift+Left. Normalize to [lo, hi] so the
+    // deletion is direction-agnostic. The old `start_byte <= end_byte` guard
+    // skipped the drain for backward ranges, so Delete/Backspace (and type-to-
+    // replace) silently did nothing on such selections.
+    let mut cursor_after = range.start;
     if start_run_idx == end_run_idx {
         if let Some(InlineContent::Text(run)) = new_content.get_mut(start_run_idx) {
-            let start_byte = range.start.cluster_id.start_byte_in_run as usize;
-            let end_byte = range.end.cluster_id.start_byte_in_run as usize;
-            if start_byte <= end_byte && end_byte <= run.text.len() {
-                run.text.drain(start_byte..end_byte);
+            let a = cursor_byte_offset_in_run(&run.text, &range.start);
+            let b = cursor_byte_offset_in_run(&run.text, &range.end);
+            let lo = a.min(b);
+            let hi = a.max(b);
+            if hi <= run.text.len() && lo < hi {
+                run.text.drain(lo..hi);
+                // Collapse the caret to the start of the deleted region (the low
+                // end), regardless of the original selection direction.
+                cursor_after = TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: start_run_idx as u32,
+                        start_byte_in_run: lo as u32,
+                    },
+                    affinity: CursorAffinity::Leading,
+                };
             }
         }
     } else {
         // TODO: Handle multi-run deletion
     }
 
-    (new_content, range.start) // Return cursor at the start of the deleted range
+    (new_content, cursor_after) // caret at the start of the deleted range
 }
 
 /// Inserts text at a cursor position.

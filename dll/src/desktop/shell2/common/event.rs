@@ -2303,15 +2303,14 @@ pub trait PlatformWindow {
 
                             if let Some(range) = range {
                                 if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+                                    // Select the whole content as ONE range. The caret
+                                    // sits at range.end (last cluster) implicitly. Do NOT
+                                    // follow with set_single_cursor — that collapsed the
+                                    // selection, turning Ctrl+A into a no-op "move caret to
+                                    // end" instead of select-all.
                                     mc.set_single_range(range);
+                                    return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                                 }
-                                // Move cursor to end of selection
-                                if let Some(layout) = layout_window.get_inline_layout_for_node(dom_id, node_id) {
-                                    if let Some(end_cursor) = layout.get_last_cluster_cursor() {
-                                        if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor { mc.set_single_cursor(end_cursor); }
-                                    }
-                                }
-                                return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                             }
                         }
                     }
