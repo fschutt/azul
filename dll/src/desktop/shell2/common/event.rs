@@ -2302,13 +2302,26 @@ pub trait PlatformWindow {
                                 });
 
                             if let Some(range) = range {
-                                if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+                                let did_set = if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
                                     // Select the whole content as ONE range. The caret
                                     // sits at range.end (last cluster) implicitly. Do NOT
                                     // follow with set_single_cursor — that collapsed the
                                     // selection, turning Ctrl+A into a no-op "move caret to
                                     // end" instead of select-all.
                                     mc.set_single_range(range);
+                                    true
+                                } else {
+                                    false
+                                };
+                                if did_set {
+                                    // Rebuild the display list so the selection HIGHLIGHT is
+                                    // actually drawn (build_text_selections_map runs inside).
+                                    // Without this, ShouldUpdateDisplayListCurrentWindow only
+                                    // re-renders the stale display list, so the range is set
+                                    // functionally but stays invisible. Mirrors
+                                    // apply_selection_op (Shift+Arrow), which regenerates for
+                                    // exactly this reason.
+                                    layout_window.regenerate_display_list_for_dom(dom_id);
                                     return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                                 }
                             }
