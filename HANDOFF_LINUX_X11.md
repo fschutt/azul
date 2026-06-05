@@ -1026,3 +1026,45 @@ to take_screenshot for layout verification.)
 **PRIORITY ORDER NOW:** (1) #9 scroll + timers on x11/wayland (bounce/overscroll) — user-requested,
 verifiable via real wheel (xdotool button 4/5). (2) #48 event-system rework. (3) hit-tester
 unification (user directive). (4) #47 @scope subtree-scoping. (5) #7 native Wayland clipboard.
+
+---
+
+### Cron firing 23 — #9 scroll/timers: core VERIFIED working; animation/real-wheel BLOCKED by re-wedged WM
+VERIFIED on x11+CPU (via debug `scroll` op + headless `take_screenshot` — both WM-independent):
+- Basic scroll WORKS: debug scroll on textarea (node 7) set scroll_y=150 (max_scroll_y=351.95,
+  content 692 / container 340) and the render updated (textarea scrolled Line 1-5 → Line 3-7,
+  scrollbar thumb moved). The firing-8 "SCROLL BLOCKED BY LAYOUT (solver3)" is RESOLVED.
+CODE-VERIFIED wired on x11 (so it IS "hooked up on linux"):
+- Real wheel path: handle_scroll (x11/events.rs:591) → scroll_manager.record_scroll_from_hit_test(
+  ScrollInputSource::WheelDiscrete) → impulse+momentum physics. Wheel buttons 4/5 reach handle_scroll
+  via handle_mouse_button, which now receives XI2 events (post-#49).
+- Bounce/overscroll IMPLEMENTED: layout/src/scroll_timer.rs — rubber_band_clamp,
+  spring_constant_from_bounce_duration, overscroll_elasticity, max_overscroll_distance,
+  bounce_back_duration_ms; ScrollPhysics/OverflowScrolling/OverscrollBehavior CSS props.
+- Animation driving: scroll_manager.has_active_animations() + tick() called in render_and_present;
+  check_timers_and_threads pumps timers.
+
+NOT YET VERIFIED (needs a MAPPED window — see blocker): real wheel → momentum decay animation;
+bounce-at-edge spring-back; and whether the CPU render path drives CONTINUOUS frames while
+has_active_animations (the GPU path at x11/mod.rs:2473-2494 has an explicit has_active_animations
+early-return-skip; the CPU path's tick is at :2218 but I did NOT confirm the loop re-renders the
+NEXT frame while animating — a possible gap to verify/fix when the WM is healthy: if momentum/bounce
+only ticks on Expose, the animation stalls. Trace: poll_event/wait_for_events should keep waking
+(~16ms timerfd) while has_active_animations).
+
+⚠️ BLOCKER (my fault, again): the WM is RE-WEDGED — xeyes IsUnMapped + 2 orphan xfwm4 frames, from
+app restart-churn during #8/#9 debugging. Same failure as firings 15-17. take_native_screenshot
+returns "XGetImage failed" and real xdotool wheel/click can't land (pointer over root). NEEDS
+RE-LOGIN to restore mapping. LESSON (reinforced): do NOT pkill+relaunch the app repeatedly — reuse
+the running instance; headless take_screenshot verifies layout/render regardless of WM; only
+real-input/native-screenshot need a healthy WM.
+
+WAYLAND: not tested (no Wayland session on this box). Scroll core is shared (scroll_manager/
+scroll_timer); verify the Wayland event loop's animation-driving + timer pumping separately
+(older handoff flagged "scroll physics timer isn't driving redraws on Wayland").
+
+**PRIORITY ORDER NOW** (on-screen verification is WM-blocked until re-login):
+(1) #9 finish: after re-login, real-wheel momentum + bounce verification; confirm CPU-path
+    continuous-animation driving. (2) #47 @scope subtree-scoping — UNIT-TEST verifiable (cargo
+    test), WM-INDEPENDENT, good to do while the WM is wedged; related to the #8 cascade work.
+(3) #48 event-system rework. (4) hit-tester unification. (5) #7 native Wayland clipboard.
