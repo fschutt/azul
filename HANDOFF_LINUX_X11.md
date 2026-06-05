@@ -1717,3 +1717,48 @@ anywhere (grep: zero hits). The STANDARD X11 menu mechanism (what GTK/Qt do):
     Q2 "for free" via the popup grab — another reason to use real xdg_popup, not a toplevel.)
   → IMPLEMENT: pointer-grab-on-open + click-outside-bounds dismissal (X11), popup_done (Wayland), wired to
     the parent/child hierarchy. This is THE missing piece for "menu closes properly".
+
+### Cron firing 39 — size_to_content DONE; USER chose option (b) — TURN-KEY refactor plan
+**size_to_content (X11) DONE — commit edb557168, builds clean.** Window created UNMAPPED → first
+poll_event lays out at 16x16 → get_content_size(0) (overflow extent) → XResizeWindow + map → relayout.
+apply_size_to_content() in x11/mod.rs (just before regenerate_layout). NEXT for menus: feed that natural
+size through calculate_menu_position WITH height-clamp = min(natural.h, work_area.h).
+
+**USER DECISION: do option (b) — ONE shared X display + single event pump dispatched per-window (Win32
+model). "RefreshDomAllWindows should then start to work." Plus a menu-close event/callback.**
+
+TURN-KEY REFACTOR PLAN (X11):
+- KEY ENABLER: the registry ALREADY keys by the X Window id (`window_id = x11_window.window as u64`,
+  run.rs:1086) → the pump can dispatch with `registry::get_window(ev.xany.window as u64)` — NO new map.
+- **KEY RISK / the actual work:** `poll_event` has its OWN `match event.type_` (x11/mod.rs:736: Expose/
+  FocusIn/FocusOut/Configure/Button/Key/Motion/...) SEPARATE from `handle_event`'s match (the divergent-
+  handler problem). The single pump must call ONE consolidated dispatch. STEP 0 = merge poll_event's match
+  into handle_event (audit BOTH arms, unify, so the pump uses handle_event and nothing is lost). Do this
+  first + build; it's the error-prone part (untestable here — a missing arm silently kills that event).
+- Step 1: open `XOpenDisplay` ONCE in run() (x11 path ~run.rs:1056), pass the display into
+  new_with_resources (currently opens its own at x11/mod.rs:1187). TWO call sites: initial window +
+  pending_window_creates (run.rs:1173). X11Window.display becomes a SHARED borrow — do NOT XCloseDisplay
+  per-window in Drop; close once when the loop exits.
+- Step 2: replace the per-window event drain (run.rs:1120) with a SINGLE pump:
+  `while XPending(shared)>0 { XNextEvent(shared,&ev); if let Some(w)=registry::get_window(ev.xany.window){ (&mut *w).handle_event(&ev) } }`.
+- Step 3: SPLIT poll_event into (a) event dispatch (now the pump via handle_event) and (b) per-window
+  POST-processing — render-if-frame_needs_regeneration, check_timers_and_threads, apply_size_to_content,
+  a11y — called per-window AFTER the pump each loop turn.
+- Step 4: wait event-driven on `poll(shared_fd + EVERY window's timerfds)` (replaces the 16ms-poll
+  `wait_for_x11_connection_activity`, run.rs:1349). Single-window wait_for_events stays a fast path.
+- Step 5: **RefreshDomAllWindows** (currently common/event.rs:3809 bundles it with RefreshDom → only the
+  current window). After the refactor, when a callback returns it, iterate the registry and set
+  `frame_needs_regeneration = true` on EVERY window. (Could be done independently of the refactor too.)
+
+MENU-CLOSE (user's design, can be done BEFORE/independent of the connection refactor):
+- New framework callback `on_menu_window_close(RefAny, CallbackInfo) -> Update` that does
+  `CallbackInfo::set_window_state(closed = true)`; the regular loop's closed-window check
+  (run.rs:1138 `if !window.is_open()`) then unregisters+drops it. So only the TRIGGER is new.
+- Trigger = XGrabPointer on menu open (owner_events=True, ButtonPress|Release|Motion, GrabModeAsync);
+  ButtonPress OUTSIDE the menu/submenu bounds → set closed=true + XUngrabPointer; inside item → activate;
+  motion over submenu-parent → spawn child menu (grab stays on root). Escape dismisses.
+  Wayland: xdg_popup.grab + popup_done → destroy. Wire to parent_menu_id/child_menu_ids (close chain).
+
+PRIORITY NOW: (0) consolidate poll_event↔handle_event → (1-4) shared display + pump + wait →
+(5) RefreshDomAllWindows-all → menu-close (grab+closed-flag) → height-clamp into calculate_menu_position
+→ Wayland xdg_popup. Build-verify each step (user runtime-tests later).
