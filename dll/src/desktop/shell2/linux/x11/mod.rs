@@ -473,7 +473,12 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) -> ProcessEve
             // caret, hover, drag-select, scroll).
 
             // Pen/tablet: additionally feed pressure/tilt for known pen devices.
-            if let Some(&(p, tx, ty, pmax)) = win.pen_valuators.get(&ev.deviceid) {
+            // Key the valuator map by sourceid (the originating SLAVE/physical
+            // device), NOT deviceid: events selected on XIAllMasterDevices carry
+            // the MASTER deviceid, but pressure/tilt valuators live on the slave
+            // pen device — and pen_valuators is keyed by the slave's id from
+            // XIQueryDevice. (X11 API audit, finding 9.)
+            if let Some(&(p, tx, ty, pmax)) = win.pen_valuators.get(&ev.sourceid) {
                 let pressure = decode_valuator(ev, p)
                     .map(|v| (v / pmax).clamp(0.0, 1.0) as f32)
                     .unwrap_or(0.0);
@@ -1799,11 +1804,17 @@ impl X11Window {
             // Flush pending requests first
             (self.xlib.XFlush)(self.display);
 
-            // Check if there are already pending events
+            // Drain ALL already-queued events. Xlib buffers events client-side,
+            // so the connection fd can be NOT readable even while events sit in
+            // Xlib's internal queue — dequeue via XPending rather than one event
+            // per poll() wake (which leaves the rest queued until unrelated fd
+            // activity). (X11 API audit, finding 10.)
             if (self.xlib.XPending)(self.display) > 0 {
-                let mut event: XEvent = mem::zeroed();
-                (self.xlib.XNextEvent)(self.display, &mut event);
-                self.handle_event(&mut event);
+                while (self.xlib.XPending)(self.display) > 0 {
+                    let mut event: XEvent = mem::zeroed();
+                    (self.xlib.XNextEvent)(self.display, &mut event);
+                    self.handle_event(&mut event);
+                }
                 return Ok(());
             }
 
@@ -1842,7 +1853,9 @@ impl X11Window {
             if result > 0 {
                 // Check X11 connection
                 if pollfds[0].revents & libc::POLLIN != 0 {
-                    if (self.xlib.XPending)(self.display) > 0 {
+                    // Drain fully — a single poll() wake can carry many queued
+                    // events; processing one would leave the rest stuck.
+                    while (self.xlib.XPending)(self.display) > 0 {
                         let mut event: XEvent = mem::zeroed();
                         (self.xlib.XNextEvent)(self.display, &mut event);
                         self.handle_event(&mut event);

@@ -654,6 +654,10 @@ pub type XDestroyIC = unsafe extern "C" fn(XIC);
 pub type XSetICValues = unsafe extern "C" fn(XIC, ...) -> *mut c_char;
 pub type XmbLookupString =
     unsafe extern "C" fn(XIC, *mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int;
+// Like XmbLookupString but the committed bytes are ALWAYS UTF-8 (XmbLookupString
+// returns text in the locale codeset, which is only UTF-8 in a UTF-8 locale).
+pub type Xutf8LookupString =
+    unsafe extern "C" fn(XIC, *mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int;
 pub type XSetICFocus = unsafe extern "C" fn(XIC);
 pub type XUnsetICFocus = unsafe extern "C" fn(XIC);
 pub type XGetInputFocus = unsafe extern "C" fn(*mut Display, *mut Window, *mut c_int) -> c_int;

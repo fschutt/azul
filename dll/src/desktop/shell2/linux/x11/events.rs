@@ -291,7 +291,11 @@ impl ImeManager {
         let mut buffer: [c_char; 32] = [0; 32];
 
         let count = unsafe {
-            (self.xlib.XmbLookupString)(
+            // Xutf8LookupString (not XmbLookupString): the committed bytes are
+            // guaranteed UTF-8 regardless of the locale codeset, so accented and
+            // CJK commit strings decode correctly even under a non-UTF-8 locale.
+            // (X11 API audit, finding 6.)
+            (self.xlib.Xutf8LookupString)(
                 self.xic,
                 event,
                 buffer.as_mut_ptr(),
