@@ -1858,3 +1858,27 @@ REMAINING (menu), priority order:
 Also still open (non-menu): textarea hover I-beam cursor (contenteditable default cursor, NOT text_input —
 user said leave text_input alone); exit-time GL texture-cache TLS-dtor crash; native wl_data_device
 clipboard + runtime routing. User runtime-tests menus interactively (right-click a div w/ a context menu).
+
+### Cron firing 44 — MENU POSITIONING fixed: at cursor, not (0,0) (commit 6cd7b6a21, builds clean)
+Found a real bug: `calculate_menu_position` (the cursor/trigger placement w/ work-area edge-flip + clamp)
+was ONLY called from unit tests — `show_menu` hard-coded `window_state.position = (0,0)`, so every context
+menu opened in the SCREEN's top-left corner. Now show_menu calls calculate_menu_position (AutoCursor, or
+AutoHitRect when trigger_rect is set), converting the cursor from parent-window-relative to ABSOLUTE
+(screen) coords (offset by parent_window_position) and using a content-size ESTIMATE (item_count*28+8) to
+drive the flip/clamp. size_to_content still resizes the WINDOW to its true content after; position is set
+up-front from the estimate.
+Deferred Escape XGrabKeyboard this firing: grabbing the keyboard has a scary frozen-input failure mode I
+can't runtime-test — click-outside dismissal (pointer grab) already works; do Escape-grab when testable.
+
+REMAINING (menu), priority order:
+1. **Reposition + height-clamp using the TRUE size_to_content size** (currently the estimate): in X11
+   apply_size_to_content, after computing final_size, re-clamp the window position to the monitor work_area
+   (get_display_at_point + XMoveWindow) so a menu whose real content exceeds the estimate stays on-screen;
+   and clamp height = min(natural, work_area.h) — but that needs the menu DOM to SCROLL (overflow) when
+   taller than the monitor, so do the menu-DOM scroll first (menu_renderer) then the height-clamp.
+2. **HiDPI:** menu position is logical→physical at DPI=1 only; scale by the monitor's factor for HiDPI.
+3. **Escape XGrabKeyboard** (test-gated, see above) + arrow-key nav.
+4. **Submenu chains + RefAny-destructor cleanup** (parent_menu_id/child_menu_ids; root keeps grab).
+5. **Wayland xdg_popup** (relative pos + popup_done dismissal).
+6. **LIFETIME:** close child menus before parent (shared display).
+MENU NOW (X11): appears at cursor, content-sized, shares parent event loop, dismisses on click-outside.
