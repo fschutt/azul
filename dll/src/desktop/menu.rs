@@ -420,6 +420,9 @@ pub fn show_menu(
         theme: None.into(),
         create_callback: None.into(),
         hot_reload: false,
+        // Set by the spawner (show_window_based_context_menu) which knows the
+        // parent window's id; 0 here = filled in later / no parent.
+        parent_window_id: 0,
     }
 }
 

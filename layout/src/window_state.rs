@@ -37,6 +37,13 @@ pub struct WindowCreateOptions {
     pub size_to_content: bool,
     /// If true, enables hot-reloading of CSS and resources
     pub hot_reload: bool,
+    /// Parent window's platform id (the window-registry key: X Window id on X11,
+    /// wl_surface ptr on Wayland, HWND on Windows, NSWindow ptr on macOS), or 0
+    /// for a top-level window with no parent. Child windows (menus, dropdowns,
+    /// dialogs) set this so the backend can position them relative to the parent
+    /// and, on X11, reuse the parent's display connection for the single shared
+    /// event pump. 0 = no parent.
+    pub parent_window_id: u64,
 }
 
 impl Default for WindowCreateOptions {
@@ -48,6 +55,7 @@ impl Default for WindowCreateOptions {
             theme: azul_core::window::OptionWindowTheme::None,
             size_to_content: false,
             hot_reload: false,
+            parent_window_id: 0,
         }
     }
 }
