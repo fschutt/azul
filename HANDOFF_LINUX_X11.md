@@ -1339,3 +1339,37 @@ Read /tmp/x.png.
 **PRIORITY ORDER NOW:** (1) #9 scroll FIX LANDED (real-wheel verify post re-login) → (2) #10: input✓,
 **CJK glyph rendering✓ (FIXED)**, remaining = Korean Hangul coverage + IME verify post re-login →
 (3) #7 Wayland clipboard → (4) #11 a11y on X11. (Deferred: #47 @scope, #48 events, hit-tester unify.)
+
+### Cron firing 29 — #10 Korean HANGUL **FIXED + VISUALLY VERIFIED** (cmap-coverage fallback)
+Confirmed firing-28's hypothesis and fixed it. ROOT CAUSE (confirmed): coverage in BOTH chain paths
+flows through rust-fontconfig `request_fonts_fast` / `resolve_char`, which test `pattern.unicode_ranges`
+— derived from the font's **OS/2 `ulUnicodeRange` bits, NOT the cmap** (registry.rs:812 + doc 590-604).
+Noto Sans CJK ships JP/KR/SC/TC faces that share glyphs but set different OS/2 range bits; the **JP**
+face (chosen for 日本語) omits the Hangul block, so `resolve_char` returned `None` for 한국어 and
+`split_text_by_font_coverage` silently dropped it — even though that face's cmap HAS the Hangul glyphs.
+rust-fontconfig is a crates.io dep (not editable here).
+
+**FIX (committed):** azul-side cmap-coverage fallback in `split_text_by_font_coverage`
+(layout/src/text3/cache.rs). When `font_chain.resolve_char` returns `None`, probe the actually-loaded
+fonts by REAL glyph coverage (`ParsedFontTrait::has_glyph`) and use the first that covers the codepoint.
+The covering CJK face is already loaded (Han/Kana resolved to it), so Hangul reuses it (no font mixing).
+Robust for ANY OS/2-vs-cmap discrepancy, not just Hangul. Signature gained `loaded_fonts: &LoadedFonts<T>`
+(both call sites updated). Additive — only affects codepoints the chain previously DROPPED, so no
+regression risk for already-working text.
+
+**VISUAL VERIFICATION (headless):** `AZ_FONT_FALLBACK_DEBUG=1` now reports **8 segments incl. 한국어**
+(bytes 17..26 → CJK font; was 7 segments / Hangul absent). PNG inspection: **日本語 中文 한국어 あいう
+é à ü ñ ALL render**. #10's GLYPH side (Japanese kanji+kana, Chinese, Korean, accented Latin) is now
+fully working on the CPU/headless/Linux path.
+
+**#10 STATUS:** input✓ (setlocale, firing 26) · CJK+Hangul glyph rendering✓ (CFF decode firing 28 +
+cmap fallback firing 29). REMAINING: real-IME verify (dead-key é, fcitx5/ibus Japanese preedit) needs a
+MAPPED window → post re-login. Then #10 fully closes.
+
+**ARTIFACTS:** cache.rs is in azul-layout → libazul.so + azul-paint rebuilt post-commit to carry the
+Hangul fix (on top of scroll+setlocale+CFF).
+
+**PRIORITY ORDER NOW:** (1) #9 scroll FIX LANDED (real-wheel verify post re-login) → (2) #10: input✓,
+**CJK+Hangul glyph rendering✓ (FIXED)**, remaining = IME real-input verify post re-login →
+(3) #7 Wayland clipboard (implement now/test later — NEXT actionable code item) → (4) #11 a11y on X11.
+(Deferred: #47 @scope, #48 events, hit-tester unify.)

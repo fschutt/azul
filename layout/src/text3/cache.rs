@@ -6455,16 +6455,35 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
 /// in the fallback chain. Returns Vec<(byte_start, byte_end, FontId)>.
 ///
 /// Characters that can't be resolved to any font are skipped (gap in coverage).
-fn split_text_by_font_coverage(
+fn split_text_by_font_coverage<T: ParsedFontTrait>(
     text: &str,
     font_chain: &rust_fontconfig::FontFallbackChain,
     fc_cache: &FcFontCache,
+    loaded_fonts: &LoadedFonts<T>,
 ) -> Vec<(usize, usize, FontId)> {
     let mut segments: Vec<(usize, usize, FontId)> = Vec::new();
 
     for (byte_idx, ch) in text.char_indices() {
         let char_end = byte_idx + ch.len_utf8();
-        if let Some((font_id, _)) = font_chain.resolve_char(fc_cache, ch) {
+        // Primary: the resolved fallback chain. Its coverage comes from
+        // rust-fontconfig's OS/2-derived `unicode_ranges`, which can MISS
+        // codepoints a font actually has in its cmap — e.g. Noto Sans CJK's
+        // JP face does not advertise the Hangul OS/2 block, so 한국어 resolves
+        // to None here even though that face's cmap covers it.
+        let font_id = font_chain
+            .resolve_char(fc_cache, ch)
+            .map(|(id, _)| id)
+            // Fallback: probe the actually-loaded fonts by REAL glyph coverage
+            // so OS/2-vs-cmap gaps render instead of being silently dropped.
+            // The covering CJK face is already loaded (Han/Kana resolved to it),
+            // so this reuses it for Hangul rather than mixing in another font.
+            .or_else(|| {
+                loaded_fonts
+                    .iter()
+                    .find(|(_, font)| font.has_glyph(ch as u32))
+                    .map(|(id, _)| id.clone())
+            });
+        if let Some(font_id) = font_id {
             match segments.last_mut() {
                 Some(last) if last.2 == font_id && last.1 == byte_idx => {
                     // Extend current segment (same font, contiguous)
@@ -6510,7 +6529,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
         std::env::var_os("AZ_FONT_FALLBACK_DEBUG").is_some()
     });
 
-    let segments = split_text_by_font_coverage(text, font_chain, fc_cache);
+    let segments = split_text_by_font_coverage(text, font_chain, fc_cache, loaded_fonts);
 
     if dbg && segments.len() > 1 {
         eprintln!(
@@ -6981,7 +7000,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         };
 
                         // Per-character font fallback for CombinedText
-                        let segments = split_text_by_font_coverage(&text, font_chain, fc_cache);
+                        let segments = split_text_by_font_coverage(&text, font_chain, fc_cache, loaded_fonts);
                         let mut all_glyphs = Vec::new();
                         for (seg_start, seg_end, font_id) in &segments {
                             let font = match loaded_fonts.get(font_id) {
