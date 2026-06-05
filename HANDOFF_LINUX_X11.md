@@ -1099,3 +1099,53 @@ ACTION: paused the cron (deleted job d317fa59) to avoid wasteful spinning. TO RE
 work: (1) re-login to clear the wedged WM (restores window mapping → real-wheel/native-screenshot
 verification), then (2) start a FRESH session (full context budget) and re-create the cron. Next
 items in order: #9-animation real-wheel verify → #47 (plan above) → #48 → hit-tester → #7.
+
+---
+
+### Cron firing 25 — USER RE-PRIORITIZED (interactive); plan updated for COMPACTION
+User gave a new ordered backlog (this supersedes prior priority lists). Captured here so it
+survives the upcoming context compaction.
+
+**NEW PRIORITY ORDER:**
+1. **SCROLL / physics timer (FIRST).** User: real mouse-wheel scrolling doesn't work though the
+   scrollbar shows; "the physic scroll timer isn't hit." Also check macOS for the same problem.
+2. **X11 composite/dead-key chars (é = e+accent), IME, and Japanese/CJK glyph rendering** (all
+   worked on macOS). Task #10.
+3. **Wayland clipboard** — implement now, test later (no Wayland session on this box). Task #7.
+4. **a11y on X11.** Task #11.
+(Deferred big items remain after these: #47 @scope subtree-scoping [reassessed bigger — see firing
+24], #48 event-system rework, hit-tester unification.)
+
+**SCROLL ROOT-CAUSE PROGRESS (firing 25):**
+- Wheel path: handle_scroll (x11/events.rs:591) → scroll_manager.record_scroll_from_hit_test(
+  WheelDiscrete) QUEUES the delta into scroll_input_queue (does NOT set offset directly), returns
+  should_start_timer=true on the first pending input. handle_scroll THEN starts
+  SCROLL_MOMENTUM_TIMER_ID (events.rs:634-656) with scroll_physics_timer_callback at
+  system_style.scroll_physics.timer_interval_ms. The timer callback take_all()s the queue each tick,
+  applies physics → offset, and should redraw. The debug `scroll` op works only because it sets the
+  offset DIRECTLY (bypasses queue+timer) — that's why scrollbar/render are fine but real wheel isn't.
+- Timer-START is wired identically on ALL platforms (x11 events.rs:634, macos events.rs:428, windows
+  mod.rs:3040, wayland mod.rs:2178). So the bug is NOT a missing start.
+- TWO CANDIDATES (verify empirically next, needs a MAPPED window + real wheel → re-login):
+  (a) handle_scroll NOT REACHED on real wheel: post-#49, XInput2 delivers wheel as XI_Motion
+      SCROLL-VALUATOR changes, which handle_xi_event routes to handle_mouse_move (which IGNORES
+      scroll valuators). Only legacy emulated XI_ButtonPress 4/5 reaches handle_mouse_button→
+      handle_scroll. If this server sends smooth-scroll XI_Motion but NOT emulated buttons (or they're
+      filtered), wheel never reaches handle_scroll. FIX likely: decode scroll-class valuators in
+      handle_xi_event (x11/mod.rs:414) and call handle_scroll. PROBE: log evtype+detail+valuators in
+      handle_xi_event on a real wheel tick.
+  (b) Timer started but NOT PUMPED / callback not firing / not redrawing: X11 timers use timerfd
+      (start_timer → timerfd; wait_for_events polls it; check_timers_and_threads→process_timers_and_
+      threads runs the callback). Verify the SCROLL_MOMENTUM_TIMER timerfd is created+polled and
+      scroll_physics_timer_callback actually runs + applies offset + requests redraw. PROBE: eprintln
+      in scroll_physics_timer_callback (does it fire? offset delta? redraw?).
+  The user's "timer isn't hit" wording points at (b), but (a) would ALSO present as "scrollbar shows,
+  no scroll." Check (a) first (cheap probe in handle_xi_event), then (b).
+- macOS: timer-start is wired (events.rs:428); macOS pumps timers via its own run-loop (NOT timerfd),
+  and gets wheel via NSEvent (NOT XI2) — so (a) is X11-only, but (b)/the shared
+  scroll_physics_timer_callback could affect macOS too. Check whether the macOS timer pump actually
+  invokes scroll_physics_timer_callback.
+
+⚠️ ENV: WM was wedged earlier (orphan xfwm4 frames from my app restart-churn) → window unmapped →
+real-wheel + native-screenshot blocked. NEEDS RE-LOGIN. Headless take_screenshot works regardless.
+Do NOT pkill+relaunch the app repeatedly (reuse the running instance) — that's what wedged the WM.
