@@ -636,6 +636,14 @@ pub struct X11Window {
     /// blink, physics-scroll and a11y repaints.
     needs_redraw: bool,
 
+    /// Set when this window was created with `size_to_content` (e.g. menus).
+    /// The window is created UNMAPPED; the first `poll_event` lays the DOM out
+    /// at a tiny viewport so the content overflows to its natural extent,
+    /// measures that (`LayoutTree::get_content_size(0)` — the overflow size),
+    /// resizes the window to it, then maps — so the popup appears exactly
+    /// content-sized with no tiny-window flash. Cleared after the one-time pass.
+    size_to_content_pending: bool,
+
     // Accessibility
     /// Linux accessibility adapter
     #[cfg(feature = "a11y")]
@@ -672,6 +680,13 @@ impl X11Window {
         // `frame_needs_regeneration` starts true and is cleared inside render_and_present,
         // so this fires once for the initial frame (and again only when a real relayout is
         // queued, e.g. resize) — it does not busy-loop.
+        //
+        // One-time size_to_content pass (menus/tooltips, created UNMAPPED): measure
+        // the content's natural size, resize the window to it, and map — before the
+        // first present, so the popup appears exactly content-sized with no flash.
+        if self.size_to_content_pending {
+            self.apply_size_to_content();
+        }
         if self.common.frame_needs_regeneration {
             if let Err(e) = self.render_and_present() {
                 log_error!(
@@ -1533,6 +1548,7 @@ impl X11Window {
             bgra_buffer: Vec::new(),
             gpu_damage_rects: Vec::new(),
             needs_redraw: true,
+            size_to_content_pending: options.size_to_content,
             #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::LinuxAccessibilityAdapter::new(),
         };
@@ -1549,8 +1565,13 @@ impl X11Window {
                 })?;
         }
 
-        unsafe { (window.xlib.XMapWindow)(display, window.window) };
-        unsafe { (window.xlib.XFlush)(display) };
+        // Defer mapping for size_to_content windows (menus): they are mapped in
+        // apply_size_to_content() once measured + resized, so they never appear
+        // at the wrong (pre-measure) size. All other windows map now.
+        if !options.size_to_content {
+            unsafe { (window.xlib.XMapWindow)(display, window.window) };
+            unsafe { (window.xlib.XFlush)(display) };
+        }
 
         // Try to subscribe to XRandR screen change notifications (optional)
         window.xrandr_event_base = try_subscribe_xrandr(display, root);
@@ -2145,6 +2166,63 @@ impl X11Window {
         if result != ProcessEventResult::DoNothing {
             self.request_redraw();
         }
+    }
+
+    /// One-time `size_to_content`: lay the DOM out at a tiny viewport so the
+    /// content overflows to its natural size, read that overflow extent
+    /// (`LayoutTree::get_content_size(0)`), resize the window to it, then map.
+    /// Called once from poll_event before the first render for windows created
+    /// with `size_to_content` (menus/tooltips). Mirrors the user-specified
+    /// algorithm: size→0, read overflow, resize, relayout.
+    fn apply_size_to_content(&mut self) {
+        // LogicalSize is already in scope (top-of-file `geom::{LogicalSize, ...}`).
+        self.size_to_content_pending = false;
+
+        // 1. Lay out at a tiny viewport (narrower than any real menu) so block
+        //    children shrink to min/content width and the content overflows.
+        let orig = self.common.current_window_state.size;
+        let mut tiny = orig;
+        tiny.dimensions = LogicalSize::new(16.0, 16.0);
+        self.common.current_window_state.size = tiny;
+        let _ = self.regenerate_layout();
+
+        // 2. Read the natural content size (overflow extent of the root node 0).
+        let natural = self
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.layout_results.get(&azul_core::dom::DomId { inner: 0 }))
+            .map(|lr| lr.layout_tree.get_content_size(0));
+
+        // 3. Resize to it (≥1px). DPI handled by WindowSize's logical→physical.
+        let mut final_size = orig;
+        if let Some(sz) = natural {
+            final_size.dimensions = LogicalSize::new(sz.width.max(1.0), sz.height.max(1.0));
+            log_debug!(
+                LogCategory::Window,
+                "[X11] size_to_content: measured natural size {}x{}",
+                sz.width,
+                sz.height
+            );
+        }
+        self.common.current_window_state.size = final_size;
+        let phys = final_size.get_physical_size();
+        unsafe {
+            (self.xlib.XResizeWindow)(
+                self.display,
+                self.window,
+                (phys.width as u32).max(1),
+                (phys.height as u32).max(1),
+            );
+            // 4. Map now (deferred from creation). The render_and_present that
+            //    follows in this same poll_event iteration lays out + presents at
+            //    final_size, so the popup never appears at the tiny measure size.
+            (self.xlib.XMapWindow)(self.display, self.window);
+            (self.xlib.XFlush)(self.display);
+        }
+
+        // 5. Re-layout at the final size (drops the scrollbars the tiny pass added).
+        self.common.frame_needs_regeneration = true;
     }
 
     pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
