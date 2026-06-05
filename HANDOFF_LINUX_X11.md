@@ -736,3 +736,57 @@ State after this firing (committed; tree clean at the #46 commit):
 
 **CURRENT PRIORITY ORDER** (updated): #48 (event-system rework, IN PROGRESS — see below) →
 #47 (collect_css_from_dom @scope subtree-scoping) → #43 (timer/scroll/anim verification).
+
+---
+
+### Cron firing 15 (tier 3, user-reported) — #49 REAL MOUSE DEAD on X11: XI2 shadows core events
+User feedback mid-session: "cursor exists but click does still nothing … caret is there now,
+but I can't reposition [with my mouse]." That split (keyboard caret works, mouse click dead)
+is the whole tell.
+
+**ROOT CAUSE (high confidence, code-proven + reproduced; real-input confirmation pending)**
+X11 window creation calls `XISelectEvents` for XI_ButtonPress/Release/Motion (+touch)
+(x11/mod.rs:~309). Per XInput2 semantics, selecting XI2 pointer events makes the X server
+deliver them ONLY as XI2 GenericEvents and STOP sending the equivalent CORE
+ButtonPress/MotionNotify to this client. But `handle_xi_event` only decoded touch + pen
+valuators — it DROPPED every mouse button/motion event — and the core dispatch arms in
+poll_event/handle_event never fired (server wasn't sending core pointer events). Keyboard
+kept working because keys are NOT XI-selected (core KeyPress still delivered) → "caret via
+keyboard, no mouse reposition." The debug-server `click` op works because it injects window
+state directly, bypassing X delivery — which is why firing-13/14 verification (synthetic) was
+green while the real mouse was dead. Lesson: synthetic debug input does NOT exercise X11
+event delivery; must test real input (xdotool) for input-path bugs.
+
+**FIX (DONE, `c813ef046`)** `handle_xi_event` now translates XI2 XI_ButtonPress/Release/Motion
+into the equivalent core XButtonEvent/XMotionEvent (raw device coords, button=detail,
+state=mods.effective) and runs them through the SHARED handle_mouse_button/handle_mouse_move
+(same handlers core dispatch used); pen+touch preserved. Returns ProcessEventResult, propagated
+at BOTH GenericEvent dispatch sites (poll_event:~882, handle_event:~1892) so a redraw fires.
+Unblocks click→caret, reposition, hover, drag-select AND wheel scroll (all route through
+perform_hit_test, populated by #46).
+- VERIFIED (synthetic, on screen): clean build (probe stripped); synthetic click @150→caret
+  node3 pos5, @700→repositions to pos28; native screenshot shows the caret move.
+- NOT YET VERIFIED (real input): blocked — see env note below. Task #3 tracks this.
+
+**⚠️ ENV DAMAGE I CAUSED (must restore): X session WM wedged**
+Repeated `pkill -9 contenteditable` restarts during testing wedged the local xfwm4: it stopped
+processing MapRequests, so NEW windows no longer map (app window IsUnMapped; even a trivial
+`xeyes` is IsUnMapped and gets no pointer events — getmouselocation returns window:0 over
+viewable windows = session-wide input/hit-test corruption). Tried: xfwm4 --replace (old WM
+"not exiting"), kill+fresh xfwm4 (wedges instantly, likely choking on leftover windows or the
+broken input state), xkill the stale _NET_SUPPORTING_WM_CHECK window (BadValue — already gone),
+SIGCHLD to xfce4-session (zombie not reaped). Could NOT restore remotely. Left the box with NO
+WM (windows map undecorated). **FIX = user re-login (logout/login restarts the X session); if
+real input still broken after re-login, reboot.** Then verify #49 with a real mouse.
+
+**FOLLOW-UP the user requested (not the cause of #49, still worth doing): unify hit testing**
+User: "unify everything to the CPU hit tester and remove the webrender hit tester." Sound
+cleanup — collapse perform_hit_test's GPU(AsyncHitTester)/CPU(CpuHitTester) dual path to ONE
+CpuHitTester in all modes (populate it in GPU mode too; remove self.hit_tester +
+fullhittest_new_webrender). Cross-platform (CommonWindowState field used by x11/wayland/macos/
+windows). NOT what broke real clicks (events never reached any hit tester), but reduces
+divergence. New issue candidate.
+
+**PRIORITY ORDER NOW**: (1) user re-login → verify #49 real mouse (task #3) → if broken,
+re-instrument handle_xi_event. (2) #48 event-system rework (still the big one). (3) hit-tester
+unification (user directive). (4) #47 @scope scoping. (5) #43 timer/scroll/anim.
