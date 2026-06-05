@@ -1794,3 +1794,41 @@ dispatch. Behavior-preserving (handle_event's ClientMessage sets is_open=false; 
   currently bundles it with RefreshDom = current window only).
 NOTE: each sub-step build-verifies; do shared-display+pump together (a shared display breaks per-window
 poll_event routing, so they can't land separately). User runtime-tests after.
+
+### Cron firing 41/42 — option-(b) refactor DONE through step 5 (4 commits, all build clean)
+USER chose "shared-display refactor first" + OK'd api.json changes + suggested using a parent field on
+the options + RefAny-custom-destructors for cleanup.
+- **STEP 0 (8b80aa716, prev firing):** poll_event match deduped into handle_event.
+- **STEP 1a (ba03cf237):** added cross-platform `parent_window_id: u64` to WindowCreateOptions
+  (layout/src/window_state.rs) = the window-registry key (X Window id / wl_surface / HWND / NSWindow;
+  0 = no parent). NOTE: the pre-existing `parent_window` is Windows-only (HwndHandle on
+  WindowsWindowOptions); LinuxWindowOptions had no parent field. Synced via `azul-doc autofix` (applied
+  ONLY the 0003_WindowCreateOptions patch — the other 3 patches are pre-existing run_destructor drift on
+  CssPropertyCachePtr/GlContextPtr/IconProviderHandle, left alone) + normalize + `codegen all`.
+- **STEP 1b+2 (5dc5ff5a0):** SHARED-DISPLAY + OWNER-DISPATCH PUMP (non-invasive — NO run.rs restructure,
+  Wayland untouched). X11Window gained `owns_display: bool`. new_with_resources: if
+  `options.parent_window_id != 0`, resolve it via `super::registry::get_window` → parent's X display →
+  REUSE it (owns_display=false); else open own (true). Drop/close XCloseDisplay only if owns_display.
+  poll_event drains the connection ONLY for the owner (`if self.owns_display { while XPending {...} }`)
+  and dispatches each event to its target by `event.any.window` (XAnyEvent) — self, or a child via the
+  registry (`LinuxWindow::X11(child) => child.handle_event`). Children skip draining (no race) but still
+  run their OWN poll_event post-processing (timers/size_to_content/render) each loop turn; the
+  multi-window 16ms wake (wait_for_x11_connection_activity) services them. Menus set
+  parent_window_id=self.window (events.rs show_window_based_context_menu + mod.rs show_menu_from_callback).
+- **STEP 5 (acf87079d):** Update::RefreshDomAllWindows now → ProcessEventResult::ShouldRegenerateDomAllWindows
+  (was bundled with RefreshDom), whose handler iterates the registry + sets frame_needs_regeneration +
+  request_redraw on EVERY X11 window (self skipped in loop to avoid &mut self aliasing, handled after).
+
+**REMAINING (menu) — priority order:**
+1. **MENU-CLOSE / click-outside** (THE user-visible missing piece): XGrabPointer on menu open
+   (owner_events, ButtonPress|Release|Motion, GrabModeAsync) → ButtonPress outside the menu/submenu bounds
+   → set the menu's is_open=false + XUngrabPointer → the run loop's !is_open check (run.rs:1138) drops it.
+   Use a **RefAny custom destructor** (user hint) on the menu's data to ungrab + close the submenu chain
+   when the menu window is dropped. Escape dismisses. Wire to parent_menu_id/child_menu_ids.
+2. **Height-clamp** menu_size.height = min(natural, work_area.height) feeding calculate_menu_position;
+   let the menu DOM scroll when taller.
+3. **Wayland xdg_popup** (relative positioning + popup_done for free dismissal).
+4. **LIFETIME (follow-up):** parent-owns-display means if a PARENT closes while a child menu is open, the
+   shared display is freed under the child → the close-chain (menu hierarchy) MUST close children before
+   the parent. Common case (menu closes first) is fine; handle in the menu-close step.
+User runtime-tests the shared-display + menu rendering interactively.
