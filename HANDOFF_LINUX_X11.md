@@ -1643,3 +1643,77 @@ native wl_data_device + clipboard runtime routing → (3) rest of backlog (texta
 GL texture-cache TLS crash, azul-paint self-close, #47/#48/hit-tester). DONE this session: scroll redraw,
 setlocale, CFF+Hangul glyphs, X11-API stability (drain/sourceid/Xutf8), redraw architecture + minimize
 crash, EWMH window-type hint, IME cursor (verified), a11y request_initial_tree. Awaiting user live test.
+
+### Cron firing 38 — MULTI-WINDOW / MENU architecture reviewed (USER directive); size_to_content algorithm pinned
+USER reframed the menu as fundamentally a MULTI-WINDOW problem (Win32 had the good arch); reviewed it.
+**FOUNDATION IS SOLID — do NOT rebuild it:**
+- Multi-window loop (Linux ≈ Win32): `registry` (register/unregister/get_all_window_ids) +
+  per-window `pending_window_creates` drained in run.rs's loop spawns each window. A menu = a normal
+  registered window via this loop (= user's "reuse multi-window, no separate flow"). `is_multi_window`
+  switches the wait strategy (run.rs:1117).
+- Positioning module EXISTS + good: `menu.rs::calculate_menu_position` → `get_display_at_point().work_area`
+  → `calculate_auto_position` does H+V flip-on-overflow + final clamp to work-area (= "natural
+  positioning, away from edges, expand up/down"). Submenu variants: position_submenu_right/left.
+- Hierarchy DATA exists: MenuWindowData.parent_menu_id (close parent on submenu close) +
+  child_menu_ids: Arc<Mutex<Vec<u64>>>; WindowCreateOptions.parent_window (OptionHwndHandle, window.rs:1119).
+
+**GAPS to implement (priority order — this is the menu work):**
+1. **size_to_content (size determination, NOT impl on Linux/anywhere — Windows is a commented TODO).**
+   USER ALGORITHM (pinned): create window at size ~0 → layout → read the OVERFLOW size (=natural extent;
+   `LayoutTree::get_content_size(0)` already returns `overflow_content_size` first, layout_tree.rs:1048) →
+   resize window to it → RELAYOUT at the new size (drops the scrollbars that appeared at size 0). For
+   menus this is exact (items are nowrap + min-width:160px, so size-0 doesn't over-wrap). Implement ONCE
+   (shared), call from all backends. Hook: in render_and_present AFTER the first regenerate_layout, if a
+   `size_to_content_pending` flag is set: get_content_size(0) → XResizeWindow + set window_state.size →
+   frame_needs_regeneration=true → return (skip presenting the tiny frame). Field + tiny initial size for
+   size_to_content windows. (XResizeWindow is in dlopen.rs:126.)
+2. **Height clamp to monitor**: calculate_auto_position clamps POSITION, not the menu HEIGHT. Clamp
+   menu_size.height = min(natural, work_area.height) and let the menu's own DOM scroll when taller.
+3. **Hierarchy wiring (verify/complete)**: submenu spawns as a CHILD (parent_window set), closing a parent
+   closes its child_menu_ids, and focus-loss of the whole menu chain dismisses it. Data exists; confirm
+   the close/dismiss behaviour is wired in the loop (and on X11 override_redirect menus, focus-out needs a
+   pointer-grab or root-click watch to dismiss — check show_window_based_context_menu path).
+**USER NOTE:** leave the `text_input` widget alone (it will become a thin wrapper over contenteditable
+later) — so the textarea hover-cursor fix belongs at the contenteditable/default-cursor level, not in
+text_input.
+
+**PRIORITY ORDER NOW:** (1) size_to_content (shared impl, user algorithm above) → (2) height-clamp +
+feed natural size into calculate_menu_position → (3) hierarchy close/dismiss wiring → (4) Wayland
+xdg_popup for the menu (relative positioning) → (5) native wl_data_device clipboard → (6) rest.
+
+#### TWO OPEN ARCHITECTURAL QUESTIONS (user, pre-compaction — WRITE-DOWN, must solve for menus)
+
+**Q1. Multi-window event routing — how do N windows' events flow through ONE loop?**
+Current X11 reality: EACH X11Window has its OWN `display: *mut Display` and calls `XOpenDisplay` in
+`new_with_resources` (setlocale→XOpenDisplay path) — i.e. ONE X CONNECTION PER WINDOW. The run loop
+(run.rs:1119) iterates `get_all_window_ids()` and calls `window.poll_event()` per window; each poll_event
+drains only ITS OWN connection, so routing is per-connection (each window sees only its own events — no
+`event.xany.window` filtering exists or is needed). BUT the blocking wait differs: single-window uses
+`wait_for_events()` (poll on that window's fd + timerfds); MULTI-window uses
+`wait_for_x11_connection_activity()` (run.rs:1296) which `select()s on only ONE display fd with a 16ms
+timeout — so other windows' events are caught by the 16ms poll, NOT event-driven (a busy-ish poll).
+  - DECISION NEEDED: (a) keep per-window connections + make the multi-window wait poll ALL windows' fds
+    (build the pollfd set from every window's XConnectionNumber + all timerfds) so it's event-driven, not
+    16ms-spin; OR (b) switch to ONE shared display connection for all windows + a single event pump that
+    dispatches each event to the window matching `event.xany.window` (this is closer to the Win32 model:
+    one GetMessage loop, per-HWND window_proc). (b) is cleaner long-term; (a) is the smaller change.
+    Win32 (the "good" ref) = single message queue, dispatched per-HWND — favours (b).
+
+**Q2. Menu dismissal — "click outside" / focus-loss (currently only item-clicks handled).**
+Menus are override_redirect (bypass the WM) → they get NO FocusOut/WM focus events, so there is currently
+NO way to detect a click outside the menu → the menu never auto-closes. There is NO `XGrabPointer`
+anywhere (grep: zero hits). The STANDARD X11 menu mechanism (what GTK/Qt do):
+  - On menu open: `XGrabPointer(menu_window, owner_events=True, ButtonPress|ButtonRelease|PointerMotion,
+    GrabModeAsync, …, CurrentTime)` so the WHOLE screen's pointer events route to the menu app.
+  - A ButtonPress whose coords are OUTSIDE the menu (and outside any open submenu in the chain) →
+    DISMISS the menu chain + `XUngrabPointer`. A press inside an item → activate. Motion over a
+    submenu-parent item → open the submenu as a CHILD (the grab stays on the root menu; owner_events=True
+    lets the submenu window still receive its own events).
+  - Keyboard: Escape dismisses; arrows navigate. (XGrabKeyboard optional.)
+  - Submenu chain = the parent_menu_id/child_menu_ids hierarchy: dismiss walks children→parent and
+    ungrabs once at the root. Closing a parent closes all descendants.
+  - Wayland equivalent: xdg_popup has a built-in GRAB (xdg_popup.grab(seat, serial)) + the compositor
+    sends `xdg_popup.popup_done` on click-outside → just destroy the popup on popup_done. (So Wayland gets
+    Q2 "for free" via the popup grab — another reason to use real xdg_popup, not a toplevel.)
+  → IMPLEMENT: pointer-grab-on-open + click-outside-bounds dismissal (X11), popup_done (Wayland), wired to
+    the parent/child hierarchy. This is THE missing piece for "menu closes properly".
