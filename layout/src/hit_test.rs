@@ -115,6 +115,23 @@ impl CursorTypeHitTest {
                     cursor_node = Some((*dom_id, *node_id));
                     cursor_icon = translate_cursor(css_cursor);
                     best_depth = node_depth;
+                } else {
+                    // No explicit `cursor`: editable text (contenteditable / a
+                    // <textarea>) defaults to the I-beam, like browsers — so a
+                    // multi-line textarea shows the text cursor on hover even
+                    // without `cursor: text` in CSS. (A single-line input already
+                    // gets the I-beam from its text-run cursor tag / explicit CSS;
+                    // this makes them consistent. Does NOT affect the text_input
+                    // widget, which sets cursor:text explicitly and so takes the
+                    // branch above.)
+                    let nd = &node_data_container[*node_id];
+                    if nd.is_contenteditable()
+                        || matches!(nd.node_type, azul_core::dom::NodeType::TextArea)
+                    {
+                        cursor_node = Some((*dom_id, *node_id));
+                        cursor_icon = MouseCursorType::Text;
+                        best_depth = node_depth;
+                    }
                 }
             }
         }
