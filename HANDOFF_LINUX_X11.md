@@ -1916,3 +1916,31 @@ popup_done). (5) close children before parent (shared-display lifetime).
 NON-MENU backlog (diversify if menu testing stalls): textarea hover I-beam (contenteditable default
 cursor:text in CursorTypeHitTest, NOT text_input); exit-time GL texture-cache TLS-dtor crash; native
 wl_data_device clipboard + runtime routing; XNFilterEvents (deferred, low-value).
+
+### Cron firing 47 — diversified to non-menu: textarea cursor FIXED; exit-GL-crash ROOT-CAUSED
+Menu is feature-complete (build-verified) + awaiting user runtime test, so diversified to the non-menu backlog.
+**TEXTAREA HOVER I-BEAM — FIXED (commit 0b21283d7, builds clean):** CursorTypeHitTest::new (layout/src/
+hit_test.rs) resolved the hover cursor only from the text-run cursor tag + an EXPLICIT CSS `cursor` prop,
+so an editable node without `cursor:text` fell through to Default (textarea showed no I-beam, single-line
+did). Added an else-branch: a hovered node with NO explicit cursor that is editable
+(NodeData::is_contenteditable() || NodeType::TextArea) now defaults to MouseCursorType::Text. Does NOT
+touch text_input (it sets cursor:text explicitly). User-test: hover the textarea → I-beam. (Task #7 done.)
+**EXIT-TIME GL TEXTURE-CACHE CRASH — ROOT-CAUSED (NOT fixed — needs gdb-confirmed runtime test):**
+- TEXTURE_CACHE = thread_local RefCell<Option<OrderedMap<DocumentId, GlTextureStorage>>> (gl_texture_cache.rs:80),
+  holds gl::Texture per doc. Texture::drop (core/src/gl.rs:3209) refcounts; on last drop calls
+  self.gl_context.delete_textures([id]) = glDeleteTextures.
+- gl_texture_cache::clear_all() EXISTS but is NEVER called on shutdown (zero call sites in the shell).
+- x11/mod.rs close() (the Drop path) does: remove_document_textures(doc) → XDestroyWindow → XCloseDisplay
+  (if owns_display). The GL context lives in render_mode (a STRUCT FIELD) which drops AFTER close() returns
+  — so XCloseDisplay closes the X display BEFORE the GLX/EGL context is destroyed → the gl_context drop +
+  any leftover Texture drops run glDeleteTextures/glXDestroyContext on a CLOSED display → crash. ALSO on
+  plain thread exit the TEXTURE_CACHE TLS-dtor drops leftover Textures → GL on a dead context → crash.
+- PROPOSED FIX (do with a gdb backtrace to confirm the exact mechanism first — a blind drop-ordering change
+  to a crash risks worse UB): (a) in close()/Drop, DESTROY the GL context (drop render_mode) BEFORE
+  XCloseDisplay; (b) call gl_texture_cache::clear_all() (or remove_document for every doc) during controlled
+  shutdown while contexts are alive; (c) make the TEXTURE_CACHE TLS-dtor FORGET textures (skip
+  glDeleteTextures) since at thread exit the context is gone anyway (mem::forget the handles — the context
+  teardown already freed the GPU memory). (a)+(c) is the robust combo.
+STATUS: menu = feature-complete (build-verified, NOT runtime-tested — user should test). Non-menu open:
+exit-GL-crash (analysis above), native wl_data_device clipboard, XNFilterEvents (low-value). The bulk of
+this whole effort is build-verified only; USER RUNTIME TESTING is now the bottleneck/highest-value step.
