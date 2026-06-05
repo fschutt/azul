@@ -97,6 +97,10 @@ extern "C" fn x11_error_handler(_display: *mut Display, event: *mut XErrorEvent)
 enum RenderMode {
     Gpu(gl::GlContext, GlFunctions),
     Cpu(Option<GC>), // Option to hold the Graphics Context
+    /// Transient teardown state: the GL context / graphics context has been
+    /// dropped early (before the X window + display it depends on). Only ever
+    /// set in the Drop impl; never rendered in this state.
+    None,
 }
 
 /// Try to create an X11 window with a 32-bit ARGB visual for true background transparency.
@@ -742,6 +746,8 @@ impl X11Window {
                 unsafe { (self.xlib.XFlush)(self.display) };
                 Ok(())
             }
+            // Only set transiently during Drop; never present in this state.
+            RenderMode::None => Ok(()),
         }?;
 
         // CI testing: Exit successfully after first frame render if env var is set
@@ -3372,6 +3378,16 @@ impl Drop for X11Window {
 
         // Unregister from global registry before closing
         super::registry::unregister_window(self.window as u64);
+
+        // Tear down the GL context / graphics context BEFORE the X resources it
+        // depends on. close() destroys the X window and (for a display owner)
+        // closes the X display; the EGL context / GC live in `render_mode`, a
+        // struct field that would otherwise drop AFTER close() returns — i.e.
+        // eglDestroyContext / XFreeGC would run against a destroyed window /
+        // closed display, crashing on exit (the exit-time GL crash). Assigning
+        // None drops the old RenderMode (running its GL teardown) while the
+        // window + display are still alive, fixing the teardown ordering.
+        self.render_mode = RenderMode::None;
         self.close();
     }
 }
