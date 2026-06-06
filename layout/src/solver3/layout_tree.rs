@@ -224,6 +224,11 @@ pub struct CachedInlineLayout {
     /// Enables checking if a width change fits on the same line without
     /// re-running the full line-breaking algorithm.
     pub line_breaks: Option<crate::text3::cache::CachedLineBreaks>,
+    /// Hash of the `InlineContent` this layout was shaped from. The Phase 2d
+    /// fast-path reuse in fc.rs keys cache validity on WIDTH only; without this,
+    /// a same-width RefreshDom whose text CHANGED would reuse the stale shaped
+    /// layout (#11 stale display list). 0 = unknown ⇒ never fast-path-reuse.
+    pub inline_content_hash: u64,
 }
 
 impl CachedInlineLayout {
@@ -241,6 +246,7 @@ impl CachedInlineLayout {
             constraints: None,
             item_metrics,
             line_breaks: None,
+            inline_content_hash: 0,
         }
     }
 
@@ -266,6 +272,7 @@ impl CachedInlineLayout {
             constraints: Some(constraints),
             item_metrics,
             line_breaks,
+            inline_content_hash: 0,
         }
     }
 

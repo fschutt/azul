@@ -2431,6 +2431,19 @@ fn layout_ifc<T: ParsedFontTrait>(
         collect_and_measure_inline_content(ctx, text_cache, tree, node_index, constraints)?;
     let _phase1_time = (ctx.get_system_time_fn.cb)().duration_since(&phase1_start);
 
+    // #11 fix: hash the inline content once. Used to (a) skip stale Phase 2d
+    // fast-path reuse and (b) force a cache REPLACE when content changed even
+    // though available width is unchanged — the display-list generator paints
+    // text from the cached `inline_layout_result` (display_list.rs), so a
+    // content change at a same-width constraint MUST overwrite it or the old
+    // glyphs keep rendering (#11 stale display list).
+    let current_content_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        inline_content.hash(&mut h);
+        h.finish()
+    };
+
     debug_info!(
         ctx,
         "[layout_ifc] Collected {} inline content items for node {}",
@@ -2505,8 +2518,12 @@ fn layout_ifc<T: ParsedFontTrait>(
             .as_ref()
             .map(|s| !s.floats.floats.is_empty())
             .unwrap_or(false);
-        let cached_ifc =
-            cached_ifc.filter(|c| c.is_valid_for(constraints.available_width_type, resize_has_floats));
+        // #11 fix: cache validity is keyed on WIDTH only, so a same-width
+        // RefreshDom whose text CHANGED would otherwise reuse the stale shaped
+        // layout. Require the inline content hash to match too.
+        let cached_ifc = cached_ifc
+            .filter(|c| c.is_valid_for(constraints.available_width_type, resize_has_floats))
+            .filter(|c| c.inline_content_hash == current_content_hash);
 
         if let Some(cached) = cached_ifc {
             if let Some(ref line_breaks) = cached.line_breaks {
@@ -2666,7 +2683,12 @@ fn layout_ifc<T: ParsedFontTrait>(
             }
             Some(cached) => {
                 // Check if the new result should replace the cached one
-                if cached.should_replace_with(current_width_type, has_floats) {
+                if cached.should_replace_with(current_width_type, has_floats)
+                    || cached.inline_content_hash != current_content_hash
+                {
+                    // #11 fix: the cached layout is what the display-list
+                    // generator paints from; replace it when the inline content
+                    // changed, even if the width constraint is unchanged.
                     debug_info!(
                         ctx,
                         "[layout_ifc] REPLACING inline_layout_result for node {} (old: \
@@ -2695,12 +2717,17 @@ fn layout_ifc<T: ParsedFontTrait>(
         };
 
         if should_store {
-            warm_node.inline_layout_result = Some(CachedInlineLayout::new_with_constraints(
+            let mut cil = CachedInlineLayout::new_with_constraints(
                 main_frag.clone(),
                 current_width_type,
                 has_floats,
                 cached_constraints.clone(),
-            ));
+            );
+            // #11 fix: record the content hash so Phase 2d only fast-path-reuses
+            // this layout when the inline content is genuinely unchanged, and so
+            // the store decision above can detect content changes.
+            cil.inline_content_hash = current_content_hash;
+            warm_node.inline_layout_result = Some(cil);
         }
 
         // Extract the overall size and baseline for the IFC root.
@@ -6308,11 +6335,15 @@ fn position_table_cells<T: ParsedFontTrait>(
                     };
 
                     // Keep the same constraint type from the cached layout
-                    warm_mut.inline_layout_result = Some(CachedInlineLayout::new(
+                    let mut cil = CachedInlineLayout::new(
                         Arc::new(adjusted_layout),
                         available_width,
                         has_floats,
-                    ));
+                    );
+                    // LineShift preserves content; carry the hash so Phase 2d
+                    // can still validly fast-path this layout (#11).
+                    cil.inline_content_hash = cached_layout.inline_content_hash;
+                    warm_mut.inline_layout_result = Some(cil);
                 }
             }
         }

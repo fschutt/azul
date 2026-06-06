@@ -58,6 +58,22 @@ Harness entry points: `make_window_with(state, layout_cb)`, `FrameDamage` (None 
 Rects | Full) recorded on `CpuBackend.last_frame_damage`, `damage_area()`. Tests
 are HONEST (assert correct behavior; failing test == reproduced bug).
 
+### UPDATE — #11 FIXED (stale text)
+
+Root cause: the display-list generator paints text from the **cached**
+`inline_layout_result` (`display_list.rs` ~3539/3571), and `CachedInlineLayout::
+should_replace_with` (layout_tree.rs) keyed cache replacement on **width only**.
+So a same-width `RefreshDom` with CHANGED text computed the fresh (correct) glyphs
+in `layout_flow` but **discarded** them — `should_store=false` — leaving the stale
+cached layout for the generator to paint. (The IFC Phase 2d fast-path had the same
+width-only blind spot.)
+
+Fix (fc.rs `layout_ifc` + layout_tree.rs `CachedInlineLayout`): hash the
+`inline_content` once per IFC pass (`inline_content_hash`), (a) skip Phase 2d
+fast-path reuse when the hash differs, and (b) force the cache store/replace when
+the hash differs even at unchanged width. `damage_text_change_repro` now passes
+(glyphs `[3]`→`[8]`). **#12 (false-positive damage on no-op) still fails — next.**
+
 ---
 
 ## 1. Empirical grounding (probe run, azul-paint, AZ_BACKEND=cpu)
