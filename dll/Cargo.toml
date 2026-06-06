@@ -213,8 +213,12 @@ objc2-core-video = { version = "0.3.0", default-features = false, optional = tru
     "CVReturn",
 ] }
 dispatch2 = { version = "0.3.0", default-features = false, features = ["std", "objc2"], optional = true }
-# iOS audio playback (AVAudioEngine) for the AudioSink backend (cpal can't
-# cross-compile to iOS). Minimal class-features; refined after reading the API.
+# (objc2-avf-audio moved to the apple (ios+macos) section below.)
+
+# AVAudioEngine audio backend (AudioSink + mic) for BOTH iOS and macOS. Pure-Rust
+# objc2 bindings (no build-time bindgen/SDK), so apple targets CROSS-COMPILE —
+# unlike cpal's coreaudio-sys. macOS uses this instead of cpal.
+[target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 objc2-avf-audio = { version = "0.3.0", default-features = false, optional = true, features = [
     "std",
     "AVAudioEngine",
@@ -252,6 +256,11 @@ android_logger = { version = "0.14", optional = true }
 jni = { version = "0.21", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+# Windows mic + AudioSink via cpal (WASAPI = pure-Rust `windows` crate, no
+# build-time bindgen). macOS/iOS use AVFoundation (objc2-avf-audio) instead so the
+# apple builds CROSS-COMPILE — cpal's coreaudio-sys needs libclang + the CoreAudio
+# SDK headers at build time.
+cpal = "0.15"
 winapi = { version = "0.3.9", optional = true, default-features = false, features = [
     "windowsx",
     "libloaderapi",
@@ -371,12 +380,6 @@ objc2-core-video = { version = "0.3.0", default-features = false, optional = tru
     "CVBuffer",
     "CVReturn",
 ] }
-
-# Cross-platform mic + AudioSink (CoreAudio on apple, WASAPI on windows) - one
-# cpal backend covers apple + windows audio. Linux uses dlopen ALSA (cpal's
-# ALSA backend build-time-links libasound); android uses AAudio.
-[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-cpal = "0.15"
 
 [build-dependencies]
 brotli = "8"

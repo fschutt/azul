@@ -83,11 +83,11 @@ impl PlatformCapability {
             } else {
                 cap(false, "ALSA (libasound)", "no /dev/snd — no audio device")
             }
-        } else if cfg!(target_os = "macos") || cfg!(target_os = "windows") {
+        } else if cfg!(target_os = "windows") {
             cap(true, "cpal", "default input device confirmed at open()")
         } else if cfg!(target_os = "android") {
             cap(true, "AAudio", "needs runtime RECORD_AUDIO permission")
-        } else if cfg!(target_os = "ios") {
+        } else if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
             cap(true, "AVAudioEngine", "needs NSMicrophoneUsageDescription")
         } else {
             cap(false, "none", "no microphone backend on this target")
@@ -103,11 +103,11 @@ impl PlatformCapability {
             } else {
                 cap(false, "ALSA (libasound)", "no /dev/snd — no audio device")
             }
-        } else if cfg!(target_os = "macos") || cfg!(target_os = "windows") {
+        } else if cfg!(target_os = "windows") {
             cap(true, "cpal", "default output device confirmed at open()")
         } else if cfg!(target_os = "android") {
             cap(true, "AAudio", "")
-        } else if cfg!(target_os = "ios") {
+        } else if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
             cap(true, "AVAudioEngine", "")
         } else {
             cap(false, "none", "no audio-output backend on this target")

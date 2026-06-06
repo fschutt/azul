@@ -22,15 +22,15 @@ use azul_core::audio::{AudioConfig, AudioFrame};
 
 #[cfg(target_os = "linux")]
 mod alsa;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 mod cpal_mic;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 mod cpal_sink;
 #[cfg(target_os = "android")]
 mod aaudio;
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 mod avfoundation_mic;
-#[cfg(all(target_os = "ios", feature = "objc2-avf-audio"))]
+#[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio"))]
 mod avfoundation_sink;
 
 /// Internal playback state behind the `AudioSink` handle. The stub tracks the
@@ -44,13 +44,13 @@ struct AudioSinkInner {
     #[cfg(target_os = "linux")]
     pcm: Option<alsa::AlsaPcm>,
     /// The live cpal output stream on macOS/Windows (`None` if no device).
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(target_os = "windows")]
     sink: Option<cpal_sink::CpalSink>,
     /// The live AAudio output stream on Android (`None` if no device).
     #[cfg(target_os = "android")]
     android_sink: Option<aaudio::AAudioSink>,
     /// The live AVAudioEngine playback graph on iOS (`None` if it failed).
-    #[cfg(all(target_os = "ios", feature = "objc2-avf-audio"))]
+    #[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio"))]
     ios_sink: Option<avfoundation_sink::AvfSink>,
 }
 
@@ -99,22 +99,22 @@ impl AudioSink {
         );
         #[cfg(target_os = "linux")]
         let pcm = alsa::AlsaPcm::open(config.sample_rate, config.channels as u32);
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        #[cfg(target_os = "windows")]
         let sink = cpal_sink::CpalSink::open(config.sample_rate, config.channels);
         #[cfg(target_os = "android")]
         let android_sink = aaudio::AAudioSink::open(config.sample_rate, config.channels);
-        #[cfg(all(target_os = "ios", feature = "objc2-avf-audio"))]
+        #[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio"))]
         let ios_sink = avfoundation_sink::AvfSink::open(config.sample_rate, config.channels);
         let inner = Box::new(AudioSinkInner {
             config,
             frames_played: 0,
             #[cfg(target_os = "linux")]
             pcm,
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            #[cfg(target_os = "windows")]
             sink,
             #[cfg(target_os = "android")]
             android_sink,
-            #[cfg(all(target_os = "ios", feature = "objc2-avf-audio"))]
+            #[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio"))]
             ios_sink,
         });
         AudioSink {
@@ -138,7 +138,7 @@ impl AudioSink {
             if let Some(pcm) = &inner.pcm {
                 pcm.write(frame.samples.as_ref());
             }
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            #[cfg(target_os = "windows")]
             if let Some(sink) = &inner.sink {
                 sink.play(frame.samples.as_ref());
             }
@@ -146,7 +146,7 @@ impl AudioSink {
             if let Some(sink) = &inner.android_sink {
                 sink.play(frame.samples.as_ref());
             }
-            #[cfg(all(target_os = "ios", feature = "objc2-avf-audio"))]
+            #[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio"))]
             if let Some(sink) = &inner.ios_sink {
                 sink.play(frame.samples.as_ref());
             }
@@ -203,7 +203,7 @@ pub fn ensure_mic_backend() {
             );
         });
     }
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(target_os = "windows")]
     {
         static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         DONE.get_or_init(|| {
@@ -229,7 +229,7 @@ pub fn ensure_mic_backend() {
             );
         });
     }
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
     {
         static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         DONE.get_or_init(|| {
