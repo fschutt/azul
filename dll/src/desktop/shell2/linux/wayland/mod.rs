@@ -2206,8 +2206,9 @@ impl WaylandWindow {
 
                 if let Some((_dom_id, _node_id, start_timer)) =
                     layout_window.scroll_manager.record_scroll_from_hit_test(
-                        -delta_x,
-                        -delta_y,
+                        // Raw delta; sign applied centrally (natural-scroll flag).
+                        delta_x,
+                        delta_y,
                         ScrollInputSource::WheelDiscrete,
                         &layout_window.hover_manager,
                         &InputPointId::Mouse,

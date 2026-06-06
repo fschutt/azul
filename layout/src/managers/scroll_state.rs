@@ -310,6 +310,19 @@ pub struct ScrollManager {
     /// is regenerated.  Used by the CPU renderer path to detect when the
     /// display list must be rebuilt even though the DOM hasn't changed.
     scroll_dirty: bool,
+    /// Scroll-direction preference, applied ONCE in [`Self::record_scroll_input`]
+    /// (the single chokepoint every platform's wheel/axis event flows through).
+    ///
+    /// `false` (default) = traditional desktop wheel: a raw "scroll down" event
+    /// increases the offset (content moves up). `true` = natural: inverted.
+    /// Replaces the per-platform hardcoded `-delta` negations so the sign lives
+    /// in one configurable place ([`Self::set_natural_scroll`]).
+    ///
+    /// CAVEAT: on macOS and on Linux touchpads via libinput the OS/driver ALREADY
+    /// applies the user's natural-scroll preference before azul sees the delta, so
+    /// this flag must stay at its default there (we preserve current behavior) and
+    /// primarily controls mouse-wheel direction on platforms that don't pre-apply.
+    natural_scroll: bool,
 }
 
 /// The complete scroll state for a single node (with animation support)
@@ -401,7 +414,40 @@ pub struct ScrollTickResult {
 impl ScrollManager {
     /// Creates a new empty ScrollManager
     pub fn new() -> Self {
-        Self::default()
+        let mut m = Self::default();
+        // Power-user / test override. Platform shells should call
+        // `set_natural_scroll` from the OS preference; this env var wins so the
+        // direction can be flipped without a rebuild and so tests are hermetic.
+        #[cfg(feature = "std")]
+        if let Some(v) = std::env::var_os("AZ_NATURAL_SCROLL") {
+            m.natural_scroll = matches!(v.to_str(), Some("1") | Some("true") | Some("TRUE"));
+        }
+        m
+    }
+
+    /// Set the scroll-direction preference. `true` = natural (content follows the
+    /// gesture / inverted from the traditional wheel). Platform shells call this
+    /// from the detected OS preference. See the `natural_scroll` field docs for the
+    /// macOS/libinput pre-application caveat.
+    pub fn set_natural_scroll(&mut self, natural: bool) {
+        self.natural_scroll = natural;
+    }
+
+    /// Current scroll-direction preference (`true` = natural/inverted).
+    pub fn is_natural_scroll(&self) -> bool {
+        self.natural_scroll
+    }
+
+    /// The sign applied to a raw input delta to get the offset delta:
+    /// `-1.0` traditional (default), `+1.0` natural. Centralises what used to be a
+    /// hardcoded `-delta` at every platform call site.
+    #[inline]
+    fn scroll_sign(&self) -> f32 {
+        if self.natural_scroll {
+            1.0
+        } else {
+            -1.0
+        }
     }
 
     /// Sizes of the internal maps — used by `AZ_E2E_TEST` to watch for
@@ -461,10 +507,17 @@ impl ScrollManager {
     /// directly modifying scroll positions, the input is queued for the scroll
     /// physics timer to process. This decouples input from physics simulation.
     ///
+    /// The scroll-direction sign ([`Self::scroll_sign`]) is applied HERE — the
+    /// single chokepoint every wheel/axis event flows through — so platform shells
+    /// pass the RAW delta and no longer hardcode `-delta` at each call site.
+    ///
     /// Returns `true` if the physics timer should be started (i.e., there are
     /// now pending inputs and no timer is running yet).
     #[cfg(feature = "std")]
-    pub fn record_scroll_input(&mut self, input: ScrollInput) -> bool {
+    pub fn record_scroll_input(&mut self, mut input: ScrollInput) -> bool {
+        let sign = self.scroll_sign();
+        input.delta.x *= sign;
+        input.delta.y *= sign;
         let was_empty = !self.scroll_input_queue.has_pending();
         self.scroll_input_queue.push(input);
         was_empty // caller should start timer if this returns true
@@ -1270,5 +1323,66 @@ impl ScrollManager {
                 }
             }
         }
+    }
+}
+
+// ============================================================================
+// Natural-scroll direction — unit tests (#17)
+// ============================================================================
+#[cfg(all(test, feature = "std"))]
+mod natural_scroll_tests {
+    use super::*;
+    use azul_core::dom::{DomId, NodeId};
+    use azul_core::geom::LogicalPosition;
+    use azul_core::task::Instant;
+
+    fn raw_input(dx: f32, dy: f32) -> ScrollInput {
+        ScrollInput {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeId::new(0),
+            delta: LogicalPosition::new(dx, dy),
+            timestamp: Instant::from(std::time::Instant::now()),
+            source: ScrollInputSource::WheelDiscrete,
+        }
+    }
+
+    #[test]
+    fn default_is_traditional_and_inverts_raw_delta() {
+        // With AZ_NATURAL_SCROLL unset, the default is traditional: the offset
+        // delta is the NEGATION of the raw input — exactly what the per-platform
+        // `-delta` hardcodes used to do, now centralised.
+        let mut m = ScrollManager::new();
+        assert!(!m.is_natural_scroll(), "default must be traditional");
+        m.record_scroll_input(raw_input(3.0, 10.0));
+        let q = m.get_input_queue().take_all();
+        assert_eq!(q.len(), 1);
+        assert_eq!(q[0].delta.x, -3.0, "x must be inverted by the default sign");
+        assert_eq!(q[0].delta.y, -10.0, "y must be inverted by the default sign");
+    }
+
+    #[test]
+    fn natural_passes_raw_delta_through() {
+        let mut m = ScrollManager::new();
+        m.set_natural_scroll(true);
+        assert!(m.is_natural_scroll());
+        m.record_scroll_input(raw_input(3.0, 10.0));
+        let q = m.get_input_queue().take_all();
+        assert_eq!(q.len(), 1);
+        assert_eq!(q[0].delta.x, 3.0, "natural mode must NOT invert x");
+        assert_eq!(q[0].delta.y, 10.0, "natural mode must NOT invert y");
+    }
+
+    #[test]
+    fn toggling_flips_sign_for_subsequent_input() {
+        // Same raw input, opposite directions before/after the toggle — proves the
+        // single flag is the only thing controlling direction.
+        let mut m = ScrollManager::new();
+        m.record_scroll_input(raw_input(0.0, 5.0));
+        m.set_natural_scroll(true);
+        m.record_scroll_input(raw_input(0.0, 5.0));
+        let q = m.get_input_queue().take_all();
+        assert_eq!(q.len(), 2);
+        assert_eq!(q[0].delta.y, -5.0, "traditional first");
+        assert_eq!(q[1].delta.y, 5.0, "natural after toggle");
     }
 }

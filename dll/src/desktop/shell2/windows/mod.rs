@@ -2989,7 +2989,9 @@ unsafe extern "system" fn window_proc(
         WM_MOUSEWHEEL => {
             // Mouse wheel scrolled - similar to macOS handle_scroll_wheel
             let delta = ((wparam >> 16) & 0xFFFF) as i16 as i32;
-            let scroll_amount = -(delta as f32 / WHEEL_DELTA as f32); // Invert for natural scrolling
+            // Raw amount; direction sign is applied centrally in ScrollManager
+            // (natural-scroll flag), not hardcoded here.
+            let scroll_amount = delta as f32 / WHEEL_DELTA as f32;
 
             let x = (lparam & 0xFFFF) as i16 as i32;
             let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;

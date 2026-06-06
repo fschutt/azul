@@ -934,9 +934,10 @@ impl HeadlessWindow {
                         // backends use: record_scroll_from_hit_test queues the
                         // delta against the scroll node under the pointer and
                         // the SCROLL_MOMENTUM_TIMER applies it over time.
-                        // delta_x/delta_y are pixel deltas (positive delta_y
-                        // scrolls content DOWN, increasing the offset). A prior
-                        // MouseMove must have left the hover hit-test over a
+                        // delta_x/delta_y are RAW input deltas, same as a platform
+                        // wheel/axis event — the direction sign (natural-scroll
+                        // flag) is applied centrally in ScrollManager, not here. A
+                        // prior MouseMove must have left the hover hit-test over a
                         // scrollable node — otherwise this is a no-op (just like
                         // wheeling over a non-scrollable area on the desktop).
                         let queue = if let Some(lw) = self.common.layout_window.as_mut() {

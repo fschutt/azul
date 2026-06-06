@@ -406,8 +406,12 @@ impl MacOSWindow {
 
                 if let Some((_dom_id, _node_id, start_timer)) =
                     layout_window.scroll_manager.record_scroll_from_hit_test(
-                        -delta_x as f32, // Invert for natural scrolling
-                        -delta_y as f32,
+                        // Raw delta; direction sign applied centrally in
+                        // ScrollManager (natural-scroll flag). NOTE: macOS already
+                        // applies the system natural-scroll setting to scrollingDelta
+                        // before we see it, so the flag stays at its default here.
+                        delta_x as f32,
+                        delta_y as f32,
                         source,
                         &layout_window.hover_manager,
                         &InputPointId::Mouse,

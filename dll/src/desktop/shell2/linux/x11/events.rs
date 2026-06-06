@@ -640,8 +640,10 @@ impl X11Window {
 
                 if let Some((_dom_id, _node_id, start_timer)) =
                     layout_window.scroll_manager.record_scroll_from_hit_test(
-                        -delta_x * X11_SCROLL_TICK_PIXELS,
-                        -delta_y * X11_SCROLL_TICK_PIXELS,
+                        // Raw delta; direction sign is applied centrally in
+                        // ScrollManager::record_scroll_input (natural-scroll flag).
+                        delta_x * X11_SCROLL_TICK_PIXELS,
+                        delta_y * X11_SCROLL_TICK_PIXELS,
                         ScrollInputSource::WheelDiscrete,
                         &layout_window.hover_manager,
                         &InputPointId::Mouse,
