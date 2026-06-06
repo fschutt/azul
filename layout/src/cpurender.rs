@@ -1075,6 +1075,156 @@ fn shift_diagonal_2d(
     }
 }
 
+/// Decide whether scroll frame `scroll_id` may use the [`scroll_shift_region`]
+/// memmove fast path, or whether the caller must full-repaint the clip instead.
+///
+/// The memmove drags whatever is composited inside the clip. That is only WRONG
+/// when transparent gaps in the SCROLLING content let static "backdrop" pixels
+/// (painted *behind* the frame) show through and get dragged along. Per the
+/// project's aggressive policy: take the fast path UNLESS that exact condition is
+/// proven — i.e. fall back ONLY when (a) something is painted behind the frame
+/// within the clip AND (b) the scrolling content does not opaquely cover the clip.
+///
+/// `scroll_offset` is the frame's current offset, used to project the content's
+/// opaque fills (stored at content coords) into viewport space for the coverage
+/// test. A scroll frame over nothing-but-the-clear-color is always eligible (no
+/// backdrop to drag). Returns `true` when there is no such frame (nothing to do).
+pub fn scroll_fast_path_eligible(
+    display_list: &DisplayList,
+    scroll_id: LocalScrollId,
+    clip_bounds: &LogicalRect,
+    scroll_offset: (f32, f32),
+) -> bool {
+    // Locate the frame's content range [start+1, end).
+    let start = display_list.items.iter().position(|it| {
+        matches!(it, DisplayListItem::PushScrollFrame { scroll_id: sid, .. } if *sid == scroll_id)
+    });
+    let start = match start {
+        Some(s) => s,
+        None => return true, // no frame for this id → nothing to shift
+    };
+    let end = find_matching_pop(&display_list.items, start, MatchKind::ScrollFrame)
+        .min(display_list.items.len());
+
+    // (a) Best case: the SCROLLING content opaquely covers the clip (projected
+    // into viewport space by the scroll offset). Then nothing behind can ever
+    // show through, so the shift is always safe.
+    let content_opaque: Vec<LogicalRect> = display_list.items[start + 1..end]
+        .iter()
+        .filter_map(|it| opaque_fill_rect(it))
+        .map(|r| LogicalRect {
+            origin: LogicalPosition {
+                x: r.origin.x - scroll_offset.0,
+                y: r.origin.y - scroll_offset.1,
+            },
+            size: r.size,
+        })
+        .collect();
+    if rect_covered_by(clip_bounds, &content_opaque) {
+        return true;
+    }
+
+    // (b) Content has gaps. The drag is only VISIBLE if a NON-UNIFORM backdrop
+    // shows through. Scan items behind the frame for SIGNIFICANT backdrop fills
+    // (≥10% of the clip) — borders, text, shadows, thin/small decorations smear
+    // imperceptibly and are ignored (aggressive policy: fall back only on a
+    // proven artifact). Classify each significant backdrop item:
+    //   - flat opaque Rect  → track its colour
+    //   - Image / gradient  → non-uniform → not safe
+    // Then: no significant backdrop → safe (only the clear behind); a single flat
+    // colour that COVERS the clip → drags invisibly → safe; mixed colours, a
+    // partial cover, or any non-uniform fill → full-repaint.
+    let clip_area = (clip_bounds.size.width * clip_bounds.size.height).max(1.0);
+    let mut backdrop_fills: Vec<LogicalRect> = Vec::new();
+    let mut backdrop_color: Option<ColorU> = None;
+    for it in display_list.items[..start].iter() {
+        if it.is_state_management() {
+            continue;
+        }
+        let b = match it.bounds() {
+            Some(b) if rects_overlap_or_adjacent(&b, clip_bounds, 0.0) => b,
+            _ => continue,
+        };
+        // Area of this item within the clip; ignore negligible coverage.
+        let ix = b.origin.x.max(clip_bounds.origin.x);
+        let iy = b.origin.y.max(clip_bounds.origin.y);
+        let ix1 = (b.origin.x + b.size.width).min(clip_bounds.origin.x + clip_bounds.size.width);
+        let iy1 = (b.origin.y + b.size.height).min(clip_bounds.origin.y + clip_bounds.size.height);
+        let isect_area = ((ix1 - ix).max(0.0)) * ((iy1 - iy).max(0.0));
+        if isect_area < clip_area * 0.10 {
+            continue; // negligible — thin border / small decoration
+        }
+        match it {
+            DisplayListItem::Rect { color, border_radius, .. }
+                if color.a == 255 && border_radius.is_zero() =>
+            {
+                match backdrop_color {
+                    None => backdrop_color = Some(*color),
+                    Some(prev) if prev == *color => {}
+                    Some(_) => return false, // ≥2 distinct backdrop colours → visible
+                }
+                backdrop_fills.push(b);
+            }
+            DisplayListItem::Rect { .. } => {} // translucent / rounded — let it drag
+            DisplayListItem::Image { .. }
+            | DisplayListItem::LinearGradient { .. }
+            | DisplayListItem::RadialGradient { .. }
+            | DisplayListItem::ConicGradient { .. } => return false, // non-uniform fill
+            _ => {} // border/text/shadow/scrollbar etc. — negligible
+        }
+    }
+    if backdrop_fills.is_empty() {
+        return true; // only the clear (or negligible decoration) behind
+    }
+    // Single flat colour: safe only if it fills the whole clip (else its edge
+    // against the clear would drag visibly).
+    rect_covered_by(clip_bounds, &backdrop_fills)
+}
+
+/// If `it` is a fully-opaque, square-cornered rectangle fill, its bounds.
+fn opaque_fill_rect(it: &DisplayListItem) -> Option<LogicalRect> {
+    match it {
+        DisplayListItem::Rect {
+            bounds,
+            color,
+            border_radius,
+        } if color.a == 255 && border_radius.is_zero() => Some(*bounds.inner()),
+        _ => None,
+    }
+}
+
+/// True if every ~4px sample of `target` lies inside some rect in `covers`.
+/// Point-sampled so sub-4px gaps (imperceptible if dragged) don't force a full
+/// repaint; empty `covers` → not covered.
+fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
+    if covers.is_empty() {
+        return false;
+    }
+    let step = 4.0_f32;
+    let x0 = target.origin.x;
+    let y0 = target.origin.y;
+    let x1 = x0 + target.size.width;
+    let y1 = y0 + target.size.height;
+    let mut y = y0 + step * 0.5;
+    while y < y1 {
+        let mut x = x0 + step * 0.5;
+        while x < x1 {
+            let inside = covers.iter().any(|r| {
+                x >= r.origin.x
+                    && x < r.origin.x + r.size.width
+                    && y >= r.origin.y
+                    && y < r.origin.y + r.size.height
+            });
+            if !inside {
+                return false;
+            }
+            x += step;
+        }
+        y += step;
+    }
+    true
+}
+
 /// Apply CSS filters to a pixbuf at composite time.
 fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_factor: f32) {
     for filter in filters {
@@ -5453,5 +5603,129 @@ mod scroll_shift_tests {
         assert_eq!(strips.len(), 1);
         assert_eq!(strips[0].size.width, 64.0);
         assert_eq!(strips[0].size.height, 64.0);
+    }
+
+    // --- #20 fast-path eligibility ---
+    use crate::solver3::display_list::{
+        BorderRadius, DisplayList, DisplayListItem, WindowLogicalRect,
+    };
+    use azul_css::props::basic::color::ColorU;
+
+    fn dl(items: Vec<DisplayListItem>) -> DisplayList {
+        DisplayList {
+            items,
+            node_mapping: Vec::new(),
+            forced_page_breaks: Vec::new(),
+            fixed_position_item_ranges: Vec::new(),
+        }
+    }
+    fn wr(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {
+        rect(x, y, w, h).into()
+    }
+    fn fill(x: f32, y: f32, w: f32, h: f32, a: u8) -> DisplayListItem {
+        DisplayListItem::Rect {
+            bounds: wr(x, y, w, h),
+            color: ColorU { r: 10, g: 20, b: 30, a },
+            border_radius: BorderRadius::default(),
+        }
+    }
+    fn scroll_frame(id: u64) -> DisplayListItem {
+        DisplayListItem::PushScrollFrame {
+            clip_bounds: wr(0.0, 0.0, 100.0, 100.0),
+            content_size: LogicalSize::new(100.0, 1000.0),
+            scroll_id: id,
+        }
+    }
+
+    #[test]
+    fn eligible_when_no_backdrop_even_if_transparent() {
+        // Transparent content, but nothing painted behind the frame → safe.
+        let list = dl(vec![
+            scroll_frame(7),
+            fill(0.0, 0.0, 100.0, 30.0, 0), // transparent row
+            DisplayListItem::PopScrollFrame,
+        ]);
+        assert!(scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0)));
+    }
+
+    #[test]
+    fn eligible_when_backdrop_is_single_uniform_colour() {
+        // A SINGLE flat colour covering the whole clip behind transparent content
+        // drags invisibly (same colour everywhere) → aggressive policy keeps the
+        // fast path. (This is the common body/container background case.)
+        let list = dl(vec![
+            fill(0.0, 0.0, 100.0, 100.0, 255), // one flat colour covering the clip
+            scroll_frame(7),
+            fill(0.0, 0.0, 100.0, 30.0, 0), // transparent content
+            DisplayListItem::PopScrollFrame,
+        ]);
+        assert!(scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0)));
+    }
+
+    #[test]
+    fn ineligible_when_backdrop_is_non_uniform() {
+        // Two DIFFERENT colours behind transparent content → dragging them is
+        // visible → must full-repaint.
+        let mut left = fill(0.0, 0.0, 50.0, 100.0, 255);
+        if let DisplayListItem::Rect { color, .. } = &mut left {
+            *color = ColorU { r: 200, g: 0, b: 0, a: 255 };
+        }
+        let mut right = fill(50.0, 0.0, 50.0, 100.0, 255);
+        if let DisplayListItem::Rect { color, .. } = &mut right {
+            *color = ColorU { r: 0, g: 0, b: 200, a: 255 };
+        }
+        let list = dl(vec![
+            left,
+            right,
+            scroll_frame(7),
+            fill(0.0, 0.0, 100.0, 30.0, 0), // transparent content
+            DisplayListItem::PopScrollFrame,
+        ]);
+        assert!(!scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0)));
+    }
+
+    #[test]
+    fn ineligible_when_single_colour_only_partly_covers() {
+        // One flat colour that covers only PART of the clip (rest is clear): its
+        // edge against the clear would drag visibly → full-repaint.
+        let list = dl(vec![
+            fill(0.0, 0.0, 100.0, 40.0, 255), // covers only the top 40px
+            scroll_frame(7),
+            fill(0.0, 0.0, 100.0, 30.0, 0), // transparent content
+            DisplayListItem::PopScrollFrame,
+        ]);
+        assert!(!scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0)));
+    }
+
+    #[test]
+    fn eligible_when_backdrop_but_opaque_content_covers() {
+        // Backdrop behind, but the scrolling content opaquely covers the clip →
+        // nothing behind ever shows through → fast path is safe.
+        let list = dl(vec![
+            fill(0.0, 0.0, 100.0, 100.0, 255), // backdrop
+            scroll_frame(7),
+            fill(0.0, 0.0, 100.0, 1000.0, 255), // opaque full-content cover
+            DisplayListItem::PopScrollFrame,
+        ]);
+        assert!(scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0)));
+    }
+
+    #[test]
+    fn rect_covered_by_detects_gap() {
+        let target = rect(0.0, 0.0, 100.0, 100.0);
+        // Single full cover.
+        assert!(rect_covered_by(&target, &[rect(0.0, 0.0, 100.0, 100.0)]));
+        // Two halves tile it.
+        assert!(rect_covered_by(
+            &target,
+            &[rect(0.0, 0.0, 100.0, 50.0), rect(0.0, 50.0, 100.0, 50.0)]
+        ));
+        // A gap in the middle is NOT covered.
+        assert!(!rect_covered_by(
+            &target,
+            &[rect(0.0, 0.0, 100.0, 40.0), rect(0.0, 60.0, 100.0, 40.0)]
+        ));
+        // Empty → not covered.
+        assert!(!rect_covered_by(&target, &[]));
     }
 }

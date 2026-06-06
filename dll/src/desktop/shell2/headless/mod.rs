@@ -287,7 +287,14 @@ impl CpuBackend {
         let scroll_offsets = layout_window
             .scroll_manager
             .build_scroll_offset_map(dom_id, &result.scroll_ids);
-        let mut scroll_shifts: Vec<(azul_core::geom::LogicalRect, (f32, f32))> = Vec::new();
+        // (scroll_id, clip, delta, new_offset) per frame whose offset changed.
+        // LocalScrollId is a u64 alias.
+        let mut scroll_shifts: Vec<(
+            u64,
+            azul_core::geom::LogicalRect,
+            (f32, f32),
+            (f32, f32),
+        )> = Vec::new();
         for (scroll_id, offset) in &scroll_offsets {
             let prev = self
                 .previous_scroll_offsets
@@ -304,7 +311,7 @@ impl CpuBackend {
                     } = item
                     {
                         if sid == scroll_id {
-                            scroll_shifts.push((*clip_bounds.inner(), delta));
+                            scroll_shifts.push((*sid, *clip_bounds.inner(), delta, *offset));
                         }
                     }
                 }
@@ -361,11 +368,21 @@ impl CpuBackend {
         // The move happens directly on `output`; the returned strips are added to
         // the damage set so `render_display_list_damaged` repaints just them. (On
         // the full-repaint path the whole frame is redrawn anyway, so no move.)
+        // #20: the memmove is only correct when the scrolling content opaquely
+        // covers the clip OR nothing is painted behind the frame — otherwise the
+        // shift would drag static backdrop pixels. `scroll_fast_path_eligible`
+        // proves the bug condition; when ineligible we full-repaint the clip (no
+        // shift) so the static backdrop + re-offset content render correctly.
         if is_incremental {
-            for (clip, delta) in &scroll_shifts {
-                let strips =
-                    cpurender::scroll_shift_region(&mut output, clip, *delta, dpi_factor);
-                all_damage.extend(strips);
+            for (scroll_id, clip, delta, offset) in &scroll_shifts {
+                if cpurender::scroll_fast_path_eligible(display_list, *scroll_id, clip, *offset) {
+                    let strips =
+                        cpurender::scroll_shift_region(&mut output, clip, *delta, dpi_factor);
+                    all_damage.extend(strips);
+                } else {
+                    // Ineligible: repaint the whole clip with the new offset.
+                    all_damage.push(*clip);
+                }
             }
         }
 
