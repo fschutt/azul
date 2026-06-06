@@ -107,7 +107,10 @@ Event-injection harness `step(HeadlessEvent) -> FrameDamage` is now built (drive
 the same per-event path as `run()` for Mouse/Key events, relayouts on redraw,
 returns the step's damage / `None` if no visual change). First event test green:
 `damage_mouse_move_no_change_is_clean` — a pointer move over static content
-produces `None` (no false repaint). **15 harness tests, all green.**
+produces `None` (no false repaint). Plus `damage_single_paint_in_large_grid_is_local`
+— recoloring ONE box in a 30-box grid damages **exactly that box** (`100x20`), not
+the grid/window: damage is genuinely incremental at scale. **16 harness tests, all
+green.**
 
 Still TODO (now unblocked by `step()`): cursor/hover move (old∪new 2-rect, needs a
 `:hover` rule or hover callback), caret blink (timer-driven), scroll (CPU shift +

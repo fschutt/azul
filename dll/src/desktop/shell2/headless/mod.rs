@@ -1500,6 +1500,8 @@ mod tests {
     #[derive(Debug, Clone)]
     struct GridState {
         boxes: Vec<(f32, f32)>,
+        /// Index of a box to paint a distinct colour (for local-paint tests).
+        highlight: Option<usize>,
     }
 
     extern "C" fn harness_layout_grid(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
@@ -1509,13 +1511,15 @@ mod tests {
         use azul_css::props::basic::color::ColorU;
         use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
 
-        let boxes = data
+        let (boxes, highlight) = data
             .downcast_ref::<GridState>()
-            .map(|s| s.boxes.clone())
+            .map(|s| (s.boxes.clone(), s.highlight))
             .unwrap_or_default();
         let mut body = Dom::create_body();
         for (i, (w, h)) in boxes.iter().enumerate() {
-            let color = if i % 2 == 0 {
+            let color = if Some(i) == highlight {
+                ColorU { r: 30, g: 220, b: 30, a: 255 } // highlighted box
+            } else if i % 2 == 0 {
                 ColorU { r: 220, g: 30, b: 30, a: 255 }
             } else {
                 ColorU { r: 30, g: 30, b: 220, a: 255 }
@@ -1542,6 +1546,15 @@ mod tests {
         }
     }
 
+    fn set_highlight(state: &Arc<RefCell<RefAny>>, highlight: Option<usize>) {
+        let mut g = state.borrow_mut();
+        let r: &mut RefAny = &mut g;
+        let mut opt = r.downcast_mut::<GridState>();
+        if let Some(s) = opt.as_mut() {
+            s.highlight = highlight;
+        }
+    }
+
     /// Max bottom-edge Y across the damage (Full = +inf, None = 0).
     fn damage_max_y(d: &FrameDamage) -> f32 {
         match d {
@@ -1558,6 +1571,7 @@ mod tests {
     fn damage_box_size_reflow() {
         let state = Arc::new(RefCell::new(RefAny::new(GridState {
             boxes: vec![(100.0, 50.0)],
+            highlight: None,
         })));
         let mut window = make_window_with(&state, harness_layout_grid);
         window.regenerate_layout().expect("initial layout");
@@ -1590,6 +1604,7 @@ mod tests {
     fn damage_reflow_shifts_sibling() {
         let state = Arc::new(RefCell::new(RefAny::new(GridState {
             boxes: vec![(100.0, 50.0), (100.0, 50.0)],
+            highlight: None,
         })));
         let mut window = make_window_with(&state, harness_layout_grid);
         window.regenerate_layout().expect("initial layout");
@@ -1617,6 +1632,7 @@ mod tests {
     fn damage_structural_add_covers_new_node() {
         let state = Arc::new(RefCell::new(RefAny::new(GridState {
             boxes: vec![(100.0, 50.0)],
+            highlight: None,
         })));
         let mut window = make_window_with(&state, harness_layout_grid);
         window.regenerate_layout().expect("initial layout");
@@ -1729,6 +1745,7 @@ mod tests {
     fn damage_mouse_move_no_change_is_clean() {
         let state = Arc::new(RefCell::new(RefAny::new(GridState {
             boxes: vec![(200.0, 100.0)],
+            highlight: None,
         })));
         let mut window = make_window_with(&state, harness_layout_grid);
         window.regenerate_layout().expect("initial layout");
@@ -1749,6 +1766,44 @@ mod tests {
             d2, FrameDamage::None,
             "second mouse move over static content produced damage {:?}", d2
         );
+    }
+
+    #[test]
+    fn damage_single_paint_in_large_grid_is_local() {
+        let n = 30usize;
+        let boxes: Vec<(f32, f32)> = (0..n).map(|_| (100.0, 20.0)).collect();
+        let state = Arc::new(RefCell::new(RefAny::new(GridState {
+            boxes,
+            highlight: None,
+        })));
+        let mut window = make_window_with(&state, harness_layout_grid);
+        window.regenerate_layout().expect("initial layout");
+
+        // Recolor exactly ONE box (index 15) in a 30-box grid.
+        set_highlight(&state, Some(15));
+        window.regenerate_layout().expect("highlight one box");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        println!("[harness] single paint in {}-box grid: damage={:?}", n, damage);
+
+        // HONEST + perf-critical: changing ONE box's colour must damage ~one box
+        // (100x20 = 2000 px²), NOT the whole grid (600px tall) or the window.
+        // Over-damaging on every small change makes a large UI unusable — this is
+        // the core "damage must be incremental at scale" invariant.
+        let window_area = 400.0 * 300.0;
+        match damage_area(&damage) {
+            Some(a) if a > 0.0 => assert!(
+                a < window_area * 0.2,
+                "single-box recolor in a {}-box grid damaged area {} — should be \
+                 ~one box (~2000 px²), not the whole grid/window. Damage is not \
+                 incremental at scale. damage={:?}",
+                n, a, damage
+            ),
+            other => panic!(
+                "single-box recolor should produce small local damage, got \
+                 area={:?} damage={:?}",
+                other, damage
+            ),
+        }
     }
 
     #[test]
