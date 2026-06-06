@@ -502,6 +502,19 @@ impl HeadlessWindow {
             self.cpu_backend.hit_tester.rebuild_from_layout(&lw.layout_results);
         }
 
+        // Also rebuild the SHARED hit-tester that the common event-dispatch path
+        // reads (perform_hit_test → update_hit_test_at). `cpu_backend.hit_tester`
+        // above only feeds the headless render/screenshot path; pointer events
+        // (real or synthetic via the debug server) resolve their target node
+        // through `common.cpu_hit_tester`. Without this rebuild that tester stays
+        // empty, so every click hit-tests to nothing and widget callbacks (e.g. a
+        // button's on_click) never fire — clicks silently do nothing in headless.
+        if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
+            if let Some(lw) = self.common.layout_window.as_ref() {
+                cpu_ht.rebuild_from_layout(&lw.layout_results);
+            }
+        }
+
         // Drain any lifecycle events produced by reconciliation (Mount/Unmount/
         // Update/Resize) and dispatch them through the normal callback pipeline.
         // Doing this inside regenerate_layout keeps the headless test harness
