@@ -105,6 +105,24 @@ pub enum HeadlessEvent {
     Scroll { delta_x: f32, delta_y: f32 },
 }
 
+/// Outcome of a single `CpuBackend::render_frame` call — the seed of the
+/// unified `DamageRegion` type described in `DAMAGE_REGION_PLAN.md`.
+///
+/// `render_frame` historically returned `Vec<LogicalRect>`, where an empty vec
+/// was ambiguous: it meant *both* "nothing changed, render skipped" AND "full
+/// repaint (first frame / structural change), no incremental rects". This enum
+/// disambiguates so the headless damage harness (and later the platform
+/// presenters) can tell a no-op from a full repaint.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FrameDamage {
+    /// Nothing changed; render was skipped, the previous frame is still valid.
+    None,
+    /// Incremental repaint of exactly these logical rects.
+    Rects(Vec<azul_core::geom::LogicalRect>),
+    /// Full repaint (first frame, structural change, or shrink-resize).
+    Full,
+}
+
 // ---------------------------------------------------------------------------
 // CpuBackend — replaces WebRender in headless / CPU-only windows
 // ---------------------------------------------------------------------------
@@ -143,6 +161,11 @@ pub struct CpuBackend {
     /// Previous display list for damage rect computation.
     #[cfg(feature = "cpurender")]
     pub previous_display_list: Option<azul_layout::solver3::display_list::DisplayList>,
+    /// Damage produced by the most recent `render_frame` call. Recorded so the
+    /// headless test harness can assert on the calculated damage without
+    /// re-running (and thus re-baselining) the diff. Not gated on `cpurender`
+    /// so the getter compiles in layout-only builds.
+    pub last_frame_damage: FrameDamage,
 }
 
 impl Default for CpuBackend {
@@ -163,6 +186,7 @@ impl CpuBackend {
             glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
             #[cfg(feature = "cpurender")]
             previous_display_list: None,
+            last_frame_damage: FrameDamage::None,
         }
     }
 
@@ -249,6 +273,7 @@ impl CpuBackend {
             Some(rects) if rects.is_empty() && resize_damage.is_empty() => {
                 // Nothing changed — skip rendering entirely
                 self.previous_display_list = Some(display_list.clone());
+                self.last_frame_damage = FrameDamage::None;
                 return Vec::new();
             }
             Some(mut rects) if !needs_resize => {
@@ -308,6 +333,11 @@ impl CpuBackend {
 
         self.previous_display_list = Some(display_list.clone());
         self.last_frame = Some(output);
+        self.last_frame_damage = if is_incremental {
+            FrameDamage::Rects(all_damage.clone())
+        } else {
+            FrameDamage::Full
+        };
         all_damage
     }
 }
@@ -1153,6 +1183,313 @@ mod tests {
     fn test_stub_window_creation() {
         let window = make_stub();
         assert!(window.is_open());
+    }
+
+    // =====================================================================
+    // Damage harness — pure-Rust (no X11) simulation of the repaint path.
+    //
+    // Builds a HeadlessWindow with a controlled layout callback, drives state
+    // changes, and captures the calculated FrameDamage + the rendered
+    // display-list text. Uses println! to trace the architecture (run with
+    // `cargo test -p azul-dll damage_ -- --nocapture`).
+    // =====================================================================
+
+    use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo};
+    use azul_core::refany::OptionRefAny;
+    use azul_core::dom::Dom;
+    use azul_core::geom::LogicalSize;
+    use azul_layout::solver3::display_list::DisplayListItem;
+
+    /// Minimal app state the harness layout callback reads.
+    #[derive(Debug, Clone)]
+    struct UiState {
+        label: String,
+    }
+
+    /// Layout callback: `<body><div>{label}</div></body>`. The text content is
+    /// driven entirely by UiState, so a label change is a pure text-content
+    /// change at a stable DOM position — the cross-window stale-text repro,
+    /// headless.
+    extern "C" fn harness_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        let label = data
+            .downcast_ref::<UiState>()
+            .map(|s| s.label.clone())
+            .unwrap_or_default();
+        Dom::create_body()
+            .with_child(Dom::create_div().with_child(Dom::create_text(label.as_str())))
+    }
+
+    fn make_window_with(
+        state: &Arc<RefCell<RefAny>>,
+        cb: azul_core::callbacks::LayoutCallbackType,
+    ) -> HeadlessWindow {
+        use azul_core::icon::{IconProviderHandle, SharedIconProvider};
+        // Real system fonts so text actually shapes (default() is empty → zero
+        // glyphs → zero-size text items → meaningless damage).
+        let fc_cache = Arc::new(FcFontCache::build());
+        let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
+        let mut opts = WindowCreateOptions::default();
+        opts.window_state.layout_callback = LayoutCallback {
+            cb,
+            ctx: OptionRefAny::None,
+        };
+        opts.window_state.size.dimensions = LogicalSize::new(400.0, 300.0);
+        HeadlessWindow::new(
+            opts,
+            state.clone(),
+            AppConfig::default(),
+            icon_provider,
+            fc_cache,
+            None,
+        )
+        .unwrap()
+    }
+
+    fn make_harness_window(state: &Arc<RefCell<RefAny>>) -> HeadlessWindow {
+        make_window_with(state, harness_layout)
+    }
+
+    /// Total area of a FrameDamage (None for Full = unbounded, 0.0 for None).
+    fn damage_area(d: &FrameDamage) -> Option<f32> {
+        match d {
+            FrameDamage::None => Some(0.0),
+            FrameDamage::Full => None,
+            FrameDamage::Rects(rs) => {
+                Some(rs.iter().map(|r| r.size.width * r.size.height).sum())
+            }
+        }
+    }
+
+    /// State + layout for a non-text colored box (isolates the damage system
+    /// from text-shaping generation bugs).
+    #[derive(Debug, Clone)]
+    struct BoxState {
+        red: bool,
+    }
+
+    extern "C" fn harness_layout_box(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+        use azul_css::props::property::CssProperty;
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::basic::color::ColorU;
+        use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
+
+        let red = data.downcast_ref::<BoxState>().map(|s| s.red).unwrap_or(false);
+        let color = if red {
+            ColorU { r: 255, g: 0, b: 0, a: 255 }
+        } else {
+            ColorU { r: 0, g: 0, b: 255, a: 255 }
+        };
+        let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
+        Dom::create_body().with_child(
+            Dom::create_div().with_css_props(
+                vec![
+                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(100.0))),
+                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(50.0))),
+                    CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
+                ]
+                .into(),
+            ),
+        )
+    }
+
+    fn set_box_red(state: &Arc<RefCell<RefAny>>, red: bool) {
+        let mut g = state.borrow_mut();
+        let r: &mut RefAny = &mut g;
+        let mut opt = r.downcast_mut::<BoxState>();
+        if let Some(s) = opt.as_mut() {
+            s.red = red;
+        }
+    }
+
+    /// Glyph count of every Text item in the current display list (DOM 0).
+    fn text_glyph_counts(window: &HeadlessWindow) -> Vec<usize> {
+        use azul_core::dom::DomId;
+        let lw = match window.common.layout_window.as_ref() {
+            Some(lw) => lw,
+            None => return Vec::new(),
+        };
+        let dl = match lw.layout_results.get(&DomId { inner: 0 }) {
+            Some(r) => &r.display_list,
+            None => return Vec::new(),
+        };
+        dl.items
+            .iter()
+            .filter_map(|it| match it {
+                DisplayListItem::Text { glyphs, .. } => Some(glyphs.len()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn set_label(state: &Arc<RefCell<RefAny>>, new_label: &str) {
+        let mut g = state.borrow_mut();
+        let r: &mut RefAny = &mut g;
+        let mut opt = r.downcast_mut::<UiState>();
+        if let Some(s) = opt.as_mut() {
+            s.label = new_label.to_string();
+        }
+    }
+
+    #[test]
+    fn damage_text_change_repro() {
+        let state = Arc::new(RefCell::new(RefAny::new(UiState {
+            label: "AAA".to_string(),
+        })));
+        let mut window = make_harness_window(&state);
+
+        // Initial layout — establishes the baseline display list.
+        window.regenerate_layout().expect("initial layout");
+        let before = text_glyph_counts(&window);
+        println!(
+            "[harness] initial   : text_glyph_counts={:?} damage={:?}",
+            before, window.cpu_backend.last_frame_damage
+        );
+
+        // Pure text-content change: "AAA" (3) -> "BBBBBBBB" (8).
+        set_label(&state, "BBBBBBBB");
+        window.regenerate_layout().expect("relayout after change");
+        let after = text_glyph_counts(&window);
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        println!(
+            "[harness] post-change: text_glyph_counts={:?} damage={:?}",
+            after, damage
+        );
+
+        // Baseline sanity: text shaped at all.
+        assert_eq!(
+            before,
+            vec![3],
+            "baseline: expected an initial 3-glyph run (\"AAA\"), got {:?} \
+             (no fonts? text not shaping?)",
+            before
+        );
+
+        // HONEST ASSERTION — reproduces the stale-text bug (#11). The display
+        // list MUST reflect the new 8-char label. It currently stays at 3
+        // glyphs ("AAA"), so this FAILS until #11 is fixed (do NOT weaken it).
+        assert_eq!(
+            after,
+            vec![8],
+            "STALE-TEXT BUG (#11): after changing the label to \"BBBBBBBB\" (8 chars) \
+             the display list should contain an 8-glyph text run, but it still has {:?} \
+             — the text change never reached the display list. Damage was {:?}, so the \
+             diff/regen ran but produced STALE content (display-list generation bug, \
+             not a damage bug).",
+            after,
+            damage
+        );
+    }
+
+    #[test]
+    fn damage_noop_relayout_is_clean() {
+        let state = Arc::new(RefCell::new(RefAny::new(UiState {
+            label: "Hello world".to_string(),
+        })));
+        let mut window = make_harness_window(&state);
+
+        window.regenerate_layout().expect("initial layout");
+        // Relayout AGAIN with the SAME state — nothing changed at all.
+        window.regenerate_layout().expect("no-op relayout");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        println!("[harness] no-op relayout: damage={:?}", damage);
+
+        // HONEST ASSERTION: relaying out an unchanged DOM must produce NO
+        // damage. Anything else is a false-positive (e.g. text re-shaping to
+        // glyphs at sub-pixel-different positions each pass), which makes the
+        // incremental path repaint the whole frame every time.
+        assert_eq!(
+            damage,
+            FrameDamage::None,
+            "NO-OP relayout produced {:?} — an unchanged DOM must yield \
+             FrameDamage::None; false-positive damage every frame defeats \
+             incremental rendering.",
+            damage
+        );
+    }
+
+    #[test]
+    fn damage_box_paint_change_is_local() {
+        let state = Arc::new(RefCell::new(RefAny::new(BoxState { red: false })));
+        let mut window = make_window_with(&state, harness_layout_box);
+        window.regenerate_layout().expect("initial layout");
+
+        // Recolor the 100x50 box blue -> red. Pure paint change, no reflow.
+        set_box_red(&state, true);
+        window.regenerate_layout().expect("recolor");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        println!("[harness] box recolor: damage={:?}", damage);
+
+        // HONEST: recoloring a 100x50 box must damage roughly the box, NOT the
+        // whole 400x300 window. This isolates the damage system from text
+        // generation — if THIS passes, the damage machinery is sound and the
+        // earlier failures are text-specific.
+        let window_area = 400.0 * 300.0;
+        match damage_area(&damage) {
+            Some(a) if a > 0.0 => assert!(
+                a < window_area * 0.5,
+                "box recolor damage area {} should be ~box-sized (~5000), not \
+                 near-full-window {} — damage={:?}",
+                a, window_area, damage
+            ),
+            other => panic!(
+                "box recolor should produce bounded incremental damage, got \
+                 area={:?} damage={:?}",
+                other, damage
+            ),
+        }
+    }
+
+    #[test]
+    fn damage_box_noop_clean() {
+        let state = Arc::new(RefCell::new(RefAny::new(BoxState { red: false })));
+        let mut window = make_window_with(&state, harness_layout_box);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("no-op relayout");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        println!("[harness] box no-op: damage={:?}", damage);
+
+        // HONEST + diagnostic: a static colored box (no text) relaid out with
+        // no change must be FrameDamage::None. If this is None but the TEXT
+        // no-op test reports damage, the false-positive is text-shaping
+        // specific (non-deterministic glyphs); if this also reports damage,
+        // the false-positive is general.
+        assert_eq!(
+            damage,
+            FrameDamage::None,
+            "no-op relayout of a static box must be FrameDamage::None, got {:?}",
+            damage
+        );
+    }
+
+    #[test]
+    fn perf_noop_relayout_under_budget() {
+        let state = Arc::new(RefCell::new(RefAny::new(BoxState { red: false })));
+        let mut window = make_window_with(&state, harness_layout_box);
+        window.regenerate_layout().expect("initial layout");
+
+        let n: u32 = 200;
+        let start = std::time::Instant::now();
+        for _ in 0..n {
+            window.regenerate_layout().expect("no-op relayout");
+        }
+        let elapsed = start.elapsed();
+        let per = elapsed / n;
+        println!(
+            "[perf] {} no-op relayouts: total={:?} per={:?}",
+            n, elapsed, per
+        );
+
+        // PERF BUDGET: a no-op relayout of a trivial DOM should be cheap
+        // (cache hits, no re-render). 2ms is very generous; if nothing caches
+        // and every frame fully re-lays-out + re-renders, this blows past it.
+        // A slow UI — especially scrolling at this cost per frame — is unusable.
+        assert!(
+            per < std::time::Duration::from_millis(2),
+            "no-op relayout too slow: {:?}/relayout (budget 2ms) — incremental \
+             caching is not working; this is unusable for scrolling",
+            per
+        );
     }
 
     #[test]
