@@ -1284,14 +1284,60 @@ mod tests {
             .with_child(Dom::create_div().with_child(Dom::create_text(label.as_str())))
     }
 
+    /// One embedded font for the whole harness. Using a bundled font instead of
+    /// `FcFontCache::build()` makes glyph metrics DETERMINISTIC (tests never
+    /// depend on which fonts the host has installed) and does ZERO disk access —
+    /// the system-font scan was both a flakiness source and a contributor to the
+    /// build-machine lockup (every test forking a full font enumeration).
+    const HARNESS_FONT: &[u8] =
+        include_bytes!("../../../../../doc/fonts/InstrumentSerif-Regular.ttf");
+
+    /// Parse [`HARNESS_FONT`] and insert it straight into the window's
+    /// `FontManager` so text shapes without any system-font scan.
+    ///
+    /// Why inject the parsed font rather than register it in the `FcFontCache`
+    /// (the obvious approach)? Because a single in-memory font CANNOT serve text
+    /// through an otherwise-empty fontconfig cache (the trail, #15):
+    /// - generic families ("serif", azul's default) are EXPANDED to a hardcoded
+    ///   OS list ("DejaVu Serif", …) and the generic is dropped, so a custom font
+    ///   is never matched by the generic name (the `web/eventloop.rs` "serif
+    ///   sans-serif monospace" trick silently does nothing);
+    /// - the Unicode-fallback path skips every codepoint < U+0400 (it assumes the
+    ///   CSS fallbacks' own glyphs cover Latin — i.e. that real system fonts
+    ///   exist), so ASCII resolves no fallback in an empty cache.
+    ///
+    /// The shaper's last resort, however, is a direct glyph probe over the
+    /// LOADED fonts (`split_text_by_font_coverage`'s `.or_else` →
+    /// `font.has_glyph`). With an empty `FcFontCache` every char misses
+    /// fontconfig and falls through to that probe — so a font present in the
+    /// `FontManager` is used by real cmap coverage, no font-family needed on the
+    /// DOM. We insert with interior mutability (`insert_font(&self, …)`), so this
+    /// runs before the test's first `regenerate_layout`.
+    ///
+    /// (The underlying gap — a bundled in-memory font can't serve generic
+    /// families / Latin via the cache — is a real rust-fontconfig footgun that
+    /// also breaks the web/wasm fallback; flagged for an upstream fix.)
+    fn inject_harness_font(window: &HeadlessWindow) {
+        use azul_layout::text3::default::font_ref_from_bytes;
+        let font_ref = match font_ref_from_bytes(HARNESS_FONT, 0, false) {
+            Some(f) => f,
+            None => return,
+        };
+        if let Some(lw) = window.common.layout_window.as_ref() {
+            lw.font_manager
+                .insert_font(rust_fontconfig::FontId::new(), font_ref);
+        }
+    }
+
     fn make_window_with(
         state: &Arc<RefCell<RefAny>>,
         cb: azul_core::callbacks::LayoutCallbackType,
     ) -> HeadlessWindow {
         use azul_core::icon::{IconProviderHandle, SharedIconProvider};
-        // Real system fonts so text actually shapes (default() is empty → zero
-        // glyphs → zero-size text items → meaningless damage).
-        let fc_cache = Arc::new(FcFontCache::build());
+        // Empty cache → NO system-font scan / disk access. The deterministic
+        // embedded font is injected into the FontManager below (see
+        // `inject_harness_font` for why the cache route doesn't work).
+        let fc_cache = Arc::new(FcFontCache::default());
         let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
         let mut opts = WindowCreateOptions::default();
         opts.window_state.layout_callback = LayoutCallback {
@@ -1299,7 +1345,7 @@ mod tests {
             ctx: OptionRefAny::None,
         };
         opts.window_state.size.dimensions = LogicalSize::new(400.0, 300.0);
-        HeadlessWindow::new(
+        let window = HeadlessWindow::new(
             opts,
             state.clone(),
             AppConfig::default(),
@@ -1307,7 +1353,9 @@ mod tests {
             fc_cache,
             None,
         )
-        .unwrap()
+        .unwrap();
+        inject_harness_font(&window);
+        window
     }
 
     fn make_harness_window(state: &Arc<RefCell<RefAny>>) -> HeadlessWindow {
