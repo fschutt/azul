@@ -289,8 +289,11 @@ pollster = { version = "0.4", optional = true }
 clipboard-win = { version = "5.4", optional = true }
 # Camera capture (Media Foundation) for the Windows camera backend
 # (camera/windows.rs) - nokhwa owns the COM/MF ABI + gives a pull API, so we
-# don't hand-roll COM. Non-optional so the backend always compiles on windows.
-nokhwa = { version = "0.10", features = ["input-native"] }
+# don't hand-roll COM. OPTIONAL + behind `camera-native`: nokhwa's decoding pulls
+# mozjpeg-sys (C/bindgen), which breaks `cargo check --target *-windows-gnu`. With
+# the feature OFF (default) camera/windows.rs is a pure-Rust stub so Windows
+# cross-compiles; flip `camera-native` on for a real build with a C toolchain.
+nokhwa = { version = "0.10", features = ["input-native"], optional = true }
 accesskit_windows = { version = "0.32", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -698,6 +701,11 @@ pnm = ["azul-layout", "azul-layout/pnm"]
 svg = ["azul-layout", "azul-layout/svg"]
 xml = ["azul-layout", "azul-layout/xml"]
 cpurender = ["azul-layout", "azul-layout/cpurender"]
+# Real Windows camera backend (nokhwa / Media Foundation). OFF by default so
+# Windows cross-compiles with no C toolchain (camera/windows.rs is a pure-Rust
+# stub); turn ON for an actual Windows build with mingw/MSVC. No effect on
+# non-Windows targets (nokhwa is windows-only).
+camera-native = ["dep:nokhwa"]
 font_loading = ["azul-layout", "azul-layout/font_loading"]
 font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithreaded"]
 font_async_registry = ["font_loading", "azul-layout/font_async_registry"]
