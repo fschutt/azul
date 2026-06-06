@@ -129,13 +129,21 @@ Fix chain (all committed):
 - `aa918c44a` honor `flags.close_requested` in the Linux run loop → menu items close the menu.
 
 NEXT (priority):
-1. CROSS-WINDOW REFRESH: a menu item's callback mutates the SHARED app data (e.g.
-   on_set_brush → metaball_mode=false), the menu closes, but the MAIN window doesn't
-   re-layout — its "Effect:" label stays stale (screenshot /tmp/clickfix_header.png still
-   "Metaballs"). RefreshDom from a child (menu) window's callback must re-layout the parent/
-   all windows. Find where Update::RefreshDom is applied per-window in the run loop and
-   propagate it (or mark sibling windows dirty) when the closing window shared app data.
-   Quick win that makes the menu visibly "do something".
+1. CROSS-WINDOW REFRESH (IN PROGRESS): a menu item's callback mutates the SHARED app data,
+   the menu closes, but the MAIN window doesn't re-layout (its "Effect:" label stays stale).
+   PARTIAL FIX committed: `menu_item_click_callback` now escalates the action's RefreshDom →
+   `RefreshDomAllWindows` (a menu action affects the parent app, and the menu window is
+   closing). VERIFIED via eprintln probes that this ALONE is NOT enough: `on_set_brush` fires
+   (data IS mutated) + the menu closes, but the main window's `layout()` NEVER re-runs — even
+   after nudging the mouse over the main window. So `frame_needs_regeneration` is not being
+   effectively set/acted-upon on the MAIN window from the menu's `ShouldRegenerateDomAllWindows`.
+   NEXT: DLL-probe `x11/mod.rs:1736` (the `ShouldRegenerateDomAllWindows` arm) — is it reached
+   from the menu window's poll_event? does the registry loop mark the main window
+   (frame_needs_regeneration=true + request_redraw)? Suspect either (a) the menu window's
+   close_requested short-circuits result handling before 1736, or (b) the active multi-window
+   run loop (run.rs ~1120) has no regenerate step (the `frame_needs_regeneration → regenerate`
+   at run.rs:926 may be a DIFFERENT, inactive loop path) so marking never triggers a relayout.
+   Confirm where the 3 startup `layout()` calls come from vs. why none fire post-startup.
 2. ARCHITECTURE (user directive): make `show_menu` = `create_window(options)` on ALL OSes (drop
    the per-platform `show_menu_from_callback` glue; route `OpenMenu` → `CreateNewWindow`). Add
    `WindowPosition::RelativeToParent { parent_rect: LogicalRect, anchor }` resolved per backend

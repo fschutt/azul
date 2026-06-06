@@ -82,7 +82,14 @@ extern "C" fn menu_item_click_callback(mut data: RefAny, mut info: CallbackInfo)
         state.flags.close_requested = true;
         info.modify_window_state(state);
 
-        return result;
+        // A menu item's action typically mutates the SHARED app state, and this menu
+        // window is closing — a plain RefreshDom would only re-layout the doomed menu
+        // window and be lost. Escalate to RefreshDomAllWindows so the parent window
+        // (and any siblings) re-layout to reflect the change.
+        return match result {
+            Update::RefreshDom | Update::RefreshDomAllWindows => Update::RefreshDomAllWindows,
+            Update::DoNothing => Update::DoNothing,
+        };
     }
 
     // No callback attached, just close the menu
