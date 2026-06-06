@@ -161,6 +161,18 @@ and no border-radius gaps).
    `scroll_layer` instead of a full diff; present the whole viewport.
 3. Handle transparent vs opaque per above. Then GPU (WR scroll offset + partial
    present) under #10.
+4. **Pan (mobile):** a diagonal scroll exposes TWO strips (one per axis) —
+   `compute_exposed_rects` already returns 2 rects for diagonal. Do single-axis
+   (vertical) first, then the 2-strip pan case.
+
+**TEST RESULT (honest repro, committed failing):**
+`scroll_moves_content_not_just_scrollbar` FAILS — after a 30px vertical scroll the
+content pixel at (50,20) is unchanged (`[200,60,60,255]` before and after) and the
+damage is **scrollbar-only** (`12x100 @ x=196`). Content is FROZEN on scroll; only
+the scrollbar moves. Confirms `scroll_layer` is unwired AND content items don't
+shift in the display list. A weak "damage != None / bounded" assertion fake-passed
+on the scrollbar — the pixel-level check is the honest one. **Next: wire
+`scroll_layer` into the render path (item 2).**
 
 ---
 

@@ -1806,6 +1806,151 @@ mod tests {
         }
     }
 
+    // --- Scroll: the make-or-break perf case (see DAMAGE_REGION_PLAN.md §0.6) ---
+
+    #[derive(Debug, Clone)]
+    struct ScrollState {
+        n_items: usize,
+    }
+
+    /// A 200x100 `overflow:scroll` container holding `n_items` 30px-tall rows
+    /// (so n_items > ~3 overflows and makes it scrollable).
+    extern "C" fn harness_layout_scroll(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+        use azul_css::props::layout::overflow::LayoutOverflow;
+        use azul_css::props::property::CssProperty;
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::basic::color::ColorU;
+        use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
+
+        let n = data.downcast_ref::<ScrollState>().map(|s| s.n_items).unwrap_or(0);
+        let mut container = Dom::create_div().with_css_props(
+            vec![
+                CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(200.0))),
+                CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(100.0))),
+                CssPropertyWithConditions::simple(CssProperty::overflow_y(LayoutOverflow::Scroll)),
+            ]
+            .into(),
+        );
+        for i in 0..n {
+            let color = if i % 2 == 0 {
+                ColorU { r: 200, g: 60, b: 60, a: 255 }
+            } else {
+                ColorU { r: 60, g: 60, b: 200, a: 255 }
+            };
+            let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
+            container = container.with_child(Dom::create_div().with_css_props(
+                vec![
+                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(180.0))),
+                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(30.0))),
+                    CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
+                ]
+                .into(),
+            ));
+        }
+        Dom::create_body().with_child(container)
+    }
+
+    /// Sample the RGBA of the last rendered frame at physical pixel (x, y).
+    #[cfg(feature = "cpurender")]
+    fn sample_px(window: &HeadlessWindow, x: u32, y: u32) -> Option<[u8; 4]> {
+        let pm = window.cpu_backend.last_frame.as_ref()?;
+        let (w, h) = (pm.width(), pm.height());
+        if x >= w || y >= h {
+            return None;
+        }
+        let d = pm.data();
+        let i = ((y * w + x) * 4) as usize;
+        if i + 4 > d.len() {
+            return None;
+        }
+        Some([d[i], d[i + 1], d[i + 2], d[i + 3]])
+    }
+
+    #[test]
+    fn scroll_moves_content_not_just_scrollbar() {
+        use azul_core::dom::DomId;
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+        use azul_core::hit_test::ScrollPosition;
+
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollState { n_items: 20 })));
+        let mut window = make_window_with(&state, harness_layout_scroll);
+        window.regenerate_layout().expect("initial layout");
+        #[cfg(feature = "cpurender")]
+        let before_px = sample_px(&window, 50, 20);
+
+        // Find the scroll frame's node (overflow:scroll should register one).
+        let (n_scroll_nodes, scroll_node) = window
+            .common
+            .layout_window
+            .as_ref()
+            .map(|lw| {
+                (
+                    lw.layout_cache.scroll_id_to_node_id.len(),
+                    lw.layout_cache.scroll_id_to_node_id.values().next().copied(),
+                )
+            })
+            .unwrap_or((0, None));
+        println!("[harness] scroll frames registered = {}", n_scroll_nodes);
+        let node_id = match scroll_node {
+            Some(n) => n,
+            None => panic!(
+                "overflow:scroll created NO scroll frame (scroll_id_to_node_id empty) \
+                 — content {}px in a 100px container should be scrollable",
+                20 * 30
+            ),
+        };
+
+        // Scroll down by 30px (one row).
+        let sp = ScrollPosition {
+            parent_rect: LogicalRect {
+                origin: LogicalPosition::new(8.0, 8.0),
+                size: LogicalSize::new(200.0, 100.0),
+            },
+            children_rect: LogicalRect {
+                origin: LogicalPosition::new(0.0, 30.0),
+                size: LogicalSize::new(200.0, 600.0),
+            },
+        };
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .unwrap()
+            .set_scroll_position(DomId { inner: 0 }, node_id, sp);
+        window.regenerate_layout().expect("scroll relayout");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        println!("[harness] scroll damage = {:?}", damage);
+
+        // HONEST: scrolling must move the CONTENT, not just the scrollbar. The
+        // rows alternate colour every 30px, so a 30px scroll swaps the colour at
+        // a fixed viewport pixel. If it's unchanged, the content is FROZEN on
+        // scroll — only the scrollbar moved (damage was scrollbar-only). The
+        // scroll_layer shift is dead code and content items don't shift in the DL
+        // (§0.6). A weak "damage != None / bounded" assertion would FAKE-PASS on
+        // the scrollbar alone — so we check the rendered pixels directly.
+        #[cfg(feature = "cpurender")]
+        {
+            let after_px = sample_px(&window, 50, 20);
+            println!(
+                "[harness] content px @ (50,20): before={:?} after={:?}",
+                before_px, after_px
+            );
+            assert!(
+                before_px.is_some() && after_px.is_some(),
+                "no rendered pixmap to sample (before={:?} after={:?})",
+                before_px, after_px
+            );
+            assert_ne!(
+                before_px, after_px,
+                "scroll did NOT change the content at (50,20) — content is FROZEN on \
+                 scroll; only the scrollbar moved (damage={:?}). scroll_layer is dead \
+                 code (§0.6) and content items don't shift in the display list.",
+                damage
+            );
+        }
+    }
+
     #[test]
     fn test_stub_window_close() {
         let mut window = make_stub();
