@@ -858,10 +858,12 @@ fn compute_exposed_rects(bounds: &LogicalRect, dx: f32, dy: f32) -> Vec<LogicalR
 ///
 /// Only pixels strictly inside the (clamped) clip rectangle are moved, so the
 /// scrollbar, the parent background and sibling content outside the frame are
-/// left untouched. Diagonal scroll (both axes changing in one frame) is NOT
-/// strip-optimised in this first cut — the whole clip is returned for a full
-/// repaint so we never have to reconcile two overlapping strips. Single-axis
-/// scroll, the common case (including horizontal pan), gets the thin strip.
+/// left untouched. Diagonal scroll (both axes in one frame — mobile pan) is
+/// handled as TWO strips: the vertical move + horizontal move are separable 1-D
+/// passes, so the net effect is a 2-D translation and the exposed region is an
+/// L-shape (a full-width top/bottom strip + a full-height left/right strip).
+/// The two strips overlap in one corner; that corner is simply repainted twice,
+/// which is correct (the caller clears then renders each item once).
 ///
 /// Returns an empty vec when nothing moved, or `[clip_bounds]` when the shift is
 /// large enough that the whole viewport is exposed (caller repaints in full).
@@ -882,11 +884,6 @@ pub fn scroll_shift_region(
     // Nothing actually moved (sub-pixel jitter rounds to zero).
     if px_dx == 0 && px_dy == 0 {
         return Vec::new();
-    }
-
-    // Diagonal scroll: bail to a full-clip repaint (no shift) in this first cut.
-    if px_dx != 0 && px_dy != 0 {
-        return vec![*clip_bounds];
     }
 
     let pw = pixmap.width() as i32;
@@ -911,48 +908,23 @@ pub fn scroll_shift_region(
         return vec![*clip_bounds];
     }
 
-    let stride_px = pw; // pixels per row in the full buffer
-    let col_bytes = (region_w * 4) as usize;
+    // Dispatch to a specialised mover. The common single-axis cases get a tight
+    // 1-D pass; diagonal pan gets a SINGLE-pass 2-D move (each row copied once
+    // from its diagonally-offset source) instead of two sequential full passes —
+    // half the memory traffic. (no-op is already handled by the early return.)
+    let stride_px = pw;
     let data = pixmap.data_mut();
-    let row_off = |row: i32| -> usize { ((row * stride_px + cx0) as usize) * 4 };
-
-    // --- Vertical move ---
-    if px_dy > 0 {
-        // Content up: dst = src - px_dy. dst < src, so iterate top→bottom.
-        for dst in cy0..(cy1 - px_dy) {
-            let s = row_off(dst + px_dy);
-            let d = row_off(dst);
-            data.copy_within(s..s + col_bytes, d);
-        }
-    } else if px_dy < 0 {
-        let s_amt = -px_dy;
-        // Content down: dst = src + s_amt. dst > src, so iterate bottom→top.
-        for dst in ((cy0 + s_amt)..cy1).rev() {
-            let s = row_off(dst - s_amt);
-            let d = row_off(dst);
-            data.copy_within(s..s + col_bytes, d);
-        }
+    match (px_dx != 0, px_dy != 0) {
+        (false, true) => shift_vertical_1d(data, stride_px, cx0, cy0, cx1, cy1, px_dy),
+        (true, false) => shift_horizontal_1d(data, stride_px, cx0, cy0, cx1, cy1, px_dx),
+        (true, true) => shift_diagonal_2d(data, stride_px, cx0, cy0, cx1, cy1, px_dx, px_dy),
+        (false, false) => {}
     }
 
-    // --- Horizontal move (single-axis only; diagonal already returned above) ---
-    if px_dx > 0 {
-        // Content left: within each row, dst col = src col - px_dx. dst < src.
-        let shift = (px_dx * 4) as usize;
-        for row in cy0..cy1 {
-            let left = row_off(row);
-            data.copy_within(left + shift..left + col_bytes, left);
-        }
-    } else if px_dx < 0 {
-        let shift = ((-px_dx) * 4) as usize;
-        for row in cy0..cy1 {
-            let left = row_off(row);
-            data.copy_within(left..left + col_bytes - shift, left + shift);
-        }
-    }
-
-    // Exposed strip in LOGICAL coords. Over-cover the moving edge by one physical
-    // pixel so dpi rounding never leaves a 1px white seam between the moved block
-    // and the freshly-painted strip. Single axis → exactly one strip.
+    // Exposed strip(s) in LOGICAL coords. Over-cover the moving edge by one
+    // physical pixel so dpi rounding never leaves a 1px white seam between the
+    // moved block and the freshly-painted strip. One strip per moved axis, so
+    // diagonal pan yields two (an L-shape, overlapping in one corner).
     let cb = clip_bounds;
     let mut exposed = Vec::new();
     if px_dy != 0 {
@@ -969,12 +941,15 @@ pub fn scroll_shift_region(
             origin: LogicalPosition { x: cb.origin.x, y },
             size: LogicalSize { width: cb.size.width, height: h },
         });
-    } else if px_dx != 0 {
+    }
+    if px_dx != 0 {
         let w_logical = (px_dx.abs() as f32 + 1.0) / dpi_factor;
         let w = w_logical.min(cb.size.width);
         let x = if px_dx > 0 {
+            // right strip exposed
             cb.origin.x + cb.size.width - w
         } else {
+            // left strip exposed
             cb.origin.x
         };
         exposed.push(LogicalRect {
@@ -983,6 +958,121 @@ pub fn scroll_shift_region(
         });
     }
     exposed
+}
+
+// --- scroll_shift_region movers -------------------------------------------
+// All three operate in PHYSICAL pixels on the raw RGBA buffer. `cx0..cx1` /
+// `cy0..cy1` is the clamped clip region; `stride_px` is the buffer width in
+// pixels. They only ever touch bytes inside the clip rectangle. Sign of the
+// `px_*` deltas follows the renderer: positive = content moves up/left, so the
+// exposed strip is the trailing (bottom/right) edge.
+
+/// Single-axis VERTICAL move: shift whole rows up (px_dy>0) or down (px_dy<0).
+/// Iteration order is chosen so a row read as a source is never already
+/// overwritten (src and dst row SETS overlap, so order matters).
+#[inline]
+fn shift_vertical_1d(
+    data: &mut [u8],
+    stride_px: i32,
+    cx0: i32,
+    cy0: i32,
+    cx1: i32,
+    cy1: i32,
+    px_dy: i32,
+) {
+    let col_bytes = ((cx1 - cx0) * 4) as usize;
+    let row_off = |row: i32| ((row * stride_px + cx0) as usize) * 4;
+    if px_dy > 0 {
+        // Content up: dst = src - px_dy (dst < src) → iterate top→bottom.
+        for dst in cy0..(cy1 - px_dy) {
+            let s = row_off(dst + px_dy);
+            data.copy_within(s..s + col_bytes, row_off(dst));
+        }
+    } else {
+        let amt = -px_dy;
+        // Content down: dst = src + amt (dst > src) → iterate bottom→top.
+        for dst in ((cy0 + amt)..cy1).rev() {
+            let s = row_off(dst - amt);
+            data.copy_within(s..s + col_bytes, row_off(dst));
+        }
+    }
+}
+
+/// Single-axis HORIZONTAL move: shift each row's pixels left (px_dx>0) or right
+/// (px_dx<0). Source and dest overlap WITHIN a row, so `copy_within`'s memmove
+/// semantics handle it directly — no per-row ordering needed.
+#[inline]
+fn shift_horizontal_1d(
+    data: &mut [u8],
+    stride_px: i32,
+    cx0: i32,
+    cy0: i32,
+    cx1: i32,
+    cy1: i32,
+    px_dx: i32,
+) {
+    let col_bytes = ((cx1 - cx0) * 4) as usize;
+    let row_off = |row: i32| ((row * stride_px + cx0) as usize) * 4;
+    if px_dx > 0 {
+        let shift = (px_dx * 4) as usize;
+        for row in cy0..cy1 {
+            let left = row_off(row);
+            data.copy_within(left + shift..left + col_bytes, left);
+        }
+    } else {
+        let shift = ((-px_dx) * 4) as usize;
+        for row in cy0..cy1 {
+            let left = row_off(row);
+            data.copy_within(left..left + col_bytes - shift, left + shift);
+        }
+    }
+}
+
+/// Diagonal (two-axis) pan in ONE pass: each destination row is copied directly
+/// from its diagonally-offset source row, applying the column shift in the same
+/// `copy_within`. Because |px_dy| ≥ 1, the source and dest rows are always
+/// DIFFERENT rows ≥ one stride apart, so the per-copy byte ranges never overlap
+/// regardless of the horizontal direction — only the row iteration order (by
+/// `px_dy` sign) matters, exactly as in the vertical case. This does the work of
+/// the two 1-D passes with half the memory traffic.
+#[inline]
+fn shift_diagonal_2d(
+    data: &mut [u8],
+    stride_px: i32,
+    cx0: i32,
+    cy0: i32,
+    cx1: i32,
+    cy1: i32,
+    px_dx: i32,
+    px_dy: i32,
+) {
+    let span_cols = (cx1 - cx0) - px_dx.abs();
+    if span_cols <= 0 {
+        return; // horizontal shift covers the whole region — nothing to keep
+    }
+    let len = (span_cols * 4) as usize;
+    // Column starts for the kept span: content-left reads from the right, etc.
+    let (src_col, dst_col) = if px_dx > 0 {
+        (cx0 + px_dx, cx0)
+    } else {
+        (cx0, cx0 - px_dx)
+    };
+    let src_byte = |row: i32| ((row * stride_px + src_col) as usize) * 4;
+    let dst_byte = |row: i32| ((row * stride_px + dst_col) as usize) * 4;
+    if px_dy > 0 {
+        // Content up: src row = dst + px_dy (below) → iterate top→bottom.
+        for dst in cy0..(cy1 - px_dy) {
+            let s = src_byte(dst + px_dy);
+            data.copy_within(s..s + len, dst_byte(dst));
+        }
+    } else {
+        let amt = -px_dy;
+        // Content down: src row = dst - amt (above) → iterate bottom→top.
+        for dst in ((cy0 + amt)..cy1).rev() {
+            let s = src_byte(dst - amt);
+            data.copy_within(s..s + len, dst_byte(dst));
+        }
+    }
 }
 
 /// Apply CSS filters to a pixbuf at composite time.
@@ -2551,11 +2641,27 @@ fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
             let mut j = i + 1;
             while j < rects.len() {
                 // 8 logical pixels: merge rects that are close enough to avoid
-                // many tiny damage regions that would cause redundant repaints
+                // many tiny damage regions that would cause redundant repaints —
+                // BUT only when the merged box doesn't balloon the repaint. Two
+                // PERPENDICULAR thin strips (e.g. a vertical + a horizontal
+                // scrollbar meeting at a corner) are "adjacent" yet their bounding
+                // box is the whole viewport: merging them turns ~3k px of overdraw
+                // into ~20k. Reject a merge whose union is much larger than the two
+                // rects combined; keep them separate instead.
                 if rects_overlap_or_adjacent(&rects[i], &rects[j], 8.0) {
-                    rects[i] = union_rect(&rects[i], &rects[j]);
-                    rects.swap_remove(j);
-                    changed = true;
+                    let u = union_rect(&rects[i], &rects[j]);
+                    let area_u = (u.size.width * u.size.height).max(0.0);
+                    let area_i = (rects[i].size.width * rects[i].size.height).max(0.0);
+                    let area_j = (rects[j].size.width * rects[j].size.height).max(0.0);
+                    // 1.5× slack covers genuine overlap (union < sum) and small-gap
+                    // tiling (union ≈ sum) while rejecting perpendicular-strip bboxes.
+                    if area_u <= (area_i + area_j) * 1.5 + 64.0 {
+                        rects[i] = u;
+                        rects.swap_remove(j);
+                        changed = true;
+                    } else {
+                        j += 1;
+                    }
                 } else {
                     j += 1;
                 }
@@ -5226,5 +5332,126 @@ fn parse_svg_color(s: &str) -> Option<Rgba8> {
             a: 255,
         }),
         _ => None,
+    }
+}
+
+// ============================================================================
+// scroll_shift_region — unit tests (#14 single-axis, #16 diagonal pan)
+// ============================================================================
+#[cfg(test)]
+mod scroll_shift_tests {
+    use super::*;
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+    /// Pixmap where every pixel encodes its own coords: R = x&0xFF, G = y&0xFF.
+    /// After a shift, a pixel's (R,G) tells you which source pixel landed there,
+    /// so we can assert the move is an exact translation.
+    fn xy_pixmap(w: u32, h: u32) -> AzulPixmap {
+        let mut p = AzulPixmap::new(w, h).unwrap();
+        let d = p.data_mut();
+        for y in 0..h {
+            for x in 0..w {
+                let i = ((y * w + x) * 4) as usize;
+                d[i] = (x & 0xFF) as u8;
+                d[i + 1] = (y & 0xFF) as u8;
+                d[i + 2] = 0;
+                d[i + 3] = 255;
+            }
+        }
+        p
+    }
+    fn at(p: &AzulPixmap, x: u32, y: u32) -> [u8; 4] {
+        let w = p.width();
+        let d = p.data();
+        let i = ((y * w + x) * 4) as usize;
+        [d[i], d[i + 1], d[i + 2], d[i + 3]]
+    }
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition::new(x, y),
+            size: LogicalSize::new(w, h),
+        }
+    }
+
+    #[test]
+    fn noop_when_delta_zero() {
+        let mut p = xy_pixmap(64, 64);
+        let strips = scroll_shift_region(&mut p, &rect(0.0, 0.0, 64.0, 64.0), (0.0, 0.0), 1.0);
+        assert!(strips.is_empty(), "zero delta must not shift or expose anything");
+        // Buffer untouched.
+        assert_eq!(at(&p, 10, 20), [10, 20, 0, 255]);
+    }
+
+    #[test]
+    fn vertical_scroll_one_strip_and_translates() {
+        let mut p = xy_pixmap(200, 100);
+        // Scroll DOWN by 30 → content moves UP → bottom strip exposed.
+        let strips = scroll_shift_region(&mut p, &rect(0.0, 0.0, 200.0, 100.0), (0.0, 30.0), 1.0);
+        assert_eq!(strips.len(), 1, "single-axis scroll = one strip, got {:?}", strips);
+        let s = &strips[0];
+        assert!(
+            (s.origin.y - (100.0 - s.size.height)).abs() < 0.01 && s.size.width == 200.0,
+            "vertical scroll-down must expose a full-width BOTTOM strip, got {:?}",
+            s
+        );
+        // Kept region (top): (x, y) now holds original (x, y+30).
+        assert_eq!(at(&p, 50, 10), [50, 40, 0, 255], "content not translated up by 30");
+    }
+
+    #[test]
+    fn diagonal_pan_two_strips_and_translates() {
+        let mut p = xy_pixmap(200, 100);
+        // Diagonal scroll down-right by (20, 30): content moves up-left.
+        let strips =
+            scroll_shift_region(&mut p, &rect(0.0, 0.0, 200.0, 100.0), (20.0, 30.0), 1.0);
+        assert_eq!(
+            strips.len(),
+            2,
+            "diagonal pan must expose TWO strips (L-shape), got {:?}",
+            strips
+        );
+        // One full-width strip (the vertical move) + one full-height strip (horizontal).
+        let has_h_strip = strips.iter().any(|s| s.size.width == 200.0);
+        let has_v_strip = strips.iter().any(|s| s.size.height == 100.0);
+        assert!(
+            has_h_strip && has_v_strip,
+            "expected a full-width AND a full-height strip, got {:?}",
+            strips
+        );
+        // Kept top-left region: (sx,sy) now holds original (sx+20, sy+30).
+        // (50,40) is inside the kept block (bottom strip y>=69, right strip x>=179).
+        let got = at(&p, 50, 40);
+        assert_eq!(got[0], 70, "x not translated left by 20 (R channel)");
+        assert_eq!(got[1], 70, "y not translated up by 30 (G channel)");
+    }
+
+    #[test]
+    fn shift_only_touches_inside_clip() {
+        let mut p = xy_pixmap(200, 100);
+        // Clip is a sub-region; everything OUTSIDE must be byte-identical after.
+        let clip = rect(8.0, 16.0, 180.0, 60.0); // phys [8,188) x [16,76)
+        let _ = scroll_shift_region(&mut p, &clip, (0.0, 10.0), 1.0);
+        for &(x, y) in &[(0u32, 0u32), (199, 99), (100, 5), (100, 90), (2, 50), (190, 50)] {
+            assert_eq!(
+                at(&p, x, y),
+                [(x & 0xFF) as u8, (y & 0xFF) as u8, 0, 255],
+                "pixel ({},{}) OUTSIDE the clip was modified — scroll leaked past its frame",
+                x,
+                y
+            );
+        }
+        // Inside the kept region it DID move: (50,40) holds original (50,50).
+        assert_eq!(at(&p, 50, 40), [50, 50, 0, 255], "inside-clip content not shifted");
+    }
+
+    #[test]
+    fn shift_larger_than_region_returns_full_clip() {
+        let mut p = xy_pixmap(64, 64);
+        let clip = rect(0.0, 0.0, 64.0, 64.0);
+        // Shift exceeds the region height → whole clip exposed (no partial strip).
+        let strips = scroll_shift_region(&mut p, &clip, (0.0, 100.0), 1.0);
+        assert_eq!(strips.len(), 1);
+        assert_eq!(strips[0].size.width, 64.0);
+        assert_eq!(strips[0].size.height, 64.0);
     }
 }

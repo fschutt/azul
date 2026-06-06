@@ -1964,6 +1964,47 @@ mod tests {
         Dom::create_body().with_child(container)
     }
 
+    /// A 200x100 `overflow:scroll` container (BOTH axes) holding `n_items` rows
+    /// that are WIDER than the viewport (400px) and 30px tall — so the frame is
+    /// scrollable diagonally (mobile pan). Rows alternate colour every 30px so a
+    /// vertical scroll is visible at a fixed pixel.
+    extern "C" fn harness_layout_scroll_2d(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+        use azul_css::props::layout::overflow::LayoutOverflow;
+        use azul_css::props::property::CssProperty;
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::basic::color::ColorU;
+        use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
+
+        let n = data.downcast_ref::<ScrollState>().map(|s| s.n_items).unwrap_or(0);
+        let mut container = Dom::create_div().with_css_props(
+            vec![
+                CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(200.0))),
+                CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(100.0))),
+                CssPropertyWithConditions::simple(CssProperty::overflow_x(LayoutOverflow::Scroll)),
+                CssPropertyWithConditions::simple(CssProperty::overflow_y(LayoutOverflow::Scroll)),
+            ]
+            .into(),
+        );
+        for i in 0..n {
+            let color = if i % 2 == 0 {
+                ColorU { r: 200, g: 60, b: 60, a: 255 }
+            } else {
+                ColorU { r: 60, g: 60, b: 200, a: 255 }
+            };
+            let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
+            container = container.with_child(Dom::create_div().with_css_props(
+                vec![
+                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(400.0))),
+                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(30.0))),
+                    CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
+                ]
+                .into(),
+            ));
+        }
+        Dom::create_body().with_child(container)
+    }
+
     /// Sample the RGBA of the last rendered frame at physical pixel (x, y).
     #[cfg(feature = "cpurender")]
     fn sample_px(window: &HeadlessWindow, x: u32, y: u32) -> Option<[u8; 4]> {
@@ -2124,6 +2165,92 @@ mod tests {
                 "scroll produced Full damage — worse than full-viewport. damage={:?}",
                 damage
             ),
+        }
+    }
+
+    #[test]
+    fn scroll_diagonal_pan_two_strips() {
+        // #16 mobile pan: a DIAGONAL scroll (both axes in one frame) must repaint
+        // an L-shape (a bottom strip + a right strip), not the whole viewport and
+        // not fall back to a full-clip repaint. Exercises the single-pass 2-D
+        // shift end-to-end through render_frame.
+        use azul_core::dom::DomId;
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+        use azul_core::hit_test::ScrollPosition;
+
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollState { n_items: 100 })));
+        let mut window = make_window_with(&state, harness_layout_scroll_2d);
+        window.regenerate_layout().expect("initial layout");
+        #[cfg(feature = "cpurender")]
+        let before_px = sample_px(&window, 50, 20);
+        let node_id = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().next().copied())
+            .expect("2-axis scroll frame should exist");
+
+        // Pan down-right: 20px right + 30px down (one row).
+        let sp = ScrollPosition {
+            parent_rect: LogicalRect {
+                origin: LogicalPosition::new(8.0, 8.0),
+                size: LogicalSize::new(200.0, 100.0),
+            },
+            children_rect: LogicalRect {
+                origin: LogicalPosition::new(20.0, 30.0),
+                size: LogicalSize::new(400.0, 3000.0),
+            },
+        };
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .unwrap()
+            .set_scroll_position(DomId { inner: 0 }, node_id, sp);
+        window.regenerate_layout().expect("scroll relayout");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        let pixels = damage_area(&damage);
+        println!("[harness] diagonal pan pixels = {:?} damage = {:?}", pixels, damage);
+
+        // Perf: the L-shape (two thin strips + scrollbars) must stay well under a
+        // full re-render. A diagonal that fell back to a full-clip repaint (the
+        // pre-#16 behaviour) would land near the ~17-20k full viewport.
+        match pixels {
+            Some(px) => assert!(
+                px > 0.0 && px <= 12_000.0,
+                "diagonal pan repainted {} px — expected a thin L-shape (two strips \
+                 + scrollbars), not a full-clip repaint. damage={:?}",
+                px, damage
+            ),
+            None => panic!("diagonal pan produced Full damage. damage={:?}", damage),
+        }
+
+        // The damage must contain at least TWO content strips (one per axis) — a
+        // single strip would mean only one axis actually scrolled.
+        if let FrameDamage::Rects(rs) = &damage {
+            let content_strips = rs
+                .iter()
+                .filter(|r| r.size.width > 20.0 && r.size.height > 20.0)
+                .count();
+            assert!(
+                content_strips >= 2,
+                "diagonal pan must expose TWO content strips (bottom + right), got \
+                 {} sizeable rects in {:?}",
+                content_strips, damage
+            );
+        }
+
+        // Correctness: content actually moved (the row colour at a fixed pixel
+        // flips on the 30px vertical component of the pan).
+        #[cfg(feature = "cpurender")]
+        {
+            let after_px = sample_px(&window, 50, 20);
+            assert!(before_px.is_some() && after_px.is_some());
+            assert_ne!(
+                before_px, after_px,
+                "diagonal pan did not move content at (50,20) — before={:?} after={:?}",
+                before_px, after_px
+            );
         }
     }
 
