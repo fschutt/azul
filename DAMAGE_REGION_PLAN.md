@@ -171,8 +171,20 @@ content pixel at (50,20) is unchanged (`[200,60,60,255]` before and after) and t
 damage is **scrollbar-only** (`12x100 @ x=196`). Content is FROZEN on scroll; only
 the scrollbar moves. Confirms `scroll_layer` is unwired AND content items don't
 shift in the display list. A weak "damage != None / bounded" assertion fake-passed
-on the scrollbar — the pixel-level check is the honest one. **Next: wire
-`scroll_layer` into the render path (item 2).**
+on the scrollbar — the pixel-level check is the honest one.
+
+**FIX LANDED (correctness):** `scroll_moves_content_not_just_scrollbar` now PASSES.
+Headless `render_frame` (a) feeds the real scroll offsets to the renderer
+(`scroll_manager.build_scroll_offset_map` → `CpuRenderState`; it previously passed
+an empty map) and (b) damages each scroll frame's viewport when its offset changed
+vs the previous frame (tracked via `CpuBackend.previous_scroll_offsets`), since the
+display list is unchanged on scroll. Result: content pixel flips red→blue on a 30px
+scroll, damage = `[scrollbar 12x100, content viewport 188x100]`. 17/17 green.
+
+**Remaining (perf):** the content damage is the WHOLE viewport (188x100 = present-
+whole-viewport, full re-render). The `scroll_layer` pixel-shift (shift + repaint
+only the ~30px exposed strip) is the perf optimization — wire it next, with a perf
+budget test, then diagonal/pan (2 strips).
 
 ---
 

@@ -166,6 +166,12 @@ pub struct CpuBackend {
     /// re-running (and thus re-baselining) the diff. Not gated on `cpurender`
     /// so the getter compiles in layout-only builds.
     pub last_frame_damage: FrameDamage,
+    /// Scroll offsets from the previous frame (scroll_id → (x,y)). Used to detect
+    /// scroll-offset changes and damage the affected frame's viewport so its
+    /// content re-renders at the new offset (#13 — the display list is unchanged
+    /// on scroll, so the diff alone only catches the scrollbar).
+    #[cfg(feature = "cpurender")]
+    pub previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap,
 }
 
 impl Default for CpuBackend {
@@ -187,6 +193,8 @@ impl CpuBackend {
             #[cfg(feature = "cpurender")]
             previous_display_list: None,
             last_frame_damage: FrameDamage::None,
+            #[cfg(feature = "cpurender")]
+            previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap::new(),
         }
     }
 
@@ -210,12 +218,13 @@ impl CpuBackend {
         use azul_core::dom::DomId;
         use azul_layout::cpurender;
 
-        // Get the display list from layout results
+        // Get the layout result from layout results
         let dom_id = DomId { inner: 0 };
-        let display_list = match layout_window.layout_results.get(&dom_id) {
-            Some(result) => &result.display_list,
+        let result = match layout_window.layout_results.get(&dom_id) {
+            Some(result) => result,
             None => return Vec::new(),
         };
+        let display_list = &result.display_list;
 
         let pixel_w = (width * dpi_factor).ceil() as u32;
         let pixel_h = (height * dpi_factor).ceil() as u32;
@@ -265,20 +274,57 @@ impl CpuBackend {
             _ => None, // first frame or resize → full repaint
         };
 
+        // #13: scroll. The display list is UNCHANGED on scroll — content items
+        // are at content coords and the scroll is applied at render time via
+        // render_state.scroll_offsets — so the diff above only ever catches the
+        // scrollbar, leaving the content frozen. Build the real scroll offsets
+        // and, for any frame whose offset changed vs the previous frame, damage
+        // its whole viewport so the content re-renders shifted (present-whole-
+        // viewport; the scroll_layer pixel-shift optimization is a later step).
+        let scroll_offsets = layout_window
+            .scroll_manager
+            .build_scroll_offset_map(dom_id, &result.scroll_ids);
+        let mut scroll_damage: Vec<azul_core::geom::LogicalRect> = Vec::new();
+        for (scroll_id, offset) in &scroll_offsets {
+            let prev = self
+                .previous_scroll_offsets
+                .get(scroll_id)
+                .copied()
+                .unwrap_or((0.0, 0.0));
+            if (offset.0 - prev.0).abs() > 0.5 || (offset.1 - prev.1).abs() > 0.5 {
+                for item in display_list.items.iter() {
+                    if let azul_layout::solver3::display_list::DisplayListItem::PushScrollFrame {
+                        clip_bounds,
+                        scroll_id: sid,
+                        ..
+                    } = item
+                    {
+                        if sid == scroll_id {
+                            scroll_damage.push(*clip_bounds.inner());
+                        }
+                    }
+                }
+            }
+        }
+        self.previous_scroll_offsets = scroll_offsets.clone();
+
         // Determine render path
         let all_damage: Vec<azul_core::geom::LogicalRect>;
         let is_incremental;
 
         match dl_damage {
-            Some(rects) if rects.is_empty() && resize_damage.is_empty() => {
+            Some(rects)
+                if rects.is_empty() && resize_damage.is_empty() && scroll_damage.is_empty() =>
+            {
                 // Nothing changed — skip rendering entirely
                 self.previous_display_list = Some(display_list.clone());
                 self.last_frame_damage = FrameDamage::None;
                 return Vec::new();
             }
             Some(mut rects) if !needs_resize => {
-                // Incremental: only repaint changed items
+                // Incremental: only repaint changed items + scrolled viewports
                 rects.extend(resize_damage);
+                rects.extend(scroll_damage);
                 all_damage = rects;
                 is_incremental = true;
             }
@@ -302,10 +348,8 @@ impl CpuBackend {
             },
         };
 
-        let render_state = cpurender::CpuRenderState::new(
-            cpurender::ScrollOffsetMap::new()
-        )
-        .with_system_style(layout_window.system_style.clone());
+        let render_state = cpurender::CpuRenderState::new(scroll_offsets)
+            .with_system_style(layout_window.system_style.clone());
 
         if is_incremental && !all_damage.is_empty() {
             // Incremental: render only damaged regions
