@@ -72,7 +72,24 @@ Fix (fc.rs `layout_ifc` + layout_tree.rs `CachedInlineLayout`): hash the
 `inline_content` once per IFC pass (`inline_content_hash`), (a) skip Phase 2d
 fast-path reuse when the hash differs, and (b) force the cache store/replace when
 the hash differs even at unchanged width. `damage_text_change_repro` now passes
-(glyphs `[3]`→`[8]`). **#12 (false-positive damage on no-op) still fails — next.**
+(glyphs `[3]`→`[8]`).
+
+### UPDATE — #12 FIXED (false-positive damage)
+
+Root cause: `DisplayListItem::is_visually_equal` (display_list.rs) handled the
+common variants but fell to `_ => false` for the rest — including **`TextLayout`**
+and **`HitTestArea`**, which appear in every text IFC. So a no-op relayout reported
+those as "changed" → full-line damage every frame (defeating incremental render).
+
+Fix: add two arms — `HitTestArea` paints no pixels ⇒ always visually equal;
+`TextLayout` ⇒ equal iff same bounds/font/size/colour AND same layout `Arc`
+(`Arc::ptr_eq`; the no-op reuses the cached Arc, a real change reshapes a new one).
+`damage_noop_relayout_is_clean` now passes (no-op → `FrameDamage::None`).
+
+**Both generation bugs fixed. Headless suite: 11/11 green.** Damage is now correct
+for text change, no-op, box paint, and box no-op. Next: broaden brutal tests
+(size reflow, cursor/hover 2-rect, caret blink, scroll shift, structural add/remove)
+then the damage refactor #10.
 
 ---
 

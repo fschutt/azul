@@ -957,7 +957,25 @@ impl DisplayListItem {
             | (Self::PopBackdropFilter, Self::PopBackdropFilter)
             | (Self::PopOpacity, Self::PopOpacity)
             | (Self::PopTextShadow, Self::PopTextShadow) => true,
-            // For complex types (TextLayout with Arc, Image, gradients, etc.),
+            // HitTestArea paints NO pixels (hit-testing only), so two of them are
+            // always visually equal — a moved/changed hit region never needs a
+            // repaint on its own. Without this it hit `_ => false` and forced
+            // false-positive damage on every relayout (#12).
+            (Self::HitTestArea { .. }, Self::HitTestArea { .. }) => true,
+            // TextLayout: visually equal iff same box / font / colour AND the same
+            // underlying (type-erased) layout allocation. A no-op relayout reuses
+            // the cached layout Arc (pointer identity holds); a real text change
+            // reshapes into a new Arc. Without this it hit `_ => false` and
+            // reported damage every frame (#12).
+            (Self::TextLayout { layout: l1, bounds: b1, font_hash: fh1, font_size_px: fs1, color: c1 },
+             Self::TextLayout { layout: l2, bounds: b2, font_hash: fh2, font_size_px: fs2, color: c2 }) => {
+                b1 == b2
+                    && fh1 == fh2
+                    && fs1 == fs2
+                    && c1 == c2
+                    && std::sync::Arc::ptr_eq(l1, l2)
+            }
+            // For other complex types (Image, gradients, etc.),
             // conservatively assume different
             _ => false,
         }
