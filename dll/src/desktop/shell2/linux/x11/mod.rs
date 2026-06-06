@@ -626,15 +626,13 @@ pub struct X11Window {
     /// (viewport size, OS, theme, etc.) - updated on resize and theme change
     pub dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
 
-    // CPU rendering glyph cache
+    /// Shared CPU rendering backend (same as the headless path): owns the
+    /// retained pixmap, compositor, glyph cache, display-list damage diff AND the
+    /// scroll-shift / eligibility / present-split machinery. Replaces the former
+    /// per-backend `glyph_cache` / `retained_pixmap` / `previous_display_list`
+    /// fields so X11 gets scroll fast-path + correct incremental scroll for free.
     #[cfg(feature = "cpurender")]
-    glyph_cache: azul_layout::glyph_cache::GlyphCache,
-    /// Retained pixmap reused across CPU frames (avoids realloc per render)
-    #[cfg(feature = "cpurender")]
-    retained_pixmap: Option<azul_layout::cpurender::AzulPixmap>,
-    /// Previous display list for CPU damage computation
-    #[cfg(feature = "cpurender")]
-    previous_display_list: Option<azul_layout::solver3::display_list::DisplayList>,
+    cpu_backend: crate::desktop::shell2::headless::CpuBackend,
     /// Cached BGRA conversion buffer reused across CPU frames
     #[cfg(feature = "cpurender")]
     bgra_buffer: Vec<u8>,
@@ -1436,11 +1434,7 @@ impl X11Window {
                 ctx
             },
             #[cfg(feature = "cpurender")]
-            glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
-            #[cfg(feature = "cpurender")]
-            retained_pixmap: None,
-            #[cfg(feature = "cpurender")]
-            previous_display_list: None,
+            cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
             #[cfg(feature = "cpurender")]
             bgra_buffer: Vec::new(),
             gpu_damage_rects: Vec::new(),
@@ -2397,10 +2391,6 @@ impl X11Window {
                 #[cfg(feature = "cpurender")]
                 {
                     use azul_core::dom::DomId;
-                    use azul_layout::cpurender::{
-                        self, render_with_font_manager_and_scroll_retained,
-                        CpuRenderState, RenderOptions,
-                    };
                     use std::ffi::{c_char, c_uint};
 
                     let mut rendered = false;
@@ -2429,80 +2419,33 @@ impl X11Window {
 
                     if let Some(ref layout_window) = self.common.layout_window {
                         let dom_id = DomId { inner: 0 };
-                        if let Some(result) = layout_window.layout_results.get(&dom_id) {
+                        // render_frame looks up the layout result itself; we only
+                        // need to know one exists before computing window dims.
+                        if layout_window.layout_results.contains_key(&dom_id) {
                             let ws = &layout_window.current_window_state;
                             let width = ws.size.dimensions.width;
                             let height = ws.size.dimensions.height;
                             let dpi = ws.size.dpi as f32 / 96.0;
 
                             if width > 0.0 && height > 0.0 {
-                                let scroll_offsets = layout_window
-                                    .scroll_manager
-                                    .build_scroll_offset_map(dom_id, &result.scroll_ids);
-                                let gpu_cache =
-                                    layout_window.gpu_state_manager.get_cache(dom_id);
-                                let render_state = CpuRenderState::from_gpu_cache(
-                                    gpu_cache,
-                                    dom_id,
-                                    &scroll_offsets,
-                                )
-                                .with_system_style(layout_window.system_style.clone());
+                                // Shared CPU renderer (the SAME path as headless):
+                                // display-list damage diff + scroll-offset feed +
+                                // thin-strip scroll-shift with fast-path eligibility +
+                                // offset-aware incremental/full render, all inside
+                                // render_frame. Replaces the logic that used to live
+                                // here and lacked ALL the scroll machinery (its
+                                // incremental path only damaged the scrollbar, so
+                                // scrolling left the content frozen — #13/#14).
+                                self.cpu_backend.render_frame(
+                                    layout_window,
+                                    &layout_window.renderer_resources,
+                                    width,
+                                    height,
+                                    dpi,
+                                );
 
-                                // Try incremental damage-rect rendering first
-                                let dl_damage = match &self.previous_display_list {
-                                    Some(old_dl) => cpurender::compute_display_list_damage(old_dl, &result.display_list),
-                                    None => None,
-                                };
-
-                                let did_incremental = match &dl_damage {
-                                    // Nothing changed — but only skip the render if we
-                                    // actually have a retained pixmap to blit. Without
-                                    // this guard a missing pixmap fell through to the
-                                    // solid-colour fallback and flickered (R2).
-                                    Some(rects) if rects.is_empty() && self.retained_pixmap.is_some() => true,
-                                    Some(rects) if self.retained_pixmap.is_some() => {
-                                        let pw = (width * dpi) as u32;
-                                        let ph = (height * dpi) as u32;
-                                        if let Some(ref mut pixmap) = self.retained_pixmap {
-                                            if pixmap.width() == pw && pixmap.height() == ph {
-                                                let _ = cpurender::render_display_list_damaged(
-                                                    &result.display_list,
-                                                    pixmap, dpi,
-                                                    &layout_window.renderer_resources,
-                                                    Some(&layout_window.font_manager),
-                                                    &mut self.glyph_cache,
-                                                    &render_state, rects,
-                                                );
-                                                true
-                                            } else { false }
-                                        } else { false }
-                                    }
-                                    _ => false,
-                                };
-
-                                if !did_incremental {
-                                    let opts = RenderOptions { width, height, dpi_factor: dpi };
-                                    match render_with_font_manager_and_scroll_retained(
-                                        &result.display_list,
-                                        &layout_window.renderer_resources,
-                                        &layout_window.font_manager,
-                                        opts,
-                                        &mut self.glyph_cache,
-                                        &render_state,
-                                        self.retained_pixmap.take(),
-                                    ) {
-                                        Ok(pixmap) => { self.retained_pixmap = Some(pixmap); }
-                                        Err(e) => {
-                                            log_error!(
-                                                LogCategory::Rendering,
-                                                "[X11 CPU] render failed: {}", e
-                                            );
-                                        }
-                                    }
-                                }
-
-                                // Blit retained pixmap to X11 window
-                                if let Some(ref pixmap) = self.retained_pixmap {
+                                // Blit the rendered pixmap to the X11 window.
+                                if let Some(ref pixmap) = self.cpu_backend.last_frame {
                                     let pw = pixmap.width() as c_uint;
                                     let ph = pixmap.height() as c_uint;
                                     let data = pixmap.data();
@@ -2592,8 +2535,8 @@ impl X11Window {
                                     }
                                     rendered = true;
                                 }
-
-                                self.previous_display_list = Some(result.display_list.clone());
+                                // (previous-display-list tracking now lives inside
+                                // CpuBackend::render_frame.)
                             }
                         }
                     }
