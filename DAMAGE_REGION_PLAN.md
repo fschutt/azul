@@ -118,6 +118,52 @@ present-whole-viewport). Then the damage refactor #10.
 
 ---
 
+## 0.6. SCROLL architecture — the optimization exists but is DEAD CODE
+
+The "large present region, small paint region" model for scroll is already
+implemented in the CPU compositor — but **not wired up**.
+
+**What's there (`layout/src/cpurender.rs`):**
+- Display list defines scroll frames: `PushScrollFrame { clip_bounds, content_size,
+  scroll_id } … PopScrollFrame`.
+- `CompositorState` builds **one `Layer` per scroll frame** (`allocate_layers_from_
+  display_list`): each has its own `pixbuf`, clip `bounds`, `scroll_offset`,
+  `display_list_range`, `scroll_id`. `Layer::new` allocates the pixbuf with **no
+  fill → transparent** (the transparent-background case is the default).
+- `scroll_layer(scroll_id, new_offset, …)` is *exactly* the desired model:
+  `shift_pixbuf` (cheap pixel shift) → `compute_exposed_rects` (1 axis / 2 diagonal
+  newly-exposed strips) → re-render **only** the strips → `composite_dirty`. Small
+  paint, large present.
+
+**The gap:** `scroll_layer` has **ZERO callers** — dead code. `CpuBackend::
+render_frame` only runs the full `allocate_layers → render_layers → composite_frame`
+path and never shifts on scroll. So a scroll today goes through the display-list-diff
+path (offset changes → every item in the frame moves → diff → re-render the whole
+frame) = the perf bug. Same for the X11/WR paths.
+
+**Transparent vs opaque (the subtlety to handle):** layers are transparent by
+default, so after a shift the layer must be re-composited over its parent across the
+whole viewport (the parent re-blend can't be skipped — correct but not free). An
+**opaque** scroll frame (solid background) fully covers its parent region, so the
+covered parent need not be re-composited — a real win the current code doesn't
+distinguish. Detect opacity from the frame's resolved `background-color` (alpha==255
+and no border-radius gaps).
+
+**Plan:**
+1. Brutal scroll test (test-first): real `overflow:scroll` frame + tall content,
+   scroll N steps, assert (a) paint/damage is a thin strip not the whole frame, and
+   (b) N steps stay under a tight time budget. With `scroll_layer` unwired this
+   exposes the full re-render. Scroll deterministically via
+   `LayoutWindow::set_scroll_position` (offset derived from `children_rect.origin`)
+   after finding the node via `layout_cache.scroll_id_to_node_id`.
+2. Wire `scroll_layer` into the render path: when the only change between frames is a
+   scroll offset on an existing frame (no structural/content change), call
+   `scroll_layer` instead of a full diff; present the whole viewport.
+3. Handle transparent vs opaque per above. Then GPU (WR scroll offset + partial
+   present) under #10.
+
+---
+
 ## 1. Empirical grounding (probe run, azul-paint, AZ_BACKEND=cpu)
 
 Repro: right-click canvas → context menu → "Normal paint mode" (`metaball_mode = false`).
