@@ -200,15 +200,12 @@ pub struct WaylandWindow {
     /// so the Wayland compositor can skip recompositing unchanged regions.
     gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
 
-    // CPU rendering glyph cache (persisted across frames)
+    /// Shared CPU rendering backend (same as the headless + X11 paths): owns the
+    /// retained pixmap, compositor, glyph cache, display-list damage diff AND the
+    /// scroll-shift / eligibility / present-split machinery. Replaces the former
+    /// per-backend glyph_cache / retained_pixmap / previous_display_list fields.
     #[cfg(feature = "cpurender")]
-    glyph_cache: azul_layout::glyph_cache::GlyphCache,
-    /// Retained pixmap reused across CPU frames (avoids realloc per render)
-    #[cfg(feature = "cpurender")]
-    retained_pixmap: Option<azul_layout::cpurender::AzulPixmap>,
-    /// Previous display list for CPU damage computation
-    #[cfg(feature = "cpurender")]
-    previous_display_list: Option<azul_layout::solver3::display_list::DisplayList>,
+    cpu_backend: crate::desktop::shell2::headless::CpuBackend,
 
     // Monitor tracking for multi-monitor support
     pub known_outputs: Vec<MonitorState>,
@@ -1071,11 +1068,7 @@ impl WaylandWindow {
             // CPU rendering state will be initialized after receiving wl_shm from registry
             render_mode: RenderMode::Cpu(None),
             #[cfg(feature = "cpurender")]
-            glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
-            #[cfg(feature = "cpurender")]
-            retained_pixmap: None,
-            #[cfg(feature = "cpurender")]
-            previous_display_list: None,
+            cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
             known_outputs: Vec::new(),
             current_outputs: Vec::new(),
             pending_window_creates: Vec::new(),
@@ -3188,79 +3181,33 @@ impl WaylandWindow {
                 #[cfg(feature = "cpurender")]
                 {
                     use azul_core::dom::DomId;
-                    use azul_layout::cpurender::{
-                        self, render_with_font_manager_and_scroll_retained,
-                        CpuRenderState, RenderOptions,
-                    };
 
                     let rendered = if let Some(ref layout_window) = self.common.layout_window {
                         let dom_id = DomId { inner: 0 };
-                        if let Some(result) = layout_window.layout_results.get(&dom_id) {
+                        // render_frame looks up the layout result itself; we only
+                        // need to know one exists before computing window dims.
+                        if layout_window.layout_results.contains_key(&dom_id) {
                             let ws = &layout_window.current_window_state;
                             let width = ws.size.dimensions.width;
                             let height = ws.size.dimensions.height;
                             let dpi = ws.size.dpi as f32 / 96.0;
 
                             if width > 0.0 && height > 0.0 {
-                                let scroll_offsets = layout_window.scroll_manager
-                                    .build_scroll_offset_map(dom_id, &result.scroll_ids);
-                                let gpu_cache = layout_window.gpu_state_manager.get_cache(dom_id);
-                                let render_state = CpuRenderState::from_gpu_cache(
-                                    gpu_cache, dom_id, &scroll_offsets,
-                                )
-                                .with_system_style(layout_window.system_style.clone());
+                                // Shared CPU renderer (same path as headless + X11):
+                                // damage diff + scroll-offset feed + thin-strip
+                                // scroll-shift with eligibility + offset-aware render.
+                                // Replaces the logic that used to live here and lacked
+                                // all the scroll machinery (#13/#14).
+                                self.cpu_backend.render_frame(
+                                    layout_window,
+                                    &layout_window.renderer_resources,
+                                    width,
+                                    height,
+                                    dpi,
+                                );
 
-                                // Try incremental damage-rect rendering first
-                                let dl_damage = match &self.previous_display_list {
-                                    Some(old_dl) => cpurender::compute_display_list_damage(old_dl, &result.display_list),
-                                    None => None,
-                                };
-
-                                let did_incremental = match &dl_damage {
-                                    Some(rects) if rects.is_empty() => true,
-                                    Some(rects) if self.retained_pixmap.is_some() => {
-                                        let pw = (width * dpi) as u32;
-                                        let ph = (height * dpi) as u32;
-                                        if let Some(ref mut pixmap) = self.retained_pixmap {
-                                            if pixmap.width() == pw && pixmap.height() == ph {
-                                                let _ = cpurender::render_display_list_damaged(
-                                                    &result.display_list,
-                                                    pixmap, dpi,
-                                                    &layout_window.renderer_resources,
-                                                    Some(&layout_window.font_manager),
-                                                    &mut self.glyph_cache,
-                                                    &render_state, rects,
-                                                );
-                                                true
-                                            } else { false }
-                                        } else { false }
-                                    }
-                                    _ => false,
-                                };
-
-                                if !did_incremental {
-                                    let opts = RenderOptions { width, height, dpi_factor: dpi };
-                                    match render_with_font_manager_and_scroll_retained(
-                                        &result.display_list,
-                                        &layout_window.renderer_resources,
-                                        &layout_window.font_manager,
-                                        opts,
-                                        &mut self.glyph_cache,
-                                        &render_state,
-                                        self.retained_pixmap.take(),
-                                    ) {
-                                        Ok(pixmap) => { self.retained_pixmap = Some(pixmap); }
-                                        Err(e) => {
-                                            log_error!(
-                                                LogCategory::Rendering,
-                                                "[Wayland CPU] render failed: {}", e
-                                            );
-                                        }
-                                    }
-                                }
-
-                                // Blit retained pixmap into Wayland shm buffer
-                                if let Some(ref pixmap) = self.retained_pixmap {
+                                // Blit the rendered pixmap into the Wayland shm buffer.
+                                if let Some(ref pixmap) = self.cpu_backend.last_frame {
                                     let buf = cpu_state.pixel_buffer_mut();
                                     let src = pixmap.data();
                                     let copy_len = buf.len().min(src.len());
@@ -3274,8 +3221,8 @@ impl WaylandWindow {
                                         }
                                     }
                                 }
-
-                                self.previous_display_list = Some(result.display_list.clone());
+                                // (previous-display-list tracking now lives inside
+                                // CpuBackend::render_frame.)
                                 true
                             } else { false }
                         } else { false }
