@@ -1996,6 +1996,69 @@ mod tests {
     }
 
     #[test]
+    fn scroll_repaint_pixels_is_strip() {
+        use azul_core::dom::DomId;
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+        use azul_core::hit_test::ScrollPosition;
+
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollState { n_items: 100 })));
+        let mut window = make_window_with(&state, harness_layout_scroll);
+        window.regenerate_layout().expect("initial layout");
+        let node_id = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().next().copied())
+            .expect("scroll frame should exist");
+
+        // Scroll down 30px (one row) in the 200x100 viewport.
+        let sp = ScrollPosition {
+            parent_rect: LogicalRect {
+                origin: LogicalPosition::new(8.0, 8.0),
+                size: LogicalSize::new(200.0, 100.0),
+            },
+            children_rect: LogicalRect {
+                origin: LogicalPosition::new(0.0, 30.0),
+                size: LogicalSize::new(200.0, 3000.0),
+            },
+        };
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .unwrap()
+            .set_scroll_position(DomId { inner: 0 }, node_id, sp);
+        window.regenerate_layout().expect("scroll relayout");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        let pixels = damage_area(&damage);
+        println!(
+            "[harness] scroll repaint pixels = {:?} damage = {:?}",
+            pixels, damage
+        );
+
+        // HONEST perf metric — count pixels REPAINTED, not m×n (the whole
+        // viewport). Scrolling a 200x100 viewport by 30px should repaint ~a 30px
+        // content strip + the scrollbar (~30*188 + 12*100 ≈ 6.8k px), NOT the full
+        // viewport (~188*100 + 12*100 ≈ 20k px). Wall-time is noisy and dominated
+        // by relayout (which real scroll skips); the repainted-pixel count is the
+        // deterministic signal. Currently a full-viewport re-render (scroll_layer
+        // pixel-shift unwired) → FAILS here until #14 cuts the paint to a strip.
+        match pixels {
+            Some(px) => assert!(
+                px <= 10_000.0,
+                "scroll repainted {} px — should be a ~30px strip + scrollbar (~6.8k \
+                 px), not the full viewport (~20k px = m×n). Wire scroll_layer \
+                 pixel-shift (#14). damage={:?}",
+                px, damage
+            ),
+            None => panic!(
+                "scroll produced Full damage — worse than full-viewport. damage={:?}",
+                damage
+            ),
+        }
+    }
+
+    #[test]
     fn test_stub_window_close() {
         let mut window = make_stub();
         window.close();

@@ -183,8 +183,16 @@ scroll, damage = `[scrollbar 12x100, content viewport 188x100]`. 17/17 green.
 
 **Remaining (perf):** the content damage is the WHOLE viewport (188x100 = present-
 whole-viewport, full re-render). The `scroll_layer` pixel-shift (shift + repaint
-only the ~30px exposed strip) is the perf optimization — wire it next, with a perf
-budget test, then diagonal/pan (2 strips).
+only the ~30px exposed strip) is the perf optimization — wire it next, then
+diagonal/pan (2 strips).
+
+**Perf metric = pixels REPAINTED, not m×n** (per user): the right scroll-perf
+signal is the count of repainted pixels (sum of damage-rect areas, `damage_area()`),
+NOT wall-time (noisy, dominated by relayout which real scroll skips). Test
+`scroll_repaint_pixels_is_strip` asserts a 30px scroll repaints ≤10k px; it
+currently FAILS at **20,000 px** (full viewport `[scrollbar 12x100, content
+188x100]`) and goes green when #14 cuts the content paint to a ~30px strip (~6.8k px
+total). Use this pixel-count metric for damage/perf assertions generally.
 
 ---
 
