@@ -110,44 +110,39 @@ fundamentally broken; fixing it IS the "solid fallback" the user asked for first
 
 ---
 
-## CURRENT STATE (for next firing) — updated 2026-06-06, after the kickoff session
+## CURRENT STATE (for next firing) — 2026-06-06: CONTEXT MENU RENDERS ✓ (X11)
 
-DONE + committed this session:
-- `8f1914748` — #47 cascade follow-up: component-CSS descendant selectors (`.menu-item`)
-  now match the owner's subtree (was why menu items were unstyled). Unit-tested; full
-  azul-css + azul-core suites green.
-- `13ac1413d` — menu popups build + context menus trigger on X11:
-  (a) `MenuWindowData` is now carried in `layout_callback.ctx` and read via `info.get_ctx()`
-  in `menu_layout_callback` — it was never attached, so menus rendered a 1-node empty body;
-  (b) `get_first_hovered_node` returns the DEEPEST hit node (`.keys().next_back()`) and
-  `try_show_context_menu` walks the ancestor chain + decodes the node id 0-based.
-  Verified on X11: the context-menu window now builds 7 nodes and size_to_content-sizes to
-  160x72 at the cursor (was 1 node / 0x16 / unmapped). azul-paint has a Metaballs/Normal-paint
-  context menu (on canvas AND body — canvas isn't hittable yet, see NEXT #3);
-  `scripts/verify-menu-x11.sh` is the X11 click+screenshot harness (WIN_NAME="Azul Window").
+MILESTONE: the software context-menu fallback works END-TO-END on X11 — right-click the
+azul-paint canvas/body opens a BORDERLESS popup at the cursor with visible items
+("Metaballs mode" / "Normal paint mode"). Screenshot: /tmp/menu4_crop.png.
 
-NEXT (priority order):
-1. **Menu content paints BLANK** (dark grey, no item text) although the DOM is built + sized.
-   The container bg IS painted (clean uniform grey → render works), so suspect DARK-ON-DARK
-   system colors on XFCE. Check `cargo run -r -p azul-dll --example system_style --features
-   link-static` → compare colors.window_background vs colors.text. If both dark (or text is
-   black on a dark bg), fix XFCE detection (`css/src/system.rs`) OR make
-   `create_menu_stylesheet` (`dll/src/desktop/menu_renderer.rs`) choose a text color with
-   guaranteed contrast vs the menu bg. ALSO the label is a bare text node with `used=None` in
-   the tiny measure pass — confirm it lays out at final size; if not, wrap it in a div (like
-   `drop_down.rs` does with `create_p()`). Verify with the harness + Read the PNG: the 2 items
-   must be visible.
-2. **Menu windows get WM decorations** (a titlebar) — must be override-redirect / borderless.
-   show_menu already sets decorations:None + is_always_on_top; the X11 backend
-   (`shell2/linux/x11/mod.rs` window creation) must set `override_redirect` (or _MOTIF_WM_HINTS)
-   for `WindowType::Menu`.
-3. **azul-paint layout**: HEADER css lacks `display:flex` (buttons stack vertically); and the
-   canvas isn't hit-testable at (450,400) — only the body/root is hit (total_rects=9), so the
-   canvas context menu can't fire directly (the body one does). Likely height:100% + flex-grow
-   not resolving. Fix when migrating buttons → menu callbacks.
-4. Then Step 2 (software menubar injection) and Step 3 (`<select>` widget) per the checklist.
+Fix chain (all committed):
+- `8f1914748` cascade: component-CSS descendant selectors (`.menu-item`) match the subtree.
+- `13ac1413d` menu data via `layout_callback.ctx` (`info.get_ctx()`) + context-menu trigger
+  (deepest hit node `.keys().next_back()` + ancestor walk + 0-based node-id decode).
+- `9884f8e71` wrap menu item text in block divs (a bare text node isn't a flex item → used=None).
+- `3e4683a38` borderless override-redirect popups via `x11_override_redirect` + WM_CLASS window
+  options (menu opens at the exact cursor pos, no WM frame).
+- (this firing) remove `overflow-y:auto` from `.menu-container` — it collapsed the container to
+  padding height (8px) and clipped every item → blank. Container now fits content (160x80).
 
-Tooling: `xdotool search --name "^Menu$"` (plain "Menu" also matches the terminal title which
-contains "menubar"). AZ_BACKEND=cpu for real windows (GPU teardown segfaults). Logging is gated
-behind the debug server (AZ_DEBUG), NOT AZ_LOG — use ad-hoc `eprintln!` probes for debugging and
-strip them before committing.
+NEXT (priority):
+1. ARCHITECTURE (user directive): make `show_menu` = `create_window(options)` on ALL OSes (drop
+   the per-platform `show_menu_from_callback` glue; route `OpenMenu` → `CreateNewWindow`). Add
+   `WindowPosition::RelativeToParent { parent_rect: LogicalRect, anchor }` resolved per backend
+   (X11/Win/macOS = absolute `parent_origin + anchor` + work-area clamp; Wayland = `xdg_popup`
+   positioner anchored to the parent surface rect). Generalizes "align to the div edge/size".
+   Note: `create_window` → `CallbackChange::CreateNewWindow` (common/event.rs:1233) → each
+   backend's `pending_window_creates` IS the cross-platform multi-window path already.
+2. Verify SUBMENU (hover an item with children → RightOfHitRect) + DROPDOWN render+position.
+3. Step 2: software menubar injection (widget `layout/src/widgets/menubar.rs` + inject in
+   `dll/src/desktop/shell2/common/layout.rs`, gated on root menu_bar && !native_global_menu_available()).
+4. Step 3: DropDown/<select> open-on-CLICK + label update + onchange + expose in api.json.
+5. azul-paint: HEADER lacks `display:flex` (buttons stack); canvas not hittable (only body is
+   hit at 450,400) — fix when migrating header buttons → menu callbacks.
+6. LAYOUT-ENGINE bug (deeper): `overflow-y:auto` on an auto-height container collapses to
+   padding instead of fitting content up to a max — breaks scroll areas + over-tall-menu scroll.
+
+Tooling: `scripts/verify-menu-x11.sh`; `xdotool search --name "^Menu$"`; `AZ_BACKEND=cpu` for
+real windows; `pkill -x azul-paint`; logging needs AZ_DEBUG (NOT AZ_LOG) — use eprintln, strip
+before commit. System colors are fine (text 238,238,236 on bg 48,48,48 = correct light-on-dark).
