@@ -236,6 +236,70 @@ be one flag applied once in the input→offset path (replacing the 4 hardcoded s
 
 ---
 
+## 0.7. SESSION STATUS (2026-06-06) — scroll-shift machinery built + PROVEN in headless
+
+All of the following landed on `mobile-ios-android`, each test-first and verified.
+
+**#14 thin-strip scroll** — `cpurender::scroll_shift_region`: memmoves the still-
+visible pixels inside a scroll frame's clip and repaints only the exposed strip.
+20,000 px → 7,028 px for a 30px scroll. Did NOT use the dead `scroll_layer`
+(its sign is the inverse of the renderer — that's why it was never wired).
+
+**#16 diagonal pan** — `scroll_shift_region` emits two strips (L-shape) for a 2-axis
+move via specialised movers: `shift_vertical_1d`, `shift_horizontal_1d`, and a
+SINGLE-pass `shift_diagonal_2d` (each row copied once from its diagonally-offset
+source — half the memory traffic). Also fixed `coalesce_damage_rects` over-merging
+perpendicular strips (an h+v scrollbar collapsed into their 200×100 bbox).
+
+**#17 natural scroll** — one `ScrollManager.natural_scroll` flag applied once in
+`record_scroll_input`; the 4 hardcoded `−delta` sites now pass raw delta.
+`AZ_NATURAL_SCROLL=1` / `set_natural_scroll`. Default preserves behaviour. (OS pref
+is pre-applied by libinput/macOS, so azul must NOT re-apply — the flag is the
+override for raw mouse wheels.)
+
+**#20 fast-path eligibility** — `scroll_fast_path_eligible`: take the memmove path
+UNLESS a visible artifact is proven, i.e. fall back to a full-clip repaint only
+when the scrolling content doesn't opaquely cover the clip AND a NON-UNIFORM
+backdrop is painted behind it. A single flat colour (body/container bg) or only
+the clear behind → still fast (drag invisible). Borders/text/<10%-area items are
+negligible. (Aggressive policy, per decision.)
+
+**#21 PNG equivalence tests** (proof, not vibes) — render a scrolled frame the fast
+way AND as a full offset-aware re-render; assert PIXEL-IDENTICAL; dump
+`/tmp/scroll_*_{fast,full}.png`. Vertical + diagonal both diff 0. Building these
+caught TWO real bugs:
+1. `render_display_list_damaged` filtered items by CONTENT-space bounds against
+   VIEWPORT-space damage rects → scrolled rows dropped at the strip edge. Fixed:
+   apply the scroll offset to item bounds before the intersection test.
+2. The compositor full-render path used an EMPTY offset map → full repaint while
+   scrolled drew at offset 0.
+
+**#18a compositor offset** — `CompositorState::render_layers` now folds each scroll
+layer's offset into the render seed; all THREE CPU paths (incremental fast,
+incremental full-clip, compositor full) now agree pixel-for-pixel when scrolled
+(diff 0).
+
+**#18b render-vs-present split** — `CpuBackend.last_present_damage` alongside
+`last_frame_damage`: paint = the strip (pixels re-rasterised); present = paint ∪
+the full shifted clips (pixels that moved on screen, what the window blit / GPU
+partial-present must push). This is the "small paint, large present" channel split
+this doc calls for, and the hook the real backends + GPU consume.
+
+**Tests:** 23 headless (`azul-dll`) + 11 `scroll_shift` + 3 `natural_scroll`
+(`azul-layout`), all green. Run with `timeout 600 cargo test … -- --test-threads=1`.
+
+**REMAINING for #18 (not yet done — largely blind on this Wayland+nouveau box):**
+- The real X11/Wayland CPU backends have their OWN render/present paths
+  (`wayland/mod.rs` `retained_pixmap` / `render_frame_if_ready`), separate from the
+  headless `CpuBackend`. They must adopt the same damage + scroll-shift + present
+  split — ideally by extracting the headless `render_frame` into a shared
+  `cpurender` entry both call (the "ONE damage detector" goal).
+- Use it in the MENU renderer first, then GPU: ensure the WebRender fork consumes
+  `last_present_damage` for partial present + applies the scroll-frame translation
+  (so the GPU path mirrors the CPU paint/present split).
+
+---
+
 ## 1. Empirical grounding (probe run, azul-paint, AZ_BACKEND=cpu)
 
 Repro: right-click canvas → context menu → "Normal paint mode" (`metaball_mode = false`).
