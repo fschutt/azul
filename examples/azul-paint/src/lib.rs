@@ -702,7 +702,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data.clone(), on_pointer_up)
     .with_callback(EventFilter::Hover(HoverEventFilter::TouchStart), data.clone(), on_pointer_down)
     .with_callback(EventFilter::Hover(HoverEventFilter::TouchMove), data.clone(), on_pointer_move)
-    .with_callback(EventFilter::Hover(HoverEventFilter::TouchEnd), data, on_pointer_up);
+    .with_callback(EventFilter::Hover(HoverEventFilter::TouchEnd), data.clone(), on_pointer_up);
 
     // Window menu bar. On Windows this resolves to a native HMENU, on macOS to the
     // app menu, and on Linux to the GNOME/DBus global menu (X11) or the CPU-rendered
@@ -728,9 +728,23 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         item("Help"),
     ]);
 
+    // Right-click context menu on the canvas: switch the paint effect. This is the
+    // runtime test for the context-menu popup path (try_show_context_menu -> show_menu),
+    // positioned at the cursor and clamped on-screen.
+    let ctx_menu = Menu::create(vec![
+        MenuItem::string(
+            StringMenuItem::create("Metaballs mode").with_callback(data.clone(), on_set_metaballs),
+        ),
+        MenuItem::string(
+            StringMenuItem::create("Normal paint mode").with_callback(data.clone(), on_set_brush),
+        ),
+    ]);
+    let canvas = canvas.with_context_menu(ctx_menu.clone());
+
     Dom::create_body()
         .with_css(ROOT)
         .with_menu_bar(menu)
+        .with_context_menu(ctx_menu)
         .with_child(header)
         .with_child(canvas)
 }
@@ -844,6 +858,23 @@ extern "C" fn on_clear(mut data: RefAny, _info: CallbackInfo) -> Update {
 extern "C" fn on_toggle_mode(mut data: RefAny, _info: CallbackInfo) -> Update {
     match data.downcast_mut::<PaintState>() {
         Some(mut s) => s.toggle_metaballs(),
+        None => return Update::DoNothing,
+    }
+    Update::RefreshDom
+}
+
+// Context-menu actions: set the paint effect explicitly (right-click the canvas).
+extern "C" fn on_set_metaballs(mut data: RefAny, _info: CallbackInfo) -> Update {
+    match data.downcast_mut::<PaintState>() {
+        Some(mut s) => s.metaball_mode = true,
+        None => return Update::DoNothing,
+    }
+    Update::RefreshDom
+}
+
+extern "C" fn on_set_brush(mut data: RefAny, _info: CallbackInfo) -> Update {
+    match data.downcast_mut::<PaintState>() {
+        Some(mut s) => s.metaball_mode = false,
         None => return Update::DoNothing,
     }
     Update::RefreshDom

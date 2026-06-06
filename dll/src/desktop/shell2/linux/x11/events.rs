@@ -924,7 +924,7 @@ impl X11Window {
             .flat_map(|(dom_id, ht)| {
                 ht.regular_hit_test_nodes
                     .keys()
-                    .next()
+                    .next_back()
                     .map(|node_id| HitTestNode {
                         dom_id: dom_id.inner as u64,
                         node_id: node_id.index() as u64,
@@ -958,23 +958,22 @@ impl X11Window {
             None => return false,
         };
 
-        // Check if this node has a context menu
-        let node_id = match azul_core::id::NodeId::from_usize(node.node_id as usize) {
-            Some(nid) => nid,
-            None => return false,
-        };
-
+        // `node.node_id` is a 0-based index (as emitted by get_first_hovered_node).
+        // Walk UP the ancestor chain from the hit node to find the nearest node
+        // carrying a context menu — standard "inherit the nearest ancestor's menu"
+        // semantics, so a right-click on a child still finds a parent's menu.
         let binding = layout_result.styled_dom.node_data.as_container();
-        let node_data = match binding.get(node_id) {
-            Some(nd) => nd,
-            None => return false,
-        };
-
-        // Context menus are stored directly on NodeData
-        // Clone to avoid borrow conflict (same pattern as macOS)
-        let context_menu = match node_data.get_context_menu() {
-            Some(menu) => (**menu).clone(),
-            None => return false,
+        let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        let mut cur = Some(azul_core::id::NodeId::new(node.node_id as usize));
+        let context_menu = loop {
+            let nid = match cur {
+                Some(n) => n,
+                None => return false,
+            };
+            if let Some(menu) = binding.get(nid).and_then(|nd| nd.get_context_menu()) {
+                break (**menu).clone();
+            }
+            cur = hierarchy.get(nid).and_then(|h| h.parent_id());
         };
 
         log_debug!(

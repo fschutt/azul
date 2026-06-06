@@ -351,27 +351,35 @@ fn clamp_to_work_area(
 }
 
 /// Layout callback for menu windows
-extern "C" fn menu_layout_callback(mut data: RefAny, info: LayoutCallbackInfo) -> azul_core::dom::Dom {
-    let data_clone = data.clone();
-
-    let menu_data = match data.downcast_ref::<MenuWindowData>() {
-        Some(d) => d,
+extern "C" fn menu_layout_callback(_data: RefAny, info: LayoutCallbackInfo) -> azul_core::dom::Dom {
+    // The menu's `MenuWindowData` is carried in the layout callback's `ctx` (set by
+    // `show_menu`), NOT in `data`: `data` is the shared app data, common to every
+    // window, so downcasting it to MenuWindowData always fails. Read the per-window
+    // menu data via `info.get_ctx()`.
+    let menu_refany = match info.get_ctx().into_option() {
+        Some(r) => r,
         None => {
             crate::log_debug!(
                 LogCategory::Callbacks,
-                "[menu_layout_callback] Failed to downcast MenuWindowData"
+                "[menu_layout_callback] menu window has no ctx (MenuWindowData)"
+            );
+            return azul_core::dom::Dom::create_body();
+        }
+    };
+    let mut probe = menu_refany.clone();
+    let menu = match probe.downcast_ref::<MenuWindowData>() {
+        Some(d) => d.menu.clone(),
+        None => {
+            crate::log_debug!(
+                LogCategory::Callbacks,
+                "[menu_layout_callback] ctx is not MenuWindowData"
             );
             return azul_core::dom::Dom::create_body();
         }
     };
 
     let system_style = &*info.get_system_style();
-
-    crate::desktop::menu_renderer::create_menu_dom_with_css(
-        &menu_data.menu,
-        system_style,
-        data_clone,
-    )
+    crate::desktop::menu_renderer::create_menu_dom_with_css(&menu, system_style, menu_refany)
 }
 
 /// Show a menu at a specific position by creating a new menu window.
@@ -438,7 +446,10 @@ pub fn show_menu(
 
     window_state.layout_callback = LayoutCallback {
         cb: menu_layout_callback,
-        ctx: azul_core::refany::OptionRefAny::None,
+        // Carry the per-window MenuWindowData to menu_layout_callback via the callback
+        // ctx (read with info.get_ctx()); the callback's `data` arg is the shared app
+        // data, so the menu data cannot travel that way.
+        ctx: azul_core::refany::OptionRefAny::Some(RefAny::new(menu_data)),
     };
 
     WindowCreateOptions {
