@@ -1649,6 +1649,108 @@ mod tests {
         }
     }
 
+    // --- Event-driven harness: drive a HeadlessEvent through the same per-event
+    // path run() uses, relayout if it requested a redraw, and return the damage
+    // produced this step (None if the event caused no visual change). ---
+    fn step(window: &mut HeadlessWindow, event: HeadlessEvent) -> FrameDamage {
+        use azul_core::events::{MouseButton, ProcessEventResult};
+        use azul_core::window::CursorPosition;
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        window.common.previous_window_state =
+            Some(window.common.current_window_state.clone());
+        let mut needs_redraw = false;
+        match event {
+            HeadlessEvent::MouseMove { x, y } => {
+                let pos = LogicalPosition { x, y };
+                window.common.current_window_state.mouse_state.cursor_position =
+                    CursorPosition::InWindow(pos);
+                window.update_hit_test_at(pos);
+                needs_redraw = !matches!(
+                    window.process_window_events(0),
+                    ProcessEventResult::DoNothing
+                );
+            }
+            HeadlessEvent::MouseDown { button } => {
+                match button {
+                    MouseButton::Left => window.common.current_window_state.mouse_state.left_down = true,
+                    MouseButton::Right => window.common.current_window_state.mouse_state.right_down = true,
+                    MouseButton::Middle => window.common.current_window_state.mouse_state.middle_down = true,
+                    _ => {}
+                }
+                needs_redraw = !matches!(
+                    window.process_window_events(0),
+                    ProcessEventResult::DoNothing
+                );
+            }
+            HeadlessEvent::MouseUp { button } => {
+                match button {
+                    MouseButton::Left => window.common.current_window_state.mouse_state.left_down = false,
+                    MouseButton::Right => window.common.current_window_state.mouse_state.right_down = false,
+                    MouseButton::Middle => window.common.current_window_state.mouse_state.middle_down = false,
+                    _ => {}
+                }
+                needs_redraw = !matches!(
+                    window.process_window_events(0),
+                    ProcessEventResult::DoNothing
+                );
+            }
+            HeadlessEvent::KeyDown { virtual_keycode } => {
+                window.common.current_window_state.keyboard_state.current_virtual_keycode =
+                    azul_core::window::OptionVirtualKeyCode::Some(virtual_keycode);
+                window.common.current_window_state.keyboard_state
+                    .pressed_virtual_keycodes.insert_hm_item(virtual_keycode);
+                needs_redraw = !matches!(
+                    window.process_window_events(0),
+                    ProcessEventResult::DoNothing
+                );
+            }
+            HeadlessEvent::KeyUp { virtual_keycode } => {
+                window.common.current_window_state.keyboard_state.current_virtual_keycode =
+                    azul_core::window::OptionVirtualKeyCode::None;
+                window.common.current_window_state.keyboard_state
+                    .pressed_virtual_keycodes.remove_hm_item(&virtual_keycode);
+                needs_redraw = !matches!(
+                    window.process_window_events(0),
+                    ProcessEventResult::DoNothing
+                );
+            }
+            _ => {}
+        }
+        if needs_redraw {
+            let _ = window.regenerate_layout();
+            window.cpu_backend.last_frame_damage.clone()
+        } else {
+            FrameDamage::None
+        }
+    }
+
+    #[test]
+    fn damage_mouse_move_no_change_is_clean() {
+        let state = Arc::new(RefCell::new(RefAny::new(GridState {
+            boxes: vec![(200.0, 100.0)],
+        })));
+        let mut window = make_window_with(&state, harness_layout_grid);
+        window.regenerate_layout().expect("initial layout");
+
+        // Move the mouse over a static colored box (no :hover rule, no callback).
+        let d1 = step(&mut window, HeadlessEvent::MouseMove { x: 50.0, y: 50.0 });
+        let d2 = step(&mut window, HeadlessEvent::MouseMove { x: 90.0, y: 70.0 });
+        println!("[harness] mouse moves: d1={:?} d2={:?}", d1, d2);
+
+        // HONEST: moving the mouse over static content with no hover styling and
+        // no callbacks must NOT repaint. Otherwise every pointer move repaints
+        // the frame — unusable (esp. with the cursor moving constantly).
+        assert_eq!(
+            d1, FrameDamage::None,
+            "mouse move over static content produced damage {:?}", d1
+        );
+        assert_eq!(
+            d2, FrameDamage::None,
+            "second mouse move over static content produced damage {:?}", d2
+        );
+    }
+
     #[test]
     fn test_stub_window_close() {
         let mut window = make_stub();

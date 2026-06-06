@@ -103,8 +103,14 @@ damage is `384x158` — full *content width* (boxes are only 100 wide). Safe
 would tighten the horizontal extent. Structural change is a blunt `Full` for the
 same reason.
 
-Still TODO (need event injection — a `step(HeadlessEvent)` harness helper):
-cursor/hover move (old∪new 2-rect), caret blink, scroll (CPU shift +
+Event-injection harness `step(HeadlessEvent) -> FrameDamage` is now built (drives
+the same per-event path as `run()` for Mouse/Key events, relayouts on redraw,
+returns the step's damage / `None` if no visual change). First event test green:
+`damage_mouse_move_no_change_is_clean` — a pointer move over static content
+produces `None` (no false repaint). **15 harness tests, all green.**
+
+Still TODO (now unblocked by `step()`): cursor/hover move (old∪new 2-rect, needs a
+`:hover` rule or hover callback), caret blink (timer-driven), scroll (CPU shift +
 present-whole-viewport). Then the damage refactor #10.
 
 ---
