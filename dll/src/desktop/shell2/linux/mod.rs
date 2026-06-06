@@ -68,6 +68,14 @@ impl LinuxWindow {
         }
     }
 
+    /// `true` if a callback requested this window close (`flags.close_requested`).
+    pub fn close_requested(&self) -> bool {
+        match self {
+            LinuxWindow::X11(w) => w.close_requested(),
+            LinuxWindow::Wayland(w) => w.close_requested(),
+        }
+    }
+
     pub fn close(&mut self) {
         match self {
             LinuxWindow::X11(w) => w.close(),

@@ -873,6 +873,13 @@ impl X11Window {
     pub fn is_open(&self) -> bool {
         self.is_open
     }
+
+    /// Returns `true` if a callback set `flags.close_requested` (e.g. a menu item
+    /// click closing the menu, or a CSD close button). The run loop turns this into
+    /// a `close()` — X11 has no native close-flag path.
+    pub fn close_requested(&self) -> bool {
+        self.common.current_window_state.flags.close_requested
+    }
 }
 
 impl X11Window {

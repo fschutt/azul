@@ -1126,6 +1126,14 @@ pub fn run(
                     // Event handling is done inside poll_event
                 }
 
+                // A callback may have set flags.close_requested (e.g. a menu item
+                // click closing the menu, or a CSD close button). Honor it here so the
+                // pass below unregisters + drops the window (destroying it and ungrabbing
+                // a menu's pointer grab). X11/Wayland have no native close-flag path.
+                if window.close_requested() {
+                    window.close();
+                }
+
                 // Process accessibility actions from screen readers (e.g. Orca).
                 // These arrive asynchronously via accesskit's action handler
                 // and must be polled outside of X11/Wayland event processing.

@@ -611,6 +611,9 @@ impl WaylandWindow {
     pub fn is_open(&self) -> bool {
         self.is_open
     }
+    pub fn close_requested(&self) -> bool {
+        self.common.current_window_state.flags.close_requested
+    }
     pub fn close(&mut self) {
         if let Some(doc_id) = self.common.document_id {
             crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
