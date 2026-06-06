@@ -1492,6 +1492,163 @@ mod tests {
         );
     }
 
+    // --- Reflow / structural tests via a stacked grid of colored boxes ---
+
+    /// A vertical stack of colored boxes; each entry is (width, height). Lets
+    /// tests drive size reflow, sibling shifts, and structural add/remove with
+    /// one layout callback.
+    #[derive(Debug, Clone)]
+    struct GridState {
+        boxes: Vec<(f32, f32)>,
+    }
+
+    extern "C" fn harness_layout_grid(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+        use azul_css::props::property::CssProperty;
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::basic::color::ColorU;
+        use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
+
+        let boxes = data
+            .downcast_ref::<GridState>()
+            .map(|s| s.boxes.clone())
+            .unwrap_or_default();
+        let mut body = Dom::create_body();
+        for (i, (w, h)) in boxes.iter().enumerate() {
+            let color = if i % 2 == 0 {
+                ColorU { r: 220, g: 30, b: 30, a: 255 }
+            } else {
+                ColorU { r: 30, g: 30, b: 220, a: 255 }
+            };
+            let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
+            body = body.with_child(Dom::create_div().with_css_props(
+                vec![
+                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(*w))),
+                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(*h))),
+                    CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
+                ]
+                .into(),
+            ));
+        }
+        body
+    }
+
+    fn set_grid(state: &Arc<RefCell<RefAny>>, boxes: Vec<(f32, f32)>) {
+        let mut g = state.borrow_mut();
+        let r: &mut RefAny = &mut g;
+        let mut opt = r.downcast_mut::<GridState>();
+        if let Some(s) = opt.as_mut() {
+            s.boxes = boxes;
+        }
+    }
+
+    /// Max bottom-edge Y across the damage (Full = +inf, None = 0).
+    fn damage_max_y(d: &FrameDamage) -> f32 {
+        match d {
+            FrameDamage::None => 0.0,
+            FrameDamage::Full => f32::INFINITY,
+            FrameDamage::Rects(rs) => rs
+                .iter()
+                .map(|r| r.origin.y + r.size.height)
+                .fold(0.0f32, f32::max),
+        }
+    }
+
+    #[test]
+    fn damage_box_size_reflow() {
+        let state = Arc::new(RefCell::new(RefAny::new(GridState {
+            boxes: vec![(100.0, 50.0)],
+        })));
+        let mut window = make_window_with(&state, harness_layout_grid);
+        window.regenerate_layout().expect("initial layout");
+
+        // Widen the box 100 -> 200 (same height). Pure size reflow.
+        set_grid(&state, vec![(200.0, 50.0)]);
+        window.regenerate_layout().expect("reflow");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        println!("[harness] size reflow: damage={:?}", damage);
+
+        // HONEST: widening must damage the box region (old∪new ⊇ the 200x50
+        // box), bounded — not the whole 400x300 window, not empty.
+        let window_area = 400.0 * 300.0;
+        match damage_area(&damage) {
+            Some(a) if a > 0.0 => assert!(
+                a < window_area * 0.5,
+                "size reflow damage area {} should be box-sized (~10000), not \
+                 near-full-window {} — damage={:?}",
+                a, window_area, damage
+            ),
+            other => panic!(
+                "size reflow should produce bounded incremental damage, got \
+                 area={:?} damage={:?}",
+                other, damage
+            ),
+        }
+    }
+
+    #[test]
+    fn damage_reflow_shifts_sibling() {
+        let state = Arc::new(RefCell::new(RefAny::new(GridState {
+            boxes: vec![(100.0, 50.0), (100.0, 50.0)],
+        })));
+        let mut window = make_window_with(&state, harness_layout_grid);
+        window.regenerate_layout().expect("initial layout");
+
+        // Grow box1's height 50 -> 100. box2 (below it) shifts DOWN by 50.
+        set_grid(&state, vec![(100.0, 100.0), (100.0, 50.0)]);
+        window.regenerate_layout().expect("reflow");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        println!("[harness] sibling shift: damage={:?}", damage);
+
+        // HONEST: box2 moved from y≈58..108 to y≈108..158. The damage MUST reach
+        // box2's new bottom (~158) — otherwise box2 leaves a ghost at its old
+        // position / never paints at its new one. If damage stops at the grown
+        // box1 (~108), that's the bug.
+        let max_y = damage_max_y(&damage);
+        assert!(
+            max_y >= 140.0,
+            "reflow-shift damage must reach the shifted sibling (bottom ~158), \
+             got max_y={} damage={:?} — box2 would ghost/not repaint",
+            max_y, damage
+        );
+    }
+
+    #[test]
+    fn damage_structural_add_covers_new_node() {
+        let state = Arc::new(RefCell::new(RefAny::new(GridState {
+            boxes: vec![(100.0, 50.0)],
+        })));
+        let mut window = make_window_with(&state, harness_layout_grid);
+        window.regenerate_layout().expect("initial layout");
+
+        // Add a second box below the first (structural change).
+        set_grid(&state, vec![(100.0, 50.0), (100.0, 50.0)]);
+        window.regenerate_layout().expect("add box");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        println!("[harness] structural add: damage={:?}", damage);
+
+        // HONEST: a structural change (item count differs) can't be diffed
+        // item-by-item, so a conservative FULL repaint is correct (precise
+        // layout-level damage is a #10 goal). Either Full, or rects that at
+        // least reach the new box (~y 58..108). NOT None — the new box must
+        // paint.
+        match &damage {
+            FrameDamage::Full => {}
+            FrameDamage::Rects(_) => {
+                let max_y = damage_max_y(&damage);
+                assert!(
+                    max_y >= 90.0,
+                    "structural add must damage the new box (~y 108), got \
+                     max_y={} damage={:?}",
+                    max_y, damage
+                );
+            }
+            FrameDamage::None => panic!(
+                "structural add produced NO damage — the new box would never paint"
+            ),
+        }
+    }
+
     #[test]
     fn test_stub_window_close() {
         let mut window = make_stub();

@@ -87,9 +87,25 @@ Fix: add two arms — `HitTestArea` paints no pixels ⇒ always visually equal;
 `damage_noop_relayout_is_clean` now passes (no-op → `FrameDamage::None`).
 
 **Both generation bugs fixed. Headless suite: 11/11 green.** Damage is now correct
-for text change, no-op, box paint, and box no-op. Next: broaden brutal tests
-(size reflow, cursor/hover 2-rect, caret blink, scroll shift, structural add/remove)
-then the damage refactor #10.
+for text change, no-op, box paint, and box no-op.
+
+### Broadened brutal tests (14/14 green)
+
+Added state-driven reflow/structural tests on the corrected baseline:
+- `damage_box_size_reflow` — widen 100→200 ⇒ `Rects([200x50])` (exact). ✓
+- `damage_reflow_shifts_sibling` — grow box1 ⇒ box2 shifts down; damage reaches
+  the shifted sibling's new bottom (~158), no ghost. ✓
+- `damage_structural_add_covers_new_node` — add a box ⇒ `Full` (conservative). ✓
+
+**Known coarseness (→ #10 target, NOT a correctness bug):** the sibling-shift
+damage is `384x158` — full *content width* (boxes are only 100 wide). Safe
+(over-damage), but wasteful; precise per-node layout-level damage (the refactor)
+would tighten the horizontal extent. Structural change is a blunt `Full` for the
+same reason.
+
+Still TODO (need event injection — a `step(HeadlessEvent)` harness helper):
+cursor/hover move (old∪new 2-rect), caret blink, scroll (CPU shift +
+present-whole-viewport). Then the damage refactor #10.
 
 ---
 
