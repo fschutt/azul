@@ -298,27 +298,34 @@ fn create_string_menu_item_dom(
     item_dom = item_dom.with_child(icon_dom);
 
     // Label text
-    let label_dom =
-        Dom::create_text(item.label.clone()).with_ids_and_classes(IdOrClassVec::from_vec(vec![
-            IdOrClass::Class("menu-item-label".into()),
-        ]));
+    // Wrap the label text in a block div so it lays out as a proper flex item: a
+    // bare text node as a direct flex-container child gets no used_size (renders
+    // invisible). Mirrors how button/drop_down widgets wrap their text.
+    let label_dom = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+            "menu-item-label".into(),
+        )]))
+        .with_child(Dom::create_text(item.label.clone()));
     item_dom = item_dom.with_child(label_dom);
 
     // Keyboard shortcut (if present)
     if let Some(combo) = item.accelerator.as_option() {
         let shortcut_text = format_accelerator(combo);
-        let shortcut_dom =
-            Dom::create_text(shortcut_text).with_ids_and_classes(IdOrClassVec::from_vec(vec![
-                IdOrClass::Class("menu-item-shortcut".into()),
-            ]));
+        let shortcut_dom = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+                "menu-item-shortcut".into(),
+            )]))
+            .with_child(Dom::create_text(shortcut_text));
         item_dom = item_dom.with_child(shortcut_dom);
     }
 
     // Submenu arrow (if has children)
     if has_children {
-        let arrow_dom = Dom::create_text("▶").with_ids_and_classes(IdOrClassVec::from_vec(vec![
-            IdOrClass::Class("menu-item-arrow".into()),
-        ]));
+        let arrow_dom = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+                "menu-item-arrow".into(),
+            )]))
+            .with_child(Dom::create_text("▶"));
         item_dom = item_dom.with_child(arrow_dom);
     }
 
