@@ -52,16 +52,14 @@ azul-layout = { path = "layout" }
 # rev-pinned (azul-0.0.9-html tip 2026-06-11, kuchiki-free html feature) so
 # consumers build reproducibly without a printpdf crates.io release.
 printpdf = { git = "https://github.com/fschutt/printpdf", rev = "ed4a768e1fa3ff7ce19ba2e7991f07b3b813e0bf" }
-# NOTE (2026-06-06): dropped the local-path `[patch]` overrides for allsorts-azul +
-# rust-fontconfig (they used absolute machine paths = not committable). They now resolve to
-# the crates.io base versions 0.16.4 / 4.4.2. ⚠ Those base versions do NOT yet contain the
-# WEB-LIFT font fixes that live in the local forks: (1) allsorts tables.rs indexed table
-# lookup (OffsetTable::find_table_record / table_tags — the upstream `.iter().find()` over a
-# lazy ReadArray mis-lifts on remill → font dir empty → parse fails); (2) rust-fontconfig
-# `to_ascii_lowercase` (upstream `to_lowercase` pulls unicode case-fold jump-tables the lift
-# leaves un-devirt'd → MISSING_BLOCK in with_memory_fonts). TODO to restore the web (lifted)
-# font path: publish those fork edits as NEW crates.io versions, or re-add git-URL `[patch]`
-# entries (like printpdf/remill). Native + desktop builds are unaffected by this.
+# NOTE (2026-06-06): the web-lift font fixes are now PUBLISHED to crates.io (no [patch] needed):
+#  - allsorts-azul 0.16.5: BTreeMap GSUB/GPOS caches + hand-rolled indexed table-directory scan
+#    (the upstream lazy ReadArray<TableRecord> read mis-lifts on remill → font parse fails).
+#  - rust-fontconfig 4.4.3: `to_ascii_lowercase` font-name matching + the `single-thread-unsafe-locks`
+#    feature (no-atomic UnsafeCell StLock; std's queue RwLock spins forever in single-threaded
+#    lifted wasm). The feature is OFF by default (native = thread-safe RwLock); azul-layout's
+#    `web_lift` feature turns it on for the lifted web backend.
+# (Deps bumped to those versions in core/Cargo.toml + layout/Cargo.toml.)
 # turso (SQLite engine for db-sqlite) pulls io-uring on Linux, which has no
 # prebuilt bindings for i686/armv7/s390x. Fork gates io-uring to 64-bit Linux
 # (falls back to UnixIO elsewhere); upstream "io-uring optional" later. All six
