@@ -662,6 +662,80 @@ jobs:
           MIRIFLAGS: -Zmiri-disable-isolation
         run: cargo +nightly miri test --lib -p azul-dll -- --nocapture
 
+  # Cheap "does azul.h compile + link" check across every C compiler that
+  # matters, WITHOUT rebuilding the DLL per compiler. The ABI rule is: a C
+  # consumer must match the DLL's ABI, so we build the DLL ONCE per OS and fan
+  # out the (seconds-cheap) compile step over all compilers that share that ABI:
+  #   - Linux : gcc + clang  → both link the one System V .so
+  #   - macOS : clang        → system compiler
+  #   - Windows: cl + clang-cl → both target the one MSVC azul.dll
+  # (MinGW gcc is intentionally NOT here: it uses the gnu ABI and would need a
+  # separate windows-gnu DLL — add only if MinGW consumers are supported.)
+  c_compile_check:
+    name: C FFI Compile (${{ matrix.os }})
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+          - os: macos-14
+          - os: windows-2022
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Install clang (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang libv4l-dev
+
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Generate DLL API bindings (azul.h)
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Build azul-dll (debug, build-once-per-ABI)
+        run: cargo build -p azul-dll --features build-dll
+
+      - name: Compile + link C hello-world (Linux — gcc & clang)
+        if: runner.os == 'Linux'
+        run: |
+          cp target/codegen/azul.h examples/c/
+          cd examples/c
+          for cc in gcc clang; do
+            echo "::group::$cc"
+            "$cc" -I. hello-world.c -L../../target/debug -lazul \
+              -Wl,-rpath,../../target/debug -o "hw-$cc"
+            echo "::endgroup::"
+          done
+
+      - name: Compile + link C hello-world (macOS — clang)
+        if: runner.os == 'macOS'
+        run: |
+          cp target/codegen/azul.h examples/c/
+          cd examples/c
+          clang -I. hello-world.c -L../../target/debug -lazul \
+            -Wl,-rpath,@executable_path/../../target/debug -o hw-clang
+
+      - name: Compile + link C hello-world (Windows — cl & clang-cl)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          copy target\codegen\azul.h examples\c\ /Y
+          cd examples\c
+          echo === cl ===
+          cl /nologo /I . hello-world.c /Fe:hw-cl.exe /link /LIBPATH:..\..\target\debug azul.dll.lib || exit /b 1
+          echo === clang-cl ===
+          clang-cl /I . hello-world.c /Fe:hw-clang.exe /link /LIBPATH:..\..\target\debug azul.dll.lib || exit /b 1
+
   build_binaries:
     name: Build Binaries (${{ matrix.os }})
     # Normal run ~30-55 min; a cold Windows prod-release build is the slowest.

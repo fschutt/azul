@@ -758,6 +758,18 @@ impl Win32Window {
 
         // CPU rendering path: skip WebRender, render directly via cpurender + StretchDIBits
         if let RenderMode::Cpu = &self.render_mode {
+            // Tracks whether this frame actually blitted content. The first-frame
+            // ShowWindow is gated on this (see the show block below) to avoid
+            // flashing a white window before anything was painted. Declared in
+            // this scope — not inside the cpurender block — so the show logic can
+            // read it.
+            #[allow(unused_assignments)]
+            let mut rendered = false;
+            // No CPU renderer compiled in: nothing to render or defer — show as before.
+            #[cfg(not(feature = "cpurender"))]
+            {
+                rendered = true;
+            }
             #[cfg(feature = "cpurender")]
             {
                 use azul_core::dom::DomId;
@@ -787,8 +799,6 @@ impl Win32Window {
                         }
                     }
                 }
-
-                let mut rendered = false;
 
                 if let Some(ref layout_window) = self.common.layout_window {
                     let dom_id = DomId { inner: 0 };
@@ -923,22 +933,37 @@ impl Win32Window {
 
             self.common.display_list_initialized = true;
 
-            // Show window after first CPU render
+            // Show window after first CPU render — but ONLY once a frame has
+            // actually rendered content. Showing on a not-ready frame
+            // (`rendered == false`, the "layout not ready" fallback above)
+            // produces a white window that persists until the next repaint
+            // (the reported "white first frame"). When the buffer isn't ready
+            // yet, keep the window hidden and request another paint; we show on
+            // the first frame that has content. (Invisible windows still mark
+            // first_frame_shown so we don't loop forever.)
             if !self.first_frame_shown {
-                if self.common.current_window_state.flags.is_visible {
-                    use azul_core::window::WindowFrame;
-                    use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNORMAL};
-                    let show_cmd = match self.common.current_window_state.flags.frame {
-                        WindowFrame::Normal => SW_SHOWNORMAL,
-                        WindowFrame::Minimized => SW_MINIMIZE,
-                        WindowFrame::Maximized | WindowFrame::Fullscreen => SW_MAXIMIZE,
-                    };
-                    unsafe {
-                        (self.win32.user32.ShowWindow)(self.hwnd, show_cmd);
-                        (self.win32.user32.UpdateWindow)(self.hwnd);
+                if self.common.current_window_state.flags.is_visible && !rendered {
+                    log_trace!(
+                        LogCategory::Rendering,
+                        "[Win32 CPU] first frame not rendered yet — deferring ShowWindow"
+                    );
+                    self.request_redraw();
+                } else {
+                    if self.common.current_window_state.flags.is_visible {
+                        use azul_core::window::WindowFrame;
+                        use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNORMAL};
+                        let show_cmd = match self.common.current_window_state.flags.frame {
+                            WindowFrame::Normal => SW_SHOWNORMAL,
+                            WindowFrame::Minimized => SW_MINIMIZE,
+                            WindowFrame::Maximized | WindowFrame::Fullscreen => SW_MAXIMIZE,
+                        };
+                        unsafe {
+                            (self.win32.user32.ShowWindow)(self.hwnd, show_cmd);
+                            (self.win32.user32.UpdateWindow)(self.hwnd);
+                        }
                     }
+                    self.first_frame_shown = true;
                 }
-                self.first_frame_shown = true;
             }
 
             // Scrollbar fade animation
@@ -1064,6 +1089,20 @@ impl Win32Window {
                             render_api.flush_scene_builder();
                         }
                     }
+                }
+            }
+
+            // First content frame: the display list submitted by
+            // regenerate_layout() is built asynchronously on WebRender's
+            // scene-builder thread. If we render before that build completes,
+            // the first frame is empty and the window shows white until the
+            // next repaint (the reported "white first frame", which a resize
+            // happened to fix). Block until the scene is built so the first
+            // VISIBLE frame has content. Only the first frame pays this cost —
+            // later frames repaint on demand and never reach here.
+            if layout_was_regenerated && !self.first_frame_shown {
+                if let Some(render_api) = self.common.render_api.as_mut() {
+                    render_api.flush_scene_builder();
                 }
             }
 
@@ -1239,6 +1278,19 @@ impl Win32Window {
                     &self.common.gl_context_ptr,
                 );
                 render_api.flush_scene_builder();
+            }
+        }
+
+        // CPU mode: rebuild the shared hit-tester from the new layout so pointer
+        // events resolve to the correct node. GPU mode uses WebRender's async
+        // hit-tester (common.hit_tester) instead. Mirrors macOS/headless; without
+        // this, clicks in the CPU-render fallback hit nothing and widget callbacks
+        // (e.g. a button's on_click) never fire.
+        if !matches!(self.render_mode, RenderMode::Gpu { .. }) {
+            if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
+                if let Some(lw) = self.common.layout_window.as_ref() {
+                    cpu_ht.rebuild_from_layout(&lw.layout_results);
+                }
             }
         }
 
