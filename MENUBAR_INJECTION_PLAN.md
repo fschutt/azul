@@ -110,35 +110,33 @@ fundamentally broken; fixing it IS the "solid fallback" the user asked for first
 
 ---
 
-## CURRENT STATE (for next firing) — 2026-06-06: CONTEXT MENU RENDERS ✓ (X11)
+## CURRENT STATE (for next firing) — 2026-06-06: CONTEXT MENU FUNCTIONAL ✓ (X11)
 
-MILESTONE: the software context-menu popup RENDERS + HOVERS on X11 — right-click the
-azul-paint canvas/body opens a BORDERLESS popup at the cursor with visible items, and
-hovering highlights an item (blue `:hover`). Screenshots: /tmp/menu4_crop.png,
-/tmp/afterclick.png. NOT yet end-to-end (clicks don't fire — see TOP NEXT).
-
-‼️ TOP NEXT — MENU ITEM CLICK doesn't fire. Hover works (item highlights blue → the menu
-window's hit-test + motion events + restyle all work), but a LEFT-click on an item leaves
-the menu OPEN and the mode UNCHANGED. Probe `menu_item_click_callback` (dll/src/desktop/
-menu_renderer.rs): does it fire on MouseDown for the menu (child) window? Does the
-`close_requested` + RefreshDom it sets propagate (close the menu + refresh the MAIN window)?
-Likely a child-window button-dispatch / close-handling gap in the shared X11 event loop, OR
-the menu's XGrabPointer routing. (Repro: right-click canvas, then `xdotool mousemove
-$((X+W/2)) $((Y+H*3/4)) click 1` on the menu; check `xdotool search --name "^Menu$"` count
-drops to 0 + the header "Effect:" toggles.)
+MILESTONE: the software context-menu fallback is FUNCTIONAL END-TO-END on X11 — right-click
+the azul-paint canvas/body → a BORDERLESS popup opens at the cursor with visible items,
+hover highlights an item (blue `:hover`), and clicking an item runs its callback + CLOSES
+the menu (verified: Menu window count 1→0). Screenshots: /tmp/menu4_crop.png,
+/tmp/clickfix_header.png.
 
 Fix chain (all committed):
 - `8f1914748` cascade: component-CSS descendant selectors (`.menu-item`) match the subtree.
 - `13ac1413d` menu data via `layout_callback.ctx` (`info.get_ctx()`) + context-menu trigger
   (deepest hit node `.keys().next_back()` + ancestor walk + 0-based node-id decode).
 - `9884f8e71` wrap menu item text in block divs (a bare text node isn't a flex item → used=None).
-- `3e4683a38` borderless override-redirect popups via `x11_override_redirect` + WM_CLASS window
-  options (menu opens at the exact cursor pos, no WM frame).
-- (this firing) remove `overflow-y:auto` from `.menu-container` — it collapsed the container to
-  padding height (8px) and clipped every item → blank. Container now fits content (160x80).
+- `3e4683a38` borderless override-redirect popups via `x11_override_redirect` + WM_CLASS opts.
+- `ab3297662` remove `overflow-y:auto` from `.menu-container` (it collapsed to 8px padding,
+  clipping all items → blank). Container now fits content (160x80).
+- `aa918c44a` honor `flags.close_requested` in the Linux run loop → menu items close the menu.
 
 NEXT (priority):
-1. ARCHITECTURE (user directive): make `show_menu` = `create_window(options)` on ALL OSes (drop
+1. CROSS-WINDOW REFRESH: a menu item's callback mutates the SHARED app data (e.g.
+   on_set_brush → metaball_mode=false), the menu closes, but the MAIN window doesn't
+   re-layout — its "Effect:" label stays stale (screenshot /tmp/clickfix_header.png still
+   "Metaballs"). RefreshDom from a child (menu) window's callback must re-layout the parent/
+   all windows. Find where Update::RefreshDom is applied per-window in the run loop and
+   propagate it (or mark sibling windows dirty) when the closing window shared app data.
+   Quick win that makes the menu visibly "do something".
+2. ARCHITECTURE (user directive): make `show_menu` = `create_window(options)` on ALL OSes (drop
    the per-platform `show_menu_from_callback` glue; route `OpenMenu` → `CreateNewWindow`). Add
    `WindowPosition::RelativeToParent { parent_rect: LogicalRect, anchor }` resolved per backend
    (X11/Win/macOS = absolute `parent_origin + anchor` + work-area clamp; Wayland = `xdg_popup`
