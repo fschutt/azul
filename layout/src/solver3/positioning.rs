@@ -138,7 +138,9 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     text_cache: &mut TextLayoutCache,
     calculated_positions: &mut super::PositionVec,
     viewport: LogicalRect,
-) -> Result<()> {
+) {
+    // Returns `()` (not Result<()>): inner fallible calls use skip-on-err (see above), so this fn
+    // never propagates Err. Avoids the lift-fragile Result<(),LayoutError> Ok-niche read.
     for node_index in 0..tree.nodes.len() {
         let node = &tree.nodes[node_index];
         let dom_id = match node.dom_node_id {
@@ -212,13 +214,19 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             let containing_block_rect = if position_type == LayoutPosition::Fixed {
                 viewport
             } else {
-                find_absolute_containing_block_rect(
+                // skip-on-err (was `?`): a CB-resolution failure for one out-of-flow node skips
+                // that node rather than aborting the whole layout. Lets this fn return `()`
+                // (no Result<(),LayoutError> Ok-niche read, which the remill→wasm lift mis-lowers).
+                match find_absolute_containing_block_rect(
                     tree,
                     node_index,
                     ctx.styled_dom,
                     calculated_positions,
                     viewport,
-                )?
+                ) {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                }
             };
 
             // Get node again after containing block calculation
@@ -231,14 +239,17 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             } else {
                 // Element hasn't been sized yet - calculate it now using containing block
                 let intrinsic = tree.warm(node_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
-                let size = crate::solver3::sizing::calculate_used_size_for_node(
+                let size = match crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
                     Some(dom_id),
                     &containing_block_rect.size,
                     intrinsic,
                     &node.box_props.unpack(),
                     &ctx.viewport_size,
-                )?;
+                ) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
 
                 // Store the calculated size in the tree node
                 if let Some(node_mut) = tree.get_mut(node_index) {
@@ -635,7 +646,6 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             }
         }
     }
-    Ok(())
 }
 
 // +spec:positioning:5b0d7f - relative positioning: offset from normal flow position, siblings unaffected
@@ -657,7 +667,12 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
     tree: &LayoutTree,
     calculated_positions: &mut super::PositionVec,
     viewport: LogicalRect, // The viewport is needed if the root element is relative.
-) -> Result<()> {
+) {
+    // NOTE: returns `()` (not `Result<()>`). This fn is Ok-always — its only `?` are on `Option`
+    // inside `.and_then` closures, never propagating to the fn body. The previous `Result<(),
+    // LayoutError>` return forced the `?` at the call site to read an Ok-niche discriminant, which
+    // the remill→wasm lift mis-lowers (per-build, ASLR-dependent) → a FALSE Err that aborted the
+    // whole layout in the web backend (rect=0). Matches sibling reposition_* fns that return ().
     // Iterate through all nodes. We need the index to modify the position map.
     for node_index in 0..tree.nodes.len() {
         let node = &tree.nodes[node_index];
@@ -825,7 +840,6 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
             }
         }
     }
-    Ok(())
 }
 
 /// Sticky positioning constraints computed at layout time.
@@ -971,7 +985,9 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
     calculated_positions: &mut super::PositionVec,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     viewport: LogicalRect,
-) -> Result<()> {
+) {
+    // Returns `()` (not `Result<()>`): Ok-always (its only `?` is Option-`?` in an `.and_then`
+    // closure). Avoids the lift-fragile Result<(),LayoutError> Ok-niche read at the call site.
     for node_index in 0..tree.nodes.len() {
         let node = &tree.nodes[node_index];
         let position_type = get_position_type(ctx.styled_dom, node.dom_node_id);
@@ -1104,7 +1120,6 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
             ));
         }
     }
-    Ok(())
 }
 
 // +spec:positioning:22f165 - absolute/fixed containing block: nearest positioned ancestor's padding-box, or initial CB

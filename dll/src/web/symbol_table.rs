@@ -154,6 +154,16 @@ pub enum FnClass {
     /// `__az_resolve_callback(fn_addr)`. Helper IR emits a JS-import
     /// bridge that returns a table index.
     ResolveCallback,
+    /// `std::sys::random::hashmap_random_keys() -> (u64, u64)` — the entropy
+    /// source for `std::HashMap`'s `RandomState` SipHash keys. It's a syscall
+    /// wrapper (getentropy) that can't be lifted; the default `Leaf` stub
+    /// returns X0=0 and leaves the (u64,u64) keys unusable, so RandomState's
+    /// hasher is degenerate and EVERY `std::HashMap` in the lifted env comes
+    /// back empty (the M12.7 `dom_to_layout` symptom, but systemic). Helper IR
+    /// gives it a body returning a FIXED non-zero seed in X0:X1, so all lifted
+    /// HashMaps hash + probe consistently. The seed needn't be random — only
+    /// consistent within the process (no HashDoS threat here).
+    HashmapRandomKeys,
     /// Known leaf with no real body to lift — typed extern goes to
     /// the WASM as an env import. (System libraries, libc, libdyld,
     /// libpthread, mangled Rust runtime internals like
@@ -192,6 +202,14 @@ impl FnClass {
     /// own bl targets.
     pub fn is_recursable(self) -> bool {
         matches!(self, FnClass::Recursable)
+    }
+
+    /// WEB-LIFT FACET 2: whether this is a bump-allocator hook
+    /// (`__rust_alloc`/`dealloc`/`realloc`), lifted to an intercepted
+    /// bump/noop body. The web force-enqueue lifts these so indirect
+    /// calls to them (Drop glue) get a dispatcher `switch` case.
+    pub fn is_bump_alloc(self) -> bool {
+        matches!(self, FnClass::BumpAlloc)
     }
 
     /// M10-D: whether this symbol ships as its own per-fn wasm shard.
@@ -711,6 +729,7 @@ impl SymbolTable {
                     | FnClass::CallIndirect
                     | FnClass::CallIndirectLayout4
                     | FnClass::ResolveCallback
+                    | FnClass::HashmapRandomKeys
                     | FnClass::NeverLift
                     // LibcMemcpy is *always* out-of-image (it IS a
                     // libsystem symbol) — but it has a synthetic
@@ -1139,7 +1158,43 @@ fn ingest_macho(
                 None
             }
         };
-        let classification = classify_for_name(&canonical_name, api);
+        let mut classification = classify_for_name(&canonical_name, api);
+        // WEB-LIFT FIX (2026-06-03): SP-restoring machine-outliner epilogues
+        // (`add sp,sp,#N; ret` or `ldp ...,[sp],#N; ret`) are tail-jumped via INDIRECT `br Xn`
+        // in the allsorts shaping path. classify_for_name marks the tiny ones Leaf → they lift as
+        // a STUB that returns WITHOUT the `add sp` → SP never restored → downstream `unreachable`
+        // (_OUTLINED_FUNCTION_2 = `add sp,sp,#0x30; ret` is the canonical case). Force them
+        // Recursable so the REAL body (the SP restore) is lifted, and so the tail-call scan +
+        // M12.7 dispatcher (both gated on is_recursable) pick them up.
+        // CONTENT-BASED (not name-based): a fn whose FIRST instruction is an SP-restore
+        // (`add sp,sp,#N` or `ldp ...,[sp],#N` post-index) AND that returns within a few instrs is
+        // a machine-outliner EPILOGUE, tail-jumped via INDIRECT `br Xn` in the allsorts shaping
+        // path. classify_for_name marks them Leaf → lifted as STUBS that return WITHOUT the
+        // `add sp` → SP never restored → downstream `unreachable`. Detect by CONTENT (not the
+        // "OUTLINED_FUNCTION" name) because upsert_entry's dedup can keep a non-outlined symbol at
+        // the same address — the code is still the epilogue. Force Recursable so the REAL body
+        // lifts. Normal fns start with a prologue (`sub sp`/`stp`), never `add sp`, so this is safe.
+        // OUTLINED fn with an SP-restore anywhere = a tail-jumped epilogue → force Recursable so its
+        // REAL body lifts. (A name-INDEPENDENT/pure-epilogue variant was tried but made MORE fns
+        // Recursable → the tail-call scan lifted more → the address-sensitive lift shifted → the
+        // JT_SEEDS stopped resolving (21 missing_blocks vs 7). Kept name-gated = the 21→7 state.)
+        if canonical_name.contains("OUTLINED_FUNCTION") && live_addr != 0 {
+            let lim = if size > 0 { size.min(256) } else { 64 };
+            if lim >= 8 {
+                let b = unsafe { core::slice::from_raw_parts(live_addr as *const u8, lim) };
+                let mut o = 0usize;
+                while o + 4 <= lim {
+                    let ins = u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]);
+                    if (ins & 0xFFC0_03FF) == 0x9100_03FF
+                        || ((ins >> 22) == 0x2A3 && ((ins >> 5) & 0x1F) == 31)
+                    {
+                        classification = FnClass::Recursable;
+                        break;
+                    }
+                    o += 4;
+                }
+            }
+        }
         let entry = SymbolEntry {
             canonical_name: canonical_name.clone(),
             canonical_addr: live_addr,
@@ -1719,6 +1774,17 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
             return FnClass::LibcMemset;
         }
     }
+    // std HashMap entropy source. `std::sys::random::hashmap_random_keys`
+    // seeds `RandomState`'s SipHash keys via a getentropy syscall that can't be
+    // lifted. The default `core/std → Leaf` stub returns 0 and leaves the
+    // (u64,u64) result unusable → every lifted `std::HashMap` degenerates to
+    // empty (the M12.7 dom_to_layout symptom, systemically). Route it to a
+    // dedicated helper that returns a FIXED non-zero seed so all lifted HashMaps
+    // are internally consistent. (Matched on the std module path, not a one-off
+    // mangled-name fragment — this is a known std primitive needing a real stub.)
+    if stripped.contains("hashmap_random_keys") {
+        return FnClass::HashmapRandomKeys;
+    }
     // Web backend: the display-list painter surface
     // (`azul_layout::solver3::display_list` — `DisplayListGenerator` +
     // all `paint_*` helpers) is never executed in wasm. `layout_document`
@@ -1799,6 +1865,16 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     }
     if name.contains("___rustc") || name.contains("__rust_") {
         return FnClass::Leaf;
+    }
+    // M12.7 (g134): taffy GRID track-sizing `resolve_intrinsic_track_sizes` is a ~67 KB monster fn
+    // that intermittently HANGS remill-lift (stalls at 0% CPU with no progress — observed twice,
+    // g132 + g134; g131/g132b happened to get past it). It is GRID-only — NEVER reached for text or
+    // flex layouts (web-text-min, hello-world's flex button). NeverLift skips lifting it
+    // (trap-if-called); since it is never called for these examples, the trap is dead. Unblocks +
+    // speeds the lift. (If/when web GRID layout is needed, this must be revisited — split the fn or
+    // raise the remill timeout.)
+    if name.contains("resolve_intrinsic_track_sizes") {
+        return FnClass::NeverLift;
     }
     // Itanium-mangled Rust internals: `_ZN<len><crate>...`.
     if let Some(rest) = name.strip_prefix("_ZN") {
@@ -1901,6 +1977,55 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                             // the node-free + advance logic.
                             return FnClass::Recursable;
                         }
+                        // CSS-apply ROOT-CAUSE (2026-06-01): Vec::resize and the slice
+                        // sorts do REAL WORK but defaulted to a no-op Leaf stub — same
+                        // class as raw_vec/btree above. `Vec::resize` fills/grows per-node
+                        // prop Vecs in the cascade (computed_values @prop_cache.rs:5135,
+                        // styled_dom node Vecs @styled_dom.rs:1781); a Leaf no-op leaves
+                        // them empty → inherited/inline CSS lost → compact height_raw stays
+                        // SENTINEL → every laid-out rect collapses to 0. The slice sorts
+                        // (core::slice::sort driftsort_main / insertion_sort_*) order CSS
+                        // rules by specificity (sort_by_specificity); a no-op leaves them
+                        // unsorted (wrong cascade order). Lift both.
+                        if (crate_name == "alloc"
+                            && name.contains("3vec")
+                            && name.contains("6resize"))
+                            || (crate_name == "core"
+                                && name.contains("5slice")
+                                && name.contains("4sort"))
+                            // CSS-apply ROOT-CAUSE (2026-06-01, cont.): `core::slice::binary_search*`
+                            // does REAL WORK (it compares + halves to find an index) but defaulted to a
+                            // no-op Leaf stub returning X0=0 = `Ok(0)`. The layout font-size resolver
+                            // `resolve_font_size_slow` (getters.rs:233) does
+                            // `computed_values.binary_search_by_key(&FontSize, …)`: with the search a
+                            // no-op the fast in-cache lookup ALWAYS "succeeds" at index 0 (wrong slot) or
+                            // is bypassed, so it FALLS THROUGH to `cache.get_font_size → get_property →
+                            // get_property_slow` (getters.rs:269) for EVERY box — and get_property_slow
+                            // is the function remill mis-lifts (the solveLayoutReal MISSING_BLOCK trap).
+                            // Lifting binary_search lets the fast path resolve FontSize from the compact
+                            // cache directly and never reach get_property_slow. Same class as sort/resize.
+                            || (crate_name == "core"
+                                && name.contains("5slice")
+                                && name.contains("binary_search"))
+                        {
+                            return FnClass::Recursable;
+                        }
+                        // WEB-LIFT TEXT ROOT-CAUSE (2026-06-03): UTF-8 conversion/validation
+                        // (`String::from_utf8_lossy`, `str::from_utf8`, `run_utf8_validation`,
+                        // `from_utf8_unchecked`) do REAL WORK but defaulted to a no-op Leaf stub
+                        // returning garbage. `AzString::copy_from_bytes` (the C-API string ctor,
+                        // css/corety.rs:260) does `String::from_utf8_lossy(raw).into_owned()`; a
+                        // Leaf no-op makes the resulting String — and thus the AzString — garbage
+                        // (ptr=0/len=node-addr/cap=0), so EVERY `NodeType::Text(AzString)` (the
+                        // "Hello" text) loses its bytes → the intrinsic-sizing `extract_text_from_node`
+                        // OOBs copying the corrupt AzString. Same class as raw_vec/resize/sort/
+                        // binary_search above. Lift it (the UTF-8-validation NEON cmhi/CMHS ops are
+                        // supported by the remill fork). THE last blocker for web text.
+                        if (crate_name == "alloc" || crate_name == "core")
+                            && name.contains("utf8")
+                        {
+                            return FnClass::Recursable;
+                        }
                         // M12.7: closure-dispatch trampolines
                         // (FnOnce::call_once / Fn::call / FnMut::call_mut) are
                         // monomorphized to the ACTUAL closure body — they are
@@ -1944,6 +2069,37 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         // lifts to an `unreachable` trap, breaking the cascade (hydrate).
                         return FnClass::Leaf;
                     }
+                    // WEB FONT BOUNDARY (2026-06-01): the web backend NEVER
+                    // parses or shapes fonts in-wasm. Fonts are fetched from
+                    // the browser as resources (the PART 2 RequestResources
+                    // design) and the `FcFontCache` is built natively,
+                    // server-side, then handed to the lifted layout callback.
+                    // `allsorts_azul` (glyph outlines, cmap, GSUB/GPOS shaping,
+                    // woff2 / variable-font table parsing) is therefore DEAD in
+                    // the lifted callback: for a box layout with no text,
+                    // `font_hash_to_families` is empty, so
+                    // `collect_and_resolve_font_chains_with_registration`
+                    // resolves zero chains and never enters allsorts. Lifting it
+                    // anyway dragged 627 transitive deps into the module (1680
+                    // total → bloat + slow lift) AND its large table-parsing
+                    // match/jump-table functions are a runtime-trap surface that
+                    // poisons the whole wasm. Treat the entire font parser as a
+                    // lift boundary (Leaf no-op stub). NOTE: CSS font-SIZE math
+                    // (em/rem/% → px, `compute_all_font_sizes_px`) lives in
+                    // `azul_core`, NOT allsorts, so layout geometry is unaffected.
+                    // PART 2 will swap these stubs for a resource-request emitter.
+                    // 2026-06-02: REMOVED the allsorts Leaf boundary so TEXT can be
+                    // shaped/measured in-wasm (hello-world's label/counter measured to
+                    // height 0 because allsorts was stubbed → no glyphs/metrics). The
+                    // original concern was that allsorts' large table-parsing jump-table
+                    // fns are a runtime-trap surface — but this session's static jump-table
+                    // devirt (azul_remill.cpp exact-decode + extra_data) now resolves those
+                    // jump tables, so lifting allsorts should no longer poison the wasm.
+                    // Cost: ~+627 transitive deps (bigger/slower lift). Re-add the boundary
+                    // (return Leaf) if allsorts traps return.
+                    // if crate_name == "allsorts_azul" {
+                    //     return FnClass::Leaf;
+                    // }
                     // Our own crates + 3rd party crates we want to lift
                     // into (azul_*, webrender_*, serde_*) → Recursable.
                     return FnClass::Recursable;
@@ -2077,6 +2233,148 @@ pub(crate) fn collect_macho_low32_sections(
                 continue;
             }
             out.push((s.addr, s.size));
+        }
+    }
+    out
+}
+
+/// [WEB-LIFT FIX 2026-06-06] Find hashbrown's `EMPTY_GROUP` static(s) in the
+/// loaded `libazul` image, returned as NATIVE `(addr, len)` ranges to mirror.
+///
+/// hashbrown encodes an EMPTY control byte as `0xFF`; an empty `RawTable`'s
+/// `ctrl` points at a `Group::WIDTH`-byte all-`0xFF` static (`EMPTY_GROUP`),
+/// `Group::WIDTH == 8` for the SWAR group used on this aarch64 build (16 with
+/// NEON). `Group::static_empty()` materializes its address via `adrp + add`.
+/// When the empty table is built inside a function reached only INDIRECTLY
+/// (not in a callback's static BL/B dep-walk), [`scan_arm64_adrp_pages`] never
+/// sees that `adrp`, so the page is never mirrored → reads back as `0x00` → an
+/// all-zero control group looks ALL-FULL → `RawIterRange::fold_impl` loops
+/// forever → text shaping HANGS.
+///
+/// To mirror it regardless of how the table is reached, scan the WHOLE libazul
+/// `__text` for `adrp Xd,#pg ; add Xd,Xd,#off` (within a few instructions)
+/// whose materialized, 8-byte-aligned target begins an all-`0xFF` run of >= 8
+/// bytes, and return each run as a `(native_addr, run_len)` range. The caller
+/// mirrors only those bytes (a precise range, never the whole 4 KiB page):
+/// whole-page mirroring of arbitrary const pages re-translates coincidental
+/// pointer-shaped windows and traps OOB, whereas an all-`0xFF` run is never a
+/// valid in-image native pointer and survives pointer-translation unchanged.
+/// Signature-based, so it tracks `EMPTY_GROUP` wherever a rebuild moves it.
+pub(crate) fn find_hashbrown_empty_group_ranges() -> &'static [(usize, usize)] {
+    static RANGES: std::sync::OnceLock<Vec<(usize, usize)>> = std::sync::OnceLock::new();
+    RANGES.get_or_init(compute_hashbrown_empty_group_ranges).as_slice()
+}
+
+fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
+    use goblin::mach::load_command::{
+        CommandVariant, SIZEOF_SECTION_64, SIZEOF_SEGMENT_COMMAND_64,
+    };
+    let images = match enumerate_loaded_images() {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let mut out: Vec<(usize, usize)> = Vec::new();
+    for img in &images {
+        if img.bytes.is_empty() || !img.path.to_string_lossy().contains("libazul") {
+            continue;
+        }
+        let macho = match goblin::Object::parse(&img.bytes) {
+            Ok(goblin::Object::Mach(goblin::mach::Mach::Binary(m))) => m,
+            Ok(goblin::Object::Mach(goblin::mach::Mach::Fat(f))) => {
+                match pick_fat_slice(&f, &img.bytes) {
+                    Ok(Some(m)) => m,
+                    _ => continue,
+                }
+            }
+            _ => continue,
+        };
+        let slide = img.slide;
+        let (minv, maxv) = macho_image_text_data_range(&macho, &img.bytes);
+        if minv == 0 && maxv == 0 {
+            continue;
+        }
+        let img_lo = minv.wrapping_add(slide);
+        let img_hi = maxv.wrapping_add(slide);
+        // Locate __TEXT.__text (native range, mapped r-x → readable).
+        let mut text: Option<(usize, usize)> = None; // (native_lo, size)
+        for lc in &macho.load_commands {
+            let CommandVariant::Segment64(seg64) = &lc.command else { continue };
+            let sections_off = lc.offset + SIZEOF_SEGMENT_COMMAND_64;
+            for i in 0..seg64.nsects as usize {
+                let so = sections_off + i * SIZEOF_SECTION_64;
+                if so + SIZEOF_SECTION_64 > img.bytes.len() {
+                    break;
+                }
+                let Some(s) = parse_section64(&img.bytes[so..so + SIZEOF_SECTION_64]) else {
+                    continue;
+                };
+                if trim_macho_name(&s.sectname) == "__text" {
+                    text = Some(((s.addr as usize).wrapping_add(slide), s.size as usize));
+                }
+            }
+        }
+        let Some((text_lo, tsize)) = text else { continue };
+        if tsize < 8 || text_lo < img_lo || text_lo + tsize > img_hi {
+            continue;
+        }
+        // PIC `adrp`/`add` immediates are not rebased, so the mapped bytes match
+        // the file; reading the contiguous, mapped __text section is safe.
+        let code = unsafe { core::slice::from_raw_parts(text_lo as *const u8, tsize) };
+        let rd32 = |i: usize| -> u32 {
+            u32::from_le_bytes([code[i], code[i + 1], code[i + 2], code[i + 3]])
+        };
+        let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut o = 0usize;
+        while o + 4 <= tsize {
+            let instr = rd32(o);
+            // ADRP: bit31==1, bits28..24 == 0b10000.
+            if (instr >> 31) == 1 && ((instr >> 24) & 0x1F) == 0x10 {
+                let rd = instr & 0x1F;
+                let immlo = (instr >> 29) & 0x3;
+                let immhi = (instr >> 5) & 0x7FFFF;
+                let imm21 = ((immhi << 2) | immlo) as i64;
+                let signed = if imm21 & (1 << 20) != 0 {
+                    imm21 | !0x1F_FFFF
+                } else {
+                    imm21
+                };
+                let pc = text_lo + o;
+                let pg = (((pc & !0xFFF) as i64).wrapping_add(signed << 12)) as usize;
+                // Look ahead a few instructions for `add Xd, Xd, #imm12` (sh=0).
+                let mut k = 1usize;
+                while k <= 5 {
+                    let o2 = o + k * 4;
+                    if o2 + 4 > tsize {
+                        break;
+                    }
+                    let i2 = rd32(o2);
+                    // ADD (immediate) 64-bit, S=0, op=0: (i2 & 0xFF80_0000) == 0x9100_0000.
+                    if (i2 & 0xFF80_0000) == 0x9100_0000
+                        && ((i2 >> 5) & 0x1F) == rd
+                        && (i2 & 0x1F) == rd
+                        && ((i2 >> 22) & 1) == 0
+                    {
+                        let imm12 = ((i2 >> 10) & 0xFFF) as usize;
+                        let target = pg.wrapping_add(imm12);
+                        if (target & 0x7) == 0 && target >= img_lo && target + 8 <= img_hi {
+                            let max_rl = core::cmp::min(64, img_hi - target);
+                            let tb = unsafe {
+                                core::slice::from_raw_parts(target as *const u8, max_rl)
+                            };
+                            let mut rl = 0usize;
+                            while rl < max_rl && tb[rl] == 0xFF {
+                                rl += 1;
+                            }
+                            if rl >= 8 && seen.insert(target) {
+                                out.push((target, rl));
+                            }
+                        }
+                        break;
+                    }
+                    k += 1;
+                }
+            }
+            o += 4;
         }
     }
     out

@@ -33,6 +33,7 @@ extern "C" {
         bytes_ptrs: *const *const u8,
         bytes_lens: *const usize,
         item_count: usize,
+        extra_data: *const c_char,
         ir_outs: *mut *mut *mut c_char,
         ir_lens_out: *mut *mut usize,
         err_out: *mut *mut c_char,
@@ -88,6 +89,7 @@ static ANCHOR_LIFT_BATCH: unsafe extern "C" fn(
     *const *const u8,
     *const usize,
     usize,
+    *const c_char,
     *mut *mut *mut c_char,
     *mut *mut usize,
     *mut *mut c_char,
@@ -200,6 +202,7 @@ pub fn lift_batch(
     arch_name: &str,
     os_name: &str,
     items: &[(u64, &[u8])],
+    extra_data: &str,
 ) -> Result<Vec<String>, NativeRemillError> {
     let _guard = FFI_LOCK.lock().unwrap();
     if items.is_empty() {
@@ -219,6 +222,11 @@ pub fn lift_batch(
         code: -1,
         message: "os_name contains NUL byte".into(),
     })?;
+    let extra_c = CString::new(extra_data).map_err(|_| NativeRemillError {
+        stage: "lift_batch",
+        code: -1,
+        message: "extra_data contains NUL byte".into(),
+    })?;
     let addresses: Vec<u64> = items.iter().map(|(addr, _)| *addr).collect();
     let bytes_ptrs: Vec<*const u8> = items.iter().map(|(_, b)| b.as_ptr()).collect();
     let bytes_lens: Vec<usize> = items.iter().map(|(_, b)| b.len()).collect();
@@ -233,6 +241,7 @@ pub fn lift_batch(
             bytes_ptrs.as_ptr(),
             bytes_lens.as_ptr(),
             items.len(),
+            extra_c.as_ptr(),
             &mut ir_arr,
             &mut len_arr,
             &mut err_ptr,

@@ -65,6 +65,7 @@ int az_remill_lift_batch(const char *arch_name,
                          const uint8_t *const *bytes_ptrs,
                          const size_t *bytes_lens,
                          size_t item_count,
+                         const char *extra_data,
                          char ***ir_outs,
                          size_t **ir_lens_out,
                          char **err_out);

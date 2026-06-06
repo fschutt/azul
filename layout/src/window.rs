@@ -857,6 +857,8 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<(), solver3::LayoutError> {
+        // [az-diag REVERT] layout_dom_recursive phase markers @0x40704: 0x80=entry.
+        unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x80u32); }
         let dom_id = if styled_dom.dom_id.inner == 0 {
             DomId::ROOT_ID
         } else {
@@ -961,12 +963,58 @@ impl LayoutWindow {
                 // rasterizer's preview pre-fill — one implementation,
                 // three callers.
                 crate::probe::sample_peak_rss("rss:before_font_chain");
-                let chains = {
+                // [az-diag REVERT] 0x81 = about to call collect_and_resolve_font_chains_with_registration.
+                unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x81u32); }
+                let mut chains = {
                     let _p = crate::probe::Probe::span("font_chain_resolve");
                     collect_and_resolve_font_chains_with_registration(
                         &styled_dom, &self.font_manager.fc_cache, &self.font_manager, &platform,
                     )
                 };
+                // [az-diag REVERT] 0x82 = collect_and_resolve done.
+                unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x82u32); }
+                // [g80] localize where font_chain_cache drops to 0: chains right after collect_and_resolve.
+                unsafe { core::ptr::write_volatile(0x60770 as *mut u32, chains.chains.len() as u32); }
+                // WEB-LIFT last resort (the DEFINITIVE spot — the layout's own `chains` that
+                // feed load_missing_for_chains below): the lifted font-query path can leave a
+                // chain with NO fonts even when a fallback IS registered (generic→OS-name +
+                // token/unicode query is lift-fragile). Append the first registered font to any
+                // empty chain so load_missing loads it + text shapes instead of measuring 0.
+                // Done here (azul-layout), NOT rust-fontconfig (which re-codegens the fragile
+                // with_memory_fonts into a trapping shape).
+                // [az-diag REVERT] last-resort loop localization @0x406C0 (wasm-only; native
+                // render never runs the layout so these are native-safe like the 0x40704 set).
+                unsafe { core::ptr::write_volatile(0x606C0 as *mut u32, 0xC0DE0001u32); }
+                for chain in chains.chains.values_mut() {
+                    unsafe { core::ptr::write_volatile(0x606C0 as *mut u32, 0xC0DE0002u32); }
+                    let total = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>()
+                        + chain.unicode_fallbacks.len();
+                    unsafe { core::ptr::write_volatile(0x606C0 as *mut u32, 0xC0DE0003u32); }
+                    if total == 0 {
+                        unsafe { core::ptr::write_volatile(0x606C0 as *mut u32, 0xC0DE0004u32); }
+                        if let Some((pattern, id)) = self.font_manager.fc_cache.list().first() {
+                            unsafe { core::ptr::write_volatile(0x606C0 as *mut u32, 0xC0DE0005u32); }
+                            chain.unicode_fallbacks.push(rust_fontconfig::FontMatch {
+                                id: *id,
+                                unicode_ranges: pattern.unicode_ranges.clone(),
+                                fallbacks: Vec::new(),
+                            });
+                            unsafe { core::ptr::write_volatile(0x606C0 as *mut u32, 0xC0DE0006u32); }
+                        }
+                    }
+                }
+                unsafe { core::ptr::write_volatile(0x606C0 as *mut u32, 0xC0DE0007u32); }
+                // [g80] chains after the window.rs last-resort loop (values_mut path).
+                unsafe { core::ptr::write_volatile(0x60774 as *mut u32, chains.chains.len() as u32); }
+                // [az-web-lift 2026-06-05] REMOVED a WASM-ONLY diagnostic probe that computed
+                // nchains/total_fonts/nreg here purely to write debug markers. Its
+                // `chains.chains.values().map(|c| …).sum()` closure-iterator chain (and/or the
+                // `fc_cache.list()` call) MIS-LIFTS on the web backend → memory-access-OOB → a
+                // slice panic whose abort path spins in the OUTLINED_FUNCTION_2 dispatch (localized
+                // via the 0x406C0=0xC0DE0007 marker: the explicit `for …values_mut()` loop ABOVE
+                // lifts fine, only this closure-iterator form traps — same class as the css.rs
+                // `map+collect → for-loop` lift fix). It was revert-able scaffolding; the chains
+                // are sound (the for-loop iterated them), so load_missing_for_chains below proceeds.
                 crate::probe::sample_peak_rss("rss:after_font_chain");
 
                 // Phase 3 (scout-on-demand): no snapshot-refresh
@@ -986,6 +1034,8 @@ impl LayoutWindow {
 
                 let loader = PathLoader::new();
                 crate::probe::sample_peak_rss("rss:before_font_load");
+                // [az-diag REVERT] 0x83 = about to call load_missing_for_chains.
+                unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x83u32); }
                 let failed = {
                     let _p = crate::probe::Probe::span("font_load_missing");
                     self.font_manager.load_missing_for_chains(
@@ -993,6 +1043,8 @@ impl LayoutWindow {
                         |bytes, index| loader.load_font_shared(bytes, index),
                     )
                 };
+                // [az-diag REVERT] 0x84 = load_missing_for_chains done.
+                unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x84u32); }
                 crate::probe::sample_peak_rss("rss:after_font_load");
                 if let Some(msgs) = debug_messages.as_mut() {
                     for (font_id, error) in &failed {
@@ -1006,12 +1058,19 @@ impl LayoutWindow {
                 // Step 5: Update font chain cache (and stash the
                 // `prev_font_hashes` signature so the next layout with
                 // an identical DOM skips the resolver entirely).
+                let fc_chains = chains.into_fontconfig_chains();
+                // [g80] fc_chains after into_fontconfig_chains (the BTreeMap rebuild) — does it drop them?
+                unsafe { core::ptr::write_volatile(0x60778 as *mut u32, fc_chains.len() as u32); }
                 self.font_manager.set_font_chain_cache_with_sig(
-                    chains.into_fontconfig_chains(),
+                    fc_chains,
                     font_stacks_sig,
                 );
+                // [g80] font_chain_cache right after set (does set_font_chain_cache_with_sig persist it?).
+                unsafe { core::ptr::write_volatile(0x6077C as *mut u32, self.font_manager.font_chain_cache.len() as u32); }
             }
         }
+        // [az-diag REVERT] 0x85 = font-resolution block done (next = the actual layout).
+        unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x85u32); }
 
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
 
@@ -6093,7 +6152,11 @@ impl LayoutWindow {
             create_logical_items, reorder_logical_items, shape_visual_items, BidiDirection,
         };
 
-        let logical_items = create_logical_items(content, &[], &mut None);
+        // [az-web-lift] create_logical_items now takes &Vec (fat-slice len mis-lifts on the web lift);
+        // the relayout path has only a slice here, so materialize a Vec (not the web hot path).
+        let content_vec = content.to_vec();
+        let mut logical_items = Vec::new();
+        create_logical_items(&content_vec, &[], &mut logical_items, &mut None);
         if logical_items.is_empty() {
             return Some((logical_items, Vec::new()));
         }

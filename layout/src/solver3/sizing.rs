@@ -89,12 +89,25 @@ fn subtree_contains_text(styled_dom: &StyledDom, dom_id: NodeId) -> bool {
 
 /// Phase 2a: Calculate intrinsic sizes (bottom-up pass)
 /// // +spec:display-contents:f12d4e - intrinsic sizing: size determined by contents, not context
+// [g71 TEST] #[inline(never)] — RELIABLE bisection (g70, markers in free band) showed new_tree drops
+// 2→0 RIGHT BEFORE this call. It's currently INLINED into layout_document (absent from the lift log),
+// so its frame/entry isn't a separate SP-wrapped @sub_ call. Forcing it OUT makes the call a wrapped
+// @sub_ → enforce_sp_preservation save/restores SP around it. If new_tree survives (sizingEntry=2),
+// the inlined entry/frame-setup was mis-lifting SP. (g60's inline(always) was a no-op — already inlined.)
+#[inline(never)]
 pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
     text_cache: &mut LayoutCache,
     dirty_nodes: &BTreeSet<usize>,
 ) -> Result<()> {
+    // [az-diag g59 REVERT] RELIABLE field-access bracket (pointer CASTS mis-lift to 0 — g58 proved
+    // it; use tree.nodes.len() which is reliable). 0x407B0 = nodes.len at ENTRY. If 2 here but
+    // 0x40734 (line ~142, after compute_dirty_ancestor_closure + calculator) reads 0, the corruption
+    // is in 121-142. compute_dirty_ancestor_closure RETURNS a HashSet by sret — prime suspect:
+    // sret-slot overlapping new_tree, or the hashbrown empty-map bug. 0x407B4 (post-compute_dirty)
+    // isolates compute_dirty vs calculator-creation.
+    unsafe { core::ptr::write_volatile(0x607B0 as *mut u32, tree.nodes.len() as u32); }
     if dirty_nodes.is_empty() {
         return Ok(());
     }
@@ -108,6 +121,8 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // tree from root regardless, costing ~2 ms per warm render on
     // excel.html even when only 3 nodes were actually dirty.
     let dirty_closure = compute_dirty_ancestor_closure(tree, dirty_nodes);
+    // [az-diag g59 REVERT] 0x407B4 = nodes.len AFTER compute_dirty_ancestor_closure (its HashSet sret).
+    unsafe { core::ptr::write_volatile(0x607B4 as *mut u32, tree.nodes.len() as u32); }
 
     let mut calculator = IntrinsicSizeCalculator::new(ctx, text_cache);
     calculator.dirty_closure = Some(dirty_closure);
@@ -125,6 +140,17 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // block-level auto-height, used_size.height is 0 pre-layout and
     // apply_content_based_height fills it from the laid-out content size.
     // With that gone, skipping intrinsic is safe.
+    // [az-diag g53 REVERT] DECISIVE: is the lifted LayoutTree itself empty/broken? If
+    // tree.get(root)=None (0x40738=0) or nodes.len()=0 (0x40734), the InvalidTree@229 is
+    // because RECONCILE produced a broken tree — root cause is reconcile, not sizing.
+    unsafe {
+        core::ptr::write_volatile(0x60730 as *mut u32, tree.root as u32);
+        core::ptr::write_volatile(0x60734 as *mut u32, tree.nodes.len() as u32);
+        core::ptr::write_volatile(0x60738 as *mut u32, tree.get(tree.root).is_some() as u32);
+        // [az-diag g55] 0x4075C = the `tree` ptr the CALLEE sees. Compare with 0x40748
+        // (caller's &new_tree). Same → nodes-field-offset mis-lift; differ → &mut arg mis-passed.
+        core::ptr::write_volatile(0x6075C as *mut u32, (tree as *const LayoutTree as usize) as u32);
+    }
     calculator.calculate_intrinsic_recursive(tree, tree.root, false)?;
     ctx.debug_log("Finished intrinsic size calculation");
     Ok(())
@@ -179,6 +205,9 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         node_index: usize,
         ancestor_is_stf: bool,
     ) -> Result<IntrinsicSizes> {
+        // [az-diag g52 REVERT] 0x40720 = node_index entering calculate_intrinsic_recursive
+        // (last value after the run = the node that InvalidTree'd or the stray child).
+        unsafe { core::ptr::write_volatile(0x60720 as *mut u32, node_index as u32); }
         // Fast path: if this subtree has no dirty nodes AND we
         // already have a cached intrinsic, return the cached value
         // and skip the whole descent. Caller is the ancestor-closure
@@ -264,6 +293,17 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
 
         let mut child_intrinsics = Vec::with_capacity(n);
         for &child_index in children {
+            // [az-diag g52 REVERT] 0x40728 = child_index about to recurse (last = the stray).
+            unsafe { core::ptr::write_volatile(0x60728 as *mut u32, child_index as u32); }
+            // [g52 FIX] Defensive: reconcile can mis-list a stray/out-of-range child_index
+            // (a Text node mis-listed as a layout child, or a lift artifact in the children
+            // array). The unguarded recursion would hit `tree.get(child_index).ok_or(InvalidTree)`
+            // at line ~226 and abort the WHOLE intrinsic-sizing pass. Skip gracefully so
+            // measurement continues — mirrors process_layout_children's guard (line ~1079).
+            // REAL fix = reconcile not listing the stray child.
+            if tree.get(child_index).is_none() {
+                continue;
+            }
             let child_intrinsic =
                 self.calculate_intrinsic_recursive(tree, child_index, child_ancestor_is_stf)?;
             child_intrinsics.push((child_index, child_intrinsic));
@@ -563,10 +603,39 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         tree: &LayoutTree,
         node_index: usize,
     ) -> Result<IntrinsicSizes> {
+        // [az-diag REVERT] 0xA0 = calculate_ifc_root_intrinsic_sizes entry.
+        // [g75] 0x60758 = how many times this IFC sizer is entered; 0x6075C = node_index of THIS call.
+        unsafe {
+            core::ptr::write_volatile(0x60704 as *mut u32, 0xA0u32);
+            let c = core::ptr::read_volatile(0x60758 as *const u32).wrapping_add(1);
+            core::ptr::write_volatile(0x60758 as *mut u32, c);
+            core::ptr::write_volatile(0x6075C as *mut u32, node_index as u32);
+        }
         // Collect all inline content from this IFC root and its inline descendants
-        let inline_content = collect_inline_content(&mut self.ctx, tree, node_index)?;
-
-
+        // [g76] EXPLICIT match (was `?`): the g75 markers showed collect_inline_content reaching its
+        // completion marker B8 (Ok at the source level) yet the IFC sizer never advancing to 0xA1 —
+        // i.e. the lifted `Result<Vec<InlineContent>, LayoutError>` return arrives as Err at this call
+        // site (a complex by-value Result-return mis-lift). 0x60760 = 1 (Ok) / 0xEE (Err-but-B8-ran).
+        // RESILIENCE: on Err, degrade to empty content (→ default intrinsic) instead of aborting the
+        // WHOLE layout with InvalidTree, so the page renders and the next real blocker surfaces.
+        // g76 PROVED: degrading to Vec::new() here (resilience) lets layout proceed past this
+        // InvalidTree but then HANGS in the downstream actual-layout shaping (the documented g47
+        // hashbrown empty-map infinite loop). So for a CLEAN (non-hanging) state we PROPAGATE the Err
+        // (same as the original `?`), keeping the 0x60760 diagnostic. To chase the g47 hang, flip the
+        // Err arm back to `Vec::new()`. 0x60760 = 1 (Ok) / 0xEE (Err-despite-B8 = the Result mis-lift).
+        // [g78] OUT-PARAM refactor: the by-value `Result<Vec<InlineContent>, LayoutError>` return
+        // mis-lifted Ok→Err (g76/g77 PROVED it: 0x60760=0xEE despite the source reaching B8). Filling
+        // a `&mut Vec` out-param and returning `Result<()>` (register-returned, NO sret-of-Vec) lifts
+        // cleanly — the established M12.7 "a pointer arg lifts cleanly" pattern. 0x60760 should now =1.
+        let mut inline_content: Vec<InlineContent> = Vec::new();
+        // [g119 az-web-lift] IGNORE collect's Result<(),LayoutError> status — its Ok→Err discriminant
+        // mis-lifts on the web (heisenbug; repr(C,u8) on LayoutError should fix it, this is the robust
+        // belt). The out-param `inline_content` is filled correctly REGARDLESS (g111: out.len=1, textlen=5),
+        // and the `is_empty()` guard below handles a genuine failure → default intrinsic (no crash).
+        let _collect_status = collect_inline_content(&mut self.ctx, tree, node_index, &mut inline_content);
+        unsafe { core::ptr::write_volatile(0x60760 as *mut u32, if _collect_status.is_ok() { 0x00000001u32 } else { 0x000000EEu32 }); }
+        // [az-diag REVERT] 0xA1 = collect_inline_content done (next = measure_intrinsic_widths).
+        unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0xA1u32); }
 
         if inline_content.is_empty() {
             return Ok(IntrinsicSizes::default());
@@ -586,6 +655,33 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // at the per-item level (keyed on text+style), so the subsequent real
         // layout_flow call for this content gets pure cache hits for stages 1–3.
         let constraints = UnifiedConstraints::default();
+        // [g79 DIAG] Probe the font state at shaping time, then convert the downstream shape_text
+        // HANG (g47 hashbrown empty-map loop) → trap so the harness RETURNS and these markers are
+        // readable (can't read markers from a hung wasm call). Tests the #4→#3 coupling: if
+        // 0x60768(font_chain_cache.len) / 0x6076C(loaded_fonts.len) are 0, the EMPTY FONT CHAIN is
+        // the ROOT of the hang (no font → allsorts builds empty hashbrown maps → RawIter loops).
+        // [g82] CONDITIONAL trap: if the font_chain_cache is still EMPTY, shaping would HANG (allsorts
+        // builds empty hashbrown maps → g47 RawIter loop) → trap instead so the markers are readable
+        // (non-hang). If the chain is NON-empty (unique_font_keys BTreeMap fix worked + populated it),
+        // PROCEED into measure → shape → text should MEASURE. g81 hung (no conditional) → need to know
+        // whether the chain populated. 0x60768=chain.len, 0x6076C=loaded_fonts.len, 0x60704=0xA15.
+        #[cfg(feature = "web_lift")]
+        {
+            let cl = self.ctx.font_manager.font_chain_cache.len();
+            unsafe {
+                core::ptr::write_volatile(0x60768 as *mut u32, cl as u32);
+                core::ptr::write_volatile(0x6076C as *mut u32, loaded_fonts.len() as u32);
+                core::ptr::write_volatile(0x60704 as *mut u32, 0xA15u32);
+            }
+            // [g88] g85+g87 PROVED whack-a-mole does NOT converge: BTreeMap'd unique_font_keys (chain
+            // ✓), supported_features+lookups_index (g85), ReadCache (g87) — STILL HANGS. Too many
+            // hashbrown empty-map sites across allsorts/std/rust-fontconfig. The ONLY convergent fix is
+            // the SYSTEMIC transpiler empty-static mirror (force the lifted hashbrown ctrl-scan to read
+            // 0xFF not 0x00). TEMP non-hang trap until that lands. ★ REMOVE to test the systemic fix.
+            // [g93] PROCEED into shaping to test the AZ_FORCE_MIRROR_VMADDRS hashbrown-EMPTY_GROUP fix.
+            // If text MEASURES → the forced const pages contained EMPTY_GROUP → systemic fix found.
+            let _ = (cl, loaded_fonts.len());
+        }
         let intrinsic_text = match self.text_cache.measure_intrinsic_widths(
             &inline_content,
             &[],
@@ -608,6 +704,8 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             }
         };
 
+        // [az-diag REVERT] 0xA2 = measure_intrinsic_widths done (text measured, no OOB here).
+        unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0xA2u32); }
         let min_width = intrinsic_text.min_content_width;
         let max_width = intrinsic_text.max_content_width;
 
@@ -956,24 +1054,42 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
     ifc_root_index: usize,
-) -> Result<Vec<InlineContent>> {
+    out: &mut Vec<InlineContent>,
+) -> Result<()> {
     ctx.debug_log(&format!(
         "Collecting inline content from node {} for intrinsic sizing",
         ifc_root_index
     ));
 
-    let mut content = Vec::new();
-
+    // [g78] fill the caller's out-param (was a local Vec returned by value → Ok→Err mis-lift).
     // Recursively collect inline content from this node and its inline descendants
-    collect_inline_content_recursive(ctx, tree, ifc_root_index, &mut content)?;
+    collect_inline_content_recursive(ctx, tree, ifc_root_index, out)?;
+    // [g73] B8 = top-level recursion returned Ok (collect_inline_content complete).
+    unsafe { core::ptr::write_volatile(0x6071C as *mut u32, 0xB8u32); }
+    // [az-diag REVERT g111] Is the built InlineContent's discriminant correct in MEMORY?
+    // out[0].disc should be 0 (Text). If garbage → split_text_for_whitespace mis-built the tag
+    // (construction mis-lift). If 0 (correct) → the lift mis-READS it in create_logical_items's
+    // match (deeper). Also capture out.len/ptr + size_of::<InlineContent> (stride) to check the
+    // slice/iteration. Upstream of the trap, lifted-only path (native-safe).
+    unsafe {
+        core::ptr::write_volatile(0x607A0 as *mut u32, out.len() as u32);
+        core::ptr::write_volatile(0x607A4 as *mut u32, out.as_ptr() as usize as u32);
+        core::ptr::write_volatile(0x607AC as *mut u32, core::mem::size_of::<InlineContent>() as u32);
+        if !out.is_empty() {
+            let disc = *(out.as_ptr() as *const u64);
+            core::ptr::write_volatile(0x607A8 as *mut u32, disc as u32);
+            core::ptr::write_volatile(0x607B8 as *mut u32, (disc >> 32) as u32);
+        }
+        core::ptr::write_volatile(0x607BC as *mut u32, 0xC0DE0111u32);
+    }
 
     ctx.debug_log(&format!(
         "Collected {} inline content items from node {}",
-        content.len(),
+        out.len(),
         ifc_root_index
     ));
 
-    Ok(content)
+    Ok(())
 }
 
 /// Recursive helper for collecting inline content.
@@ -992,7 +1108,18 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     node_index: usize,
     content: &mut Vec<InlineContent>,
 ) -> Result<()> {
-    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+    // [g75] capture node_index of EVERY recursion entry (0x60754) and mark the entry-tree.get
+    // FAILURE distinctly (inline-phase=0xBAD) so a node_index that fails HERE (before B1) is
+    // visible even though a PRIOR successful call already wrote B8. This is the suspected
+    // InvalidTree site (phase stuck at 0xA0 + B8 reached ⇒ a 2nd IFC call fails at this get).
+    unsafe { core::ptr::write_volatile(0x60754 as *mut u32, node_index as u32); }
+    let node = match tree.get(node_index) {
+        Some(n) => n,
+        None => {
+            unsafe { core::ptr::write_volatile(0x6071C as *mut u32, 0xBADu32); }
+            return Err(LayoutError::InvalidTree);
+        }
+    };
 
     // CRITICAL FIX: Text nodes may exist in the DOM but not as separate layout nodes!
     // We need to check the DOM children for text content.
@@ -1001,8 +1128,16 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         return process_layout_children(ctx, tree, node_index, content);
     };
 
+    // [az-diag REVERT] 0x4071C=0xB1 = about to extract_text_from_node (THIS node).
+    unsafe { core::ptr::write_volatile(0x6071C as *mut u32, 0xB1u32); }
     // First check if THIS node is a text node
     if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
+        // [az-diag REVERT] extract_text_from_node returned: 0x40714=text.len() (must be 5 for
+        // "Hello"; garbage = the Text-variant AzString len mis-lifts), 0x4071C=0xB2 reached.
+        unsafe {
+            core::ptr::write_volatile(0x60714 as *mut u32, text.len() as u32);
+            core::ptr::write_volatile(0x6071C as *mut u32, 0xB2u32);
+        }
         let style_props = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
         ctx.debug_log(&format!("Found text in node {}: '{}'", node_index, text));
         // Use split_text_for_whitespace to correctly handle white-space: pre with \n
@@ -1012,7 +1147,11 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
             &text,
             style_props,
         );
+        // [az-diag REVERT] 0x4071C=0xB3 = split_text_for_whitespace done.
+        unsafe { core::ptr::write_volatile(0x6071C as *mut u32, 0xB3u32); }
         content.extend(text_items);
+        // [g73] B4 = content.extend done (past B3).
+        unsafe { core::ptr::write_volatile(0x6071C as *mut u32, 0xB4u32); }
     }
 
     // CRITICAL: Also check DOM children for text nodes!
@@ -1031,6 +1170,14 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         // Check if this DOM child is a text node
         let child_dom_node = &ctx.styled_dom.node_data.as_container()[child_id];
         if let NodeType::Text(text_data) = child_dom_node.get_node_type() {
+            // [az-diag REVERT] probe the AzString len BEFORE to_string (the OOB site). For
+            // "Hello" this must be 5; a garbage/huge value = the Text-variant AzString len
+            // mis-lifts → as_str().to_string() copies a garbage range → memory.fill OOB.
+            unsafe {
+                core::ptr::write_volatile(0x60714 as *mut u32, text_data.as_str().len() as u32);
+                core::ptr::write_volatile(0x60718 as *mut u32, text_data.as_str().as_ptr() as usize as u32);
+                core::ptr::write_volatile(0x6071C as *mut u32, 0xA3u32);
+            }
             let text = text_data.as_str().to_string();
             let style_props = Arc::new(get_style_properties(ctx.styled_dom, child_id, ctx.system_style.as_ref(), azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
             ctx.debug_log(&format!(
@@ -1047,6 +1194,8 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
             content.extend(text_items);
         }
     }
+    // [g73] B6 = DOM-children loop done (about to process_layout_children).
+    unsafe { core::ptr::write_volatile(0x6071C as *mut u32, 0xB6u32); }
 
     process_layout_children(ctx, tree, node_index, content)
 }
@@ -1061,9 +1210,19 @@ fn process_layout_children<T: ParsedFontTrait>(
     use azul_css::props::basic::SizeMetric;
     use azul_css::props::layout::{LayoutHeight, LayoutWidth};
 
+    // [g73] PLC entry: 0x60708 = 0xC0<<24 | node_index (which node's children we process).
+    unsafe { core::ptr::write_volatile(0x60708 as *mut u32, 0xC0000000u32 | (node_index as u32 & 0xFFFFFF)); }
     // Process layout tree children (these are elements with layout properties)
     for &child_index in tree.children(node_index) {
-        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+        // [g73] PLC loop: 0x6070C = current child_index being processed.
+        unsafe { core::ptr::write_volatile(0x6070C as *mut u32, child_index as u32); }
+        // 2026-06-02: was `.ok_or(LayoutError::InvalidTree)?` — a stray/invalid child_index in
+        // tree.children (likely a Text node mis-listed during reconcile, since Text is INLINE
+        // content not a layout-tree node) aborted the WHOLE intrinsic-sizing pass with
+        // InvalidTree BEFORE the inline text got measured → label height 0. Skip gracefully so
+        // measurement continues (the inline text is collected separately above, at the
+        // collect_inline_content_recursive DOM-children loop). REAL fix = reconcile not listing it.
+        let Some(child_node) = tree.get(child_index) else { continue; };
         let Some(child_dom_id) = child_node.dom_node_id else {
             continue;
         };
@@ -1180,8 +1339,11 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
     ifc_root_index: usize,
-) -> Result<Vec<InlineContent>> {
-    collect_inline_content_for_sizing(ctx, tree, ifc_root_index)
+    out: &mut Vec<InlineContent>,
+) -> Result<()> {
+    // [g78] out-param (was `-> Result<Vec<InlineContent>>`): the by-value Vec return mis-lifted
+    // Ok→Err on the web backend. Result<()> + &mut Vec out-param lifts cleanly.
+    collect_inline_content_for_sizing(ctx, tree, ifc_root_index, out)
 }
 
 // +spec:height-calculation:1c899b - width and height properties specify the preferred size of the box
@@ -2242,7 +2404,24 @@ fn apply_height_constraints(
 
 pub fn extract_text_from_node(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
     match &styled_dom.node_data.as_container()[node_id].get_node_type() {
-        NodeType::Text(text_data) => Some(text_data.as_str().to_string()),
+        NodeType::Text(text_data) => {
+            // [az-diag REVERT] read the AzString's RAW (ptr,len) fields directly — NO deref/
+            // validation (as_str() validates UTF-8 → derefs the garbage-len bytes → OOB before
+            // any probe). AzString = repr(C) U8Vec { ptr@0, len@8, cap@16 }. For "Hello" len=5
+            // ptr in the bump heap (0x6xxxxxx); garbage = the Text-variant payload mis-lifts.
+            unsafe {
+                let raw = text_data as *const _ as *const usize;
+                let ptr_field = core::ptr::read_volatile(raw);
+                let len_field = core::ptr::read_volatile(raw.add(1));
+                let cap_field = core::ptr::read_volatile(raw.add(2));
+                core::ptr::write_volatile(0x60714 as *mut u32, len_field as u32);
+                core::ptr::write_volatile(0x60718 as *mut u32, ptr_field as u32);
+                core::ptr::write_volatile(0x6071C as *mut u32, 0xB5u32);
+                core::ptr::write_volatile(0x60720 as *mut u32, cap_field as u32);
+                core::ptr::write_volatile(0x60724 as *mut u32, (len_field >> 32) as u32);
+            }
+            Some(text_data.as_str().to_string())
+        }
         _ => None,
     }
 }

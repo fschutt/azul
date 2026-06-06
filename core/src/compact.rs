@@ -676,14 +676,37 @@ impl CssPropertyCache {
                         ))
                     );
                 if !is_normal { continue; }
-                apply_css_property_to_compact(
-                    prop,
-                    &mut result.tier1_enums[i],
-                    &mut result.tier2_dims[i],
-                    &mut result.tier2_cold[i],
-                    &mut result.tier2b_text[i],
-                    &mut result.font_hash_to_families,
-                );
+                // Layout-critical props dispatched via single-variant `if let` (direct discriminant
+                // COMPARES, no indirect jump). apply_css_property_to_compact's ~100-arm `match` lowers
+                // to a jump table that remill mis-lifts (never reaches the right arm) — same class as the
+                // CssProperty::clone bug. With the conversion-clone fix the prop discriminant is now
+                // correct, so these compares match and apply the value; everything else falls back.
+                use azul_css::props::property::CssProperty;
+                if let CssProperty::Width(v) = prop {
+                    result.tier2_dims[i].width = encode_layout_width(v);
+                } else if let CssProperty::Height(v) = prop {
+                    result.tier2_dims[i].height = encode_layout_height(v);
+                } else if let CssProperty::FlexGrow(v) = prop {
+                    if let Some(e) = v.get_property() {
+                        result.tier2_dims[i].flex_grow = encode_flex_u16(e.inner.get());
+                    }
+                } else if let CssProperty::Display(v) = prop {
+                    if let Some(e) = v.get_property() {
+                        let enc = azul_css::compact_cache::layout_display_to_u8(*e) as u64;
+                        let m = azul_css::compact_cache::DISPLAY_MASK;
+                        let s = azul_css::compact_cache::DISPLAY_SHIFT;
+                        result.tier1_enums[i] = (result.tier1_enums[i] & !(m << s)) | ((enc & m) << s);
+                    }
+                } else {
+                    apply_css_property_to_compact(
+                        prop,
+                        &mut result.tier1_enums[i],
+                        &mut result.tier2_dims[i],
+                        &mut result.tier2_cold[i],
+                        &mut result.tier2b_text[i],
+                        &mut result.font_hash_to_families,
+                    );
+                }
                 update_dom_declared_flags(prop, &mut result.dom_declared_flags);
             }
 

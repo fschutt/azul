@@ -146,14 +146,23 @@ impl Ord for CssRuleBlock {
 /// `Css` type.
 impl From<crate::dynamic_selector::CssPropertyWithConditionsVec> for Css {
     fn from(props: crate::dynamic_selector::CssPropertyWithConditionsVec) -> Self {
-        let rules: Vec<CssRuleBlock> = props.into_library_owned_vec().into_iter().map(|p| {
-            CssRuleBlock {
+        // Build via an explicit push loop rather than `.into_iter().map(|p| CssRuleBlock {
+        // declarations: vec![...], ... }).collect()`. On the web/remill lift, constructing a
+        // complex struct with nested Vecs *inside* a mapped+collected closure drops every
+        // element (AzButton's inline container style came back with 0 rules even though the
+        // source Vec had props), whereas the identical construction in a plain loop body lifts
+        // correctly — same pattern `NodeData::add_css_property` already relies on. Native
+        // behavior is byte-identical.
+        let owned = props.into_library_owned_vec();
+        let mut rules: Vec<CssRuleBlock> = Vec::with_capacity(owned.len());
+        for p in owned {
+            rules.push(CssRuleBlock {
                 path: CssPath { selectors: Vec::new().into() },
                 declarations: alloc::vec![CssDeclaration::Static(p.property)].into(),
                 conditions: p.apply_if,
                 priority: rule_priority::INLINE,
-            }
-        }).collect();
+            });
+        }
         Css { rules: rules.into() }
     }
 }

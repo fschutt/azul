@@ -135,6 +135,12 @@ default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multit
 # (servo-shot, profiling harnesses) opt in. Zero cost when off.
 probe = ["dep:libc"]
 
+# WEB-LIFT (2026-06-02): set when azul-layout is compiled for the remill/web backend
+# (azul-dll's web-transpiler). Skips code paths whose lifted form traps — currently the
+# NAME-table string decode (encoding_rs jump-tables → MISSING_BLOCK); font_name is optional
+# metadata, not used for layout/metrics/shaping. Off for native (full behaviour kept).
+web_lift = []
+
 # Wire `hint_purge_allocator()` to the matching allocator's pressure-relief
 # call. Without these flags the default macOS path only drains the system
 # zone — which is a no-op when a third-party global allocator (mimalloc,

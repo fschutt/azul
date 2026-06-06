@@ -355,7 +355,10 @@ pub mod parsed {
         /// this cache) followed by
         /// [`ParsedFont::for_each_decoded_glyph`] /
         /// [`ParsedFont::glyph_cache_snapshot`] to walk the result.
-        pub(crate) glyph_cache: Arc<std::sync::RwLock<BTreeMap<u16, Arc<OwnedGlyph>>>>,
+        // [az-web-lift] queue RwLock spins in lock_contended in single-threaded lifted wasm
+        // (only the pure-Rust queue RwLock is lifted; Mutex is Leaf-stubbed). Reuse
+        // rust_fontconfig::StLock (no-atomic single-threaded bypass). One of the 3 RwLocks total.
+        pub(crate) glyph_cache: Arc<rust_fontconfig::StLock<BTreeMap<u16, Arc<OwnedGlyph>>>>,
         /// Glyph outline decoder state.
         ///
         /// - `Loaded(Some(arc))`: `LocaGlyf` is already loaded (owning
@@ -695,6 +698,117 @@ pub mod parsed {
         }
     }
 
+    // WEB-LIFT FIX (2026-06-02): a `FontTableProvider` that scans the sfnt table directory
+    // by hand from the raw font bytes. allsorts' `OffsetTableFontProvider` produces garbage
+    // on the remill/web backend: (1) `ReadArray::read_item`'s nested-tuple `TableRecord` read
+    // returns `table_tag = 0` for EVERY record (proven: tags[7]=0x0000 while the bytes there
+    // are 0x68656164 'head'); (2) even a hand-rolled scan added to the *allsorts crate* sees a
+    // bad `self.scope.data()` (the ReadScope fat-pointer mis-lifts through provider
+    // construction, or allsorts-crate code lifts differently). This provider lives in
+    // azul-layout — whose identical byte reads PROVABLY work (the `from_provider` probe read
+    // num_tables=15 from these same `font_bytes`) — and reads the slice directly. KEEP.
+    #[inline]
+    fn manual_be16(d: &[u8], o: usize) -> u32 {
+        ((d[o] as u32) << 8) | (d[o + 1] as u32)
+    }
+    #[inline]
+    fn manual_be32(d: &[u8], o: usize) -> u32 {
+        ((d[o] as u32) << 24)
+            | ((d[o + 1] as u32) << 16)
+            | ((d[o + 2] as u32) << 8)
+            | (d[o + 3] as u32)
+    }
+
+    struct ManualTableProvider<'a> {
+        data: &'a [u8],
+        dir: usize, // byte offset of the first table record (offset-table base + 12)
+        num: usize, // number of table records
+    }
+
+    impl<'a> ManualTableProvider<'a> {
+        fn new(data: &'a [u8], font_index: usize) -> Option<Self> {
+            if data.len() < 12 {
+                return None;
+            }
+            let base = if manual_be32(data, 0) == 0x7474_6366 {
+                // 'ttcf' (TrueType Collection): the font_index'th offset-table offset.
+                let num_fonts = manual_be32(data, 8) as usize;
+                if font_index >= num_fonts || 12 + font_index * 4 + 4 > data.len() {
+                    return None;
+                }
+                manual_be32(data, 12 + font_index * 4) as usize
+            } else {
+                0 // single font: offset table at the start
+            };
+            if base + 12 > data.len() {
+                return None;
+            }
+            Some(ManualTableProvider {
+                data,
+                dir: base + 12,
+                num: manual_be16(data, base + 4) as usize,
+            })
+        }
+    }
+
+    impl allsorts::tables::FontTableProvider for ManualTableProvider<'_> {
+        fn table_data(
+            &self,
+            tag: u32,
+        ) -> Result<Option<std::borrow::Cow<'_, [u8]>>, allsorts::error::ParseError> {
+            let mut i = 0;
+            while i < self.num {
+                let r = self.dir + i * 16;
+                if r + 16 > self.data.len() {
+                    break;
+                }
+                if manual_be32(self.data, r) == tag {
+                    let off = manual_be32(self.data, r + 8) as usize;
+                    let len = manual_be32(self.data, r + 12) as usize;
+                    return Ok(off
+                        .checked_add(len)
+                        .filter(|&e| e <= self.data.len())
+                        .map(|e| std::borrow::Cow::Borrowed(&self.data[off..e])));
+                }
+                i += 1;
+            }
+            Ok(None)
+        }
+
+        fn has_table(&self, tag: u32) -> bool {
+            self.table_data(tag).ok().flatten().is_some()
+        }
+
+        fn table_tags(&self) -> Option<Vec<u32>> {
+            // DIAG (REVERT): sentinel 0xFADE as tags[0] proves THIS provider ran; then
+            // self.num pushes let me see if the usize field survived; then the real reads
+            // show if self.data (slice field) survived the struct move through generics.
+            let mut tags = Vec::with_capacity(self.num + 1);
+            tags.push(0x0000_FADE);
+            let mut i = 0;
+            while i < self.num {
+                let r = self.dir + i * 16;
+                if r + 4 > self.data.len() {
+                    break;
+                }
+                tags.push(manual_be32(self.data, r));
+                i += 1;
+            }
+            Some(tags)
+        }
+    }
+
+    impl allsorts::tables::SfntVersion for ManualTableProvider<'_> {
+        fn sfnt_version(&self) -> u32 {
+            let base = self.dir.saturating_sub(12);
+            if base + 4 <= self.data.len() {
+                manual_be32(self.data, base)
+            } else {
+                0
+            }
+        }
+    }
+
     impl ParsedFont {
         /// Parse a font from bytes using allsorts
         ///
@@ -747,20 +861,7 @@ pub mod parsed {
             warnings: &mut Vec<FontParseWarning>,
             defer_loca_glyf: bool,
         ) -> Option<Self> {
-            use std::{
-                collections::hash_map::DefaultHasher,
-                hash::{Hash, Hasher},
-            };
-
-            use allsorts::{
-                binary::read::ReadScope,
-                font_data::FontData,
-                tables::{
-                    cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable},
-                    FontTableProvider, HeadTable, HheaTable, MaxpTable,
-                },
-                tag,
-            };
+            use allsorts::{binary::read::ReadScope, font_data::FontData};
 
             let scope = ReadScope::new(font_bytes);
             let font_file = match scope.read::<FontData<'_>>() {
@@ -773,18 +874,94 @@ pub mod parsed {
                     return None;
                 }
             };
-            let provider = match font_file.table_provider(font_index) {
-                Ok(p) => p,
-                Err(e) => {
-                    warnings.push(FontParseWarning::error(format!(
-                        "Failed to get table provider for font index {}: {}",
-                        font_index, e
-                    )));
-                    return None;
+            // FIX (2026-06-02): route OpenType fonts through the CONCRETE provider
+            // (`OffsetTableFontProvider`) instead of `FontData::table_provider`'s
+            // `Box<dyn FontTableProvider>`. On the lifted/web backend the trait-object
+            // VTABLE dispatch (allsorts font_data.rs:45 `self.provider.table_data(tag)`)
+            // mis-lifts: the vtable's fn-pointers are untranslated native addresses, so the
+            // indirect-call dispatcher routes the dyn call to the WRONG `table_data` impl,
+            // which returns a `Cow::Owned` garbage buffer → `HeadTable::read` errors → font
+            // parse returns None → text measures height 0. A concrete provider makes every
+            // `table_data` a DIRECT (monomorphized) call, which lifts correctly. Woff/Woff2
+            // keep the dyn path (they're not used on the web backend's embedded TTF).
+            fn provider_err(font_index: usize, e: impl core::fmt::Display) -> FontParseWarning {
+                FontParseWarning::error(format!(
+                    "Failed to get table provider for font index {}: {}",
+                    font_index, e
+                ))
+            }
+            match font_file {
+                FontData::OpenType(otf) => {
+                    // Prefer the hand-rolled provider (reads font_bytes directly) over
+                    // allsorts' OffsetTableFontProvider, whose lifted table reads are garbage
+                    // on the web backend. Fall back to allsorts only if the manual layout
+                    // parse can't recognise the sfnt (e.g. an unusual TTC).
+                    if let Some(mp) = ManualTableProvider::new(font_bytes, font_index) {
+                        Self::from_provider(mp, font_bytes, font_index, warnings, defer_loca_glyf)
+                    } else {
+                        match otf.table_provider(font_index) {
+                            Ok(p) => Self::from_provider(
+                                p,
+                                font_bytes,
+                                font_index,
+                                warnings,
+                                defer_loca_glyf,
+                            ),
+                            Err(e) => {
+                                warnings.push(provider_err(font_index, e));
+                                None
+                            }
+                        }
+                    }
                 }
+                other => match other.table_provider(font_index) {
+                    Ok(p) => {
+                        Self::from_provider(p, font_bytes, font_index, warnings, defer_loca_glyf)
+                    }
+                    Err(e) => {
+                        warnings.push(provider_err(font_index, e));
+                        None
+                    }
+                },
+            }
+        }
+
+        /// Build a `ParsedFont` from a concrete [`FontTableProvider`]. Split out of
+        /// `from_bytes_internal` (2026-06-02) so OpenType fonts use the concrete
+        /// `OffsetTableFontProvider` (direct `table_data` calls that lift correctly on
+        /// the web backend) rather than `FontData::table_provider`'s `Box<dyn>`, whose
+        /// trait-object vtable dispatch mis-lifts (wrong impl → Owned garbage → parse fail).
+        fn from_provider<P: allsorts::tables::FontTableProvider>(
+            provider: P,
+            font_bytes: &[u8],
+            font_index: usize,
+            warnings: &mut Vec<FontParseWarning>,
+            defer_loca_glyf: bool,
+        ) -> Option<Self> {
+            use std::{
+                collections::hash_map::DefaultHasher,
+                hash::{Hash, Hasher},
             };
 
-            // Extract font name from NAME table early (before provider is moved)
+            use allsorts::{
+                binary::read::ReadScope,
+                tables::{
+                    cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable},
+                    FontTableProvider, HeadTable, HheaTable, MaxpTable,
+                },
+                tag,
+            };
+
+            // Extract font name from NAME table early (before provider is moved).
+            // WEB-LIFT FIX (2026-06-02): NameTable::string_for_id decodes the NAME strings via
+            // `encoding_rs` (Mac Roman / UTF-16 charset state machines), whose jump-tables
+            // are NOT devirt'd by the remill lift → MISSING_BLOCK trap (proven: trap in
+            // encoding_rs::Decoder::decode_to_utf8). font_name is OPTIONAL metadata (NOT used
+            // for layout/metrics/shaping — those are binary head/hhea/maxp/cmap/glyf), so skip
+            // the NAME-string decode on the web backend to avoid encoding_rs entirely.
+            #[cfg(feature = "web_lift")]
+            let font_name: Option<String> = None;
+            #[cfg(not(feature = "web_lift"))]
             let font_name = provider.table_data(tag::NAME).ok().and_then(|name_data| {
                 ReadScope::new(&name_data?)
                     .read::<allsorts::tables::NameTable>()
@@ -794,10 +971,95 @@ pub mod parsed {
                     })
             });
 
-            let head_table = provider
-                .table_data(tag::HEAD)
-                .ok()
-                .and_then(|head_data| ReadScope::new(&head_data?).read::<HeadTable>().ok())?;
+            // DIAG (2026-06-02, REVERT): pinpoint the web font-parse-fails root — does HEAD
+            // fail because table_data can't find/return the table (directory mis-lift) or
+            // because HeadTable::read errors (table-read mis-lift)? Surfaced via warnings.
+            let head_table = match provider.table_data(tag::HEAD) {
+                Ok(Some(head_cow)) => {
+                    // DIAG: is the HEAD table data CORRECT (magicNumber 0x5F0F3CF5 @ off 12 →
+                    // HeadTable::read mis-lifts) or WRONG bytes (directory offset mis-lift)?
+                    let bb = head_cow.as_ref();
+                    let magic = if bb.len() >= 16 {
+                        ((bb[12] as u32) << 24) | ((bb[13] as u32) << 16)
+                            | ((bb[14] as u32) << 8) | (bb[15] as u32)
+                    } else { 0 };
+                    match ReadScope::new(&head_cow).read::<HeadTable>() {
+                        Ok(h) => h,
+                        Err(_) => {
+                            // DIAG: surface the sliced offset (how wrong) as hex — "HO" + 8 hex
+                            // of (head_cow.ptr - font_bytes.ptr). garbage→offset-read mis-lift;
+                            // 00000000→base; plausible-but-wrong→record mapping. "RF"=bytes-OK.
+                            let m = if magic == 0x5F0F3CF5 {
+                                "RF000000".to_string()
+                            } else {
+                                let off = (head_cow.as_ref().as_ptr() as usize)
+                                    .wrapping_sub(font_bytes.as_ptr() as usize);
+                                let mut msg = String::new();
+                                // B=Borrowed(slice of font_bytes, ptr-arith/base mis-lift) vs
+                                // O=Owned(decompressed/copied Vec — wrong path for plain TTF).
+                                msg.push(if matches!(head_cow, std::borrow::Cow::Borrowed(_)) { 'B' } else { 'O' });
+                                msg.push_str("HO");
+                                let mut sh: i32 = 28;
+                                while sh >= 0 {
+                                    let d = ((off >> sh) & 0xf) as u8;
+                                    msg.push((if d < 10 { b'0' + d } else { b'a' + d - 10 }) as char);
+                                    sh -= 4;
+                                }
+                                msg
+                            };
+                            warnings.push(FontParseWarning::error(m));
+                            return None;
+                        }
+                    }
+                }
+                Ok(None) => {
+                    // DIAG (REVERT): bytes+len+read_item-count+dir all proved OK (N0fr0fc0fg1)
+                    // yet find_table_record(HEAD)=None though 'head' is rec[7] on disk. So
+                    // either read_item's table_tag FIELD is garbage, or tag::HEAD mis-lifts, or
+                    // the u32 == mis-lifts. t7 = tags[7] (should be 0x68656164 'head' low16
+                    // =6164); H = tag::HEAD low16 (should be 6164); f = ANY tag==HEAD via an
+                    // indexed compare loop (NOT .iter().any). "T<4h t7>H<4h HEAD>f<0|1>".
+                    //   T6164 H6164 f1 → values+compare OK (won't reach here — HEAD found)
+                    //   T6164 H6164 f0 → the u32 == comparison mis-lifts
+                    //   T!=6164        → read_item table_tag FIELD garbage (tuple read mis-lift)
+                    //   H!=6164        → tag::HEAD const mis-lifts
+                    fn hx(m: &mut String, val: u32, nibbles: i32) {
+                        let mut sh = (nibbles - 1) * 4;
+                        while sh >= 0 {
+                            let d = ((val >> sh) & 0xf) as u8;
+                            m.push((if d < 10 { b'0' + d } else { b'a' + d - 10 }) as char);
+                            sh -= 4;
+                        }
+                    }
+                    // DECISIVE: tags[8] (head, file off 124) reads 0 but tags[2] (off 28) is OK.
+                    // Read the SAME offsets from from_provider's LOCAL font_bytes param (proven
+                    // correct at off 4/12). If local@124 = 0x6865 'he' but provider tags[8]=0 ⇒
+                    // STORED-SLICE issue (provider self.data fat-ptr mis-lifts) → read locally.
+                    // If local@124 = 0 ⇒ the font CONST is only PARTIALLY MIRRORED into the wasm
+                    // (deep data-mirror gap) → table data is simply absent. local@93596 (=0x16f9c,
+                    // head TABLE data start) further maps the mirror: 'he'/nonzero vs 0.
+                    let loc124 = if font_bytes.len() >= 126 {
+                        ((font_bytes[124] as u32) << 8) | (font_bytes[125] as u32)
+                    } else {
+                        0xEEEE
+                    };
+                    let loc_head = if font_bytes.len() >= 93598 {
+                        ((font_bytes[93596] as u32) << 8) | (font_bytes[93597] as u32)
+                    } else {
+                        0xEEEE
+                    };
+                    let mut m = String::from("L"); // local font_bytes[124..126] (head dir record):
+                    hx(&mut m, loc124 & 0xffff, 4); // 6865 'he' = mirrored; 0000 = not
+                    m.push('H'); // local font_bytes[93596..] (head TABLE data, deep):
+                    hx(&mut m, loc_head & 0xffff, 4);
+                    warnings.push(FontParseWarning::error(m));
+                    return None;
+                }
+                Err(_) => {
+                    warnings.push(FontParseWarning::error("HEAD_DATAERR".to_string()));
+                    return None;
+                }
+            };
 
             let maxp_table = provider
                 .table_data(tag::MAXP)
@@ -927,7 +1189,18 @@ pub mod parsed {
 
             let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
 
-            // Create TrueType hinting instance from font tables
+            // Create TrueType hinting instance from font tables.
+            // [az-web-lift] Skip on the web build. The lifted layout never grid-fits glyphs to a
+            // pixel raster (it measures + ships a display list to JS), so hinting is never used.
+            // Building it (HintInstance::new) runs the allsorts bytecode Interpreter
+            // (Interpreter::new + ::dispatch — a large un-devirt'd opcode jump table the remill
+            // lift can't resolve, plus ~700 op_* fns of closure bloat). This is INDEPENDENT of the
+            // lift's jump-table devirt: even with a perfect lift, web has no use for hinting, and
+            // hinted advances are lower-quality output than the plain scaled advance. Native keeps
+            // real hinting unchanged.
+            #[cfg(feature = "web_lift")]
+            let hint_instance: Option<std::sync::Mutex<allsorts::hinting::HintInstance>> = None;
+            #[cfg(not(feature = "web_lift"))]
             let hint_instance = allsorts::hinting::HintInstance::new(
                 &font_data_impl.font_table_provider
             ).ok().flatten().map(|h| std::sync::Mutex::new(h));
@@ -1008,7 +1281,7 @@ pub mod parsed {
                 cmap_subtable,
                 last_used: Arc::new(std::sync::atomic::AtomicU64::new(0)),
                 is_variable_font: has_gvar,
-                glyph_cache: Arc::new(std::sync::RwLock::new(BTreeMap::new())),
+                glyph_cache: Arc::new(rust_fontconfig::StLock::new(BTreeMap::new())),
                 // Eager path: `from_bytes` loaded LocaGlyf immediately
                 // (or set None if the font has no loca+glyf). Lazy
                 // callers use `from_bytes_shared` which replaces this
@@ -1395,13 +1668,10 @@ pub mod parsed {
 
         fn decode_glyph_inner(&self, gid: u16) -> OwnedGlyph {
             let _p = crate::probe::Probe::span("decode_glyph");
-            let horz_advance = allsorts::glyph_info::advance(
-                &self.maxp_table,
-                &self.hhea_table,
-                self.hmtx_bytes(),
-                gid,
-            )
-            .unwrap_or_default();
+            // [az-web-lift] use get_horizontal_advance (reads hmtx directly on the web build)
+            // instead of allsorts::glyph_info::advance, whose lifted ReadArray parse has an
+            // un-devirt'd jump table → MISSING_BLOCK → OOB during measure.
+            let horz_advance = self.get_horizontal_advance(gid);
 
             let mut record = OwnedGlyph {
                 horz_advance,
@@ -1452,6 +1722,14 @@ pub mod parsed {
             // non-variable fonts skip the var-context machinery
             // and decode the default instance — same behaviour as
             // before R4.
+            // [az-web-lift] The lifted web layout NEVER rasterizes (it measures + positions, then
+            // ships a display list to JS) — so glyph OUTLINES + TrueType hinting raw-points are
+            // never needed in wasm. Decoding them (allsorts GlyfVisitorContext::visit +
+            // GlyphOutlineCollector::into_outlines, whose GlyphOutlineOperation match is a 5-arm
+            // jump table the remill lift doesn't devirtualize → MISSING_BLOCK → OOB) crashes the
+            // measure pass. Skip BOTH decode passes on the web build; the record keeps its hmtx
+            // advance/metrics (set above) which is all text measurement needs.
+            if !cfg!(feature = "web_lift") {
             let mut outline_done = false;
             if self.is_variable_font {
                 if let LocaGlyfState::Deferred { bytes, .. } = &self.loca_glyf {
@@ -1517,6 +1795,7 @@ pub mod parsed {
                     record.instructions = Some(sg.instructions.to_vec());
                 }
             }
+            } // [az-web-lift] end skip glyph outline/hinting decode on web
 
             record
         }
@@ -1631,14 +1910,9 @@ pub mod parsed {
             }
             let glyph_index = self.lookup_glyph_index(' ' as u32)?;
 
-            allsorts::glyph_info::advance(
-                &self.maxp_table,
-                &self.hhea_table,
-                self.hmtx_bytes(),
-                glyph_index,
-            )
-            .ok()
-            .map(|s| s as usize)
+            // [az-web-lift] use get_horizontal_advance (direct hmtx on web) instead of
+            // allsorts::glyph_info::advance (un-devirt'd jump table → OOB).
+            Some(self.get_horizontal_advance(glyph_index) as usize)
         }
 
         /// Look up the glyph index for a Unicode codepoint
@@ -1657,13 +1931,36 @@ pub mod parsed {
             if let Some(mock) = self.mock.as_ref() {
                 return mock.glyph_advances.get(&glyph_index).copied().unwrap_or(0);
             }
-            allsorts::glyph_info::advance(
-                &self.maxp_table,
-                &self.hhea_table,
-                self.hmtx_bytes(),
-                glyph_index,
-            )
-            .unwrap_or_default()
+            // [az-web-lift] Read the hmtx advance DIRECTLY (a plain longHorMetric table lookup)
+            // instead of allsorts::glyph_info::advance, whose lifted binary `ReadArray` parse has
+            // an un-devirt'd jump table → MISSING_BLOCK → OOB during text measure. Identical result
+            // for non-variable fonts (the web fallback font is non-variable); native keeps the
+            // allsorts path (variable-font deltas etc.).
+            #[cfg(feature = "web_lift")]
+            {
+                let hmtx = self.hmtx_bytes();
+                let num = usize::from(self.hhea_table.num_h_metrics);
+                if num == 0 {
+                    return 0;
+                }
+                let idx = (glyph_index as usize).min(num - 1);
+                let off = idx * 4;
+                return if off + 2 <= hmtx.len() {
+                    ((hmtx[off] as u16) << 8) | (hmtx[off + 1] as u16)
+                } else {
+                    0
+                };
+            }
+            #[cfg(not(feature = "web_lift"))]
+            {
+                allsorts::glyph_info::advance(
+                    &self.maxp_table,
+                    &self.hhea_table,
+                    self.hmtx_bytes(),
+                    glyph_index,
+                )
+                .unwrap_or_default()
+            }
         }
 
         /// Get the hinted advance width in pixels for a glyph at the given ppem.
@@ -1675,6 +1972,19 @@ pub mod parsed {
         ///
         /// Returns `None` if hinting is not available or fails.
         pub fn get_hinted_advance_px(&self, glyph_index: u16, ppem: u16) -> Option<f32> {
+            // [az-web-lift] No pixel grid-fitting on the web (measure-only): return None so the
+            // caller falls back to the plain scaled advance. Hard-cfg (not a runtime `if cfg!`)
+            // so the whole hinting body — get_or_decode_glyph's outline path AND set_ppem →
+            // allsorts Interpreter::dispatch (opcode jump table → OOB) — is removed from the lift
+            // closure entirely. SEPARATE concern from the transpiler's jump-table devirt: web has
+            // no use for hinted advances regardless of lift quality. Native is unchanged.
+            #[cfg(feature = "web_lift")]
+            {
+                let _ = (glyph_index, ppem);
+                None
+            }
+            #[cfg(not(feature = "web_lift"))]
+            {
             let glyph = self.get_or_decode_glyph(glyph_index)?;
 
             let upem = self.font_metrics.units_per_em;
@@ -1721,6 +2031,7 @@ pub mod parsed {
                 let rounded = (adv_f26dot6.to_bits() + 32) & !63;
                 Some(rounded as f32 / 64.0)
             }
+            } // [az-web-lift] end #[cfg(not(web_lift))] hinting body
         }
 
         /// Get the number of glyphs in this font
@@ -2014,10 +2325,11 @@ pub mod parsed {
             language: crate::font_traits::Language,
             direction: crate::font_traits::BidiDirection,
             style: &crate::font_traits::StyleProperties,
-        ) -> Result<Vec<crate::font_traits::Glyph>, crate::font_traits::LayoutError> {
+            out: &mut Vec<crate::font_traits::Glyph>, // [g127] out-param (avoid sret Vec-len mis-lift)
+        ) -> Result<(), crate::font_traits::LayoutError> {
             // Call the existing shape_text_for_parsed_font method (defined in default.rs)
             crate::text3::default::shape_text_for_parsed_font(
-                self, text, script, language, direction, style,
+                self, text, script, language, direction, style, out,
             )
         }
 

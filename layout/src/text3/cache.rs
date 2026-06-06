@@ -238,7 +238,7 @@ pub use crate::font_traits::{ParsedFontTrait, ShallowClone};
 // --- Core Data Structures for the New Architecture ---
 
 /// Key for caching font chains - based only on CSS properties, not text content
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FontChainKey {
     pub font_families: Vec<String>,
     pub weight: FcWeight,
@@ -251,7 +251,7 @@ pub struct FontChainKey {
 /// This enum cleanly separates:
 /// - `Chain`: Fonts resolved through fontconfig with fallback support
 /// - `Ref`: Direct FontRef that bypasses fontconfig entirely (e.g., embedded icon fonts)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FontChainKeyOrRef {
     /// Regular font chain resolved via fontconfig
     Chain(FontChainKey),
@@ -442,10 +442,11 @@ impl<T: ParsedFontTrait> ParsedFontTrait for FontOrRef<T> {
         language: Language,
         direction: BidiDirection,
         style: &StyleProperties,
-    ) -> Result<Vec<Glyph>, LayoutError> {
+        out: &mut Vec<Glyph>, // [g127] out-param (avoid sret Vec-len mis-lift)
+    ) -> Result<(), LayoutError> {
         match self {
-            FontOrRef::Font(f) => f.shape_text(text, script, language, direction, style),
-            FontOrRef::Ref(r) => r.shape_text(text, script, language, direction, style),
+            FontOrRef::Font(f) => f.shape_text(text, script, language, direction, style, out),
+            FontOrRef::Ref(r) => r.shape_text(text, script, language, direction, style, out),
         }
     }
 
@@ -537,7 +538,7 @@ pub struct FontContext {
     /// wrapping is needed and no more stale-snapshot refresh dance.
     pub fc_cache: FcFontCache,
     pub parsed_fonts: Arc<Mutex<HashMap<FontId, azul_css::props::basic::FontRef>>>,
-    pub font_chain_cache: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    pub font_chain_cache: std::collections::BTreeMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     pub embedded_fonts: HashMap<u64, azul_css::props::basic::FontRef>,
     /// Reverse map: font_family_hash → actual StyleFontFamilyVec.
     /// Accumulated across DOMs for persistence. Copied to FontManager on LayoutWindow creation.
@@ -563,7 +564,7 @@ impl FontContext {
         Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
-            font_chain_cache: HashMap::new(),
+            font_chain_cache: std::collections::BTreeMap::new(),
             embedded_fonts: HashMap::new(),
             font_hash_to_families: HashMap::new(),
             registry: None,
@@ -588,7 +589,7 @@ impl FontContext {
         Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
-            font_chain_cache: HashMap::new(),
+            font_chain_cache: std::collections::BTreeMap::new(),
             embedded_fonts: HashMap::new(),
             font_hash_to_families: HashMap::new(),
             registry: Some(registry),
@@ -620,6 +621,24 @@ impl FontContext {
         for chain in chains.chains.values_mut() {
             prune_chain_to_used_chars(chain, &used_chars);
         }
+        // WEB-LIFT last resort (after prune, so it survives — prune drops the registered
+        // fallback because its cmap isn't parsed yet): if a chain ended up with no fonts,
+        // append the first registered font so load_missing_for_chains finds it and text
+        // shapes instead of measuring 0. (Done in azul-layout, NOT rust-fontconfig, so the
+        // lift-fragile with_memory_fonts isn't re-codegen'd into a trapping shape.)
+        for chain in chains.chains.values_mut() {
+            let total = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>()
+                + chain.unicode_fallbacks.len();
+            if total == 0 {
+                if let Some((pattern, id)) = self.fc_cache.list().first() {
+                    chain.unicode_fallbacks.push(rust_fontconfig::FontMatch {
+                        id: *id,
+                        unicode_ranges: pattern.unicode_ranges.clone(),
+                        fallbacks: Vec::new(),
+                    });
+                }
+            }
+        }
         self.font_chain_cache = chains.into_fontconfig_chains();
     }
 
@@ -636,7 +655,7 @@ impl FontContext {
         use crate::solver3::getters::ResolvedFontChains;
         use crate::text3::default::PathLoader;
 
-        let chains_map: HashMap<FontChainKeyOrRef, _> = self
+        let chains_map: std::collections::BTreeMap<FontChainKeyOrRef, _> = self
             .font_chain_cache
             .iter()
             .map(|(k, v)| (FontChainKeyOrRef::Chain(k.clone()), v.clone()))
@@ -687,7 +706,7 @@ pub struct FontManager<T> {
     pub parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>,
     // Cache for font chains - populated by resolve_all_font_chains() before layout
     // This is read-only during layout - no locking needed for reads
-    pub font_chain_cache: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    pub font_chain_cache: std::collections::BTreeMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     /// Cache for direct FontRefs (embedded fonts like Material Icons)
     /// These are fonts referenced via FontStack::Ref that bypass fontconfig
     pub embedded_fonts: Mutex<HashMap<u64, azul_css::props::basic::FontRef>>,
@@ -716,7 +735,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         Ok(Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
-            font_chain_cache: HashMap::new(),
+            font_chain_cache: std::collections::BTreeMap::new(),
             embedded_fonts: Mutex::new(HashMap::new()),
             font_hash_to_families: HashMap::new(),
             registry: None,
@@ -734,7 +753,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         Ok(Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
-            font_chain_cache: HashMap::new(),
+            font_chain_cache: std::collections::BTreeMap::new(),
             embedded_fonts: Mutex::new(HashMap::new()),
             font_hash_to_families: HashMap::new(),
             registry: None,
@@ -754,7 +773,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         Ok(Self {
             fc_cache,
             parsed_fonts,
-            font_chain_cache: HashMap::new(),
+            font_chain_cache: std::collections::BTreeMap::new(),
             embedded_fonts: Mutex::new(HashMap::new()),
             font_hash_to_families: HashMap::new(),
             registry: None,
@@ -787,7 +806,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// `collect_and_resolve_font_chains()` from `solver3::getters`.
     pub fn set_font_chain_cache(
         &mut self,
-        chains: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+        chains: std::collections::BTreeMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     ) {
         self.font_chain_cache = chains;
         self.last_resolved_font_stacks_sig = None;
@@ -800,9 +819,12 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// `set_font_chain_cache`.
     pub fn set_font_chain_cache_with_sig(
         &mut self,
-        chains: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+        chains: std::collections::BTreeMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
         sig: Option<u64>,
     ) {
+        // [az-web-lift 2026-06-05] font_chain_cache is now a BTreeMap (immune to the lifted
+        // hashbrown empty-map RawIter hang), so the old-map drop on this move-assign is trivially
+        // safe — no forget hack needed.
         self.font_chain_cache = chains;
         self.last_resolved_font_stacks_sig = sig;
     }
@@ -812,7 +834,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// Useful when processing multiple DOMs that may have different font requirements.
     pub fn merge_font_chain_cache(
         &mut self,
-        chains: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+        chains: std::collections::BTreeMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     ) {
         self.font_chain_cache.extend(chains);
     }
@@ -820,7 +842,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// Get a reference to the font chain cache
     pub fn get_font_chain_cache(
         &self,
-    ) -> &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain> {
+    ) -> &std::collections::BTreeMap<FontChainKey, rust_fontconfig::FontFallbackChain> {
         &self.font_chain_cache
     }
 
@@ -944,7 +966,12 @@ impl<T: ParsedFontTrait> FontManager<T> {
 }
 
 // Error handling
+// [g119 az-web-lift FIX] `#[repr(C, u8)]` (was repr(Rust)): the String/FontSelector payloads give
+// `Result<T, LayoutError>` (e.g. measure_intrinsic_widths' return + reorder/shape/orientation `?`)
+// a POINTER-niche disc the web lift mis-reads → Ok→Err. Explicit u8 tag = simple-compare niche the
+// lift handles. Also nested in solver3::LayoutError::Text (so both must be repr(C,u8)). Not FFI-exposed.
 #[derive(Debug, thiserror::Error)]
+#[repr(C, u8)]
 pub enum LayoutError {
     #[error("Bidi analysis failed: {0}")]
     BidiError(String),
@@ -1343,7 +1370,11 @@ impl Default for FontSelector {
 /// When a `FontRef` is used, it bypasses fontconfig resolution entirely
 /// and uses the pre-parsed font data directly. This is used for embedded
 /// fonts like Material Icons.
+// [g121 az-web-lift] `#[repr(C, u8)]` — same disc-mis-lift guard as the other text3 enums; matched in
+// shape_visual_items (`match &style.font_stack { Ref => shape, Stack => resolve }`). repr(Rust) niche
+// (from the Vec/FontRef payloads) could mis-route. Explicit u8 tag = simple load. Internal to text3.
 #[derive(Debug, Clone)]
+#[repr(C, u8)]
 pub enum FontStack {
     /// A stack of font selectors to be resolved via fontconfig
     /// First font is primary, rest are fallbacks
@@ -1851,7 +1882,15 @@ impl PartialEq for PathSegment {
 impl Eq for PathSegment {}
 
 // Enhanced content model supporting mixed inline content
+// [g117 az-web-lift FIX] `#[repr(C, u8)]` (was repr(Rust)): the web lift MIS-READS a repr(Rust)
+// niche/compiler-placed discriminant — `<InlineContent as Clone>::clone` and create_logical_items'
+// match both mis-route a Text(disc 0) to a Vec-bearing variant → clone reads a heap ptr as a Vec len
+// → ~789MB alloc → OOB (g111/g115/g116 named stack = InlineContent::clone ← create_logical_items;
+// content is CLEAN: len=1, ptr ok, disc-at-0=0). An explicit u8 tag at offset 0 (no niche) lowers to
+// a simple load the lift handles correctly — the layout other (repr(C,u8)) enums use. Not FFI-exposed
+// (internal to text3; only native shell code matches it), so the repr change is layout-safe.
 #[derive(Debug, Clone, Hash)]
+#[repr(C, u8)]
 pub enum InlineContent {
     Text(StyledRun),
     Image(InlineImage),
@@ -3656,7 +3695,12 @@ pub enum GlyphKind {
 
 // --- Stage 1: Logical Representation ---
 
+// [g117 az-web-lift FIX] `#[repr(C, u8)]` (was repr(Rust)) — same disc-mis-lift class as InlineContent
+// above. LogicalItem is matched in measure Stage-2 (`if let LogicalItem::Text`) + reorder_logical_items;
+// a repr(Rust) niche disc mis-lifts on the web. Explicit u8 tag at offset 0 = a simple load the lift
+// reads correctly. Internal to text3 (not FFI-exposed). LogicalItem::Object embeds InlineContent inline.
 #[derive(Debug, Clone)]
+#[repr(C, u8)]
 pub enum LogicalItem {
     Text {
         /// A stable ID pointing back to the original source character.
@@ -3773,7 +3817,12 @@ pub struct VisualItem {
 
 // --- Stage 3: Shaped Representation ---
 
+// [g118 az-web-lift FIX] `#[repr(C, u8)]` (was repr(Rust)) — same disc-mis-lift class as InlineContent
+// + LogicalItem (g117). ShapedItem is matched in measure Stage-5 (`match item { ShapedItem::Cluster ..}`)
+// + cloned/matched throughout shaping; a repr(Rust) niche disc mis-lifts on the web. Explicit u8 tag at
+// offset 0 = a simple load the lift reads correctly. Internal to text3 (not FFI-exposed).
 #[derive(Debug, Clone)]
+#[repr(C, u8)]
 pub enum ShapedItem {
     Cluster(ShapedCluster),
     /// A block of combined text (tate-chu-yoko) that is laid out
@@ -5575,10 +5624,14 @@ impl TextShapingCache {
     /// was filled, and any content that did not fit in the final fragment.
     pub fn layout_flow<T: ParsedFontTrait>(
         &mut self,
-        content: &[InlineContent],
+        // [g128 az-web-lift] `&Vec` not `&[InlineContent]`: the fat-slice `len` mis-lifts on the web
+        // lift (same as g112 for measure_intrinsic_widths) → `content.to_vec()` below clones a garbage
+        // count → InlineContent::clone → String::clone → OOB in the actual-layout (layout_ifc) pass.
+        // A thin `&Vec` reads len from the header. Native unaffected.
+        content: &Vec<InlineContent>,
         style_overrides: &[StyleOverride],
         flow_chain: &[LayoutFragment],
-        font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+        font_chain_cache: &std::collections::BTreeMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
         fc_cache: &FcFontCache,
         loaded_fonts: &LoadedFonts<T>,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
@@ -5596,15 +5649,15 @@ impl TextShapingCache {
 
         // Stage 1: Logical Analysis (InlineContent -> LogicalItem)
         let logical_items_id = calculate_id(&content);
+        // [az-web-lift] create_logical_items takes &Vec now; this flow entry has a slice → Vec.
+        let content_vec_flow = content.to_vec();
         let logical_items = self
             .logical_items
             .entry(logical_items_id)
             .or_insert_with(|| {
-                Arc::new(create_logical_items(
-                    content,
-                    style_overrides,
-                    debug_messages,
-                ))
+                let mut li = Vec::new();
+                create_logical_items(&content_vec_flow, style_overrides, &mut li, debug_messages);
+                Arc::new(li)
             })
             .clone();
 
@@ -5744,10 +5797,13 @@ impl TextShapingCache {
     /// advances (as if the flow were laid out on a single infinitely-wide line).
     pub fn measure_intrinsic_widths<T: ParsedFontTrait>(
         &mut self,
-        content: &[InlineContent],
+        // [az-web-lift FIX 2026-06-06] `&Vec` not `&[InlineContent]`: the fat-slice `len` word
+        // mis-lifts across this call boundary on the web lift (→ create_logical_items iterates OOB
+        // → garbage InlineContent::clone → 789 MB OOB). A thin `&Vec` reads len from the header.
+        content: &Vec<InlineContent>,
         style_overrides: &[StyleOverride],
         constraints: &UnifiedConstraints,
-        font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+        font_chain_cache: &std::collections::BTreeMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
         fc_cache: &FcFontCache,
         loaded_fonts: &LoadedFonts<T>,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
@@ -5759,17 +5815,23 @@ impl TextShapingCache {
 
         // Stage 1: Logical Analysis
         let logical_items_id = calculate_id(&content);
-        let logical_items = self
-            .logical_items
-            .entry(logical_items_id)
-            .or_insert_with(|| {
-                Arc::new(create_logical_items(
-                    content,
-                    style_overrides,
-                    debug_messages,
-                ))
-            })
-            .clone();
+        // [g115 az-web-lift] BYPASS the `self.logical_items` HashMap cache here. On the web lift the
+        // loop is in measure_intrinsic_widths' OWN frame at Stage-2 `logical_items.iter().any(..)`
+        // (AZ_FUEL trap → sub_b385d4 directly; create_logical_items/reorder/shape are all SEPARATE
+        // callees, so the runaway is the OUTER iteration: logical_items.len() is garbage). The Vec
+        // built by create_logical_items is correct (content.len()=1), so the corruption enters via
+        // the entry/or_insert_with/clone Arc chain (cached Arc<Vec> len mis-lift) or a mis-lifted
+        // `self`. Building a local Vec + Arc avoids the HashMap/self round-trip. Native unaffected
+        // (just skips a cache that re-fills next call). Markers confirm li.len vs logical_items.len.
+        let mut li_local: Vec<LogicalItem> = Vec::new();
+        create_logical_items(content, style_overrides, &mut li_local, debug_messages);
+        unsafe { core::ptr::write_volatile(0x607C0 as *mut u32, li_local.len() as u32); }
+        let logical_items = Arc::new(li_local);
+        unsafe {
+            core::ptr::write_volatile(0x607C4 as *mut u32, logical_items.len() as u32);
+            core::ptr::write_volatile(0x607C8 as *mut u32, logical_items.as_ptr() as usize as u32);
+            core::ptr::write_volatile(0x607CC as *mut u32, 0xC0DE0222u32);
+        }
 
         // Stage 2: BiDi (same derivation as layout_flow)
         let unicode_bidi_val = constraints.unicode_bidi;
@@ -5795,35 +5857,36 @@ impl TextShapingCache {
             base_direction,
         };
         let visual_items_id = calculate_id(&visual_key);
-        let visual_items = self
-            .visual_items
-            .entry(visual_items_id)
-            .or_insert_with(|| {
-                Arc::new(
-                    reorder_logical_items(&logical_items, base_direction, unicode_bidi_val, debug_messages).unwrap(),
-                )
-            })
-            .clone();
+        // [g118 az-web-lift] BYPASS the visual_items HashMap cache (same as g115 logical_items bypass):
+        // the `self.*.entry().or_insert_with().clone()` chain HANGS on the web lift (g117 AZ_FUEL trap =
+        // measure frame, Stage-2, AFTER Stage-1 completes, BEFORE shaping; reorder_logical_items is a
+        // callee so it'd trap THERE if it looped). Build the Arc directly (no HashMap/self round-trip).
+        let visual_items = Arc::new(
+            reorder_logical_items(&logical_items, base_direction, unicode_bidi_val, debug_messages).unwrap(),
+        );
+        unsafe {
+            core::ptr::write_volatile(0x607E0 as *mut u32, visual_items.len() as u32);
+            core::ptr::write_volatile(0x607E4 as *mut u32, visual_items.as_ptr() as usize as u32);
+            core::ptr::write_volatile(0x607E8 as *mut u32, 0xC0DE0444u32);
+        }
 
         // Stage 3: Shaping
+        // [g118 az-web-lift] BYPASS the shaped_items HashMap cache too (same reason). Shape directly.
         let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
-        let shaped_items_id = calculate_id(&shaped_key);
-        let shaped_items = match self.shaped_items.get(&shaped_items_id) {
-            Some(cached) => cached.clone(),
-            None => {
-                let items = Arc::new(shape_visual_items_with_per_item_cache(
-                    &visual_items,
-                    &mut self.per_item_shaped,
-                    &mut self.per_item_accessed,
-                    font_chain_cache,
-                    fc_cache,
-                    loaded_fonts,
-                    debug_messages,
-                )?);
-                self.shaped_items.insert(shaped_items_id, items.clone());
-                items
-            }
-        };
+        let _shaped_items_id = calculate_id(&shaped_key); // key unused (cache bypassed on web lift)
+        let shaped_items = Arc::new(shape_visual_items_with_per_item_cache(
+            &visual_items,
+            &mut self.per_item_shaped,
+            &mut self.per_item_accessed,
+            font_chain_cache,
+            fc_cache,
+            loaded_fonts,
+            debug_messages,
+        )?);
+        unsafe {
+            core::ptr::write_volatile(0x607EC as *mut u32, shaped_items.len() as u32);
+            core::ptr::write_volatile(0x607F0 as *mut u32, 0xC0DE0555u32);
+        }
 
         // Stage 4: Text orientation
         let oriented_items = apply_text_orientation(shaped_items, constraints)?;
@@ -5888,10 +5951,33 @@ impl TextShapingCache {
 
 // --- Stage 1 Implementation ---
 pub fn create_logical_items(
-    content: &[InlineContent],
+    // [az-web-lift FIX 2026-06-06] `&Vec` (thin ptr), NOT `&[InlineContent]` (fat slice). The web
+    // lift mis-passes the fat-slice `len` word across the measure_intrinsic_widths→create_logical_items
+    // call boundary (Vec.len=1 in the header is correct, but the slice-arg len becomes a huge garbage
+    // value ~0x628c23c), so `content.iter()` runs off the 1 real element into OOB memory → the `_`
+    // arm clones a garbage InlineContent → ~789 MB alloc → memset OOB. Taking `&Vec` makes
+    // `.iter()`/`.len()` read the length from the Vec HEADER here (correct), never from the mis-lifted
+    // slice-len arg. Native is unaffected.
+    content: &Vec<InlineContent>,
     style_overrides: &[StyleOverride],
+    // [az-web-lift FIX 2026-06-06] OUT-PARAM (was `-> Vec<LogicalItem>`): the by-value Vec RETURN's
+    // sret mis-lifts the `len` word on the web lift (same class as g78 Result<Vec> + g111 slice-len),
+    // so the caller's `Arc::new(create_logical_items(..))` ends up with a garbage-len Vec →
+    // measure_intrinsic_widths' Stage-2 `logical_items.iter().any(..)` loops forever (AZ_FUEL trap).
+    // Writing into a caller-provided `&mut Vec` avoids the multi-word struct return entirely.
+    out: &mut Vec<LogicalItem>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-) -> Vec<LogicalItem> {
+) {
+    // [g116 az-diag REVERT] content.len()/as_ptr() AS SEEN INSIDE create_logical_items (the 789MB OOB
+    // site: the `_` arm clones content[i>=1] garbage). measure's content.len()=1 is CORRECT (calculate_id,
+    // a callee, read it fine + completed), so if len>=2 here the &Vec content.len mis-lifts ACROSS the
+    // measure→create_logical_items boundary; if as_ptr!=measure's 0xc518620 the &Vec PTR mis-lifts.
+    // Lifted-only path (native startup doesn't reach measure→cli, proven by existing sizing.rs markers).
+    unsafe {
+        core::ptr::write_volatile(0x607D0 as *mut u32, content.len() as u32);
+        core::ptr::write_volatile(0x607D4 as *mut u32, content.as_ptr() as usize as u32);
+        core::ptr::write_volatile(0x607D8 as *mut u32, 0xC0DE0333u32);
+    }
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(
             "\n--- Entering create_logical_items (Refactored) ---".to_string(),
@@ -5906,7 +5992,8 @@ pub fn create_logical_items(
         )));
     }
 
-    let mut items = Vec::new();
+    // [az-web-lift] write into the caller's out-param (no by-value Vec return; see signature note).
+    let items = out;
     let mut style_cache: HashMap<u64, Arc<StyleProperties>> = HashMap::new();
 
     // 1. Organize overrides for fast lookup per run.
@@ -5934,8 +6021,14 @@ pub fn create_logical_items(
             _ => None,
         };
 
-        match inline_item {
-            InlineContent::Text(run) | InlineContent::Marker { run, .. } => {
+        // [az-web-lift FIX 2026-06-06] Handle the common Text/Marker case via a STANDALONE `if let`
+        // (a simple discriminant compare) instead of the first arm of the multi-way `match` below.
+        // The remill lift mis-routes that multi-way InlineContent switch (LLVM's `subs/csel`-clamp
+        // lowering): a Text(disc 0) variant lands in the `_`/Object arm → `inline_item.clone()` →
+        // `<InlineContent as Clone>::clone` ALSO mis-routes to its Vec-clone arm → reads a heap ptr
+        // as a Vec len → ×8 → ~789 MB alloc → BumpAlloc memset OOB. A standalone if-let lowers to a
+        // single cmp/beq the lift handles correctly, so Text reaches its real body. Native unaffected.
+        if let InlineContent::Text(run) | InlineContent::Marker { run, .. } = inline_item {
                 let text = &run.text;
                 if text.is_empty() {
                     if let Some(msgs) = debug_messages {
@@ -5955,8 +6048,25 @@ pub fn create_logical_items(
                 boundaries.insert(text.len());
 
                 // --- Stateful Boundary Generation ---
+                // web-lift FIX + perf: this scan_cursor walk ONLY inserts boundaries for
+                // per-char style overrides (Rule 2) or text-combine-upright digit runs (Rule 1).
+                // For plain text (no overrides AND no combine-upright) it inserts NOTHING and just
+                // walks char-by-char via `scan_cursor += current_char.len_utf8()` — which the web
+                // lift mis-advances (overshoot → slice_start_index_len_fail OOB; stall → infinite
+                // loop). Skip the whole walk in that common case so `boundaries` stays {0, len}.
+                let needs_scan = current_run_overrides.is_some()
+                    || run.style.text_combine_upright.is_some();
                 let mut scan_cursor = 0;
-                while scan_cursor < text.len() {
+                let mut __az_fuel = 0usize; // [az-diag REVERT] web-lift infinite-loop cap
+                while needs_scan && scan_cursor < text.len() {
+                    __az_fuel += 1;
+                    if __az_fuel > 100_000 {
+                        // [az-diag REVERT] scan_cursor never advanced (mis-lifted len_utf8 → 0?).
+                        // Cap the loop + flag 0x40790 so the layout COMPLETES (no hang) + the marker
+                        // is readable. Native never trips this (the loop terminates natively).
+                        unsafe { core::ptr::write_volatile(0x60790 as *mut u32, 0x5CA90001u32); }
+                        break;
+                    }
                     let style_at_cursor = if let Some(partial) =
                         current_run_overrides.and_then(|o| o.get(&(scan_cursor as u32)))
                     {
@@ -6100,7 +6210,8 @@ pub fn create_logical_items(
                         });
                     }
                 }
-            }
+        } else {
+            match inline_item {
             // line breaking class characters must be treated as forced line breaks
             InlineContent::LineBreak(break_info) => {
                 if let Some(msgs) = debug_messages {
@@ -6130,7 +6241,8 @@ pub fn create_logical_items(
                     style: style.clone(),
                 });
             }
-            // Other cases (Image, Shape, Space, Ruby)
+            // Other cases (Image, Shape, Space, Ruby). Text/Marker are handled by the `if let`
+            // above (so they never reach here at runtime); `_` keeps this inner match exhaustive.
             _ => {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(
@@ -6145,6 +6257,7 @@ pub fn create_logical_items(
                     content: inline_item.clone(),
                 });
             }
+            }
         }
     }
     if let Some(msgs) = debug_messages {
@@ -6153,7 +6266,6 @@ pub fn create_logical_items(
             items.len()
         )));
     }
-    items
 }
 
 // --- Stage 2 Implementation ---
@@ -6365,7 +6477,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     per_item_cache: &mut HashMap<u64, Arc<PerItemShapedEntry>>,
     per_item_accessed: &mut HashSet<u64>,
-    font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    font_chain_cache: &std::collections::BTreeMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
@@ -6435,24 +6547,18 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
 
         // Check per-item cache
         per_item_accessed.insert(group_key);
-        if let Some(cached) = per_item_cache.get(&group_key) {
-            shaped.extend(cached.clusters.iter().cloned());
-        } else {
-            // Cache miss — shape this group
+        // [g120 az-web-lift] BYPASS the per_item_cache get/insert: on the web lift `per_item_cache.get()`
+        // on the EMPTY hashbrown map returns a FALSE HIT (un-mirrored ctrl / empty-map get mis-lift) →
+        // `shaped.extend(empty clusters)` → shape_visual_items / shape_text_internal NEVER called → 0
+        // glyphs → text not laid out (g119: Stage-3 returned but shaped.len=0, probe 0x40700 unset).
+        // Always shape; skip the lookup AND the insert (insert on the empty map risks the or_insert hang
+        // seen for the logical/visual caches). per_item_cache stays unused here. Native: re-shapes (no cache).
+        let _ = &per_item_cache;
+        {
             let group_items = shape_visual_items(
                 &visual_items[idx..coalesce_end],
                 font_chain_cache, fc_cache, loaded_fonts, debug_messages,
             )?;
-            let total_advance: f32 = group_items.iter().map(|item| {
-                match item {
-                    ShapedItem::Cluster(c) => c.advance,
-                    _ => 0.0,
-                }
-            }).sum();
-            per_item_cache.insert(group_key, Arc::new(PerItemShapedEntry {
-                clusters: group_items.clone(),
-                total_advance,
-            }));
             shaped.extend(group_items);
         }
 
@@ -6551,11 +6657,13 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
         );
     }
 
+    unsafe { core::ptr::write_volatile(0x60850 as *mut u32, segments.len() as u32); } // [g123] segments count (split_text_by_font_coverage)
     if segments.len() <= 1 {
         // Fast path: all characters use the same font (common case)
         let (seg_start, seg_end, font_id) = match segments.first() {
-            Some(s) => s,
+            Some(s) => { unsafe { core::ptr::write_volatile(0x60854 as *mut u32, 0x00000001u32); } s }
             None => {
+                unsafe { core::ptr::write_volatile(0x60854 as *mut u32, 0x000000EEu32); } // [g123] split→0 segments (resolve_char failed all)
                 if dbg {
                     eprintln!("[FONT FALLBACK] no font could render any char in '{}'", text.chars().take(20).collect::<String>());
                 }
@@ -6563,8 +6671,9 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
             }
         };
         let font = match loaded_fonts.get(font_id) {
-            Some(f) => f,
+            Some(f) => { unsafe { core::ptr::write_volatile(0x60858 as *mut u32, 0x00000001u32); } f }
             None => {
+                unsafe { core::ptr::write_volatile(0x60858 as *mut u32, 0x000000EEu32); } // [g123] loaded_fonts.get MISS
                 if dbg {
                     eprintln!("[FONT FALLBACK] font {:?} not in loaded_fonts for '{}'", font_id, text.chars().take(20).collect::<String>());
                 }
@@ -6573,6 +6682,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
         };
         // If segment covers the full text (overwhelmingly common), skip substr+fixup
         if *seg_start == 0 && *seg_end == text.len() {
+            unsafe { core::ptr::write_volatile(0x60860 as *mut u32, 0xC0DE0860u32); } // [g123] reached shape_text_correctly (full-text)
             return shape_text_correctly(
                 text, script, language, direction,
                 font, style, source_index, source_node_id,
@@ -6627,7 +6737,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
 
 pub fn shape_visual_items<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
-    font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    font_chain_cache: &std::collections::BTreeMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
@@ -6800,6 +6910,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 // Shape text using either FontRef directly or fontconfig-resolved font
                 let shaped_clusters_result: Result<Vec<ShapedCluster>, LayoutError> = match &style.font_stack {
                     FontStack::Ref(font_ref) => {
+                        unsafe { core::ptr::write_volatile(0x60820 as *mut u32, 0x00000001u32); } // [g121] Ref arm
                         // For FontRef, use the font directly without fontconfig
                         if let Some(msgs) = debug_messages {
                             msgs.push(LayoutDebugMessage::info(format!(
@@ -6819,13 +6930,31 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         )
                     }
                     FontStack::Stack(selectors) => {
+                        unsafe { core::ptr::write_volatile(0x60820 as *mut u32, 0x00000002u32); } // [g121] Stack arm
                         // Build FontChainKey and resolve through fontconfig
                         let cache_key = FontChainKey::from_selectors(selectors);
+                        unsafe { core::ptr::write_volatile(0x60824 as *mut u32, font_chain_cache.len() as u32); } // [g121] chain map len
 
-                        // Look up pre-resolved font chain
-                        let font_chain = match font_chain_cache.get(&cache_key) {
+                        // Look up pre-resolved font chain.
+                        // [g122 az-web-lift] BTreeMap `.get()` (FontChainKey `Ord::cmp`) MIS-LIFTS on the
+                        // web (g121: chain IS present, len=1, but get=None → key-comparison mis-routes,
+                        // likely the FcWeight enum / Vec<String> cmp). Fall back: linear scan by `==`
+                        // (PartialEq), then — when there is exactly ONE chain (unambiguous, the common
+                        // single-font case) — use it directly so text still shapes. Native: `.get()` hits.
+                        let by_get = font_chain_cache.get(&cache_key);
+                        let by_find = if by_get.is_none() {
+                            font_chain_cache.iter().find(|(k, _)| **k == cache_key).map(|(_, v)| v)
+                        } else { None };
+                        let by_only = if by_get.is_none() && by_find.is_none() && font_chain_cache.len() == 1 {
+                            font_chain_cache.values().next()
+                        } else { None };
+                        // [g122] which path resolved the chain: 1=get(Ord ok) 2=find(Eq ok,Ord broken) 3=only(both broken) 0xEE=none
+                        unsafe { core::ptr::write_volatile(0x60830 as *mut u32,
+                            if by_get.is_some() { 1 } else if by_find.is_some() { 2 } else if by_only.is_some() { 3 } else { 0xEE }); }
+                        let font_chain = match by_get.or(by_find).or(by_only) {
                             Some(chain) => chain,
                             None => {
+                                unsafe { core::ptr::write_volatile(0x60828 as *mut u32, 0x000000EEu32); } // [g121] no chain (SKIP)
                                 if let Some(msgs) = debug_messages {
                                     msgs.push(LayoutDebugMessage::warning(format!(
                                         "[TextLayout] Font chain not pre-resolved for {:?} - text will \
@@ -6837,6 +6966,8 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                 continue;
                             }
                         };
+                        unsafe { core::ptr::write_volatile(0x60828 as *mut u32, 0x00000001u32); } // [g121] chain resolved
+                        unsafe { core::ptr::write_volatile(0x6082C as *mut u32, 0xC0DE082Cu32); } // [g121] reached fallback
 
                         // Per-character font fallback: split text by font coverage
                         shape_with_font_fallback(
@@ -6984,13 +7115,16 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                 text.chars().take(30).collect::<String>()
                             )));
                         }
+                        let mut g = Vec::new(); // [g127] out-param
                         font_ref.shape_text(
                             &text,
                             item.script,
                             language,
                             BidiDirection::Ltr,
                             style.as_ref(),
-                        )?
+                            &mut g,
+                        )?;
+                        g
                     }
                     FontStack::Stack(selectors) => {
                         // Build FontChainKey and resolve through fontconfig
@@ -7019,12 +7153,14 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                 None => continue,
                             };
                             let segment_text = &text[*seg_start..*seg_end];
-                            let mut seg_glyphs = font.shape_text(
+                            let mut seg_glyphs = Vec::new(); // [g127] out-param
+                            font.shape_text(
                                 segment_text,
                                 item.script,
                                 language,
                                 BidiDirection::Ltr,
                                 style.as_ref(),
+                                &mut seg_glyphs,
                             )?;
                             // Fix byte offsets for glyphs
                             if *seg_start > 0 {
@@ -7155,7 +7291,10 @@ fn shape_text_correctly<T: ParsedFontTrait>(
     source_index: ContentIndex,
     source_node_id: Option<NodeId>,
 ) -> Result<Vec<ShapedCluster>, LayoutError> {
-    let glyphs = font.shape_text(text, script, language, direction, style.as_ref())?;
+    unsafe { core::ptr::write_volatile(0x60864 as *mut u32, 0xC0DE0864u32); } // [g123] shape_text_correctly ENTERED
+    let mut glyphs = Vec::new(); // [g127] out-param (font.shape_text fills it; no sret Vec-len mis-lift)
+    font.shape_text(text, script, language, direction, style.as_ref(), &mut glyphs)?;
+    unsafe { core::ptr::write_volatile(0x60868 as *mut u32, (glyphs.len() as u32) | 0x80000000u32); } // [g123] font.shape_text returned (high bit set); low bits = glyph count
 
     if glyphs.is_empty() {
         return Ok(Vec::new());

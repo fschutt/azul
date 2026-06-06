@@ -808,7 +808,12 @@ pub fn get_ua_property(
         // Without this, <html> has height:auto and grows to fit all content,
         // making container_size == content_size, which results in a useless 100% scrollbar.
         (NT::Html, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Html, PT::Height) => Some(&HEIGHT_100_PERCENT),
+        // ⚠ DIAG (2026-06-02, REVERT): the lifted get_ua_property jump table mis-dispatches
+        // (Text/Button, Height) → THIS (Html, Height) arm → children wrongly get height:100%
+        // → fill parent (600) instead of content. Commenting it out tests whether removing the
+        // ONLY HEIGHT_100_PERCENT producer makes the children auto-height (confirms the chain).
+        // REAL fix = the node_type jump-table dispatch/table-mirror in the lift, not this.
+        // (NT::Html, PT::Height) => Some(&HEIGHT_100_PERCENT),
 
         // Universal fallback for display property
         // Per CSS spec, unknown/custom elements should default to inline

@@ -52,6 +52,16 @@ azul-layout = { path = "layout" }
 # rev-pinned (azul-0.0.9-html tip 2026-06-11, kuchiki-free html feature) so
 # consumers build reproducibly without a printpdf crates.io release.
 printpdf = { git = "https://github.com/fschutt/printpdf", rev = "ed4a768e1fa3ff7ce19ba2e7991f07b3b813e0bf" }
+# NOTE (2026-06-06): dropped the local-path `[patch]` overrides for allsorts-azul +
+# rust-fontconfig (they used absolute machine paths = not committable). They now resolve to
+# the crates.io base versions 0.16.4 / 4.4.2. ⚠ Those base versions do NOT yet contain the
+# WEB-LIFT font fixes that live in the local forks: (1) allsorts tables.rs indexed table
+# lookup (OffsetTable::find_table_record / table_tags — the upstream `.iter().find()` over a
+# lazy ReadArray mis-lifts on remill → font dir empty → parse fails); (2) rust-fontconfig
+# `to_ascii_lowercase` (upstream `to_lowercase` pulls unicode case-fold jump-tables the lift
+# leaves un-devirt'd → MISSING_BLOCK in with_memory_fonts). TODO to restore the web (lifted)
+# font path: publish those fork edits as NEW crates.io versions, or re-add git-URL `[patch]`
+# entries (like printpdf/remill). Native + desktop builds are unaffected by this.
 # turso (SQLite engine for db-sqlite) pulls io-uring on Linux, which has no
 # prebuilt bindings for i686/armv7/s390x. Fork gates io-uring to 64-bit Linux
 # (falls back to UnixIO elsewhere); upstream "io-uring optional" later. All six
@@ -79,6 +89,14 @@ strip = false     # Don't strip symbols so samply can resolve them.
 lto = false       # No LTO for faster local builds.
 codegen-units = 16 # Parallel codegen for faster local builds (~60s → ~20s for azul-layout).
 panic = "abort"   # Removes stack unwinding code (drastic size reduction).
+
+# [g140 az-web-lift] TRIED + REVERTED: per-package opt-level=1 for azul-layout/core/css to
+# de-SROA the native code remill lifts. RESULT = NET REGRESSION: opt-1 produced different
+# machine code that hit NEW unlifted jump-tables/instructions (missing_block 0→39), broke font
+# parse + text shaping (which opt-3 handled), and the dom_children loop STILL read len=0. The
+# careful lift fixes (FMUL, jump-table devirt, etc.) are tuned to opt-3 codegen; changing opt
+# disrupts the lift broadly. Conclusion: opt-level tuning is not the fix — the real fix is in
+# the transpiler's memory-lowering/opt of the (correct) remill IR. Keep at opt-3 (release default).
 
 # CI / distribution profile: maximum optimization, slow to build.
 #   cargo build --profile prod-release -p azul-dll --features build-dll

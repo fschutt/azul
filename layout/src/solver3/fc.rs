@@ -874,6 +874,8 @@ fn layout_bfc<T: ParsedFontTrait>(
     constraints: &LayoutConstraints,
     float_cache: &mut HashMap<usize, FloatingContext>,
 ) -> Result<BfcLayoutResult> {
+    // [az-diag REVERT] wasm-only localization: 0x40704 = last layout fn entered.
+    unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x10u32); }
     let node = tree
         .get(node_index)
         .ok_or(LayoutError::InvalidTree)?
@@ -2388,6 +2390,7 @@ fn layout_ifc<T: ParsedFontTrait>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
+    unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x20u32); }
     let ifc_start = (ctx.get_system_time_fn.cb)();
 
     let float_count = constraints
@@ -2438,8 +2441,32 @@ fn layout_ifc<T: ParsedFontTrait>(
     // +spec:display-property:f3c875 - calculate layout bounds (size contributions) of each inline-level box
     // Phase 1: Collect and measure all inline-level children.
     let phase1_start = (ctx.get_system_time_fn.cb)();
-    let (inline_content, child_map) =
-        collect_and_measure_inline_content(ctx, text_cache, tree, node_index, constraints)?;
+    // [g129/g130 az-web-lift] collect_and_measure uses OUT-PARAMS (no sret-of-(Vec,HashMap)).
+    // The by-value aggregate return mis-lifts on the web backend: the returned Vec's len word reads
+    // pointer-shaped garbage (e.g. ~0x2A000, a stale stack addr) → InlineContent::clone iterates a
+    // 1.6 GB "Vec" → OOB trap. Filling `&mut` out-params + returning `Result<()>` (register-returned,
+    // the result pointer is passed in an arg reg, NOT an sret slot) is the proven M12.7/g78 pattern —
+    // the same one already used by the other 5 aggregate-return sites. Revert with the transpiler fix.
+    let mut inline_content = Vec::new();
+    let mut child_map = HashMap::new();
+    let _collect_result = collect_and_measure_inline_content(
+        ctx,
+        text_cache,
+        tree,
+        node_index,
+        constraints,
+        &mut inline_content,
+        &mut child_map,
+    );
+    // [g133 az-web-lift DIAG] which early-return fires in POSITIONING's layout_ifc.
+    #[cfg(feature = "web_lift")]
+    unsafe {
+        core::ptr::write_volatile(0x60680 as *mut u32, inline_content.len() as u32);
+        core::ptr::write_volatile(0x60684 as *mut u32, if _collect_result.is_ok() { 0xC0DE0680u32 } else { 0x000000EEu32 });
+        // [g134] caller's inline_content pointer — compare vs _impl's content ptr (0x60690).
+        core::ptr::write_volatile(0x606A0 as *mut u32, &inline_content as *const _ as usize as u32);
+    }
+    _collect_result?;
     let _phase1_time = (ctx.get_system_time_fn.cb)().duration_since(&phase1_start);
 
     // #11 fix: hash the inline content once. Used to (a) skip stale Phase 2d
@@ -2621,8 +2648,19 @@ fn layout_ifc<T: ParsedFontTrait>(
         &loaded_fonts,
         ctx.debug_messages,
     ) {
-        Ok(result) => result,
+        Ok(result) => {
+            // [g133 az-web-lift DIAG] layout_flow returned Ok.
+            #[cfg(feature = "web_lift")]
+            unsafe { core::ptr::write_volatile(0x60688 as *mut u32, 0xC0DE0688u32); }
+            result
+        }
         Err(e) => {
+            // [g133 az-web-lift DIAG] layout_flow returned Err → zero-sized (text not positioned).
+            #[cfg(feature = "web_lift")]
+            unsafe {
+                core::ptr::write_volatile(0x60688 as *mut u32, 0x000000EEu32);
+                core::ptr::write_volatile(0x6068C as *mut u32, *(&e as *const _ as *const u32));
+            }
             // Font errors should not stop layout of other elements.
             // Log the error and return a zero-sized layout.
             debug_warning!(ctx, "Text layout failed: {:?}", e);
@@ -2830,6 +2868,17 @@ fn layout_ifc<T: ParsedFontTrait>(
                 }
             }
         }
+    }
+
+    // [g132 az-web-lift VERIFY] Capture the IFC content geometry (the line-box bounds from
+    // main_frag.bounds(), set above as output.overflow_size). height>0 proves the text LAID OUT
+    // (not just shaped). Free-band addrs, f32 bits. REVERT at cleanup.
+    #[cfg(feature = "web_lift")]
+    unsafe {
+        core::ptr::write_volatile(0x60670 as *mut u32, output.overflow_size.width.to_bits());
+        core::ptr::write_volatile(0x60674 as *mut u32, output.overflow_size.height.to_bits());
+        core::ptr::write_volatile(0x60678 as *mut u32, output.positions.len() as u32);
+        core::ptr::write_volatile(0x6067C as *mut u32, 0xC0DE0132u32);
     }
 
     Ok(output)
@@ -3062,6 +3111,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     styled_dom: &StyledDom,
     dom_id: NodeId,
 ) -> UnifiedConstraints {
+    unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x30u32); }
     // DOM-level declared flags: if a bit is clear, no node in this DOM
     // declared the corresponding property → cascade walks always return
     // None, and we use the default value directly. All flags default to
@@ -6396,12 +6446,22 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     tree: &mut LayoutTree,
     ifc_root_index: usize,
     constraints: &LayoutConstraints,
-) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
+    content: &mut Vec<InlineContent>,
+    child_map: &mut HashMap<ContentIndex, usize>,
+) -> Result<()> {
     use crate::solver3::layout_tree::{IfcId, IfcMembership};
     use crate::text3::cache::InlineContent;
 
-    let result = collect_and_measure_inline_content_impl(ctx, text_cache, tree, ifc_root_index, constraints)?;
-    Ok(result)
+    // [g129/g130 az-web-lift] OUT-PARAM (no sret-of-(Vec,HashMap)); see the layout_ifc caller.
+    collect_and_measure_inline_content_impl(
+        ctx,
+        text_cache,
+        tree,
+        ifc_root_index,
+        constraints,
+        content,
+        child_map,
+    )
 }
 
 fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
@@ -6410,7 +6470,9 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     tree: &mut LayoutTree,
     ifc_root_index: usize,
     constraints: &LayoutConstraints,
-) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
+    content: &mut Vec<InlineContent>,
+    child_map: &mut HashMap<ContentIndex, usize>,
+) -> Result<()> {
     use crate::solver3::layout_tree::{IfcId, IfcMembership};
 
     debug_ifc_layout!(
@@ -6427,13 +6489,29 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         cold_node.ifc_id = Some(ifc_id);
     }
 
-    let mut content = Vec::new();
-    // Maps the `ContentIndex` used by text3 back to the `LayoutNode` index.
-    let mut child_map = HashMap::new();
+    // [g129/g130 az-web-lift] `content` and `child_map` are now caller-provided out-params
+    // (the by-value `(Vec, HashMap)` return mis-lifted its len on the web backend). The caller
+    // passes them in EMPTY; this body fills them exactly as before. `child_map` maps the
+    // `ContentIndex` used by text3 back to the `LayoutNode` index.
     // Track the current run index for IFC membership assignment
     let mut current_run_index: u32 = 0;
 
+    // [g134/g135 az-web-lift DIAG] out-param pointer + tree validity at _impl entry. The early Err is
+    // the `tree.get(ifc_root_index).ok_or(InvalidTree)?` at 6449/6706 (no other `?` before the first
+    // content push) — capture whether `tree` is valid (nodes.len) and tree.get(idx) actually works.
+    #[cfg(feature = "web_lift")]
+    unsafe {
+        core::ptr::write_volatile(0x60690 as *mut u32, content as *const _ as usize as u32);
+        core::ptr::write_volatile(0x60694 as *mut u32, ifc_root_index as u32 | 0xC0DE0000u32);
+        core::ptr::write_volatile(0x606A8 as *mut u32, tree.nodes.len() as u32);
+        core::ptr::write_volatile(0x606AC as *mut u32, tree.get(ifc_root_index).is_some() as u32 | 0xC0DE0000u32);
+        core::ptr::write_volatile(0x606B0 as *mut u32, tree.root as u32);
+    }
+
     let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;
+    // [g135] reached past the 6449 tree.get.
+    #[cfg(feature = "web_lift")]
+    unsafe { core::ptr::write_volatile(0x606A4 as *mut u32, 0x0000_6449u32); }
 
     // Check if this is an anonymous IFC wrapper (has no DOM ID)
     let is_anonymous = ifc_root_node.dom_node_id.is_none();
@@ -6462,7 +6540,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     Some(id) => id,
                     None => {
                         debug_warning!(ctx, "IFC root and all ancestors/children have no DOM ID");
-                        return Ok((content, child_map));
+                        return Ok(());
                     }
                 }
             }
@@ -6674,15 +6752,15 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     tree,
                     dom_id,
                     span_style,
-                    &mut content,
-                    &mut child_map,
+                    content,
+                    child_map,
                     &children,
                     constraints,
                 )?;
             }
         }
 
-        return Ok((content, child_map));
+        return Ok(());
     }
 
     // Regular (non-anonymous) IFC root - check for list markers and use DOM traversal
@@ -6691,6 +6769,9 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     // Case 1: IFC root itself is list-item (e.g., <li> with display: list-item)
     // Case 2: IFC root's parent is list-item (e.g., <li><text>...</text></li>)
     let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;
+    // [g135] reached past the 6706 tree.get.
+    #[cfg(feature = "web_lift")]
+    unsafe { core::ptr::write_volatile(0x606A4 as *mut u32, 0x0000_6706u32); }
     let mut list_item_dom_id: Option<NodeId> = None;
 
     // Check IFC root itself
@@ -6836,10 +6917,6 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         node_hier_item.last_child_id()
     );
 
-    let dom_children: Vec<NodeId> = ifc_root_dom_id
-        .az_children(&ctx.styled_dom.node_hierarchy.as_container())
-        .collect();
-
     let ifc_root_node_data = &ctx.styled_dom.node_data.as_container()[ifc_root_dom_id];
 
     // SPECIAL CASE: If the IFC root itself is a text node (leaf node),
@@ -6853,29 +6930,60 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             style,
         );
         content.extend(text_items);
-        return Ok((content, child_map));
+        return Ok(());
     }
 
-    let ifc_root_node_type = match ifc_root_node_data.get_node_type() {
+    let _ifc_root_node_type = match ifc_root_node_data.get_node_type() {
         NodeType::Div => "Div",
         NodeType::Text(_) => "Text",
         NodeType::Body => "Body",
         _ => "Other",
     };
 
-    debug_info!(
-        ctx,
-        "[collect_and_measure_inline_content] IFC root has {} DOM children",
-        dom_children.len()
-    );
+    // [g138 az-web-lift] Collect `dom_children` HERE — immediately before the loop, AFTER the
+    // get_node_type() calls above. Those calls were corrupting the `dom_children` Vec's stack-slot
+    // header (g137 PROVED: `dom_children.len()` reads 1 right after `.collect()` but 0 in the loop's
+    // `0..len` range a few calls later — the recurring SP-leak / stack-address mis-lift). With NO call
+    // between this `.collect()` and the loop, the header survives the range evaluation + first index.
+    let dom_children: Vec<NodeId> = ifc_root_dom_id
+        .az_children(&ctx.styled_dom.node_hierarchy.as_container())
+        .collect();
+    // [g139 az-web-lift] The loop's `dom_children.len()` read MIS-LIFTS to 0 even though the in-memory
+    // value is 1 (g138: the volatile marker reads 1 but the loop's `0..len` range reads 0 with NOTHING
+    // between — the optimizer's SROA'd len read is mis-tracked by the lift; only a FORCED/volatile read is
+    // correct; same Vec-len mis-lift class as the original sret bug, here on std `collect()` which can't be
+    // out-param'd). Read len via a volatile round-trip (guaranteed-correct, like the marker) and index via
+    // get_unchecked (the index's bounds-check len read mis-lifts the same way; len is valid → sound).
+    #[cfg(feature = "web_lift")]
+    let dom_children_len = unsafe {
+        core::ptr::write_volatile(0x606B4 as *mut u32, dom_children.len() as u32);
+        core::ptr::write_volatile(0x606A4 as *mut u32, 0x0000_6863u32);
+        core::ptr::read_volatile(0x606B4 as *const u32) as usize
+    };
+    #[cfg(not(feature = "web_lift"))]
+    let dom_children_len = dom_children.len();
 
-    for (item_idx, &dom_child_id) in dom_children.iter().enumerate() {
+    for item_idx in 0..dom_children_len {
+        let dom_child_id = unsafe { *dom_children.get_unchecked(item_idx) };
         let content_index = ContentIndex {
             run_index: ifc_root_index as u32,
             item_index: item_idx as u32,
         };
 
         let node_data = &ctx.styled_dom.node_data.as_container()[dom_child_id];
+        // [g136] loop body entered; capture the FIRST child's node_type (does it read as Text?).
+        #[cfg(feature = "web_lift")]
+        unsafe {
+            if item_idx == 0 {
+                core::ptr::write_volatile(0x606B8 as *mut u32, match node_data.get_node_type() {
+                    NodeType::Text(_) => 0xC0DE_7E70u32,
+                    NodeType::Div => 0xC0DE_D11Fu32,
+                    NodeType::Body => 0xC0DE_B0D1u32,
+                    _ => 0xC0DE_0000u32,
+                });
+            }
+            core::ptr::write_volatile(0x606A4 as *mut u32, 0x0000_6896u32);
+        }
 
         // Check if this is a text node
         if let NodeType::Text(ref text_content) = node_data.get_node_type() {
@@ -6897,7 +7005,13 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 style,
             );
             content.extend(text_items);
-            
+            // [g136] TEXT branch taken + pushed; content.len now.
+            #[cfg(feature = "web_lift")]
+            unsafe {
+                core::ptr::write_volatile(0x606A4 as *mut u32, 0x0000_6905u32);
+                core::ptr::write_volatile(0x606BC as *mut u32, content.len() as u32);
+            }
+
             // Set IFC membership on the text node's layout node (if it exists)
             // Text nodes may or may not have their own layout tree entry depending on
             // whether they're wrapped in an anonymous IFC wrapper
@@ -6935,6 +7049,9 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             continue;
         };
 
+        // [g136] NON-TEXT branch taken (text child mis-classified?) — reached tree.get(child_index).
+        #[cfg(feature = "web_lift")]
+        unsafe { core::ptr::write_volatile(0x606A4 as *mut u32, 0x0000_6942u32); }
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         // At this point we have a non-text DOM child with a layout node
         let dom_id = child_node.dom_node_id.unwrap();
@@ -7225,14 +7342,20 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 tree,
                 dom_id,
                 span_style,
-                &mut content,
-                &mut child_map,
+                content,
+                child_map,
                 &children,
                 constraints,
             )?;
         }
     }
-    Ok((content, child_map))
+    // [g134 az-web-lift DIAG] _impl reached its FINAL return; content.len as _impl sees it.
+    #[cfg(feature = "web_lift")]
+    unsafe {
+        core::ptr::write_volatile(0x60698 as *mut u32, content.len() as u32);
+        core::ptr::write_volatile(0x6069C as *mut u32, 0xC0DE069Cu32);
+    }
+    Ok(())
 }
 
 // +spec:display-property:c05c53 - inlinifying boxes can't contain block-level boxes; children are recursively inlinified

@@ -3456,7 +3456,7 @@ pub struct ResolvedFontChains {
     /// Map from FontChainKeyOrRef to the resolved FontFallbackChain
     /// For FontChainKeyOrRef::Ref variants, the FontFallbackChain contains
     /// a single-font chain that covers the entire Unicode range.
-    pub chains: HashMap<FontChainKeyOrRef, FontFallbackChain>,
+    pub chains: std::collections::BTreeMap<FontChainKeyOrRef, FontFallbackChain>,
 }
 
 impl ResolvedFontChains {
@@ -3484,7 +3484,7 @@ impl ResolvedFontChains {
     /// Consume self and return the inner HashMap with FontChainKeyOrRef keys
     ///
     /// This is useful when you need access to both Chain and Ref variants.
-    pub fn into_inner(self) -> HashMap<FontChainKeyOrRef, FontFallbackChain> {
+    pub fn into_inner(self) -> std::collections::BTreeMap<FontChainKeyOrRef, FontFallbackChain> {
         self.chains
     }
 
@@ -3492,14 +3492,24 @@ impl ResolvedFontChains {
     ///
     /// This filters out FontRef entries and returns only the chains
     /// resolved via fontconfig. This is what FontManager expects.
-    pub fn into_fontconfig_chains(self) -> HashMap<FontChainKey, FontFallbackChain> {
-        self.chains
-            .into_iter()
-            .filter_map(|(key, chain)| match key {
-                FontChainKeyOrRef::Chain(chain_key) => Some((chain_key, chain)),
-                FontChainKeyOrRef::Ref(_) => None,
-            })
-            .collect()
+    pub fn into_fontconfig_chains(self) -> std::collections::BTreeMap<FontChainKey, FontFallbackChain> {
+        // [az-web-lift 2026-06-05] Build a BTreeMap (NOT HashMap). The dest `font_chain_cache` is a
+        // BTreeMap so its empty-map ops (drop, build-from-empty) CANNOT hit the lifted hashbrown
+        // empty-static-group RawIter, which loops forever in wasm — and does so ADDRESS-SENSITIVELY
+        // (the per-site with_capacity/forget fixes didn't hold across build-to-build address
+        // shifts). BTreeMap has no ctrl group → immune. The source `self.chains` (HashMap, NON-empty
+        // here) iterates fine via the for-loop; the is_empty guard still skips an empty into_iter.
+        let mut out: std::collections::BTreeMap<FontChainKey, FontFallbackChain> =
+            std::collections::BTreeMap::new();
+        if self.chains.is_empty() {
+            return out;
+        }
+        for (key, chain) in self.chains {
+            if let FontChainKeyOrRef::Chain(chain_key) = key {
+                out.insert(chain_key, chain);
+            }
+        }
+        out
     }
 
     /// Get the number of resolved chains
@@ -3558,12 +3568,42 @@ pub fn collect_font_stacks_from_styled_dom(
     // (font_family_hash, weight, style) tuples. Record one representative
     // node index per unique tuple for the expensive CSS lookup in Phase 2.
     // Key: (font_family_hash, weight_encoded, style_encoded) → representative node index
-    let mut unique_font_keys: HashMap<(u64, u8, u8), usize> = HashMap::new();
+    // [g81 FIX] BTreeMap, NOT HashMap: the FIRST `.entry(key).or_insert()` into this map happens
+    // when it's EMPTY (cap-0), triggering hashbrown's reserve_rehash-from-0 — the g47 lifted
+    // hashbrown EMPTY-INSERT mis-lift, which silently DROPS the insert → unique_font_keys stays len 0
+    // → 0 font stacks → 0 chains → empty font_chain_cache → no font loaded → allsorts builds empty
+    // maps in shape_text → the g47 RawIter hang. BTreeMap has no ctrl-group/empty-static → immune.
+    // (Root of blockers #3+#4 for web-text-min; diag proved n1.nt[0]=177 matched but len stayed 0.)
+    let mut unique_font_keys: std::collections::BTreeMap<(u64, u8, u8), usize> =
+        std::collections::BTreeMap::new();
     let node_count = node_data.internal.len();
 
+    // WEB-LIFT: probe node_type bytes (NodeType #[repr(C,u8)], Text=177 per AzDom_createText).
+    // 0x406D0..DC = n1.node_type bytes[0,1,2,4]; 0x406E0 = n0.node_type byte[0] (body disc).
+    if node_count > 1 {
+        let p1 = (&node_data.internal[1].node_type) as *const _ as *const u8;
+        let p0 = (&node_data.internal[0].node_type) as *const _ as *const u8;
+        unsafe {
+            core::ptr::write_volatile(0x606D0 as *mut u32, core::ptr::read(p1) as u32);
+            core::ptr::write_volatile(0x606D4 as *mut u32, core::ptr::read(p1.add(1)) as u32);
+            core::ptr::write_volatile(0x606D8 as *mut u32, core::ptr::read(p1.add(2)) as u32);
+            core::ptr::write_volatile(0x606DC as *mut u32, core::ptr::read(p1.add(4)) as u32);
+            core::ptr::write_volatile(0x606E0 as *mut u32, core::ptr::read(p0) as u32);
+        }
+    }
     for i in 0..node_count {
-        // Only text nodes need fonts
-        if !matches!(node_data.internal[i].node_type, NodeType::Text(_)) {
+        // Only text nodes need fonts. WEB-LIFT: the lifted `matches!(node_type,
+        // NodeType::Text(_))` MIS-LIFTS (compares against a mis-lifted discriminant
+        // constant) — text nodes never match → no font stack → no chain → text h=0.
+        // NodeType is #[repr(C,u8)] so the discriminant is the u8 at offset 0; Text=177
+        // (per AzDom_createText: `mov w8,#0xb1; strb w8,[x19]`). Compare the raw
+        // discriminant to the literal 177 (a source literal lifts correctly).
+        let nt_disc = unsafe {
+            core::ptr::read((&node_data.internal[i].node_type) as *const _ as *const u8)
+        };
+        let is_text = nt_disc == 177
+            || matches!(node_data.internal[i].node_type, NodeType::Text(_));
+        if !is_text {
             continue;
         }
         let fh = compact.tier2b_text[i].font_family_hash;
@@ -3572,6 +3612,30 @@ pub fn collect_font_stacks_from_styled_dom(
         let style_bits = ((t1 >> FONT_STYLE_SHIFT) & FONT_STYLE_MASK) as u8;
         let key = (fh, weight_bits, style_bits);
         unique_font_keys.entry(key).or_insert(i);
+    }
+
+    // WASM-ONLY PROBE (REVERT): why 0 chains? 0x406C0=tag(5E5E0003), C4=node_count,
+    // C8=unique_font_keys.len() (#text nodes matched in Phase 1). If C8=0 → the lifted
+    // `matches!(node_type, NodeType::Text(_))` FAILS for the text node (node_type mis-lift)
+    // → no font stack → no chain → text h=0. C is the count of NodeType::Text via a raw
+    // discriminant byte read (node_type tag), to compare against the matches! result.
+    {
+        let mut raw_text = 0u32;
+        for i in 0..node_count {
+            // NodeType is repr(C,u8)-ish; read the leading discriminant byte directly.
+            let nt_ptr = (&node_data.internal[i].node_type) as *const _ as *const u8;
+            let disc = unsafe { core::ptr::read_volatile(nt_ptr) };
+            // Text is one specific discriminant; count whatever the body node ISN'T.
+            if disc != unsafe { core::ptr::read_volatile((&node_data.internal[0].node_type) as *const _ as *const u8) } {
+                raw_text += 1;
+            }
+        }
+        unsafe {
+            core::ptr::write_volatile(0x606C0 as *mut u32, 0x5E5E0003u32);
+            core::ptr::write_volatile(0x606C4 as *mut u32, node_count as u32);
+            core::ptr::write_volatile(0x606C8 as *mut u32, unique_font_keys.len() as u32);
+            core::ptr::write_volatile(0x606CC as *mut u32, raw_text);
+        }
     }
 
     // Phase 2: For each unique tuple, do ONE expensive CSS lookup on the
@@ -3903,7 +3967,7 @@ pub fn resolve_font_chains_with_registry(
     registry: Option<&rust_fontconfig::registry::FcFontRegistry>,
     scripts_hint: Option<&[UnicodeRange]>,
 ) -> ResolvedFontChains {
-    let mut chains = HashMap::new();
+    let mut chains = std::collections::BTreeMap::new();
 
     // Resolve system/file font stacks via fontconfig
     for font_stack in &collected.font_stacks {
@@ -3977,6 +4041,27 @@ pub fn resolve_font_chains_with_registry(
             )
         };
 
+        // WEB-LIFT last resort (in azul-layout, NOT rust-fontconfig — so the fragile
+        // `with_memory_fonts` isn't re-codegen'd into a trapping shape): the lifted
+        // resolve_font_chain query path can return an EMPTY chain even when a fallback
+        // font IS registered (generic→OS-name expansion + token/unicode query is
+        // lift-fragile). If the chain has no fonts, append the first registered font so
+        // load_missing_for_chains / resolve_char find it and text shapes (not measure 0).
+        let mut chain = chain;
+        let total_fonts = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>()
+            + chain.unicode_fallbacks.len();
+        if total_fonts == 0 {
+            if let Some((_pattern, id)) = fc_cache.list().first() {
+                // Vec::new() ranges (not pattern.unicode_ranges.clone()) — the Vec-clone
+                // mis-lifts on the web backend and empty == "no range restriction" here.
+                chain.unicode_fallbacks.push(rust_fontconfig::FontMatch {
+                    id: *id,
+                    unicode_ranges: Vec::new(),
+                    fallbacks: Vec::new(),
+                });
+            }
+        }
+
         chains.insert(cache_key, chain);
     }
 
@@ -3985,6 +4070,41 @@ pub fn resolve_font_chains_with_registry(
     // No entries are inserted into `chains` for them.
 
     ResolvedFontChains { chains }
+}
+
+/// WEB-LIFT last resort, applied LIFT-SAFELY. The lifted backend drops in-place
+/// mutations made through `BTreeMap::values_mut()` (the pushed `FontMatch` is silently
+/// lost — same class as the cascade `From` mapped-collect drop) and mis-lifts the
+/// `pattern.unicode_ranges.clone()` Vec-clone. So this rebuilds the map with an explicit
+/// `for` loop (no `values_mut`) and appends a coverage-agnostic fallback using
+/// `Vec::new()` ranges (the convention already used across this file for "no specific
+/// range restriction"). Applied on BOTH resolver return paths — the fast path otherwise
+/// returns chains with no last resort at all, so when the lifted
+/// `query_matches`/`find_unicode_fallbacks` yields an empty chain even though a fallback
+/// font IS registered, the text node measures 0 → `LayoutError::InvalidTree`.
+fn ensure_chains_nonempty(resolved: &mut ResolvedFontChains, fc_cache: &FcFontCache) {
+    let fallback_id = match fc_cache.list().first() {
+        Some((_pattern, id)) => *id,
+        None => return,
+    };
+    let keys: Vec<FontChainKeyOrRef> = resolved.chains.keys().cloned().collect();
+    let mut rebuilt: std::collections::BTreeMap<FontChainKeyOrRef, FontFallbackChain> =
+        std::collections::BTreeMap::new();
+    for key in keys {
+        if let Some(mut chain) = resolved.chains.remove(&key) {
+            let total = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>()
+                + chain.unicode_fallbacks.len();
+            if total == 0 {
+                chain.unicode_fallbacks.push(rust_fontconfig::FontMatch {
+                    id: fallback_id,
+                    unicode_ranges: Vec::new(),
+                    fallbacks: Vec::new(),
+                });
+            }
+            rebuilt.insert(key, chain);
+        }
+    }
+    resolved.chains = rebuilt;
 }
 
 /// Convenience function that collects and resolves font chains in one call
@@ -4028,7 +4148,9 @@ pub fn collect_and_resolve_font_chains_with_registration<T: crate::font_traits::
     if let Some(registry) = font_manager.registry.as_deref() {
         let used_chars = collect_used_codepoints_all(styled_dom);
         if !used_chars.is_empty() {
-            return resolve_font_chains_fast(&collected, registry, &used_chars);
+            let mut fast = resolve_font_chains_fast(&collected, registry, &used_chars);
+            ensure_chains_nonempty(&mut fast, fc_cache);
+            return fast;
         }
     }
 
@@ -4047,6 +4169,14 @@ pub fn collect_and_resolve_font_chains_with_registration<T: crate::font_traits::
     for chain in resolved.chains.values_mut() {
         prune_chain_to_used_chars(chain, &used_chars);
     }
+    // WEB-LIFT last resort (AFTER the prune, so it survives — the prune drops fonts
+    // whose parsed cmap doesn't cover used_chars, which removes the registered fallback
+    // before it's parsed): if a chain ended up empty, append the first registered font
+    // so load_missing_for_chains finds it and text shapes instead of measuring 0.
+    // LIFT-SAFE rebuild (see ensure_chains_nonempty) — the old `values_mut()` +
+    // `unicode_ranges.clone()` version dropped the push in the lifted backend, leaving
+    // the chain empty (web-text-min n1 measured 0xfffffffe/auto → InvalidTree).
+    ensure_chains_nonempty(&mut resolved, fc_cache);
     resolved
 }
 
@@ -4069,7 +4199,7 @@ pub fn resolve_font_chains_fast(
     static DBG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let dbg = *DBG.get_or_init(|| std::env::var_os("AZ_FAST_RESOLVE_DEBUG").is_some());
 
-    let mut chains: HashMap<FontChainKeyOrRef, rust_fontconfig::FontFallbackChain> = HashMap::new();
+    let mut chains: std::collections::BTreeMap<FontChainKeyOrRef, rust_fontconfig::FontFallbackChain> = std::collections::BTreeMap::new();
 
     for font_stack in &collected.font_stacks {
         if font_stack.is_empty() {

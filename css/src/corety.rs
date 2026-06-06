@@ -254,14 +254,30 @@ impl AzString {
     ///
     /// Invalid UTF-8 sequences are replaced with U+FFFD to maintain
     /// the UTF-8 invariant required by [`as_str()`](Self::as_str).
-    #[inline]
+    ///
+    /// `#[inline(always)]` (2026-06-03 web-lift FIX): forces inlining into the
+    /// `extern "C" AzString_copyFromBytes` wrapper so there is NO separate
+    /// C-ABI(X8-sret) → Rust-ABI(X0-sret) boundary call. The lift mis-threads
+    /// %state across that sret-in-X0 shift (X1/ptr 0x13f80→garbage, X3/len 5→0,
+    /// empty AzString); inlining lets the wrapper do the alloc/memcpy directly
+    /// with the standard X8-sret ABI the cascade proves works.
+    #[inline(always)]
     pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
         let raw = U8Vec::copy_from_bytes(ptr, start, len);
+        // web-lift FIX (2026-06-03): FAST PATH for already-valid UTF-8 (the common case, incl. all
+        // ASCII like "Hello") — wrap the U8Vec directly, avoiding the `String::from_utf8_lossy()
+        // .into_owned()` std sret-in-X0 call that the lift mis-threads (the returned String comes
+        // back with len=0 → empty AzString). `core::str::from_utf8` returns a `Result<&str,_>` (a
+        // slice, NOT a by-value struct) so it has no sret to mis-thread. Also a real perf win (no
+        // 2nd alloc+copy for valid input). Slow path (rare, invalid UTF-8) keeps the lossy replace.
+        if core::str::from_utf8(raw.as_ref()).is_ok() {
+            return Self { vec: raw };
+        }
         let s = String::from_utf8_lossy(raw.as_ref()).into_owned();
         Self::from_string(s)
     }
 
-    #[inline]
+    #[inline(always)] // web-lift: inline through the sret-in-X0 chain (see copy_from_bytes)
     pub fn from_string(s: String) -> Self {
         Self {
             vec: U8Vec::from_vec(s.into_bytes()),
@@ -505,7 +521,7 @@ impl U8Vec {
     /// # Safety contract (caller must ensure)
     /// - `ptr` must be valid for reading `start + len` bytes
     /// - `start + len` must not overflow
-    #[inline]
+    #[inline(always)] // web-lift: inline through the sret-in-X0 chain (see AzString::copy_from_bytes)
     pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
         if ptr.is_null() || len == 0 {
             return Self::new();

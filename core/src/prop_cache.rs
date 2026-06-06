@@ -1022,6 +1022,46 @@ fn property_needs_slow_path_after_compact(prop: &CssProperty) -> bool {
     }
 }
 
+/// Clone a `CssProperty` WITHOUT going through its derived `Clone`. The derived clone
+/// is a ~179-arm `match self { V(x) => V(x.clone()) }` that LLVM lowers to an indirect
+/// HALFWORD jump table (`ldrh`-indexed). The web (remill→wasm) backend mis-lifts that
+/// table, so for HEAP/Vec-bearing variants (gradients, font-family, shadows, filters,
+/// transforms) the mis-dispatched clone reads wrong-sized data and the cascade traps
+/// with "memory access out of bounds" (restyle → inherit → clone). Here every
+/// heap-bearing variant is dispatched via single-variant `if let` — a direct
+/// discriminant compare, NO jump table — and each inner `v.clone()` is the value
+/// type's own clone, which lifts correctly. POD variants fall through to the derived
+/// clone: correct on native, and harmless on web (a mis-dispatched discriminant 0 is
+/// `CaretColor`, a `Copy` value with no heap pointer to deref). On native this function
+/// is byte-for-byte equivalent to `p.clone()`.
+fn clone_inheritable_property(
+    p: &azul_css::props::property::CssProperty,
+) -> azul_css::props::property::CssProperty {
+    use azul_css::props::property::CssProperty;
+    if let CssProperty::FontFamily(v) = p { return CssProperty::FontFamily(v.clone()); }
+    if let CssProperty::BackgroundContent(v) = p { return CssProperty::BackgroundContent(v.clone()); }
+    if let CssProperty::BackgroundPosition(v) = p { return CssProperty::BackgroundPosition(v.clone()); }
+    if let CssProperty::BackgroundSize(v) = p { return CssProperty::BackgroundSize(v.clone()); }
+    if let CssProperty::BackgroundRepeat(v) = p { return CssProperty::BackgroundRepeat(v.clone()); }
+    if let CssProperty::BoxShadowLeft(v) = p { return CssProperty::BoxShadowLeft(v.clone()); }
+    if let CssProperty::BoxShadowRight(v) = p { return CssProperty::BoxShadowRight(v.clone()); }
+    if let CssProperty::BoxShadowTop(v) = p { return CssProperty::BoxShadowTop(v.clone()); }
+    if let CssProperty::BoxShadowBottom(v) = p { return CssProperty::BoxShadowBottom(v.clone()); }
+    if let CssProperty::TextShadow(v) = p { return CssProperty::TextShadow(v.clone()); }
+    if let CssProperty::ScrollbarTrack(v) = p { return CssProperty::ScrollbarTrack(v.clone()); }
+    if let CssProperty::ScrollbarThumb(v) = p { return CssProperty::ScrollbarThumb(v.clone()); }
+    if let CssProperty::ScrollbarButton(v) = p { return CssProperty::ScrollbarButton(v.clone()); }
+    if let CssProperty::ScrollbarCorner(v) = p { return CssProperty::ScrollbarCorner(v.clone()); }
+    if let CssProperty::ScrollbarResizer(v) = p { return CssProperty::ScrollbarResizer(v.clone()); }
+    if let CssProperty::Transform(v) = p { return CssProperty::Transform(v.clone()); }
+    if let CssProperty::Filter(v) = p { return CssProperty::Filter(v.clone()); }
+    if let CssProperty::BackdropFilter(v) = p { return CssProperty::BackdropFilter(v.clone()); }
+    if let CssProperty::Content(v) = p { return CssProperty::Content(v.clone()); }
+    if let CssProperty::HyphenationLanguage(v) = p { return CssProperty::HyphenationLanguage(v.clone()); }
+    if let CssProperty::Cursor(v) = p { return CssProperty::Cursor(v.clone()); }
+    p.clone()
+}
+
 impl CssPropertyCache {
     /// Match CSS selectors to nodes and populate css_props.
     /// Returns tag IDs for hit-testing. If compact_cache is available,
@@ -1204,7 +1244,7 @@ impl CssPropertyCache {
                     })
                     .map(|(prop, _)| prop)
                     .filter(|prop| prop.get_type().is_inheritable())
-                    .map(|p| (p.get_type(), p.clone()))
+                    .map(|p| (p.get_type(), clone_inheritable_property(p)))
                     .collect();
 
                 // 2. Inherit CSS stylesheet properties from parent for this pseudo-state
@@ -1212,7 +1252,7 @@ impl CssPropertyCache {
                     self.css_props.get_slice(parent_id.index())
                         .iter()
                         .filter(|p| p.state == state && p.prop_type.is_inheritable())
-                        .map(|p| (p.prop_type, p.property.clone()))
+                        .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
                         .collect()
                 } else {
                     Vec::new()
@@ -1223,7 +1263,7 @@ impl CssPropertyCache {
                     self.cascaded_props.get_slice(parent_id.index())
                         .iter()
                         .filter(|p| p.state == state && p.prop_type.is_inheritable())
-                        .map(|p| (p.prop_type, p.property.clone()))
+                        .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
                         .collect();
 
                 // Combine all inheritable props (inline first = strongest, cascaded last)

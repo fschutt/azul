@@ -2048,7 +2048,18 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
         // Write node into the arena here!
         node_hierarchy[parent_node_id.index()] = node.clone();
 
-        let copy = dom.root.copy_special();
+        // MOVE the node's inline `style` AND its `extra` (NodeDataExt) box instead of relying on
+        // copy_special's `self.style.clone()` / `self.extra.clone()`. Both derived Clones lower to
+        // indirect-jump jump tables that remill mis-lifts on the web backend: CssProperty's clone
+        // comes back with discriminant 0 (drops simple inline CSS) and for COMPLEX values (AzButton's
+        // gradient; the NodeDataExt attributes Vec) the mis-lifted clone reads/writes wrong-sized data,
+        // which clobbers the adjacent `style` temporary → "memory access out of bounds" later in the
+        // cascade (StyledDom::create → restyle's inheritance loop reads the corrupted style). 2026-06-02:
+        // copy_special_moving_complex mem::takes BOTH style+extra before copy_special, so copy_special
+        // clones an EMPTY style + None extra (no broken clone runs) and restores them after. (Extra was
+        // added after the AzButton ids/classes node — which lazily allocates NodeDataExt — OOB'd even
+        // with the style-only take.) The Dom is consumed here, so the move is correct.
+        let copy = dom.root.copy_special_moving_complex();
 
         node_data[parent_node_id.index()] = copy;
 

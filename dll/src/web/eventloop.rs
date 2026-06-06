@@ -58,6 +58,57 @@ use azul_core::styled_dom::StyledDom;
 use azul_css::AzString;
 use azul_css::css::Css;
 
+/// WEB-LIFT FIX (2026-06-02): the embedded fallback font, exposed at MODULE level so the
+/// transpiler can force-mirror its FULL byte range into the wasm. The lift otherwise only
+/// mirrors statically-accessed pages (`collect_synth_data_pages`), and this 226 KiB const is
+/// read by DYNAMIC index — so only its ~first 28 bytes get mirrored and every table read past
+/// the header returns 0 (proven: font_bytes[124]/[93596] read 0 in the wasm). Both the
+/// real load (`with_memory_fonts(... .to_vec())`) and any direct parse see the truncated const.
+pub(crate) const AZ_WEB_FALLBACK_FONT_BYTES: &[u8] =
+    include_bytes!("../../../doc/fonts/SourceSerifPro-Regular.ttf");
+
+/// Native `(address, len)` of [`AZ_WEB_FALLBACK_FONT_BYTES`] in THIS process. The transpiler
+/// runs in-process (web-transpiler-static) and calls this to add the font's pages to the
+/// mirror set so the full TTF lands in wasm linear memory at the matching synth offset.
+pub(crate) fn az_web_fallback_font_native() -> (usize, usize) {
+    (
+        AZ_WEB_FALLBACK_FONT_BYTES.as_ptr() as usize,
+        AZ_WEB_FALLBACK_FONT_BYTES.len(),
+    )
+}
+
+// WEB-FONT-VIA-JS (2026-06-02): the embedded font const can't be reliably mirrored into the
+// lifted wasm — it's read by dynamic index so only its header lands, and force-mirroring it
+// lands at a synth base that differs from where the lifted code reads (a deep lift-internals
+// mismatch). The robust fix (how a real web app loads fonts): the JS harness allocates a wasm
+// buffer (AzStartup_alloc), writes the TTF bytes into wasm linear memory, and registers it via
+// AzStartup_setFallbackFont. Those bytes are RUNTIME data in wasm memory — no const, no mirror,
+// no embedded-data synth mapping. WEB_FONT_PTR/LEN are plain scalar statics (reliable across
+// the lift). `web_fallback_font_bytes()` returns the JS buffer if set, else the const.
+static mut WEB_FONT_PTR: usize = 0;
+static mut WEB_FONT_LEN: usize = 0;
+
+/// Register a fallback font buffer that the JS harness has written into wasm linear memory.
+/// `ptr` is a wasm memory offset (e.g. from [`AzStartup_alloc`]); `len` is the byte count.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_setFallbackFont(ptr: u32, len: u32) {
+    WEB_FONT_PTR = ptr as usize;
+    WEB_FONT_LEN = len as usize;
+}
+
+/// Bytes the web layout should use for the universal fallback font: the JS-provided buffer if
+/// one was registered via [`AzStartup_setFallbackFont`], otherwise the embedded const (correct
+/// natively; only partially mirrored on the lifted web path).
+fn web_fallback_font_bytes() -> &'static [u8] {
+    unsafe {
+        if WEB_FONT_PTR != 0 && WEB_FONT_LEN != 0 {
+            core::slice::from_raw_parts(WEB_FONT_PTR as *const u8, WEB_FONT_LEN)
+        } else {
+            AZ_WEB_FALLBACK_FONT_BYTES
+        }
+    }
+}
+
 // =====================================================================
 // Event-format spec (Q5 decision: fixed 256-byte buffer per dispatch).
 // JS-side packing must match. See M8.6 listener.js for the encoder.
@@ -347,9 +398,10 @@ pub extern "C" fn AzStartup_alloc(size: u32) -> u32 {
     if size == 0 {
         return 0;
     }
-    let Ok(layout) = Layout::from_size_align(size as usize, 8) else {
-        return 0;
-    };
+    // `from_size_align_unchecked` (align=8 is always valid): the CHECKED `from_size_align` calls
+    // `Layout::is_size_align_valid`, a tiny core::alloc fn that the web lift Leaf-stubs (returns
+    // X0=0 = false) → `from_size_align` always Err → this allocator returned 0 → empty DOM.
+    let layout = unsafe { Layout::from_size_align_unchecked(size as usize, 8) };
     let ptr = unsafe { alloc(layout) };
     ptr as usize as u32
 }
@@ -360,9 +412,8 @@ pub extern "C" fn AzStartup_free(ptr: u32, size: u32) {
     if ptr == 0 || size == 0 {
         return;
     }
-    let Ok(layout) = Layout::from_size_align(size as usize, 8) else {
-        return;
-    };
+    // unchecked: matches AzStartup_alloc — is_size_align_valid is Leaf-stubbed in the web lift.
+    let layout = unsafe { Layout::from_size_align_unchecked(size as usize, 8) };
     unsafe { dealloc(ptr as usize as *mut u8, layout) };
 }
 
@@ -652,6 +703,20 @@ pub unsafe extern "C" fn AzStartup_initLayoutCache(
     }
     let info_ptr = AzStartup_alloc(512);
     let out_ptr = AzStartup_alloc(4096);
+    // [az-diag REVERT] mark the cb as running in the WASM path so copy_from_bytes' gated
+    // markers fire here (but stay off in native render_initial_page).
+    azul_css::AZ_WASM_CB_ACTIVE.store(true, core::sync::atomic::Ordering::Relaxed);
+    // [az-diag REVERT] AzStartup_initLayoutCache is WASM-ONLY (render_initial_page uses
+    // call_layout, not this) so ungated markers are safe. Read the static BACK here: if
+    // 0x4074C==1 the store+load work WITHIN this fn (→ copy_from_bytes' load uses a DIFFERENT
+    // address = cross-fn synth mismatch); if 0==0 the store itself doesn't persist. 0x40750 =
+    // this fn's view of &AZ_WASM_CB_ACTIVE (compare vs a dep's view).
+    unsafe {
+        let rb = azul_css::AZ_WASM_CB_ACTIVE.load(core::sync::atomic::Ordering::Relaxed);
+        core::ptr::write_volatile(0x4074C as *mut u32, rb as u32);
+        core::ptr::write_volatile(0x40750 as *mut u32,
+            &azul_css::AZ_WASM_CB_ACTIVE as *const _ as usize as u32);
+    }
     let cb_status = __az_call_indirect_layout4(
         table_idx,
         refany_ptr as u64,
@@ -659,6 +724,7 @@ pub unsafe extern "C" fn AzStartup_initLayoutCache(
         info_ptr,
         out_ptr,
     );
+    azul_css::AZ_WASM_CB_ACTIVE.store(false, core::sync::atomic::Ordering::Relaxed);
     s.last_layout_status = cb_status;
     if cb_status != 0 {
         return 100 + cb_status;
@@ -909,6 +975,14 @@ unsafe fn count_az_dom_nodes(root: *const u8) -> u32 {
         // of stack first, but be defensive.
         count = count.saturating_add(1);
 
+        // WEB-LIFT PROBE (REVERT): the cb's Dom node_type discs BEFORE cascade.
+        // node_type is at offset 0 of Dom (root NodeData first). 0x406E4 = root(body)
+        // disc, 0x406E8 = first child(text) disc. If child disc=177 here → createText
+        // wrote it OK → the drop is in the CASCADE; if 0 → AzDom_createText dropped it.
+        if count == 1 {
+            core::ptr::write_volatile(0x406E4 as *mut u32, core::ptr::read(node) as u32);
+        }
+
         // DomVec is `#[repr(C)]`: { ptr, len, cap, destructor }.
         // We only need ptr@0 and len@8. The destructor enum past
         // offset 16 we ignore.
@@ -916,6 +990,9 @@ unsafe fn count_az_dom_nodes(root: *const u8) -> u32 {
         let child_ptr_raw =
             core::ptr::read_unaligned(dvec as *const usize) as *const u8;
         let child_len = core::ptr::read_unaligned(dvec.add(8) as *const usize);
+        if count == 1 && !child_ptr_raw.is_null() && child_len > 0 {
+            core::ptr::write_volatile(0x406E8 as *mut u32, core::ptr::read(child_ptr_raw) as u32);
+        }
         if child_ptr_raw.is_null() || child_len == 0 {
             continue;
         }
@@ -1050,6 +1127,33 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // actually runs and returns a value. Capture the heap pointer
     // so JS can observe + read the internal Vec lengths.
     //
+    // DIAG (2026-06-02, REVERT): localize the AzButton extra-box cascade OOB to BUILD
+    // (lifted cb) vs CONVERSION vs RESTYLE. Safe here — the native server renders via
+    // render_initial_page→create_from_dom, NEVER this wrapper (same reason eventloop's
+    // 0x40578 markers don't crash the server's native pre-render).
+    //   0x40620 = 0x4042_0000 | body.children.len           (probe reached)
+    //   0x40624 = body.root.style.rules().count
+    //   0x40628 = 0xBEEF_0000 (pre-read) → 0x4200_00rr after (rr = button.style rules → build OK)
+    //   0x4062C = button.children.len
+    //   0x40634 = 0xC0DE_0000 (pre) → converted node_data.len after (clone+convert survived)
+    //   0x40630 = converted node_data[1].style rules
+    unsafe {
+        let bc = dom_ref.children.as_ref().len() as u32;
+        core::ptr::write_volatile(0x40620 as *mut u32, 0x4042_0000u32 | (bc & 0xFFFF));
+        core::ptr::write_volatile(0x40624 as *mut u32, dom_ref.root.style.rules().count() as u32);
+        if bc > 0 {
+            core::ptr::write_volatile(0x40628 as *mut u32, 0xBEEF_0000u32);
+            let button = &dom_ref.children.as_ref()[0];
+            let br = button.root.style.rules().count() as u32;
+            core::ptr::write_volatile(0x40628 as *mut u32, 0x4200_0000u32 | (br & 0xFFFF));
+            core::ptr::write_volatile(0x4062C as *mut u32, button.children.as_ref().len() as u32);
+        }
+        // REMOVED the convert_dom_into_compact_dom(dom_ref.clone()) probe: its fragile Dom
+        // deep-clone traps. The JS harness does its own Dom walk (getCurrentDomPtr) so this
+        // diagnostic is not needed. hydrate is now the minimal path: just StyledDom::create.
+        core::ptr::write_volatile(0x40634 as *mut u32, 0xC0DE_0000u32);
+    }
+
     // Run the cascade on the layout-cb's real Dom (`dom_ref`, the AzDom
     // the lifted layout fn deposited via X8 hidden-return). Same
     // `StyledDom::create` the desktop App.run uses; with an empty Css the
@@ -1130,6 +1234,13 @@ pub unsafe extern "C" fn AzStartup_getStyledDomPtr(state: u32) -> u32 {
     let s = &*(state as usize as *mut EventloopState);
     s.current_dom_styled_ptr
 }
+
+// (Removed AzStartup_writeStructConsts: adding it to the dylib deterministically
+// re-codegened the lifted cascade into an OOB-trapping shape. The JS harness now
+// HARDCODES the struct layout consts (size_of(Dom)=240, offset_of(Dom,children)=152,
+// size_of(NodeData)=152, offset_of(NodeData,node_type)=0, offset_of(StyledDom,node_data)=48),
+// extracted natively via a one-off `core::mem::offset_of!` test. The structs have no
+// cfg-gated fields, so the layout is build-independent.)
 
 // =====================================================================
 // M11 Sprint 5 — VirtualView infrastructure (minimal)
@@ -1363,6 +1474,32 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         return 3;
     }
 
+    // DEBUG (2026-06-02 CSS→taffy): is the compact cache populated with the
+    // inline-string CSS that taffy's fast-path reads? Dump width/height/display
+    // per node @0x40580+i*16 (0x40578 = present/none flag). REVERT before commit.
+    // eventloop.rs fixed-addr markers DO lift (unlike layout-crate ones).
+    unsafe {
+        match styled.css_property_cache.ptr.compact_cache.as_ref() {
+            Some(cc) => {
+                core::ptr::write_volatile(0x40578 as *mut u32, 0xCC5E_0000u32);
+                let n = if node_count < 5 { node_count as usize } else { 5usize };
+                for i in 0..n {
+                    let b = 0x40580 + i * 16;
+                    core::ptr::write_volatile(b as *mut u32, cc.get_width_raw(i));
+                    core::ptr::write_volatile((b + 4) as *mut u32, cc.get_height_raw(i));
+                    core::ptr::write_volatile(
+                        (b + 8) as *mut u32,
+                        0xD000_0000u32
+                            | (azul_css::compact_cache::layout_display_to_u8(cc.get_display(i)) as u32),
+                    );
+                }
+            }
+            None => {
+                core::ptr::write_volatile(0x40578 as *mut u32, 0xC000_ABEDu32);
+            }
+        }
+    }
+
     // Headless layout window. There is no filesystem in wasm, so the disk
     // font loaders (`PathLoader::load_from_path` → `std::fs::read`) all fail —
     // and the solver HARD-ERRORS `LayoutError::Text(FontNotFound)` even for a
@@ -1370,8 +1507,9 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // source (`with_memory_fonts`): it's matched as the universal fallback and
     // loaded via `FontBytes::Owned`, never `std::fs::read`. This both unblocks
     // the bare-body layout AND gives <p>hello</p> real glyph metrics later.
-    const AZ_WEB_FALLBACK_FONT: &[u8] =
-        include_bytes!("../../../doc/fonts/SourceSerifPro-Regular.ttf");
+    // WEB-FONT-VIA-JS: prefer the JS-registered buffer (real bytes in wasm memory) over the
+    // const (only partially mirrored on the lifted web path). Runtime `let`, not `const`.
+    let az_web_fallback_font: &[u8] = web_fallback_font_bytes();
     let fc_cache = FcFontCache::default();
     // rust-fontconfig matches family by SUBSTRING (stored.family.contains(query)).
     // The solver's default FontSelector queries "serif" (text3 default), and DOMs
@@ -1382,22 +1520,126 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // StyleFontFamily::System("serif") (azul_css DEFAULT_FONT_ID), which may
     // populate FcPattern.name OR .family. One string with all generics covers
     // serif/sans-serif/monospace on either field.
-    fc_cache.with_memory_fonts(vec![(
-        rust_fontconfig::FcPattern {
-            name: Some("serif sans-serif monospace".to_string()),
-            family: Some("serif sans-serif monospace".to_string()),
-            ..Default::default()
-        },
-        rust_fontconfig::FcFont {
-            bytes: AZ_WEB_FALLBACK_FONT.to_vec(),
-            font_index: 0,
-            id: "az_web_fallback".to_string(),
-        },
-    )]);
+    // DIAG (2026-06-02, REVERT): parse-check BEFORE with_memory_fonts (which traps at a
+    // jump-table MISSING_BLOCK) so it runs first — confirms the JS-provided font PARSES for
+    // metrics (the real goal), independent of the with_memory_fonts trap. Read by the gate's
+    // catch block. 0x40670=tag (600D0001 ok / 600DDEAD None), 74=upem, 78=ascender, 7C=descender.
+    {
+        let mut w2 = Vec::new();
+        match azul_layout::font::parsed::ParsedFont::from_bytes(az_web_fallback_font, 0, &mut w2) {
+            Some(pf) => unsafe {
+                core::ptr::write_volatile(0x40670 as *mut u32, 0x600D0001u32);
+                core::ptr::write_volatile(0x40674 as *mut u32, pf.pdf_font_metrics.units_per_em as u32);
+                core::ptr::write_volatile(0x40678 as *mut u32, pf.pdf_font_metrics.ascender as i32 as u32);
+                core::ptr::write_volatile(0x4067C as *mut u32, pf.pdf_font_metrics.descender as i32 as u32);
+            },
+            None => unsafe {
+                core::ptr::write_volatile(0x40670 as *mut u32, 0x600DDEADu32);
+                core::ptr::write_volatile(0x40674 as *mut u32, w2.len() as u32);
+            },
+        }
+    }
+    // WEB-LIFT: register the embedded fallback. unicode_ranges MUST be non-empty —
+    // `resolve_char` skips fonts whose metadata `unicode_ranges.is_empty()`, so full
+    // coverage here makes the last-resort fallback resolve for any char. Build the
+    // input Vec via Vec::new()+push (NOT `vec![(...)]`) — the lift DROPS elements of a
+    // `vec!` of a complex nested struct (M11/M12 gap), giving with_memory_fonts an
+    // EMPTY list → fc_cache.len()=0 → no font → text height 0.
+    let mut fc_unicode = Vec::new();
+    fc_unicode.push(rust_fontconfig::UnicodeRange { start: 0, end: 0x10FFFF });
+    let fc_pattern = rust_fontconfig::FcPattern {
+        name: Some("serif sans-serif monospace".to_string()),
+        family: Some("serif sans-serif monospace".to_string()),
+        unicode_ranges: fc_unicode,
+        ..Default::default()
+    };
+    let fc_font = rust_fontconfig::FcFont {
+        bytes: az_web_fallback_font.to_vec(),
+        font_index: 0,
+        id: "az_web_fallback".to_string(),
+    };
+    let mut fc_fonts = Vec::new();
+    fc_fonts.push((fc_pattern, fc_font));
+    fc_cache.with_memory_fonts(fc_fonts);
+    // DIAG (2026-06-02, REVERT): direct parse-check of the embedded SourceSerifPro to split
+    // font-PARSE-mis-lift (ascender=0 → allsorts hhea/head table read lifts wrong) from
+    // chain/not-loaded (parse OK here but the label never gets this font). WASM-ONLY (the
+    // native server runs render_initial_page, never this layout fn). 0x40650=tag (F051_0001 ok /
+    // F051_DEAD parse-None), 0x40654=units_per_em, 0x40658=ascender(i16), 0x4065C=descender(i16).
+    {
+        let mut warns = Vec::new();
+        match azul_layout::font::parsed::ParsedFont::from_bytes(az_web_fallback_font, 0, &mut warns) {
+            Some(pf) => unsafe {
+                core::ptr::write_volatile(0x40650 as *mut u32, 0xF0510001u32);
+                core::ptr::write_volatile(0x40654 as *mut u32, pf.pdf_font_metrics.units_per_em as u32);
+                core::ptr::write_volatile(0x40658 as *mut u32, pf.pdf_font_metrics.ascender as i32 as u32);
+                core::ptr::write_volatile(0x4065C as *mut u32, pf.pdf_font_metrics.descender as i32 as u32);
+            },
+            None => unsafe {
+                core::ptr::write_volatile(0x40650 as *mut u32, 0xF051DEADu32);
+                core::ptr::write_volatile(0x40654 as *mut u32, warns.len() as u32);
+                if let Some(w) = warns.first() {
+                    let b = w.message.as_bytes();
+                    let mut m = [0u32; 3];
+                    let mut i = 0;
+                    while i < 12 && i < b.len() { m[i / 4] |= (b[i] as u32) << (8 * (i % 4)); i += 1; }
+                    core::ptr::write_volatile(0x40658 as *mut u32, m[0]);
+                    core::ptr::write_volatile(0x4065C as *mut u32, m[1]);
+                    core::ptr::write_volatile(0x40660 as *mut u32, m[2]);
+                }
+            },
+        }
+    }
+    // VERIFY-ROOT-CAUSE (2026-06-02, REVERT): run the EXACT resolution azul-layout
+    // uses (resolve_font_chain_with_scripts for the generic "serif" query) to split
+    // resolution-failure vs shaping-failure for text height=0. 0x40690=tag(5E5E0001),
+    // 94=Σ css_fallback fonts, 98=#unicode_fallbacks, 9C=resolve_char('H') Some=1/None=0,
+    // A0='H' font_id low32. If 9C=0 → matching is the root cause (token_index no-op / name
+    // mismatch); if 9C=1 → font resolves → the height-0 is in shaping/measurement.
+    {
+        let latin = [rust_fontconfig::UnicodeRange { start: 0x20, end: 0x7F }];
+        let mut trace = Vec::new();
+        let chain = fc_cache.resolve_font_chain_with_scripts(
+            &["serif".to_string()],
+            rust_fontconfig::FcWeight::Normal,
+            rust_fontconfig::PatternMatch::False,
+            rust_fontconfig::PatternMatch::False,
+            Some(&latin),
+            &mut trace,
+        );
+        let css_count: usize = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum();
+        let uni_count = chain.unicode_fallbacks.len();
+        let h = chain.resolve_char(&fc_cache, 'H');
+        // Is the font even REGISTERED? len()=0 ⇒ with_memory_fonts didn't persist.
+        // (query() reaches an outlined-epilogue missing_block → traps, so only len().)
+        let nfonts = fc_cache.len();
+        // list() iterates state.patterns. If len()=1 but list().len()=0 → the Vec
+        // ITERATION mis-lifts (len field ok, ptr/content wrong). If list().len()=1 →
+        // iteration ok → query_matches_internal/find_unicode_fallbacks is the issue.
+        let lst = fc_cache.list();
+        let nlist = lst.len();
+        let name_ok = lst.first().and_then(|(p, _)| p.name.as_ref()).map(|n| n.len()).unwrap_or(0);
+        unsafe {
+            core::ptr::write_volatile(0x40690 as *mut u32, 0x5E5E0001u32);
+            core::ptr::write_volatile(0x40694 as *mut u32, css_count as u32);
+            core::ptr::write_volatile(0x40698 as *mut u32, uni_count as u32);
+            core::ptr::write_volatile(0x4069C as *mut u32, h.is_some() as u32);
+            if let Some((id, _)) = h {
+                core::ptr::write_volatile(0x406A0 as *mut u32, id.0 as u32);
+            }
+            core::ptr::write_volatile(0x406A4 as *mut u32, nfonts as u32);
+            core::ptr::write_volatile(0x406A8 as *mut u32, nlist as u32);
+            core::ptr::write_volatile(0x406AC as *mut u32, name_ok as u32);
+        }
+    }
+    // [az-diag REVERT] 0x40710 = solveLayoutReal step: 0x50=DIAG-probe done (next call = LayoutWindow::new).
+    unsafe { core::ptr::write_volatile(0x40710 as *mut u32, 0x50u32); }
     let mut lw = match LayoutWindow::new(fc_cache) {
         Ok(lw) => lw,
         Err(_) => return 4,
     };
+    // [az-diag REVERT] 0x60 = LayoutWindow::new done.
+    unsafe { core::ptr::write_volatile(0x40710 as *mut u32, 0x60u32); }
     // Web/headless: skip the GPU transform/opacity sync in layout_dom_recursive
     // (display-list-only, no GPU here, and GpuValueCache::synchronize mis-lifts
     // to wasm → OOB). Heap field, not the SKIP_DISPLAY_LIST static (whose
@@ -1421,6 +1663,8 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // `layout_and_generate_display_list`, whose tail does virtual-view
     // scanning + scrollbar GPU registration we don't need on web).
     // Positions land in `layout_cache.calculated_positions`.
+    // [az-diag REVERT] 0x70 = about to call layout_dom_recursive.
+    unsafe { core::ptr::write_volatile(0x40710 as *mut u32, 0x70u32); }
     if let Err(_e) = lw.layout_dom_recursive(styled, &ws, &rr, &sc, &mut dbg) {
         // The layout error is EARLY (before block geometry — rects come back
         // all-zero when we fall through), so there's no partial geometry to
@@ -1450,15 +1694,28 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         // self.layout_results[dom] (get_node_layout_rect returned None → empty cache).
         // Use get_node_position + get_node_size, which read layout_results via the
         // dom_to_layout mapping (the correct, populated location).
-        match (lw.get_node_position(node_id), lw.get_node_size(node_id)) {
-            (Some(p), Some(sz)) => {
+        // DEBUG (2026-06-01, sizing triage): decouple position-None from
+        // size-None so the gate can tell "node not in tree/results" (None →
+        // sentinel 0xFFFFFFFF) from "in tree but sized 0" (Some(0,0)). REVERT
+        // to the `(Some,Some) | _ => fill(0)` form once the sizing bug is fixed.
+        match lw.get_node_position(node_id) {
+            Some(p) => {
                 lane[0] = p.x.max(0.0).round() as u32;
                 lane[1] = p.y.max(0.0).round() as u32;
+            }
+            None => {
+                lane[0] = u32::MAX;
+                lane[1] = u32::MAX;
+            }
+        }
+        match lw.get_node_size(node_id) {
+            Some(sz) => {
                 lane[2] = sz.width.max(0.0).round() as u32;
                 lane[3] = sz.height.max(0.0).round() as u32;
             }
-            _ => {
-                lane.fill(0);
+            None => {
+                lane[2] = u32::MAX;
+                lane[3] = u32::MAX;
             }
         }
     }

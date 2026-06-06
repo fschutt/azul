@@ -40,6 +40,14 @@
 extern crate alloc;
 extern crate core;
 
+/// [az-diag REVERT] wasm-only gate for `AzString::copy_from_bytes`'s diagnostic markers.
+/// Set `true` ONLY by the wasm cb-runner (`AzStartup_initLayoutCache` in dll/web) around the
+/// lifted layout-callback call. The native `render_initial_page` path runs the SAME cb with this
+/// flag `false`, so the cb's fixed-address `write_volatile(0x40xxx)` probes are skipped natively
+/// (they'd write a wild native pointer and crash the server). Reading the static is native-safe.
+pub static AZ_WASM_CB_ACTIVE: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
 #[macro_use]
 /// Internal macros for reducing boilerplate in property definitions.
 pub mod macros;

@@ -2101,7 +2101,19 @@ impl LayoutTreeBuilder {
             self.nodes[p].children.push(index);
         }
         self.dom_to_layout.entry(dom_id).or_default().push(index);
-        { let _ = (0xCF00_0000u32 | (self.nodes.len() as u32 & 0xffff)); }
+        // DEBUG (2026-06-02 children-None tree-build): count create_node_from_dom
+        // calls @0x40500 + record each dom_id into a 14-slot ring @0x40504. REVERT
+        // before commit. Runs only in lifted wasm (server lifts, never runs natively).
+        unsafe {
+            let c = core::ptr::read_volatile(0x40500 as *const u32);
+            core::ptr::write_volatile(0x60500 as *mut u32, c.wrapping_add(1));
+            if (c as usize) < 14 {
+                core::ptr::write_volatile(
+                    (0x40504 + (c as usize) * 4) as *mut u32,
+                    0xDD000000 | (dom_id.index() as u32 & 0xffff),
+                );
+            }
+        }
         index
     }
 

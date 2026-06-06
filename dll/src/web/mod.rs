@@ -45,6 +45,8 @@ pub mod hydration;
 pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_alloc",
     "AzStartup_free",
+    // WEB-FONT-VIA-JS: JS registers a fallback-font buffer it wrote into wasm memory.
+    "AzStartup_setFallbackFont",
     "AzStartup_init",
     "AzStartup_hydrate",
     "AzStartup_dispatchEvent",

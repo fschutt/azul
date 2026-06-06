@@ -825,6 +825,21 @@ fn get_button_text_color(button_type: ButtonType) -> ColorU {
 
 /// Build container style properties for a button type
 fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithConditions> {
+    // ⚠ BISECTION PROBE (2026-06-02, REVERT): return a MINIMAL container style — no const
+    // background, no hover/active gradients, no conditions — to test whether the
+    // container's COMPLEX props cause the web cascade OOB on AzButton. If web-button-nocb
+    // RUNS with this → the complex container props are the root; if it still OOBs → the
+    // label/structure is. Remove this `return` to restore the real button styling.
+    // ⚠ BISECTION step 7 (REVERT): InlineFlex → Block. The cascade + inline style now work
+    // (rules=3, disp correct), but layout returns InvalidTree + width=0 because InlineFlex
+    // triggers the (deferred) taffy flex-algorithm lift gap. Block layout is known-good on web.
+    // If this lays out (no InvalidTree, sized button) → confirms flex is the layout blocker.
+    return alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(6))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(6))),
+    ];
+    #[allow(unreachable_code)]
     let (bg_normal, bg_hover, bg_active) = get_button_colors(button_type);
     let text_color = get_button_text_color(button_type);
     
@@ -1026,22 +1041,38 @@ impl Button {
         };
 
         // Add both the base class and the type-specific class
+        // ⚠ BISECTION step 5 (REVERT): const-str classes → HEAP classes (AzString::from(&str)
+        // = s.to_string().into()). Decisive test: if web-button-nocb RUNS now → the const-str
+        // CLONE (s.clone() of a NoDestructor/borrowed AzString in set_ids_and_classes) mis-lifts
+        // (deref of unmirrored .rodata); fix = transpiler const-str mirror OR heap classes here.
+        // If it still OOBs → the AttributeTypeVec machinery (swap/into_library_owned_vec/retain/
+        // push/set_attributes) is the lift bug, independent of const-str.
         let type_class = self.button_type.class_name();
         let classes: Vec<IdOrClass> = vec![
-            Class(AzString::from_const_str("__azul-native-button")),
-            Class(AzString::from_const_str(type_class)),
+            Class(AzString::from("__azul-native-button")),
+            Class(AzString::from(type_class)),
         ];
 
-        // Create label element with styling
-        let label_dom = Dom::create_text(self.label)
-            .with_css_props(self.label_style);
+        // ⚠ BISECTION step 2 (REVERT): strip the label's inline css (label_style). A text
+        // node WITH with_css_props is the untested combination. If web-button-nocb RUNS now
+        // → the label's inline css is the OOB cause; if it still OOBs → ids/classes/structure.
+        let _ = &self.label_style;
+        let label_dom = Dom::create_text(self.label);
 
-        // Create button container with label as child
+        // ⚠ BISECTION step 3 (REVERT): strip ids/classes (const-str AzStrings),
+        // callbacks, tab_index. Leaves Button node + text child + minimal container css.
+        // RUNS → ids/classes/tab_index was it; OOBs → the bare structure / NodeType::Button.
+        // ⚠ BISECTION step 4 (REVERT): bare structure RAN; add back ONLY ids/classes
+        // (const-str AzStrings via from_const_str). OOBs → ids/classes is the root.
+        // ⚠ BISECTION step 6 (REVERT): REORDER — write container style (with_css_props)
+        // BEFORE adding the extra box (with_ids_and_classes). The build-time corruption
+        // (button.style.rules=garbage) is triggered by the extra-box machinery; if writing
+        // style first leaves it intact → the bug is set_css_props-when-extra-exists (cheap
+        // fix = order). If still corrupt → the extra-box write clobbers style / sret-of-extra.
+        let _ = &callbacks;
         Dom::create_node(NodeType::Button)
             .with_child(label_dom)
-            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(self.container_style)
-            .with_callbacks(callbacks.into())
-            .with_tab_index(TabIndex::Auto)
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
     }
 }

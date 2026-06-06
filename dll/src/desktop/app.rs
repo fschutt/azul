@@ -198,7 +198,14 @@ impl AppInternal {
             None,
         );
 
-        #[cfg(not(miri))]
+        // [az-web-lift 2026-06-05] The web server's layout font comes from the injected
+        // `with_memory_fonts` (eventloop.rs), NOT the system-font registry. Spawning
+        // FcFontRegistry's multi-threaded scout+builder scan races on the no-atomic `StLock`
+        // (StLock is single-thread-only — required so the lifted wasm doesn't spin on real LSE
+        // atomics), causing a FLAKY native startup crash (rfc-font-builder translation faults /
+        // insert_builder_font BTreeMap abort, post-"Classified"). Skip the registry on web (like
+        // miri): no scan threads → no race. The lifted single-threaded font path is unaffected.
+        #[cfg(all(not(miri), not(feature = "web")))]
         let (fc_cache, font_registry) = {
             // Create the async font registry (returns immediately)
             let registry = FcFontRegistry::new();
@@ -229,7 +236,7 @@ impl AppInternal {
 
             (cache, Some(registry))
         };
-        #[cfg(miri)]
+        #[cfg(any(miri, feature = "web"))]
         let (fc_cache, font_registry) = (Arc::new(FcFontCache::default()), None);
 
         #[cfg(all(

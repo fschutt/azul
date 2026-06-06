@@ -580,7 +580,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         &new_tree,
         &mut calculated_positions,
         viewport,
-    )?;
+    );
 
     crate::solver3::positioning::position_out_of_flow_elements(
         &mut ctx,
@@ -588,7 +588,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         text_cache,
         &mut calculated_positions,
         viewport,
-    )?;
+    );
 
     // --- Step 3.75: Compute Stable Scroll IDs ---
     use crate::window::LayoutWindow;

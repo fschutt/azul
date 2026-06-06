@@ -2980,6 +2980,41 @@ impl NodeData {
         }
     }
 
+    /// Like [`copy_special`], but MOVES the inline `style` and the `extra` (`NodeDataExt`)
+    /// box out of `self` into the returned copy instead of cloning them.
+    ///
+    /// Both the derived `Clone` for the `CssProperty` values inside `style` AND the derived
+    /// `Clone` for `Box<NodeDataExt>` (which transitively clones an `AttributeTypeVec` of
+    /// `AzString`s, menus, etc.) lower to indirect-jump jump tables that remill mis-lifts on
+    /// the web backend: the mis-lifted clone reads/writes wrong-sized data, which on the
+    /// stack clobbers the adjacent `style` temporary inside `copy_special` and produces a
+    /// "memory access out of bounds" later in the cascade (`StyledDom::create` → `restyle`'s
+    /// inheritance loop reads the corrupted `style`). Native builds are unaffected.
+    ///
+    /// `convert_dom_into_compact_dom` consumes the `Dom`, so moving these fields out is sound:
+    /// `copy_special` then clones an EMPTY style + `None` extra (no broken clone runs), and we
+    /// restore the moved-out values afterward. Mirrors the pre-existing `style`-only fix.
+    pub(crate) fn copy_special_moving_complex(&mut self) -> Self {
+        // WEB-LIFT (2026-06-03): `copy_special`'s `into_library_owned_nodetype()` RECONSTRUCTS the
+        // node_type (Text/Image arms clone the boxed AzString + rebuild the variant); the lifted
+        // sret store of that data-bearing variant DROPS the whole thing (disc 177->0 AND the box
+        // ptr -> styled_dom text node_type = all-zero, box LOST). Earlier attempts to fix this
+        // "trapped" — but that was the missing `-C target-feature=-lse` build flag (LSE atomics
+        // remill can't lift), NOT this code. With -lse + the fork remill, MOVE the node_type out
+        // bitwise instead of reconstructing it: transfers the ORIGINAL box (preserving disc + the
+        // AzString) with no clone. The Dom is consumed by convert_dom_into_compact_dom so moving is
+        // sound; self.node_type becomes Div (no heap) -> dropped trivially. ptr::write avoids
+        // dropping copy's placeholder Div (whose auto-Drop disc-match could mis-lift).
+        let taken_style = core::mem::take(&mut self.style);
+        let taken_extra = self.extra.take();
+        let taken_node_type = core::mem::replace(&mut self.node_type, NodeType::Div);
+        let mut copy = self.copy_special();
+        unsafe { core::ptr::write(&mut copy.node_type as *mut NodeType, taken_node_type); }
+        copy.style = taken_style;
+        copy.extra = taken_extra;
+        copy
+    }
+
     pub fn is_focusable(&self) -> bool {
         // Inherently focusable elements per HTML spec
         if matches!(self.node_type,

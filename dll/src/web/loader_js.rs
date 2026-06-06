@@ -70,6 +70,21 @@ var azState = 0;          // App state ptr from AzStartup_init
 var azMemory = null;      // mini's WebAssembly.Memory (shared via export)
 var azTable = null;       // WebAssembly.Table for indirect callback dispatch
 
+// __multi3 = compiler-rt 128-bit multiply, a LEAKED wasm import (same class as the
+// fmaxf/fminf/roundf libcall leak). LLVM lowers Rust u128/i128 multiply (Vec/Layout::array
+// overflow checks, ratio math) to a `__multi3` call. Unprovided it stubs to 0/garbage AND
+// never writes its sret → corrupt alloc sizes/lengths. Real impl: result(128) → [sret].
+// wasm sig (i32 sret, i64 aLo, i64 aHi, i64 bLo, i64 bHi) -> nil.
+function azMulti3(sret, aLo, aHi, bLo, bHi) {
+    var dv = new DataView(azMemory.buffer);
+    var mask = 0xFFFFFFFFFFFFFFFFn;
+    var a = ((BigInt.asUintN(64, BigInt(aHi))) << 64n) | BigInt.asUintN(64, BigInt(aLo));
+    var b = ((BigInt.asUintN(64, BigInt(bHi))) << 64n) | BigInt.asUintN(64, BigInt(bLo));
+    var p = BigInt.asUintN(128, a * b);
+    dv.setBigUint64(Number(sret), p & mask, true);
+    dv.setBigUint64(Number(sret) + 8, (p >> 64n) & mask, true);
+}
+
 // node_idx → table_idx (M8.6 stub: identity since dispatchEvent uses
 // node_idx as the fn-addr-lookup key. M8.5c+ will swap to real
 // fn-addrs harvested from a hydrated StyledDom.)
@@ -123,6 +138,7 @@ function azMakeMiniImports() {
         ceilf: Math.ceil, ceil: Math.ceil,
         truncf: Math.trunc, trunc: Math.trunc,
         powf: Math.pow, pow: Math.pow,
+        __multi3: azMulti3,
     };
     function stubFor(name) {
         if (name.indexOf('write_memory') !== -1 ||
@@ -178,6 +194,7 @@ function azCallbackImports() {
     var realEnv = {
         memory: azMemory,
         __indirect_function_table: azTable,
+        __multi3: azMulti3,
     };
     var handler = {
         get: function(_target, prop) {

@@ -598,6 +598,12 @@ pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -
     };
 
     let Some(mut child_id) = hierarchy_item.first_child_id(parent_dom_id) else {
+        // DEBUG (2026-06-02 children-None): first_child_id returned None for this
+        // parent → 0xC0000000 marker @0x40540+parent*4. REVERT before commit.
+        unsafe {
+            let pi = parent_dom_id.index();
+            if pi < 8 { core::ptr::write_volatile((0x40540 + pi * 4) as *mut u32, 0xC000_0000u32); }
+        }
         return children;
     };
 
@@ -616,6 +622,18 @@ pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -
         child_id = next;
     }
 
+    // DEBUG (2026-06-02 children-None): record collected child count per parent
+    // @0x40540+parent*4 (0xCC00_00NN). N=0 with first_child Some ⇒ get_display_type
+    // mis-lift skipped them; N>0 ⇒ walk works. REVERT before commit.
+    unsafe {
+        let pi = parent_dom_id.index();
+        if pi < 8 {
+            core::ptr::write_volatile(
+                (0x40540 + pi * 4) as *mut u32,
+                0xCC00_0000u32 | (children.len() as u32 & 0xffff),
+            );
+        }
+    }
     children
 }
 

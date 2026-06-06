@@ -523,6 +523,8 @@ _internal_deps = [
     # AZ_PROFILE=cpu per-phase timings — per-span overhead is tiny
     # (Instant::now + thread-local Vec push on Drop). Always-on in the
     # DLL so live apps can opt into profiling at run time, no rebuild.
+    # [g62 reverted] probe-disable did NOT fix the new_tree corruption (timeline unchanged) → the
+    # probe Span sret was NOT it. Re-enabled to keep desktop profiling.
     "azul-layout?/probe",
     "cpurender",
     "tfd",
@@ -654,7 +656,7 @@ web = [
 # `web` build stays dependency-free and the transpile step's position in
 # the web.md flow (build-time, first-request, lazy-per-callback) stays a
 # caller decision rather than a hard-wired pipeline stage.
-web-transpiler = ["web", "dep:goblin"]
+web-transpiler = ["web", "dep:goblin", "azul-layout?/web_lift"]
 
 # Statically link remill + LLVM + LLD into libazul.dylib so the
 # transpiler doesn't need external CLI tools. ~120 MB of static

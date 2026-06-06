@@ -134,13 +134,116 @@ public:
         if (!is_jumptable) {
             return;
         }
+        // 2026-06-02 (static-path parity with bin/lift/Lift.cpp): EXACT jump-table
+        // decode. The old window-sweep + 12 KB cap SKIPPED large #[repr(C,u8)] enum
+        // matches (CssProperty::{clone,get_type,eq,hash,cmp} ~73 KB / 179 arms) → their
+        // ldrh `br` fell to no-op __remill_jump → mis-dispatch → web cascade OOB on a
+        // button's gradient/font-family. Read the .rodata offset table (provided via
+        // extra_data ranges injected into mem_) and emit ONLY the real arm blocks. This
+        // is BOUNDED (<=256 entries; each target ∈[arm_block,chi] & mapped), so it's safe
+        // at any size. The size cap now gates ONLY the blowup-prone window-sweep fallback.
+        auto read32 = [&](uint64_t a, uint32_t &w) -> bool {
+            w = 0;
+            for (int i = 0; i < 4; i++) {
+                uint8_t b = 0;
+                if (!mem_.tryRead(a + static_cast<uint64_t>(i), &b)) return false;
+                w |= static_cast<uint32_t>(b) << (8 * i);
+            }
+            return true;
+        };
+        uint64_t clo = inst.pc, chi = inst.pc, eg = 0;
+        { uint8_t tb; while (clo > 0 && mem_.tryRead(clo - 1, &tb) && ++eg < (1u << 18)) clo--; }
+        eg = 0;
+        { uint8_t tb; while (mem_.tryRead(chi + 1, &tb) && ++eg < (1u << 18)) chi++; }
+        {
+            uint64_t arm_block = 0, tbl_base = 0;
+            int elem = 0, ldr_base_reg = -1, idx_reg = -1, n_entries = -1;
+            bool scaled4 = false;
+            for (int k = 1; k <= 12 && inst.pc >= static_cast<uint64_t>(4 * k); k++) {
+                uint32_t w;
+                if (!read32(inst.pc - 4 * k, w)) continue;
+                if (((w >> 24) & 0x9F) == 0x10 && arm_block == 0) {        // ADR -> arm block
+                    int64_t immlo = (w >> 29) & 3, immhi = (w >> 5) & 0x7FFFF;
+                    int64_t imm21 = (immhi << 2) | immlo;
+                    if (imm21 & (1LL << 20)) imm21 |= ~((1LL << 21) - 1);
+                    arm_block = (inst.pc - 4 * k) + static_cast<uint64_t>(imm21);
+                } else if ((w >> 21) == 0x1C3) {                          // LDRB (reg)
+                    elem = 1; scaled4 = true;
+                    ldr_base_reg = (w >> 5) & 0x1F; idx_reg = (w >> 16) & 0x1F;
+                } else if ((w >> 21) == 0x3C3) {                          // LDRH (reg)
+                    elem = 2; scaled4 = true;
+                    ldr_base_reg = (w >> 5) & 0x1F; idx_reg = (w >> 16) & 0x1F;
+                } else if ((w >> 21) == 0x5C5) {                          // LDRSW (reg)
+                    elem = 4; scaled4 = false;
+                    ldr_base_reg = (w >> 5) & 0x1F; idx_reg = (w >> 16) & 0x1F;
+                }
+            }
+            if (idx_reg >= 0) {                                          // cmp Xidx,#N
+                for (int k = 1; k <= 24 && inst.pc >= static_cast<uint64_t>(4 * k); k++) {
+                    uint32_t w;
+                    if (!read32(inst.pc - 4 * k, w)) continue;
+                    if (((w >> 24) == 0xF1 || (w >> 24) == 0x71) && (w & 0x1F) == 0x1F &&
+                        static_cast<int>((w >> 5) & 0x1F) == idx_reg) {
+                        uint64_t imm = (w >> 10) & 0xFFF;
+                        if ((w >> 22) & 1) imm <<= 12;
+                        n_entries = static_cast<int>(imm);
+                        break;
+                    }
+                }
+            }
+            if (ldr_base_reg >= 0) {                                     // adrp+add table base
+                for (int k = 1; k <= 160 && inst.pc >= static_cast<uint64_t>(4 * k); k++) {
+                    uint32_t w;
+                    if (!read32(inst.pc - 4 * k, w)) continue;
+                    if ((w >> 24) == 0x91 && static_cast<int>(w & 0x1F) == ldr_base_reg &&
+                        static_cast<int>((w >> 5) & 0x1F) == ldr_base_reg) {
+                        uint64_t imm = (w >> 10) & 0xFFF;
+                        if ((w >> 22) & 1) imm <<= 12;
+                        uint32_t aw;
+                        if (read32(inst.pc - 4 * k - 4, aw) && ((aw >> 24) & 0x9F) == 0x90 &&
+                            static_cast<int>(aw & 0x1F) == ldr_base_reg) {
+                            int64_t lo2 = (aw >> 29) & 3, hi2 = (aw >> 5) & 0x7FFFF, im = (hi2 << 2) | lo2;
+                            if (im & (1LL << 20)) im |= ~((1LL << 21) - 1);
+                            uint64_t apc = inst.pc - 4 * k - 4;
+                            tbl_base = ((apc & ~uint64_t(0xFFF)) + (static_cast<uint64_t>(im) << 12)) + imm;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (arm_block && tbl_base && elem > 0) {
+                std::vector<uint64_t> targets;
+                int limit = (n_entries > 0 && n_entries <= 256) ? n_entries : 256;
+                for (int i = 0; i < limit; i++) {
+                    uint64_t off = 0; bool got = true;
+                    for (int b = 0; b < elem; b++) {
+                        uint8_t bb = 0;
+                        if (!mem_.tryRead(tbl_base + static_cast<uint64_t>(i * elem + b), &bb)) { got = false; break; }
+                        off |= static_cast<uint64_t>(bb) << (8 * b);
+                    }
+                    if (!got) break;
+                    uint64_t tgt = scaled4
+                        ? (arm_block + off * 4)
+                        : (arm_block + static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(off))));
+                    uint8_t probe;
+                    if (tgt < arm_block || tgt > chi || !mem_.tryRead(tgt, &probe)) break;
+                    bool dup = false;
+                    for (uint64_t e : targets) if (e == tgt) { dup = true; break; }
+                    if (!dup) targets.push_back(tgt);
+                }
+                if (!targets.empty() && targets.size() <= 256) {
+                    for (uint64_t t : targets) func(t, remill::DevirtualizedTargetKind::kTraceLocal);
+                    return;  // exact decode succeeded
+                }
+            }
+        }
+        // Fallback window sweep (table not provided / not decodable). Cap big fns: the
+        // sweep adds a huge case set (taffy grid ~65 KB, TT-hint interpreter) → IR blowup.
+        if (chi - clo > 24576) {
+            return;
+        }
         for (const auto &r : mem_.ranges) {
             if (inst.pc >= r.base && inst.pc < r.base + r.bytes.size()) {
-                if (r.bytes.size() > 12288) {
-                    return;  // skip huge fns (interpreter) — IR blowup
-                }
-                // Bound to a window around the jump (arms are near the dispatch)
-                // so we don't sweep the whole fn per indirect jump (IR blowup).
                 const uint64_t rend = r.base + r.bytes.size();
                 uint64_t lo = (inst.pc > r.base + 256)
                                   ? ((inst.pc - 256) & ~uint64_t(3)) : r.base;
@@ -417,6 +520,7 @@ std::string lift_batch_inner(const std::string &arch_name,
                              const uint8_t *const *bytes_ptrs,
                              const size_t *bytes_lens,
                              size_t item_count,
+                             const std::string &extra_data,
                              std::vector<std::string> &per_fn_ir_out) {
     initialize_llvm_targets();
     if (item_count == 0) {
@@ -453,6 +557,36 @@ std::string lift_batch_inner(const std::string &arch_name,
         std::vector<uint8_t> bytes(bytes_ptrs[i], bytes_ptrs[i] + bytes_lens[i]);
         memory.ranges.push_back({addresses[i], std::move(bytes)});
         entry_addrs.insert(addresses[i]);
+    }
+    // Inject the per-fn jump-table .rodata (each fn's adrp-referenced offset tables) as
+    // extra mem ranges — but NOT as entry_addrs (they're data, not code). Format
+    // "synth_hex:databytes_hex;...". ForEachDevirtualizedTarget's exact decode reads
+    // these to emit the real arm-block targets for LARGE #[repr(C,u8)] enum matches.
+    if (!extra_data.empty()) {
+        auto hexval = [](char c) -> int {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+            return 0;
+        };
+        size_t pos = 0;
+        while (pos < extra_data.size()) {
+            size_t semi = extra_data.find(';', pos);
+            size_t end = (semi == std::string::npos) ? extra_data.size() : semi;
+            size_t colon = extra_data.find(':', pos);
+            if (colon != std::string::npos && colon < end) {
+                uint64_t synth = std::strtoull(
+                    extra_data.substr(pos, colon - pos).c_str(), nullptr, 16);
+                std::vector<uint8_t> tb;
+                tb.reserve((end - colon) / 2);
+                for (size_t i = colon + 1; i + 1 < end; i += 2) {
+                    tb.push_back(static_cast<uint8_t>(
+                        (hexval(extra_data[i]) << 4) | hexval(extra_data[i + 1])));
+                }
+                if (!tb.empty()) memory.ranges.push_back({synth, std::move(tb)});
+            }
+            pos = (semi == std::string::npos) ? extra_data.size() : semi + 1;
+        }
     }
 
     SimpleTraceManager manager(arch.get(), module.get(), memory, entry_addrs);
@@ -778,6 +912,7 @@ extern "C" int az_remill_lift_batch(const char *arch_name,
                                     const uint8_t *const *bytes_ptrs,
                                     const size_t *bytes_lens,
                                     size_t item_count,
+                                    const char *extra_data,
                                     char ***ir_outs,
                                     size_t **ir_lens_out,
                                     char **err_out) {
@@ -794,6 +929,7 @@ extern "C" int az_remill_lift_batch(const char *arch_name,
     try {
         err = lift_batch_inner(std::string(arch_name), std::string(os_name),
                                addresses, bytes_ptrs, bytes_lens, item_count,
+                               extra_data ? std::string(extra_data) : std::string(),
                                per_fn_ir);
     } catch (const std::exception &e) {
         err = std::string("exception: ") + e.what();

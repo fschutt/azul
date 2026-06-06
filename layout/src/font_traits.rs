@@ -48,6 +48,11 @@ pub trait ShallowClone {
 /// the layout solver to work with different font backends.
 pub trait ParsedFontTrait: Send + Clone + ShallowClone {
     /// Shape the given text into a sequence of glyphs using the font's shaping tables.
+    // [g127 az-web-lift] out-param (was `-> Result<Vec<Glyph>>`): the returned Vec's `len` word
+    // mis-lifts in the sret return chain on the web lift (g126: shape_text_internal builds the
+    // correct count e.g. 5, but the caller reads garbage e.g. 171120 → glyph-grouping overflow →
+    // SmallVec::extend panic). Filling a caller-provided `&mut Vec` (no multi-word struct return)
+    // lifts cleanly — the established out-param pattern (create_logical_items / collect_inline_content).
     fn shape_text(
         &self,
         text: &str,
@@ -55,7 +60,8 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
         language: Language,
         direction: BidiDirection,
         style: &StyleProperties,
-    ) -> Result<Vec<Glyph>, LayoutError>;
+        out: &mut Vec<Glyph>,
+    ) -> Result<(), LayoutError>;
 
     /// Hash of the font, necessary for breaking layouted glyphs into glyph runs
     fn get_hash(&self) -> u64;
