@@ -161,11 +161,18 @@ pub struct CpuBackend {
     /// Previous display list for damage rect computation.
     #[cfg(feature = "cpurender")]
     pub previous_display_list: Option<azul_layout::solver3::display_list::DisplayList>,
-    /// Damage produced by the most recent `render_frame` call. Recorded so the
-    /// headless test harness can assert on the calculated damage without
-    /// re-running (and thus re-baselining) the diff. Not gated on `cpurender`
-    /// so the getter compiles in layout-only builds.
+    /// PAINT damage of the most recent `render_frame` — the region actually
+    /// re-rasterised (for scroll this is just the thin exposed strip). This is the
+    /// "pixels repainted" metric. Recorded so the headless test harness can assert
+    /// on it without re-running the diff. Not gated on `cpurender`.
     pub last_frame_damage: FrameDamage,
+    /// PRESENT damage of the most recent `render_frame` — the region that visually
+    /// CHANGED on screen and must be blitted/uploaded to the window/GPU. For a
+    /// scroll this is the whole shifted clip (the pixels moved), which is LARGER
+    /// than the paint damage (the strip). The render-vs-present split (DAMAGE_
+    /// REGION_PLAN): small paint region, larger present region. Equals the paint
+    /// damage when nothing was pixel-shifted.
+    pub last_present_damage: FrameDamage,
     /// Scroll offsets from the previous frame (scroll_id → (x,y)). Used to detect
     /// scroll-offset changes and damage the affected frame's viewport so its
     /// content re-renders at the new offset (#13 — the display list is unchanged
@@ -193,6 +200,7 @@ impl CpuBackend {
             #[cfg(feature = "cpurender")]
             previous_display_list: None,
             last_frame_damage: FrameDamage::None,
+            last_present_damage: FrameDamage::None,
             #[cfg(feature = "cpurender")]
             previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap::new(),
         }
@@ -333,6 +341,7 @@ impl CpuBackend {
                 // Nothing changed — skip rendering entirely
                 self.previous_display_list = Some(display_list.clone());
                 self.last_frame_damage = FrameDamage::None;
+                self.last_present_damage = FrameDamage::None;
                 return Vec::new();
             }
             Some(mut rects) if !needs_resize => {
@@ -373,12 +382,17 @@ impl CpuBackend {
         // shift would drag static backdrop pixels. `scroll_fast_path_eligible`
         // proves the bug condition; when ineligible we full-repaint the clip (no
         // shift) so the static backdrop + re-offset content render correctly.
+        // Regions that were pixel-SHIFTED: painted as a thin strip but the whole
+        // clip changed on screen, so they belong to PRESENT damage (not paint).
+        let mut present_extra: Vec<azul_core::geom::LogicalRect> = Vec::new();
         if is_incremental {
             for (scroll_id, clip, delta, offset) in &scroll_shifts {
                 if cpurender::scroll_fast_path_eligible(display_list, *scroll_id, clip, *offset) {
                     let strips =
                         cpurender::scroll_shift_region(&mut output, clip, *delta, dpi_factor);
                     all_damage.extend(strips);
+                    // The shift moved the whole clip on screen → present it all.
+                    present_extra.push(*clip);
                 } else {
                     // Ineligible: repaint the whole clip with the new offset.
                     all_damage.push(*clip);
@@ -418,6 +432,15 @@ impl CpuBackend {
         self.last_frame = Some(output);
         self.last_frame_damage = if is_incremental {
             FrameDamage::Rects(all_damage.clone())
+        } else {
+            FrameDamage::Full
+        };
+        // Present damage = paint damage ∪ the full clips that were pixel-shifted
+        // (their content moved on screen even though only a strip was repainted).
+        self.last_present_damage = if is_incremental {
+            let mut present = all_damage.clone();
+            present.extend(present_extra);
+            FrameDamage::Rects(present)
         } else {
             FrameDamage::Full
         };
@@ -2273,6 +2296,56 @@ mod tests {
                 damage
             );
         }
+    }
+
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn scroll_present_damage_larger_than_paint_damage() {
+        // The render-vs-present split: scrolling PAINTS a thin strip but PRESENTS
+        // the whole clip (the pixels moved on screen). Paint damage must stay a
+        // strip; present damage must cover the full clip.
+        use azul_core::dom::DomId;
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+        use azul_core::hit_test::ScrollPosition;
+
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollState { n_items: 100 })));
+        let mut window = make_window_with(&state, harness_layout_scroll);
+        window.regenerate_layout().expect("initial layout");
+        let node_id = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().next().copied())
+            .expect("scroll frame should exist");
+        let sp = ScrollPosition {
+            parent_rect: LogicalRect {
+                origin: LogicalPosition::new(8.0, 8.0),
+                size: LogicalSize::new(200.0, 100.0),
+            },
+            children_rect: LogicalRect {
+                origin: LogicalPosition::new(0.0, 30.0),
+                size: LogicalSize::new(400.0, 3000.0),
+            },
+        };
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .unwrap()
+            .set_scroll_position(DomId { inner: 0 }, node_id, sp);
+        window.regenerate_layout().expect("scroll");
+
+        let paint = damage_area(&window.cpu_backend.last_frame_damage);
+        let present = damage_area(&window.cpu_backend.last_present_damage);
+        println!("[harness] paint={:?} present={:?}", paint, present);
+        let (paint, present) = (paint.expect("paint finite"), present.expect("present finite"));
+        // Paint stays a strip; present covers the ~188x100 clip; present > paint.
+        assert!(paint <= 10_000.0, "paint damage should be a strip, got {paint}px");
+        assert!(
+            present >= 18_000.0,
+            "present damage should cover the full ~188x100 clip, got {present}px"
+        );
+        assert!(present > paint, "present ({present}) must exceed paint ({paint})");
     }
 
     #[test]
