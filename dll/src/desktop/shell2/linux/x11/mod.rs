@@ -730,7 +730,7 @@ impl X11Window {
                     match unsafe { &mut *wptr } {
                         super::LinuxWindow::X11(child) => child.handle_event(&mut event),
                         _ => self.handle_event(&mut event),
-                    }
+                    };
                 } else {
                     // Unknown/just-closed target — handle on self so it isn't lost.
                     self.handle_event(&mut event);
@@ -2079,6 +2079,27 @@ impl X11Window {
                 ProcessEventResult::DoNothing
             }
         };
+
+        // Fan out a cross-window refresh. process_window_events already marked
+        // SELF via mark_frame_needs_regeneration for RefreshDom/RefreshDomAllWindows;
+        // for RefreshDomAllWindows we must ALSO mark every OTHER registered window so
+        // a child popup's callback (e.g. a context-menu item mutating shared app data)
+        // re-lays-out its parent. Previously this result was discarded here except for
+        // a self request_redraw, so the software-menu/DOM path never refreshed the
+        // parent (the native gnome-menu path handled it in process_pending_menu_callbacks).
+        if result == ProcessEventResult::ShouldRegenerateDomAllWindows {
+            for wid in super::registry::get_all_window_ids() {
+                if wid == self.window as u64 {
+                    continue;
+                }
+                if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                    if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
+                        w.common.frame_needs_regeneration = true;
+                        w.request_redraw();
+                    }
+                }
+            }
+        }
 
         // Request redraw if needed
         if result != ProcessEventResult::DoNothing {
