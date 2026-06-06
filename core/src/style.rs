@@ -454,16 +454,18 @@ fn match_single_selector(
 
     match selector {
         Global => true,
-        // `Root(range)` (scope marker, #47): matches ONLY the OWNER node (range.start).
-        // push_front-ed onto inline (with_css) rules so a bare-decl rule applies to the
-        // owner node ONLY (node-only / inline-style semantics — inherited props then
-        // cascade to descendants normally). It must NOT match the whole subtree, which
-        // would wrongly paint every descendant with the owner's NON-inherited props
-        // (e.g. a parent `background:white` would override every child's background).
-        // As a scope-ancestor in a `Root(range) <descendant>` selector it matches the
-        // owner, confining the descendant selector to the owner's subtree. The range's
-        // `end` carries the subtree extent for future per-subtree cascade slicing.
-        Root(range) => node_id.index() == range.start,
+        // `Root(range)` (scope marker, #47): matches any node WITHIN the subtree
+        // range `[start, end]`. The range is chosen when the scope is pushed
+        // (`CssPath::push_front_scope`):
+        //  - a bare-decl `with_css` rule (`* { … }`) is scoped node-only (`[start,
+        //    start]`) → inline-style semantics: it applies to the OWNER only, so a
+        //    non-root `background` can't leak to descendants/siblings (#47 leak fix).
+        //  - a component rule with a real selector (`.menu-item`, from
+        //    `add_component_css`) is scoped to the whole subtree (`[start, end]`) so
+        //    its selector matches descendants of the owner (a menu container styling
+        //    its `.menu-item` children). Compounded with the rest of the path,
+        //    `[Root(range), Class(x)]` means "a node in range that also matches `.x`".
+        Root(range) => range.contains(node_id.index()),
         Type(t) => node_data.get_node_type().get_path() == *t,
         Class(c) => node_data.has_class(c.as_str()),
         Id(id) => node_data.has_id(id.as_str()),

@@ -1498,14 +1498,27 @@ impl CssPath {
         }
     }
 
-    /// Prepend a `Root(range)` scope selector (push_front), confining this rule to
-    /// the subtree `range`. Used to scope inline (`with_css`/`set_css`) css to its
-    /// owning node's subtree so it cannot leak to the whole tree (#47). Because
-    /// there is no combinator between `Root(range)` and the original leading `*`
-    /// wrapper, they compound: a bare-decl rule `[Global]` becomes
-    /// `[Root(range), Global]` (= the subtree), and a nested selector keeps
-    /// matching, now confined to the subtree.
-    pub fn push_front_scope(&mut self, range: CssScopeRange) {
+    /// Prepend a `Root` scope selector (push_front) confining this rule to the owner
+    /// node `start` (whose subtree spans the inclusive flat ids `[start, end]`).
+    /// Two cases (#47 leak fix + descendant-selector support):
+    ///
+    /// - A **bare `*` rule** (the `parse_inline` wrapper for a `with_css`/`set_css`
+    ///   bare-declaration string) is scoped **node-only** (`[start, start]`):
+    ///   inline-style semantics — it applies to the OWNER only and must not leak to
+    ///   descendants or siblings. `[Root([s,s]), Global]` matches `s` only.
+    /// - A rule with a **real selector** (`.menu-item`, `div`, a descendant chain —
+    ///   from `add_component_css` / a component stylesheet) is scoped to the whole
+    ///   **subtree** (`[start, end]`), so its selectors match within the owner's
+    ///   subtree (e.g. a menu container's `.menu-item` children). `[Root([s,e]),
+    ///   Class(x)]` matches any node in `[s,e]` that also matches `.x`.
+    pub fn push_front_scope(&mut self, start: usize, end: usize) {
+        let is_bare_global = self.selectors.as_ref().len() == 1
+            && matches!(self.selectors.as_ref().first(), Some(CssPathSelector::Global));
+        let range = if is_bare_global {
+            CssScopeRange { start, end: start }
+        } else {
+            CssScopeRange { start, end }
+        };
         let mut selectors = Vec::with_capacity(self.selectors.as_ref().len() + 1);
         selectors.push(CssPathSelector::Root(range));
         selectors.extend(self.selectors.as_ref().iter().cloned());
@@ -1819,22 +1832,26 @@ mod root_scope_tests {
 
     #[test]
     fn push_front_scope_compounds_with_wrapper() {
-        // a bare-decl `set_css` path is `[Global]` (the parse_inline `*` wrapper).
-        let range = CssScopeRange { start: 5, end: 9 };
+        // a bare-decl `set_css` path is `[Global]` (the parse_inline `*` wrapper) and
+        // is scoped NODE-ONLY ([start, start]) so it applies to the owner only.
         let mut p = CssPath::new(vec![CssPathSelector::Global]);
-        p.push_front_scope(range);
+        p.push_front_scope(5, 9);
         assert_eq!(
             p.selectors.as_ref(),
-            &[CssPathSelector::Root(range), CssPathSelector::Global][..]
+            &[
+                CssPathSelector::Root(CssScopeRange { start: 5, end: 5 }),
+                CssPathSelector::Global
+            ][..]
         );
-        // a nested selector path stays intact behind the scope prefix.
+        // a path with a real selector is SUBTREE-scoped ([start, end]).
+        let subtree = CssScopeRange { start: 5, end: 9 };
         let mut p2 = CssPath::new(vec![
             CssPathSelector::Global,
             CssPathSelector::Children,
             CssPathSelector::Class("foo".to_string().into()),
         ]);
-        p2.push_front_scope(range);
-        assert_eq!(p2.selectors.as_ref()[0], CssPathSelector::Root(range));
+        p2.push_front_scope(5, 9);
+        assert_eq!(p2.selectors.as_ref()[0], CssPathSelector::Root(subtree));
         assert_eq!(p2.selectors.as_ref().len(), 4);
     }
 

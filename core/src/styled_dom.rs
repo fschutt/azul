@@ -979,9 +979,8 @@ impl StyledDom {
                 } else {
                     owner
                 };
-                let range = azul_css::css::CssScopeRange { start: owner, end };
                 for mut rule in css_with_id.css.rules.into_library_owned_vec() {
-                    rule.path.push_front_scope(range);
+                    rule.path.push_front_scope(owner, end);
                     combined_rules.push(rule);
                 }
             }
@@ -2136,13 +2135,13 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
 /// have run first so `estimated_total_children` is populated/exact.
 fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
     let start = *next_id;
-    let range = azul_css::css::CssScopeRange {
-        start,
-        end: start + dom.estimated_total_children,
-    };
+    let end = start + dom.estimated_total_children;
     for css in dom.css.as_mut().iter_mut() {
         for rule in css.rules.as_mut().iter_mut() {
-            rule.path.push_front_scope(range);
+            // push_front_scope picks node-only ([start,start]) for bare `*` rules
+            // (with_css inline decls) and subtree ([start,end]) for rules with a real
+            // selector (add_component_css), so descendant selectors match the subtree.
+            rule.path.push_front_scope(start, end);
         }
     }
     *next_id += 1;
