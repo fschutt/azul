@@ -112,9 +112,20 @@ fundamentally broken; fixing it IS the "solid fallback" the user asked for first
 
 ## CURRENT STATE (for next firing) — 2026-06-06: CONTEXT MENU RENDERS ✓ (X11)
 
-MILESTONE: the software context-menu fallback works END-TO-END on X11 — right-click the
-azul-paint canvas/body opens a BORDERLESS popup at the cursor with visible items
-("Metaballs mode" / "Normal paint mode"). Screenshot: /tmp/menu4_crop.png.
+MILESTONE: the software context-menu popup RENDERS + HOVERS on X11 — right-click the
+azul-paint canvas/body opens a BORDERLESS popup at the cursor with visible items, and
+hovering highlights an item (blue `:hover`). Screenshots: /tmp/menu4_crop.png,
+/tmp/afterclick.png. NOT yet end-to-end (clicks don't fire — see TOP NEXT).
+
+‼️ TOP NEXT — MENU ITEM CLICK doesn't fire. Hover works (item highlights blue → the menu
+window's hit-test + motion events + restyle all work), but a LEFT-click on an item leaves
+the menu OPEN and the mode UNCHANGED. Probe `menu_item_click_callback` (dll/src/desktop/
+menu_renderer.rs): does it fire on MouseDown for the menu (child) window? Does the
+`close_requested` + RefreshDom it sets propagate (close the menu + refresh the MAIN window)?
+Likely a child-window button-dispatch / close-handling gap in the shared X11 event loop, OR
+the menu's XGrabPointer routing. (Repro: right-click canvas, then `xdotool mousemove
+$((X+W/2)) $((Y+H*3/4)) click 1` on the menu; check `xdotool search --name "^Menu$"` count
+drops to 0 + the header "Effect:" toggles.)
 
 Fix chain (all committed):
 - `8f1914748` cascade: component-CSS descendant selectors (`.menu-item`) match the subtree.
