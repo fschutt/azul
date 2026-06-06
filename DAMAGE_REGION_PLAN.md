@@ -190,9 +190,49 @@ diagonal/pan (2 strips).
 signal is the count of repainted pixels (sum of damage-rect areas, `damage_area()`),
 NOT wall-time (noisy, dominated by relayout which real scroll skips). Test
 `scroll_repaint_pixels_is_strip` asserts a 30px scroll repaints ≤10k px; it
-currently FAILS at **20,000 px** (full viewport `[scrollbar 12x100, content
-188x100]`) and goes green when #14 cuts the content paint to a ~30px strip (~6.8k px
-total). Use this pixel-count metric for damage/perf assertions generally.
+FAILED at **20,000 px** (full viewport `[scrollbar 12x100, content
+188x100]`) and goes green when #14 cuts the content paint to a ~30px strip. Use
+this pixel-count metric for damage/perf assertions generally.
+
+**FIX LANDED (#14 perf) — surgical region-shift, NOT the dead `scroll_layer`:**
+We did **not** wire `scroll_layer`/`compute_exposed_rects`. Inspecting them
+revealed their sign convention is the **inverse** of the actual renderer:
+`render_single_item`/`scroll_rect` draw a content item at `pos − offset` (so a
+*positive* offset moves content UP and exposes the BOTTOM strip), but
+`compute_exposed_rects` treats +dy as exposing the TOP strip. That mismatch is
+*why* they were never wired — blindly enabling them would scroll backwards. They
+remain dead code.
+
+Instead, the incremental `render_frame` path now does the shift inline via the new
+`cpurender::scroll_shift_region(pixmap, clip_bounds, delta, dpi)`:
+- `memmove`s the still-visible pixels **inside the frame's clip only** (the
+  scrollbar, parent bg and siblings outside the clip are untouched);
+- returns the exposed strip (over-covered by 1 physical px so dpi rounding leaves
+  no white seam), which is added to the damage set so only that strip re-rasterises.
+- Sign matches the renderer (move pixels up/left for +offset; expose bottom/right).
+- First cut = **single axis** (vertical scroll / horizontal pan). **Diagonal**
+  scroll returns `[clip_bounds]` → full-clip repaint (the 2-strip pan case is
+  deferred, as planned in step 4). Known limitation noted on the fn: the move
+  copies *composited* pixels, so a non-opaque scroll frame can drag what showed
+  through — real containers paint an opaque bg.
+
+Result: `scroll_repaint_pixels_is_strip` **20,000 px → 7,028 px** (`188x31` strip +
+`12x100` bar), and `scroll_moves_content_not_just_scrollbar` still passes (pixel
+@ (50,20) flips red→blue), proving the memmove moves content *correctly*, not just
+the bar. 18/18 headless tests green.
+
+**Natural-scroll mode (input-layer concern, orthogonal to the shift):** there is
+**no configurable natural-scroll mode** in azul. Each platform backend hardcodes a
+`−delta` inversion where it feeds the wheel/axis delta into
+`scroll_manager.record_scroll_from_hit_test(…)` — X11 `events.rs:643`, Wayland
+`mod.rs:2209`, macOS `events.rs:409`, Windows `mod.rs:2992` (all four consistent).
+No OS-preference query, no user toggle; the inversion is duplicated across 4 sites
+(drift risk). The scrollbar **thumb** tracks *absolute* offset
+(`thumb_offset = (track − thumb_len) · scroll_ratio`, scrollbar.rs:184), so its
+position is always correct regardless of direction. The `scroll_shift_region` fix is
+independent: it derives its direction from the resulting offset delta, so content
+and thumb stay consistent under any input sign. A real "natural scroll mode" would
+be one flag applied once in the input→offset path (replacing the 4 hardcoded sites).
 
 ---
 
