@@ -274,24 +274,28 @@ impl CpuBackend {
             _ => None, // first frame or resize → full repaint
         };
 
-        // #13: scroll. The display list is UNCHANGED on scroll — content items
-        // are at content coords and the scroll is applied at render time via
-        // render_state.scroll_offsets — so the diff above only ever catches the
-        // scrollbar, leaving the content frozen. Build the real scroll offsets
-        // and, for any frame whose offset changed vs the previous frame, damage
-        // its whole viewport so the content re-renders shifted (present-whole-
-        // viewport; the scroll_layer pixel-shift optimization is a later step).
+        // #13/#14: scroll. The display list is UNCHANGED on scroll — content
+        // items live at content coords and the scroll is applied at render time
+        // via render_state.scroll_offsets — so the diff above only ever catches
+        // the scrollbar, leaving the content frozen. Build the real scroll
+        // offsets and, for any frame whose offset changed vs the previous frame,
+        // record the (clip, delta) so we can MOVE the still-visible pixels and
+        // repaint only the strip that scrolled into view (#14 thin-strip paint).
+        // The actual pixel move + exposed-strip damage happens after `output` is
+        // acquired (see `scroll_shift_region` below); here we only collect the
+        // work, since the pixmap is not available yet.
         let scroll_offsets = layout_window
             .scroll_manager
             .build_scroll_offset_map(dom_id, &result.scroll_ids);
-        let mut scroll_damage: Vec<azul_core::geom::LogicalRect> = Vec::new();
+        let mut scroll_shifts: Vec<(azul_core::geom::LogicalRect, (f32, f32))> = Vec::new();
         for (scroll_id, offset) in &scroll_offsets {
             let prev = self
                 .previous_scroll_offsets
                 .get(scroll_id)
                 .copied()
                 .unwrap_or((0.0, 0.0));
-            if (offset.0 - prev.0).abs() > 0.5 || (offset.1 - prev.1).abs() > 0.5 {
+            let delta = (offset.0 - prev.0, offset.1 - prev.1);
+            if delta.0.abs() > 0.5 || delta.1.abs() > 0.5 {
                 for item in display_list.items.iter() {
                     if let azul_layout::solver3::display_list::DisplayListItem::PushScrollFrame {
                         clip_bounds,
@@ -300,21 +304,24 @@ impl CpuBackend {
                     } = item
                     {
                         if sid == scroll_id {
-                            scroll_damage.push(*clip_bounds.inner());
+                            scroll_shifts.push((*clip_bounds.inner(), delta));
                         }
                     }
                 }
             }
         }
+        let has_scroll = !scroll_shifts.is_empty();
         self.previous_scroll_offsets = scroll_offsets.clone();
 
-        // Determine render path
-        let all_damage: Vec<azul_core::geom::LogicalRect>;
+        // Determine render path. Scroll strips are added AFTER the output pixmap
+        // is acquired (the pixel move needs the buffer), so the incremental arm
+        // starts with only display-list + resize damage.
+        let mut all_damage: Vec<azul_core::geom::LogicalRect>;
         let is_incremental;
 
         match dl_damage {
             Some(rects)
-                if rects.is_empty() && resize_damage.is_empty() && scroll_damage.is_empty() =>
+                if rects.is_empty() && resize_damage.is_empty() && !has_scroll =>
             {
                 // Nothing changed — skip rendering entirely
                 self.previous_display_list = Some(display_list.clone());
@@ -322,14 +329,14 @@ impl CpuBackend {
                 return Vec::new();
             }
             Some(mut rects) if !needs_resize => {
-                // Incremental: only repaint changed items + scrolled viewports
+                // Incremental: changed items + (scroll strips added below)
                 rects.extend(resize_damage);
-                rects.extend(scroll_damage);
                 all_damage = rects;
                 is_incremental = true;
             }
             _ => {
-                // Full repaint (first frame, structural change, resize)
+                // Full repaint (first frame, structural change, resize). Scroll
+                // offsets are applied fresh by the full render, so no pixel move.
                 all_damage = resize_damage;
                 is_incremental = false;
             }
@@ -347,6 +354,20 @@ impl CpuBackend {
                 None => return Vec::new(),
             },
         };
+
+        // #14: thin-strip scroll. On the incremental path, MOVE the pixels that
+        // are still visible inside each scrolled frame and repaint only the strip
+        // that scrolled into view, instead of re-rasterising the whole viewport.
+        // The move happens directly on `output`; the returned strips are added to
+        // the damage set so `render_display_list_damaged` repaints just them. (On
+        // the full-repaint path the whole frame is redrawn anyway, so no move.)
+        if is_incremental {
+            for (clip, delta) in &scroll_shifts {
+                let strips =
+                    cpurender::scroll_shift_region(&mut output, clip, *delta, dpi_factor);
+                all_damage.extend(strips);
+            }
+        }
 
         let render_state = cpurender::CpuRenderState::new(scroll_offsets)
             .with_system_style(layout_window.system_style.clone());

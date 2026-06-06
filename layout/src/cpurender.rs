@@ -841,6 +841,150 @@ fn compute_exposed_rects(bounds: &LogicalRect, dx: f32, dy: f32) -> Vec<LogicalR
     rects
 }
 
+/// Scroll a frame's clip region by *moving the pixels already on screen* and
+/// return the newly-exposed strip(s) (logical coords) that still need painting.
+///
+/// This is the thin-strip optimisation for scrolling: instead of repainting the
+/// whole `clip_bounds` viewport every frame, we `memmove` the pixels that are
+/// still visible and only re-rasterise the strip that scrolled into view. For a
+/// 30px scroll of a 200×100 viewport that turns ~20k painted px into ~6k.
+///
+/// Sign convention is the renderer's, NOT the legacy `compute_exposed_rects`:
+/// `render_single_item`/`scroll_rect` draw a content item at `position - offset`,
+/// so a *positive* `delta` (the user scrolled further down/right) moves on-screen
+/// content UP/LEFT. We therefore move the existing pixels UP/LEFT and expose a
+/// strip at the trailing (bottom/right) edge. `compute_exposed_rects` assumed the
+/// inverse and never matched the renderer — it and `scroll_layer` are dead code.
+///
+/// Only pixels strictly inside the (clamped) clip rectangle are moved, so the
+/// scrollbar, the parent background and sibling content outside the frame are
+/// left untouched. Diagonal scroll (both axes changing in one frame) is NOT
+/// strip-optimised in this first cut — the whole clip is returned for a full
+/// repaint so we never have to reconcile two overlapping strips. Single-axis
+/// scroll, the common case (including horizontal pan), gets the thin strip.
+///
+/// Returns an empty vec when nothing moved, or `[clip_bounds]` when the shift is
+/// large enough that the whole viewport is exposed (caller repaints in full).
+///
+/// NOTE: the move copies *composited* pixels, so a scroll frame whose content is
+/// not opaque over its clip can drag whatever showed through. Real scroll
+/// containers paint an opaque background or fully cover their box, so this is a
+/// known, documented limitation rather than a correctness bug for the common case.
+pub fn scroll_shift_region(
+    pixmap: &mut AzulPixmap,
+    clip_bounds: &LogicalRect,
+    delta: (f32, f32),
+    dpi_factor: f32,
+) -> Vec<LogicalRect> {
+    let px_dx = (delta.0 * dpi_factor).round() as i32;
+    let px_dy = (delta.1 * dpi_factor).round() as i32;
+
+    // Nothing actually moved (sub-pixel jitter rounds to zero).
+    if px_dx == 0 && px_dy == 0 {
+        return Vec::new();
+    }
+
+    // Diagonal scroll: bail to a full-clip repaint (no shift) in this first cut.
+    if px_dx != 0 && px_dy != 0 {
+        return vec![*clip_bounds];
+    }
+
+    let pw = pixmap.width() as i32;
+    let ph = pixmap.height() as i32;
+
+    // Clip rectangle in physical pixels, clamped to the pixmap.
+    let cx0 = ((clip_bounds.origin.x * dpi_factor).floor() as i32).clamp(0, pw);
+    let cy0 = ((clip_bounds.origin.y * dpi_factor).floor() as i32).clamp(0, ph);
+    let cx1 = (((clip_bounds.origin.x + clip_bounds.size.width) * dpi_factor).ceil() as i32)
+        .clamp(0, pw);
+    let cy1 = (((clip_bounds.origin.y + clip_bounds.size.height) * dpi_factor).ceil() as i32)
+        .clamp(0, ph);
+    let region_w = cx1 - cx0;
+    let region_h = cy1 - cy0;
+    if region_w <= 0 || region_h <= 0 {
+        return Vec::new();
+    }
+
+    // Shift exceeds the region — every pixel is exposed, so skip the memmove and
+    // let the caller repaint the whole clip.
+    if px_dx.abs() >= region_w || px_dy.abs() >= region_h {
+        return vec![*clip_bounds];
+    }
+
+    let stride_px = pw; // pixels per row in the full buffer
+    let col_bytes = (region_w * 4) as usize;
+    let data = pixmap.data_mut();
+    let row_off = |row: i32| -> usize { ((row * stride_px + cx0) as usize) * 4 };
+
+    // --- Vertical move ---
+    if px_dy > 0 {
+        // Content up: dst = src - px_dy. dst < src, so iterate top→bottom.
+        for dst in cy0..(cy1 - px_dy) {
+            let s = row_off(dst + px_dy);
+            let d = row_off(dst);
+            data.copy_within(s..s + col_bytes, d);
+        }
+    } else if px_dy < 0 {
+        let s_amt = -px_dy;
+        // Content down: dst = src + s_amt. dst > src, so iterate bottom→top.
+        for dst in ((cy0 + s_amt)..cy1).rev() {
+            let s = row_off(dst - s_amt);
+            let d = row_off(dst);
+            data.copy_within(s..s + col_bytes, d);
+        }
+    }
+
+    // --- Horizontal move (single-axis only; diagonal already returned above) ---
+    if px_dx > 0 {
+        // Content left: within each row, dst col = src col - px_dx. dst < src.
+        let shift = (px_dx * 4) as usize;
+        for row in cy0..cy1 {
+            let left = row_off(row);
+            data.copy_within(left + shift..left + col_bytes, left);
+        }
+    } else if px_dx < 0 {
+        let shift = ((-px_dx) * 4) as usize;
+        for row in cy0..cy1 {
+            let left = row_off(row);
+            data.copy_within(left..left + col_bytes - shift, left + shift);
+        }
+    }
+
+    // Exposed strip in LOGICAL coords. Over-cover the moving edge by one physical
+    // pixel so dpi rounding never leaves a 1px white seam between the moved block
+    // and the freshly-painted strip. Single axis → exactly one strip.
+    let cb = clip_bounds;
+    let mut exposed = Vec::new();
+    if px_dy != 0 {
+        let h_logical = (px_dy.abs() as f32 + 1.0) / dpi_factor;
+        let h = h_logical.min(cb.size.height);
+        let y = if px_dy > 0 {
+            // bottom strip exposed
+            cb.origin.y + cb.size.height - h
+        } else {
+            // top strip exposed
+            cb.origin.y
+        };
+        exposed.push(LogicalRect {
+            origin: LogicalPosition { x: cb.origin.x, y },
+            size: LogicalSize { width: cb.size.width, height: h },
+        });
+    } else if px_dx != 0 {
+        let w_logical = (px_dx.abs() as f32 + 1.0) / dpi_factor;
+        let w = w_logical.min(cb.size.width);
+        let x = if px_dx > 0 {
+            cb.origin.x + cb.size.width - w
+        } else {
+            cb.origin.x
+        };
+        exposed.push(LogicalRect {
+            origin: LogicalPosition { x, y: cb.origin.y },
+            size: LogicalSize { width: w, height: cb.size.height },
+        });
+    }
+    exposed
+}
+
 /// Apply CSS filters to a pixbuf at composite time.
 fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_factor: f32) {
     for filter in filters {
