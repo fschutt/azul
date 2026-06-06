@@ -238,6 +238,16 @@ pub fn regenerate_layout(
     drop(app_data_borrowed); // Release borrow
     azul_layout::probe::emit_phase_heap("after_callback");
 
+    // Software menu bar — the Linux fallback. Injected at the *Dom* level (before
+    // `create_from_dom`) so the bar's `with_css` rules are scoped by
+    // `scope_inline_css` in the same flatten pass as the rest of the window (a
+    // separately-flattened + appended StyledDom would never get scoped). Windows
+    // and macOS use the native HMENU / app menu; GNOME/KDE export the menu to the
+    // desktop panel — so we only build our own bar on Linux when none of those
+    // apply (see `inject_software_menubar`).
+    #[cfg(target_os = "linux")]
+    let user_dom = inject_software_menubar(user_dom);
+
     // 1.5. Flatten recursive Dom → StyledDom (single deferred cascade pass)
     //
     // The user callback now returns a recursive `Dom` with CSS attached via `.with_css()` (@scope-like).
@@ -1204,4 +1214,28 @@ fn inject_software_titlebar(
     container.append_child(titlebar_styled);
     container.append_child(user_dom);
     container
+}
+
+/// Wrap a user `Dom` with a software menu bar (the Linux fallback) at the top of
+/// its content — but only if the root declares a `Menu` (`Dom::with_menu_bar`)
+/// and no native global menu applies (GNOME/KDE export to the panel). Operates on
+/// the raw `Dom` *before* `create_from_dom` so the bar's `with_css` rules are
+/// scoped in the main flatten pass. No-op (returns `user_dom` unchanged) when
+/// there is no menu bar or a native global menu is in use.
+#[cfg(target_os = "linux")]
+fn inject_software_menubar(user_dom: azul_core::dom::Dom) -> azul_core::dom::Dom {
+    use azul_core::dom::{Dom, DomVec};
+
+    if crate::desktop::shell2::linux::gnome_menu::should_use_gnome_menus() {
+        return user_dom;
+    }
+    let menu = match user_dom.root.get_menu_bar() {
+        Some(boxed_menu) => (**boxed_menu).clone(),
+        None => return user_dom,
+    };
+    let menubar = azul_layout::widgets::menubar::build_menubar_dom(&menu);
+
+    // Html root (not Body) so we don't double-nest <body> / double the UA margin.
+    // Order: menu bar first, then the user's content below it.
+    Dom::create_html().with_children(DomVec::from_vec(vec![menubar, user_dom]))
 }

@@ -165,6 +165,10 @@ pub mod microphone;
 /// Cache lives in a dataset RefAny owned by a merge callback so it
 /// survives relayout. See `layout/src/widgets/map.rs` for the design.
 pub mod map;
+/// Software menu-bar widget (Linux fallback when there is no native global menu).
+/// Renders a window's `Menu` as a horizontal bar; items open dropdowns via the
+/// unified `WindowPosition::RelativeToParentWindow` popup path.
+pub mod menubar;
 /// Node graph widget
 pub mod node_graph;
 /// Same as text input, but only allows numeric input

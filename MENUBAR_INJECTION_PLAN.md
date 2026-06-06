@@ -5,6 +5,90 @@ clicking a top-level item opens its children as a dropdown **positioned below th
 exercising the menu/window-positioning code. Then add a `<select>`/`<option>` using the
 same open-menu path.
 
+---
+
+# ⏸ MONDAY HANDOFF — 2026-06-06 (end of Friday session)
+
+Branch `mobile-ios-android`. Two commits landed this session; a third (menubar) is being
+committed now. Read this block first, then the dated "CURRENT STATE" sections below.
+
+## ✅ DONE + COMMITTED this session
+1. **#27 unified window parenting** (`8c4dfd1e5`): `WindowPosition::RelativeToParentWindow`
+   resolved in X11/macOS/Windows `position_window_on_monitor` via the window registry
+   (`parent_origin + offset`, monitor-relative fallback); removed the Windows-only
+   `WindowsWindowOptions.parent_window` HWND field + `HwndHandle`/`OptionHwndHandle` types;
+   `menu.rs::show_menu` now emits `RelativeToParentWindow`. Fixed a real **autofix bug**
+   (`are_types_equivalent` now strips `ManuallyDrop<…>` + accepts `*mut c_void`), renamed
+   the test-local `ScrollState`→`ScrollTestState` (FFI name collision). `autofix` is now
+   ZERO-DIFF + exit 0. Verified: linux headless 23/23, macOS+Windows cross-compile.
+2. **api.json drift applied** (in the same commit): CssPathSelector::Root(CssScopeRange),
+   CssScopeRange struct, IconProviderHandle Drop. All bindings regenerated.
+
+## 🟡 DONE (compiles + renders), COMMITTING NOW — software menu bar
+- New `layout/src/widgets/menubar.rs` (`build_menubar_dom`), injected at the **Dom level**
+  (before `create_from_dom`) in `shell2::common::layout.rs` via `inject_software_menubar`;
+  removed the old broken `csd.rs` menubar. Styled 100% with inline `with_css(&str)` +
+  `system:` colors + `system:ui` font. **RENDERS HORIZONTALLY + themed on X11** (verified:
+  /tmp/mb2_rest_crop.png). One unified menubar path now.
+
+## 🔴 BUGS TO FIX MONDAY (priority order)
+1. **Menubar click repositions the PARENT window instead of opening the child popup**
+   (user diagnosis; main window jumped 50,50→54,122 on click, no dropdown). The open-menu
+   path must CREATE + position a child popup, not move the current window. Trace
+   `menubar_item_click → open_menu_for_hit_node → OpenMenu → show_menu_from_callback →
+   show_fallback_menu → show_menu (RelativeToParentWindow + parent_window_id) → pending
+   window create → child position_window_on_monitor`. Suspect: child window not actually
+   created, OR the X11 store-back (`self.common.current_window_state.position = Initialized`
+   in the relative arm) running against the parent; confirm `self` is the CHILD.
+2. **Menubar colors look wrong** ("probably a system style problem" — user). `system:*`
+   resolve to light-theme fallbacks → light bar on a dark app. Investigate `SystemColors`
+   population on X11 (likely empty → fallbacks). Deferred.
+3. **"View" (3rd menubar item) renders as "V"** — text clipped to one glyph (File/Edit/Help,
+   also 4 chars, render full). Item box looks correctly sized → a text3 layout/measure quirk
+   on that item. Not root-caused.
+4. **contenteditable: text blank on FIRST draw, appears on second draw** (user-confirmed,
+   reproduced /tmp/ce_shot2.png). First-frame render/relayout ordering bug. Cursor caret DOES
+   render + typing works (saw "Hello WHi|orld" after click+type). Scroll + cursor-BLINK need
+   a LIVE test (a screenshot can't show blinking).
+
+## 🧪 TO TEST MONDAY
+- **contenteditable live (X11, CPU)**: scrolling (mouse-wheel over the blue multi-line area —
+  exercises the #13–#18 scroll-shift work) + cursor blink. LAUNCH COMMAND (see gotcha #1):
+  `cd tests/e2e && LD_LIBRARY_PATH=$PWD/../../target/release AZ_BACKEND=cpu ./contenteditable_test`
+  (rebuild first: `cc contenteditable.c -I../../target/codegen/ -L../../target/release/ -lazul
+  -o contenteditable_test -Wl,-rpath,$PWD/../../target/release`).
+- **menubar click → dropdown** once bug #1 is fixed.
+- **Wayland** (NEXT MAJOR): run azul-paint + contenteditable under Wayland. RelativeToParentWindow
+  is the enabler (no absolute coords there); verify menu/dropdown popups position via the
+  parent-relative path. The Wayland backend's `xdg_popup` positioner is still a gap (task #6).
+
+## ⚠️ ENVIRONMENT GOTCHAS (cost real time this session)
+1. **STALE `/lib/libazul.so`** (root-owned, ~41MB, OLD ABI) shadows the fresh
+   `target/release/libazul.so` (~276MB). C examples link a *relative* rpath, so from the wrong
+   CWD they load the stale lib → immediate crash (exit 144). ALWAYS run with
+   `LD_LIBRARY_PATH=<abs>/target/release`. Consider deleting/refreshing `/lib/libazul.so`.
+2. **`libazul.so` is 276MB** (release). Almost certainly unstripped debug info
+   (`[profile.release] debug=...` or split-debuginfo). Investigate stripping / `debug=0` for a
+   smaller, faster-to-link build — slows every rebuild + bloats the C-example link.
+3. **Harness exit 144** on long foreground commands / `sleep` (artifact, not an app crash —
+   the verify script also exits 144 yet produces screenshots). Use `run_in_background` or have
+   the USER launch persistent GUI apps via the `!` prefix.
+
+## ▶ HOW TO REBUILD (the full chain — each ~3–4 min)
+`cargo run -p azul-doc -- codegen all` (if api.json changed) → `cargo build --release -p
+azul-dll --features build-dll` (→ libazul.so) → `cargo build --release -p azul-paint`
+(rebuild examples against the new ABI — `WindowCreateOptions` layout changed this session).
+
+## STILL TODO (feature backlog)
+- Expose `Menubar` + `Titlebar` as api.json widgets (repr(C) config). Titlebar already in
+  api.json; add `Menubar { menu: Menu }` + `create`/`dom`. (User asked; not yet done.)
+- Refactor software **titlebar** injection to the same Dom-level pattern (currently still
+  StyledDom-level `csd::wrap_user_dom_with_decorations`). (User asked.)
+- Step 3 DropDown/`<select>`; Step 5 migrate azul-paint header buttons → menu callbacks.
+- Consider removing `add_component_css` from api.json (folded into `with_css(&str)`).
+
+---
+
 ## Live checklist (SOURCE OF TRUTH for the cron — tick items + rewrite the
 ## "CURRENT STATE" note at the very bottom after each verified increment)
 
@@ -110,7 +194,76 @@ fundamentally broken; fixing it IS the "solid fallback" the user asked for first
 
 ---
 
-## CURRENT STATE (for next firing) — 2026-06-06: CONTEXT MENU FUNCTIONAL ✓ (X11)
+## CURRENT STATE — 2026-06-06 (late): SOFTWARE MENUBAR RENDERS ✓ (X11), Dom-level
+
+MILESTONE: the software menu bar now renders as a HORIZONTAL bar (File / Edit / View /
+Help) at the top of azul-paint on X11, themed from the `system:` CSS namespace.
+Screenshots: /tmp/mb2_rest.png, /tmp/mb2_rest_crop.png (rest), /tmp/mb2_file.png (after
+click). Built as one unified Dom-level widget.
+
+### What was done (UNCOMMITTED on mobile-ios-android until this commit)
+- **New widget** `layout/src/widgets/menubar.rs` (`Menubar` pending): `build_menubar_dom(menu)`
+  → flex-row `.azul-menubar` of one `.azul-menubar-item` per top-level `MenuItem::String`.
+  Each item's `MouseUp` callback `menubar_item_click` stores the submenu as a `RefAny`
+  backreference and calls `info.open_menu_for_hit_node(menu)` (the unified
+  `WindowPosition::RelativeToParentWindow` popup path). A top-level leaf opens a 1-item menu
+  of itself so its callback still fires.
+- **Styling is 100% inline `with_css(&str)`** with the `system:` color namespace
+  (`system:window-background`, `system:text`, `system:selection-background`,
+  `system:selection-text`) + `font-family: system:ui`, `:hover` via CSS nesting. NO
+  `add_component_css` / `SystemStyle` threading.
+- **Injected at the Dom level** in `shell2::common::layout::regenerate_layout`, BEFORE
+  `StyledDom::create_from_dom`, via `inject_software_menubar(user_dom)` (Linux-only, gated on
+  `!gnome_menu::should_use_gnome_menus()` + root `get_menu_bar()`). This is the KEY fix — see
+  the CSS-model note below.
+- **Unified / removed the old broken menubar**: deleted `csd.rs::create_menubar_styled_dom`
+  + `csd_menubar_item_callback` (wrong `.csd-menubar` stylesheet that `create_menu_stylesheet`
+  never styled → it rendered VERTICAL + unstyled; stale callback ABI). One menubar path now.
+
+### CSS MODEL (researched — the reason the first attempt failed)
+- `with_css(&str)` → `parse_inline` wraps in `* { … }`, tags rules `rule_priority::INLINE`
+  (=30, the HIGHEST: UA 0 < SYSTEM 10 < AUTHOR 20 < INLINE 30), stores on the Dom's `.css` vec.
+- `scope_inline_css` (core `styled_dom.rs`) runs ONLY inside `create_from_dom`: it walks the
+  tree assigning flat NodeIds and `push_front_scope(start,end)` prepends a `Root(CssScopeRange)`
+  — **node-only `[start,start]` for bare-`*` rules, subtree `[start,end]` for selector rules**.
+  Re-synthesized every flatten ⇒ survives `append_child` ONLY when flattened together.
+- FIRST ATTEMPT FAILED because the bar was built as a SEPARATE `StyledDom::create()` +
+  `append_child` — `create` never runs `scope_inline_css`, so the rules were never scoped/applied
+  (rendered vertical+unstyled). FIX = inject the raw `Dom` before `create_from_dom`.
+- `system:` colors (css `props/basic/color.rs`) resolve against `SystemColors` at cascade time.
+
+### KNOWN ISSUES (user-noted, deferred — finish-before-midnight)
+1. **Colors look wrong** — "probably a system style problem" (user). The `system:*` values
+   resolve to light-theme fallbacks; `SystemColors` likely not populated for this WM, so the
+   bar is light-on-dark-app. Investigate `SystemColors` population on X11.
+2. **"View" (3rd item) renders as "V"** — text truncated to one glyph; File/Edit/Help (also
+   4 chars) render full. Item box looks correctly sized (big gap before Help), so it's a TEXT
+   clip/measure quirk on that item, not flex sizing. NOT yet root-caused. Investigate text3
+   layout of the menubar item text node.
+3. **Click repositions the PARENT window instead of opening the child popup** (user diagnosis,
+   matches observation: the MAIN window jumped 50,50 → 54,122 right after clicking File; no File
+   dropdown appeared). The open-menu path is moving the parent (main) window to the computed
+   position rather than creating + positioning a NEW child popup window there. NEXT-SESSION
+   PRIORITY. Trace `menubar_item_click` → `open_menu_for_hit_node` → `OpenMenu{menu,position}`
+   → backend `show_menu_from_callback` → `show_fallback_menu` → `show_menu` (sets
+   `RelativeToParentWindow(menu_pos-parent_pos)` + `parent_window_id`) → pending window create →
+   child `position_window_on_monitor`. Suspect: either the child window isn't actually created
+   (so nothing new appears) and a position update lands on the parent, OR the X11 store-back
+   (`self.common.current_window_state.position = Initialized(x,y)` for the relative arm) is
+   running against the parent. Confirm `self` is the CHILD in `position_window_on_monitor`, and
+   that `OpenMenu` routes to `create_window`/`pending_window_creates` (a real child) not a
+   `set_window_position` on the current window.
+
+### STILL TODO (this feature)
+- Expose `Menubar` + `Titlebar` as widgets in api.json (repr(C) config). Titlebar already
+  in api.json (module `widgets`); add a `Menubar { menu: Menu }` repr(C) struct + `create`/`dom`.
+- Refactor the software **titlebar** injection to the SAME Dom-level pattern (currently
+  StyledDom-level `csd::wrap_user_dom_with_decorations` + `inject_software_titlebar`).
+- DropDown/`<select>` (step 3); migrate azul-paint header buttons → menu callbacks (step 5).
+
+---
+
+## CURRENT STATE (earlier) — 2026-06-06: CONTEXT MENU FUNCTIONAL ✓ (X11)
 
 MILESTONE: the software context-menu fallback is FUNCTIONAL END-TO-END on X11 — right-click
 the azul-paint canvas/body → a BORDERLESS popup opens at the cursor with visible items,
