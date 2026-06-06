@@ -2039,6 +2039,146 @@ mod tests {
         Some([d[i], d[i + 1], d[i + 2], d[i + 3]])
     }
 
+    /// Write the window's last frame to `/tmp/<name>.png` for visual inspection.
+    /// Best-effort: silently does nothing if there's no frame / encode fails.
+    #[cfg(feature = "cpurender")]
+    fn save_frame_png(window: &HeadlessWindow, name: &str) {
+        if let Some(pm) = window.cpu_backend.last_frame.as_ref() {
+            if let Ok(bytes) = pm.encode_png() {
+                let _ = std::fs::write(format!("/tmp/{}.png", name), bytes);
+            }
+        }
+    }
+
+    /// Count pixels (and the max per-channel delta) that differ between two
+    /// pixmaps. (usize::MAX, 255) if the dimensions differ.
+    #[cfg(feature = "cpurender")]
+    fn pixmap_diff(
+        pa: &azul_layout::cpurender::AzulPixmap,
+        pb: &azul_layout::cpurender::AzulPixmap,
+    ) -> (usize, u8) {
+        if pa.width() != pb.width() || pa.height() != pb.height() {
+            return (usize::MAX, 255);
+        }
+        let (da, db) = (pa.data(), pb.data());
+        let mut diff_px = 0usize;
+        let mut max_d = 0u8;
+        for (ca, cb) in da.chunks_exact(4).zip(db.chunks_exact(4)) {
+            let d = (0..4)
+                .map(|k| (ca[k] as i16 - cb[k] as i16).unsigned_abs() as u8)
+                .max()
+                .unwrap_or(0);
+            if d > 0 {
+                diff_px += 1;
+                max_d = max_d.max(d);
+            }
+        }
+        (diff_px, max_d)
+    }
+
+    /// Render a scrolled state TWO ways — the incremental fast path (memmove +
+    /// strip) and a forced full re-render at the same offset — and assert they're
+    /// pixel-identical. This is the rigorous proof that the scroll-shift fast path
+    /// is correct. Saves `/tmp/<tag>_fast.png` and `/tmp/<tag>_full.png` for the
+    /// human to eyeball, and returns the fast-path damage.
+    #[cfg(feature = "cpurender")]
+    fn assert_fast_matches_full_scroll(
+        cb: azul_core::callbacks::LayoutCallbackType,
+        dx: f32,
+        dy: f32,
+        tag: &str,
+    ) -> FrameDamage {
+        use azul_core::dom::DomId;
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+        use azul_core::hit_test::ScrollPosition;
+
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollState { n_items: 100 })));
+        let mut w = make_window_with(&state, cb);
+        w.regenerate_layout().expect("initial layout");
+        let node = w
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().next().copied())
+            .expect("scroll frame should exist");
+        let sp = ScrollPosition {
+            parent_rect: LogicalRect {
+                origin: LogicalPosition::new(8.0, 8.0),
+                size: LogicalSize::new(200.0, 100.0),
+            },
+            children_rect: LogicalRect {
+                origin: LogicalPosition::new(dx, dy),
+                size: LogicalSize::new(400.0, 3000.0),
+            },
+        };
+        w.common
+            .layout_window
+            .as_mut()
+            .unwrap()
+            .set_scroll_position(DomId { inner: 0 }, node, sp);
+        // Incremental fast path.
+        w.regenerate_layout().expect("scroll (fast)");
+        let damage = w.cpu_backend.last_frame_damage.clone();
+        save_frame_png(&w, &format!("{}_fast", tag));
+        let fast = w
+            .cpu_backend
+            .last_frame
+            .as_ref()
+            .map(|p| p.clone_pixmap())
+            .expect("fast frame");
+
+        // Correct reference: a FULL offset-aware render of the whole viewport via
+        // the same offset-applying rasteriser (`render_display_list_damaged`).
+        // NOTE: the compositor full-render path (`render_layers`) renders with an
+        // EMPTY scroll-offset map, so it would draw at offset 0 — a real bug to fix
+        // when wiring the compositor (#18); it is NOT a valid reference here.
+        let (pw, ph) = (fast.width(), fast.height());
+        let dpi = {
+            let ws = &w.common.current_window_state;
+            ws.size.dpi as f32 / 96.0
+        };
+        let mut reference = azul_layout::cpurender::AzulPixmap::new(pw, ph).expect("ref pixmap");
+        reference.fill(255, 255, 255, 255);
+        {
+            let lw = w.common.layout_window.as_ref().unwrap();
+            let dom = DomId { inner: 0 };
+            let result = lw.layout_results.get(&dom).unwrap();
+            let offsets = lw.scroll_manager.build_scroll_offset_map(dom, &result.scroll_ids);
+            let rs = azul_layout::cpurender::CpuRenderState::new(offsets)
+                .with_system_style(lw.system_style.clone());
+            let full_clip = LogicalRect {
+                origin: LogicalPosition::new(0.0, 0.0),
+                size: LogicalSize::new(pw as f32 / dpi, ph as f32 / dpi),
+            };
+            let _ = azul_layout::cpurender::render_display_list_damaged(
+                &result.display_list,
+                &mut reference,
+                dpi,
+                &w.common.renderer_resources,
+                Some(&lw.font_manager),
+                &mut w.cpu_backend.glyph_cache,
+                &rs,
+                &[full_clip],
+            );
+        }
+        let full = reference;
+        if let Ok(bytes) = full.encode_png() {
+            let _ = std::fs::write(format!("/tmp/{}_full.png", tag), bytes);
+        }
+
+        let (diff_px, max_d) = pixmap_diff(&fast, &full);
+        println!(
+            "[harness] {tag}: fast-vs-full diff_px={diff_px} max_delta={max_d} (PNGs in /tmp/{tag}_*.png)"
+        );
+        assert_eq!(
+            diff_px, 0,
+            "{tag}: fast-path scroll is NOT pixel-identical to a full re-render \
+             ({diff_px} px differ, max channel delta {max_d}). The memmove produced \
+             a wrong frame — see /tmp/{tag}_fast.png vs /tmp/{tag}_full.png",
+        );
+        damage
+    }
+
     #[test]
     fn scroll_moves_content_not_just_scrollbar() {
         use azul_core::dom::DomId;
@@ -2269,6 +2409,39 @@ mod tests {
                 "diagonal pan did not move content at (50,20) — before={:?} after={:?}",
                 before_px, after_px
             );
+        }
+    }
+
+    // #21: PNG visual tests. The fast path (memmove + strip repaint) must produce
+    // a frame byte-identical to a full re-render at the same offset. These render
+    // both ways, assert pixel-equality, and drop PNGs in /tmp for eyeballing.
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn png_scroll_vertical_fast_matches_full_render() {
+        let damage = assert_fast_matches_full_scroll(harness_layout_scroll, 0.0, 30.0, "scroll_vert");
+        // It really took the fast path (a strip), not a full clip repaint.
+        match damage_area(&damage) {
+            Some(px) => assert!(
+                px <= 10_000.0,
+                "vertical scroll should be a thin strip via the fast path, got {px}px {:?}",
+                damage
+            ),
+            None => panic!("vertical scroll produced Full damage: {:?}", damage),
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn png_scroll_diagonal_fast_matches_full_render() {
+        let damage =
+            assert_fast_matches_full_scroll(harness_layout_scroll_2d, 20.0, 30.0, "scroll_diag");
+        match damage_area(&damage) {
+            Some(px) => assert!(
+                px <= 12_000.0,
+                "diagonal pan should be two strips via the fast path, got {px}px {:?}",
+                damage
+            ),
+            None => panic!("diagonal pan produced Full damage: {:?}", damage),
         }
     }
 

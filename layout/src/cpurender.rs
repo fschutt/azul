@@ -3160,10 +3160,28 @@ pub fn render_display_list_damaged(
         // because skipping a Push while processing its matching Pop corrupts stacks.
         if !item.is_state_management() {
             if let Some(item_bounds) = item.bounds() {
+                // Items inside a scroll frame are stored at CONTENT coords but
+                // RENDER at `pos - scroll_offset`. The damage rects are in viewport
+                // space, so we must apply the current scroll offset to the bounds
+                // before the intersection test — otherwise scrolled content is
+                // filtered against the wrong position and rows that actually fall
+                // in a damage strip get dropped (visible as a missing band).
+                let (sdx, sdy) = *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0));
+                let test_bounds = if sdx == 0.0 && sdy == 0.0 {
+                    item_bounds
+                } else {
+                    LogicalRect {
+                        origin: LogicalPosition {
+                            x: item_bounds.origin.x - sdx,
+                            y: item_bounds.origin.y - sdy,
+                        },
+                        size: item_bounds.size,
+                    }
+                };
                 // Check if item intersects ANY damage rect (not just the union)
                 let hits_damage = damage_rects
                     .iter()
-                    .any(|dr| rects_overlap_or_adjacent(&item_bounds, dr, 0.0));
+                    .any(|dr| rects_overlap_or_adjacent(&test_bounds, dr, 0.0));
                 if !hits_damage {
                     continue;
                 }
