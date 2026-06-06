@@ -368,9 +368,16 @@ impl CompositorState {
         renderer_resources: &RendererResources,
         font_manager: Option<&FontManager<FontRef>>,
         glyph_cache: &mut GlyphCache,
+        scroll_offsets: &ScrollOffsetMap,
     ) -> Result<(), String> {
-        // Collect layer IDs and their display list ranges
-        let layer_ranges: Vec<(LayerId, (usize, usize), LogicalRect, Vec<(usize, usize)>)> = self
+        // Collect layer IDs, ranges, bounds, scroll_id and child ranges.
+        let layer_ranges: Vec<(
+            LayerId,
+            (usize, usize),
+            LogicalRect,
+            Option<LocalScrollId>,
+            Vec<(usize, usize)>,
+        )> = self
             .layers
             .iter()
             .map(|(id, layer)| {
@@ -383,17 +390,29 @@ impl CompositorState {
                     .iter()
                     .filter_map(|cid| self.layers.get(cid).map(|c| c.display_list_range))
                     .collect();
-                (*id, layer.display_list_range, layer.bounds, child_ranges)
+                (*id, layer.display_list_range, layer.bounds, layer.scroll_id, child_ranges)
             })
             .collect();
 
-        for (layer_id, range, layer_bounds, child_ranges) in &layer_ranges {
+        for (layer_id, range, layer_bounds, scroll_id, child_ranges) in &layer_ranges {
             let (start, end) = *range;
             if start >= end || start >= display_list.items.len() {
                 continue;
             }
 
+            // This layer's scroll offset (0 for non-scroll layers). Content inside
+            // a scroll frame is at absolute coords; the renderer draws at
+            // `pos - seed`, so folding the scroll offset into the seed shifts the
+            // frame's content within its own pixbuf. composite_frame blits the
+            // pixbuf back at `layer.bounds.origin` (NOT scroll_offset), so applying
+            // it here is the single place — no double offset. (Without this, a full
+            // repaint while scrolled drew content at offset 0.)
+            let soff = scroll_id
+                .and_then(|id| scroll_offsets.get(&id).copied())
+                .unwrap_or((0.0, 0.0));
+
             let layer = self.layers.get_mut(layer_id).unwrap();
+            layer.scroll_offset = soff;
 
             // Clear the layer pixbuf (transparent for non-root, white for root)
             if *layer_id == self.root_layer {
@@ -402,9 +421,9 @@ impl CompositorState {
                 layer.pixbuf.fill(0, 0, 0, 0);
             }
 
-            // Render the display list slice into this layer's pixbuf
-            let offset_x = layer_bounds.origin.x;
-            let offset_y = layer_bounds.origin.y;
+            // Seed = layer origin (for pixbuf-local placement) + scroll offset.
+            let offset_x = layer_bounds.origin.x + soff.0;
+            let offset_y = layer_bounds.origin.y + soff.1;
             render_display_list_range(
                 display_list,
                 &mut layer.pixbuf,

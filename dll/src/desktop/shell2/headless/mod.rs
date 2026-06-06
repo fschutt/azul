@@ -403,6 +403,7 @@ impl CpuBackend {
             if let Err(e) = compositor.render_layers(
                 display_list, dpi_factor, renderer_resources,
                 Some(&layout_window.font_manager), &mut self.glyph_cache,
+                &render_state.scroll_offsets,
             ) {
                 log_error!(
                     LogCategory::Rendering,
@@ -2076,6 +2077,49 @@ mod tests {
         (diff_px, max_d)
     }
 
+    /// Render the window's CURRENT state as a full, offset-aware frame using the
+    /// offset-applying rasteriser (`render_display_list_damaged` over the whole
+    /// viewport) — the trustworthy "what it should look like" reference, independent
+    /// of the incremental and compositor paths.
+    #[cfg(feature = "cpurender")]
+    fn offset_aware_reference(w: &mut HeadlessWindow) -> azul_layout::cpurender::AzulPixmap {
+        use azul_core::dom::DomId;
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+        let (pw, ph) = w
+            .cpu_backend
+            .last_frame
+            .as_ref()
+            .map(|p| (p.width(), p.height()))
+            .unwrap_or((1, 1));
+        let dpi = {
+            let ws = &w.common.current_window_state;
+            ws.size.dpi as f32 / 96.0
+        };
+        let mut reference = azul_layout::cpurender::AzulPixmap::new(pw, ph).expect("ref pixmap");
+        reference.fill(255, 255, 255, 255);
+        let lw = w.common.layout_window.as_ref().unwrap();
+        let dom = DomId { inner: 0 };
+        let result = lw.layout_results.get(&dom).unwrap();
+        let offsets = lw.scroll_manager.build_scroll_offset_map(dom, &result.scroll_ids);
+        let rs = azul_layout::cpurender::CpuRenderState::new(offsets)
+            .with_system_style(lw.system_style.clone());
+        let full_clip = LogicalRect {
+            origin: LogicalPosition::new(0.0, 0.0),
+            size: LogicalSize::new(pw as f32 / dpi, ph as f32 / dpi),
+        };
+        let _ = azul_layout::cpurender::render_display_list_damaged(
+            &result.display_list,
+            &mut reference,
+            dpi,
+            &w.common.renderer_resources,
+            Some(&lw.font_manager),
+            &mut w.cpu_backend.glyph_cache,
+            &rs,
+            &[full_clip],
+        );
+        reference
+    }
+
     /// Render a scrolled state TWO ways — the incremental fast path (memmove +
     /// strip) and a forced full re-render at the same offset — and assert they're
     /// pixel-identical. This is the rigorous proof that the scroll-shift fast path
@@ -2128,40 +2172,8 @@ mod tests {
             .expect("fast frame");
 
         // Correct reference: a FULL offset-aware render of the whole viewport via
-        // the same offset-applying rasteriser (`render_display_list_damaged`).
-        // NOTE: the compositor full-render path (`render_layers`) renders with an
-        // EMPTY scroll-offset map, so it would draw at offset 0 — a real bug to fix
-        // when wiring the compositor (#18); it is NOT a valid reference here.
-        let (pw, ph) = (fast.width(), fast.height());
-        let dpi = {
-            let ws = &w.common.current_window_state;
-            ws.size.dpi as f32 / 96.0
-        };
-        let mut reference = azul_layout::cpurender::AzulPixmap::new(pw, ph).expect("ref pixmap");
-        reference.fill(255, 255, 255, 255);
-        {
-            let lw = w.common.layout_window.as_ref().unwrap();
-            let dom = DomId { inner: 0 };
-            let result = lw.layout_results.get(&dom).unwrap();
-            let offsets = lw.scroll_manager.build_scroll_offset_map(dom, &result.scroll_ids);
-            let rs = azul_layout::cpurender::CpuRenderState::new(offsets)
-                .with_system_style(lw.system_style.clone());
-            let full_clip = LogicalRect {
-                origin: LogicalPosition::new(0.0, 0.0),
-                size: LogicalSize::new(pw as f32 / dpi, ph as f32 / dpi),
-            };
-            let _ = azul_layout::cpurender::render_display_list_damaged(
-                &result.display_list,
-                &mut reference,
-                dpi,
-                &w.common.renderer_resources,
-                Some(&lw.font_manager),
-                &mut w.cpu_backend.glyph_cache,
-                &rs,
-                &[full_clip],
-            );
-        }
-        let full = reference;
+        // the offset-applying rasteriser.
+        let full = offset_aware_reference(&mut w);
         if let Ok(bytes) = full.encode_png() {
             let _ = std::fs::write(format!("/tmp/{}_full.png", tag), bytes);
         }
@@ -2443,6 +2455,66 @@ mod tests {
             ),
             None => panic!("diagonal pan produced Full damage: {:?}", damage),
         }
+    }
+
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn png_scroll_compositor_full_render_applies_offset() {
+        // #18 fix: the COMPOSITOR full-render path (render_layers) must apply scroll
+        // offsets. It used to render with an empty offset map → a full repaint while
+        // scrolled drew content at offset 0. Force the compositor full path at a
+        // 30px scroll and assert it matches the offset-aware reference.
+        use azul_core::dom::DomId;
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+        use azul_core::hit_test::ScrollPosition;
+
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollState { n_items: 100 })));
+        let mut w = make_window_with(&state, harness_layout_scroll);
+        w.regenerate_layout().expect("initial");
+        let node = w
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().next().copied())
+            .expect("scroll frame");
+        let sp = ScrollPosition {
+            parent_rect: LogicalRect {
+                origin: LogicalPosition::new(8.0, 8.0),
+                size: LogicalSize::new(200.0, 100.0),
+            },
+            children_rect: LogicalRect {
+                origin: LogicalPosition::new(0.0, 30.0),
+                size: LogicalSize::new(400.0, 3000.0),
+            },
+        };
+        w.common
+            .layout_window
+            .as_mut()
+            .unwrap()
+            .set_scroll_position(DomId { inner: 0 }, node, sp);
+        w.regenerate_layout().expect("scroll (incremental)");
+        // Force the FULL (compositor) path for the next frame at the same offset.
+        w.cpu_backend.previous_display_list = None;
+        w.regenerate_layout().expect("compositor full");
+        save_frame_png(&w, "scroll_compositor_full");
+        let comp = w
+            .cpu_backend
+            .last_frame
+            .as_ref()
+            .map(|p| p.clone_pixmap())
+            .expect("compositor frame");
+        let reference = offset_aware_reference(&mut w);
+        let (diff_px, max_d) = pixmap_diff(&comp, &reference);
+        println!(
+            "[harness] compositor-full vs offset-aware reference: diff_px={diff_px} max={max_d}"
+        );
+        // Allow a tiny tolerance for AA/compositing path differences; the pre-fix
+        // bug was a whole-viewport mismatch (~18k px, full row phase wrong).
+        assert!(
+            diff_px < 200,
+            "compositor full-render does not apply the scroll offset (diff {diff_px}px, \
+             max delta {max_d}) — see /tmp/scroll_compositor_full.png",
+        );
     }
 
     #[test]
