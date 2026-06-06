@@ -275,10 +275,17 @@ pub fn regenerate_layout(
         )
     } else if current_window_state.flags.decorations
         == azul_core::window::WindowDecorations::NoTitleAutoInject
+        && !cfg!(target_os = "windows")
     {
         // Auto-inject a Titlebar at the top of the user's DOM.
         // The titlebar is a regular layout widget with DragStart/Drag/DoubleClick
         // callbacks — no special event-system hooks required.
+        //
+        // NOT on Windows: `NoTitleAutoInject` there keeps the *native* caption
+        // (see windows/wcreate.rs — it maps to full WS_CAPTION decorations), so
+        // injecting a software titlebar produces a duplicate "fake" titlebar
+        // below the real one. The native caption already renders the title and
+        // handles dragging, so we leave the user DOM untouched on Windows.
         log_debug!(
             LogCategory::Layout,
             "[regenerate_layout] Auto-injecting Titlebar (NoTitleAutoInject)"
