@@ -174,8 +174,8 @@ fn try_create_argb_window(
     event_mask: std::ffi::c_long,
 ) -> Option<(Window, bool, Option<Colormap>)> {
     use defines::{
-        AllocNone, CWBackPixmap, CWBorderPixel, CWColormap, CWEventMask, InputOutput, TrueColor,
-        XVisualInfo,
+        AllocNone, CWBackPixmap, CWBorderPixel, CWColormap, CWEventMask, CWOverrideRedirect,
+        InputOutput, TrueColor, XVisualInfo,
     };
 
     let xrender = xrender?;
@@ -234,7 +234,11 @@ fn try_create_argb_window(
     attributes.border_pixel = 0;
     attributes.event_mask = event_mask;
 
-    let attr_mask = CWColormap | CWBackPixmap | CWBorderPixel | CWEventMask;
+    // CWOverrideRedirect is always in the mask so `attributes.override_redirect`
+    // (0 for normal windows, 1 for menus/popups) is actually applied — without it
+    // in the valuemask, XCreateWindow silently ignores the override_redirect field.
+    let attr_mask =
+        CWColormap | CWBackPixmap | CWBorderPixel | CWEventMask | CWOverrideRedirect;
 
     // Create window with ARGB visual
     let window = unsafe {
@@ -1028,8 +1032,17 @@ impl X11Window {
             | LeaveWindowMask
             | FocusChangeMask;
 
-        let use_csd = options.window_state.flags.decorations == WindowDecorations::None;
-        if use_csd {
+        // Override-redirect (a borderless, WM-unmanaged popup such as a menu/tooltip)
+        // is driven by the explicit window option, NOT by decorations==None: a CSD
+        // main window is borderless yet must stay WM-managed (movable, in the taskbar),
+        // whereas menus/popups must be override-redirect so the WM never reparents or
+        // decorates them. Set declaratively via WindowCreateOptions (e.g. show_menu).
+        if options
+            .window_state
+            .platform_specific_options
+            .linux_options
+            .x11_override_redirect
+        {
             attributes.override_redirect = 1;
         }
         attributes.event_mask = event_mask;
@@ -1125,6 +1138,41 @@ impl X11Window {
                         defines::PropModeReplace,
                         &type_atom_long as *const std::os::raw::c_long as *const u8,
                         1,
+                    );
+                }
+            }
+        }
+
+        // WM_CLASS hint (instance + class) from the window options, so the WM / taskbar
+        // can identify + group the window. Property format: two NUL-terminated 8-bit
+        // strings ("instance\0class\0") on the WM_CLASS atom (type STRING). A no-op for
+        // override-redirect popups (the WM ignores them) but correct for normal windows.
+        {
+            let classes = &options
+                .window_state
+                .platform_specific_options
+                .linux_options
+                .x11_wm_classes;
+            if let Some(pair) = classes.as_ref().first() {
+                let mut data: Vec<u8> = Vec::new();
+                data.extend_from_slice(pair.key.as_str().as_bytes());
+                data.push(0);
+                data.extend_from_slice(pair.value.as_str().as_bytes());
+                data.push(0);
+                unsafe {
+                    let wm_class_atom =
+                        (xlib.XInternAtom)(display, b"WM_CLASS\0".as_ptr() as *const c_char, 0);
+                    let string_atom =
+                        (xlib.XInternAtom)(display, b"STRING\0".as_ptr() as *const c_char, 0);
+                    (xlib.XChangeProperty)(
+                        display,
+                        window_handle,
+                        wm_class_atom,
+                        string_atom,
+                        8,
+                        defines::PropModeReplace,
+                        data.as_ptr(),
+                        data.len() as i32,
                     );
                 }
             }

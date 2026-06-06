@@ -452,6 +452,20 @@ pub fn show_menu(
         ctx: azul_core::refany::OptionRefAny::Some(RefAny::new(menu_data)),
     };
 
+    // A menu is a borderless, WM-unmanaged popup: declare override-redirect + a
+    // WM_CLASS on the window options. The X11 backend honors x11_override_redirect
+    // (creates the window frameless so the WM doesn't draw a titlebar); the
+    // compositor reads the WM_CLASS + _NET_WM_WINDOW_TYPE=POPUP_MENU to classify it.
+    {
+        use azul_core::window::{AzStringPair, StringPairVec};
+        let lin = &mut window_state.platform_specific_options.linux_options;
+        lin.x11_override_redirect = true;
+        lin.x11_wm_classes = StringPairVec::from_vec(vec![AzStringPair {
+            key: "azul-menu".into(),
+            value: "Azul".into(),
+        }]);
+    }
+
     WindowCreateOptions {
         window_state,
         size_to_content: true,
