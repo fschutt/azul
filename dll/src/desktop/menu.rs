@@ -439,9 +439,16 @@ pub fn show_menu(
     window_state.flags.is_resizable = false;
     window_state.title = "Menu".into();
     window_state.window_id = "azul-menu".into();
-    window_state.position = WindowPosition::Initialized(PhysicalPosition::new(
-        menu_pos.x as i32,
-        menu_pos.y as i32,
+    // Position the popup RELATIVE to the parent window's top-left. `menu_pos` is
+    // an absolute (work-area-clamped) screen position; convert it to a
+    // parent-local offset so the backend re-resolves it against the parent's live
+    // origin. This is the single unified positioning model: it works where
+    // absolute screen coords aren't available (Wayland's xdg_popup) and degrades
+    // to monitor-relative when there is no parent. The spawner sets
+    // `parent_window_id` (0 here = filled in by the caller).
+    window_state.position = WindowPosition::RelativeToParentWindow(PhysicalPosition::new(
+        (menu_pos.x - parent_window_position.x) as i32,
+        (menu_pos.y - parent_window_position.y) as i32,
     ));
 
     window_state.layout_callback = LayoutCallback {

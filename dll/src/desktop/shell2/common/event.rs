@@ -3372,7 +3372,9 @@ pub trait PlatformWindow {
                         pos.y as f32 + position.y,
                     )
                 }
-                azul_core::window::WindowPosition::Uninitialized => position,
+                // No reliable absolute origin → fall back to window-local coords.
+                azul_core::window::WindowPosition::Uninitialized
+                | azul_core::window::WindowPosition::RelativeToParentWindow(_) => position,
             }
         };
 

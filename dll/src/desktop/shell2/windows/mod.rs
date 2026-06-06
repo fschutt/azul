@@ -476,6 +476,7 @@ impl Win32Window {
             Monitor::default().monitor_id,
             current_window_state.position,
             current_window_state.size,
+            options.parent_window_id,
             &win32,
         );
         timing_log!("Position window");
@@ -1368,7 +1369,9 @@ impl Win32Window {
                         SWP_NOSIZE | SWP_NOZORDER,
                     );
                 },
-                WindowPosition::Uninitialized => {}
+                // Relative (child) windows are positioned once at creation and not
+                // re-synced at runtime; Uninitialized lets the OS decide.
+                WindowPosition::Uninitialized | WindowPosition::RelativeToParentWindow(_) => {}
             }
         }
 
@@ -4282,11 +4285,29 @@ impl Win32Window {
 }
 
 /// Position window on requested monitor, or center on primary monitor
+/// Resolve a parent window's stored top-left from the registry, for
+/// `WindowPosition::RelativeToParentWindow`. Returns `None` if there is no
+/// parent or it has no concrete position yet (caller treats the offset as
+/// monitor-relative).
+fn resolve_windows_parent_origin(parent_window_id: u64) -> Option<(i32, i32)> {
+    if parent_window_id == 0 {
+        return None;
+    }
+    unsafe {
+        let wptr = registry::get_window(parent_window_id as usize as HWND)?;
+        match (*wptr).common.current_window_state.position {
+            azul_core::window::WindowPosition::Initialized(pos) => Some((pos.x, pos.y)),
+            _ => None,
+        }
+    }
+}
+
 fn position_window_on_monitor(
     hwnd: HWND,
     monitor_id: azul_core::window::MonitorId,
     position: azul_core::window::WindowPosition,
     size: azul_core::window::WindowSize,
+    parent_window_id: u64,
     win32: &dlopen::Win32Libraries,
 ) {
     use azul_core::window::WindowPosition;
@@ -4332,6 +4353,18 @@ fn position_window_on_monitor(
                 target_monitor.position.y + (target_monitor.size.height - window_height) / 2;
 
             (center_x as i32, center_y as i32)
+        }
+        WindowPosition::RelativeToParentWindow(offset) => {
+            // Child window (menu/dropdown/popup): place at parent_top_left +
+            // offset. Resolve the parent's absolute origin from the registry;
+            // fall back to monitor-relative if the parent is unknown.
+            match resolve_windows_parent_origin(parent_window_id) {
+                Some((px, py)) => (px + offset.x, py + offset.y),
+                None => (
+                    (target_monitor.position.x + offset.x as isize) as i32,
+                    (target_monitor.position.y + offset.y as isize) as i32,
+                ),
+            }
         }
     };
 

@@ -3103,6 +3103,7 @@ impl MacOSWindow {
                 target_monitor_id,
                 options.window_state.position,
                 options.window_state.size,
+                options.parent_window_id,
                 mtm,
             );
         }
@@ -4106,7 +4107,9 @@ impl MacOSWindow {
                         }
                     }
                 }
-                WindowPosition::Uninitialized => {}
+                // Relative (child) windows are positioned once at creation and not
+                // re-synced at runtime; Uninitialized lets the OS decide.
+                WindowPosition::Uninitialized | WindowPosition::RelativeToParentWindow(_) => {}
             }
         }
 
@@ -6452,11 +6455,30 @@ impl MacOSWindow {
 }
 
 /// Position window on requested monitor, or center on primary monitor
+/// Resolve a parent window's stored top-left from the registry, for
+/// `WindowPosition::RelativeToParentWindow`. Returns `None` if there is no
+/// parent or it has no concrete position yet (caller treats the offset as
+/// monitor-relative).
+fn resolve_macos_parent_origin(parent_window_id: u64) -> Option<(i32, i32)> {
+    if parent_window_id == 0 {
+        return None;
+    }
+    unsafe {
+        let wptr =
+            registry::get_window(parent_window_id as usize as *mut objc2::runtime::AnyObject)?;
+        match (*wptr).common.current_window_state.position {
+            azul_core::window::WindowPosition::Initialized(pos) => Some((pos.x, pos.y)),
+            _ => None,
+        }
+    }
+}
+
 fn position_window_on_monitor(
     window: &Retained<NSWindow>,
     monitor_id: azul_core::window::MonitorId,
     position: azul_core::window::WindowPosition,
     size: azul_core::window::WindowSize,
+    parent_window_id: u64,
     mtm: MainThreadMarker,
 ) {
     use azul_core::window::WindowPosition;
@@ -6527,6 +6549,21 @@ fn position_window_on_monitor(
             let center_y =
                 screen_frame.origin.y + (screen_frame.size.height - window_frame.size.height) / 2.0;
             (center_x, center_y)
+        }
+        WindowPosition::RelativeToParentWindow(offset) => {
+            // Child window (menu/dropdown/popup): place at parent_top_left +
+            // offset. Mirrors the Initialized arm with an effective position of
+            // parent + offset; falls back to monitor-relative if no parent.
+            match resolve_macos_parent_origin(parent_window_id) {
+                Some((px, py)) => (
+                    screen_frame.origin.x + (px + offset.x) as f64,
+                    screen_frame.origin.y + (py + offset.y) as f64,
+                ),
+                None => (
+                    screen_frame.origin.x + offset.x as f64,
+                    screen_frame.origin.y + offset.y as f64,
+                ),
+            }
         }
     };
 

@@ -2061,24 +2061,51 @@ fn are_types_equivalent(
     api_type: &str,
     api_ref_kind: crate::api::RefKind,
 ) -> bool {
-    // Check if workspace type is a smart pointer that maps to *const c_void
-    let ws_is_smart_ptr = ws_type.starts_with("Arc<")
-        || ws_type.starts_with("Box<")
-        || ws_type.starts_with("Rc<");
-    
-    // If workspace has Arc<T>/Box<T>/Rc<T> and API has c_void with constptr, they're equivalent
+    // Strip layout-transparent wrappers (`ManuallyDrop<T>`, `MaybeUninit<T>`)
+    // before inspecting the type: a field declared `ManuallyDrop<Box<T>>` (common
+    // on boxed-object handles like CssPropertyCachePtr / GlContextPtr /
+    // IconProviderHandle) is, at the FFI boundary, just `Box<T>` = one pointer.
+    let ws_unwrapped = strip_transparent_wrappers(ws_type);
+
+    // Check if workspace type is a smart pointer that maps to an opaque c_void ptr.
+    let ws_is_smart_ptr = ws_unwrapped.starts_with("Arc<")
+        || ws_unwrapped.starts_with("Box<")
+        || ws_unwrapped.starts_with("Rc<");
+
+    // A boxed/smart pointer in Rust is represented in api.json as an opaque
+    // `c_void` handle (single machine pointer, identical layout). api.json may
+    // store it as either `*const c_void` or `*mut c_void` — both are equivalent
+    // to the owned Rust pointer for FFI purposes, so accept either kind.
     if ws_is_smart_ptr {
         let api_is_cvoid_ptr = normalize_type_name(api_type) == "c_void"
-            && api_ref_kind == crate::api::RefKind::ConstPtr;
+            && matches!(
+                api_ref_kind,
+                crate::api::RefKind::ConstPtr | crate::api::RefKind::MutPtr
+            );
         if api_is_cvoid_ptr {
             return true;
         }
     }
-    
+
     // Otherwise, compare normally: types must match and ref_kinds must match
     let types_match = normalize_type_name(ws_type) == normalize_type_name(api_type);
     let refs_match = ws_ref_kind == api_ref_kind;
     types_match && refs_match
+}
+
+/// Strip layout-transparent wrappers (`ManuallyDrop<T>`, `MaybeUninit<T>`) that
+/// do not change a field's size/representation, returning the inner type string.
+/// Recurses so `ManuallyDrop<Box<Rc<T>>>` → `Box<Rc<T>>`.
+fn strip_transparent_wrappers(ty: &str) -> &str {
+    let t = ty.trim();
+    for wrapper in ["ManuallyDrop<", "MaybeUninit<"] {
+        if let Some(inner) = t.strip_prefix(wrapper) {
+            if let Some(inner) = inner.strip_suffix('>') {
+                return strip_transparent_wrappers(inner);
+            }
+        }
+    }
+    t
 }
 
 /// Normalize a type name for comparison (remove whitespace, handle Az prefix)

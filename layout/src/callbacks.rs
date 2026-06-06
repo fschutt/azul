@@ -2422,10 +2422,11 @@ impl CallbackInfo {
                     pos.y as f32 + cursor_local.y,
                 ))
             }
-            // Wayland: window position unknown, fall back to window-local
-            WindowPosition::Uninitialized => OptionScreenPosition::Some(
-                ScreenPosition::new(cursor_local.x, cursor_local.y)
-            ),
+            // Wayland / relative-to-parent: absolute screen position unknown here
+            // (relative needs the parent's screen pos), fall back to window-local.
+            WindowPosition::Uninitialized | WindowPosition::RelativeToParentWindow(_) => {
+                OptionScreenPosition::Some(ScreenPosition::new(cursor_local.x, cursor_local.y))
+            }
         }
     }
 

@@ -125,7 +125,8 @@ fn detect_window_state_events(
     // Window moved
     if current.position != previous.position {
         let position = match current.position {
-            WindowPosition::Initialized(phys_pos) => Some(LogicalPosition {
+            WindowPosition::Initialized(phys_pos)
+            | WindowPosition::RelativeToParentWindow(phys_pos) => Some(LogicalPosition {
                 x: phys_pos.x as f32,
                 y: phys_pos.y as f32,
             }),

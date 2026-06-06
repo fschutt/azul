@@ -842,7 +842,17 @@ impl_vec_partialord!(VideoMode, VideoModeVec);
 #[repr(C, u8)]
 pub enum WindowPosition {
     Uninitialized,
+    /// Absolute position on the virtual screen (physical px). The default for
+    /// top-level windows.
     Initialized(PhysicalPositionI32),
+    /// Offset (physical px) from the PARENT window's top-left corner. Used by
+    /// child windows (menus, dropdowns, popups) together with
+    /// `WindowCreateOptions.parent_window_id`: the backend resolves the final
+    /// screen position as `parent_top_left + offset`. This is robust where
+    /// absolute screen coordinates aren't available — notably Wayland, whose
+    /// xdg_popup / subsurface protocol positions relative to the parent. Falls
+    /// back to absolute (`offset` from origin) if there is no parent.
+    RelativeToParentWindow(PhysicalPositionI32),
 }
 
 impl Default for WindowPosition {
@@ -1097,8 +1107,8 @@ pub struct PlatformSpecificOptions {
     pub wasm_options: WasmWindowOptions,
 }
 
-// SAFETY: PlatformSpecificOptions contains raw pointers (HwndHandle, X11Visual)
-// that are opaque platform handles, not dereferenced across threads.
+// SAFETY: PlatformSpecificOptions contains raw pointers (X11Visual) that are
+// opaque platform handles, not dereferenced across threads.
 unsafe impl Sync for PlatformSpecificOptions {}
 unsafe impl Send for PlatformSpecificOptions {}
 
@@ -1115,8 +1125,10 @@ pub struct WindowsWindowOptions {
     ///
     /// Can be changed in callbacks / at runtime.
     pub taskbar_icon: OptionTaskBarIcon,
-    /// STARTUP ONLY: Pointer (casted to void pointer) to a HWND handle
-    pub parent_window: OptionHwndHandle,
+    // NOTE: the old Windows-specific `parent_window: OptionHwndHandle` field was
+    // removed in favor of the cross-platform `WindowCreateOptions.parent_window_id`
+    // (+ `WindowPosition::RelativeToParentWindow`), which every backend resolves
+    // through its window registry. One parenting model for all platforms.
 }
 
 impl Default for WindowsWindowOptions {
@@ -1126,20 +1138,9 @@ impl Default for WindowsWindowOptions {
             no_redirection_bitmap: false,
             window_icon: OptionWindowIcon::None,
             taskbar_icon: OptionTaskBarIcon::None,
-            parent_window: OptionHwndHandle::None,
         }
     }
 }
-
-/// Note: this should be a *mut HWND
-pub type HwndHandle = *mut c_void;
-
-impl_option!(
-    HwndHandle,
-    OptionHwndHandle,
-    copy = false,
-    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
-);
 
 /// X window type. Maps directly to
 /// [`_NET_WM_WINDOW_TYPE`](https://specifications.freedesktop.org/wm-spec/wm-spec-1.5.html).

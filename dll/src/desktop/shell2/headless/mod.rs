@@ -1983,7 +1983,7 @@ mod tests {
     // --- Scroll: the make-or-break perf case (see DAMAGE_REGION_PLAN.md §0.6) ---
 
     #[derive(Debug, Clone)]
-    struct ScrollState {
+    struct ScrollTestState {
         n_items: usize,
     }
 
@@ -1997,7 +1997,7 @@ mod tests {
         use azul_css::props::basic::color::ColorU;
         use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
 
-        let n = data.downcast_ref::<ScrollState>().map(|s| s.n_items).unwrap_or(0);
+        let n = data.downcast_ref::<ScrollTestState>().map(|s| s.n_items).unwrap_or(0);
         let mut container = Dom::create_div().with_css_props(
             vec![
                 CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(200.0))),
@@ -2037,7 +2037,7 @@ mod tests {
         use azul_css::props::basic::color::ColorU;
         use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
 
-        let n = data.downcast_ref::<ScrollState>().map(|s| s.n_items).unwrap_or(0);
+        let n = data.downcast_ref::<ScrollTestState>().map(|s| s.n_items).unwrap_or(0);
         let mut container = Dom::create_div().with_css_props(
             vec![
                 CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(200.0))),
@@ -2178,7 +2178,7 @@ mod tests {
         use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
         use azul_core::hit_test::ScrollPosition;
 
-        let state = Arc::new(RefCell::new(RefAny::new(ScrollState { n_items: 100 })));
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 100 })));
         let mut w = make_window_with(&state, cb);
         w.regenerate_layout().expect("initial layout");
         let node = w
@@ -2239,7 +2239,7 @@ mod tests {
         use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
         use azul_core::hit_test::ScrollPosition;
 
-        let state = Arc::new(RefCell::new(RefAny::new(ScrollState { n_items: 20 })));
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 20 })));
         let mut window = make_window_with(&state, harness_layout_scroll);
         window.regenerate_layout().expect("initial layout");
         #[cfg(feature = "cpurender")]
@@ -2327,7 +2327,7 @@ mod tests {
         use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
         use azul_core::hit_test::ScrollPosition;
 
-        let state = Arc::new(RefCell::new(RefAny::new(ScrollState { n_items: 100 })));
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 100 })));
         let mut window = make_window_with(&state, harness_layout_scroll);
         window.regenerate_layout().expect("initial layout");
         let node_id = window
@@ -2373,7 +2373,7 @@ mod tests {
         use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
         use azul_core::hit_test::ScrollPosition;
 
-        let state = Arc::new(RefCell::new(RefAny::new(ScrollState { n_items: 100 })));
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 100 })));
         let mut window = make_window_with(&state, harness_layout_scroll);
         window.regenerate_layout().expect("initial layout");
         let node_id = window
@@ -2440,7 +2440,7 @@ mod tests {
         use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
         use azul_core::hit_test::ScrollPosition;
 
-        let state = Arc::new(RefCell::new(RefAny::new(ScrollState { n_items: 100 })));
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 100 })));
         let mut window = make_window_with(&state, harness_layout_scroll_2d);
         window.regenerate_layout().expect("initial layout");
         #[cfg(feature = "cpurender")]
@@ -2560,7 +2560,7 @@ mod tests {
         use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
         use azul_core::hit_test::ScrollPosition;
 
-        let state = Arc::new(RefCell::new(RefAny::new(ScrollState { n_items: 100 })));
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 100 })));
         let mut w = make_window_with(&state, harness_layout_scroll);
         w.regenerate_layout().expect("initial");
         let node = w
