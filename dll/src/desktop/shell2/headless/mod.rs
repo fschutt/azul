@@ -400,8 +400,14 @@ impl CpuBackend {
             }
         }
 
-        let render_state = cpurender::CpuRenderState::new(scroll_offsets)
-            .with_system_style(layout_window.system_style.clone());
+        // Build render state from the GPU value cache (opacity/transform) + scroll
+        // offsets — the SAME construction the real X11/Wayland CPU paths use, so
+        // this render_frame is reusable by them. The headless harness has an empty
+        // GPU cache, so this is equivalent to `new(scroll_offsets)` there.
+        let gpu_cache = layout_window.gpu_state_manager.get_cache(dom_id);
+        let render_state =
+            cpurender::CpuRenderState::from_gpu_cache(gpu_cache, dom_id, &scroll_offsets)
+                .with_system_style(layout_window.system_style.clone());
 
         if is_incremental && !all_damage.is_empty() {
             // Incremental: render only damaged regions
