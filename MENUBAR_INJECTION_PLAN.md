@@ -80,11 +80,14 @@ Also fixed (same investigation) the **paged/PDF path** (`getters.rs`): when no
 (matching the font-LOADING pass) instead of a bare "sans-serif" the loader never
 registered — which had made system-font text measure as 0-width there.
 
+## ✅ Context-menu position — VERIFIED CORRECT (offset 0,0)
+The previously-reported +2,+26 offset is gone in the current build (fixed by the menu
+grab/positioning work, `069a2b3e2`). Re-measured on X11 (azul-paint CPU): right-click at
+window-local (300,400) → menu at screen (942,736) = window-origin (642,336) + (300,400),
+offset **(0,0)**; window-local (150,250) → menu at (792,586), offset **(0,0)**.
+Screenshot `/tmp/ctxmenu_shot.png` shows the cursor tip exactly at the menu's top-left.
+
 ## STILL OPEN
-- **Context-menu position +2,+26 offset** (minor): right-click context menu opens at
-  cursor + (2px WM-border, 26px menubar-height); should be exactly at the cursor. The
-  dropdown is correct (verified at the item rect), so it's specific to how the
-  right-click window-local position relates to `parent_pos` in `show_menu`.
 - BUG 2 (light-on-dark menubar colors): open.
 
 ## 🟡 Tile worker (azul-maps) — IN PROGRESS
