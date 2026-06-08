@@ -2013,6 +2013,15 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     float_cache: &mut HashMap<usize, fc::FloatingContext>,
     compute_mode: ComputeMode,
 ) -> Result<()> {
+    // [g147b az-web-lift DIAG] per-node calculate_layout_for_subtree entry (0x60980+slot): records the
+    // last compute_mode that reached this node (PerformLayout=2 wins, runs after ComputeSize=1). If a div
+    // shows 0x...0002 here but its layout_formatting_context marker (0x609A0+) is UNSET → positioning
+    // reached calculate but short-circuited (cache hit) before dispatching to the formatting context.
+    #[cfg(feature = "web_lift")]
+    unsafe {
+        let m = match compute_mode { ComputeMode::PerformLayout => 0xC0DE0002u32, _ => 0xC0DE0001u32 };
+        core::ptr::write_volatile((0x60980 + (node_index & 7) * 4) as *mut u32, m);
+    }
     let _probe = match compute_mode {
         ComputeMode::ComputeSize => crate::probe::Probe::span("size_node"),
         ComputeMode::PerformLayout => crate::probe::Probe::span("pos_node"),
@@ -2072,6 +2081,12 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                     }
                     return Ok(());
                 }
+                // [g147c az-web-lift DIAG] ComputeSize cache MISS for this node (0x60A60+slot): the
+                // compute path WILL run → layout_formatting_context should fire. If a div is sized by
+                // Pass-1 (0x60A40 set) but this miss-flag is UNSET → calculate(child,ComputeSize) hit
+                // the cache instead (so layout_formatting_context/layout_ifc were skipped).
+                #[cfg(feature = "web_lift")]
+                unsafe { core::ptr::write_volatile((0x60A60 + (node_index & 7) * 4) as *mut u32, 0xC0DE0001); }
                 drop(crate::probe::Probe::span("size_cache_miss"));
             }
             ComputeMode::PerformLayout => {

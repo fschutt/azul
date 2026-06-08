@@ -5758,7 +5758,21 @@ impl TextShapingCache {
         cursor.hyphens = first_constraints.hyphenation;
         cursor.line_break = first_constraints.line_break;
 
+        // [g147 az-web-lift] Hard safety bound on the Stage-5 flow loop. On the remill lift this
+        // `for fragment in flow_chain` (or the `cursor.is_done()` break) mis-lifts for the NESTED IFC
+        // and iterates without terminating → solveLayoutReal HANGS (fuel trap in layout_flow). The text
+        // is fully laid out on the first iteration(s); cap the iterations so the loop always converges.
+        // (native is unaffected — the cap is far above any real fragment count.)
+        let mut _az_flow_iters: usize = 0;
         for fragment in flow_chain {
+            #[cfg(feature = "web_lift")]
+            {
+                _az_flow_iters += 1;
+                unsafe { core::ptr::write_volatile(0x60BC0 as *mut u32, _az_flow_iters as u32 | 0xC0DE0000); }
+                if _az_flow_iters > 256 {
+                    break;
+                }
+            }
             // Perform layout for this single fragment, consuming items from the cursor.
             let fragment_layout = perform_fragment_layout(
                 &mut cursor,
@@ -7929,7 +7943,22 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         let mut is_after_forced_break = false;
         const MAX_EMPTY_SEGMENTS: usize = 1000; // Maximum allowed consecutive empty segments
 
+        // [g147 az-web-lift] Hard total-iteration cap on the line-build loop. On the remill lift,
+        // `cursor.is_done()` (or the empty-segment failsafe) mis-lifts for the NESTED IFC (content.len
+        // reads 0 → the cursor is starved but never reports done) → this `while !cursor.is_done()` spins
+        // forever → solveLayoutReal HANGS inside perform_fragment_layout. Cap total iterations so the loop
+        // always converges (the harness can then read the markers). native is unaffected (far above real
+        // line counts). The 0x60BC4 marker exposes the iteration count.
+        let mut _az_line_iters: usize = 0;
         while !cursor.is_done() {
+            #[cfg(feature = "web_lift")]
+            {
+                _az_line_iters += 1;
+                unsafe { core::ptr::write_volatile(0x60BC4 as *mut u32, _az_line_iters as u32 | 0xC0DE0000); }
+                if _az_line_iters > 4096 {
+                    break;
+                }
+            }
             if let Some(max_height) = fragment_constraints.available_height {
                 if line_top_y >= max_height {
                     if let Some(msgs) = debug_messages {

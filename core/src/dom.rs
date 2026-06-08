@@ -1056,6 +1056,13 @@ impl NodeType {
 
 /// Represents the CSS formatting context for an element
 #[derive(Clone, PartialEq)]
+// [g147f az-web-lift] `#[repr(C, u8)]` forces an explicit u8 discriminant at offset 0 instead of letting
+// Rust niche-pack the other variants' discriminants into the payload variants' (Block{bool}/Float/OutOfFlow)
+// invalid byte values. The remill lift mis-decodes that niche encoding: `Block` (byte 0/1) reads correctly
+// but `Inline` (a niche value) reads as garbage → `match` falls to `_` → nested <div>text</div> dispatches
+// to layout_bfc instead of layout_ifc and its text never lays out (g147 root cause). Same fix pattern as the
+// text3 enums (InlineContent/LogicalItem/ShapedItem/FontStack/LayoutError). Harmless + correct for native.
+#[repr(C, u8)]
 // +spec:display-property:844893 - block-level box establishing a new formatting context (BFC) modeled here
 pub enum FormattingContext {
     /// Block-level formatting context

@@ -688,6 +688,83 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
           console.log('[g135 tree.get] _impl tree.nodes.len(0x606A8)=' + nl + ' | tree.root(0x606B0)=' + rt
             + ' | tree.get(idx).is_some(0x606AC)=' + (gs===0xc0de0001?'TRUE ✓':gs===0xc0de0000?'FALSE ✗ (tree.get mis-lifts despite valid tree!)':'0x'+gs.toString(16))
             + ' | last-passed-? (0x606A4)=' + (seq===0x6706?'past 6706 → Err is AFTER (in DOM loop)':seq===0x6449?'past 6449, Err AT 6706 tree.get':seq===0?'Err AT 6449 tree.get (first one)':'0x'+seq.toString(16))); }
+        // [g147] CALLER(layout_ifc 0x60900/0x60920) vs CALLEE(_impl 0x60940/0x60960) tree.nodes.len + ptr, per node_index slot.
+        { console.log('[g147 tree-ref] per-IFC node — layout_ifc(caller) vs collect_and_measure(callee):');
+          let any = false;
+          for (let n = 0; n < 8; n++) {
+            const cl = Dh(0x60900 + n*4), cp = Dh(0x60920 + n*4), kl = Dh(0x60940 + n*4), kp = Dh(0x60960 + n*4);
+            if (cl===0 && cp===0 && kl===0 && kp===0) continue;
+            any = true;
+            const verdict = (cp!==0 && kp!==0 && cp!==kp) ? '*** PTR DIFFERS → &mut tree MIS-PASSES across the call ***'
+                          : (cp===kp && cp!==0 && cl!==kl) ? '*** ptr SAME, len differs → tree.nodes emptied in place ***'
+                          : (cl===kl && cl!==0) ? 'consistent (both valid)'
+                          : (kp===0) ? 'callee NOT reached for this node'
+                          : 'mixed';
+            console.log('  node['+n+'] caller: len='+cl+' ptr=0x'+cp.toString(16)+'  ||  callee: len='+kl+' ptr=0x'+kp.toString(16)+'   → '+verdict);
+          }
+          if (!any) console.log('  (no g147 slots set — neither layout_ifc nor _impl reached in positioning?)'); }
+        // [g147b/e] per-node: calc entry (0x60980), lfc PURE-CONSTANT entry (0x609E0), dispatch arm (0x609C0, all arms).
+        { console.log('[g147b dispatch] per node — calc-entered | lfc-entered | dispatch-arm (RELIABLE constant markers):');
+          const armName = v => ({0xc0de0001:'→layout_bfc(Block)',0xc0de0002:'→layout_ifc(Inline) ✓',0xc0de0003:'→layout_bfc(InlineBlock)',0xc0de0004:'→layout_flex_grid',0xc0de0006:'→layout_table',0xc0de0007:'→layout_bfc(TableCell)',0xc0de0009:'→layout_bfc(_UNKNOWN/garbage-FC)'})[v]||'UNSET(no arm)';
+          let any2 = false;
+          for (let n = 0; n < 8; n++) {
+            const ce = Dh(0x60980 + n*4), lfc = Dh(0x609E0 + n*4), arm = Dh(0x609C0 + n*4);
+            if (ce===0 && lfc===0 && arm===0) continue;
+            any2 = true;
+            const ceS = ce===0xc0de0002?'POS':ce===0xc0de0001?'SIZE-only':'unset';
+            const lfcS = lfc===0xc0de0042?'ENTERED✓':'NOT-entered';
+            const armS = armName(arm);
+            const flag = (lfcS==='ENTERED✓' && arm===0) ? '  *** lfc ENTERED but NO arm → tree.get()? Err before match ***'
+                       : (arm===0xc0de0009||arm===0xc0de0003) ? '  *** dispatched AWAY from layout_ifc — node.formatting_context mis-read?? ***'
+                       : (lfcS==='NOT-entered' && ceS!=='unset') ? '  *** calc entered but lfc NOT entered → early return in calculate before lfc ***' : '';
+            console.log('  node['+n+'] calc='+ceS+' | lfc(0x609E0)='+lfcS+' | arm(0x609C0)='+armS+flag);
+          }
+          if (!any2) console.log('  (no g147b slots set)'); }
+        // [g147g] raw FormattingContext discriminant byte for nodes that fell to the `_` arm (0x60B40).
+        { const dn = {0:'Block',1:'Inline',2:'InlineBlock',3:'Flex',4:'Float',5:'OutOfFlow',6:'Table',7:'TableRowGroup',8:'TableRow',9:'TableCell',10:'TableColumnGroup',11:'TableCaption',12:'Grid',13:'Contents',14:'None'};
+          let any4=false;
+          for (let n=0;n<8;n++){ const d=Dh(0x60B40+n*4); if((d&0xffff0000)!==0xc0de0000) continue; any4=true;
+            const v=d&0xff; const nm=dn[v]??('garbage 0x'+v.toString(16));
+            console.log('  [g147g] node['+n+'] fell to `_`; raw FC disc='+v+' ('+nm+')'+(v===1?'  *** value IS Inline → dispatch MATCH mis-lifted (not the value) ***':'  *** wrong FC value stored (tree construction) ***')); }
+          if(!any4) console.log('  [g147g] (no node fell to `_`, or disc read dropped)'); }
+        // [g147h] FC COMPUTED by determine_formatting_context_for_display per DOM node_id (0x60B60), constant markers.
+        { console.log('[g147h computed-FC] per DOM node_id — what determine_formatting_context_for_display returned:');
+          const cn = {1:'Inline(text)',2:'Inline(block w/ only-inline-children)',4:'Block'};
+          let any5=false;
+          for (let n=0;n<8;n++){ const c=Dh(0x60B60+n*4); if((c&0xffff0000)!==0xc0de0000) continue; any5=true;
+            const v=c&0xffff; console.log('  node_id['+n+'] computed = '+(cn[v]||('?'+v))); }
+          if(!any5) console.log('  [g147h] (no computed-FC markers — determine_ not reached in lift, or marker dropped)'); }
+        // [g147i] node reference addresses (0x60B80) — spacing reveals the tree.get Vec stride.
+        { console.log('[g147i node-addr] tree.get(idx) reference addresses (uniform spacing = stride OK):');
+          const a=[]; for(let n=0;n<8;n++){ a[n]=Dh(0x60B80+n*4); }
+          let prev=null;
+          for(let n=0;n<8;n++){ if(a[n]===0) continue;
+            const d = prev!==null ? (a[n]-prev) : null;
+            console.log('  node['+n+'] addr=0x'+a[n].toString(16)+(d!==null?('  Δ from prev = '+d+' bytes'):''));
+            prev=a[n]; }
+          if(a.every(x=>!x)) console.log('  [g147i] (no node-addr markers — lfc entry addr read dropped too)'); }
+        // [g147 FIX] force_ifc fired (0x60BA0) — node recomputed as IFC-root from styled_dom, routed to layout_ifc.
+        { let any6=false; for(let n=0;n<8;n++){ const f=Dh(0x60BA0+n*4); if(f!==0xc0de1fc0) continue; any6=true;
+            console.log('  [g147 FIX] node['+n+'] force_ifc FIRED → routed to layout_ifc (bypassed garbage FC)'); }
+          if(!any6) console.log('  [g147 FIX] (force_ifc did NOT fire for any node — has_only_inline_children false or node.dom_node_id read dropped)'); }
+        // [g147 loop-caps] flow-loop iters (0x60BC0) + line-build iters (0x60BC4). 256/4096 = hit the cap (was infinite); small = normal.
+        { const fl=Dh(0x60BC0), ln=Dh(0x60BC4);
+          const s=v=>((v&0xffff0000)===0xc0de0000)?(''+(v&0xffff)):'unset';
+          console.log('[g147 loop-caps] layout_flow flow-loop iters(0x60BC0)='+s(fl)+' | perform_fragment_layout line-build iters(0x60BC4)='+s(ln)
+            +((ln&0xffff)>=4096?'  *** line-build HIT CAP (was infinite — cursor.is_done mis-lifts) ***':'')); }
+        // [g147c] layout_bfc Pass-1: per-parent children.len (0x60A00), per-child sized (0x60A40), ComputeSize miss (0x60A60).
+        { console.log('[g147c bfc-pass1] per node — bfc_children.len | sized-in-Pass1 | ComputeSize cache:');
+          let any3 = false;
+          for (let n = 0; n < 8; n++) {
+            const ln = Dh(0x60A00 + n*4), sz = Dh(0x60A40 + n*4), ms = Dh(0x60A60 + n*4);
+            if (ln===0 && sz===0 && ms===0) continue;
+            any3 = true;
+            const lnS = (ln & 0xffff0000)===0xc0de0000 ? 'children.len='+(ln & 0xffff) : '(parent: -)';
+            const szS = (sz & 0xffff0000)===0xc0de0000 ? 'SIZED✓(child '+(sz&0xffff)+')' : 'not-sized';
+            const msS = ms===0xc0de0001 ? 'MISS→compute✓' : 'no-miss(HIT→lfc skipped)';
+            console.log('  node['+n+'] '+lnS+' | Pass1='+szS+' | ComputeSize='+msS);
+          }
+          if (!any3) console.log('  (no g147c slots set — layout_bfc Pass-1 not reached)'); }
         // [g136] DOM loop: dom_children.len(0x606B4), first-child node_type(0x606B8), text-branch content.len(0x606BC), seq(0x606A4).
         { const dc = Dh(0x606B4), nt = Dh(0x606B8), tl = Dh(0x606BC), sq = Dh(0x606A4);
           const ntName = nt===0xc0de7e70?'Text ✓':nt===0xc0ded11f?'Div':nt===0xc0deb0d1?'Body':nt===0xc0de0000?'Other/UNRECOGNIZED':('0x'+nt.toString(16)+' (not set)');

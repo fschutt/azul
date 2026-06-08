@@ -374,7 +374,58 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
     constraints: &LayoutConstraints,
     float_cache: &mut HashMap<usize, FloatingContext>,
 ) -> Result<BfcLayoutResult> {
+    // [g147e az-web-lift DIAG] PURE-CONSTANT entry marker (0x609E0+slot) — fires before any node read,
+    // so it reliably shows whether layout_formatting_context is ENTERED for the nested div nodes 1,2.
+    #[cfg(feature = "web_lift")]
+    unsafe { core::ptr::write_volatile((0x609E0 + (node_index & 7) * 4) as *mut u32, 0xC0DE0042); }
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+    // [g147i az-web-lift DIAG] node REFERENCE address (0x60B80+slot) — NOT a field deref, so reliable.
+    // If nodes 0,1,2 aren't spaced by sizeof(LayoutNodeHot) → tree.get(index>0) mis-lifts the Vec stride,
+    // making nodes 1,2 garbage references (which would explain FC reading garbage + reads destabilizing).
+    #[cfg(feature = "web_lift")]
+    unsafe { core::ptr::write_volatile((0x60B80 + (node_index & 7) * 4) as *mut u32, (node as *const _ as usize) as u32); }
+
+    // [g147 FIX az-web-lift] The cloned `formatting_context` field mis-lifts to a GARBAGE value on the web
+    // backend for nested inline divs (the reconcile clone of `FormattingContext::Inline` in
+    // get_full_node:920 → garbage → the `match` below falls to `_` → layout_bfc → the div's text never
+    // reaches layout_ifc, so it never lays out). The styled_dom IS reliable in the lift (cascade + DOM
+    // node types are correct), so recompute the IFC decision from the DOM: a block container whose
+    // children are all inline-level establishes an inline formatting context (CSS 2.2 §9.2.1). Route those
+    // straight to layout_ifc here, bypassing the corrupted field. web_lift-gated → native is untouched.
+    #[cfg(feature = "web_lift")]
+    {
+        let force_ifc = node
+            .dom_node_id
+            .map_or(false, |dom_id| {
+                crate::solver3::layout_tree::has_only_inline_children(ctx.styled_dom, dom_id)
+            });
+        if force_ifc {
+            unsafe { core::ptr::write_volatile((0x60BA0 + (node_index & 7) * 4) as *mut u32, 0xC0DE1FC0); }
+            return layout_ifc(ctx, text_cache, tree, node_index, constraints)
+                .map(BfcLayoutResult::from_output);
+        }
+    }
+
+    // [g147b az-web-lift DIAG] per-node FormattingContext discriminant at layout_formatting_context
+    // entry (0x609A0+slot). Pairs with the dispatch-arm marker (0x609C0+slot) inside each match arm:
+    // if a text-div's FC reads Inline(2) but the arm marker shows Block(1) → match dispatch mis-lifts;
+    // if FC reads Block(1) → tree-construction FC assignment is wrong; if 0x609A0 stays unset for the
+    // div node → layout_formatting_context is never called for it (cache-hit short-circuit upstream).
+    #[cfg(feature = "web_lift")]
+    unsafe {
+        let fc_disc = match node.formatting_context {
+            FormattingContext::Block { .. } => 1u32,
+            FormattingContext::Inline => 2,
+            FormattingContext::InlineBlock => 3,
+            FormattingContext::Flex => 4,
+            FormattingContext::Grid => 5,
+            FormattingContext::Table => 6,
+            FormattingContext::TableCell => 7,
+            FormattingContext::TableCaption => 8,
+            _ => 0,
+        };
+        core::ptr::write_volatile((0x609A0 + (node_index & 7) * 4) as *mut u32, fc_disc | 0xC0DE0000);
+    }
 
     debug_info!(
         ctx,
@@ -389,12 +440,20 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
     // +spec:inline-formatting-context:8bfe73 - display:flow generates inline box (Inline) or block container (Block) based on outer display type
     match node.formatting_context {
         FormattingContext::Block { .. } => {
+            #[cfg(feature = "web_lift")]
+            unsafe { core::ptr::write_volatile((0x609C0 + (node_index & 7) * 4) as *mut u32, 0xC0DE0001); }
             layout_bfc(ctx, tree, text_cache, node_index, constraints, float_cache)
         }
         // +spec:inline-formatting-context:a180ed - IFC establishment: inline-level boxes fragmented into line boxes with baseline alignment
-        FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints)
-            .map(BfcLayoutResult::from_output),
+        FormattingContext::Inline => {
+            #[cfg(feature = "web_lift")]
+            unsafe { core::ptr::write_volatile((0x609C0 + (node_index & 7) * 4) as *mut u32, 0xC0DE0002); }
+            layout_ifc(ctx, text_cache, tree, node_index, constraints)
+                .map(BfcLayoutResult::from_output)
+        }
         FormattingContext::InlineBlock => {
+            #[cfg(feature = "web_lift")]
+            unsafe { core::ptr::write_volatile((0x609C0 + (node_index & 7) * 4) as *mut u32, 0xC0DE0003); }
             // +spec:display-property:1f5ddf - inline-level boxes with non-flow inner display establish new formatting context
             // +spec:inline-formatting-context:1ad004 - atomic inline (inline-block) establishes new formatting context
             // CSS 2.2 § 9.4.1: "inline-blocks... establish new block formatting contexts"
@@ -406,20 +465,38 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
             layout_bfc(ctx, tree, text_cache, node_index, constraints, &mut temp_float_cache)
         }
         // +spec:table-layout:753687 - CSS 2.2 §17.2 table model: display values map to FormattingContext variants and dispatch table layout
-        FormattingContext::Table => layout_table_fc(ctx, tree, text_cache, node_index, constraints)
-            .map(BfcLayoutResult::from_output),
+        FormattingContext::Table => {
+            #[cfg(feature = "web_lift")]
+            unsafe { core::ptr::write_volatile((0x609C0 + (node_index & 7) * 4) as *mut u32, 0xC0DE0006); }
+            layout_table_fc(ctx, tree, text_cache, node_index, constraints)
+                .map(BfcLayoutResult::from_output)
+        }
         // Table-internal flex items are blockified during tree construction
         // (blockify_flex_item_if_table_internal in layout_tree.rs), so they arrive
         // here as Block, not TableCell etc.
         FormattingContext::Flex | FormattingContext::Grid => {
+            #[cfg(feature = "web_lift")]
+            unsafe { core::ptr::write_volatile((0x609C0 + (node_index & 7) * 4) as *mut u32, 0xC0DE0004); }
             layout_flex_grid(ctx, tree, text_cache, node_index, constraints)
         }
         // that are not block boxes, so they establish new BFCs for their contents
         FormattingContext::TableCell | FormattingContext::TableCaption => {
+            #[cfg(feature = "web_lift")]
+            unsafe { core::ptr::write_volatile((0x609C0 + (node_index & 7) * 4) as *mut u32, 0xC0DE0007); }
             let mut temp_float_cache = HashMap::new();
             layout_bfc(ctx, tree, text_cache, node_index, constraints, &mut temp_float_cache)
         }
         _ => {
+            // [g147g az-web-lift DIAG] read the RAW discriminant byte (offset 0 under repr(C,u8)) of the
+            // node that fell through to `_`. node 0 won't hit `_`; nodes 1,2 (divs) write their disc to
+            // 0x60B40+slot. disc=1 ⇒ value IS Inline but the dispatch match mis-branched (match/jump-table
+            // lift bug); disc≠1 ⇒ tree-construction stored the wrong/garbage FC for the nested div.
+            #[cfg(feature = "web_lift")]
+            unsafe {
+                core::ptr::write_volatile((0x609C0 + (node_index & 7) * 4) as *mut u32, 0xC0DE0009);
+                let disc: u8 = core::ptr::read_volatile((&node.formatting_context) as *const FormattingContext as *const u8);
+                core::ptr::write_volatile((0x60B40 + (node_index & 7) * 4) as *mut u32, 0xC0DE0000 | (disc as u32));
+            }
             // Unknown formatting context - fall back to BFC
             let mut temp_float_cache = HashMap::new();
             layout_bfc(
@@ -1010,6 +1087,12 @@ fn layout_bfc<T: ParsedFontTrait>(
         let mut temp_scrollbar_reflow = false;
 
         let bfc_children = tree.children(node_index).to_vec();
+        // [g147c az-web-lift DIAG] layout_bfc Pass-1 child-sizing loop: record bfc_children.len per parent
+        // node (0x60A00+slot). If body shows len=2 but the divs never get the per-child "sized" marker
+        // (0x60A40+childslot) below → the loop skips them; if they DO get it but layout_formatting_context
+        // (0x609A0) stays unset → calculate(child,ComputeSize) cache-hit (vs 0x60A60 miss-flag in cache.rs).
+        #[cfg(feature = "web_lift")]
+        unsafe { core::ptr::write_volatile((0x60A00 + (node_index & 7) * 4) as *mut u32, bfc_children.len() as u32 | 0xC0DE0000); }
         for &child_index in &bfc_children {
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
             let child_dom_id = child_node.dom_node_id;
@@ -1028,6 +1111,9 @@ fn layout_bfc<T: ParsedFontTrait>(
             // Compute the child's full subtree layout with temporary positions.
             // Position (0,0) is intentionally wrong — Pass 1 only cares about sizing.
             // The correct positions are determined in Pass 2 below.
+            // [g147c] this child IS reached by Pass-1 sizing (per-child slot).
+            #[cfg(feature = "web_lift")]
+            unsafe { core::ptr::write_volatile((0x60A40 + (child_index & 7) * 4) as *mut u32, 0xC0DE0000 | (child_index as u32 & 0xffff)); }
             crate::solver3::cache::calculate_layout_for_subtree(
                 ctx,
                 tree,
@@ -2391,6 +2477,16 @@ fn layout_ifc<T: ParsedFontTrait>(
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
     unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x20u32); }
+    // [g147 az-web-lift DIAG] CALLER-side tree validity at layout_ifc entry, indexed by node_index
+    // (0x60900+ = nodes.len, 0x60920+ = tree ptr) to dodge marker-overwrite across multiple IFCs.
+    // Compare vs _impl's CALLEE-side (0x60940+/0x60960+): ptr differs ⇒ &mut tree mis-passes across
+    // the call; ptr same but len differs ⇒ the tree's `nodes` Vec is emptied in place.
+    #[cfg(feature = "web_lift")]
+    unsafe {
+        let slot = (node_index & 7) * 4;
+        core::ptr::write_volatile((0x60900 + slot) as *mut u32, tree.nodes.len() as u32);
+        core::ptr::write_volatile((0x60920 + slot) as *mut u32, (&*tree as *const LayoutTree as usize) as u32);
+    }
     let ifc_start = (ctx.get_system_time_fn.cb)();
 
     let float_count = constraints
@@ -6506,6 +6602,11 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         core::ptr::write_volatile(0x606A8 as *mut u32, tree.nodes.len() as u32);
         core::ptr::write_volatile(0x606AC as *mut u32, tree.get(ifc_root_index).is_some() as u32 | 0xC0DE0000u32);
         core::ptr::write_volatile(0x606B0 as *mut u32, tree.root as u32);
+        // [g147 az-web-lift DIAG] CALLEE-side tree ptr + nodes.len indexed by ifc_root_index
+        // (0x60940+ = nodes.len, 0x60960+ = tree ptr). Pair with layout_ifc's 0x60900+/0x60920+.
+        let slot = (ifc_root_index & 7) * 4;
+        core::ptr::write_volatile((0x60940 + slot) as *mut u32, tree.nodes.len() as u32);
+        core::ptr::write_volatile((0x60960 + slot) as *mut u32, (&*tree as *const LayoutTree as usize) as u32);
     }
 
     let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;

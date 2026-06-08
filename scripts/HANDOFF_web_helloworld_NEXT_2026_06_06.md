@@ -11,6 +11,325 @@ This is the clean, actionable handoff. The blow-by-blow evidence is in the chron
 
 ---
 
+## ✅ 2026-06-08 (g147) — REBUILD+RELIFT DONE; web-text-min STILL POSITIONS with crates.io BTreeMap deps
+
+Rebuilt the stale dylib (was Jun-6 17:27, built against OLD local-path forks; deps committed to crates.io
+at 23:07/23:52 *after* it) → fresh `libazul.dylib` (Jun-8 10:53) now links published **allsorts-azul 0.16.5
++ rust-fontconfig 4.4.3** (the latter has `patterns: BTreeMap<FcPattern,FontId>` = upstream original, NOT
+the `Vec` the old fork used + adds the `single-thread-unsafe-locks` feature web_lift enables). Relifted
+web-text-min + ran the harness:
+- **`[g132 lays-out] overflow_size = 39.10 x 20.05` ✓✓✓ TEXT LAYS OUT (h>0)**, `[g133] collect=Ok len=1,
+  layout_flow=Ok`, `[g135] _impl tree.nodes.len=2 tree.get=TRUE`, `__remill_error count=0`, rc=0.
+- ⇒ **BTreeMap-of-FcPattern lifts FINE now** (the NEON decoders resolved the `Ord` mis-lift) — g146 risk
+  CLEARED. No need to re-add the `Vec` patterns / publish 4.4.4.
+- (The "InvalidTree in reconcile (520)" + "LayoutError byte0=0" harness lines remain the known 0x40xxx
+  PHANTOM; real signals all green. `node_count=2 (expected 5)` is the harness's stale flexbox assertion.)
+
+PROVENANCE GAP (flagged to user, not yet fixed): crates.io has rust-fontconfig **4.4.3** but the local
+`/Development/rust-fontconfig` repo is still **4.4.2** (no `single-thread-unsafe-locks` feature, not bumped,
+clean tree) — the 4.4.3 source bump was never committed back locally ("stopped before midnight"). allsorts
+0.16.5 IS fully committed (`cbf5599`) + matches crates.io. remill decoders committed (`6aabb45`).
+
+**hello-world relift (g147) — blocker REPRODUCES + sharpened.** Same dylib, harness markers:
+- `cascade ok node_count=5 ✓`, `__remill_error count=0 ✓`, `rc=0`.
+- `[g73] LayoutTree@sizing: root=0 nodes.len=3 get(root).is_some=1` ← tree VALID (3 nodes) at SIZING.
+- `[g135] _impl tree.nodes.len=0, tree.root=0, tree.get(idx)=FALSE, Err AT first tree.get` ← collect_and_measure
+  (POSITIONING) sees an EMPTY tree and Errs immediately. **`tree.root=0` reads CLEANLY (not garbage)** ⇒ the
+  `&mut tree` ptr is likely VALID but pointing at an EMPTY/default LayoutTree, NOT the real 3-node one.
+- `[g132] overflow_size=0`, rects `(0,0,784,21)(0,0,784,0) MAX (8,16,784,13) MAX` ← INTERMITTENT across IFCs:
+  one div laid out a text line (8,16,784,13 h=13), another got height 0. Classic context-dependent ref
+  mis-pass (g56 class), not uniform failure.
+
+### ★ g147 RESULT — the g145 "empty-tree / `&tree` mis-pass" theory is DEBUNKED (was a marker misread)
+
+The g147 caller-vs-callee table came back `(no g147 slots set — neither layout_ifc nor _impl reached in
+positioning)`. And the EXISTING `0x606AC` marker writes `is_some | 0xC0DE0000` (so ANY execution leaves
+`0xC0DE000x`), yet it reads plain **`0x0`** ⇒ **`collect_and_measure_impl` is NEVER ENTERED.** So g145's
+"`_impl` receives an empty tree (`nodes.len=0`)" was a **misread of UNINITIALIZED markers** (`0x606A8/AC/B0`
+default to 0 because the entry block never ran; the "Err AT 6449" was seq=0=never-written). ⇒ **STOP chasing
+the `&tree` ref / nested-IFC empty-tree.**
+
+**REAL blocker (g147): the POSITIONING pass never reaches `layout_ifc` for hello-world's nested text-divs.**
+`layout_formatting_context` doesn't dispatch `Inline → layout_ifc` for the `label_wrapper` (div + "5") or
+the button's text. web-text-min reaches it only because its body DIRECTLY contains text (body FC = Inline).
+Block rects DO compute (body 784×21, button 8,16,784,13) so positioning runs — but the inline text path is
+skipped. `[g75] IFC-sizer calls=0` says even SIZING never collected inline content ⇒ points at FC-assignment
+/ tree-construction or a cache short-circuit, NOT a ref mis-pass.
+
+**g147b diagnostic (rebuild+relift in flight):** per-node markers — `calculate_layout_for_subtree` entry
+(0x60980+, did positioning reach the node), `layout_formatting_context` FC discriminant (0x609A0+), and the
+dispatch arm taken (0x609C0+ = layout_bfc vs layout_ifc). Harness `[g147b dispatch]` table decides:
+(a) div FC reads `Block` ⇒ tree-construction FC assignment wrong; (b) FC reads `Inline` but arm = layout_bfc
+⇒ match dispatch mis-lifts; (c) FC marker UNSET though calc reached the node ⇒ cache-hit short-circuits
+`layout_formatting_context`. Markers fc.rs (layout_formatting_context entry ~383 + Block/Inline arms) +
+cache.rs (calculate entry ~1973); harness read block after `[g147]`. ALL `web_lift`-gated / REVERT-at-cleanup.
+(The g147 caller/callee markers 0x60900–0x60960 are KEPT too, harmless, revert-at-cleanup.)
+
+### ★ g147c RESULT + the NATIVE-REPRO pivot (markers are unreliable; stop using node-data markers)
+
+g147b/g147c reliable facts: body → `layout_bfc` in PerformLayout (node 0, arm marker ✓); nodes 1,2 reached
+in ComputeSize ONLY; `layout_formatting_context` takes NO dispatch arm for nodes 1,2 (reliable arm markers
+unset) ⇒ `calculate(node1/2, ComputeSize)` returns BEFORE the FC dispatch (cache-hit or early-Err); `layout_ifc`
+never runs; `[g75] IFC-sizer calls=0` (the intrinsic-sizing pass ALSO never collected the divs' inline content).
+⚠ **Marker reliability caveat (important):** markers that READ node/tree data before writing
+(`match node.formatting_context`→0x609A0, `bfc_children.len()`→0x60A00) are SILENTLY DROPPED by the lift,
+while plain constant writes inside match-arms (0x609C0, 0x60980) survive. So "marker unset" ≠ "not reached".
+Do NOT trust node-data-derived markers; only constant-write markers at reliable control points.
+
+**PIVOT — verify NATIVELY (relift-free, reliable).** Added `layout/tests/web_lift_nested_text_repro.rs`:
+runs `body > div(font-size:32) > text("5")` through the REAL solver3 layout natively (no lift) and asserts
+the div height > 0. `cargo test -p azul-layout --test web_lift_nested_text_repro -- --nocapture`.
+- div height > 0 NATIVELY ⇒ source logic CORRECT ⇒ blocker is LIFT-ONLY (the nested div→text inline path
+  mis-lifts; focus the lift: how `layout_bfc` Pass-1 / `calculate(child,ComputeSize)` / the FC dispatch for a
+  nested inline div is lifted vs the flat body-IFC case web-text-min uses).
+- div height == 0 NATIVELY ⇒ real layout-logic bug ⇒ fix in source + verify with this test in seconds.
+
+### ★ g147d — native IFC logic WORKS ⇒ LIFT-only bug = spurious ComputeSize cache HIT (experiment in flight)
+
+The fresh `web_lift_nested_text_repro` test SEGVs (font-shaping with SYSTEM fonts under debug — a test-env
+artifact, NOT the layout). But the EXISTING `tests/ifc_caching.rs` runs: **4 inline-layout tests PASS
+natively** (incl. `test_cached_inline_layout_with_constraints_has_metrics`) — so native IFC layout LOGIC is
+sound. (One test SEGVs, also in system-font shaping.) ⇒ the nested-div blocker is **LIFT-ONLY**.
+
+Root-cause hypothesis (from RELIABLE constant-write markers): `calculate(div, ComputeSize)` for the nested
+divs returns BEFORE `layout_formatting_context` — the ComputeSize cache-miss marker `0x60A60` (a CONSTANT
+write = the reliable kind) NEVER fires ⇒ a **spurious cache HIT**: the lifted `get_size`/`get_layout`
+mis-reads a fresh/empty `cache_map` entry as `Some` (Option-niche/compare mis-lift), short-circuiting
+`layout_formatting_context → layout_ifc` so `<div>text</div>` never lays out. web-text-min dodges it (body
+is the IFC root, laid out directly in PerformLayout — no child-ComputeSize-cache path).
+
+EXPERIMENT (g147d, rebuild+relift in flight): bypass the per-node cache READ under `web_lift`
+(cache.rs ~2004, `let _az_cache_read_enabled = !cfg!(feature="web_lift")`); the STORE is untouched. Forcing a
+miss → layout_bfc Pass-1 recomputes the child → `layout_ifc` → text positions. If `[g132] overflow_size.h>0`
+for hello-world ⇒ CONFIRMED; then narrow the real fix to `get_size`/`get_layout`'s lifted Option/compare
+(don't leave the whole cache disabled — it's a perf hammer). If NOT ⇒ the recompute ALSO skips layout_ifc
+(deeper: FC-assignment for nested inline divs, or an early Err in prepare_layout_context).
+
+### ★ g147d RESULT = cache hypothesis WRONG; g147e all-arm trace in flight
+
+g147d FAILED: with the cache READ bypassed under web_lift, `[g132] overflow_size` STILL 0; nodes 1,2 still
+take no dispatch arm. ⇒ spurious cache hit was NOT the cause. So `calculate(node1/2, ComputeSize)` reaches
+the COMPUTE path but still doesn't dispatch `layout_ifc`.
+
+New hypothesis: the real `match node.formatting_context` (fc.rs:411) has arms my Block/Inline markers didn't
+cover (InlineBlock, Table, Flex|Grid, TableCell, `_ => layout_bfc`). If the nested divs' `formatting_context`
+MIS-READS as garbage, the match falls to `_`/InlineBlock → `layout_bfc` not `layout_ifc` → text never laid
+out, looking like "no dispatch".
+
+g147e (rebuild+relift in flight): PURE-CONSTANT markers (reliable) on lfc entry (`0x609E0=0xC0DE0042`, before
+any node read) + EVERY arm (`0x609C0`: Block=1,Inline=2,InlineBlock=3,Flex/Grid=4,Table=6,TableCell=7,`_`=9).
+Harness `[g147b dispatch]` decodes all. lfc-ENTERED+arm=9/3 ⇒ FC mis-read (fix the lifted
+`node.formatting_context`/LayoutNodeHot field read); lfc-ENTERED+no-arm ⇒ `tree.get()?` Err; lfc NOT-entered
+though calc entered ⇒ early return in calculate before lfc. (g147d cache-bypass KEPT to isolate compute path.)
+
+### ★★★ g147e RESULT + g147f ROOT CAUSE & FIX — FormattingContext niche-discriminant mis-lift ★★★
+
+g147e all-arm constant markers (RELIABLE) gave the decisive answer:
+```
+node[0] body: lfc=ENTERED✓ | arm=→layout_bfc(Block)              ← correct
+node[1] div:  lfc=ENTERED✓ | arm=→layout_bfc(_UNKNOWN/garbage-FC) ← WRONG (should be →layout_ifc Inline)
+node[2] div:  lfc=ENTERED✓ | arm=→layout_bfc(_UNKNOWN/garbage-FC) ← WRONG
+```
+`layout_formatting_context` IS entered for the nested divs, but `match node.formatting_context` reads a value
+matching NO explicit arm → `_` fallback → `layout_bfc` instead of `layout_ifc` → text never lays out.
+
+**ROOT CAUSE:** `FormattingContext` (core/src/dom.rs:1060) was `#[derive(Clone,PartialEq)]` with NO `#[repr]`
+and THREE payload variants (`Block{bool}`, `Float(LayoutFloat)`, `OutOfFlow(LayoutPosition)`) mixed with
+payload-less ones. Rust niche-packs the payload-less variants' discriminants into the payloads' invalid byte
+values. The remill lift MIS-DECODES that niche encoding: `Block` (byte 0/1) reads right, but `Inline` (a niche
+value) reads as garbage → `_`. `determine_formatting_context_for_display` correctly returns `Inline` for a
+block div whose only children are inline text (`has_only_inline_children` → Inline), so the VALUE is right;
+the niche READ is wrong. web-text-min dodged it because body's FC=Inline is read in a path that happened to
+work (or body got Block... actually body has block children so FC=Block, which reads fine — the bug only bites
+the INLINE-FC nested divs).
+
+**FIX (g147f, core/src/dom.rs):** added `#[repr(C, u8)]` to `FormattingContext` → explicit u8 discriminant at
+offset 0, no niche packing → the lift reads it correctly. SAME established pattern as the text3 enums
+(InlineContent/LogicalItem/ShapedItem/FontStack/LayoutError). Unconditional (correct + harmless for native).
+Rebuild+relift IN FLIGHT (azul-core changed → full rebuild). EXPECT: node[1,2] arm → `→layout_ifc(Inline)`,
+`[g132] overflow_size.h>0`, text positions. If confirmed: revert the g147d cache-bypass + the g147a-e
+diagnostic markers; then move to hello-world's remaining blockers (§6: counter snprintf, click/dispatch).
+
+### g147f RESULT = repr(C,u8) did NOT change dispatch; g147g reads raw disc
+
+After `#[repr(C,u8)]`, nodes 1,2 STILL fall to `_`. So it's NOT a niche-decode issue. ALSO learned: my
+match-based entry marker (0x609A0) was DROPPED while the pure-constant one (0x609E0) fired ⇒ **reading
+`node.formatting_context` itself destabilizes the lifted code for the divs** (constant writes survive; a
+`match`/read on that field doesn't). g147g (rebuild+relift in flight): in the `_` arm, `read_volatile` the
+RAW disc BYTE (offset 0 under repr(C,u8)) → 0x60B40+slot. disc=1 ⇒ value IS Inline, the dispatch MATCH
+mis-lifted (jump-table/branch bug — fix by replacing the `match` with explicit `if`/disc compares, the
+pattern that fixed other jump-table mis-lifts); disc≠1 ⇒ tree construction stored the wrong FC (chase
+determine_formatting_context_for_display / has_only_inline_children / the reconcile clone at
+layout_tree.rs:920). repr(C,u8) KEPT for now (makes the raw disc well-defined; decide keep/revert after).
+
+### g147g/h RESULTS — can't read FC at all; FC comes from reconcile-clone, not determine_
+
+- g147g: the raw `read_volatile` disc read was DROPPED too (no trap, rc=0) ⇒ **ANY read of
+  `node.formatting_context` destabilizes the lifted code** and skips the following write. So the FC value
+  cannot be observed in-lift. BUT the styled_dom NodeType discs ARE correct (`[2,3,177,52,177]` =
+  Body,Div,Text,Button,Text) ⇒ DOM is fine; corruption is confined to the LayoutTree FC field.
+- g147h: constant markers in `determine_formatting_context_for_display` NEVER fired ⇒ that fn is NOT
+  reached in the lifted layout pass. The lifted layout RECONCILES (clones) a pre-built tree
+  (layout_tree.rs:920 `formatting_context: hot.formatting_context.clone()`), so the FC is CLONED, not
+  recomputed. ⇒ suspect the FC clone OR the tree.get/Vec stride.
+
+### g147i (in flight) — testing the `tree.get` Vec-stride hypothesis
+
+node 0 (index 0) reads FC correctly (Block); nodes 1,2 (index>0) read garbage AND reads destabilize the
+lift — classic signature of `tree.get(index)=&nodes[index]` mis-lifting the stride (`base + index*sizeof`)
+for index>0, making nodes 1,2 garbage references. g147i marks the node REFERENCE ADDRESS (0x60B80, not a
+field deref → reliable) at lfc entry. Uniform Δ == sizeof(LayoutNodeHot) ⇒ stride OK (FC-field read is the
+specific bug → look at the FC clone / field offset / repr); irregular Δ ⇒ stride mis-lift (fix tree.get /
+Vec indexing / LayoutNodeHot size). NOTE web-text-min only ever dispatches node 0 (its text is body's inline
+content, no index>0 dispatch) — which is why it dodges this entirely.
+
+### ★ g147i RESULT + g147 FIX (recompute IFC from styled_dom) — in flight
+
+g147i: node ref addresses are UNIFORM (0x6293bc8 / +80 / +80) ⇒ `tree.get(index)` stride is CORRECT, nodes
+1,2 are VALID refs. So the `formatting_context` FIELD VALUE is garbage (node 0 = Block correct; nodes 1,2 =
+garbage from the reconcile clone of `FormattingContext::Inline` at get_full_node:920). The deep root is the
+lifted clone/enum-read of `FormattingContext::Inline` (a complex enum: 3 payload variants Block{bool}/
+Float/OutOfFlow + many payload-less); repr(C,u8) alone didn't fix it.
+
+**FIX (g147, fc.rs layout_formatting_context, web_lift-gated):** instead of trusting the garbage cloned
+`node.formatting_context`, recompute the IFC decision from the RELIABLE styled_dom — if `node.dom_node_id` is
+Some and `has_only_inline_children(styled_dom, dom_id)` (made `pub(crate)`), route straight to `layout_ifc`
+(a block container with only inline children establishes an IFC, CSS 2.2 §9.2.1), bypassing the corrupted
+field. Marker 0x60BA0 confirms it fired. Rebuild+relift in flight. EXPECT: nodes 1,2 force_ifc FIRES,
+`[g132] overflow_size.h>0`, text positions. CAVEAT (refine later): doesn't check display, so a flex/grid/
+inline-block node with only-inline children would be wrongly forced to IFC — fine for hello-world (plain
+block divs); gate more precisely (skip if display is flex/grid/table/inline-block) before un-web_lift-gating.
+If force_ifc fires but text STILL doesn't position ⇒ node.dom_node_id ALSO mis-lifts, or layout_ifc itself
+has a downstream nested-IFC issue (then chase layout_ifc/collect_and_measure for the child IFC).
+
+### ★★ g147 FIX RESULT — DISPATCH FIXED (divs now route to layout_ifc); cache-bypass caused a HANG ★★
+
+The force_ifc fix WORKS: the relift now lifts `collect_font_stacks_from_styled_dom` + the IFC text path
+(it wasn't lifting those before) ⇒ the divs are now routed into `layout_ifc`. So `node.dom_node_id` reads
+FINE and `has_only_inline_children(styled_dom)` works in-lift — **the FC-dispatch root cause is fixed.**
+BUT `solveLayoutReal` then HANGS (node exit 124 / timeout; harness stops at "EARLY extern-input" before the
+layout markers — a synchronous hang, not a trap). ROOT of the hang: the **g147d cache-bypass** (forces every
+`calculate_layout_for_subtree` to recompute) — harmless before (divs did trivial layout_bfc), but now that
+the divs do REAL IFC layout it creates an **unbounded reflow loop that never converges without the cache**
+(scrollbar/reflow re-layout). FIX: REVERTED the g147d cache-bypass (cache.rs:2004 restored to
+`if node_index < ctx.cache_map.entries.len()`); kept the force_ifc fix. Rebuild+relift in flight. EXPECT:
+layout converges → `[g132] overflow_size.h>0` → hello-world text POSITIONS. If it STILL hangs with the cache
+restored ⇒ the hang is in layout_ifc/collect_and_measure for the nested IFC itself (use AZ_FUEL=ALL at lift
+time to convert the infinite loop into a named trap + read POST-TRAP step 0x40710).
+
+### ★ g147 — HANG LOCATED via AZ_FUEL: infinite loop in TextShapingCache::layout_flow Stage-5 flow loop
+
+AZ_FUEL=ALL relift → harness TRAPS (not hangs). Trap stack (resolved via server-log `dep: sub_X →
+resolved=NAME`): `layout_dom_recursive → layout_document → calculate_layout_for_subtree(body) →
+layout_formatting_context(body) → layout_bfc(body) → calculate_layout_for_subtree(div) →
+layout_formatting_context(div) → layout_ifc(div) → TextShapingCache::layout_flow → __az_fuel`. ~10 frames
+(NOT recursion — bounded stack) ⇒ an infinite LOOP in `layout_flow`. Its only loop is the **Stage-5 flow loop
+`for fragment in flow_chain`** (text3/cache.rs:5761) — should run ~1× for one line and `break` on
+`cursor.is_done()`, but on the lift it never terminates for the NESTED IFC (the flow_chain iterator or the
+`cursor.is_done()` break mis-lifts — SAME systemic iterator/loop class as g136-g139, now ∞ instead of 0).
+`g116 create_logical_items content.len=0` (Vec-len mis-lift) likely the trigger. web-text-min's flat IFC dodges it.
+
+**WORKAROUND (g147, text3/cache.rs:5761, web_lift-gated):** hard iteration cap (`_az_flow_iters > 256 → break`)
++ marker 0x60BC0. Text lays out on iteration 1, so capping converges instead of hanging. Rebuild+relift
+(NORMAL, no fuel) in flight. EXPECT: no hang → `[g132] overflow_size.h>0` → hello-world text FINALLY POSITIONS;
+then §6 (counter renders server-side already; click/dispatch). If overflow_size still 0 (no hang) ⇒ the capped
+loop laid out nothing (content.len=0 mis-lift) → chase the content.len Vec mis-lift into layout_flow. 256-cap
+is a band-aid; the real fix is the iterator/Vec-len mis-lift.
+
+### ★★ g147 SESSION-END (2026-06-08) — FC DISPATCH FIXED; remaining = systemic content.len=0 mis-lift ★★
+
+Capping the flow loop (5761) AND the line-build loop (`while !cursor.is_done()` 7916) did NOT stop the hang —
+the infinite loop is ONE LEVEL DEEPER, inside **`break_one_line`** (called at 8046; inlined, so each cap fires
+once then break_one_line never returns). Cap-chasing is NOT converging.
+
+**CONFIRMED ROOT (AZ_FUEL run's `g116` marker): `create_logical_items content.len=0`** — for the NESTED div,
+`layout_ifc → collect_and_measure` produces EMPTY inline content (systemic Vec-len/iterator mis-lift;
+`__remill_error=0` so NOT decode truncation — runtime value mis-lift, same class as g136-g139). Empty content
+starves the BreakCursor → break_one_line/`cursor.is_done()` spin forever. A perfect loop-cap only converts
+hang→EMPTY text (overflow_size still 0), never hang→correct text. **The real fix is the content.len mis-lift
+(make collect_and_measure return the div's 1 text item) = the transpiler/remill optimized-code Vec-len fix
+flagged since g139** — NOT more source caps.
+
+**DONE + KEEP:** (1) rebuilt against crates.io BTreeMap deps — web-text-min still positions. (2) ★ **FC-dispatch
+FIX (fc.rs `layout_formatting_context`, web_lift-gated: recompute IFC from styled_dom
+`has_only_inline_children`→`layout_ifc`, bypassing the garbage cloned FC field)** = the session breakthrough,
+KEEPER (refine display-gate: skip flex/grid/table/inline-block). (3) `has_only_inline_children` → `pub(crate)`.
+
+**REVERT-at-cleanup:** g147d cache-bypass ALREADY reverted. The two loop caps (text3/cache.rs:5761 +
+`_az_line_iters` ~7920) + all g147a-i diagnostic markers (0x609xx/0x60Axx/0x60Bxx) + harness g147* reads.
+`#[repr(C,u8)]` on FormattingContext (core/dom.rs) is harmless/principled (didn't fix dispatch — keep or revert).
+
+**NEXT CONCRETE STEP:** fix `collect_and_measure_inline_content_impl`'s collection for the NESTED IFC so it
+returns content.len=1 (not 0). Same DOM-children loop / Vec-len mis-lift as g136-g139 (NEON fixes resolved it
+for web-text-min's FLAT body-IFC; recurs for the nested div). Lift the fn standalone + trace why its content
+Vec ends empty for the nested call. Deep transpiler/remill Vec-len mis-lift; source loop-rewrites (g137-g139)
+already proven insufficient.
+
+**g147 confirm (no relift):** `nm` shows collect_and_measure_inline_content_impl is ONE monomorph
+(native 0x34e04c → 0x35198c, ~14.6 KB). So web-text-min (content.len=1, WORKS) and hello-world's nested div
+(content.len=0) run the SAME lifted code — the mis-lift is RUNTIME INPUT-DEPENDENT (body→text yields 1,
+div→text yields 0), not structural ⇒ the DOM-children loop mis-counts for the div's input specifically.
+Deep remill EXECUTION-fidelity issue (§2-B): lift 0x34e04c standalone + EXECUTE/trace the dom_children loop
+for the div input vs body input to find the spill/reload/PHI the lift mis-models. NOT a single-cron-cycle fix.
+DECISION ASKED OF USER (pending): (a) deep collect_and_measure standalone trace, (b) pause for remill-strategy
+input, (c) commit the FC-dispatch breakthrough first.
+
+**g147 FINAL confirm (standalone lift of 0x34e04c, no relift):** `__remill_error: 0`, `missing_block: 1`
+(benign) ⇒ collect_and_measure lifts CLEANLY, NO undecoded instr / NO decoder to add. Static IR is CORRECT ⇒
+content.len=0 is purely a remill EXECUTION-fidelity mis-lift (Vec::len reads 0 at runtime for the div input).
+Confirmed THREE ways (one-monomorph input-dependent + runtime err=0 + static IR clean). NOT autonomously
+crackable in cron cycles — needs either (1) an EXECUTE-and-diff harness for the lifted collect_and_measure
+(run the wasm fn, diff register/memory vs native, find the mis-modeled spill/reload/PHI of the dom_children
+loop induction/len), or (2) a transpiler post-pass that stabilizes optimized-code Vec-len reads. **Autonomous
+cron loop PAUSED here (cron 2e90bba5 deleted)** pending the user's call on the deep remill investment. The
+FC-dispatch breakthrough (the session's big win) is intact + documented; web-text-min still positions;
+everything UNCOMMITTED per standing instruction.
+
+---
+
+## ⚠️ SESSION-END STATUS (2026-06-06 g146) — COMMITTED + PUBLISHED. READ THIS FIRST.
+
+**Branches changed — the title-block "Branch: mobile-ios-android" above is STALE:**
+- **azul-mobile → branch `web-lift-text-layout`** (off `mobile-ios-android`), pushed to `github.com/fschutt/azul`.
+- **remill fork → branch `aarch64-web-lift-decoders`**, pushed to `github.com/fschutt/remill`. The 4 NEON
+  decoders (FNEG.2s, FMUL scalar-by-elem, UCVTF scalar, FNMUL scalar) are committed there; the installed
+  `remill-lift-17` + `aarch64.bc` already have them built (no remill rebuild needed unless you add more).
+- **Font forks PUBLISHED to crates.io** (no more local-path `[patch]`): `allsorts-azul 0.16.5` +
+  `rust-fontconfig 4.4.3`; deps bumped in `core/Cargo.toml` + `layout/Cargo.toml`. rust-fontconfig's
+  web-lift `StLock` is behind a `single-thread-unsafe-locks` feature that azul-layout's `web_lift`
+  auto-enables (native builds keep the thread-safe RwLock). `cargo check -p azul-layout` passes both
+  native and `--features web_lift`.
+
+**★ DO THIS FIRST: full rebuild + relift web-text-min — the dylib on disk is STALE.** The current
+`target/aarch64-apple-darwin/release/libazul.dylib` was built against the OLD local-path forks. The deps
+are now crates.io 0.16.5/4.4.3 which differ in one risky way: **rust-fontconfig 4.4.3 reverted `patterns`
+from `Vec` back to the original `BTreeMap`** (the fork used `Vec` because `BTreeMap<FcPattern,_>`'s `Ord`
+likely mis-lifted pre-NEON-fixes). So: rebuild (recipe §5) → relift web-text-min → confirm `[g132]
+overflow_size.height>0` STILL holds.
+- If YES → BTreeMap lifts fine now (NEON fixes resolved the Ord mis-lift); proceed to hello-world.
+- If NO (font matching empty / hang / missing_block) → BTreeMap-of-FcPattern still mis-lifts: either
+  find+decode the culprit instruction (scan method, §g144), OR re-add the `Vec` for `patterns` *properly
+  feature-gated* under rust-fontconfig's `single-thread-unsafe-locks` (publish 4.4.4).
+
+**Where things stand (verified this session):**
+- ✅ Multi-session blocker ROOT-CAUSED + FIXED: undecoded NEON instrs silently truncate remill CFG
+  recovery → garbage returns (NOT the old "value mis-lift" theory). 4 decoders → web-text-min "Hello"
+  POSITIONS (overflow 39×20), `__remill_error` 21→0.
+- ✅ hello-world.c: lift COMPLETE (`__remill_error`=0), cascade works (5 nodes), RENDERS the full UI
+  server-side (`curl 127.0.0.1:8800` → styled "Increase counter" button + counter "5"), block layout
+  partially runs (rects, body 784×21).
+- 🔲 hello-world REMAINING (the real next blocker — see g145 below): the WASM-side inline-text layout for
+  the NESTED IFC (text inside the button/counter divs) gets an EMPTY tree (`collect_and_measure` sees
+  `tree.nodes.len=0` while reconcile/sizing hold the 3-node tree) → text not positioned. A `&tree`
+  ref mis-pass for child IFCs (g56 stack-address class; NOT a decode truncation). Then click/dispatch (§6).
+- 🔲 Cleanup (once stable): the 6 out-param workarounds + g137/g139 fc.rs loop rewrites are now likely
+  UNNECESSARY (the lift is complete — undecoded-instr truncation was the real cause); revert one at a time
+  + relift. Strip the `[g129..g145]` diagnostic markers. See §4.
+
+Next-session starting prompt: `scripts/PROMPT_web_helloworld_NEXT.md`.
+
+---
+
 ## 2026-06-06 g145 — hello-world.c relift: lift COMPLETE + cascade OK; new (non-truncation) layout blocker
 
 Ran `hello-world.c` on the 4-NEON-fix remill (`/tmp/cycle_hello.sh`; server `/tmp/server_hello.log`,

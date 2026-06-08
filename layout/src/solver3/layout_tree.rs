@@ -2235,7 +2235,7 @@ fn is_inline_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
 /// by a block container box that contains no block-level boxes."
 // +spec:display-property:75d642 - block container with only inline-level content establishes IFC
 // +spec:display-property:c188d6 - IFC: all inline content within a containing block flows together as continuous text
-fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+pub(crate) fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let hierarchy = styled_dom.node_hierarchy.as_container();
     let node_hier = match hierarchy.get(node_id) {
         Some(n) => n,
@@ -2977,6 +2977,12 @@ fn determine_formatting_context_for_display(
 ) -> FormattingContext {
     let node_data = &styled_dom.node_data.as_container()[node_id];
     if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+        // [g147h az-web-lift DIAG] CONSTANT marker of the COMPUTED FC per DOM node_id (0x60B60+slot),
+        // written WITHOUT reading the stored field. 1=text→Inline, 2=block-with-inline→Inline, 4=Block.
+        // For the divs (node_id 1,3): 2 ⇒ computed Inline correctly (bug is store/clone/read); 4 ⇒
+        // has_only_inline_children mis-lifted to false (computed Block).
+        #[cfg(feature = "web_lift")]
+        unsafe { core::ptr::write_volatile((0x60B60 + (node_id.index() & 7) * 4) as *mut u32, 0xC0DE0001); }
         return FormattingContext::Inline;
     }
     // +spec:display-property:2a8d62 - block containers with inline-level content establish an IFC
@@ -2994,8 +3000,12 @@ fn determine_formatting_context_for_display(
         },
         LayoutDisplay::Block | LayoutDisplay::ListItem => {
             if has_only_inline_children(styled_dom, node_id) {
+                #[cfg(feature = "web_lift")]
+                unsafe { core::ptr::write_volatile((0x60B60 + (node_id.index() & 7) * 4) as *mut u32, 0xC0DE0002); }
                 FormattingContext::Inline
             } else {
+                #[cfg(feature = "web_lift")]
+                unsafe { core::ptr::write_volatile((0x60B60 + (node_id.index() & 7) * 4) as *mut u32, 0xC0DE0004); }
                 FormattingContext::Block {
                     establishes_new_context: establishes_new_block_formatting_context(
                         styled_dom, node_id,
