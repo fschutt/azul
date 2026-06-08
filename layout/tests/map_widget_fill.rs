@@ -85,9 +85,19 @@ fn test_map_widget_fills_flex_container() {
             println!("Node {}: fc={:?} size=({:.1},{:.1}) dom={:?}", i, n.formatting_context, s.width, s.height, nt);
         }
     }
-    // Diagnostic only — print, don't assert, so we always see the chain.
-    let map_div_h = tree.get(3).and_then(|n| n.used_size).map(|s| s.height).unwrap_or(0.0);
-    println!("=> map widget div height = {:.1} (expect ~440 if chain resolves)", map_div_h);
+    // The whole chain — map_area (flex-grow) → widget div (abs inset:0) → VirtualView
+    // (height:100%) — must fill the ~441px box. The VirtualView (deepest, node 5) is
+    // the one that previously collapsed to 0: a %-height child of an absolute-inset
+    // parent whose height was resolved AFTER its subtree was (never) laid out.
+    let widget_div_h = tree.get(4).and_then(|n| n.used_size).map(|s| s.height).unwrap_or(0.0);
+    let vview_h = tree.get(5).and_then(|n| n.used_size).map(|s| s.height).unwrap_or(0.0);
+    println!("=> map widget div height={:.1}, VirtualView height={:.1}", widget_div_h, vview_h);
+    assert!(widget_div_h > 400.0, "abs map widget div collapsed: {:.1}", widget_div_h);
+    assert!(
+        vview_h > 400.0,
+        "VirtualView collapsed to {:.1}px — %-height did not resolve against the abs-inset parent",
+        vview_h
+    );
 }
 
 #[test]

@@ -21,9 +21,9 @@ use azul_css::{
 };
 
 use crate::{
-    font_traits::{FontLoaderTrait, ParsedFontTrait},
+    font_traits::{FontLoaderTrait, ParsedFontTrait, TextLayoutCache},
     solver3::{
-        fc::{layout_formatting_context, LayoutConstraints, TextAlign},
+        fc::{layout_formatting_context, FloatingContext, LayoutConstraints, TextAlign},
         getters::{
             get_aspect_ratio_property, get_direction_property, get_display_property, get_writing_mode, get_position, MultiValue,
             get_css_top, get_css_bottom, get_css_left, get_css_right,
@@ -35,11 +35,11 @@ use crate::{
 };
 
 #[derive(Debug, Default)]
-struct PositionOffsets {
-    top: Option<f32>,
-    right: Option<f32>,
-    bottom: Option<f32>,
-    left: Option<f32>,
+pub(crate) struct PositionOffsets {
+    pub(crate) top: Option<f32>,
+    pub(crate) right: Option<f32>,
+    pub(crate) bottom: Option<f32>,
+    pub(crate) left: Option<f32>,
 }
 
 // +spec:positioning:94ef0f - position property: static|relative|absolute|sticky|fixed, initial static, applies to all elements except table-column-group/table-column
@@ -59,7 +59,7 @@ pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Layo
 /// Reads and resolves `top`, `right`, `bottom`, `left` properties,
 /// including percentages relative to the containing block's size, and em/rem units.
 // +spec:positioning:7ec143 - top/right/bottom/left offset resolution with percentage against containing block
-fn resolve_position_offsets(
+pub(crate) fn resolve_position_offsets(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
     cb_size: LogicalSize,
@@ -135,6 +135,7 @@ fn resolve_position_offsets(
 pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
+    text_cache: &mut TextLayoutCache,
     calculated_positions: &mut super::PositionVec,
     viewport: LogicalRect,
 ) -> Result<()> {
@@ -584,6 +585,54 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             }
 
             super::pos_set(calculated_positions, node_index, final_pos);
+
+            // The absolute box is now at its FINAL, definite size. Lay out its
+            // content against that box if a percentage-height child collapsed —
+            // which happens because (a) the taffy-bridge layout path that handles
+            // flex-nested blocks never runs `process_out_of_flow_children`, so an
+            // abs child's subtree is otherwise NEVER laid out, and (b) even on the
+            // solver3 path the subtree is laid out BEFORE the stretch-fit height is
+            // resolved here. Either way the child saw a 0-height containing block.
+            // Re-flowing now (the abs height is independent of its content, so this
+            // can't loop) lets `height:100%` children resolve against the real box.
+            // (Root cause of the slippy-map VirtualView blank-bounds bug.)
+            if height_is_auto {
+                let (used_size, inner, child_collapsed) = {
+                    let n = &tree.nodes[node_index];
+                    let used = n.used_size.unwrap_or_default();
+                    let inner = n.box_props.inner_size(used, LayoutWritingMode::HorizontalTb);
+                    let collapsed = inner.height > 1.0
+                        && tree.children(node_index).iter().any(|&c| {
+                            tree.get(c)
+                                .and_then(|cn| cn.used_size)
+                                .map_or(true, |s| s.height < 1.0)
+                        });
+                    (used, inner, collapsed)
+                };
+                let _ = used_size;
+                if child_collapsed {
+                    let constraints = LayoutConstraints {
+                        available_size: inner,
+                        writing_mode: LayoutWritingMode::HorizontalTb,
+                        writing_mode_ctx: super::geometry::WritingModeContext::default(),
+                        bfc_state: None,
+                        text_align: TextAlign::Start,
+                        containing_block_size: inner,
+                        available_width_type:
+                            crate::text3::cache::AvailableSpace::Definite(inner.width),
+                    };
+                    let mut reflow_float_cache: std::collections::HashMap<usize, FloatingContext> =
+                        std::collections::HashMap::new();
+                    let _ = layout_formatting_context(
+                        ctx,
+                        tree,
+                        text_cache,
+                        node_index,
+                        &constraints,
+                        &mut reflow_float_cache,
+                    );
+                }
+            }
         }
     }
     Ok(())

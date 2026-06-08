@@ -988,6 +988,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         positioning::position_out_of_flow_elements(
             &mut ctx,
             &mut new_tree,
+            text_cache,
             &mut calculated_positions,
             viewport,
         )?;

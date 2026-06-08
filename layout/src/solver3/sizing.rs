@@ -1541,17 +1541,50 @@ pub fn calculate_used_size_for_node(
             // genuinely need intrinsic for width sizing; auto-height for those is
             // still driven by content, but we keep the intrinsic fallback for
             // backwards compatibility with the existing paths.
-            match display.unwrap_or_default() {
-                LayoutDisplay::Block
-                | LayoutDisplay::FlowRoot
-                | LayoutDisplay::ListItem
-                | LayoutDisplay::Flex
-                | LayoutDisplay::Grid => 0.0,
-                // Inline: height property does not apply (§10.6.1), handled earlier
-                // via css_height override, but be explicit anyway.
-                LayoutDisplay::Inline => 0.0,
-                // Shrink-to-fit and intrinsically-sized: keep using intrinsic pre-layout.
-                _ => intrinsic.max_content_height,
+            // CSS 2.2 §10.6.4: an absolutely/fixed-positioned non-replaced box with
+            // `height:auto` and BOTH `top` and `bottom` specified has a STRETCH-FIT
+            // height = cb_height − top − bottom − margins. `position_out_of_flow_
+            // elements` also derives this, but it runs AFTER the subtree is laid out —
+            // so resolving it HERE (a definite, computed height) lets percentage-height
+            // CHILDREN resolve against the real box during their own layout instead of
+            // collapsing against a 0 placeholder. (Root cause of the slippy-map
+            // VirtualView blank-bounds bug: its container fills via abs inset:0.)
+            let abs_stretch_fit = if matches!(
+                position,
+                LayoutPosition::Absolute | LayoutPosition::Fixed
+            ) && !is_replaced
+            {
+                let off = crate::solver3::positioning::resolve_position_offsets(
+                    styled_dom, dom_id, *containing_block_size,
+                );
+                match (off.top, off.bottom) {
+                    (Some(t), Some(b)) => Some(
+                        (containing_block_size.height
+                            - t
+                            - b
+                            - _box_props.margin.top
+                            - _box_props.margin.bottom)
+                            .max(0.0),
+                    ),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            match abs_stretch_fit {
+                Some(h) => h,
+                None => match display.unwrap_or_default() {
+                    LayoutDisplay::Block
+                    | LayoutDisplay::FlowRoot
+                    | LayoutDisplay::ListItem
+                    | LayoutDisplay::Flex
+                    | LayoutDisplay::Grid => 0.0,
+                    // Inline: height property does not apply (§10.6.1), handled earlier
+                    // via css_height override, but be explicit anyway.
+                    LayoutDisplay::Inline => 0.0,
+                    // Shrink-to-fit and intrinsically-sized: keep using intrinsic pre-layout.
+                    _ => intrinsic.max_content_height,
+                },
             }
         }
         LayoutHeight::Px(px) => {
