@@ -91,12 +91,23 @@ pub struct MapTileLayer {
 impl Default for MapTileLayer {
     fn default() -> Self {
         Self {
+            // OpenFreeMap's public planet vector tiles (full-detail OSM, z0–14, no
+            // API key). The tile path is VERSIONED by planet-build date — the
+            // unversioned `/planet/{z}/{x}/{y}.pbf` returns empty tiles. The version
+            // below is the current build from the TileJSON at
+            // `https://tiles.openfreemap.org/planet` (`tiles[0]`); when OpenFreeMap
+            // rebuilds the planet this goes stale, so the proper long-term path is to
+            // resolve it on the background thread by fetching that TileJSON first (a
+            // follow-up to the Leaflet-style layer work). Raster relief is also
+            // available at `…/natural_earth/ne2sr/{z}/{x}/{y}.png` (z0–6).
             url_template: AzString::from(
-                "https://openfreemap.org/example/{z}/{x}/{y}.pbf",
+                "https://tiles.openfreemap.org/planet/20260531_080002_pt/{z}/{x}/{y}.pbf",
             ),
             min_zoom: 0,
             max_zoom: 14,
-            attribution: AzString::from("© OpenStreetMap contributors, ODbL"),
+            attribution: AzString::from(
+                "© OpenFreeMap © OpenMapTiles · Data © OpenStreetMap contributors",
+            ),
             style_css: AzString::from(""),
         }
     }
@@ -305,7 +316,17 @@ impl MapWidget {
         let dataset = RefAny::new(cache);
         let virtual_view_data = dataset.clone();
 
-        Dom::create_div()
+        let root = Dom::create_div()
+            // Fill the container (the Leaflet contract) via absolute inset:0 rather
+            // than height:100%. A percentage height only resolves against a parent
+            // with a DEFINITE height; the usual map container is a `flex-grow` item
+            // whose height is not definite for percentage children, so height:100%
+            // there resolves to INFINITY → the VirtualView gets infinite bounds and
+            // positions every tile at y=∞ (off-screen → blank map). Absolute inset:0
+            // instead sizes against the container's final, finite content box. The
+            // container MUST be a positioned box (the demo's `position: relative`);
+            // a non-empty `container_style` (via `with_container_style`) overrides.
+            .with_css("position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden;")
             .with_dataset(OptionRefAny::Some(dataset.clone()))
             .with_merge_callback(merge_map_tile_cache as DatasetMergeCallbackType)
             // AfterMount fires once when the widget first appears (and
@@ -372,10 +393,26 @@ impl MapWidget {
                 dataset,
                 crate::callbacks::Callback::from(map_on_pointer_move as crate::callbacks::CallbackType),
             )
-            .with_child(Dom::create_virtual_view(
-                virtual_view_data,
-                map_widget_render as azul_core::callbacks::VirtualViewCallbackType,
-            ))
+            .with_child(
+                Dom::create_virtual_view(
+                    virtual_view_data,
+                    map_widget_render as azul_core::callbacks::VirtualViewCallbackType,
+                )
+                // Fill the widget div with a PERCENTAGE box (not absolute). The
+                // outer div above is absolutely sized, so its height IS definite —
+                // height:100% here resolves against it (441px), giving the
+                // VirtualView a finite box. (Absolute-against-absolute collapses to
+                // 0 in the solver; percentage-against-a-definite-parent does not.)
+                .with_css("width: 100%; height: 100%; overflow: hidden;"),
+            );
+
+        // A caller-supplied container style replaces the default fill above
+        // (`with_css_props` replaces the inline style) — the caller then owns sizing.
+        if self.container_style.as_slice().is_empty() {
+            root
+        } else {
+            root.with_css_props(self.container_style.clone())
+        }
     }
 }
 
@@ -973,6 +1010,23 @@ extern "C" fn map_widget_render(
     let width_px = bounds_logical.width;
     let height_px = bounds_logical.height;
 
+    // Defensive: if the widget was placed in a container that gives it no definite
+    // size, the bounds come through as 0 or non-finite. Computing a tile grid then
+    // positions tiles at NaN/∞ (off-screen → blank) and can allocate unboundedly, so
+    // render nothing until the layout settles to a finite box.
+    if !width_px.is_finite() || !height_px.is_finite() || width_px <= 0.0 || height_px <= 0.0 {
+        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            eprintln!("[map] non-finite bounds {}x{} — skipping render", width_px, height_px);
+        }
+        return VirtualViewReturn {
+            dom: OptionDom::None,
+            scroll_size: bounds_logical,
+            scroll_offset: azul_core::geom::LogicalPosition::zero(),
+            virtual_scroll_size: bounds_logical,
+            virtual_scroll_offset: azul_core::geom::LogicalPosition::zero(),
+        };
+    }
+
     let (layer, viewport) = match data.downcast_ref::<MapTileCache>() {
         Some(c) => (c.layer.clone(), c.viewport),
         None => {
@@ -1005,6 +1059,18 @@ extern "C" fn map_widget_render(
     let tile_px = 256.0 * zoom_scale;
     let (x_min, x_max, y_min, y_max) =
         visible_tile_range(centre_x, centre_y, width_px, height_px, zoom_scale, tile_count);
+
+    // Opt-in render trace (`AZ_MAP_DEBUG=1`): the VirtualView callback fires only
+    // when the framework finds this node with real bounds — so seeing this line at
+    // all confirms invocation, and the values reveal a zero / infinite / off-screen
+    // grid (the usual causes of a blank map).
+    if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        eprintln!(
+            "[map] render bounds={:.0}x{:.0} z={} centre_tile=({:.2},{:.2}) tiles x{}..{} y{}..{} = {}",
+            width_px, height_px, z_int, centre_x, centre_y, x_min, x_max, y_min, y_max,
+            (x_max - x_min + 1).max(0) * (y_max - y_min + 1).max(0)
+        );
+    }
 
     // Patch in any missing tiles as `Pending`. Real fetch dispatch
     // lands in the follow-up tick that adds the HTTP client; for now

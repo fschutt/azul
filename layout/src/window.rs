@@ -1238,6 +1238,11 @@ impl LayoutWindow {
         // Pass styled_dom directly — layout_results isn't populated yet at this point
         let vviews = self.scan_for_virtual_views(&styled_dom, &tree, &self.layout_cache.calculated_positions);
 
+        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            eprintln!("[vview] scan found {} VirtualView node(s): {:?}", vviews.len(),
+                vviews.iter().map(|(n, b)| (n.index(), b.size.width, b.size.height)).collect::<Vec<_>>());
+        }
+
         for (node_id, bounds) in vviews {
             if let Some(child_dom_id) = self.invoke_virtual_view_callback_with_dom(
                 dom_id,

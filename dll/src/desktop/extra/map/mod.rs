@@ -168,3 +168,34 @@ pub extern "C" fn tile_fetch_worker(
         }
     }
 }
+
+/// Build the `MapWidget`'s rendered `Dom`, wiring the built-in tile-fetch worker.
+///
+/// This is the single entry point the FFI `MapWidget::dom()` shims to (see
+/// api.json). The worker (`tile_fetch_worker`) lives here in `azul-dll` — NOT in
+/// `azul-layout::widgets::map` — because it pulls the MVT/Mercator dep tree
+/// (`mvt-reader`, `geo-types`, `proj4rs`, `geojson`) that we deliberately keep out
+/// of the layout crate's (mobile) build. So `MapWidget::dom()` (in layout) can only
+/// produce tile *placeholders*; the actual fetch is injected here, where the worker
+/// is in scope, via the layout-internal `dom_with_fetch` plumbing. The fetch
+/// callback travels with the tile-cache dataset `RefAny` (preserved across relayout
+/// by the cache's merge callback, started on `AfterMount`, freed when the cache
+/// `RefAny` drops), so there is no public `dom_with_fetch` API to misuse.
+///
+/// When the `map-tiles` feature is off the worker doesn't exist, so we fall back to
+/// the placeholder `dom()` — keeping default/mobile builds free of the dep tree.
+pub fn map_widget_dom(
+    widget: azul_layout::widgets::map::MapWidget,
+) -> azul_core::dom::Dom {
+    #[cfg(feature = "map-tiles")]
+    {
+        widget.dom_with_fetch(azul_layout::thread::ThreadCallback {
+            cb: tile_fetch_worker,
+            ctx: azul_core::refany::OptionRefAny::None,
+        })
+    }
+    #[cfg(not(feature = "map-tiles"))]
+    {
+        widget.dom()
+    }
+}

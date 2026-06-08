@@ -63,10 +63,11 @@ impl MapState {
         Self {
             viewport: MapViewport {
                 // Centre on San Francisco. Pick somewhere recognisable
-                // so the tile-grid math is easy to eyeball.
+                // so the tile-grid math is easy to eyeball. Zoom 2 keeps us in
+                // the MapLibre demo-tiles' coverage (z0–6, the no-API-key default).
                 centre_lat_deg: 37.7749,
                 centre_lon_deg: -122.4194,
-                zoom: 11.0,
+                zoom: 2.0,
                 bearing_deg: 0.0,
                 pitch_deg: 0.0,
             },
@@ -107,7 +108,7 @@ impl MapState {
     fn recentre(&mut self) {
         self.viewport.centre_lat_deg = 37.7749;
         self.viewport.centre_lon_deg = -122.4194;
-        self.viewport.zoom = 11.0;
+        self.viewport.zoom = 2.0;
     }
 
     fn toggle_locate(&mut self) {
@@ -141,7 +142,7 @@ impl MapState {
 
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
 const HEADER: &str = "background: #2b2b2b; color: white; \
-    padding: 10px 16px; flex-direction: row; align-items: center; \
+    display: flex; padding: 10px 16px; flex-direction: row; align-items: center; \
     justify-content: space-between; font-family: sans-serif; \
     font-size: 14px; flex-shrink: 0;";
 const BTN: &str = "background: #4a90e2; color: white; \
@@ -222,7 +223,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(Dom::create_text(header_text.as_str()))
         .with_child(
             Dom::create_div()
-                .with_css("flex-direction: row;")
+                .with_css("display: flex; flex-direction: row;")
                 .with_child(
                     Dom::create_div()
                         .with_css(BTN)
@@ -328,6 +329,10 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 callable: OptionRefAny::None,
             },
         )
+        // `.dom()` wires the built-in tile-fetch worker internally: it HTTP-GETs
+        // each visible tile's MVT (.pbf), decodes it, renders it to SVG, and writes
+        // the SVG back into the MapTileCache dataset (which the VirtualView then
+        // draws). The fetch starts on mount and is freed when the widget unmounts.
         .dom();
 
     let mut map_container = Dom::create_div()
