@@ -4055,12 +4055,45 @@ impl LayoutWindow {
         current_window_state: &FullWindowState,
         renderer_resources: &RendererResources,
     ) -> (Vec<crate::callbacks::CallbackChange>, Update) {
-        use crate::callbacks::{CallbackInfo, CallbackChange};
-
+        // No specific event target (create / layout / timer / unmount callbacks):
+        // `info.get_hit_node()` resolves to the root with a null node.
         let hit_dom_node = DomNodeId {
             dom: DomId::ROOT_ID,
             node: NodeHierarchyItemId::from_crate_internal(None),
         };
+        self.invoke_single_callback_at(
+            hit_dom_node,
+            callback,
+            data,
+            current_window_handle,
+            gl_context,
+            system_style,
+            system_callbacks,
+            previous_window_state,
+            current_window_state,
+            renderer_resources,
+        )
+    }
+
+    /// Like [`invoke_single_callback`], but sets the callback's hit node (the
+    /// event target) so `info.get_hit_node()` / `open_menu_for_hit_node()` /
+    /// `get_hit_node_rect()` resolve to the node the event was dispatched to.
+    /// Used by the W3C event-propagation dispatcher; without it those queries
+    /// returned a null node (menus/dropdowns opened nowhere).
+    pub fn invoke_single_callback_at(
+        &mut self,
+        hit_dom_node: DomNodeId,
+        callback: &mut Callback,
+        data: &mut RefAny,
+        current_window_handle: &RawWindowHandle,
+        gl_context: &OptionGlContextPtr,
+        system_style: std::sync::Arc<azul_css::system::SystemStyle>,
+        system_callbacks: &ExternalSystemCallbacks,
+        previous_window_state: &Option<FullWindowState>,
+        current_window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+    ) -> (Vec<crate::callbacks::CallbackChange>, Update) {
+        use crate::callbacks::{CallbackInfo, CallbackChange};
 
         let current_scroll_states = self.get_nested_scroll_states(DomId::ROOT_ID);
 

@@ -1753,8 +1753,14 @@ impl CallbackInfo {
     /// * `true` if the menu was queued for opening
     /// * `false` if the node doesn't exist or has no layout information
     pub fn open_menu_for_node(&mut self, menu: Menu, node_id: DomNodeId) -> bool {
-        // Get the node's bounding rectangle
-        if let Some(rect) = self.get_node_rect(node_id) {
+        // Position the menu at the hit node's bottom-left. Prefer the display-list
+        // hit-test bounds: they always carry the node's final rendered rect for an
+        // interactive (tagged) node, whereas get_node_rect (position + used_size)
+        // can be None for nodes whose used_size isn't recorded on the layout node.
+        let rect = self
+            .get_node_hit_test_bounds(node_id)
+            .or_else(|| self.get_node_rect(node_id));
+        if let Some(rect) = rect {
             // Position menu at bottom-left of the node
             let position = LogicalPosition::new(rect.origin.x, rect.origin.y + rect.size.height);
             self.push_change(CallbackChange::OpenMenu {

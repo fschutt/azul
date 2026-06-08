@@ -3187,7 +3187,17 @@ pub trait PlatformWindow {
             }
 
             let mut callback = LayoutCallback::from_core(planned.callback_data.callback);
-            let (changes, update) = borrows.layout_window.invoke_single_callback(
+            // Set the event target so `info.get_hit_node()` — and thus
+            // `open_menu_for_hit_node()` / `get_hit_node_rect()` — resolves to the
+            // node the event was dispatched to (was a null node before).
+            let hit_node = azul_core::dom::DomNodeId {
+                dom: planned.dom_id,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                    planned.node_id,
+                )),
+            };
+            let (changes, update) = borrows.layout_window.invoke_single_callback_at(
+                hit_node,
                 &mut callback,
                 &mut planned.callback_data.refany.clone(),
                 &borrows.window_handle,
