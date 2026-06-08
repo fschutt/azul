@@ -2914,13 +2914,38 @@ pub fn get_style_properties(
                             });
                         }
                     } else {
-                        // No platform info - fall back to generic sans-serif
-                        stack.push(crate::text3::cache::FontSelector {
-                            family: "sans-serif".to_string(),
-                            weight: fc_weight,
-                            style: fc_style,
-                            unicode_ranges: Vec::new(),
-                        });
+                        // No SystemStyle was threaded in (e.g. the paged / PDF
+                        // layout path hard-codes system_style = None). We must
+                        // still resolve system: fonts via the *real* platform,
+                        // because the font-LOADING pass
+                        // (collect_and_resolve_font_chains_with_registration in
+                        // paged_layout.rs) always uses Platform::current() and
+                        // registers the OS fallback-chain names. If we diverged
+                        // here to a bare "sans-serif", the name would not match
+                        // anything the loader registered → zero glyphs → text
+                        // measures as 0 width and collapses (the menubar
+                        // "View" → "V" clip). Resolving through the same chain
+                        // keeps loading and measurement in lock-step.
+                        let platform = azul_css::system::Platform::current();
+                        let font_names = system_type.get_fallback_chain(&platform);
+                        let system_weight = if system_type.is_bold() {
+                            rust_fontconfig::FcWeight::Bold
+                        } else {
+                            fc_weight
+                        };
+                        let system_style_val = if system_type.is_italic() {
+                            crate::text3::cache::FontStyle::Italic
+                        } else {
+                            fc_style
+                        };
+                        for font_name in font_names {
+                            stack.push(crate::text3::cache::FontSelector {
+                                family: font_name.to_string(),
+                                weight: system_weight,
+                                style: system_style_val,
+                                unicode_ranges: Vec::new(),
+                            });
+                        }
                     }
                 } else {
                     stack.push(crate::text3::cache::FontSelector {

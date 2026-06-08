@@ -5838,8 +5838,19 @@ impl TextShapingCache {
         let mut max_line_height = 0.0f32;
 
         for item in oriented_items.iter() {
+            // Must match get_item_measure() exactly: a cluster's inline advance
+            // INCLUDES per-glyph kerning. Omitting kerning here under-measures
+            // max-content, so a shrink-to-fit box (e.g. a flex item sized to its
+            // text's max-content) ends up narrower than the kerned text the line
+            // breaker lays out — the word then "overflows" its own box and, with
+            // overflow-wrap:normal, gets force-broken to its first cluster
+            // (the menubar "View" → "V" clip). Summing (advance + kerning) here,
+            // in the same order as the breaker, makes the box exactly fit.
             let advance = match item {
-                ShapedItem::Cluster(c) => c.advance,
+                ShapedItem::Cluster(c) => {
+                    let total_kerning: f32 = c.glyphs.iter().map(|g| g.kerning).sum();
+                    c.advance + total_kerning
+                }
                 ShapedItem::CombinedBlock { bounds, .. }
                 | ShapedItem::Object { bounds, .. }
                 | ShapedItem::Tab { bounds, .. } => bounds.width,

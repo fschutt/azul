@@ -42,18 +42,60 @@ hit target was a descendant double-fired (all buttons-with-text included).
 Fix: `matches_filter_phase` returns false for the Capture phase. Verified: `[open]
 menus=1` (was 2); core events tests 16/16, headless 23/23 green.
 
-## STILL OPEN
-- **Menu DISMISSAL broken** (separate from #10): an open menu does NOT close on
-  click-outside OR Escape (`menus` stays 1). The menu `XGrabPointer`s the pointer in
-  `apply_size_to_content` (x11/mod.rs:2243) right after `XMapWindow` — but the grab's
-  return is unchecked and the window likely isn't viewable yet (`GrabNotViewable`), so
-  the grab silently fails and click-outside is never routed to the menu for dismissal.
-  Likely fix: `XSync` (not just `XFlush`) before grabbing, and/or check the grab
-  return + retry, and/or grab on `MapNotify`. (Item-click close also not observed.)
-- BUG 2 (light-on-dark menubar colors), BUG 3 ("View"→"V" text clip): open.
+## ✅ Menu grab + dismissal — FIXED (commit `069a2b3e2`)
+Two bugs made menus unusable: (1) the pointer grab silently failed — `XGrabPointer`
+ran right after `XMapWindow` (XFlush, not synced) → `GrabNotViewable`, unchecked → no
+grab → clicks fell through to the window BELOW (right-click context menu fired on a
+"File>New" click) and the menu never got a click-outside. (2) Dismissal set
+`is_open=false` directly, so the later `Drop→close()` skipped its `if self.is_open
+{ XDestroyWindow }` body → the dismissed menu's X window LEAKED (stayed mapped +
+grabbing). Fix: `XSync` + retry-until-`GrabSuccess`; dismissal/Escape call
+`self.close()` (ungrabs + XDestroyWindow). Verified: grab returns 0, clicks route to
+the menu (wtype=Menu), click-outside/re-click dismisses (menus 1→0), right-click opens
+a single context menu that dismisses.
 
-## Tooling added: `scripts/mb-test.sh`, `scripts/mb-test2.sh`
-(launch azul-paint CPU → xdotool click File → diff window tree → screenshot → grep probes).
+## ✅ BUG 3 "View"→"V" clip — FIXED (text3 kerning, NOT taffy)
+The earlier "taffy under-allocates the widest flex item" diagnosis was **wrong**. The
+flex item IS sized correctly — to its label's **max-content width**. The real bug was a
+kerning inconsistency between two text3 code paths:
+- `measure_intrinsic_widths` (sizing) summed only `c.advance` — **omitting per-glyph
+  kerning** — so max-content under-measured the kerned text.
+- `get_item_measure` (the line breaker) sums `c.advance + kerning`.
+
+So for words with **positive total kerning** ("View", "Wiew", "Xiew", "AAAA", …) the
+breaker's width exceeded the box that max-content sizing produced → the unbreakable word
+"overflowed its own box" → with `overflow-wrap:normal` the breaker force-placed only the
+**first cluster** ("V"), and the 1-line-tall box dropped the rest. Words with ≤0 kerning
+("File"/"Edit"/"Help"/"Open") were unaffected — exactly the observed pattern (it is NOT
+about width magnitude: "Vi" at 2 chars also clipped).
+
+Fix (`layout/src/text3/cache.rs`, `measure_intrinsic_widths`): sum `advance + kerning`
+per cluster, bit-identical to `get_item_measure`, so the shrink-to-fit box exactly fits
+its kerned text. Verified: probe of 12 words (incl. View/Wiew/Xiew/Viww/AAAA/Vi/Vie) all
+emit one glyph per char; real azul-paint headless snapshot shows "File Edit View Help"
+with "View" spanning 29px / 4 glyph-clusters (was 7px / "V"). Regression test:
+`layout/tests/menubar_item_clip.rs`. lib (112) + 9 width-sensitive integration suites green.
+Also fixed (same investigation) the **paged/PDF path** (`getters.rs`): when no
+`SystemStyle` is threaded in, `system:` fonts now resolve via `Platform::current()`
+(matching the font-LOADING pass) instead of a bare "sans-serif" the loader never
+registered — which had made system-font text measure as 0-width there.
+
+## STILL OPEN
+- **Context-menu position +2,+26 offset** (minor): right-click context menu opens at
+  cursor + (2px WM-border, 26px menubar-height); should be exactly at the cursor. The
+  dropdown is correct (verified at the item rect), so it's specific to how the
+  right-click window-local position relates to `parent_pos` in `show_menu`.
+- BUG 2 (light-on-dark menubar colors): open.
+
+## 🟡 Tile worker (azul-maps) — IN PROGRESS
+The demo used `MapWidget…dom()` (no fetch → Pending placeholders). Wired
+`.dom_with_fetch(ThreadCallback::new(azul::desktop::extra::map::tile_fetch_worker))` +
+enabled the `map-tiles` feature (pulls http + mvt-reader/geo-types/proj4rs/geojson).
+The worker http-GETs each tile's MVT, decodes, renders SVG, writes back via
+`map_tile_writeback`. Building + runtime-testing (does it fetch + render? pan in cpu?).
+
+## Tooling added: `scripts/mb-test.sh`, `scripts/mb-test2.sh`, `scripts/menu-grab-test.sh`
+(launch azul-paint CPU → xdotool click → diff window tree → screenshot → grep probes).
 
 ---
 
