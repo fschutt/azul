@@ -1085,8 +1085,16 @@ fn matches_filter_phase(
     event: &SyntheticEvent,
     current_phase: EventPhase,
 ) -> bool {
-    // For now, we match based on the filter type
-    // In the future, this will also check EventPhase and EventConditions
+    // azul has no capture-phase listeners (no `addEventListener(…, capture=true)`
+    // equivalent): every `EventFilter` is a bubble-phase listener, which by the W3C
+    // model fires only in the Target and Bubble phases — never Capture. Without this
+    // guard an ancestor node's Hover/Focus callback was collected in BOTH the capture
+    // and the bubble walk, so it fired TWICE whenever the hit target was a descendant
+    // (e.g. a menubar item, hit via its text child, opened two stacked popups; any
+    // button containing a text/child node ran its MouseUp callback twice).
+    if matches!(current_phase, EventPhase::Capture) {
+        return false;
+    }
 
     match filter {
         EventFilter::Hover(hover_filter) => {

@@ -7,6 +7,56 @@ same open-menu path.
 
 ---
 
+# ✅ 2026-06-08 — BUG 1 FIXED: menubar dropdown opens + parented (X11, verified)
+
+**The menubar dropdown now works.** Root cause was NOT the window-positioning code
+(that was correct): the W3C dispatcher's `invoke_single_callback` (layout/window.rs)
+hard-coded the callback hit node to `{root, null}`, so `info.get_hit_node()` returned
+a null node for EVERY dispatched event → `open_menu_for_hit_node()` →
+`open_menu_for_node()` → `get_node_rect(null)` = None → returned false → no `OpenMenu`
+pushed → no popup. (The parent never actually moved in current code — the prior
+session's "parent jumps" symptom was already gone.)
+
+Fix — commit `66c343f36` `fix(callbacks): thread event-target node into get_hit_node()`:
+- Extract `invoke_single_callback_at(hit_node, …)`; pass the real propagation target
+  (`planned.dom_id/node_id`) from `dispatch_events_propagated` (dll/.../common/event.rs).
+  `invoke_single_callback` stays a null-node wrapper for create/layout/timer/unmount.
+- `open_menu_for_node` now prefers `get_node_hit_test_bounds` (display-list rect),
+  falling back to `get_node_rect`.
+- Verified on X11 (azul-paint, AZ_BACKEND=cpu): clicking "File" opens its dropdown
+  (New/Open/Save/Quit) directly below the item at parent_origin+(2,26)=(644,362);
+  main window stays put at (642,336). Screenshot /tmp/mb_popup_crop.png.
+- This is a CROSS-PLATFORM fix: `get_hit_node()` was broken for all dispatched
+  callbacks everywhere, not just the menubar.
+
+## ✅ #10 double-popup — FIXED (W3C capture-phase double-fire)
+One physical click fired `menubar_item_click` TWICE → two stacked Menu windows.
+Root cause (general, not menu-specific): `matches_filter_phase` (core/events.rs)
+IGNORED the propagation phase, so every `EventFilter` — all of which are bubble-phase
+listeners (azul has no capture registration) — matched during the **Capture** walk
+too. When the hit target is a descendant (a menubar item is hit via its **text
+child**, target=NodeId(3), the item=NodeId(2) is an ancestor), the item's callback
+was collected in BOTH the capture and bubble walks → fired twice. Confirmed by trace:
+`COLLECT node=NodeId(2) phase=Capture` AND `phase=Bubble`. **Every** callback whose
+hit target was a descendant double-fired (all buttons-with-text included).
+Fix: `matches_filter_phase` returns false for the Capture phase. Verified: `[open]
+menus=1` (was 2); core events tests 16/16, headless 23/23 green.
+
+## STILL OPEN
+- **Menu DISMISSAL broken** (separate from #10): an open menu does NOT close on
+  click-outside OR Escape (`menus` stays 1). The menu `XGrabPointer`s the pointer in
+  `apply_size_to_content` (x11/mod.rs:2243) right after `XMapWindow` — but the grab's
+  return is unchecked and the window likely isn't viewable yet (`GrabNotViewable`), so
+  the grab silently fails and click-outside is never routed to the menu for dismissal.
+  Likely fix: `XSync` (not just `XFlush`) before grabbing, and/or check the grab
+  return + retry, and/or grab on `MapNotify`. (Item-click close also not observed.)
+- BUG 2 (light-on-dark menubar colors), BUG 3 ("View"→"V" text clip): open.
+
+## Tooling added: `scripts/mb-test.sh`, `scripts/mb-test2.sh`
+(launch azul-paint CPU → xdotool click File → diff window tree → screenshot → grep probes).
+
+---
+
 # ⏸ MONDAY HANDOFF — 2026-06-06 (end of Friday session)
 
 Branch `mobile-ios-android`. Two commits landed this session; a third (menubar) is being
