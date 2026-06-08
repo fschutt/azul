@@ -2232,7 +2232,11 @@ impl X11Window {
             //    follows in this same poll_event iteration lays out + presents at
             //    final_size, so the popup never appears at the tiny measure size.
             (self.xlib.XMapWindow)(self.display, self.window);
-            (self.xlib.XFlush)(self.display);
+            // XSync (not XFlush): block until the server has PROCESSED the map so the
+            // window is viewable before we grab. XGrabPointer on a not-yet-viewable
+            // window fails with GrabNotViewable — and then the menu never receives the
+            // click-outside (or item-click) that dismisses it, so it stays stuck open.
+            (self.xlib.XSync)(self.display, 0);
             // Menu/popup windows grab the pointer so a click ANYWHERE outside the
             // menu (another window, the root, …) is delivered here for dismissal.
             // owner_events=False routes every pointer event to the menu;
@@ -2240,19 +2244,28 @@ impl X11Window {
             if self.common.current_window_state.flags.window_type
                 == azul_core::window::WindowType::Menu
             {
-                (self.xlib.XGrabPointer)(
-                    self.display,
-                    self.window,
-                    0, // owner_events = False
-                    (defines::ButtonPressMask
-                        | defines::ButtonReleaseMask
-                        | defines::PointerMotionMask) as u32,
-                    defines::GrabModeAsync,
-                    defines::GrabModeAsync,
-                    0, // confine_to = None
-                    0, // cursor = None
-                    defines::CurrentTime,
-                );
+                // Retry until the grab succeeds (GrabSuccess == 0): even after XSync an
+                // override-redirect popup can momentarily be un-grabbable, and a
+                // silently-failed grab leaves the menu impossible to dismiss.
+                for _ in 0..20 {
+                    let r = (self.xlib.XGrabPointer)(
+                        self.display,
+                        self.window,
+                        0, // owner_events = False
+                        (defines::ButtonPressMask
+                            | defines::ButtonReleaseMask
+                            | defines::PointerMotionMask) as u32,
+                        defines::GrabModeAsync,
+                        defines::GrabModeAsync,
+                        0, // confine_to = None
+                        0, // cursor = None
+                        defines::CurrentTime,
+                    );
+                    if r == 0 {
+                        break;
+                    }
+                    (self.xlib.XSync)(self.display, 0);
+                }
             }
         }
 

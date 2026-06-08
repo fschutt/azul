@@ -452,10 +452,12 @@ impl X11Window {
                 || position.x >= size.width
                 || position.y >= size.height
             {
-                unsafe {
-                    (self.xlib.XUngrabPointer)(self.display, CurrentTime);
-                }
-                self.is_open = false;
+                // close() ungrabs the pointer (for Menu windows) AND XDestroyWindow's
+                // the popup. Setting is_open=false directly would leave the later
+                // Drop→close() to skip XDestroyWindow (its `if self.is_open` guard is
+                // now false), so the dismissed menu's X window would leak — stay
+                // mapped and keep grabbing — and the menu would never disappear.
+                self.close();
                 return ProcessEventResult::DoNothing;
             }
         }
@@ -742,10 +744,9 @@ impl X11Window {
             && self.common.current_window_state.flags.window_type
                 == azul_core::window::WindowType::Menu
         {
-            unsafe {
-                (self.xlib.XUngrabPointer)(self.display, CurrentTime);
-            }
-            self.is_open = false;
+            // close() ungrabs + XDestroyWindow's the popup; setting is_open=false
+            // directly would leak the X window (see the click-outside path).
+            self.close();
             return ProcessEventResult::DoNothing;
         }
 
