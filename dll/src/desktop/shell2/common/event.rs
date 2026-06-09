@@ -1428,6 +1428,13 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
+            CallbackChange::UpdateAllVirtualViews => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.queue_all_virtual_view_reinvoke();
+                }
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+
             CallbackChange::ChangeNodeImageMask { dom_id, node_id, mask } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {

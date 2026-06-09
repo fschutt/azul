@@ -368,8 +368,9 @@ impl CompositorState {
         renderer_resources: &RendererResources,
         font_manager: Option<&FontManager<FontRef>>,
         glyph_cache: &mut GlyphCache,
-        scroll_offsets: &ScrollOffsetMap,
+        render_state: &CpuRenderState,
     ) -> Result<(), String> {
+        let scroll_offsets = &render_state.scroll_offsets;
         // Collect layer IDs, ranges, bounds, scroll_id and child ranges.
         let layer_ranges: Vec<(
             LayerId,
@@ -436,6 +437,7 @@ impl CompositorState {
                 renderer_resources,
                 font_manager,
                 glyph_cache,
+                render_state,
             )?;
         }
 
@@ -567,6 +569,10 @@ impl CompositorState {
                     .collect()
             })
             .unwrap_or_default();
+        // Scroll fast-path: VirtualView content (separate child DOMs) isn't
+        // re-composited here — an empty state suffices (VirtualViews inside a
+        // scrolling region are an edge case; the next full repaint composites them).
+        let empty_rs = CpuRenderState::new(ScrollOffsetMap::new());
         render_display_list_range(
             display_list,
             &mut self.layers.get_mut(&layer_id).unwrap().pixbuf,
@@ -579,6 +585,7 @@ impl CompositorState {
             renderer_resources,
             font_manager,
             glyph_cache,
+            &empty_rs,
         )?;
 
         Ok(())
@@ -1388,9 +1395,8 @@ fn render_display_list_range(
     renderer_resources: &RendererResources,
     font_manager: Option<&FontManager<FontRef>>,
     glyph_cache: &mut GlyphCache,
+    render_state: &CpuRenderState,
 ) -> Result<(), String> {
-    let empty_state = CpuRenderState::new(ScrollOffsetMap::new());
-    let render_state = &empty_state;
     let mut transform_stack = vec![TransAffine::new()];
     let mut clip_stack: Vec<Option<AzRect>> = vec![None];
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
@@ -2946,6 +2952,13 @@ pub struct CpuRenderState {
     /// stops (e.g. `system:accent` in macOS button backgrounds). When None,
     /// system color stops fall back to a transparent color.
     pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
+    /// Display lists of nested `VirtualView` child DOMs, keyed by their
+    /// `child_dom_id`. The WebRender path composites these via separate pipelines;
+    /// the CPU path has no pipelines, so the `DisplayListItem::VirtualView` arm
+    /// recursively rasterises the child's display list from here (translated to the
+    /// item's `bounds.origin`, clipped to `bounds`). Empty for non-window renders.
+    pub virtual_view_display_lists:
+        std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
 }
 
 impl CpuRenderState {
@@ -2955,7 +2968,18 @@ impl CpuRenderState {
             transforms: HashMap::new(),
             opacities: HashMap::new(),
             system_style: None,
+            virtual_view_display_lists: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// Provide the nested `VirtualView` child DOM display lists so the CPU
+    /// renderer can composite them (see the field doc).
+    pub fn with_virtual_view_display_lists(
+        mut self,
+        lists: std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    ) -> Self {
+        self.virtual_view_display_lists = lists;
+        self
     }
 
     /// Attach a `SystemStyle` so the renderer can resolve `system:*` color
@@ -3025,6 +3049,7 @@ impl CpuRenderState {
             transforms,
             opacities,
             system_style: None,
+            virtual_view_display_lists: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -3697,23 +3722,55 @@ fn render_single_item(
             bounds,
             clip_rect,
         } => {
-            let clip = *clip_stack.last().unwrap();
-            // Debug placeholder: semi-transparent blue overlay for virtual views
-            render_rect(
-                pixmap,
-                &scroll_rect(bounds.inner()),
-                ColorU {
-                    r: 200,
-                    g: 200,
-                    b: 255,
-                    a: 128,
-                },
-                &BorderRadius::default(),
-                clip,
-                dpi_factor,
-            )?;
+            let _ = clip_rect;
+            // Composite the VirtualView's child DOM (a separate LayoutResult the
+            // normal layout loop produced — e.g. the MapWidget's tile grid). Its
+            // display list is 0-relative, so we (1) clip to the VirtualView's
+            // on-screen rect and (2) push a scroll offset of -bounds.origin so the
+            // renderer (which draws at `pos - accumulated_scroll`) places the child
+            // content at the VirtualView origin. Then recursively rasterise it.
+            // (Was: a debug-blue overlay that never drew the child — the reason the
+            // CPU backend showed a blank map.)
+            let child_dl = render_state.virtual_view_display_lists.get(child_dom_id).cloned();
+            #[cfg(feature = "std")]
+            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+                eprintln!(
+                    "[cpu-vview] VirtualView item: child_dom_id={} found={} items={} avail_ids={:?}",
+                    child_dom_id.inner,
+                    child_dl.is_some(),
+                    child_dl.as_ref().map(|d| d.items.len()).unwrap_or(0),
+                    render_state.virtual_view_display_lists.keys().map(|k| k.inner).collect::<alloc::vec::Vec<_>>(),
+                );
+            }
+            if let Some(child_dl) = child_dl {
+                let vv_origin = bounds.inner().origin;
+                clip_stack.push(logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor));
+                scroll_offset_stack.push((scroll_dx - vv_origin.x, scroll_dy - vv_origin.y));
+                for child_item in child_dl.items.iter() {
+                    render_single_item(
+                        child_item,
+                        pixmap,
+                        dpi_factor,
+                        renderer_resources,
+                        font_manager,
+                        glyph_cache,
+                        transform_stack,
+                        clip_stack,
+                        mask_stack,
+                        scroll_offset_stack,
+                        render_state,
+                    )?;
+                }
+                scroll_offset_stack.pop();
+                clip_stack.pop();
+            }
         }
-        DisplayListItem::VirtualViewPlaceholder { .. } => {}
+        DisplayListItem::VirtualViewPlaceholder { .. } => {
+            #[cfg(feature = "std")]
+            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+                eprintln!("[cpu-vview] VirtualViewPlaceholder hit (NOT swapped to a VirtualView item — nothing composites)");
+            }
+        }
 
         // Gradient rendering
         DisplayListItem::LinearGradient {

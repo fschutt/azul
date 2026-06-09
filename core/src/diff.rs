@@ -803,7 +803,21 @@ pub fn transfer_states(
                 // 3. EXECUTE THE MERGE CALLBACK
                 // The callback receives both datasets and returns the merged result
                 let merged = (merge_callback.cb)(new_data, old_data);
-                
+
+                // 3b. If this node ALSO drives a VirtualView, re-point its content
+                // callback's `refany` at the SAME merged dataset. A widget builds
+                // its dataset and VirtualView refany from ONE `RefAny::clone()`
+                // (so they share storage), but a RefreshDom rebuilds the node with
+                // a FRESH pair — and the merge callback may keep the persistent
+                // data on the OLD RefAny (e.g. MapWidget shares its tile cache so
+                // background fetch threads keep writing into it). Without this
+                // re-sync the VirtualView would read the fresh, empty clone while
+                // the live data sat in the dataset — so async-loaded content
+                // (map tiles) would never reach the rendered view after a relayout.
+                if let Some(vv) = new_node_data[new_idx].get_virtual_view_node() {
+                    vv.refany = merged.clone();
+                }
+
                 // 4. Store the merged result back in the new node
                 new_node_data[new_idx].set_dataset(OptionRefAny::Some(merged));
             }

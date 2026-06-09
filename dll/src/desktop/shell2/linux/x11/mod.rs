@@ -699,7 +699,19 @@ impl X11Window {
         if self.size_to_content_pending {
             self.apply_size_to_content();
         }
-        if self.common.frame_needs_regeneration {
+        // Render when a relayout is pending OR a VirtualView re-render was queued
+        // out-of-band (e.g. a background tile-fetch writeback called
+        // trigger_all_virtual_view_rerender). X11 is otherwise Expose-driven, so
+        // without the vview check the re-render would sit in the queue until some
+        // unrelated event happened to repaint — the async-loaded tiles would only
+        // appear on the next mouse move.
+        let vview_pending = self
+            .common
+            .layout_window
+            .as_ref()
+            .map(|lw| !lw.pending_virtual_view_updates.is_empty())
+            .unwrap_or(false);
+        if self.common.frame_needs_regeneration || vview_pending {
             if let Err(e) = self.render_and_present() {
                 log_error!(
                     LogCategory::Rendering,
@@ -1860,9 +1872,19 @@ impl X11Window {
                 }
             }
 
-            // Block indefinitely — timerfd's are in the pollfd set, so poll()
-            // will wake when any timer fires (no finite timeout needed).
-            let timeout_ms: i32 = -1;
+            // Background threads (e.g. MapWidget tile fetches) have NO fd in the
+            // poll set — their completion can't wake poll(). So while any thread
+            // is in flight, poll on a ~16ms tick and drain thread writebacks on
+            // every wake; otherwise block indefinitely (timerfd's still wake us).
+            // Without this the fetch workers finish but their writebacks are never
+            // processed until some unrelated X11 event happens to wake the loop.
+            let has_threads = self
+                .common
+                .layout_window
+                .as_ref()
+                .map(|lw| !lw.threads.is_empty())
+                .unwrap_or(false);
+            let timeout_ms: i32 = if has_threads { 16 } else { -1 };
 
             let result = libc::poll(
                 pollfds.as_mut_ptr(),
@@ -1870,6 +1892,7 @@ impl X11Window {
                 timeout_ms,
             );
 
+            let mut any_timer_fired = false;
             if result > 0 {
                 // Check X11 connection
                 if pollfds[0].revents & libc::POLLIN != 0 {
@@ -1883,7 +1906,6 @@ impl X11Window {
                 }
 
                 // Check timerfd's - if any fired, invoke timer callbacks
-                let mut any_timer_fired = false;
                 for (i, &timer_id) in timer_ids.iter().enumerate() {
                     let pollfd_idx = i + 1; // +1 because X11 fd is at index 0
                     if pollfd_idx < pollfds.len() && pollfds[pollfd_idx].revents & libc::POLLIN != 0
@@ -1896,21 +1918,23 @@ impl X11Window {
                         }
                     }
                 }
-
-                // Invoke expired timer and thread callbacks via the shared
-                // check_timers_and_threads, which ALSO requests a redraw when a
-                // callback produced a visual change. Calling the bare
-                // process_timers_and_threads here (the previous behaviour)
-                // advanced timer state — e.g. the scroll-physics momentum
-                // offset — but discarded the redraw signal, so real mouse-wheel
-                // scrolling updated the offset invisibly and the window
-                // appeared frozen until some unrelated event forced a repaint.
-                if any_timer_fired {
-                    self.check_timers_and_threads();
-                }
             }
-            // result == 0: timeout (shouldn't happen with -1)
+            // result == 0: timeout (the 16ms thread tick, or spurious)
             // result < 0: error or EINTR - ignore and continue
+
+            // Invoke expired timer AND thread callbacks via the shared
+            // check_timers_and_threads, which ALSO requests a redraw when a
+            // callback produced a visual change. Calling the bare
+            // process_timers_and_threads here (the previous behaviour)
+            // advanced timer state — e.g. the scroll-physics momentum
+            // offset — but discarded the redraw signal, so real mouse-wheel
+            // scrolling updated the offset invisibly and the window
+            // appeared frozen until some unrelated event forced a repaint.
+            // Run it on every wake while threads are active (the 16ms tick
+            // guarantees we get here) so tile-fetch writebacks drain promptly.
+            if any_timer_fired || has_threads {
+                self.check_timers_and_threads();
+            }
         }
 
         Ok(())
@@ -2356,6 +2380,15 @@ impl X11Window {
             cpu_ht.rebuild_from_layout(&lw.layout_results);
         }
 
+        // Drain lifecycle events (Mount / AfterMount / Unmount / Resize) produced
+        // by this layout's DOM reconciliation and dispatch them through the normal
+        // callback pipeline — the SAME step the headless backend runs inside its
+        // own regenerate_layout. Without this, `EventFilter::Component(AfterMount)`
+        // callbacks NEVER fire on X11, so e.g. the MapWidget's first tile-fetch
+        // (kicked from AfterMount) never starts. The VirtualView render above has
+        // already inserted the Pending tiles, so the AfterMount handler sees them.
+        let _ = self.dispatch_pending_lifecycle_events();
+
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
         self.sync_ime_position_to_os();
@@ -2471,6 +2504,30 @@ impl X11Window {
                             if tick_result.needs_repaint {
                                 layout_window.scroll_manager.calculate_scrollbar_states();
                             }
+                        }
+                    }
+
+                    // Re-invoke any VirtualViews queued for in-place re-render
+                    // (e.g. MapWidget tiles delivered by a background writeback
+                    // that called trigger_all_virtual_view_rerender). The GPU
+                    // path does this inside generate_frame; the CPU path has no
+                    // generate_frame, so without this the re-render queue is
+                    // never drained and async-loaded VirtualView content never
+                    // appears on the CPU backend. Must run BEFORE render_frame
+                    // reads layout_results.
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        if !lw.pending_virtual_view_updates.is_empty() {
+                            let system_callbacks =
+                                azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+                            let current_window_state = lw.current_window_state.clone();
+                            let renderer_resources =
+                                std::mem::take(&mut lw.renderer_resources);
+                            lw.process_pending_virtual_view_updates(
+                                &current_window_state,
+                                &renderer_resources,
+                                &system_callbacks,
+                            );
+                            lw.renderer_resources = renderer_resources;
                         }
                     }
 

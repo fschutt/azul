@@ -7326,6 +7326,25 @@ impl LayoutWindow {
         }
     }
 
+    /// Queue EVERY known VirtualView for re-invocation on the EXISTING DOM (no
+    /// RefreshDom / DOM rebuild). Used when a shared dataset was mutated
+    /// out-of-band — e.g. a background `MapWidget` tile-fetch writeback updated
+    /// the cache that the VirtualView's `refany` clone points at. Re-invoking in
+    /// place keeps the content callback reading the same underlying data the
+    /// worker threads write to; a RefreshDom would rebuild the DOM, allocate a
+    /// fresh dataset, and orphan the workers' clone (so later tiles would never
+    /// reach the rendered view).
+    pub fn queue_all_virtual_view_reinvoke(&mut self) {
+        let mut updates: BTreeMap<DomId, FastBTreeSet<NodeId>> = BTreeMap::new();
+        for (dom_id, node_id) in self.virtual_view_manager.all_view_keys() {
+            updates
+                .entry(dom_id)
+                .or_insert_with(FastBTreeSet::new)
+                .insert(node_id);
+        }
+        self.queue_virtual_view_updates(updates);
+    }
+
     /// Process and clear pending VirtualView updates
     ///
     /// This is called during frame generation to re-render updated VirtualViews

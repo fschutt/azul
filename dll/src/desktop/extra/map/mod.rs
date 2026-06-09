@@ -131,10 +131,18 @@ pub extern "C" fn tile_fetch_worker(
         )
     };
 
+    let dbg = std::env::var("AZ_MAP_DEBUG").is_ok();
+    if dbg {
+        eprintln!("[map] worker start tile=({},{},{}) url={}", tile.z, tile.x, tile.y, url);
+    }
+
     // 1-2. Fetch.
     let bytes = match azul_layout::http::http_get(&url) {
         Ok(resp) => resp.body.as_ref().to_vec(),
         Err(e) => {
+            if dbg {
+                eprintln!("[map] worker fetch FAILED tile=({},{},{}): {e:?}", tile.z, tile.x, tile.y);
+            }
             sender.send(ThreadReceiveMsg::WriteBack(send_back(
                 AzString::from(""),
                 AzString::from(alloc::format!("fetch failed: {e:?}")),
@@ -142,6 +150,9 @@ pub extern "C" fn tile_fetch_worker(
             return;
         }
     };
+    if dbg {
+        eprintln!("[map] worker fetched tile=({},{},{}) {} bytes", tile.z, tile.x, tile.y, bytes.len());
+    }
 
     // Cancellation check between fetch and decode.
     if matches!(
@@ -155,12 +166,18 @@ pub extern "C" fn tile_fetch_worker(
     match decode_mvt_tile(bytes, tile) {
         Ok(features) => {
             let svg = features_to_svg(&features, tile, &mapcss);
+            if dbg {
+                eprintln!("[map] worker decoded tile=({},{},{}) {} features svg_len={}", tile.z, tile.x, tile.y, features.len(), svg.len());
+            }
             sender.send(ThreadReceiveMsg::WriteBack(send_back(
                 AzString::from(svg),
                 AzString::from(""),
             )));
         }
         Err(e) => {
+            if dbg {
+                eprintln!("[map] worker decode FAILED tile=({},{},{}): {e}", tile.z, tile.x, tile.y);
+            }
             sender.send(ThreadReceiveMsg::WriteBack(send_back(
                 AzString::from(""),
                 AzString::from(alloc::format!("decode failed: {e}")),

@@ -233,6 +233,14 @@ impl VirtualViewManager {
         Some(())
     }
 
+    /// `(DomId, NodeId)` of every VirtualView registered so far (invoked at
+    /// least once). Used to re-invoke *all* views after a shared-dataset change
+    /// arrives out-of-band (e.g. a background tile-fetch writeback) without
+    /// needing to know which node the data belongs to.
+    pub fn all_view_keys(&self) -> alloc::vec::Vec<(DomId, NodeId)> {
+        self.states.keys().copied().collect()
+    }
+
     /// Checks whether a VirtualView needs to be re-invoked and returns the reason
     ///
     /// Returns `Some(reason)` if the VirtualView callback should be invoked:

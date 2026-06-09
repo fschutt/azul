@@ -236,6 +236,9 @@ pub fn parse_mvt_tile(
 
     let layers = reader.get_layer_metadata().unwrap_or_default();
     trace!("Found {} layers in tile {:?}", layers.len(), tile_coord);
+    let dbg = std::env::var("AZ_MAP_DEBUG").is_ok();
+    let layer_count = layers.len();
+    let mut raw_count = 0usize;
 
     for layer in layers {
         trace!(
@@ -248,12 +251,24 @@ pub fn parse_mvt_tile(
             layer.name,
             tile_features.len()
         );
+        raw_count += tile_features.len();
 
         for mvt_feature in tile_features {
             // Replaced `if let` with `match` to log errors explicitly.
             match convert_mvt_feature_to_geojson(&mvt_feature, tile_coord) {
-                Ok(geojson_feature) => {
+                Ok(mut geojson_feature) => {
                     trace!("Successfully converted MVT feature to GeoJSON feature.");
+                    // GeoJSON has no notion of a "layer", but the SVG styler keys
+                    // its palette on the MVT layer name (water → blue, building →
+                    // tan, …). Stash it as a property so `features_to_svg` can read
+                    // `feature.property("layer")` — without this every feature fell
+                    // through to the grey default and the whole tile rendered grey.
+                    if let Some(props) = geojson_feature.properties.as_mut() {
+                        props.insert(
+                            "layer".to_string(),
+                            JsonValue::String(layer.name.clone()),
+                        );
+                    }
                     features.push(geojson_feature);
                 }
                 Err(e) => {
@@ -271,6 +286,13 @@ pub fn parse_mvt_tile(
         tile_coord,
         features.len()
     );
+    if dbg {
+        eprintln!(
+            "[map] parse tile=({},{},{}) layers={} raw_features={} converted={}",
+            tile_coord.z, tile_coord.x, tile_coord.y,
+            layer_count, raw_count, features.len()
+        );
+    }
     Ok(features)
 }
 
@@ -430,6 +452,51 @@ fn convert_mvt_geometry_to_geojson(
             rings.extend(holes);
             geojson::Geometry::new(geojson::Value::Polygon(rings))
         }
+        // MVT features at low zoom are overwhelmingly Multi* (merged continental
+        // water/landuse → MultiPolygon, boundary networks → MultiLineString).
+        // Without these arms every such feature was rejected as "unsupported",
+        // which is why a z2 planet tile decoded to ~0 GeoJSON features.
+        GeoGeometry::MultiPoint(points) => {
+            let coords = points
+                .iter()
+                .map(|point| {
+                    let (lng, lat) = tile_pixel_to_lat_lng(
+                        point.x(),
+                        point.y(),
+                        tile_coord.z,
+                        tile_coord.x,
+                        tile_coord.y,
+                    );
+                    vec![lng.into(), lat.into()]
+                })
+                .collect::<Vec<_>>();
+            geojson::Geometry::new(geojson::Value::MultiPoint(coords))
+        }
+        GeoGeometry::MultiLineString(lines) => {
+            let lines = lines
+                .iter()
+                .map(|line| translate_linestring_for_tile(line, tile_coord))
+                .collect::<Vec<_>>();
+            geojson::Geometry::new(geojson::Value::MultiLineString(lines))
+        }
+        GeoGeometry::MultiPolygon(polygons) => {
+            let polys = polygons
+                .iter()
+                .map(|polygon| {
+                    let exterior =
+                        translate_linestring_for_tile(polygon.exterior(), tile_coord);
+                    let holes = polygon
+                        .interiors()
+                        .iter()
+                        .map(|l| translate_linestring_for_tile(l, tile_coord))
+                        .collect::<Vec<_>>();
+                    let mut rings = vec![exterior];
+                    rings.extend(holes);
+                    rings
+                })
+                .collect::<Vec<_>>();
+            geojson::Geometry::new(geojson::Value::MultiPolygon(polys))
+        }
         unsupported_geom => {
             warn!(
                 "Unsupported MVT geometry type encountered in tile {:?}: {:?}",
@@ -508,4 +575,98 @@ pub fn tile_pixel_to_lat_lng(
 /// if this function is called many times with the same string.
 fn get_cached_proj(proj_str: &str) -> Result<Proj, String> {
     Ok(Proj::from_user_string(proj_str).map_err(|e| e.to_string())?)
+}
+
+#[cfg(test)]
+mod geometry_conversion_tests {
+    //! REGRESSION coverage for the MVT geometry converter. Low-zoom MVT tiles
+    //! are overwhelmingly Multi* (merged continental water/landuse →
+    //! `MultiPolygon`, boundary networks → `MultiLineString`). Those arms were
+    //! missing, so `convert_mvt_geometry_to_geojson` returned `Err(unsupported)`
+    //! for them and a z2 planet tile decoded to ~0 GeoJSON features (the map
+    //! rendered blank). These tests pin every geometry kind to a successful,
+    //! correctly-shaped GeoJSON conversion.
+    use super::*;
+    use geo_types::{
+        Coord, Geometry, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon,
+    };
+
+    fn tc() -> TileCoord {
+        TileCoord { z: 2, x: 1, y: 1 }
+    }
+
+    /// A closed 5-point square ring in tile-local pixel space.
+    fn square_ring() -> LineString<f32> {
+        LineString::new(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 100.0, y: 0.0 },
+            Coord { x: 100.0, y: 100.0 },
+            Coord { x: 0.0, y: 100.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ])
+    }
+
+    #[test]
+    fn multipolygon_is_converted_not_rejected() {
+        let geom =
+            Geometry::MultiPolygon(MultiPolygon(vec![Polygon::new(square_ring(), vec![])]));
+        let out =
+            convert_mvt_geometry_to_geojson(&geom, &tc()).expect("MultiPolygon must convert");
+        match out.value {
+            geojson::Value::MultiPolygon(polys) => {
+                assert_eq!(polys.len(), 1, "one polygon");
+                assert_eq!(polys[0].len(), 1, "one ring (exterior, no holes)");
+                assert_eq!(polys[0][0].len(), 5, "five coords in the ring");
+            }
+            other => panic!("expected MultiPolygon, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multilinestring_is_converted_not_rejected() {
+        let geom = Geometry::MultiLineString(MultiLineString(vec![square_ring()]));
+        let out = convert_mvt_geometry_to_geojson(&geom, &tc())
+            .expect("MultiLineString must convert");
+        match out.value {
+            geojson::Value::MultiLineString(lines) => {
+                assert_eq!(lines.len(), 1);
+                assert_eq!(lines[0].len(), 5);
+            }
+            other => panic!("expected MultiLineString, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multipoint_is_converted_not_rejected() {
+        let geom = Geometry::MultiPoint(MultiPoint(vec![
+            Point::new(10.0f32, 20.0),
+            Point::new(30.0, 40.0),
+        ]));
+        let out =
+            convert_mvt_geometry_to_geojson(&geom, &tc()).expect("MultiPoint must convert");
+        match out.value {
+            geojson::Value::MultiPoint(pts) => assert_eq!(pts.len(), 2),
+            other => panic!("expected MultiPoint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn single_geometries_still_convert() {
+        // Guard against a regression that breaks the original single-geometry arms.
+        let poly = Geometry::Polygon(Polygon::new(square_ring(), vec![]));
+        assert!(matches!(
+            convert_mvt_geometry_to_geojson(&poly, &tc()).unwrap().value,
+            geojson::Value::Polygon(_)
+        ));
+        let line = Geometry::LineString(square_ring());
+        assert!(matches!(
+            convert_mvt_geometry_to_geojson(&line, &tc()).unwrap().value,
+            geojson::Value::LineString(_)
+        ));
+        let point = Geometry::Point(Point::new(50.0f32, 50.0));
+        assert!(matches!(
+            convert_mvt_geometry_to_geojson(&point, &tc()).unwrap().value,
+            geojson::Value::Point(_)
+        ));
+    }
 }

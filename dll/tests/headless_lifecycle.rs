@@ -151,14 +151,17 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     }
 }
 
-fn make_window(counters: Counters) -> HeadlessWindow {
+fn make_window_with(
+    counters: Counters,
+    layout_callback: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom,
+) -> HeadlessWindow {
     let fc_cache = Arc::new(FcFontCache::default());
     let app_data = Arc::new(RefCell::new(RefAny::new(counters)));
     let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
 
     let mut options = WindowCreateOptions::default();
     options.window_state.layout_callback = LayoutCallback {
-        cb: layout_cb,
+        cb: layout_callback,
         ctx: azul_core::refany::OptionRefAny::None,
     };
 
@@ -173,14 +176,52 @@ fn make_window(counters: Counters) -> HeadlessWindow {
     .expect("HeadlessWindow construction must succeed")
 }
 
+fn make_window(counters: Counters) -> HeadlessWindow {
+    make_window_with(counters, layout_cb)
+}
+
+/// Layout callback whose VERY FIRST DOM already contains the AfterMount-wired
+/// widget(s) — the real-app shape (no synthetic empty→full warm-up frame). The
+/// number of AfterMount children equals `counters.frame`'s initial design: we
+/// emit `widget_count` children, every one wired to AfterMount.
+extern "C" fn layout_cb_widgets_on_first_frame(
+    mut data: RefAny,
+    _info: LayoutCallbackInfo,
+) -> Dom {
+    let counters = match data.downcast_ref::<Counters>() {
+        Some(c) => c.clone(),
+        None => return Dom::create_body(),
+    };
+    // `frame` doubles as the widget count here (set by the test before the
+    // first regenerate_layout); it is NOT incremented so every frame returns
+    // the same DOM (so a second regenerate must NOT re-fire AfterMount).
+    let widget_count = counters.frame.load(Ordering::SeqCst).max(1);
+    let mount_cb =
+        Callback { cb: on_mount, ctx: azul_core::refany::OptionRefAny::None }.to_core();
+    let mut body = Dom::create_body();
+    for i in 0..widget_count {
+        // Distinct keys so the nodes are stable across relayout (Tier-1 match →
+        // no spurious unmount/remount on a second regenerate).
+        let mut w = NodeData::create_text("widget").with_key(0xA000u64 + i as u64);
+        w.add_callback(
+            EventFilter::Component(ComponentEventFilter::AfterMount),
+            RefAny::new(counters.clone()),
+            mount_cb.clone(),
+        );
+        body = body.with_child(Dom::create_from_data(w));
+    }
+    body
+}
+
 #[test]
 fn lifecycle_callbacks_fire_through_headless_event_loop() {
     let counters = Counters::new();
     let mut window = make_window(counters.clone());
 
-    // Frame 0 → empty body. First regenerate_layout has no previous DOM, so
-    // reconciliation is a no-op and no Mount/Unmount events fire on frame 0
-    // itself. We still need the call to populate `layout_results`.
+    // Frame 0 → empty body. The initial render now diffs against an EMPTY old
+    // DOM (see regenerate_layout), so the body node itself is InitialMount —
+    // but the body carries no lifecycle callback, so NO user callback fires and
+    // both counters stay 0. (This call also populates `layout_results`.)
     window
         .regenerate_layout()
         .expect("frame 0 regenerate_layout");
@@ -244,4 +285,82 @@ fn lifecycle_callbacks_fire_through_headless_event_loop() {
     // No new Mount or Unmount on this frame.
     assert_eq!(counters.mounts.load(Ordering::SeqCst), 2);
     assert_eq!(counters.unmounts.load(Ordering::SeqCst), 1);
+}
+
+/// REGRESSION (initial-mount): a real app's FIRST DOM already contains the
+/// widget — there is no synthetic empty→full warm-up frame. `regenerate_layout`
+/// used to gate reconciliation on an existing previous layout result, so the
+/// initial render produced NO Mount events and first-frame `AfterMount` never
+/// fired. The MapWidget (and camera/microphone/video) therefore never started
+/// its background thread on mount on any backend. The fix diffs the initial DOM
+/// against an EMPTY old DOM so every node is an `InitialMount`.
+#[test]
+fn after_mount_fires_on_initial_render_with_widget_in_first_dom() {
+    let counters = Counters::new();
+    // widget_count = 1 (frame starts at 0, max(1) → 1).
+    let mut window = make_window_with(counters.clone(), layout_cb_widgets_on_first_frame);
+
+    // A SINGLE regenerate_layout — the app's very first frame — must fire the
+    // widget's AfterMount. No prior frame exists to diff against.
+    window
+        .regenerate_layout()
+        .expect("initial regenerate_layout");
+
+    assert_eq!(
+        counters.mounts.load(Ordering::SeqCst),
+        1,
+        "initial render: the widget's AfterMount must fire on the very first \
+         frame (was 0 before the initial-reconcile fix). mount={}, unmount={}",
+        counters.mounts.load(Ordering::SeqCst),
+        counters.unmounts.load(Ordering::SeqCst),
+    );
+}
+
+/// Initial render must Mount EVERY new node, not just one — a DOM with several
+/// AfterMount-wired widgets fires all of them on the first frame.
+#[test]
+fn initial_render_mounts_all_widgets_in_first_dom() {
+    let counters = Counters::new();
+    // Pre-seed `frame` (doubles as widget count in the layout cb) to 3.
+    counters.frame.store(3, Ordering::SeqCst);
+    let mut window = make_window_with(counters.clone(), layout_cb_widgets_on_first_frame);
+
+    window
+        .regenerate_layout()
+        .expect("initial regenerate_layout");
+
+    assert_eq!(
+        counters.mounts.load(Ordering::SeqCst),
+        3,
+        "initial render: all 3 widgets' AfterMount must fire on the first frame. \
+         mount={}",
+        counters.mounts.load(Ordering::SeqCst),
+    );
+}
+
+/// The initial-reconcile fix must NOT make AfterMount re-fire on every relayout:
+/// a node already mounted on frame 0 is matched (Tier-1 keyed) on an identical
+/// frame 1, so no second Mount event is produced.
+#[test]
+fn initial_mount_does_not_refire_on_identical_relayout() {
+    let counters = Counters::new();
+    let mut window = make_window_with(counters.clone(), layout_cb_widgets_on_first_frame);
+
+    window.regenerate_layout().expect("frame 0 regenerate_layout");
+    assert_eq!(
+        counters.mounts.load(Ordering::SeqCst),
+        1,
+        "frame 0: AfterMount fires once"
+    );
+
+    // Identical DOM again — the keyed widget matches its previous self, so this
+    // is an Update-or-nothing, NOT a remount.
+    window.regenerate_layout().expect("frame 1 regenerate_layout");
+    assert_eq!(
+        counters.mounts.load(Ordering::SeqCst),
+        1,
+        "frame 1 (identical DOM): AfterMount must NOT fire a second time \
+         (mount={})",
+        counters.mounts.load(Ordering::SeqCst),
+    );
 }

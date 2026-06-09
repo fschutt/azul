@@ -537,30 +537,33 @@ pub struct TileReadyMsg {
 /// frame's cache. The next layout pass thus sees the same in-flight /
 /// decoded set without re-fetching anything.
 extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+    // SHARE the previous cache across the relayout — do NOT copy its tiles into
+    // the freshly-built one. The tile-fetch worker threads each hold a clone of
+    // THIS very `RefAny` (handed to them at spawn time); returning it keeps their
+    // writebacks landing in the same cache the VirtualView reads. The reconcile
+    // pass re-points the VirtualView node's `refany` at this returned dataset
+    // (core::diff::transfer_states), so the pure content callback reads it too.
+    //
+    // The old behaviour returned a fresh `new_data` with the old tiles *copied*
+    // in. That orphaned the workers' clone after the first relayout: every tile
+    // arriving later was written into the old, no-longer-rendered cache, so the
+    // map stayed blank. Returning the persistent (old) cache fixes it at the root
+    // — workers, dataset and VirtualView all reference one underlying allocation.
+    //
+    // The freshly-built `new_data` only carries layout-callback-controlled config
+    // (the fetch worker the `.dom()` shim wired); adopt that if the persistent
+    // cache somehow lacks it, then return the persistent cache with its live
+    // tiles + viewport intact.
     {
-        let new_guard_opt = new_data.downcast_mut::<MapTileCache>();
-        let old_guard_opt = old_data.downcast_ref::<MapTileCache>();
-        if let (Some(mut new_g), Some(old_g)) = (new_guard_opt, old_guard_opt) {
-            for (id, entry) in old_g.tiles.iter() {
-                new_g.tiles.entry(*id).or_insert_with(|| entry.clone());
+        let new_g = new_data.downcast_ref::<MapTileCache>();
+        let old_guard = old_data.downcast_mut::<MapTileCache>();
+        if let (Some(new_g), Some(mut old_g)) = (new_g, old_guard) {
+            if old_g.fetch_callback.is_none() {
+                old_g.fetch_callback = new_g.fetch_callback.clone();
             }
-            // Inherit the worker callback the builder stored last
-            // frame (the freshly-built cache from `dom()` has it too,
-            // but be defensive in case a future caller drops it).
-            if new_g.fetch_callback.is_none() {
-                new_g.fetch_callback = old_g.fetch_callback.clone();
-            }
-            if let OptionMapViewportChanged::None = new_g.on_viewport_changed {
-                new_g.on_viewport_changed = old_g.on_viewport_changed.clone();
-            }
-            if let OptionMapPinTap::None = new_g.on_pin_tap {
-                new_g.on_pin_tap = old_g.on_pin_tap.clone();
-            }
-            // Keep the freshest viewport (the one the layout pass
-            // just attached) — only inherit tile bytes + worker.
         }
     }
-    new_data
+    old_data
 }
 
 // ────────── Pan + zoom callbacks ─────────────────────────────────────
@@ -668,7 +671,7 @@ extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Updat
 /// `dz = log2(current_distance / pinch_anchor)`. The next move resets
 /// the anchor to the current distance so the gesture stays
 /// continuous across many frames.
-extern "C" fn map_on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Update {
+extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     // Active pinch wins over single-finger pan.
     if let Some(pinch) = info.get_pinch().into_option() {
         let mut cache = match data.downcast_mut::<MapTileCache>() {
@@ -690,7 +693,11 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Updat
         let vp = cache.viewport;
         drop(cache);
         invoke_viewport_changed(&hook, &info, vp);
-        return Update::RefreshDom;
+        // Re-render the VirtualView in place so the new zoom's tiles compute
+        // immediately, without a DOM rebuild. (See map_tile_writeback for why
+        // RefreshDom is avoided.)
+        info.trigger_all_virtual_view_rerender();
+        return Update::DoNothing;
     }
 
     let pos = match info.get_cursor_relative_to_node().into_option() {
@@ -727,7 +734,10 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Updat
     let vp = cache_guard.viewport;
     drop(cache_guard);
     invoke_viewport_changed(&hook, &info, vp);
-    Update::RefreshDom
+    // Pan moved the viewport — re-render the VirtualView in place so the newly
+    // visible tiles are computed (and marked Pending) right away. No RefreshDom.
+    info.trigger_all_virtual_view_rerender();
+    Update::DoNothing
 }
 
 /// Pointer up / pointer leave → end the drag *and* the pinch. Either
@@ -766,7 +776,10 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
     // After a pan / pinch settles, kick off fetches for any tiles the new
     // viewport needs. (Only a `CallbackInfo`-bearing callback can spawn them.)
     spawn_pending_tile_fetches(&mut data, &mut info);
-    Update::RefreshDom
+    // Re-render in place so Fetching/Ready states show as tiles arrive. The
+    // worker writebacks will trigger further re-renders themselves. No RefreshDom.
+    info.trigger_all_virtual_view_rerender();
+    Update::DoNothing
 }
 
 fn wrap_lon(lon: f64) -> f64 {
@@ -865,8 +878,19 @@ fn svg_string_to_dom(_svg: &str) -> Option<Dom> {
 /// spawns the workers for them.) Returns `RefreshDom` so the
 /// `Fetching` state shows immediately.
 extern "C" fn map_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    #[cfg(feature = "std")]
+    if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        eprintln!("[map] after_mount fired");
+    }
     spawn_pending_tile_fetches(&mut data, &mut info);
-    Update::RefreshDom
+    // Re-render the VirtualView IN PLACE (not RefreshDom). RefreshDom would
+    // rebuild the DOM, allocate a fresh MapTileCache, and orphan the clone of
+    // the cache we just handed the worker threads — their tiles would then write
+    // to a cache nobody renders. The dataset is shared via the construction-time
+    // RefAny::clone(), so re-invoking in place lets the workers' writes land in
+    // the same cache the VirtualView reads.
+    info.trigger_all_virtual_view_rerender();
+    Update::DoNothing
 }
 
 /// Scan the cache for `Pending` tiles and spawn one framework `Thread`
@@ -928,11 +952,17 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         }
     };
 
+    #[cfg(feature = "std")]
+    let spawn_count = to_spawn.len();
     for init in to_spawn {
         let init_data = RefAny::new(init);
         let writeback_data = data.clone(); // same cache dataset
         let thread = Thread::create(init_data, writeback_data, cb.clone());
         info.add_thread(ThreadId::unique(), thread);
+    }
+    #[cfg(feature = "std")]
+    if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        eprintln!("[map] spawn_pending: {} thread(s) spawned", spawn_count);
     }
 }
 
@@ -954,22 +984,41 @@ fn build_tile_url(template: &str, tile: MapTileId) -> alloc::string::String {
 pub extern "C" fn map_tile_writeback(
     mut cache_dataset: RefAny,
     mut incoming: RefAny,
-    _info: CallbackInfo,
+    mut info: CallbackInfo,
 ) -> Update {
     let msg = match incoming.downcast_ref::<TileReadyMsg>() {
         Some(m) => (m.tile, m.svg.clone(), m.error.clone()),
         None => return Update::DoNothing,
     };
-    let mut cache = match cache_dataset.downcast_mut::<MapTileCache>() {
-        Some(c) => c,
-        None => return Update::DoNothing,
-    };
-    if msg.2.as_str().is_empty() {
-        cache.mark_tile_ready(msg.0, msg.1);
-    } else {
-        cache.mark_tile_failed(msg.0, msg.2);
-    }
-    Update::RefreshDom
+    {
+        let mut cache = match cache_dataset.downcast_mut::<MapTileCache>() {
+            Some(c) => c,
+            None => return Update::DoNothing,
+        };
+        #[cfg(feature = "std")]
+        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            eprintln!(
+                "[map] writeback tile=({},{},{}) ok={} svg_len={} err={:?}",
+                msg.0.z, msg.0.x, msg.0.y,
+                msg.2.as_str().is_empty(), msg.1.as_str().len(), msg.2.as_str()
+            );
+        }
+        if msg.2.as_str().is_empty() {
+            cache.mark_tile_ready(msg.0, msg.1);
+        } else {
+            cache.mark_tile_failed(msg.0, msg.2);
+        }
+    } // drop the cache borrow before touching `info`
+
+    // Re-render the VirtualView(s) IN PLACE so the pure content callback re-reads
+    // the shared cache we just mutated. NOT `RefreshDom`: a DOM rebuild would
+    // allocate a fresh `MapTileCache` and orphan THIS worker's clone of it (the
+    // VirtualView's `refany`, the node dataset and the worker's writeback handle
+    // are all clones of one `RefAny` — same underlying data — only while the DOM
+    // is not rebuilt). Re-invoking in place keeps that share intact, so this tile
+    // and every later one reach the rendered view.
+    info.trigger_all_virtual_view_rerender();
+    Update::DoNothing
 }
 
 /// Inclusive `(x_min, x_max, y_min, y_max)` tile range covering a
@@ -1320,46 +1369,52 @@ mod tests {
     }
 
     #[test]
-    fn merge_preserves_old_tiles_and_keeps_new_viewport() {
-        // The merge callback is what lets the tile cache survive relayout:
-        // a tile downloaded last frame must still be present in the cache
-        // the layout pass rebuilds this frame, without re-fetching.
+    fn merge_shares_old_cache_so_worker_writebacks_survive_relayout() {
+        // THE regression behind the blank map: the merge must SHARE the previous
+        // cache (the very `RefAny` the fetch-worker threads cloned at spawn), not
+        // copy its tiles into a freshly-built one. With a copy, a tile that writes
+        // back AFTER a relayout lands in the orphaned old cache and never renders.
+        // Here we prove a post-merge writeback through a retained handle is
+        // visible in the merged cache — i.e. they are one shared allocation.
         let tile = MapTileId { z: 5, x: 1, y: 2 };
-        let mut old_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(5.0));
-        old_cache.mark_tile_ready(tile, AzString::from("<svg/>"));
-        // Fresh cache as rebuilt by dom() each relayout: new viewport, no tiles.
+        let old_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(5.0));
+        let old_ref = RefAny::new(old_cache);
+        // A worker thread keeps THIS clone and writes into it after the relayout.
+        let mut worker_handle = old_ref.clone();
+        // dom() rebuilds a fresh, empty cache (default viewport) each relayout.
         let new_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(9.0));
 
-        let mut merged =
-            merge_map_tile_cache(RefAny::new(new_cache), RefAny::new(old_cache));
-        let g = merged.downcast_ref::<MapTileCache>().unwrap();
+        let mut merged = merge_map_tile_cache(RefAny::new(new_cache), old_ref);
 
-        // Downloaded tile survived the relayout...
-        assert!(g.tiles.contains_key(&tile), "old tile must survive relayout");
-        // ...but the freshest viewport (just attached by the layout pass) wins.
-        approx(g.viewport.zoom as f64, 9.0, 1e-6);
+        // Worker finishes a fetch AFTER the merge and stamps the tile Ready on its
+        // retained handle...
+        worker_handle
+            .downcast_mut::<MapTileCache>()
+            .unwrap()
+            .mark_tile_ready(tile, AzString::from("<svg/>"));
+
+        // ...and it IS visible through the merged cache (shared storage). With the
+        // old copy-merge this assertion failed — the tile was stranded.
+        let g = merged.downcast_ref::<MapTileCache>().unwrap();
+        assert!(
+            g.tiles.contains_key(&tile),
+            "a worker writeback after relayout must reach the rendered cache"
+        );
     }
 
     #[test]
-    fn merge_keeps_new_tile_over_old() {
-        // When both frames have the same tile, the new frame's entry wins
-        // (or_insert_with must not clobber a freshly-stamped tile).
-        let tile = MapTileId { z: 5, x: 1, y: 2 };
+    fn merge_keeps_live_viewport_across_relayout() {
+        // Returning the persistent (old) cache keeps the LIVE pan/zoom state. The
+        // freshly-built cache from dom() carries only default config, so its
+        // viewport must NOT clobber the user's panned/zoomed one.
         let mut old_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(5.0));
-        old_cache.mark_tile_ready(tile, AzString::from("OLD"));
-        let mut new_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(5.0));
-        new_cache.mark_tile_ready(tile, AzString::from("NEW"));
+        old_cache.viewport.zoom = 7.0; // user zoomed after creation
+        let new_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(2.0));
 
         let mut merged =
             merge_map_tile_cache(RefAny::new(new_cache), RefAny::new(old_cache));
         let g = merged.downcast_ref::<MapTileCache>().unwrap();
-
-        match g.tiles.get(&tile) {
-            Some(TileEntry::Ready { svg }) => {
-                assert_eq!(svg.as_str(), "NEW", "new frame's tile must not be clobbered");
-            }
-            other => panic!("expected Ready, got {other:?}"),
-        }
+        approx(g.viewport.zoom as f64, 7.0, 1e-6);
     }
 
     #[test]

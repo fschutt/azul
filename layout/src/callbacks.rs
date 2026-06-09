@@ -234,6 +234,10 @@ pub enum CallbackChange {
     /// Trigger re-rendering of a VirtualView with a new DOM
     /// This forces the VirtualView to call its callback and update the display list
     UpdateVirtualView { dom_id: DomId, node_id: NodeId },
+    /// Re-render EVERY VirtualView on the existing DOM (no node id needed).
+    /// For shared-dataset changes that arrive out-of-band (e.g. a background
+    /// tile-fetch writeback): the views re-read their cloned dataset in place.
+    UpdateAllVirtualViews,
     /// Change the image mask of a node
     ChangeNodeImageMask {
         dom_id: DomId,
@@ -1104,6 +1108,20 @@ impl CallbackInfo {
     /// - Editor previews (re-parse and display new DOM)
     pub fn trigger_virtual_view_rerender(&mut self, dom_id: DomId, node_id: NodeId) {
         self.push_change(CallbackChange::UpdateVirtualView { dom_id, node_id });
+    }
+
+    /// Re-render EVERY VirtualView on the existing DOM — no node id required.
+    ///
+    /// Use from a callback that mutated a dataset shared with a VirtualView's
+    /// `refany` (the two are clones of one `RefAny`, so they point at the same
+    /// underlying data). The canonical case is a background thread writeback:
+    /// e.g. the `MapWidget`'s tile-fetch worker decodes a tile, writes it into
+    /// the shared `MapTileCache`, then calls this so the pure VirtualView
+    /// content callback re-reads the cache and rebuilds its child DOM in place —
+    /// WITHOUT a `RefreshDom` (which would rebuild the DOM and orphan the
+    /// worker's clone of the cache).
+    pub fn trigger_all_virtual_view_rerender(&mut self) {
+        self.push_change(CallbackChange::UpdateAllVirtualViews);
     }
 
     // Dom Tree Navigation

@@ -405,9 +405,32 @@ impl CpuBackend {
         // this render_frame is reusable by them. The headless harness has an empty
         // GPU cache, so this is equivalent to `new(scroll_offsets)` there.
         let gpu_cache = layout_window.gpu_state_manager.get_cache(dom_id);
+        // Hand the nested VirtualView child DOMs (every non-root DomId in
+        // layout_results) to the renderer so the CPU `VirtualView` arm can
+        // composite them — they're separate LayoutResults the normal layout loop
+        // produced (e.g. the MapWidget's tile grid). Without this the CPU backend
+        // only drew the debug placeholder rect.
+        let vview_dls: std::collections::BTreeMap<DomId, std::sync::Arc<azul_layout::solver3::display_list::DisplayList>> =
+            layout_window
+                .layout_results
+                .iter()
+                .filter(|(id, _)| id.inner != dom_id.inner)
+                .map(|(id, r)| (*id, std::sync::Arc::new(r.display_list.clone())))
+                .collect();
+        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            let summary: std::vec::Vec<(usize, usize)> =
+                vview_dls.iter().map(|(id, dl)| (id.inner, dl.items.len())).collect();
+            let all_ids: std::vec::Vec<usize> =
+                layout_window.layout_results.keys().map(|k| k.inner).collect();
+            eprintln!(
+                "[cpu-vview] render_frame: layout_results ids={:?}, vview_dls (id,items)={:?}",
+                all_ids, summary
+            );
+        }
         let render_state =
             cpurender::CpuRenderState::from_gpu_cache(gpu_cache, dom_id, &scroll_offsets)
-                .with_system_style(layout_window.system_style.clone());
+                .with_system_style(layout_window.system_style.clone())
+                .with_virtual_view_display_lists(vview_dls);
 
         if is_incremental && !all_damage.is_empty() {
             // Incremental: render only damaged regions
@@ -423,7 +446,7 @@ impl CpuBackend {
             if let Err(e) = compositor.render_layers(
                 display_list, dpi_factor, renderer_resources,
                 Some(&layout_window.font_manager), &mut self.glyph_cache,
-                &render_state.scroll_offsets,
+                &render_state,
             ) {
                 log_error!(
                     LogCategory::Rendering,

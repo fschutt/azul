@@ -342,12 +342,30 @@ pub fn regenerate_layout(
     // matching structure (both include titlebar nodes). This ensures reconciliation
     // produces correct node mappings and manager NodeIds are not invalidated by
     // a subsequent titlebar injection shifting all indices.
-    if let Some(old_layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
-        // Get old node data (from previous frame — includes titlebar if it was injected)
-        let old_node_data_vec = &old_layout_result.styled_dom.node_data;
-        let old_node_data: Vec<azul_core::dom::NodeData> = old_node_data_vec.as_ref().to_vec();
-        let old_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> =
-            old_layout_result.styled_dom.node_hierarchy.as_ref().to_vec();
+    // Old DOM (previous frame). On the INITIAL render there is no previous
+    // layout result yet — diff against an EMPTY old DOM so every node counts as
+    // newly-mounted (InitialMount). That is what makes first-frame AfterMount
+    // callbacks fire (e.g. the MapWidget's tile-fetch kickoff, camera/mic/video
+    // capture threads). Previously the whole reconcile pass was gated on an
+    // existing old layout, so frame 0 was skipped and AfterMount NEVER fired for
+    // an app whose first DOM already contains the widget — only the synthetic
+    // empty→full path (headless_lifecycle test) ever exercised it. The `.to_vec()`
+    // clones below release the `layout_results` borrow before the later
+    // `update_managers_with_node_moves(layout_window, …)` &mut borrow.
+    {
+        let (old_node_data, old_hierarchy): (
+            Vec<azul_core::dom::NodeData>,
+            Vec<azul_core::styled_dom::NodeHierarchyItem>,
+        ) = match layout_window
+            .layout_results
+            .get(&azul_core::dom::DomId::ROOT_ID)
+        {
+            Some(old_layout_result) => (
+                old_layout_result.styled_dom.node_data.as_ref().to_vec(),
+                old_layout_result.styled_dom.node_hierarchy.as_ref().to_vec(),
+            ),
+            None => (Vec::new(), Vec::new()),
+        };
 
         // Get new node data (from current frame — now also includes titlebar)
         let mut new_node_data: Vec<azul_core::dom::NodeData> = styled_dom.node_data.as_ref().to_vec();
