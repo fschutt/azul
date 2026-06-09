@@ -3780,12 +3780,20 @@ impl CallbackInfo {
 
     /// Deprecated: Returns None. Scroll deltas are no longer tracked per-frame.
     /// Kept for FFI backward compatibility.
+    /// The raw wheel / trackpad delta that triggered the current `Scroll`
+    /// callback, or `None` outside a scroll dispatch. The value is the per-pass
+    /// delta recorded by the platform scroll handler (see
+    /// `ScrollManager::pending_wheel_event`); it is global to the pass, so the
+    /// `dom_id` / `node_id` arguments are advisory — a `Scroll` callback only
+    /// fires on the hovered node, which is what they identify. Wheel-as-zoom
+    /// widgets (the map) read `.y` here instead of consuming the scroll-physics
+    /// input queue (which only carries deltas for actual scroll containers).
     pub fn get_scroll_delta(
         &self,
         _dom_id: DomId,
         _node_id: NodeId,
     ) -> Option<LogicalPosition> {
-        None
+        self.get_scroll_manager().pending_wheel_event
     }
 
     /// Deprecated: Returns false. Scroll activity flags were removed.

@@ -306,6 +306,16 @@ pub struct ScrollManager {
     /// Thread-safe queue for scroll inputs (shared with timer callbacks)
     #[cfg(feature = "std")]
     pub scroll_input_queue: ScrollInputQueue,
+    /// Raw wheel/trackpad delta recorded *this input pass*, regardless of whether
+    /// a scrollable node was under the cursor. The scroll input queue only carries
+    /// deltas destined for scrollable containers (consumed by the physics timer);
+    /// this field additionally lets `determine_all_events` synthesize a `Scroll`
+    /// event aimed at the hovered node so non-scroll-container widgets (e.g. the
+    /// map, which treats wheel = zoom) can react via a `HoverEventFilter::Scroll`
+    /// callback + `CallbackInfo::get_scroll_delta`. Set in
+    /// [`Self::record_scroll_from_hit_test`]; read during event determination and
+    /// callback dispatch, then cleared at the end of the pass.
+    pub pending_wheel_event: Option<LogicalPosition>,
     /// Set when a scroll position changes; cleared after the display list
     /// is regenerated.  Used by the CPU renderer path to detect when the
     /// display list must be rebuilt even though the DOM hasn't changed.
@@ -538,6 +548,11 @@ impl ScrollManager {
         input_point_id: &InputPointId,
         now: Instant,
     ) -> Option<(DomId, NodeId, bool)> {
+        // Record the raw wheel delta for this pass unconditionally — even when the
+        // cursor isn't over a scroll container — so a `Scroll` event can be aimed
+        // at the hovered node (wheel-as-zoom widgets like the map rely on this).
+        self.pending_wheel_event = Some(LogicalPosition { x: delta_x, y: delta_y });
+
         let hit_test = hover_manager.get_current(input_point_id)?;
 
         for (dom_id, hit_node) in &hit_test.hovered_nodes {

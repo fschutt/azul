@@ -800,19 +800,20 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
 /// and apply as a zoom step, then queue + spawn the tiles the new zoom needs and
 /// re-render in place.
 extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    // Wheel delta that triggered this Scroll callback (sign = direction). The map
+    // is not a scroll container, so this comes from the per-pass wheel delta, not
+    // the scroll-physics input queue (which only feeds scrollable nodes).
+    let dy: f32 = {
+        let hn = info.get_hit_node();
+        match hn.node.into_crate_internal() {
+            Some(nid) => info.get_scroll_delta(hn.dom, nid).map(|d| d.y).unwrap_or(0.0),
+            None => 0.0,
+        }
+    };
     #[cfg(feature = "std")]
     if std::env::var("AZ_MAP_DEBUG").is_ok() {
-        eprintln!("[map] scroll fired");
+        eprintln!("[map] scroll fired dy={}", dy);
     }
-    #[cfg(feature = "std")]
-    let dy: f32 = info
-        .get_scroll_input_queue()
-        .take_all()
-        .iter()
-        .map(|s| s.delta.y)
-        .sum();
-    #[cfg(not(feature = "std"))]
-    let dy: f32 = 0.0;
     if dy == 0.0 {
         return Update::DoNothing;
     }
@@ -829,8 +830,9 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         };
         let min = cache.layer.min_zoom as f32;
         let max = cache.layer.max_zoom as f32;
-        // ~0.5 zoom levels per wheel notch; scroll-down (dy > 0) zooms OUT.
-        let dz = -dy.signum() * 0.5;
+        // ~0.5 zoom levels per wheel notch. X11 delivers wheel-up as dy > 0;
+        // wheel-up zooms IN, wheel-down zooms OUT (Leaflet / Google-Maps).
+        let dz = dy.signum() * 0.5;
         cache.viewport.zoom = (cache.viewport.zoom + dz).clamp(min, max);
         let vp = cache.viewport;
         let layer = cache.layer.clone();

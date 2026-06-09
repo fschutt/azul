@@ -3622,6 +3622,13 @@ pub trait PlatformWindow {
         #[cfg(not(feature = "std"))]
         let timestamp = azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0));
 
+        // Raw wheel delta recorded by the platform scroll handler this pass (if
+        // any). Drives a synthesized Scroll event aimed at the hovered node so
+        // wheel-as-zoom widgets (the map) react; cleared right after dispatch.
+        let wheel_delta = self
+            .get_layout_window()
+            .and_then(|w| w.scroll_manager.pending_wheel_event);
+
         // Determine all events (returns Vec<SyntheticEvent>)
         let synthetic_events = if let (Some(fm), Some(fdm), Some(hm)) =
             (focus_manager, file_drop_manager, hover_manager)
@@ -3634,6 +3641,7 @@ pub trait PlatformWindow {
                 fdm,
                 gesture_manager,
                 &event_providers,
+                wheel_delta,
                 timestamp,
             )
         } else {
@@ -3815,6 +3823,14 @@ pub trait PlatformWindow {
         let (changes_result, callback_update, prevent_default) =
             self.dispatch_events_propagated(&pre_filter.user_events);
         result = result.max(changes_result);
+
+        // The wheel delta for this pass has now been delivered to any Scroll
+        // callback (read via CallbackInfo::get_scroll_delta during dispatch).
+        // Clear it so the recursion below — and any later pass — doesn't re-fire
+        // a stale Scroll event (which would zoom the map on every mouse move).
+        if let Some(w) = self.get_layout_window_mut() {
+            w.scroll_manager.pending_wheel_event = None;
+        }
 
         let mut should_recurse = false;
 

@@ -8,7 +8,8 @@ use azul_core::{
     dom::{DomId, DomNodeId},
     events::{
         deduplicate_synthetic_events, EventData, EventProvider, EventSource, EventType,
-        KeyModifiers, KeyboardEventData, MouseButton, MouseEventData, SyntheticEvent, WindowEventData,
+        KeyModifiers, KeyboardEventData, MouseButton, MouseEventData, ScrollDeltaMode,
+        ScrollEventData, SyntheticEvent, WindowEventData,
     },
     geom::{LogicalPosition, LogicalRect},
     id::NodeId,
@@ -255,6 +256,7 @@ pub fn determine_all_events(
     file_drop_manager: &crate::managers::file_drop::FileDropManager,
     gesture_manager: Option<&crate::managers::gesture::GestureAndDragManager>,
     managers: &[&dyn EventProvider],
+    wheel_delta: Option<LogicalPosition>,
     timestamp: Instant,
 ) -> Vec<SyntheticEvent> {
     let mut events = Vec::new();
@@ -417,6 +419,29 @@ pub fn determine_all_events(
                 mouse_target.clone(),
                 timestamp.clone(),
                 make_mouse_data(MouseButton::Left), // MouseOver doesn't care about button
+            ));
+        }
+    }
+
+    // ========================================================================
+    // Wheel / trackpad scroll  →  Scroll event on the hovered node
+    // ========================================================================
+    // The platform recorded a wheel delta this pass. The scroll-physics path
+    // handles scroll *containers*; here we additionally fire a W3C-style Scroll
+    // event at the hovered node so widgets that treat the wheel specially (the
+    // map zooms) get a `HoverEventFilter::Scroll` callback. The delta itself is
+    // read back by the callback via `CallbackInfo::get_scroll_delta`.
+    if let Some(delta) = wheel_delta {
+        if delta.x != 0.0 || delta.y != 0.0 {
+            events.push(SyntheticEvent::new(
+                EventType::Scroll,
+                EventSource::User,
+                mouse_target.clone(),
+                timestamp.clone(),
+                EventData::Scroll(ScrollEventData {
+                    delta,
+                    delta_mode: ScrollDeltaMode::Pixel,
+                }),
             ));
         }
     }
@@ -971,7 +996,7 @@ mod tests {
         let hover = crate::managers::hover::HoverManager::new();
         let filedrop = crate::managers::file_drop::FileDropManager::new();
         let providers = empty_providers();
-        determine_all_events(current, previous, &hover, &focus, &filedrop, None, &providers, ts())
+        determine_all_events(current, previous, &hover, &focus, &filedrop, None, &providers, None, ts())
     }
 
     // === Keyboard tests ===
