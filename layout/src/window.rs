@@ -815,6 +815,16 @@ impl LayoutWindow {
             styled_dom.dom_id
         };
 
+        // The solver3 layout cache is shared across the root and every VirtualView
+        // / iframe child DOM. A child's callback rebuilds its DOM wholesale on each
+        // invocation (fresh, reassigned NodeIds), so incremental reuse of the prior
+        // tree is invalid — it can graft NodeIds absent from the new StyledDom and
+        // panic when the child shrinks (map zoom-out dropping tiles). Lay child
+        // DOMs out cold; the root keeps its frame-to-frame incremental cache.
+        if dom_id != DomId::ROOT_ID {
+            self.layout_cache.reset_incremental();
+        }
+
         let viewport = LogicalRect {
             origin: LogicalPosition::zero(),
             size: window_state.size.dimensions,

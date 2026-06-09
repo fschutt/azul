@@ -414,6 +414,26 @@ impl Solver3CacheMemoryReport {
 }
 
 impl LayoutCache {
+    /// Drop all incremental-reuse state so the next `layout_document` lays the
+    /// DOM out from scratch (cold path), as if no previous frame existed.
+    ///
+    /// Required before laying out a DOM whose NodeIds are NOT a stable evolution
+    /// of whatever this (shared) cache last held — namely VirtualView / iframe
+    /// child DOMs, which their callbacks rebuild wholesale on every invocation.
+    /// Incremental reconciliation matches/reuses subtrees by NodeId + subtree
+    /// hash; on a wholesale rebuild those NodeIds are reassigned, so reusing the
+    /// prior tree can graft NodeIds that no longer exist in the new StyledDom
+    /// (panic: out-of-bounds node_data index when the DOM shrinks — e.g. the map
+    /// dropping tiles on zoom-out).
+    pub fn reset_incremental(&mut self) {
+        self.tree = None;
+        self.cache_map = LayoutCacheMap::default();
+        self.cached_display_list = None;
+        self.prev_dom_ptr = 0;
+        self.counters.clear();
+        self.float_cache.clear();
+    }
+
     /// Approximate heap bytes retained by this LayoutCache.
     pub fn memory_report(&self) -> Solver3CacheMemoryReport {
         let tree_report = self.tree.as_ref().map(|t| t.memory_report());
