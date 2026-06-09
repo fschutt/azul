@@ -76,11 +76,14 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 27] = [
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 178] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 181] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
     (CssPropertyType::TextColor, "color"),
+    (CssPropertyType::Fill, "fill"),
+    (CssPropertyType::Stroke, "stroke"),
+    (CssPropertyType::StrokeWidth, "stroke-width"),
     (CssPropertyType::FontSize, "font-size"),
     (CssPropertyType::FontFamily, "font-family"),
     (CssPropertyType::FontWeight, "font-weight"),
@@ -312,6 +315,9 @@ pub type StyleFontFamilyVecValue = CssPropertyValue<StyleFontFamilyVec>;
 pub type StyleFontWeightValue = CssPropertyValue<StyleFontWeight>;
 pub type StyleFontStyleValue = CssPropertyValue<StyleFontStyle>;
 pub type StyleTextColorValue = CssPropertyValue<StyleTextColor>;
+pub type StyleFillValue = CssPropertyValue<StyleFill>;
+pub type StyleStrokeValue = CssPropertyValue<StyleStroke>;
+pub type StyleStrokeWidthValue = CssPropertyValue<StyleStrokeWidth>;
 pub type StyleTextAlignValue = CssPropertyValue<StyleTextAlign>;
 pub type StyleVerticalAlignValue = CssPropertyValue<StyleVerticalAlign>;
 pub type StyleLineHeightValue = CssPropertyValue<StyleLineHeight>;
@@ -576,6 +582,9 @@ pub enum CssProperty {
     SelectionColor(SelectionColorValue),
     SelectionRadius(SelectionRadiusValue),
     TextColor(StyleTextColorValue),
+    Fill(StyleFillValue),
+    Stroke(StyleStrokeValue),
+    StrokeWidth(StyleStrokeWidthValue),
     FontSize(StyleFontSizeValue),
     FontFamily(StyleFontFamilyVecValue),
     FontWeight(StyleFontWeightValue),
@@ -827,6 +836,9 @@ pub enum CssPropertyType {
     SelectionColor,
     SelectionRadius,
     TextColor,
+    Fill,
+    Stroke,
+    StrokeWidth,
     FontSize,
     FontFamily,
     FontWeight,
@@ -1239,6 +1251,9 @@ impl CssPropertyType {
             CssPropertyType::SelectionColor => "-azul-selection-color",
             CssPropertyType::SelectionRadius => "-azul-selection-radius",
             CssPropertyType::TextColor => "color",
+            CssPropertyType::Fill => "fill",
+            CssPropertyType::Stroke => "stroke",
+            CssPropertyType::StrokeWidth => "stroke-width",
             CssPropertyType::FontSize => "font-size",
             CssPropertyType::FontFamily => "font-family",
             CssPropertyType::FontWeight => "font-weight",
@@ -3007,6 +3022,15 @@ pub fn parse_css_property<'a>(
             CssPropertyType::SelectionRadius => parse_selection_radius(value)?.into(),
 
             CssPropertyType::TextColor => parse_style_text_color(value)?.into(),
+            CssPropertyType::Fill => parse_style_text_color(value)
+                .map(|c| StyleFill { inner: c.inner })?
+                .into(),
+            CssPropertyType::Stroke => parse_style_text_color(value)
+                .map(|c| StyleStroke { inner: c.inner })?
+                .into(),
+            CssPropertyType::StrokeWidth => parse_style_letter_spacing(value)
+                .map(|w| StyleStrokeWidth { inner: w.inner })?
+                .into(),
             CssPropertyType::FontSize => {
                 CssProperty::FontSize(parse_style_font_size(value)?.into())
             }
@@ -4202,6 +4226,9 @@ impl_from_css_prop!(
 impl_from_css_prop!(SelectionColor, CssProperty::SelectionColor);
 impl_from_css_prop!(SelectionRadius, CssProperty::SelectionRadius);
 impl_from_css_prop!(StyleTextColor, CssProperty::TextColor);
+impl_from_css_prop!(StyleFill, CssProperty::Fill);
+impl_from_css_prop!(StyleStroke, CssProperty::Stroke);
+impl_from_css_prop!(StyleStrokeWidth, CssProperty::StrokeWidth);
 impl_from_css_prop!(StyleFontSize, CssProperty::FontSize);
 impl_from_css_prop!(StyleFontFamilyVec, CssProperty::FontFamily);
 impl_from_css_prop!(StyleTextAlign, CssProperty::TextAlign);
@@ -4368,6 +4395,9 @@ impl CssProperty {
             CssProperty::SelectionRadius(v) => v.get_css_value_fmt(),
             CssProperty::TextJustify(v) => v.get_css_value_fmt(),
             CssProperty::TextColor(v) => v.get_css_value_fmt(),
+            CssProperty::Fill(v) => v.get_css_value_fmt(),
+            CssProperty::Stroke(v) => v.get_css_value_fmt(),
+            CssProperty::StrokeWidth(v) => v.get_css_value_fmt(),
             CssProperty::FontSize(v) => v.get_css_value_fmt(),
             CssProperty::FontFamily(v) => v.get_css_value_fmt(),
             CssProperty::TextAlign(v) => v.get_css_value_fmt(),
@@ -4838,6 +4868,9 @@ impl CssProperty {
 
             CssProperty::TextJustify(_) => CssPropertyType::TextJustify,
             CssProperty::TextColor(_) => CssPropertyType::TextColor,
+            CssProperty::Fill(_) => CssPropertyType::Fill,
+            CssProperty::Stroke(_) => CssPropertyType::Stroke,
+            CssProperty::StrokeWidth(_) => CssPropertyType::StrokeWidth,
             CssProperty::FontSize(_) => CssPropertyType::FontSize,
             CssProperty::FontFamily(_) => CssPropertyType::FontFamily,
             CssProperty::FontWeight(_) => CssPropertyType::FontWeight,
@@ -6494,6 +6527,9 @@ impl CssProperty {
             SelectionRadius(c) => c.is_initial(),
             TextJustify(c) => c.is_initial(),
             TextColor(c) => c.is_initial(),
+            Fill(c) => c.is_initial(),
+            Stroke(c) => c.is_initial(),
+            StrokeWidth(c) => c.is_initial(),
             FontSize(c) => c.is_initial(),
             FontFamily(c) => c.is_initial(),
             TextAlign(c) => c.is_initial(),
@@ -7028,6 +7064,18 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::TextColor(p) => format!(
             "CssProperty::TextColor({})",
             print_css_property_value(p, tabs, "StyleTextColor")
+        ),
+        CssProperty::Fill(p) => format!(
+            "CssProperty::Fill({})",
+            print_css_property_value(p, tabs, "StyleFill")
+        ),
+        CssProperty::Stroke(p) => format!(
+            "CssProperty::Stroke({})",
+            print_css_property_value(p, tabs, "StyleStroke")
+        ),
+        CssProperty::StrokeWidth(p) => format!(
+            "CssProperty::StrokeWidth({})",
+            print_css_property_value(p, tabs, "StyleStrokeWidth")
         ),
         CssProperty::FontSize(p) => format!(
             "CssProperty::FontSize({})",

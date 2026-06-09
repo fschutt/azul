@@ -537,6 +537,9 @@ macro_rules! css_property_from_type {
             CssPropertyType::ScrollbarGutter => CssProperty::ScrollbarGutter(CssPropertyValue::$content_type),
             CssPropertyType::OverflowClipMargin => CssProperty::OverflowClipMargin(CssPropertyValue::$content_type),
             CssPropertyType::Clip => CssProperty::Clip(CssPropertyValue::$content_type),
+            CssPropertyType::Fill => CssProperty::Fill(CssPropertyValue::$content_type),
+            CssPropertyType::Stroke => CssProperty::Stroke(CssPropertyValue::$content_type),
+            CssPropertyType::StrokeWidth => CssProperty::StrokeWidth(CssPropertyValue::$content_type),
         }
     }};
 }

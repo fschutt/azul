@@ -53,6 +53,91 @@ impl PrintAsCssValue for StyleTextColor {
     }
 }
 
+// -- SVG paint properties (fill / stroke / stroke-width) --
+// These let parsed SVG `<path fill=… stroke=… stroke-width=…>` carry their
+// paint as inline CSS so the SvgPath display-list rendering can colour it
+// (the framework otherwise had no SVG paint property → SVG-in-DOM rendered
+// with a default grey). They are newtype colour wrappers like StyleTextColor.
+
+/// Represents the SVG `fill` paint colour.
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleFill {
+    pub inner: crate::props::basic::color::ColorU,
+}
+
+impl fmt::Debug for StyleFill {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.print_as_css_value())
+    }
+}
+
+impl StyleFill {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self { inner: self.inner.interpolate(&other.inner, t) }
+    }
+}
+
+impl PrintAsCssValue for StyleFill {
+    fn print_as_css_value(&self) -> String {
+        self.inner.to_hash()
+    }
+}
+
+/// Represents the SVG `stroke` paint colour.
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleStroke {
+    pub inner: crate::props::basic::color::ColorU,
+}
+
+impl fmt::Debug for StyleStroke {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.print_as_css_value())
+    }
+}
+
+impl StyleStroke {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self { inner: self.inner.interpolate(&other.inner, t) }
+    }
+}
+
+impl PrintAsCssValue for StyleStroke {
+    fn print_as_css_value(&self) -> String {
+        self.inner.to_hash()
+    }
+}
+
+/// Represents the SVG `stroke-width` length.
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleStrokeWidth {
+    pub inner: PixelValue,
+}
+
+impl fmt::Debug for StyleStrokeWidth {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+impl Default for StyleStrokeWidth {
+    fn default() -> Self {
+        Self { inner: PixelValue::const_px(1) }
+    }
+}
+impl_pixel_value!(StyleStrokeWidth);
+impl PixelValueTaker for StyleStrokeWidth {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        Self { inner }
+    }
+}
+impl PrintAsCssValue for StyleStrokeWidth {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner)
+    }
+}
+
 // -- StyleTextAlign --
 
 /// Horizontal text alignment enum (left, center, right) - default: `Left`

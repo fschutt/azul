@@ -449,6 +449,18 @@ impl_pixel_value_fmt!(LayoutBorderBottomWidth);
 impl_pixel_value_fmt!(StyleLetterSpacing);
 impl_pixel_value_fmt!(StyleWordSpacing);
 impl_pixel_value_fmt!(StyleFontSize);
+impl_pixel_value_fmt!(StyleStrokeWidth);
+
+impl FormatAsRustCode for crate::props::style::text::StyleFill {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StyleFill {{ inner: {} }}", format_color_value(&self.inner))
+    }
+}
+impl FormatAsRustCode for crate::props::style::text::StyleStroke {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StyleStroke {{ inner: {} }}", format_color_value(&self.inner))
+    }
+}
 
 impl_pixel_value_fmt!(LayoutMarginTop);
 impl_pixel_value_fmt!(LayoutMarginBottom);
