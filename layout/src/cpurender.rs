@@ -5091,6 +5091,62 @@ pub fn render_svg_to_png(
         .map_err(|e| format!("PNG encode error: {e}"))
 }
 
+/// Like [`render_svg_to_png`] but returns the rendered pixmap as an [`ImageRef`]
+/// (RGBA8) directly — no PNG round-trip. The MapWidget uses this to render each
+/// decoded tile SVG to a colour image node: `SvgNodeData::Path` in the DOM only
+/// produces a clip mask (not a filled shape), so reuse the same `render_svg_group`
+/// rasteriser the tiger uses (which reads SVG fill/stroke attrs) and embed the
+/// result as an image.
+pub fn render_svg_to_imageref(
+    svg_data: &[u8],
+    target_width: u32,
+    target_height: u32,
+) -> Result<ImageRef, String> {
+    let svg_str =
+        core::str::from_utf8(svg_data).map_err(|e| format!("SVG is not valid UTF-8: {e}"))?;
+    let nodes =
+        crate::xml::parse_xml_string(svg_str).map_err(|e| format!("XML parse error: {e}"))?;
+    let node_slice: &[azul_core::xml::XmlNodeChild] = nodes.as_ref();
+    let svg_node = node_slice
+        .iter()
+        .find_map(|n| {
+            if let azul_core::xml::XmlNodeChild::Element(e) = n {
+                if e.node_type.as_str().to_lowercase() == "svg" {
+                    Some(e)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| "No <svg> root element found".to_string())?;
+
+    let vb = parse_viewbox(svg_node);
+    let (vb_x, vb_y, vb_w, vb_h) =
+        vb.unwrap_or((0.0, 0.0, target_width as f64, target_height as f64));
+    let scale = (target_width as f64 / vb_w).min(target_height as f64 / vb_h);
+    let root_transform =
+        TransAffine::new_custom(scale, 0.0, 0.0, scale, -vb_x * scale, -vb_y * scale);
+
+    let mut pixmap = AzulPixmap::new(target_width, target_height)
+        .ok_or_else(|| "Failed to create pixmap".to_string())?;
+    // Transparent background so the tile container shows through any gaps.
+    pixmap.fill(0, 0, 0, 0);
+    render_svg_group(svg_node, &mut pixmap, &root_transform);
+
+    let rgba = pixmap.data().to_vec();
+    let raw = azul_core::resources::RawImage {
+        pixels: azul_core::resources::RawImageData::U8(rgba.into()),
+        width: target_width as usize,
+        height: target_height as usize,
+        premultiplied_alpha: false,
+        data_format: azul_core::resources::RawImageFormat::RGBA8,
+        tag: alloc::vec::Vec::new().into(),
+    };
+    ImageRef::new_rawimage(raw).ok_or_else(|| "Failed to build ImageRef from pixmap".to_string())
+}
+
 #[cfg(all(feature = "std", feature = "xml"))]
 fn parse_viewbox(node: &azul_core::xml::XmlNode) -> Option<(f64, f64, f64, f64)> {
     let vb = node

@@ -856,7 +856,21 @@ fn pan_viewport(
 /// expects a document root; the wrapper divs are zero-impact in
 /// layout. Returns `None` if the `xml` feature is off or parsing
 /// fails — the caller then falls back to the placeholder glyph.
-#[cfg(feature = "xml")]
+// Render the decoded tile SVG to a COLOUR image node, reusing the framework's
+// `render_svg_group` rasteriser (the one that renders the tiger), which honours
+// the SVG `fill`/`stroke` attrs that `features_to_svg` emits. The DOM SVG path
+// (`str_to_dom_unstyled` → `SvgNodeData::Path`) only produces a clip mask, so it
+// cannot paint the feature colours — hence the tiles rendered grey.
+#[cfg(all(feature = "xml", feature = "cpurender"))]
+fn svg_string_to_dom(svg: &str) -> Option<Dom> {
+    let img = crate::cpurender::render_svg_to_imageref(svg.as_bytes(), 256, 256).ok()?;
+    Some(
+        Dom::create_image(img)
+            .with_css("position: absolute; left: 0; top: 0; width: 100%; height: 100%;"),
+    )
+}
+
+#[cfg(all(feature = "xml", not(feature = "cpurender")))]
 fn svg_string_to_dom(svg: &str) -> Option<Dom> {
     use azul_core::xml::{str_to_dom_unstyled, ComponentMap};
 
