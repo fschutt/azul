@@ -4102,7 +4102,23 @@ impl LayoutWindow {
 
         let current_scroll_states = self.get_nested_scroll_states(DomId::ROOT_ID);
 
-        let cursor_relative_to_item = OptionLogicalPosition::None;
+        // Resolve the cursor position *local to the dispatched node* from the
+        // current mouse hit test (the same `point_relative_to_item` the hit
+        // tester computed, and that text selection consumes). Without this
+        // `info.get_cursor_relative_to_node()` was always `None`, so any
+        // callback needing a node-local cursor (map pan/drag, custom hit
+        // logic) silently bailed. Falls back to `None` when the node isn't in
+        // the current hit test (e.g. non-pointer events).
+        let cursor_relative_to_item = match hit_dom_node.node.into_crate_internal() {
+            Some(node_id) => self
+                .hover_manager
+                .get_current(&crate::managers::hover::InputPointId::Mouse)
+                .and_then(|ht| ht.hovered_nodes.get(&hit_dom_node.dom))
+                .and_then(|hit| hit.regular_hit_test_nodes.get(&node_id))
+                .map(|item| OptionLogicalPosition::Some(item.point_relative_to_item))
+                .unwrap_or(OptionLogicalPosition::None),
+            None => OptionLogicalPosition::None,
+        };
         let cursor_in_viewport = match current_window_state.mouse_state.cursor_position.get_position() {
             Some(pos) => OptionLogicalPosition::Some(pos),
             None => OptionLogicalPosition::None,

@@ -650,6 +650,10 @@ fn invoke_pin_tap(hook: &OptionMapPinTap, info: &CallbackInfo, coord: MapLatLon)
 /// about the user's overall state RefAny — only its own dataset —
 /// so the anchor lives in `MapTileCache::drag_anchor`.
 extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
+    #[cfg(feature = "std")]
+    if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        eprintln!("[map] pointer_down fired");
+    }
     let pos = match info.get_cursor_relative_to_node().into_option() {
         Some(p) => azul_core::geom::LogicalPosition::new(p.x, p.y),
         None => return Update::DoNothing,
@@ -672,6 +676,14 @@ extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Updat
 /// the anchor to the current distance so the gesture stays
 /// continuous across many frames.
 extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    #[cfg(feature = "std")]
+    if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        let dragging = data
+            .downcast_ref::<MapTileCache>()
+            .map(|c| c.drag_anchor.is_some())
+            .unwrap_or(false);
+        eprintln!("[map] pointer_move fired (dragging={})", dragging);
+    }
     // Active pinch wins over single-finger pan.
     if let Some(pinch) = info.get_pinch().into_option() {
         let mut cache = match data.downcast_mut::<MapTileCache>() {
@@ -778,6 +790,57 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
     spawn_pending_tile_fetches(&mut data, &mut info);
     // Re-render in place so Fetching/Ready states show as tiles arrive. The
     // worker writebacks will trigger further re-renders themselves. No RefreshDom.
+    info.trigger_all_virtual_view_rerender();
+    Update::DoNothing
+}
+
+/// Mouse-wheel / trackpad scroll over the map = ZOOM (Leaflet / Google-Maps
+/// convention), not content scroll. The map's VirtualView has no scroll overflow,
+/// so the framework's queued wheel deltas would otherwise be wasted — drain them
+/// and apply as a zoom step, then queue + spawn the tiles the new zoom needs and
+/// re-render in place.
+extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    #[cfg(feature = "std")]
+    if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        eprintln!("[map] scroll fired");
+    }
+    #[cfg(feature = "std")]
+    let dy: f32 = info
+        .get_scroll_input_queue()
+        .take_all()
+        .iter()
+        .map(|s| s.delta.y)
+        .sum();
+    #[cfg(not(feature = "std"))]
+    let dy: f32 = 0.0;
+    if dy == 0.0 {
+        return Update::DoNothing;
+    }
+    // The grid's on-screen rect is the widget size (needed to recompute the tiles
+    // the new zoom needs).
+    let bounds = info
+        .get_hit_node_rect()
+        .map(|r| r.size)
+        .unwrap_or(azul_core::geom::LogicalSize::new(0.0, 0.0));
+    let (vp, hook) = {
+        let mut cache = match data.downcast_mut::<MapTileCache>() {
+            Some(c) => c,
+            None => return Update::DoNothing,
+        };
+        let min = cache.layer.min_zoom as f32;
+        let max = cache.layer.max_zoom as f32;
+        // ~0.5 zoom levels per wheel notch; scroll-down (dy > 0) zooms OUT.
+        let dz = -dy.signum() * 0.5;
+        cache.viewport.zoom = (cache.viewport.zoom + dz).clamp(min, max);
+        let vp = cache.viewport;
+        let layer = cache.layer.clone();
+        for t in map_visible_tiles(&vp, bounds, &layer) {
+            cache.tiles.entry(t).or_insert(TileEntry::Pending);
+        }
+        (vp, cache.on_viewport_changed.clone())
+    };
+    invoke_viewport_changed(&hook, &info, vp);
+    spawn_pending_tile_fetches(&mut data, &mut info);
     info.trigger_all_virtual_view_rerender();
     Update::DoNothing
 }
@@ -1061,6 +1124,33 @@ fn visible_tile_range(
     (x_min, x_max, y_min, y_max)
 }
 
+/// `f(view)` — the tile ids a `viewport` needs to fill a `bounds`-sized widget.
+/// Shared by the VirtualView render and the pan/zoom handlers so a handler can
+/// mark + spawn the NEW viewport's tiles immediately, rather than waiting for the
+/// next render pass to discover them. Mirrors `map_widget_render`'s grid math.
+fn map_visible_tiles(
+    viewport: &MapViewport,
+    bounds: azul_core::geom::LogicalSize,
+    layer: &MapTileLayer,
+) -> alloc::vec::Vec<MapTileId> {
+    let z_int =
+        (viewport.zoom.floor() as i32).clamp(layer.min_zoom as i32, layer.max_zoom as i32) as u8;
+    let tile_count = 1u32 << z_int as u32;
+    let frac_zoom = viewport.zoom - z_int as f32;
+    let zoom_scale = 2.0_f32.powf(frac_zoom);
+    let centre_x = lon_to_tile_x(viewport.centre_lon_deg, tile_count as f64) as f32;
+    let centre_y = lat_to_tile_y(viewport.centre_lat_deg, tile_count as f64) as f32;
+    let (x_min, x_max, y_min, y_max) =
+        visible_tile_range(centre_x, centre_y, bounds.width, bounds.height, zoom_scale, tile_count);
+    let mut tiles = alloc::vec::Vec::new();
+    for x in x_min..=x_max {
+        for y in y_min..=y_max {
+            tiles.push(MapTileId { z: z_int, x: x as u32, y: y as u32 });
+        }
+    }
+    tiles
+}
+
 // ────────── VirtualView callback — visible-tile rendering ─────────────
 
 extern "C" fn map_widget_render(
@@ -1183,6 +1273,43 @@ extern "C" fn map_widget_render(
     let mut grid = Dom::create_div().with_css(
         "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden;",
     );
+
+    // Pan / zoom handlers live HERE, on the VirtualView content — NOT on the
+    // outer widget div. The VirtualView renders as a separate DomId painted on
+    // top of the outer div, so pointer events hit-test to these tiles and never
+    // bubble to the outer div's handlers (which is why mouse-drag panning did
+    // nothing). `data` is the shared cache the handlers mutate; the in-place
+    // re-render they trigger re-reads it.
+    {
+        use crate::callbacks::{Callback, CallbackType};
+        use azul_core::dom::{EventFilter, HoverEventFilter};
+        grid = grid
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::MouseDown),
+                data.clone(),
+                Callback::from(map_on_pointer_down as CallbackType),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::MouseOver),
+                data.clone(),
+                Callback::from(map_on_pointer_move as CallbackType),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::MouseUp),
+                data.clone(),
+                Callback::from(map_on_pointer_up as CallbackType),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::MouseLeave),
+                data.clone(),
+                Callback::from(map_on_pointer_up as CallbackType),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::Scroll),
+                data.clone(),
+                Callback::from(map_on_scroll as CallbackType),
+            );
+    }
 
     for x in x_min..=x_max {
         for y in y_min..=y_max {

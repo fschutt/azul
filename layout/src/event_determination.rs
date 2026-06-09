@@ -285,13 +285,12 @@ pub fn determine_all_events(
         | (if current_state.mouse_state.right_down { 2 } else { 0 })
         | (if current_state.mouse_state.middle_down { 4 } else { 0 });
 
-    // Helper: get deepest hovered node as the event target for mouse events
+    // Helper: get deepest hovered node as the event target for mouse events.
+    // Multi-DOM aware: targets VirtualView / iframe child DOMs (higher DomId,
+    // composited on top) when the cursor is over them, not just the root DOM.
+    // For single-DOM apps only DomId 0 is ever hit, so this is unchanged.
     let mouse_target = hover_manager
-        .current_hover_node()
-        .map(|node_id| DomNodeId {
-            dom: DomId { inner: 0 },
-            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-        })
+        .current_hover_node_full()
         .unwrap_or(root_node.clone());
 
     // Helper: build MouseEventData for a specific button
@@ -380,8 +379,8 @@ pub fn determine_all_events(
     // Note: proper click synthesis requires tracking mousedown target across frames.
     // For now, if left mouse was released and the hover node hasn't changed, emit Click.
     if !current_state.mouse_state.left_down && previous_state.mouse_state.left_down {
-        let prev_hover = hover_manager.previous_hover_node();
-        let curr_hover = hover_manager.current_hover_node();
+        let prev_hover = hover_manager.previous_hover_node_full();
+        let curr_hover = hover_manager.current_hover_node_full();
         if prev_hover == curr_hover && curr_hover.is_some() {
             events.push(SyntheticEvent::new(
                 EventType::Click,

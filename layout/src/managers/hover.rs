@@ -12,6 +12,25 @@ use crate::hit_test::FullHitTest;
 /// Maximum number of frames to keep in hover history
 const MAX_HOVER_HISTORY: usize = 5;
 
+/// Pick the front-most deepest hovered node across all hit DOMs.
+///
+/// Iterates DOMs from highest `DomId` (most-nested child, composited on top)
+/// to lowest and returns the deepest node (last in NodeId order) of the first
+/// DOM that actually has a regular hit. See [`HoverManager::current_hover_node_full`].
+fn deepest_node_across_doms(ht: &FullHitTest) -> Option<azul_core::dom::DomNodeId> {
+    for (dom_id, hit) in ht.hovered_nodes.iter().rev() {
+        if let Some(node_id) = hit.regular_hit_test_nodes.keys().last().copied() {
+            return Some(azul_core::dom::DomNodeId {
+                dom: *dom_id,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                    node_id,
+                )),
+            });
+        }
+    }
+    None
+}
+
 /// Identifier for an input point (mouse, touch, pen, etc.)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InputPointId {
@@ -171,6 +190,28 @@ impl HoverManager {
         let dom_id = azul_core::dom::DomId { inner: 0 };
         let ht = previous.hovered_nodes.get(&dom_id)?;
         ht.regular_hit_test_nodes.keys().last().copied()
+    }
+
+    /// Multi-DOM aware: the deepest hovered node across ALL hit DOMs (current
+    /// frame). Returns a full `DomNodeId` so events can target VirtualView /
+    /// iframe child DOMs, not just the root.
+    ///
+    /// Selection rule: prefer the most-nested DOM that was hit. Child DOMs
+    /// (VirtualView / iframe content) always have higher `DomId`s than their
+    /// host and are composited on top of it, so the highest hit `DomId` is the
+    /// front-most surface. Within that DOM the deepest node (last in NodeId
+    /// order) is the W3C event target; bubbling then reaches ancestor handlers.
+    ///
+    /// For single-DOM apps only `DomId 0` is ever hit, so this is equivalent to
+    /// [`current_hover_node`] wrapped in `DomId { inner: 0 }`.
+    pub fn current_hover_node_full(&self) -> Option<azul_core::dom::DomNodeId> {
+        deepest_node_across_doms(self.get_current_mouse()?)
+    }
+
+    /// Multi-DOM aware counterpart of [`previous_hover_node`] (one frame ago).
+    pub fn previous_hover_node_full(&self) -> Option<azul_core::dom::DomNodeId> {
+        let history = self.hover_histories.get(&InputPointId::Mouse)?;
+        deepest_node_across_doms(history.get(1)?)
     }
 
     /// Remap NodeIds in all hover histories after DOM reconciliation.
