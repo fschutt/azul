@@ -1170,6 +1170,26 @@ impl RemillTranspiler {
                     }
                 }
             }
+            // [AZ_REG_TRACE=<fn-stem>] Execution-differ register tracer. Logs every `store i64 %v, ptr %X<n>`
+            // (and %SP) for the watched fn to ring 0xF0000 (counter 0xEFFF0, 8B slots: reg_id@0, val_lo32@4).
+            // Captures the runtime VALUES the lift assigns to the guest GPRs in program order → compare the
+            // resize's &self.table base (X19) vs the find's (X26) + their input chain (X23, X20-X28) against a
+            // native lldb dump at the same PCs → the first divergent reg brackets the mis-lifted instruction.
+            if let Ok(target) = std::env::var("AZ_REG_TRACE") {
+                let matched = target == "ALL"
+                    || target
+                        .split(',')
+                        .any(|s| !s.is_empty() && (fn_name.contains(s) || stem.contains(s)));
+                if matched {
+                    if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                        let (traced, n) = instrument_reg_stores(&opt_ir);
+                        if n > 0 {
+                            let _ = std::fs::write(&opt_ir_path, &traced);
+                            eprintln!("[azul-web] AZ_REG_TRACE: traced {} GPR stores in {}", n, stem);
+                        }
+                    }
+                }
+            }
 
 
             // M12.7 (DEFAULT; AZ_NO_TRAP_SELFLOOP=1 to disable): rewrite empty
@@ -2860,11 +2880,21 @@ fn inject_user_binary_data_segments(
         let eg = super::symbol_table::find_hashbrown_empty_group_ranges();
         let mut appended = 0usize;
         let mut bytes = 0usize;
+        // [g212 DIAG] When set, log native/synth/trunc for every EMPTY_GROUP run so we can
+        // compare against the AZ_READ_TRACE ctrl-read address and learn WHICH offset the
+        // lifted probe actually reads (synth-packed vs low-32 truncation).
+        let eg_trace = std::env::var_os("AZ_EMPTY_GROUP_TRACE").is_some();
         for &(target, len) in eg {
             if let Some(synth) = table.native_to_synth(target) {
                 segments.push((synth as u32, vec![0xFFu8; len]));
                 appended += 1;
                 bytes += len;
+                if eg_trace {
+                    eprintln!(
+                        "[azul-web] EG-RUN {}: native=0x{:x} synth=0x{:x} trunc=0x{:x} len={}",
+                        output_stem, target, synth, (target as u64) & 0xFFFF_FFFF, len,
+                    );
+                }
             }
         }
         if appended > 0 {
@@ -5523,6 +5553,66 @@ fn parse_volatile_double_load(line: &str) -> Option<String> {
     Some(ptr_op)
 }
 
+/// [AZ_REG_TRACE] Instrument every `store i64 %v, ptr %X<n>` / `%SP` for the watched GPRs (X0, X19..X28, SP)
+/// to the 0xF0000 ring (8192 x 8B: reg_id@0, val_lo32@4; counter 0xEFFF0). Captures the runtime VALUES the lift
+/// assigns to the guest registers in program order → execution-differ vs a native lldb dump.
+fn instrument_reg_stores(opt_ir: &str) -> (String, u32) {
+    let mut out = String::with_capacity(opt_ir.len() + (1 << 14));
+    let mut k: u32 = 0;
+    for line in opt_ir.lines() {
+        if let Some((reg_id, val_op)) = parse_reg_store(line) {
+            let indent: String = line.chars().take_while(|c| *c == ' ').collect();
+            out.push_str(&format!(
+                "{indent}%gtc_{k} = load volatile i32, ptr inttoptr (i32 983024 to ptr), align 4\n\
+                 {indent}%gtm_{k} = and i32 %gtc_{k}, 8191\n\
+                 {indent}%gto_{k} = mul i32 %gtm_{k}, 8\n\
+                 {indent}%gtsa_{k} = add i32 983040, %gto_{k}\n\
+                 {indent}%gtrp_{k} = inttoptr i32 %gtsa_{k} to ptr\n\
+                 {indent}store volatile i32 {reg_id}, ptr %gtrp_{k}, align 4\n\
+                 {indent}%gtva_{k} = add i32 %gtsa_{k}, 4\n\
+                 {indent}%gtvp_{k} = inttoptr i32 %gtva_{k} to ptr\n\
+                 {indent}%gtv_{k} = trunc i64 {val_op} to i32\n\
+                 {indent}store volatile i32 %gtv_{k}, ptr %gtvp_{k}, align 4\n\
+                 {indent}%gtc2_{k} = add i32 %gtc_{k}, 1\n\
+                 {indent}store volatile i32 %gtc2_{k}, ptr inttoptr (i32 983024 to ptr), align 4\n"
+            ));
+            k += 1;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    (out, k)
+}
+
+/// Parse `store i64 <val>, ptr %X<n>|%SP, ...` for the watched GPRs; returns (reg_id, val_operand). reg_id =
+/// the register number (0, 19..28); SP=99. Only SSA (`%`) values (= computed addresses); skips constants/W-regs.
+fn parse_reg_store(line: &str) -> Option<(u32, String)> {
+    let t = line.trim_start();
+    if !t.starts_with("store i64 ") {
+        return None;
+    }
+    let rest = &t["store i64 ".len()..];
+    let comma = rest.find(", ptr %")?;
+    let val_op = rest[..comma].trim().to_string();
+    if !val_op.starts_with('%') {
+        return None;
+    }
+    let after = &rest[comma + ", ptr %".len()..];
+    let reg_end = after.find(',').unwrap_or(after.len());
+    let reg_name = &after[..reg_end];
+    let reg_id: u32 = if reg_name == "SP" {
+        99
+    } else if let Some(num) = reg_name.strip_prefix('X') {
+        match num.parse::<u32>() {
+            Ok(n) if n == 0 || (19..=28).contains(&n) => n,
+            _ => return None,
+        }
+    } else {
+        return None;
+    };
+    Some((reg_id, val_op))
+}
+
 /// Parse a lifted call `%N = [tail ]call ptr @sub_<hex>(ptr [nonnull ]%S, ...`
 /// (or `@__remill_function_call(ptr %S, ...)`), returning `(result_ssa, state_arg_ssa)`.
 /// `None` for other calls.
@@ -6017,6 +6107,95 @@ fn emit_helper_ir(
                     x0_off = x0_off,
                     x1_off = x0_off + 16,
                     x2_off = x0_off + 32,
+                ));
+            }
+            // LibcSnprintf: minimal libc snprintf/vsnprintf for the "%d" format.
+            //   AArch64 ABI for __snprintf_chk(buf,maxlen,flag,slen,fmt,...):
+            //   X0=buf, X4=fmt, X5=first vararg; returns the written length in X0.
+            //   The real symbol is out-of-image, so the default Leaf stub returns
+            //   WITHOUT writing → empty buffer (e.g. hello-world's
+            //   snprintf(buf,20,"%d",counter) leaves the counter label EMPTY →
+            //   height-0 wrapper). We ONLY activate for the exact format "%d\0"
+            //   (3 bytes read at X4 == '%','d','\0') so any other snprintf use
+            //   falls through to the no-op (X0=0) unchanged. For "%d" we itoa the
+            //   NON-NEGATIVE i32 vararg into the buffer + NUL-terminate, and return
+            //   the digit count in X0 (the caller uses it as the AzString length).
+            //   Two SSA loops: count digits (udiv by 10), then write them MSD→LSD
+            //   at buf[cdn-1..0]. Both terminate (udiv reaches 0; <=10 digits).
+            Some(SymFnClass::LibcSnprintf) => {
+                branch_stubs.push_str(&format!(
+                    "; libc snprintf \"%d\" body for {sym} (X0=buf, X4=fmt, X5=arg)\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) {{\n  \
+                       %buf_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
+                       %buf_i64_{n} = load i64, ptr %buf_p_{n}, align 8\n  \
+                       %buf_i32_{n} = trunc i64 %buf_i64_{n} to i32\n  \
+                       %fmt_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x4_off}\n  \
+                       %fmt_i64_{n} = load i64, ptr %fmt_p_{n}, align 8\n  \
+                       %fmt_i32_{n} = trunc i64 %fmt_i64_{n} to i32\n  \
+                       %f0a_{n} = inttoptr i32 %fmt_i32_{n} to ptr\n  \
+                       %f0_{n} = load i8, ptr %f0a_{n}, align 1\n  \
+                       %f1i_{n} = add i32 %fmt_i32_{n}, 1\n  \
+                       %f1a_{n} = inttoptr i32 %f1i_{n} to ptr\n  \
+                       %f1_{n} = load i8, ptr %f1a_{n}, align 1\n  \
+                       %f2i_{n} = add i32 %fmt_i32_{n}, 2\n  \
+                       %f2a_{n} = inttoptr i32 %f2i_{n} to ptr\n  \
+                       %f2_{n} = load i8, ptr %f2a_{n}, align 1\n  \
+                       %c0_{n} = icmp eq i8 %f0_{n}, 37\n  \
+                       %c1_{n} = icmp eq i8 %f1_{n}, 100\n  \
+                       %c2_{n} = icmp eq i8 %f2_{n}, 0\n  \
+                       %c01_{n} = and i1 %c0_{n}, %c1_{n}\n  \
+                       %cok_{n} = and i1 %c01_{n}, %c2_{n}\n  \
+                       br i1 %cok_{n}, label %fmtok_{n}, label %stub_{n}\n\
+                     stub_{n}:\n  \
+                       store i64 0, ptr %buf_p_{n}, align 8\n  \
+                       ret ptr %memory\n\
+                     fmtok_{n}:\n  \
+                       %arg_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x5_off}\n  \
+                       %arg_i64_{n} = load i64, ptr %arg_p_{n}, align 8\n  \
+                       %arg_{n} = trunc i64 %arg_i64_{n} to i32\n  \
+                       %isz_{n} = icmp eq i32 %arg_{n}, 0\n  \
+                       br i1 %isz_{n}, label %zero_{n}, label %count_{n}\n\
+                     zero_{n}:\n  \
+                       %zbuf_{n} = inttoptr i32 %buf_i32_{n} to ptr\n  \
+                       store i8 48, ptr %zbuf_{n}, align 1\n  \
+                       %znti_{n} = add i32 %buf_i32_{n}, 1\n  \
+                       %znta_{n} = inttoptr i32 %znti_{n} to ptr\n  \
+                       store i8 0, ptr %znta_{n}, align 1\n  \
+                       store i64 1, ptr %buf_p_{n}, align 8\n  \
+                       ret ptr %memory\n\
+                     count_{n}:\n  \
+                       %cv_{n} = phi i32 [ %arg_{n}, %fmtok_{n} ], [ %cvn_{n}, %count_{n} ]\n  \
+                       %cd_{n} = phi i32 [ 0, %fmtok_{n} ], [ %cdn_{n}, %count_{n} ]\n  \
+                       %cvn_{n} = udiv i32 %cv_{n}, 10\n  \
+                       %cdn_{n} = add i32 %cd_{n}, 1\n  \
+                       %cdone_{n} = icmp eq i32 %cvn_{n}, 0\n  \
+                       br i1 %cdone_{n}, label %wr_{n}, label %count_{n}\n\
+                     wr_{n}:\n  \
+                       %wv_{n} = phi i32 [ %arg_{n}, %count_{n} ], [ %wvn_{n}, %wr_{n} ]\n  \
+                       %wi_{n} = phi i32 [ %cdn_{n}, %count_{n} ], [ %win_{n}, %wr_{n} ]\n  \
+                       %wvn_{n} = udiv i32 %wv_{n}, 10\n  \
+                       %wrem_{n} = urem i32 %wv_{n}, 10\n  \
+                       %wdig_{n} = add i32 %wrem_{n}, 48\n  \
+                       %wdig8_{n} = trunc i32 %wdig_{n} to i8\n  \
+                       %win_{n} = sub i32 %wi_{n}, 1\n  \
+                       %wai_{n} = add i32 %buf_i32_{n}, %win_{n}\n  \
+                       %wa_{n} = inttoptr i32 %wai_{n} to ptr\n  \
+                       store i8 %wdig8_{n}, ptr %wa_{n}, align 1\n  \
+                       %wdone_{n} = icmp eq i32 %win_{n}, 0\n  \
+                       br i1 %wdone_{n}, label %fin_{n}, label %wr_{n}\n\
+                     fin_{n}:\n  \
+                       %nti_{n} = add i32 %buf_i32_{n}, %cdn_{n}\n  \
+                       %nta_{n} = inttoptr i32 %nti_{n} to ptr\n  \
+                       store i8 0, ptr %nta_{n}, align 1\n  \
+                       %len64_{n} = zext i32 %cdn_{n} to i64\n  \
+                       store i64 %len64_{n}, ptr %buf_p_{n}, align 8\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                    n = n_suffix,
+                    x0_off = x0_off,
+                    x4_off = x0_off + 64,
+                    x5_off = x0_off + 80,
                 ));
             }
             // BumpDealloc: __rust_dealloc(ptr, size, align). Bump-only

@@ -192,6 +192,17 @@ pub enum FnClass {
     /// sizing hang in `calculate_intrinsic_sizes`). Helper IR emits a real
     /// `@llvm.memset` body — see `emit_helper_ir`.
     LibcMemset,
+    /// libc `snprintf` / `vsnprintf` (and `_chk` spellings). AArch64 ABI for
+    /// `__snprintf_chk(buf, maxlen, flag, slen, fmt, ...)`: X0=buf, X1=maxlen,
+    /// X4=fmt, X5=first vararg; returns the written length in X0. Out-of-image
+    /// like `LibcMemcpy`/`LibcMemset`, so the default `Leaf` stub returns WITHOUT
+    /// writing the buffer → e.g. hello-world's `snprintf(buf,20,"%d",counter)`
+    /// leaves the counter label EMPTY (a height-0 wrapper). Helper IR emits a
+    /// minimal real body that handles ONLY the `"%d"` format (verified by reading
+    /// 3 bytes at X4) and itoa's the non-negative i32 vararg; any other format
+    /// falls through to the no-op so unrelated snprintf uses are unaffected.
+    /// See `emit_helper_ir` BranchExternKind::LibcSnprintf.
+    LibcSnprintf,
     /// Server-entry-point (e.g. `AzApp_run`). Should never appear in
     /// a lifted body; if it does, the helper IR should trap loudly.
     NeverLift,
@@ -739,6 +750,9 @@ impl SymbolTable {
                     // LibcMemset: same — out-of-image but has a synthetic
                     // `@llvm.memset` body; don't downgrade to a no-op Leaf.
                     | FnClass::LibcMemset
+                    // LibcSnprintf: same — out-of-image but has a synthetic
+                    // "%d" formatter body; don't downgrade to a no-op Leaf.
+                    | FnClass::LibcSnprintf
             ) {
                 continue;
             }
@@ -1773,6 +1787,13 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
         if core.starts_with("memset") {
             return FnClass::LibcMemset;
         }
+        // libc `snprintf` / `vsnprintf` (+ `_chk` spellings, e.g. `__snprintf_chk`
+        // → stripped `snprintf_chk`). Out-of-image; the no-op Leaf stub leaves the
+        // caller's buffer empty (e.g. hello-world's counter label → height-0).
+        // Emit a minimal "%d" formatter body.
+        if core.starts_with("snprintf") || core.starts_with("vsnprintf") {
+            return FnClass::LibcSnprintf;
+        }
     }
     // std HashMap entropy source. `std::sys::random::hashmap_random_keys`
     // seeds `RandomState`'s SipHash keys via a getentropy syscall that can't be
@@ -2297,6 +2318,13 @@ fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
         let img_hi = maxv.wrapping_add(slide);
         // Locate __TEXT.__text (native range, mapped r-x → readable).
         let mut text: Option<(usize, usize)> = None; // (native_lo, size)
+        // [g211] Also locate const DATA sections (`__const` in any segment) so we can
+        // signature-scan them for hashbrown's EMPTY_GROUP. EMPTY_GROUP is reached only
+        // via the empty-table singleton's REBASED `ctrl` data-pointer — never a direct
+        // `adrp`/`add` in code — so the instruction scan below structurally misses it,
+        // and an empty map's ctrl-scan then reads 0x00 → "all-FULL" → RawIterRange loops
+        // forever → text shaping hangs.
+        let mut const_secs: Vec<(usize, usize)> = Vec::new(); // (native_lo, size)
         for lc in &macho.load_commands {
             let CommandVariant::Segment64(seg64) = &lc.command else { continue };
             let sections_off = lc.offset + SIZEOF_SEGMENT_COMMAND_64;
@@ -2308,8 +2336,11 @@ fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
                 let Some(s) = parse_section64(&img.bytes[so..so + SIZEOF_SECTION_64]) else {
                     continue;
                 };
-                if trim_macho_name(&s.sectname) == "__text" {
+                let nm = trim_macho_name(&s.sectname);
+                if nm == "__text" {
                     text = Some(((s.addr as usize).wrapping_add(slide), s.size as usize));
+                } else if nm == "__const" && s.size > 0 {
+                    const_secs.push(((s.addr as usize).wrapping_add(slide), s.size as usize));
                 }
             }
         }
@@ -2375,6 +2406,48 @@ fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
                 }
             }
             o += 4;
+        }
+        // [g211/g213] Signature-scan const DATA for hashbrown's EMPTY_GROUP (the empty-map
+        // ctrl singleton). It is reached ONLY via the empty-table's REBASED `ctrl` data-
+        // pointer — never a direct `adrp`/`add` in code — so the instruction scan above
+        // structurally misses it; un-mirrored, the empty map's ctrl-scan then reads 0x00 →
+        // looks "all-FULL" → the find probe loops forever → text shaping hangs. Mirroring
+        // 0xFF bytes that ARE 0xFF in the native image is always correct (over-matching a
+        // few incidental runs is harmless), each run capped at 256 B, deduped via `seen`
+        // against the code scan above. See the run-length note below for WIDTH=8 vs 16.
+        for &(sec_lo, sec_size) in &const_secs {
+            if sec_lo < img_lo || sec_lo.wrapping_add(sec_size) > img_hi {
+                continue;
+            }
+            // SAFETY: __const lives in a mapped, read-only image segment for the process
+            // lifetime; reading `sec_size` contiguous bytes is sound.
+            let blob = unsafe { core::slice::from_raw_parts(sec_lo as *const u8, sec_size) };
+            let mut i = 0usize;
+            while i < sec_size {
+                if blob[i] != 0xFF {
+                    i += 1;
+                    continue;
+                }
+                let start = i;
+                while i < sec_size && blob[i] == 0xFF {
+                    i += 1;
+                }
+                let run_len = i - start;
+                let target = sec_lo + start;
+                // >= 8 contiguous 0xFF, 8-aligned. The PORTABLE hashbrown Group is
+                // WIDTH = size_of::<usize>() = 8 on this build (NOT the 16-byte NEON Group),
+                // so its `static_empty()` is `[0xFF; 8]` — an 8-byte, 8-aligned (NOT
+                // 16-aligned) run. g212 AZ_READ_TRACE PROVED the empty-map ctrl-scan reads
+                // exactly such a run (synth 0x41c0088 → libazul __TEXT.__const file 0x40b0088
+                // = 0xFF×8); an earlier `>= 16` filter missed it and the probe read 0x00 →
+                // looked all-FULL → spun. Mirroring 8-byte runs also matches incidental i64
+                // `-1` constants, but that is harmless: every byte we write IS 0xFF in the
+                // native image, so it can never flip a value the lift needs (a 0xFFFF_FFFF_
+                // FFFF_FFFF value is never a translatable pointer). ~1.6k runs / ~16 KiB.
+                if run_len >= 8 && (target & 0x7) == 0 && seen.insert(target) {
+                    out.push((target, core::cmp::min(run_len, 256)));
+                }
+            }
         }
     }
     out

@@ -5645,19 +5645,12 @@ impl TextShapingCache {
             core::ptr::write_volatile(0x60BD0 as *mut u32, content as *const _ as usize as u32);
             core::ptr::write_volatile(0x60BD4 as *mut u32, content.len() as u32 | 0xC0DE0000);
         }
-        // [g158 az-web-lift] FORCE-MATERIALIZE content's len — the load-bearing correctness fix. On the remill
-        // lift the optimizer SROAs `content.len()` in `content.to_vec()` below into a STALE SSA value (the
-        // Vec::new len=0, forwarded across the inlined collect_and_measure→layout_flow call) → to_vec clones 0
-        // → empty content → nested text never lays out. A VOLATILE read of the Vec header's len field
-        // [content+16] reads the REAL len and pins it (volatile thanks to the volatile-guest-loads transpiler
-        // fix). This makes hello-world's nested text POSITION. KEEP until the transpiler SROA-forwarding fix
-        // lands; then revert this + force_ifc + the out-param hacks. (web_lift-gated; native untouched.)
-        #[cfg(feature = "web_lift")]
-        {
-            let _az_forced_len =
-                unsafe { core::ptr::read_volatile((content as *const _ as usize + 16) as *const usize) };
-            core::hint::black_box(_az_forced_len);
-        }
+        // [g218 2026-06-09] The g158 `content.len()` force-materialize (a volatile read of content+16) is
+        // DELETED: the within-fn SROA-to-0 of content.len() it worked around is now fixed (NEON-decoder +
+        // volatile-guest-load transpiler work). VERIFIED: hello-world lays out without it — counter "5"
+        // (label_wrapper 8,16,784,40) + button shape correctly, same rects as before. (The cross-FN Vec-*return*-
+        // len mis-lift is a separate, still-present issue handled by the g127/g129/g130 out-param hacks — see
+        // g134 marker: callee content.len=1 but the caller's return-read sees 0.)
         // --- Stages 1-3: Preparation ---
         // These stages are independent of the final geometry. We perform them once
         // on the entire content block before flowing. Caching is used at each stage.
@@ -5673,40 +5666,14 @@ impl TextShapingCache {
         let logical_items_id = calculate_id(&content);
         // [az-web-lift] create_logical_items takes &Vec now; this flow entry has a slice → Vec.
         let content_vec_flow = content.to_vec();
-        // [g180 az-web-lift] BYPASS the `self.logical_items` HashMap cache: the hashbrown SwissTable probe
-        // INFINITE-LOOPS on the web lift (root-caused g178-g189 to a barrier-defeatable optimizer mis-transform
-        // of guest mem ops across an inline-cloned alias scope; the real transpiler fix = a barrier pass, NOT
-        // yet landed — AZ_NO_HOST_SCOPE alone does NOT fix it, g189). Build the Arc directly. web_lift-gated;
-        // native keeps the cache. REVERT once the barrier fix lands (then delete g115/g118/g180 together).
-        // [g180 az-web-lift] BYPASS the `self.logical_items` HashMap cache: entry() hangs on the web lift.
-        // ROOT CAUSE NARROWED (g192, fuel-free static opt.ll analysis): the hashbrown probe + ctrl-init lift
-        // FAITHFULLY (volatile guest loads, 0xFF init store present + not DSE'd) ⇒ the IR is CORRECT; the bug
-        // is correct-IR-MIS-EXECUTES at the llc wasm-codegen/runtime level (the cron's exact framing). Build
-        // the Arc directly. web_lift-gated; native keeps the cache. REVERT once the wasm-codegen fix lands.
-        // [g180 az-web-lift] BYPASS the `self.logical_items` HashMap cache: entry() hangs on the web lift
-        // (correct IR mis-executes at the wasm-codegen layer, g192; NOT decoder/optimizer/SIMD, all disproven).
-        // Build the Arc directly; web_lift-gated, native keeps the cache. REVERT once the codegen fix lands.
-        // [g180 az-web-lift] BYPASS the `self.logical_items` HashMap cache: entry() hangs on the web lift.
-        // ROOT CAUSE (g198-g200, fuel + KEEP_SCRATCH IR trace): the hang is `find_insert_slot`'s probe inside
-        // entry()'s INTERNAL resize. The ctrl fill is CORRECT (memset 12B 0xFF at heap 0x62912f0, g200), but the
-        // resize's `self.table = new_table` copy writes self.table at base `trunc(*(X19))+64` while the find reads
-        // self.table.ctrl at `trunc(*(X26))+0` — the two bases DIVERGE in the INLINED resize (a remill register/
-        // base-tracking mis-lift) → the find probes a stale/zero ctrl → reads 0x00 low memory → never finds EMPTY
-        // → spins. An explicit `self.logical_items.reserve(1)` before entry() FIXES it (g197, separate call keeps
-        // the bases consistent), but the bypass is more robust (covers multi-insert). web_lift-gated; native keeps
-        // the cache. REVERT once the remill X19/X26 base mis-lift is fixed (then delete g115/g118/g180 + reserve).
-        // [g202/g203 RESULT — RUNTIME-PROVEN root cause] AZ_READ_TRACE showed the find spins reading ctrl from a
-        // CONSTANT 0x41bfc08 (the PRE-resize EMPTY self.table: ctrl=static_empty, bucket_mask=0), while the resize
-        // wrote the new table {ctrl=0x6291300, mask=1} to a DIFFERENT base. g203 fork: find base = X26=*(W0)
-        // [early], resize base = X19=phi+adds [in-resize] → two self.table objects; the find reads the stale one.
-        // = a &mut-self / self-update-target mis-lift in the inlined hashbrown resize (remill). Bypass until fixed:
-        #[cfg(feature = "web_lift")]
-        let logical_items = {
-            let mut li = Vec::new();
-            create_logical_items(&content_vec_flow, style_overrides, &mut li, debug_messages);
-            Arc::new(li)
-        };
-        #[cfg(not(feature = "web_lift"))]
+        // [g213 2026-06-09] The web lift uses the real `self.logical_items` HashMap cache (NO bypass).
+        // This entry() find-probe USED to spin forever on the lift (g178-g210 mis-diagnosed it many ways).
+        // TRUE root cause: hashbrown's portable WIDTH=8 `Group::static_empty()` — `[0xFF; 8]` in libazul's
+        // `__TEXT.__const` — was not mirrored into the wasm, so the empty-map ctrl-scan read 0x00, looked
+        // ALL-FULL (EMPTY=0xFF), and the probe never terminated. FIXED entirely transpiler-side in
+        // `dll/src/web/symbol_table.rs::compute_hashbrown_empty_group_ranges` (signature-scans `__const`
+        // for >=8-byte 8-aligned 0xFF runs and mirrors them). Verified: web-nested-text lays out
+        // ("Hello" at 8,16,800,20), __remill_error=0. No azul-source workaround needed here.
         let logical_items = self
             .logical_items
             .entry(logical_items_id)
@@ -5762,12 +5729,8 @@ impl TextShapingCache {
             base_direction,
         };
         let visual_items_id = calculate_id(&visual_key);
-        // [g180 az-web-lift] BYPASS the visual_items HashMap cache (see Stage-1 note).
-        #[cfg(feature = "web_lift")]
-        let visual_items = Arc::new(
-            reorder_logical_items(&logical_items, base_direction, unicode_bidi_val, debug_messages).unwrap(),
-        );
-        #[cfg(not(feature = "web_lift"))]
+        // [g213] web lift uses the real visual_items HashMap cache (g180 bypass deleted; WIDTH=8
+        // EMPTY_GROUP now mirrored — see Stage-1 note + symbol_table.rs).
         let visual_items = self
             .visual_items
             .entry(visual_items_id)
@@ -5782,21 +5745,7 @@ impl TextShapingCache {
         // Two-level cache: monolithic (fast path) + per-item (incremental path).
         let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
         let shaped_items_id = calculate_id(&shaped_key);
-        // [g180 az-web-lift] BYPASS the shaped_items HashMap cache (see Stage-1 note). Shape directly.
-        #[cfg(feature = "web_lift")]
-        let shaped_items = {
-            let _ = shaped_items_id;
-            Arc::new(shape_visual_items_with_per_item_cache(
-                &visual_items,
-                &mut self.per_item_shaped,
-                &mut self.per_item_accessed,
-                font_chain_cache,
-                fc_cache,
-                loaded_fonts,
-                debug_messages,
-            )?)
-        };
-        #[cfg(not(feature = "web_lift"))]
+        // [g213] web lift uses the real shaped_items HashMap cache (g180 bypass deleted).
         let shaped_items = match self.shaped_items.get(&shaped_items_id) {
             Some(cached) => {
                 // Monolithic cache hit — all visual items unchanged

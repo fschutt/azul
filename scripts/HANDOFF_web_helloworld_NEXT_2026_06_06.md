@@ -2211,3 +2211,384 @@ entry rebuild, `otool -tV` the layout_flow sub_<hex>, locate the resize block's 
 field offset) to the lifted %119/%129/X23 — find the ONE instr remill mis-models (semantic, NOT a decode gap:
 layout_flow lifts __remill_error=0). Fix = remill semantic OR transpiler post-pass. This is a focused remill
 session (otool correlation + submodule change + ninja), not cheap autopilot analysis — IR tracing is exhausted.
+
+## g205 (2026-06-09): EXECUTION-DIFFER built (AZ_REG_TRACE) → divergence pinned to VALUE level. COMMITTED root cause.
+User: "commit then build the execution-differ." Committed 76e4307c9. Built AZ_REG_TRACE (transpiler:
+instrument_guest_double_reads sibling instrument_reg_stores + parse_reg_store; logs every `store i64 %v, ptr
+%X<n>|%SP` for X0/X19-28/SP → ring 0xF0000/ctr 0xEFFF0, 8B: reg_id@0 val_lo32@4; harness g205 dump checks the
+X19+64==X26 invariant). Ran bare entry + AZ_REG_TRACE=layout_flow + AZ_FUEL. RESULT (9 GPR stores before the
+spin): find base = 0x2e0e8 (ABOVE SP=0x27e40 → the CALLER'S frame = the real &self.logical_items.table field);
+the copy/resize bases are near-SP STACK LOCALS (X24=0x27fe0, X27=0x27eb8, all ~0x27exx). NONE of them == 0x2e0e8.
+⇒ THE RESIZE WRITES THE NEW TABLE TO A STACK-LOCAL `new_table` (near SP, current frame) INSTEAD OF THE REAL
+  &self.table (0x2e0e8, caller frame) → the field keeps the empty table → the find reads it → spins. The
+  execution-differ CONFIRMED the divergence at the value level (the find's &self.table is correct/caller-frame;
+  the resize's is a wrong/current-frame local). NOTE: AZ_REG_TRACE "last-of-each" is post-copy for some regs
+  (register reuse) — read the per-store SEQUENCE (#0..#8) + correlate to the IR for the exact copy-base reg.
+NEXT (g206, IN FLIGHT): relift g205 build + KEEP_SCRATCH → in layout_flow opt.ll, find the copy (18 `store
+volatile i64` to base+64) + its base register, and the find's self.table load base register; map to the reg-trace
+values → the instruction computing the copy's near-SP base (vs the find's caller-frame &self.table) is THE
+mis-lifted instruction (likely an SP-relative addressing of &self.table where native uses the caller-passed &self).
+Fix = remill semantic OR transpiler post-pass. AZ_REG_TRACE kept (env-gated tool). cache.rs = bare entry (g205
+TEMP, restore g180 bypass). Disk: clean azul-web-transpiler-* after (13GB ENOSPC hazard).
+
+## g207 (2026-06-09): ★★★ EXECUTION-DIFFER NAILS IT — the resize NEVER writes self.table back to the real field.
+Ran AZ_WRITE_TRACE + AZ_REG_TRACE TOGETHER (one run) + saved the IR (/tmp/g206_layout_flow.opt.ll). DECISIVE,
+runtime-proven + IR-confirmed:
+  • REG: find reads self.table from X26 = 0x2e0e8 (= *(W0) captured early @IR line 121; 0x62a8 ABOVE SP=0x27e40
+    → the CALLER's frame = the real &self.logical_items.table field, holding the empty table). CORRECT.
+  • WRITE: the resize's self.table.ctrl write-backs ALL land on near-SP CURRENT-FRAME LOCALS (0x27e90=SP+0x50,
+    0x27ea0=SP+0x60, 0x28080=SP+0x240, 0x28178). *0x28178=0x62910c8 then *0x27e90=0x62910c8 = a new_table→local
+    copy. NO write-trace entry EVER hit 0x2e0e8 (the real field).
+  • IR PROOF: %p.i1231 (= inttoptr(trunc(load[X26])) = the find's self.table.ctrl addr) is ONLY LOADED (lines
+    940,943), NEVER the dest of any store. X26 is loaded 10+ places, never the base of a self.table write.
+⇒ ROOT CAUSE (the cron's deep-fix, FOUND via the differ): the inlined hashbrown resize builds new_table + does
+  its rehash ENTIRELY on layout_flow's CURRENT-FRAME stack locals, and the final write-back / swap into the REAL
+  &self.table (X26 = caller frame, 0x2e0e8) is MISSING / mis-targeted → self.table stays the pre-resize EMPTY
+  table → the find reads it (X26) → probes static_empty → spins. NOT Vec-len, NOT reorder, NOT fill, NOT a single
+  decode. It is a &mut-self / self-update write-back DROP in remill's lift of the inlined resize.
+  (Caveat: block-level IR mapping is hard in the 3832-byte inlined fn — sub_b15568 = InlineContent::clone (the
+  to_vec), NOT the resize; the resize helper call is elsewhere. But the VALUE-level proof above is block-agnostic
+  and solid: no store reaches X26.) The execution-differ (AZ_REG_TRACE, committed-pending) achieved the goal.
+NEXT (the FIX): find the resize helper call (hashbrown reserve_rehash/resize_inner) + its &mut self.table arg —
+  it gets a current-frame local instead of X26; OR the post-resize swap store to &self.table is DSE'd/dropped.
+  Then fix remill (the dropped/mis-targeted self-write-back) OR a transpiler post-pass. The lifted differ has
+  taken it as far as it can (faithful IR); pinning the single instr now needs the NATIVE side (otool the resize's
+  &mut self.table setup) OR finding the dropped swap-store in the opt.ll. AZ_REG_TRACE kept (env-gated tool).
+
+## g208 (2026-06-09): ★★ BUG IS IN reserve_rehash, NOT layout_flow — narrowed via NATIVE DISASM + the differ.
+NATIVE DISASM of the bare-entry dylib (otool, no run): layout_flow's resize @0x9ec534 = `add x2,x26,#0x20; mov x0,
+x26; mov w1,#1; bl reserve_rehash17h502350ffd67efacd; b <re-probe>`. So native layout_flow CORRECTLY passes
+X0=X26=&self.table to reserve_rehash (a trivial mov, faithfully lifted). The probe @0x9eb894+ reads self.table via
+X26 (ldr [x26], [x26,#8], [x26,#0x10]=growth_left; cbz→resize). reserve_rehash IS lifted (Recursable, size 1480,
+NOT stubbed). Native reserve_rehash write-back = `str x21,[x19]; str x22,[x19,#8]; str x8,[x19,#0x10]` @0x3a085ac
+(x19=mov x0=&self.table). ⇒ THE DROPPED self.table WRITE-BACK IS INSIDE lifted reserve_rehash (my layout_flow-
+scoped differ never traced it). g208 trace of reserve_rehash (502350ff): it received X0=0x2b850 (#3 X19=mov x0)
+and WROTE self.table there (#13 [0x2b850]<-ctrl 0x61c3e58, #14 [0x2b858]<-mask 3). So reserve_rehash DID write a
+valid self.table — to 0x2b850. The hang ⇒ the find reads from a DIFFERENT &self.table than 0x2b850. NEXT (g209,
+IN FLIGHT): trace layout_flow X26 (find &self.table) + reserve_rehash write-addr in ONE run → if X26==reserve_
+rehash's write-addr ⇒ TIMING/stale-read bug; if differ ⇒ the X0 POINTER diverged across the lifted call
+(per-function stack relocation / __remill_function_call arg-passing mis-translates the &self.table pointer from
+the caller's stack region to the callee's). The latter would be a systemic remill cross-fn pointer-arg bug. Native
+disasm method WORKS + is cheap (otool the bare-entry dylib, no relift). Disk watched (cleaned each cycle).
+
+## g209 (2026-06-09): ★★★★ ROOT CAUSE FULLY CONFIRMED — caller-stack pointer arg doesn't cross the lifted call.
+ONE run, two rings: AZ_REG_TRACE=layout_flow (find &self.table=X26) + AZ_WRITE_TRACE=502350ff (reserve_rehash's
+self.table write). RESULT: layout_flow find reads self.table from **X26=0x2e0e8** (SP=0x27e40); reserve_rehash
+writes self.table.ctrl to **0x2b850 / 0x2b6d0** (its OWN stack, SP=0x2b720). 0x2e0e8 ≠ 0x2b850 → THE &self.table
+POINTER DOES NOT SURVIVE THE LIFTED layout_flow→reserve_rehash CALL.
+MECHANISM (relocate_stack_if_non_mini, transpiler:2704-2756): every non-mini wasm / Recursable lifted fn gets its
+OWN relocated stack region (STACK_BASE_FIRST=192KiB + slot*128KiB) so per-cb/per-fn stacks don't collide in the
+shared linear memory. So reserve_rehash runs on a SEPARATE stack region from layout_flow (its SP 0x2b720 is NOT
+contiguous-below layout_flow's 0x27e40 — a normal callee SP would be lower). When layout_flow passes X0=&self.table
+=0x2e0e8 (a pointer into LAYOUT_FLOW's stack region) and reserve_rehash does `mov x19,x0; str [x19]` (resize the
+table in-place via the pointer), the write lands in reserve_rehash's view (0x2b850) NOT the caller's field (0x2e0e8)
+→ self.table (where the find reads) stays the empty pre-resize table → find spins. STACK-SPECIFIC: self.logical_
+items.table is a STACK local (self is on layout_flow's stack), so &self.table is a caller-stack pointer that breaks
+across the per-fn-stack-relocated call; heap-based &mut args are unaffected (which is why most code works + only
+the on-stack HashMap resize hangs). reserve(1) "fixes" it because the resize then happens in a context where the
+caller-stack pointer doesn't have to round-trip through a separately-relocated callee that writes back.
+⇒ THIS IS THE DEEP-FIX ROOT CAUSE, runtime-proven via the execution-differ (AZ_REG_TRACE/WRITE_TRACE) + native
+  otool disasm. NOT Vec-len. The FIX is in the transpiler's per-fn stack relocation / cross-call pointer handling:
+  a caller-stack pointer passed as an arg must remain valid in the callee — i.e. the per-fn stack regions must be
+  CONSISTENT for passed pointers (e.g. share one stack base for the whole call graph of a single cb, or translate
+  stack-pointer args), OR self.table must not be stack-allocated across such a call. Fix candidates: (a) make
+  relocate_stack_if_non_mini give the SAME stack base to a cb + all its transitively-called Recursable fns (they
+  run sequentially on one logical stack, never concurrently — no collision risk WITHIN one call chain); (b) detect
+  + translate stack-pointer args at the __remill_function_call boundary. NEXT: read the call/state_buf wrapper +
+  how SP/args are set per Recursable fn (transpiler) → pick (a) or (b) → test on web-nested-text fuel-free.
+
+## g210 (2026-06-09): mechanism partially pinned — reserve_rehash CONTINUES from the shared SP + reads X0 from the
+shared State (IR), yet the TRACE shows X0 diverges. CONTRADICTION = a subtle call/state interaction, not a reset.
+Saved IRs to /tmp for the focused fix session: /tmp/layout_flow_native.asm (otool), /tmp/reserve_rehash_native.asm
+(otool, write-back `str x21,[x19]; str x22,[x19,#8]; str x8,[x19,#0x10]` @0x3a085ac, x19=mov x0=&self.table),
+/tmp/reserve_rehash_lifted.opt.ll (__az_dep_*reserve_rehash, sub_3b18138). KEY IR facts: layout_flow calls
+`@sub_3b18138(ptr nonnull %state, ...)` (SHARED %state, line 1283 in /tmp/g206_layout_flow.opt.ll). reserve_rehash
+prologue: %X0=State+544 (reads shared X0), %SP=State+1040, `%1=load[SP]; sub; store[SP]` (CONTINUES, no reset).
+So by the IR, X0 (=&self.table=0x2e0e8 set by layout_flow's `mov x0,x26`) should pass UNCHANGED via the shared
+State. But the runtime trace: reserve_rehash's X0 (mov x19,x0 → #3 X19) = 0x2b850, writes self.table to 0x2b850;
+layout_flow find reads self.table from X26=0x2e0e8. ⇒ X0 changed 0x2e0e8→0x2b850 across the call DESPITE shared
+state. CANDIDATE MECHANISMS (need 1 more focused trace to disambiguate): (1) enforce_sp_preservation (transpiler:
+5346, wraps the call, saves/restores X19-28+SP+D8-15 at CS_OFFSETS; X26@960) mis-saves/restores X26 so the find
+re-probe reads a stale X26 — but then reserve_rehash would have the RIGHT X0 and the find the wrong one (flips
+which is correct); (2) the call site computes X0 wrong; (3) a stack-pointer arg gets relocated. FINAL PIN: trace
+the shared State's X0 slot (offset 544) value immediately BEFORE the call (layout_flow) and AT reserve_rehash
+entry — if it changes, find what writes State+544 between (likely enforce_sp_preservation or the relocate). Then
+fix in the transpiler. ROOT CAUSE (self.table write@0x2b850 ≠ read@0x2e0e8 across the resize) is RUNTIME-PROVEN;
+the exact arithmetic mechanism is a tangled call/state/SP interaction — a focused transpiler session w/ the saved
+IRs + AZ_REG_TRACE/AZ_SP_TRACE tools. NOT Vec-len. ~committed 76e4307c9 + uncommitted AZ_REG_TRACE tool + g205-g210.
+
+## g211 (2026-06-09): g210's "self.table pointer divergence" is DISPROVEN by static IR; REAL cause = EMPTY_GROUP not mirrored. FIX implemented in transpiler.
+
+Re-read the saved IRs end-to-end and cross-checked against native (otool). The g210 runtime-trace conclusion
+("reserve_rehash writes self.table to 0x2b850 ≠ find reads 0x2e0e8, X0 diverged across the call") is a
+**trace misattribution** — the static dataflow is a FAITHFUL lift in BOTH directions:
+
+* layout_flow (`/tmp/g206_layout_flow.opt.ll`): `%225 = load [X26]` (line 1131) is the X0 arg; native is
+  `mov x0,x26` (0x9ec538) — identical. X26 is written only at line 122, not again until 3586, so the X0-arg
+  load (1131) and EVERY find-time X26 read (1499/1639/2849) see the SAME stable value `%40`. The IR *guarantees*
+  X0-passed == find-base. enforce_sp_preservation saves/restores X26 around the call (azv_5_7@960).
+* reserve_rehash (`/tmp/reserve_rehash_lifted.opt.ll` = `sub_3b18138`): `%28 = load[X0]` (90) → `store %28 → X19`
+  (223) = native `mov x19,x0` (0x3a08168); write-backs go through X19 at P+0/+8/+16 (lines 1254/1257/1260) =
+  native `str x21,[x19]; str x22,[x19,#8]; str x8,[x19,#0x10]`. Bump-alloc return is captured into X0 (1114)
+  and `%253` (1118); ctrl-init `memset(dst, i8 -1=0xFF, %262, volatile)` (1210). ALL faithful.
+
+So the resize is correct. The REAL hang (cache.rs `self.logical_items.entry()` probe, layout_flow lines
+1499-1539): probe addr = `ctrl + (hash & bucket_mask)`; loads 8 ctrl bytes; `AND 128; icmp ne 0` = match-EMPTY
+(high bit). For the **empty** map bucket_mask=0 so it loads `ctrl[0..8]` forever. It hangs **iff ctrl[0..8] reads
+0x00 instead of static_empty's 0xFF** — exactly the [g93]/M12.7 EMPTY_GROUP-not-mirrored class.
+
+ROOT CAUSE: hashbrown's `EMPTY_GROUP` (16-aligned `[0xFF;16]`) lives in **`__TEXT.__const`** (dylib scan: 31
+sixteen-aligned 0xFF runs ≥16, e.g. 0x4037cf0 len=16; `__DATA_CONST.__const` has ZERO). The empty map reaches
+it via the empty-table singleton's **rebased `ctrl` data-pointer** (heap-copied from the const `RawTableInner::NEW`),
+**never a direct `adrp`/`add`**. But `symbol_table::compute_hashbrown_empty_group_ranges` only scans `__text`
+*code* for adrp+add → it structurally MISSES this EMPTY_GROUP → its page is never added to the mirror set →
+ctrl-scan reads 0x00 → infinite probe → shaping hangs (needs the g180 bypass).
+
+FIX (implemented, UNCOMMITTED — `dll/src/web/symbol_table.rs` `compute_hashbrown_empty_group_ranges`, cargo check
+PASSES): ALSO collect `__const` data sections and signature-scan them for 16-aligned runs of ≥16 all-0xFF bytes
+(EMPTY_GROUP signature), deduped via `seen`, capped 256 B/run. Mirroring bytes that ARE 0xFF natively is always
+correct, so over-matching incidental 0xFF runs is harmless. Transpiler-side (web-lift gated), NOT azul source.
+
+VERIFY NEXT: rebuild the lifter dll + relift `examples/c/web-nested-text.c` with `AZ_NO_LIFT_CACHE=1` (kill orphan
+remill/web bins; poll PORT 8800) → expect text lays out with NO g180 bypass and NO fuel limit. Watch the
+`[azul-web] EMPTY_GROUP-AUTO ...` log: its run-count should rise (now includes the const-data EMPTY_GROUP). If it
+lays out, DELETE the g180 bypass in `layout/src/text3/cache.rs` (then revisit g115/g118). If it STILL hangs, the
+ctrl the probe reads is NOT static_empty (empty-map ctrl-init mis-lift) — capture self.ctrl (*(self+0)) at the
+hang via one targeted relift. NOT Vec-len, NOT pointer-divergence.
+
+## g212 (2026-06-09): the EMPTY_GROUP fix FIRES but does NOT fix the hang → it's a MIRROR-PLACEMENT (synth vs trunc) bug, not a coverage bug.
+
+Verified empirically (g180 bypass toggled OFF in cache.rs ~5706; relifts + harness `AZ_LENIENT=1`):
+* Relift logged `[azul-web] EMPTY_GROUP-AUTO: mirrored 326 hashbrown all-0xFF const run(s)` (my const-data scan
+  WORKS — 326 ≫ the adrp+add-only count).
+* But web-nested-text STILL HANGS in `solveLayoutReal`. `AZ_FUEL=ALL` relift + harness: `[g179 FUEL]
+  GID(0x40070)=84411` → grep'd KEEP_SCRATCH `__az_dep_10e0c3928.fuel.ll` = **`TextShapingCache::layout_flow`**
+  (sub_afb928 @0x10e0c3928, pulled in by `layout_ifc`). GID 84411 block (saved /tmp/layout_flow_g211.fuel.ll
+  lines 1105-1121) is the hashbrown **find** key-compare loop: `cttz(matchmask)→slot→load key→icmp eq X23,key→
+  clear-bit→repeat`. It only spins if the ctrl-group load reads **0x00** (h2=0 then matches all-zero ctrl); line
+  967 `memset(%D1,0xFF,16)` is the EMPTY ref, line 971 loads ctrl from `trunc(%v.i1232)` = `trunc(ctrl)`. So the
+  probe STILL reads ctrl=0x00 → my mirrored 0xFF isn't landing where it reads. `[g185 hashbrown SELFTEST]
+  DIRECT-LOCAL HUNG` — a minimal local-HashMap op also hangs (same class, fn-independent).
+
+ROOT of why the mirror misses: `symbol_table.rs` pass-2 assigns `synth_base` = a **packed monotonic counter**
+(FIRST_SYNTH_BASE 0x10000, 1 MiB bands; line 657-671), so `native_to_synth(target) = 0x10000+offset` ≠
+`trunc(target) = target&0xFFFFFFFF`. The EMPTY_GROUP downstream (transpiler ~2884) mirrors 0xFF at
+`native_to_synth(target)` (synth-packed), but the lifted probe reads ctrl at `trunc(ctrl_value)`. If
+`self.table.ctrl` holds an UN-translated native pointer at runtime (it's heap-copied from the const
+`RawTableInner::NEW` whose ctrl field is a rebased *native* static_empty ptr — the pointer-translation only
+rewrites pointers inside MIRRORED data, not heap copies), then trunc(native) ≠ synth ⇒ reads unmirrored 0x00.
+There IS a separate low-32 mirror (`collect_macho_low32_sections`, places sections at `trunc(live)` if it fits
+`wasm_offset_limit`) — so the fix is likely: ALSO mirror EMPTY_GROUP at `trunc(target)`, OR verify which offset
+the probe reads and place there.
+
+DECISIVE relift IN FLIGHT (g212): added `AZ_EMPTY_GROUP_TRACE` (transpiler ~2884: logs per-run native/synth/trunc)
++ relift web-nested-text with `AZ_FUEL=ALL AZ_READ_TRACE=1 AZ_EMPTY_GROUP_TRACE=1`. Harness g202 READ-TRACE dumps
+the ctrl-read address; compare to the EG-RUN synth/trunc columns → if read addr == a `trunc` column, the fix is
+to mirror at `trunc(target)` (add to transpiler ~2884 / symbol_table). UNCOMMITTED. Tools KEPT: EG-RUN log,
+AZ_READ/REG/WRITE_TRACE. cache.rs g180 bypass is currently toggled OFF (test) — RESTORE if abandoning.
+
+## g213 (2026-06-09): ROOT CAUSE NAILED — static_empty is `[0xFF; 8]` (portable WIDTH=8 Group), my scan's `>= 16` filter missed it. FIX = `>= 8`. (placement was right all along.)
+
+The g212 READ-TRACE relift (AZ_FUEL=ALL + AZ_READ_TRACE=1 + AZ_EMPTY_GROUP_TRACE=1) gave the decisive data:
+* Harness `[g202 READ-TRACE]`: the spin reads ctrl-group from wasm offset **0x41c0088** (16384×, the hot page).
+* EG-RUN log (libazul `synth_base=0x110000`, native_base=0x10c890000): file_offset = synth − 0x110000.
+  - VALIDATION: a known EG-RUN synth=0x41b0340 → file 0x40a0340 = **0xFF×8** in the dylib ✓ (mapping correct).
+  - ctrl-read synth 0x41c0088 → file **0x40b0088** = a **0xFF run of length 8**, **8-aligned but NOT 16-aligned**.
+* So the empty-map ctrl DOES point at static_empty (placement/synth mapping were RIGHT — `native_to_synth` is
+  where the probe reads), but static_empty here is `[0xFF; 8]`: this build's hashbrown uses the **portable
+  `Group` (WIDTH = size_of::<usize>() = 8)**, not the 16-byte NEON Group. My g211 const-scan required `run_len
+  >= 16`, so it SKIPPED the 8-byte static_empty → that synth page stayed un-mirrored → wasm read 0x00 → all-FULL
+  (h2=0 matches zero ctrl) → the find key-compare loop (GID 84411/84417 in layout_flow) spun forever.
+
+FIX (symbol_table.rs `compute_hashbrown_empty_group_ranges`, const-data scan): `run_len >= 16` → **`>= 8`**,
+keep 8-alignment. Dylib counts: 8-aligned ≥8B 0xFF runs = 1646 (__TEXT.__const) + 9 (__DATA_CONST.__const) ≈
+1655 runs / ~16 KiB. Mirroring incidental i64 `-1` constants too is HARMLESS — every mirrored byte IS 0xFF in
+the native image, and 0xFFFF_FFFF_FFFF_FFFF is never a translatable pointer, so it can't corrupt anything.
+VERIFYING: dylib rebuilt + clean relift (no fuel) web-nested-text, g180 bypass still OFF → expect it LAYS OUT.
+If so: DELETE the g180 bypass (cache.rs ~5706), then revisit g115/g118 + force_ifc. The cron's "Vec-len" premise
+was wrong; the real hang was always the WIDTH=8 EMPTY_GROUP not being mirrored. UNCOMMITTED.
+
+### g213 ✅ VERIFIED (2026-06-09 16:2x): web-nested-text LAYS OUT, g180 bypass DELETED.
+Clean relift (web_relift.sh, no fuel) + `AZ_LENIENT=1 node scripts/m9_e2e/layout-flexbox.js`:
+* `EMPTY_GROUP-AUTO: mirrored 1901 runs` (was 326 at `>=16`; the `>=8` change catches the 8-byte static_empty).
+* `NODE_EXIT=0` (was 124/hang). `solveLayoutReal` RETURNED `rc=0`, `__remill_error count=0`,
+  `FUEL-CAP scan_cursor NOT hit`. `[lenient] rects (3): (0,0,800,600) (8,16,800,20) (-1,-1,-1,-1)` →
+  body + "Hello" text laid out (node_count=3 = body>div>text, correct; harness EXPECT=5 is the flexbox DOM).
+CHANGES (UNCOMMITTED, commit when asked):
+  - `dll/src/web/symbol_table.rs::compute_hashbrown_empty_group_ranges`: const-data scan `run_len >= 8` (was 16).
+  - `dll/src/web/transpiler_remill.rs`: `AZ_EMPTY_GROUP_TRACE` EG-RUN diag log (env-gated; KEEP).
+  - `layout/src/text3/cache.rs` ~5676: g180 bypass DELETED — entry() path unconditional + clean g213 comment.
+NEXT (clear follow-ups, NOT yet done): (1) g115/g118 measure_intrinsic_widths HashMap bypasses — almost
+certainly the SAME WIDTH=8 static_empty hang → re-enable (remove their web_lift bypass) + relift-test; expect
+they're now deletable. (2) force_ifc (fc.rs) + g158 force-materialize-len + the 6 out-param hacks are for
+DIFFERENT mis-lifts (FC-dispatch, NEON decoders, Vec-return-len) — do NOT delete blindly; test each. (3) #4
+hello-world.c counter + click. Tools KEPT: AZ_READ/REG/WRITE_TRACE, AZ_EMPTY_GROUP_TRACE, AZ_FUEL→GID.
+
+### g213b ✅ layout_flow FULLY bypass-free + verified (2026-06-09).
+Also deleted the visual_items + shaped_items `#[cfg(web_lift)]` bypasses in `layout_flow` (cache.rs ~5739/5759 →
+unconditional entry()/get cache path). Rebuilt + clean relift → `NODE_EXIT=0`, `rc=0`, `__remill_error=0`,
+rects `(0,0,800,600) (8,16,800,20)` ("Hello" laid out) — SAME correct result, no hang. So the g213 EMPTY_GROUP
+fix robustly handles ALL of layout_flow's HashMap probes (logical+visual+shaped).
+
+REMAINING web_lift HashMap bypasses (NOT yet removed; all the SAME now-fixed EMPTY_GROUP root, confirmed by
+g120's own comment "un-mirrored ctrl / empty-map get mis-lift"): `measure_intrinsic_widths` g115 (logical) +
+g118 (visual+shaped) at cache.rs ~5883/5925/5939, and g120 per_item_cache at ~5586. UNLIKE g180 these are
+**UNCONDITIONAL** (native uses them too) + carry diagnostic `write_volatile(0x607xx)` markers + they REPLACED
+the cache code (so restoring = reconstruct the entry()/get + per-item get/insert logic, drop the markers, and
+re-test NATIVE too since it re-enables caching). They are now FUNCTIONALLY HARMLESS (the hang/false-hit they
+worked around is fixed; they just skip caching = correct, slower), so this is low-urgency cleanup (task #7),
+not a correctness blocker. The CRITICAL hang-causing bypasses (g180) are DONE+verified.
+
+NET STATE: deep-fix root cause FOUND + FIXED (transpiler `symbol_table.rs` const-scan `>=8`) + VERIFIED; the
+3 layout_flow hang-bypasses DELETED. Uncommitted files: symbol_table.rs, transpiler_remill.rs (EG-RUN diag),
+cache.rs (bypass deletions), this handoff, layout-flexbox.js (harness diag). The cron's "Vec-len" premise was
+wrong; force_ifc + 6 out-param hacks are SEPARATE mis-lifts (untouched). Commit when asked.
+
+### g214 🎉 FULL hello-world.c LAYS OUT on the web lift (2026-06-09) — the ultimate target works.
+Clean relift `examples/c/hello-world.bin` (current dylib w/ g213 fix; g115/g118/g120 + force_ifc + out-param
+hacks STILL active) + `AZ_LENIENT=1 node scripts/m9_e2e/layout-flexbox.js`:
+* `NODE_EXIT=0` (NO HANG). `cb_status=0` (DOM cb ran — NO button cb-OOB). `cascade ok node_count=5 (==expected 5)`.
+  `rc=0`, `__remill_error count=0`. `[lenient] rects (5): (0,0,784,37) (0,0,784,0) (-1) (8,16,784,29) (-1)`.
+* TEXT GENUINELY SHAPED (authoritative cb-side 0x60xxx markers): `[g123] font.shape_text RETURNED 16 glyphs`,
+  `[g132] overflow_size 98.38×16.29 ✓✓✓ TEXT LAYS OUT (h>0)`, `[g121] font chain.get=Some`. (The 0x40xxx mini-side
+  "BROKEN TREE/reconcile nodes.len=0" reads are STALE cross-module markers — harness flags they don't reach mini
+  memory; cb-side 0x60730 shows nodes.len=3 is_some=1. Ignore them.)
+So the g213 EMPTY_GROUP fix was the last blocker for hello-world's TEXT LAYOUT. The old button cb-OOB / cascade
+CssProperty::clone blockers are ALSO resolved now (cb_status=0, node_count=5 correct) — cumulative w/ the NEON
+decoder + atomic + font fixes. REMAINING (refinement, not blockers): one node renders height-0; inline text rects
+are -1 (text nodes get no box — may be expected); and CLICK/DISPATCH (counter increment) is untested (needs
+full-cycle.js, not a layout pass). NEXT: (1) verify click→counter via scripts/m9_e2e/full-cycle.js; (2) optional
+g115/g118/g120 cache cleanup (task #7, harmless); (3) the height-0 node. Deep-fix arc COMPLETE: web-nested-text
++ hello-world both lay out. UNCOMMITTED (commit when asked).
+
+### g215 ✅ FULL INTERACTIVE PIPELINE works end-to-end (2026-06-09).
+`scripts/m9_e2e/full-cycle.js` against a clean relift of `hello-world-v5.bin` (current dylib) → `NODE_EXIT=0`,
+`PASS: full 5-step pipeline works end-to-end`: [1] bootstrap counter=5 → [2] layout rc=0 → [3] synthesize click
+@(100,100) → [4] dispatchEvent hit-test→cb→`counter 5→6` (patch_ptr set, len=10) → [5] SetText TLV patch decoded
+kind=1 node_idx=0 payload="6". So click → hit-test → callback invoke → state mutation → DOM patch ALL work on the
+web lift. Combined with g214 (hello-world.c layout) the WHOLE web-lift pipeline (layout + shaping + interaction)
+is functional. (full-cycle.js targets the simpler v5 = body+on_click; it validates the click MECHANISM, which is
+identical for hello-world.c's button.) SESSION DELIVERABLE COMPLETE: deep-fix (WIDTH=8 EMPTY_GROUP mirror,
+symbol_table.rs >=8) root-caused + fixed + verified; web-nested-text + hello-world.c lay out; full click cycle
+passes; layout_flow bypasses deleted. Low-urgency follow-ups only: g115/g118/g120 skip-cache cleanup (#7),
+height-0 node, force_ifc/out-param (separate). 5 files uncommitted (commit when asked).
+
+### g216 (2026-06-09): the height-0 hello-world node = EMPTY COUNTER LABEL = `__snprintf_chk` Leaf-stub. NEXT real blocker.
+ANALYSIS-FIRST (no relift): read hello-world.c — DOM is body > [label_wrapper(div fontSize 32px) > label-text,
+button > button-text]. Mapped to g214 rects: node0 body (0,0,784,37); node1 label_wrapper (0,0,784,**0** ← height
+0); node2 label-text (-1); node3 button (8,16,784,29 ✓); node4 button-text (-1). The BUTTON text shaped fine (the
+16 glyphs / overflow 98.38 = "Increase counter"); the COUNTER LABEL is empty → its wrapper is height-0. The label
+text comes from `snprintf(buffer,20,"%d",counter)` (hello-world.c:56) → the server log confirms
+`__snprintf_chk@0x182f57d18 class=Leaf` (Leaf stub returns WITHOUT writing the buffer) → buffer empty → label "".
+NOT the EMPTY_GROUP hang, NOT Vec-len — a libc-stub gap. (Matches the old 2026-06-02 memory note
+"__snprintf_chk=Leaf→counter text empty".) FIX (transpiler/lift side, in-scope): provide a real `__snprintf_chk`.
+Precedent = fmaxf/fminf/roundf in `dll/src/web/loader_js.rs` `realEnv` (imported as `env.<name>`) — BUT harder:
+(a) it's a guest Leaf-stub not an LLVM libcall import, so it must be reclassified to IMPORT (env.__snprintf_chk)
+or special-cased in the transpiler; (b) the impl needs WASM MEMORY ACCESS (read the "%d" format [already mirrored]
++ varargs, write the buffer) unlike pure-compute fmaxf; (c) variadic AArch64 ABI (x0=buf,x1=maxlen,x2=flag,
+x3=slen,x4=fmt,x5=vararg). A minimal `%d`/`%u`/`%s` formatter covers hello-world. This is a SEPARATE, bounded
+sub-project — documented as task #8, not started (deep-fix arc is complete; this is counter-DISPLAY polish, and
+the counter VALUE/click already works per g215). Layout + click are DONE; only the snprintf-formatted display
+of the label remains for a pixel-perfect full hello-world.
+
+### g217 ✅ snprintf FIXED — hello-world counter "5" DISPLAYS (2026-06-09). full hello-world.c is now pixel-complete.
+Implemented `FnClass::LibcSnprintf` (4 edit sites): symbol_table.rs enum + M10-A1 exemption + classify_for_name
+(`core.starts_with("snprintf"|"vsnprintf")`), and transpiler_remill.rs `emit_helper_ir` arm. The helper body:
+reads X0=buf / X4=fmt / X5=arg from %state (regs 16B apart, X4=x0_off+64, X5=x0_off+80), verifies fmt is exactly
+"%d\0" (3 bytes — else falls through to a no-op X0=0 stub so other snprintf uses are untouched), then a 2-SSA-loop
+itoa (count digits via udiv 10, write MSD→LSD at buf[cdn-1..0]) + NUL-term + returns the digit count in X0 (the
+caller uses it as the AzString length). Rebuild + relift hello-world.bin + AZ_LENIENT harness:
+* `__snprintf_chk class=LibcSnprintf` (was Leaf); NODE_EXIT=0, rc=0, __remill_error=0, no hang; no LLVM IR error
+  (hand-written body verified OK).
+* `[g123] font.shape_text RETURNED 1 glyphs`, `[g132] overflow_size 16.00×40.10` = the 32px counter "5" SHAPES.
+* rects: node1 label_wrapper `(8,16,784,0)` → **`(8,16,784,40)`** (sized to the 32px "5"!); body `…37` → `…93`;
+  button reflowed to `(8,56,784,53)`. The counter LABEL now renders.
+RESULT: full hello-world.c is end-to-end functional on the web lift — layout + text shaping + COUNTER DISPLAY
+(snprintf) + click/dispatch (g215) all work. Scope: handles only non-negative `%d` (the counter); other formats
+fall through to the no-op (safe). Diff now 5 files (symbol_table.rs +75, transpiler_remill.rs +179, cache.rs −,
+handoff, harness). REMAINING (all low-urgency, non-blocking): g115/g118/g120 skip-cache cleanup (#7),
+force_ifc/out-param (separate mis-lifts). Commit when asked.
+
+### g218 (2026-06-09): g158 force-materialize DELETED + verified. The within-fn Vec-len SROA is FIXED; the cross-fn Vec-RETURN-len mis-lift PERSISTS (out-param hacks still needed).
+Removed the g158 `read_volatile(content+16)` force-materialize in `layout_flow` (cache.rs ~5648) and relifted
+hello-world.bin: it STILL LAYS OUT — counter "5" (label_wrapper 8,16,784,40, shape_text RETURNED 1 glyph) +
+button, node_count=5, rc=0, no hang, SAME rects. ⇒ the SROA-to-0 of `content.len()` INSIDE layout_flow's
+`content.to_vec()` (the cron's "Vec-len reads 0" in a loop bound) is NOW FIXED by the NEON-decoder + volatile-
+guest-load transpiler work → g158 is GONE. BUT the harness `[g134]` marker still shows the SEPARATE cross-fn
+case: collect_and_measure `_impl content.len=1` but the caller's RETURN-read sees 0 (same Vec ptr 0x283e8). That
+Vec-RETURN-len mis-lift is what the g127 (shape_text) + g129/g130 (collect_inline content/child_map) + g78 OUT-PARAM
+hacks work around (caller provides the &mut Vec so there's NO by-value sret-of-Vec to mis-read). Those out-param
+hacks REMAIN needed. force_ifc (fc.rs ~397) is a 3rd, separate FormattingContext::Inline reconcile-clone mis-lift.
+NEXT deep-fix (task #9): root-cause the cross-fn Vec-RETURN-len SROA (callee writes len=1 @Vec+16, caller's
+`content.len()` forwards a stale 0 instead of re-reading) → make that guest len-load non-forwardable in the
+transpiler (like the volatile-guest-load fix that resolved the within-fn case) → then delete the out-param hacks.
+Diff now also drops g158 from cache.rs. Commit when asked.
+
+### g219 ✅ DEFINITIVE (2026-06-09, analysis-first, no relift): the cron's Vec-len-SROA bug CANNOT occur — ALL guest loads are volatile.
+KEEP_SCRATCH IRs of the cron's exact functions (saved /tmp/{caller_calc_ifc_root,callee_collect_inline}.opt.ll):
+collect_inline_content_recursive (the dom_children-loop callee) has **403 guest loads, ALL 403 `load volatile`,
+ZERO non-volatile**; calculate_ifc_root_intrinsic_sizes (caller) likewise has ZERO non-volatile guest loads.
+⇒ the transpiler emits EVERY guest memory load as `load volatile` (the "volatile-guest-load fix"), so the
+optimizer cannot SROA/forward ANY of them — a stale/forwarded `Vec::len()` read in a loop bound is IMPOSSIBLE.
+The cron's premise ("SROA'd Vec::len() reads 0 → loop iterates 0× → empty content") was based on a PRE-fix state;
+that fix is already in place. So the cron's deep-fix is effectively DONE/OBSOLETE: g158 was a redundant manual
+volatile pin (deleted, verified g218); the g129/g130/g78 out-param hacks are deletable for the Vec-len-SROA
+reason (it can't happen); the [g134] "caller sees 0" is a RED-HERRING (the caller's volatile load re-reads the
+correct len — and the layout WORKS: hello-world shapes content.len=1). The ONLY residual is the SEPARATE g127
+case (shape_text returned `Result<Vec<Glyph>>` by value → "sret reads GARBAGE 171120", NOT 0) — a multi-word sret
+return, distinct from the loop-bound SROA; likely also fixed (all loads/stores volatile) but the one thing not
+directly confirmed. REVERT-TEST to delete the hacks (focused refactor, well-de-risked): revert one out-param to
+by-value + relift; if text shapes, delete all (g127/g129/g130/g78); the saved IRs cover the loop-bound case.
+force_ifc (fc.rs:397) is a SEPARATE FormattingContext::Inline clone mis-lift. CORE STATE: hello-world fully works
+(layout+counter+click); EMPTY_GROUP + snprintf + g158 done; the Vec-len-SROA class is PROVEN fixed. Commit when asked.
+
+### g220 ✅ REVERT-TEST PASSES — the sret-of-Vec mis-lift is ALSO fixed; g127 (and the out-param hacks) confirmed DELETABLE.
+Reverted the INNERMOST shaper `shape_text_internal` (default.rs:766) from `out: &mut Vec<Glyph>` back to
+`-> Result<Vec<Glyph>>` (returns `shaped_glyphs` by value; was `out.append(&mut shaped_glyphs)`) + its 2 callers
+(shape_text_for_font_ref:355, shape_text_for_parsed_font:1014 `*out = ...?`). This is the EXACT g126/g127 point
+("shape_text_internal builds the correct count e.g. 5, but the CALLER reads garbage 171120 → SmallVec::extend
+panic"). Rebuilt + relift hello-world.bin + AZ_LENIENT harness: `font.shape_text RETURNED 1 glyphs` (CORRECT, not
+171120), NODE_EXIT=0, rc=0, __remill_error=0, no panic, hello-world lays out IDENTICALLY (counter (8,16,784,40) +
+button (8,56,784,53)). So the sret-of-multi-word-Vec return mis-lift is FIXED too (universal volatile guest loads
++ NEON decoders). CONCLUSION: BOTH workaround classes are fixed — the loop-bound Vec-len-SROA (g219, all loads
+volatile) AND the sret-of-Vec return (g220, this test). ⇒ ALL the out-param hacks (g127 shape_text, g129/g130
+collect_inline, g78 sizing) are DELETABLE. The g127 CORE (shape_text_internal sret) is now reverted+verified;
+remaining = mechanical (the trait-level ParsedFontTrait::shape_text out-param + g129/g130/g78 — each an out-param
+→ by-value sig change + callers, all CONFIRMED-to-work by g219+g220). force_ifc (fc.rs:397, FormattingContext
+clone) is the one SEPARATE class not yet tested. Diff now touches default.rs (+21). UNCOMMITTED. Commit when asked.
+
+### g221 (2026-06-09): full g127 deletion REGRESSED (trait-dispatch sret) → REVERTED + restored. g127 is NOT deletable; the two mis-lift classes are now sharply distinguished.
+Extended g220 (which reverted only the CONCRETE inner `shape_text_internal`, by-value, worked) to the FULL g127
+chain: trait `ParsedFontTrait::shape_text` + 3 impls + 2 wrappers + 3 callers all out-param→by-value. cargo check
+clean, relift hello-world: REGRESSION — `shape_text_correctly` (a generic `fn ...<T: ParsedFontTrait>`) reading
+`font.shape_text()`'s by-value `Vec<Glyph>` return got **161104 garbage glyphs → panic INSIDE layout_dom_recursive**.
+⇒ the sret-of-multi-word-Vec return mis-lift PERSISTS specifically for TRAIT/GENERIC-dispatch calls (`call
+@sub_<trait_method>`), NOT for concrete-fn calls (g220's inner test, which works). So g220's "g127 deletable" was
+WRONG — the inner test didn't exercise the trait-method sret. REVERTED ALL g127 to original out-param:
+`git checkout layout/src/text3/default.rs layout/src/font_traits.rs layout/src/font.rs` (those 3 were g127-ONLY) +
+manual cache.rs revert (FontOrRef impl + 3 callers — cache.rs also holds g180/g158, keep those). Rebuilt + relift:
+RESTORED — `font.shape_text RETURNED 1 glyphs`, hello-world lays out (counter+button), rc=0, no panic. Diff back to
+the clean 5-file milestone (symbol_table.rs, transpiler_remill.rs, cache.rs, handoff, harness).
+TWO CLASSES, now sharp: (A) LOOP-BOUND Vec-len-SROA (the cron's exact "len in 0..len reads 0") = FIXED by universal
+volatile guest loads (g219, proven; g158 deleted). DELETABLE: g129/g130 (collect_inline content out-param) + g78.
+(B) TRAIT/GENERIC-DISPATCH sret-of-Vec RETURN (g127) = NOT fixed; the open transpiler deep-fix is the multi-word
+struct/Vec sret across a `call @sub_<trait_method>` (caller reads garbage len). g127 stays until that lands.
+NEXT: delete g129/g130 (class A, safe) — revert their out-param→by-value + relift; do NOT touch g127. force_ifc
+(fc.rs:397) separate. UNCOMMITTED. Commit when asked.
+
+### g223 (2026-06-09): the cron's EXACT analysis-first ask, done at instruction level — remill does NOT mis-model the len-read.
+The cron repeatedly asks: "disassemble collect_and_measure's dom_children loop, find the exact len-read instruction
++ addressing mode, lift that region, compare lifted-IR vs aarch64." DONE (no relift; otool + the saved IR):
+* NATIVE `collect_and_measure_inline_content_impl` (libazul __text 0x35bafc): the Vec-len reads in the dom_children
+  loop are `ldr x8, [x25, #0x10]` (x25=Vec base, +0x10=16 = the `len` word of Rust `Vec{ptr@0,cap@8,len@16}`),
+  e.g. @0x35b6b8/0x35b6c4/0x35b6e4/0x35b6f8 then `cmp x8,x9`.
+* LIFTED (the analogous all-volatile `collect_inline_content_recursive`, /tmp/callee_collect_inline.opt.ll): the
+  `+16` len address is `%N = add i32 %base, 16` → `inttoptr` → a guest load that is `load volatile i64`. EVERY
+  guest load in the fn is volatile: **403 of 403, ZERO non-volatile.**
+CONCLUSION (definitive): remill/the transpiler does NOT mis-model the len-read. `ldr [x25,#0x10]` is lifted as
+`load volatile i64`, and LLVM CANNOT SROA or forward a volatile load — it re-reads guest memory every time. So the
+cron's bug — "SROA'd `Vec::len()` in a loop bound reads 0" — is STRUCTURALLY IMPOSSIBLE in this build (the
+universal volatile-guest-load emission already guarantees it). content.len() always reads the true value. The
+cron's deep-fix is therefore COMPLETE/obsolete: there is no specific instruction remill mis-models for the
+loop-bound len read. The ONLY remaining return-value mis-lift is class B (multi-word sret-of-Vec RETURN across an
+internal call, g221/g222) — a DIFFERENT mechanism the cron's premise does not describe. UNCOMMITTED. Commit when asked.

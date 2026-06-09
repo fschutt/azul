@@ -729,6 +729,19 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
                 const hot=Object.entries(hist).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([p,c])=>'0x'+(p>>>0).toString(16)+'×'+c);
                 console.error('POST-TRAP [g202 READ-TRACE] '+rcnt+' ctrl-group reads; hot pages: '+hot.join(', ')+'\n  last 20:\n'+last.join('\n')); }
               else console.error('POST-TRAP [g202 READ-TRACE] counter(0xDFFF0)='+rcnt+' — AZ_READ_TRACE off or no volatile-double guest reads'); }
+            // [g205 REG-TRACE] AZ_REG_TRACE GPR-store ring @0xF0000 (counter 0xEFFF0, 8B: reg_id@0, val_lo32@4).
+            // Last store of each reg before the trap = the find/resize bases. KEY: X19 (resize &self.table-64)
+            // vs X26 (find &self.table) — if X19+64 != X26 the resize wrote the new table to the wrong base.
+            { const gcnt=D(0xEFFF0)>>>0;
+              if (gcnt>0 && gcnt<0x1000000) {
+                const W=Math.min(gcnt,8192), lo=gcnt-W; const lastOf={}; const seq=[];
+                for (let i=lo;i<gcnt;i++){ const a=0xF0000+((i&8191)*8); const rid=D(a)>>>0, val=D(a+4)>>>0;
+                  const rn = rid===99?'SP':('X'+rid); lastOf[rn]=val; if(i>=gcnt-24) seq.push('  #'+i+' '+rn+'=0x'+val.toString(16)); }
+                const x19=lastOf['X19'], x26=lastOf['X26'];
+                let verdict='';
+                if(x19!==undefined && x26!==undefined){ const inv=((x19+64)>>>0)===x26; verdict='\n  ★ X19=0x'+x19.toString(16)+' (+64=0x'+((x19+64)>>>0).toString(16)+') vs X26=0x'+x26.toString(16)+' → '+(inv?'INVARIANT HOLDS (X19+64==X26)':'✗✗ DIVERGE — resize base ≠ find base = THE MIS-LIFT'); }
+                console.error('POST-TRAP [g205 REG-TRACE] '+gcnt+' GPR stores; last-of-each: '+Object.entries(lastOf).map(([r,v])=>r+'=0x'+(v>>>0).toString(16)).join(' ')+verdict+'\n  last 24 stores:\n'+seq.join('\n')); }
+              else console.error('POST-TRAP [g205 REG-TRACE] counter(0xEFFF0)='+gcnt+' — AZ_REG_TRACE off or no GPR stores'); }
             // [g170 SP-TRACE] dump the enforce_sp_preservation ring (AZ_SP_TRACE=1): counter@0x77FF0,
             // ring@0x78000 (2048 entries x 16B: SP@0, X1@4, callIdx@8). Last ~40 entries = the deep calls
             // near content. If SP JUMPS between consecutive same-region calls → SP mis-track (the bug).
