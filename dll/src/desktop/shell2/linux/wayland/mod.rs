@@ -1652,13 +1652,27 @@ impl WaylandWindow {
                 }
             }
 
-            // Block indefinitely until a Wayland event or timerfd fires
+            // Background threads (e.g. MapWidget tile fetches) have NO fd in the
+            // poll set, so their completion can't wake poll(). While any thread is
+            // in flight, poll on a ~16ms tick and drain thread writebacks on every
+            // wake; otherwise block indefinitely (timerfd's still wake us). Without
+            // this the fetch workers finish but their writebacks never process
+            // until some unrelated Wayland event happens to wake the loop.
+            let has_threads = self
+                .common
+                .layout_window
+                .as_ref()
+                .map(|lw| !lw.threads.is_empty())
+                .unwrap_or(false);
+            let timeout_ms: i32 = if has_threads { 16 } else { -1 };
+
             let result = libc::poll(
                 pollfds.as_mut_ptr(),
                 pollfds.len() as libc::nfds_t,
-                -1,
+                timeout_ms,
             );
 
+            let mut any_timer_fired = false;
             if result > 0 {
                 // Check Wayland display fd
                 if pollfds[0].revents & libc::POLLIN != 0 {
@@ -1666,7 +1680,6 @@ impl WaylandWindow {
                 }
 
                 // Check timerfd's - if any fired, invoke timer callbacks
-                let mut any_timer_fired = false;
                 for (i, &timer_id) in timer_ids.iter().enumerate() {
                     let pollfd_idx = i + 1; // +1 because display fd is at index 0
                     if pollfd_idx < pollfds.len() && pollfds[pollfd_idx].revents & libc::POLLIN != 0
@@ -1679,19 +1692,15 @@ impl WaylandWindow {
                         }
                     }
                 }
+            }
 
-                // Invoke expired timer and thread callbacks via the shared
-                // check_timers_and_threads, which ALSO marks needs_redraw and
-                // generates a frame when a callback produced a visual change.
-                // Calling the bare process_timers_and_threads here (the
-                // previous behaviour) advanced timer state — e.g. the
-                // scroll-physics momentum offset — but discarded the redraw
-                // signal, so real mouse-wheel scrolling updated the offset
-                // invisibly and the window appeared frozen until some unrelated
-                // event forced a repaint.
-                if any_timer_fired {
-                    self.check_timers_and_threads();
-                }
+            // Invoke expired timer AND thread callbacks via the shared
+            // check_timers_and_threads, which ALSO marks needs_redraw when a
+            // callback produced a visual change. Run on every wake while threads
+            // are active (the 16ms tick guarantees we get here) so tile-fetch
+            // writebacks drain promptly.
+            if any_timer_fired || has_threads {
+                self.check_timers_and_threads();
             }
             // result == 0: timeout (shouldn't happen with -1)
             // result < 0: error or EINTR - ignore and continue
@@ -2449,6 +2458,14 @@ impl WaylandWindow {
                 self.accessibility_adapter.update_tree(tree_update);
             }
         }
+
+        // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
+        // layout's reconciliation and dispatch them through the normal callback
+        // pipeline — the SAME step headless + X11 run. Without this,
+        // EventFilter::Component(AfterMount) callbacks never fire on Wayland, so
+        // e.g. the MapWidget's first tile-fetch (kicked from AfterMount) never
+        // starts. (The 16ms thread-poll tick below then drains the writebacks.)
+        let _ = self.dispatch_pending_lifecycle_events();
 
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();

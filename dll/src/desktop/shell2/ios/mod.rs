@@ -1189,6 +1189,12 @@ impl IOSWindow {
             self.cpu_backend.hit_tester.rebuild_from_layout(&lw.layout_results);
         }
 
+        // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
+        // layout's reconciliation — the SAME step headless + X11 run. Without it,
+        // EventFilter::Component(AfterMount) callbacks never fire on iOS (e.g. the
+        // MapWidget's first tile fetch never starts).
+        let _ = self.dispatch_pending_lifecycle_events();
+
         // CPU-render the frame — populates `self.cpu_backend.last_frame`,
         // ready for `drawRect:` to blit into the layer (Sprint C-iOS).
         #[cfg(feature = "cpurender")]

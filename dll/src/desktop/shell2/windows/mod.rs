@@ -1238,6 +1238,14 @@ impl Win32Window {
             }
         }
 
+        // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
+        // layout's reconciliation — the SAME step headless + X11 run. Without it,
+        // EventFilter::Component(AfterMount) callbacks never fire on Windows (e.g.
+        // the MapWidget's first tile fetch never starts). Windows already polls
+        // background threads via its WM_TIMER (start_thread_poll_timer → SetTimer),
+        // so once AfterMount spawns them their writebacks drain.
+        let _ = self.dispatch_pending_lifecycle_events();
+
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
         self.sync_ime_position_to_os();
