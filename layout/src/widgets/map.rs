@@ -1119,11 +1119,24 @@ fn visible_tile_range(
     let half_w = (width_px / tile_px).abs() * 0.5 + 1.0;
     let half_h = (height_px / tile_px).abs() * 0.5 + 1.0;
     let max_idx = tile_count as i32 - 1;
-    let x_min = ((centre_x - half_w).floor() as i32).max(0);
-    let x_max = ((centre_x + half_w).ceil() as i32).min(max_idx);
+    // x is NOT clamped: the map wraps horizontally. Callers take the tile id mod
+    // `tile_count` (so a column past the antimeridian shows the far side of the
+    // world) while positioning the div at the un-wrapped column — seamless pan
+    // across ±180° with no empty gutter. y IS clamped: there is no data beyond
+    // the Web-Mercator poles, so vertical over-scan must not request bogus rows.
+    let x_min = (centre_x - half_w).floor() as i32;
+    let x_max = (centre_x + half_w).ceil() as i32;
     let y_min = ((centre_y - half_h).floor() as i32).max(0);
     let y_max = ((centre_y + half_h).ceil() as i32).min(max_idx);
     (x_min, x_max, y_min, y_max)
+}
+
+/// Wrap a (possibly negative or over-range) tile column into the valid
+/// `0..tile_count` band — the horizontal world-wrap. `rem_euclid` (not `%`)
+/// so columns west of the antimeridian map to the east side: at `tile_count`
+/// = 4, column `-1` → `3`, column `4` → `0`.
+fn wrap_tile_x(x: i32, tile_count: u32) -> u32 {
+    x.rem_euclid(tile_count.max(1) as i32) as u32
 }
 
 /// `f(view)` — the tile ids a `viewport` needs to fill a `bounds`-sized widget.
@@ -1147,7 +1160,7 @@ fn map_visible_tiles(
     let mut tiles = alloc::vec::Vec::new();
     for x in x_min..=x_max {
         for y in y_min..=y_max {
-            tiles.push(MapTileId { z: z_int, x: x as u32, y: y as u32 });
+            tiles.push(MapTileId { z: z_int, x: wrap_tile_x(x, tile_count), y: y as u32 });
         }
     }
     tiles
@@ -1235,7 +1248,7 @@ extern "C" fn map_widget_render(
             for y in y_min..=y_max {
                 let id = MapTileId {
                     z: z_int,
-                    x: x as u32,
+                    x: wrap_tile_x(x, tile_count),
                     y: y as u32,
                 };
                 cache.tiles.entry(id).or_insert(TileEntry::Pending);
@@ -1315,9 +1328,12 @@ extern "C" fn map_widget_render(
 
     for x in x_min..=x_max {
         for y in y_min..=y_max {
+            // Tile id wraps horizontally (the column past ±180° shows the far
+            // side of the world); the *screen* position uses the raw un-wrapped
+            // column so the wrapped tile lands seamlessly in the gutter.
             let id = MapTileId {
                 z: z_int,
-                x: x as u32,
+                x: wrap_tile_x(x, tile_count),
                 y: y as u32,
             };
             let screen_x =
@@ -1570,11 +1586,28 @@ mod tests {
     }
 
     #[test]
-    fn tile_range_clamps_to_single_tile_world_at_zoom0() {
-        // zoom 0 → tile_count 1, so the only valid index is 0 regardless of
-        // viewport size; the margin must not produce out-of-range indices.
+    fn wrap_tile_x_wraps_both_directions() {
+        // rem_euclid semantics: west of the antimeridian wraps to the east side.
+        assert_eq!(wrap_tile_x(-1, 4), 3);
+        assert_eq!(wrap_tile_x(0, 4), 0);
+        assert_eq!(wrap_tile_x(3, 4), 3);
+        assert_eq!(wrap_tile_x(4, 4), 0);
+        assert_eq!(wrap_tile_x(-5, 4), 3);
+        // Single-tile world: every column resolves to the one tile.
+        assert_eq!(wrap_tile_x(7, 1), 0);
+        assert_eq!(wrap_tile_x(-3, 1), 0);
+    }
+
+    #[test]
+    fn tile_range_y_clamps_but_x_wraps_at_zoom0() {
+        // zoom 0 → tile_count 1. y stays pinned to row 0 (no data past the
+        // poles); x is unclamped (the column over-scans to fill the width) but
+        // every column wraps to the single tile.
         let (x0, x1, y0, y1) = visible_tile_range(0.5, 0.5, 256.0, 256.0, 1.0, 1);
-        assert_eq!((x0, x1, y0, y1), (0, 0, 0, 0));
+        assert_eq!((y0, y1), (0, 0));
+        for x in x0..=x1 {
+            assert_eq!(wrap_tile_x(x, 1), 0);
+        }
     }
 
     #[test]
@@ -1588,12 +1621,19 @@ mod tests {
     }
 
     #[test]
-    fn tile_range_clamps_at_grid_edges() {
-        // Centre at the left/top edge: no negative indices.
+    fn tile_range_clamps_y_but_wraps_x_at_edges() {
+        // y is clamped to the valid band at both poles (no over-scan past the
+        // Web-Mercator edges)…
         let (x0, _, y0, _) = visible_tile_range(0.0, 0.0, 512.0, 512.0, 1.0, 16);
-        assert!(x0 >= 0 && y0 >= 0);
-        // Centre at the right/bottom edge: never past tile_count-1.
+        assert!(y0 >= 0);
         let (_, x1, _, y1) = visible_tile_range(15.0, 15.0, 512.0, 512.0, 1.0, 16);
-        assert!(x1 <= 15 && y1 <= 15);
+        assert!(y1 <= 15);
+        // …but x is unclamped so the world wraps: a west-edge viewport over-scans
+        // into negative columns and an east-edge one past tile_count-1; both wrap
+        // back into 0..tile_count via wrap_tile_x.
+        assert!(x0 < 0, "west-edge viewport should over-scan into wrapped columns");
+        assert!(x1 > 15, "east-edge viewport should over-scan into wrapped columns");
+        assert_eq!(wrap_tile_x(x0, 16), x0.rem_euclid(16) as u32);
+        assert_eq!(wrap_tile_x(x1, 16), x1.rem_euclid(16) as u32);
     }
 }
