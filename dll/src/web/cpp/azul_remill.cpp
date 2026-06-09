@@ -713,6 +713,9 @@ std::string compile_inner(const char *const *ir_strs,
     // patterns, more aggressive scheduling) that bloat wasm. Wire
     // bytes are the dominant cost in the browser; size beats raw
     // speed for layout / cb wasms.
+    // [g194 az-web-lift] (+simd128 TESTED + REVERTED: enabling wasm SIMD codegen did NOT fix the un-bypassed
+    // hashbrown hang — g194 still hung, fuel-free, with no target-features override to block it ⇒ the vector
+    // SCALARIZATION is NOT the bug. Reverted to default scalar codegen.)
     std::unique_ptr<llvm::TargetMachine> tm(target->createTargetMachine(
         triple, "generic", "",
         opts,

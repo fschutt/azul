@@ -1132,6 +1132,46 @@ impl RemillTranspiler {
                 }
             }
 
+            // [AZ_WRITE_TRACE=<stem>|ALL] Guest-write tracer on OPT.ll (matches the inlined
+            // `store volatile i64` guest writes; direct ring stores work here like AZ_SP_TRACE — no
+            // memory-model break / LinkError, unlike instrumenting patched.ll's pre-opt __remill calls).
+            // Logs (ptr,val) to the 0xD0000 ring (counter 0xCFFF0) → catches the hashbrown ctrl write-back.
+            if let Ok(target) = std::env::var("AZ_WRITE_TRACE") {
+                let matched = target == "ALL"
+                    || target
+                        .split(',')
+                        .any(|s| !s.is_empty() && (fn_name.contains(s) || stem.contains(s)));
+                if matched {
+                    if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                        let (traced, n) = instrument_guest_writes(&opt_ir);
+                        if n > 0 {
+                            let _ = std::fs::write(&opt_ir_path, &traced);
+                            eprintln!("[azul-web] AZ_WRITE_TRACE: traced {} volatile-i64 guest-writes in {}", n, stem);
+                        }
+                    }
+                }
+            }
+            // [AZ_READ_TRACE=<stem>|ALL] Guest-read tracer: logs the ADDRESS of each `load volatile double`
+            // guest read (the hashbrown ctrl-group probe load) to the 0xE0000 ring (counter 0xDFFF0). The find
+            // spins on it → ring tail = the addr the find reads ctrl from. Compare vs the AZ_WRITE_TRACE ctrl
+            // write-back addr/value to prove the find reads a STALE/wrong self.table.ctrl (the deep bug).
+            if let Ok(target) = std::env::var("AZ_READ_TRACE") {
+                let matched = target == "ALL"
+                    || target
+                        .split(',')
+                        .any(|s| !s.is_empty() && (fn_name.contains(s) || stem.contains(s)));
+                if matched {
+                    if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                        let (traced, n) = instrument_guest_double_reads(&opt_ir);
+                        if n > 0 {
+                            let _ = std::fs::write(&opt_ir_path, &traced);
+                            eprintln!("[azul-web] AZ_READ_TRACE: traced {} volatile-double guest-reads in {}", n, stem);
+                        }
+                    }
+                }
+            }
+
+
             // M12.7 (DEFAULT; AZ_NO_TRAP_SELFLOOP=1 to disable): rewrite empty
             // infinite self-loops (`LABEL:` then only `br label %LABEL`) into
             // `unreachable`. remill lifts `b .` / abort-spin instructions (and
@@ -5307,6 +5347,11 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
         144, 160, 176, 192, 208, 224, 240, 256,
     ];
     let mut out = String::with_capacity(opt_ir.len() + (1 << 16));
+    // [g170 az-web-lift TRACE] AZ_SP_TRACE=1 logs each wrapped call's guest SP + arg X1 (content
+    // ptr candidate) to a circular ring at 0x78000 (2048 entries x 16B) + counter at 0x77FF0. Peek
+    // post-trap to detect SP inconsistency / the wrong &inline_content across the deep call stack.
+    // X0/X1 GPR State offsets: X19=848 step 16 ⇒ X0=544, X1=560. Off by default (harmless free band).
+    let sp_trace = std::env::var_os("AZ_SP_TRACE").is_some();
     let mut k: u32 = 0;
     for line in opt_ir.lines() {
         if let Some((_res, state_arg)) = parse_sub_call(line) {
@@ -5315,6 +5360,33 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
                 out.push_str(&format!(
                     "{indent}%azg_{k}_{j} = getelementptr inbounds i8, ptr {state_arg}, i32 {off}\n\
                      {indent}%azv_{k}_{j} = load i64, ptr %azg_{k}_{j}, align 8\n"
+                ));
+            }
+            if sp_trace {
+                // %azv_{k}_11 = SP (CS_OFFSETS[11]=1040). Also load X1 (560) = content arg candidate.
+                out.push_str(&format!(
+                    "{indent}%azx1g_{k} = getelementptr inbounds i8, ptr {state_arg}, i32 560\n\
+                     {indent}%azx1v_{k} = load i64, ptr %azx1g_{k}, align 8\n\
+                     {indent}%azrc_{k} = load i32, ptr inttoptr (i32 491504 to ptr), align 4\n\
+                     {indent}%azrm_{k} = and i32 %azrc_{k}, 16383\n\
+                     {indent}%azrmul_{k} = mul i32 %azrm_{k}, 16\n\
+                     {indent}%azrsa_{k} = add i32 491520, %azrmul_{k}\n\
+                     {indent}%azrsp_{k} = inttoptr i32 %azrsa_{k} to ptr\n\
+                     {indent}%azrspv_{k} = trunc i64 %azv_{k}_11 to i32\n\
+                     {indent}store volatile i32 %azrspv_{k}, ptr %azrsp_{k}, align 4\n\
+                     {indent}%azrx1a_{k} = add i32 %azrsa_{k}, 4\n\
+                     {indent}%azrx1p_{k} = inttoptr i32 %azrx1a_{k} to ptr\n\
+                     {indent}%azrx1v_{k} = trunc i64 %azx1v_{k} to i32\n\
+                     {indent}store volatile i32 %azrx1v_{k}, ptr %azrx1p_{k}, align 4\n\
+                     {indent}%azrka_{k} = add i32 %azrsa_{k}, 8\n\
+                     {indent}%azrkp_{k} = inttoptr i32 %azrka_{k} to ptr\n\
+                     {indent}store volatile i32 {tgt}, ptr %azrkp_{k}, align 4\n\
+                     {indent}%azrc2_{k} = add i32 %azrc_{k}, 1\n\
+                     {indent}store volatile i32 %azrc2_{k}, ptr inttoptr (i32 491504 to ptr), align 4\n",
+                    tgt = line.split("@sub_").nth(1)
+                        .and_then(|s| s.split('(').next())
+                        .and_then(|s| u64::from_str_radix(s.trim(), 16).ok())
+                        .map(|v| v as u32).unwrap_or(0),
                 ));
             }
             // Emit the call with `tail ` stripped (stores follow it now).
@@ -5335,6 +5407,120 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
         out.push('\n');
     }
     (out, k)
+}
+
+/// [AZ_WRITE_TRACE] Instrument every guest `__remill_write_memory_{8,16,32,64}` call in a matched
+/// function to log (addr_lo32, val_lo32) to a ring at 0xD0000 (16384 entries x 8B), counter 0xCFFF0.
+/// The harness filters for stack-addr writes (0x10000..0x30000) of heap-ptr values (>=0x6000000) =
+/// the hashbrown RawTable ctrl/bucket_mask WRITE-BACK after resize. If that store lands at the WRONG
+/// address, the self-relative store mis-lift (the deep bug) is caught — without an inline probe that
+/// itself mis-lifts. Reuses the same straight-line store technique as enforce_sp_preservation/AZ_SP_TRACE.
+fn instrument_guest_writes(opt_ir: &str) -> (String, u32) {
+    let mut out = String::with_capacity(opt_ir.len() + (1 << 14));
+    let mut k: u32 = 0;
+    for line in opt_ir.lines() {
+        if let Some((ptr_op, val_op)) = parse_volatile_i64_store(line) {
+            let indent: String = line.chars().take_while(|c| *c == ' ').collect();
+            // On opt.ll the inlined guest write is `store volatile i64 %v, ptr %p`. Log (ptrtoint %p, %v)
+            // to the ring. ptrtoint round-trips the address; direct ring stores (like AZ_SP_TRACE on opt.ll)
+            // don't break the memory model (unlike instrumenting patched.ll's pre-opt __remill calls).
+            out.push_str(&format!(
+                "{indent}%wta_{k} = ptrtoint ptr {ptr_op} to i64\n\
+                 {indent}%wtc_{k} = load volatile i32, ptr inttoptr (i32 851952 to ptr), align 4\n\
+                 {indent}%wtm_{k} = and i32 %wtc_{k}, 16383\n\
+                 {indent}%wto_{k} = mul i32 %wtm_{k}, 8\n\
+                 {indent}%wtsa_{k} = add i32 851968, %wto_{k}\n\
+                 {indent}%wtap_{k} = inttoptr i32 %wtsa_{k} to ptr\n\
+                 {indent}%wtav_{k} = trunc i64 %wta_{k} to i32\n\
+                 {indent}store volatile i32 %wtav_{k}, ptr %wtap_{k}, align 4\n\
+                 {indent}%wtva_{k} = add i32 %wtsa_{k}, 4\n\
+                 {indent}%wtvp_{k} = inttoptr i32 %wtva_{k} to ptr\n\
+                 {indent}%wtvv_{k} = trunc i64 {val_op} to i32\n\
+                 {indent}store volatile i32 %wtvv_{k}, ptr %wtvp_{k}, align 4\n\
+                 {indent}%wtc2_{k} = add i32 %wtc_{k}, 1\n\
+                 {indent}store volatile i32 %wtc2_{k}, ptr inttoptr (i32 851952 to ptr), align 4\n"
+            ));
+            k += 1;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    (out, k)
+}
+
+/// Parse an opt.ll inlined guest write `[tail] store volatile i64 <val>, ptr <ptr>, align N, !...`,
+/// returning (ptr_operand, val_operand). Skips host (State) stores (those are non-volatile) and
+/// non-i64 widths. `None` if not a `store volatile i64`.
+fn parse_volatile_i64_store(line: &str) -> Option<(String, String)> {
+    let t = line.trim_start();
+    if !t.starts_with("store volatile i64 ") {
+        return None;
+    }
+    let rest = &t["store volatile i64 ".len()..];
+    // rest = "<val>, ptr <ptr>, align N, !..."
+    let comma = rest.find(", ptr ")?;
+    let val_op = rest[..comma].trim().to_string();
+    let after = &rest[comma + ", ptr ".len()..];
+    // ptr operand runs up to the next comma (the `, align`).
+    let ptr_end = after.find(',').unwrap_or(after.len());
+    let ptr_op = after[..ptr_end].trim().to_string();
+    // Only simple SSA ptr operands (ptrtoint needs a ptr value; inline `inttoptr(...)` exprs are rare
+    // post-opt and skipped to keep IR valid).
+    if !ptr_op.starts_with('%') || val_op.is_empty() {
+        return None;
+    }
+    Some((ptr_op, val_op))
+}
+
+/// [AZ_READ_TRACE] Instrument every guest `load volatile double` (the hashbrown ctrl-group probe load) in a
+/// matched fn: log the load's ADDRESS (trunc i32) to the 0xE0000 ring (16384 x 4B, counter 0xDFFF0). The find
+/// spins on this load, so the ring tail = where the find reads ctrl → compare to the AZ_WRITE_TRACE ctrl
+/// write-back to prove the find reads a STALE/wrong self.table.ctrl.
+fn instrument_guest_double_reads(opt_ir: &str) -> (String, u32) {
+    let mut out = String::with_capacity(opt_ir.len() + (1 << 14));
+    let mut k: u32 = 0;
+    for line in opt_ir.lines() {
+        if let Some(ptr_op) = parse_volatile_double_load(line) {
+            let indent: String = line.chars().take_while(|c| *c == ' ').collect();
+            out.push_str(&format!(
+                "{indent}%rta_{k} = ptrtoint ptr {ptr_op} to i64\n\
+                 {indent}%rtc_{k} = load volatile i32, ptr inttoptr (i32 917488 to ptr), align 4\n\
+                 {indent}%rtm_{k} = and i32 %rtc_{k}, 16383\n\
+                 {indent}%rto_{k} = mul i32 %rtm_{k}, 4\n\
+                 {indent}%rtsa_{k} = add i32 917504, %rto_{k}\n\
+                 {indent}%rtap_{k} = inttoptr i32 %rtsa_{k} to ptr\n\
+                 {indent}%rtav_{k} = trunc i64 %rta_{k} to i32\n\
+                 {indent}store volatile i32 %rtav_{k}, ptr %rtap_{k}, align 4\n\
+                 {indent}%rtc2_{k} = add i32 %rtc_{k}, 1\n\
+                 {indent}store volatile i32 %rtc2_{k}, ptr inttoptr (i32 917488 to ptr), align 4\n"
+            ));
+            k += 1;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    (out, k)
+}
+
+/// Parse an opt.ll inlined GUEST read `%X = load volatile double, ptr <ptr>, align N, !alias.scope !3 ...`,
+/// returning the ptr operand. Guest-only (requires `!alias.scope !3`); skips host (State) reads. `None` otherwise.
+fn parse_volatile_double_load(line: &str) -> Option<String> {
+    if !line.contains("!alias.scope !3") {
+        return None;
+    }
+    let t = line.trim_start();
+    let eq = t.find(" = ")?;
+    let rhs = &t[eq + 3..];
+    if !rhs.starts_with("load volatile double, ptr ") {
+        return None;
+    }
+    let after = &rhs["load volatile double, ptr ".len()..];
+    let ptr_end = after.find(',').unwrap_or(after.len());
+    let ptr_op = after[..ptr_end].trim().to_string();
+    if !ptr_op.starts_with('%') {
+        return None;
+    }
+    Some(ptr_op)
 }
 
 /// Parse a lifted call `%N = [tail ]call ptr @sub_<hex>(ptr [nonnull ]%S, ...`
@@ -5795,6 +5981,21 @@ fn emit_helper_ir(
             // at the bump allocator's 0x00, so `HashMap::insert`'s probe
             // never finds an empty slot → infinite loop (the M12.7 sizing
             // hang). Emit a real `@llvm.memset`. X0 still holds dest.
+            //
+            // [g199 az-web-lift] The memset is VOLATILE (i1 true). When the
+            // resize that fills a fresh table's ctrl bytes is INLINED into
+            // its caller (e.g. TextShapingCache::layout_flow's entry()), a
+            // NON-volatile memset can be reordered/sunk relative to the
+            // VOLATILE guest ctrl loads of the immediately-following probe
+            // (find_or_find_insert_slot's match_empty) → the probe reads the
+            // 0x00 pre-fill bytes, never finds EMPTY, and spins (the
+            // web-nested-text hang, root-caused g178-g198). An explicit
+            // `reserve(1)` before entry() avoids the hang precisely because
+            // the separate call is an optimization barrier. Volatile is the
+            // general fix: LLVM may not reorder volatile ops relative to
+            // other volatile ops, so the fill stays ordered before the
+            // volatile probe loads even when inlined → the g180/reserve(1)
+            // azul workarounds can be deleted.
             Some(SymFnClass::LibcMemset) => {
                 branch_stubs.push_str(&format!(
                     "; libc memset body for {sym} (X0=dst, X1=byte, X2=n)\n\
@@ -5808,7 +6009,7 @@ fn emit_helper_ir(
                        %byte_i8_{n} = trunc i64 %byte_i64_{n} to i8\n  \
                        %nbytes_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x2_off}\n  \
                        %nbytes_{n} = load i64, ptr %nbytes_p_{n}, align 8\n  \
-                       call void @llvm.memset.p0.i64(ptr %dst_{n}, i8 %byte_i8_{n}, i64 %nbytes_{n}, i1 false)\n  \
+                       call void @llvm.memset.p0.i64(ptr %dst_{n}, i8 %byte_i8_{n}, i64 %nbytes_{n}, i1 true)\n  \
                        ret ptr %memory\n\
                      }}\n",
                     sym = ext.sym_name,
@@ -6217,22 +6418,22 @@ define weak ptr @__az_indirect_dispatch(ptr %state, i64 %pc, ptr %memory) noinli
 ; one set after link. See `tag_state_accesses` for the mirror side.
 define linkonce_odr i8 @__remill_read_memory_8(ptr %memory, i64 %addr) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  %v = load i8, ptr %p, align 1, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  %v = load volatile i8, ptr %p, align 1, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret i8 %v
 }}
 define linkonce_odr i16 @__remill_read_memory_16(ptr %memory, i64 %addr) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  %v = load i16, ptr %p, align 2, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  %v = load volatile i16, ptr %p, align 2, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret i16 %v
 }}
 define linkonce_odr i32 @__remill_read_memory_32(ptr %memory, i64 %addr) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  %v = load i32, ptr %p, align 4, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  %v = load volatile i32, ptr %p, align 4, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret i32 %v
 }}
 define linkonce_odr i64 @__remill_read_memory_64(ptr %memory, i64 %addr) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  %v = load i64, ptr %p, align 8, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  %v = load volatile i64, ptr %p, align 8, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret i64 %v
 }}
 ; M12.7: FP loads (`ldr s/d/q`) lift to __remill_read_memory_f32/f64. Without
@@ -6245,12 +6446,12 @@ define linkonce_odr i64 @__remill_read_memory_64(ptr %memory, i64 %addr) alwaysi
 ; preserves the exact bits — no NaN canonicalization.
 define linkonce_odr float @__remill_read_memory_f32(ptr %memory, i64 %addr) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  %v = load float, ptr %p, align 4, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  %v = load volatile float, ptr %p, align 4, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret float %v
 }}
 define linkonce_odr double @__remill_read_memory_f64(ptr %memory, i64 %addr) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  %v = load double, ptr %p, align 8, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  %v = load volatile double, ptr %p, align 8, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret double %v
 }}
 define linkonce_odr ptr @__remill_write_memory_f32(ptr %memory, i64 %addr, float %val) alwaysinline {{
@@ -6631,8 +6832,24 @@ fn tag_state_accesses(ir: &str) -> String {
         ", !alias.scope !{}, !noalias !{}",
         AZ_HOST_LIST_MD_ID, AZ_GUEST_LIST_MD_ID,
     );
+    // [2026-06-08 az-web-lift] AZ_NO_HOST_SCOPE=1 disables the host/guest alias-scope SEPARATION
+    // (State/local accesses stay untagged → conservative AA). Kept as a diagnostic toggle, default OFF.
+    // ⚠ g188/g189 LESSON: AZ_NO_HOST_SCOPE appeared to fix the hashbrown hang, but that was CONFOUNDED by
+    // AZ_FUEL — every "fixed" run (g186/g187/g188) also had AZ_FUEL=ALL, whose per-terminator fuel-tick
+    // VOLATILE writes act as optimization BARRIERS that themselves defeat the heisenbug. g189 (this gate
+    // default-conservative, NO AZ_FUEL, bypasses deleted) HANGS ⇒ conservative AA ALONE does NOT fix it.
+    // The real bug IS a barrier-defeatable optimizer mis-transform (load-forward / dead-store-elim / reorder
+    // of guest mem ops across an inline-cloned alias scope), but the fix is a BARRIER, not (only) disabling
+    // the scope. NEXT: isolate AZ_FUEL-barrier-alone vs scope; a minimal barrier pass (a volatile fence per
+    // guest store, like the write-tracer minus logging) is the likely real fix. See handoff g189.
+    let disable_host_scope = std::env::var("AZ_NO_HOST_SCOPE").is_ok();
 
     for line in ir.lines() {
+        if disable_host_scope {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
         let trimmed = line.trim_start();
         let is_load = trimmed.starts_with("load ")
             || (trimmed.starts_with('%')

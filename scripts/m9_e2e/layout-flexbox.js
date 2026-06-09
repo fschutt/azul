@@ -443,6 +443,21 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
           console.error('BISECT [g73] textlen(0x60714)='+tl6+' textptr(0x60718)=0x'+tp6.toString(16)+' | last node_index(0x60720)='+ni+' child_index(0x60728)='+ci);
           console.error('BISECT [g73] process_layout_children: node(0x60708)=0x'+plc.toString(16)+' lastChild(0x6070C)='+plcc);
           console.error('BISECT [g73] LayoutTree@sizing: root(0x60730)='+tr+' nodes.len(0x60734)='+tn+' get(root).is_some(0x60738)='+trs); }
+        // [g196] hashbrown-probe HANG split: capacity/len of the *allocated* logical_items table (after
+        // reserve(1), before the hanging .entry()). SANE cap + still-hangs ⇒ ctrl bytes corrupt (metadata OK);
+        // 0/garbage cap ⇒ alloc/bucket_mask mis-write. Tags: cap=0xCA|v, len=0x1E|v, post=0x96010001, pre=0x96020000.
+        { const P=a=>mini.AzStartup_peekU32(a)>>>0;
+          const pre=P(0x607EC), cap=P(0x607E0), len=P(0x607E4), post=P(0x607E8);
+          const capOk=(cap&0xFF000000)===0xCA000000, lenOk=(len&0xFF000000)===0x1E000000;
+          const capV=capOk?(cap&0xFFFFFF):'DROPPED(0x'+cap.toString(16)+')', lenV=lenOk?(len&0xFFFFFF):'DROPPED(0x'+len.toString(16)+')';
+          console.error('BISECT [g196] entry-HANG probe: pre-reserve(0x607EC=0x'+pre.toString(16)+'→'+(pre===0x96020000?'reached':'NOT-reached')+') reserve-done(0x607E8=0x'+post.toString(16)+'→'+(post===0x96010001?'YES':'NO/hung-in-reserve')+') | capacity='+capV+' len='+lenV
+            +'  → '+(capOk&&(cap&0xFFFFFF)>0 ? '*** METADATA SANE (bucket_mask OK) + entry hangs ⇒ CTRL BYTES corrupt (32-bit alias / ctrl-fill mis-exec) ***' : (pre!==0x96020000?'(did not reach probe — hang/trap is upstream)':'metadata 0/garbage ⇒ alloc/bucket_mask mis-write'))); }
+        // [g200] LAST libc-memset (ctrl fill) size+dst captured in the LibcMemset helper. size tiny (~9) ⇒ the
+        // fill SIZE (bucket count) mis-reads as 0 = the cron's "length reads 0" bug, in num_ctrl_bytes. size sane
+        // (~12-20) + heap dst (0x6xxxxxx) ⇒ the fill is correct → the find reads a DIFFERENT ctrl ptr (wrong-addr).
+        { const sz=mini.AzStartup_peekU32(0x607D0)>>>0, dst=mini.AzStartup_peekU32(0x607D4)>>>0;
+          console.error('BISECT [g200] last libc-memset: size(0x607D0)='+sz+' dst(0x607D4)=0x'+dst.toString(16)
+            +'  → '+(sz>0&&sz<11?'*** SIZE TINY ('+sz+') ⇒ ctrl-fill length mis-read (cron len-bug) ***':(dst>=0x6000000?'fill size='+sz+' OK + heap dst ⇒ WRONG-ADDRESS (find reads other ctrl ptr)':'dst not heap (0x'+dst.toString(16)+')'))); }
         // [az-diag g51 REVERT] inline-content phase (sizing.rs:994/1001/1013/1039): 0=never reached
         // collect_inline_content_recursive (InvalidTree is in calculate_intrinsic_recursive:226 /
         // node sizers 330/633/748, BEFORE inline collection); B1=at extract_text; B2=extract returned
@@ -631,6 +646,152 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
             console.error('POST-TRAP solveLayoutReal step(0x40710)=0x' + sl.toString(16) + ' → ' + sln);
             // DIAG font-resolve probe (0x40690 tag): did it complete? resolve_char('H') Some?
             console.error('POST-TRAP font-resolve DIAG: tag(0x40690)=0x' + D(0x40690).toString(16) + ' resolve_char_H(0x4069C)=' + D(0x4069C) + ' nfonts(0x406A4)=' + D(0x406A4) + ' nlist(0x406A8)=' + D(0x406A8));
+            // [g148 DEEP-FIX] dom_children loop guard — did the 0..len loop ENTER? seq distinguishes guard-skip vs body-bail.
+            { const dc=D(0x606B4), sq=D(0x606A4)>>>0, nt=D(0x606B8)>>>0, tl=D(0x606BC);
+              const sn={0x6863:'reached dom_children, loop NOT ENTERED (GUARD SKIPPED → len read 0 at runtime)',0x6905:'TEXT branch (body ENTERED ✓)',0x6942:'NON-TEXT branch (body entered, node_type≠Text)',0x6896:'loop ENTERED',0:'marker UNSET (collect_and_measure not reached?)'}[sq]||('0x'+sq.toString(16));
+              console.error('POST-TRAP [g148 dom_children] len(0x606B4)='+dc+' | last-seq(0x606A4)='+sn+' | first-child node_type(0x606B8)=0x'+nt.toString(16)+' | text-branch content.len(0x606BC)='+tl); }
+            // [g149 DEEP-FIX] does the out-param content Vec PTR agree callee(_impl 0x60690) vs caller(layout_ifc 0x606A0)?
+            { const kp=D(0x60690)>>>0, cp=D(0x606A0)>>>0, cl=D(0x60680)>>>0, idx=D(0x60694)>>>0;
+              const v = (kp!==0&&cp!==0&&kp!==cp)?'*** PTR DIFFERS → &mut inline_content ref MIS-LIFTS (g56 stack-addr class) ***'
+                      : (kp===cp&&kp!==0)?'ptr SAME → ref ok; the LEN store/read mis-lifts (callee push=1, caller read=0)'
+                      : (kp===0||cp===0)?'one ptr unset (marker not reached)':'?';
+              console.error('POST-TRAP [g149 content-ptr] callee _impl content.ptr(0x60690)=0x'+kp.toString(16)+' | caller inline_content.ptr(0x606A0)=0x'+cp.toString(16)+' | caller len(0x60680)='+cl+' | ifc_root_index(0x60694)=0x'+idx.toString(16)+'  → '+v); }
+            // [g162 DEEP-FIX] DECISIVE: peek the Vec struct DIRECTLY FROM MEMORY at the captured &inline_content
+            // (0x606A0). peekU32 reads mini.wasm linear memory (reliable, NOT subject to the lift's SROA). The Vec
+            // is {data_ptr@0, cap@8, len@16}. If mem[base+16]==1 → memory is CORRECT (store-side OK) ⇒ the bug is
+            // the to_vec READ in layout_flow (SROA'd read mis-lift). If mem[base+16]==0 → memory is WRONG ⇒ the bug
+            // is collect's out-param len-STORE (it never wrote 1 to memory). Settles store-side vs read-side.
+            { const base=D(0x606A0)>>>0;
+              if (base>0x1000 && base<0x20000000) {
+                // [g165] WIDE 64-bit dump base-0x20..base+0x38 to LOCATE the real Vec struct: a built
+                // Vec<InlineContent> has {data_ptr(heap ~0x6xxxxxx)@0, cap@8, len(small)@16}. Print each
+                // 64-bit word; flag heap-range (likely data_ptr) so we can identify the struct base + len.
+                let rows=[];
+                for (let off=-0x20; off<=0x38; off+=8) {
+                  const lo=D(base+off)>>>0, hi=D(base+off+4)>>>0;
+                  const v=hi*0x100000000+lo;
+                  let tag=''; if (lo>=0x6000000 && lo<0x20000000 && hi===0) tag=' <heap?ptr'; else if (v>=1 && v<=64 && hi===0) tag=' <small(len?)';
+                  rows.push('  ['+(off>=0?'+':'')+off.toString(16)+'] 0x'+(hi?hi.toString(16):'')+lo.toString(16).padStart(hi?8:1,'0')+tag);
+                }
+                console.error('POST-TRAP [g165 WIDE-PEEK @&inline_content=0x'+base.toString(16)+'] (64-bit words):\n'+rows.join('\n'));
+                // [g167] STACK SCAN: the captured &inline_content may be mis-lifted. Scan the whole stack
+                // region [0x8000,0x30000] for Vec<InlineContent> structs by signature: {data_ptr(heap
+                // 0x6xxxxxx)@0, cap(small)@8, len(small)@16}. Reports every candidate so we find the REAL
+                // inline_content Vec + its true len, independent of the (mis-liftable) pointer capture.
+                { let cands=[];
+                  for (let a=0x8000; a<0x30000; a+=8) {
+                    const p=D(a)>>>0, ph=D(a+4)>>>0;
+                    if (ph!==0 || p<0x6000000 || p>=0x6400000) continue;   // [a]=heap data ptr?
+                    const cap=D(a+8)>>>0, caph=D(a+12)>>>0, len=D(a+16)>>>0, lenh=D(a+20)>>>0;
+                    if (caph===0 && lenh===0 && cap>=1 && cap<=64 && len<=cap) {  // plausible {ptr,cap,len}
+                      cands.push('  @0x'+a.toString(16)+' = Vec{ptr=0x'+p.toString(16)+' cap='+cap+' len='+len+'}');
+                    }
+                  }
+                  console.error('POST-TRAP [g167 STACK-SCAN for Vec<InlineContent>] '+cands.length+' candidate(s):\n'+(cands.join('\n')||'  (none found — content Vec not on stack / data-ptr mis-shaped)')); }
+              } else { console.error('POST-TRAP [g165 WIDE-PEEK] base(0x606A0)=0x'+base.toString(16)+' not peekable — &inline_content unset/dropped'); } }
+            // [g179 FUEL-GID] AZ_FUEL is a GLOBAL tick (0x40068) that traps when it exceeds the limit,
+            // recording the looping block's GID at 0x40070 (tripped flag 0x40060). Grep the saved
+            // *.fuel.ll files for `@__az_fuel(i32 <gid>)` → the EXACT fn+block that looped. This is
+            // DEFINITIVE even for tight non-call loops (which the wrapped-call ring can't see).
+            { const tick=D(0x40068)>>>0, gid=D(0x40070)>>>0, trip=D(0x40060)>>>0, tickH=D(0x4006C)>>>0;
+              console.error('POST-TRAP [g179 FUEL] tripped(0x40060)='+trip+' tick(0x40068)=0x'+tickH.toString(16)+tick.toString(16).padStart(8,'0')+' GID(0x40070)='+gid+'  → grep azul-web-transpiler-*/*.fuel.ll for "@__az_fuel(i32 '+gid+')"'); }
+            // [g185 SELFTEST] tiny hashbrown reproducers: direct-local (0xD00 before, 0xD04 after/found) +
+            // struct-field (0xD08 before, 0xD0C after/found, 0xD10 len). Unset AFTER = that test HUNG = reproducer.
+            { const b1=D(0x60D00)>>>0, a1=D(0x60D04)>>>0, b2=D(0x60D08)>>>0, a2=D(0x60D0C)>>>0, ln=D(0x60D10)>>>0;
+              const isF=v=>(v&0xffff0000)===0xc0de0000; const f=v=>isF(v)?(v&0xffff):'UNSET';
+              const localDone=isF(a1), structDone=isF(a2);
+              console.error('POST-TRAP [g185 hashbrown SELFTEST] direct-local: before='+(b1===0xC0DE0185?'ran':'NO')+' after/found='+f(a1)
+                +' | struct-field: before='+(b2===0xC0DE0185?'ran':'NO')+' after/found='+f(a2)+' len='+ln
+                +'  → '+(!localDone?'✗✗ DIRECT-LOCAL HUNG (Arc<Vec> value-type reproduces in a small fn → AZ_WRITE_TRACE it!)'
+                  :!structDone?'✗✗ STRUCT-FIELD HUNG, local OK (self-relative field access is the bug, small+traceable!)'
+                  :'both OK → neither reproduces in isolation; bug needs full layout_flow context (execution-diff needed)')); }
+            // [g184 WRITE-TRACE] guest-write ring @0xD0000 (counter 0xCFFF0): i64 writes (addr,val) in
+            // AZ_WRITE_TRACE-matched fns. Filter for ctrl-write-back candidates: addr in stack [0x10000..0x30000]
+            // AND val a heap ptr [>=0x6000000] (the new ctrl), OR val a small power-of-2-minus-1 (bucket_mask).
+            { const cnt=D(0xCFFF0)>>>0;
+              if (cnt>0 && cnt<0x1000000) {
+                const W=Math.min(cnt,16384), lo=cnt-W; let cands=[], all=[];
+                for (let i=lo;i<cnt;i++){ const a=0xD0000+((i&16383)*8); const addr=D(a)>>>0, val=D(a+4)>>>0;
+                  const stackAddr = addr>=0x10000 && addr<0x30000;
+                  const heapVal = val>=0x6000000 && val<0x20000000;
+                  if (stackAddr && (heapVal || val<=255)) cands.push('  #'+i+' [0x'+addr.toString(16)+'] <- 0x'+val.toString(16)+(heapVal?' (heap ptr=ctrl?)':val<=64?' (bucket_mask?)':''));
+                  if (i>=cnt-30) all.push('  #'+i+' [0x'+addr.toString(16)+'] <- 0x'+val.toString(16)); }
+                console.error('POST-TRAP [g184 WRITE-TRACE] '+cnt+' i64 writes; '+cands.length+' stack<-(ptr|small) candidates (ctrl/mask write-back?):\n'+(cands.slice(-25).join('\n')||'  (none — ctrl write-back not to a stack addr, or not traced)'));
+                console.error('POST-TRAP [g184 last 30 writes in order]:\n'+all.join('\n'));
+              } else console.error('POST-TRAP [g184 WRITE-TRACE] counter(0xCFFF0)='+cnt+' — AZ_WRITE_TRACE off or no i64 writes in matched fns'); }
+            // [g202 READ-TRACE] guest ctrl-group `load volatile double` ADDR ring @0xE0000 (counter 0xDFFF0, 4B
+            // slots) in AZ_READ_TRACE-matched fns. The find spins on this load → ring tail = where the find reads
+            // ctrl. Compare to the g184 ctrl write-back (e.g. 0x6291300): far → find loaded a STALE/wrong ctrl ptr.
+            { const rcnt=D(0xDFFF0)>>>0;
+              if (rcnt>0 && rcnt<0x1000000) {
+                const W=Math.min(rcnt,16384), lo=rcnt-W; let last=[]; const hist={};
+                for (let i=lo;i<rcnt;i++){ const addr=D(0xE0000+((i&16383)*4))>>>0; const hi=addr&0xfffff000; hist[hi]=(hist[hi]||0)+1; if(i>=rcnt-20) last.push('  #'+i+' rd 0x'+addr.toString(16)); }
+                const hot=Object.entries(hist).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([p,c])=>'0x'+(p>>>0).toString(16)+'×'+c);
+                console.error('POST-TRAP [g202 READ-TRACE] '+rcnt+' ctrl-group reads; hot pages: '+hot.join(', ')+'\n  last 20:\n'+last.join('\n')); }
+              else console.error('POST-TRAP [g202 READ-TRACE] counter(0xDFFF0)='+rcnt+' — AZ_READ_TRACE off or no volatile-double guest reads'); }
+            // [g170 SP-TRACE] dump the enforce_sp_preservation ring (AZ_SP_TRACE=1): counter@0x77FF0,
+            // ring@0x78000 (2048 entries x 16B: SP@0, X1@4, callIdx@8). Last ~40 entries = the deep calls
+            // near content. If SP JUMPS between consecutive same-region calls → SP mis-track (the bug).
+            { const cnt=D(0x77FF0)>>>0;
+              if (cnt>0 && cnt<0x1000000) {
+                // [g171] search the WHOLE ring for calls whose X1 is a STACK ptr (0x10000-0x30000) =
+                // &inline_content / &content_vec_flow candidates (the layout_flow/create_logical_items
+                // calls). Report each with its SP — does X1 point to a g167 len=1 Vec, or to garbage?
+                // [g172] +8 slot now holds the call TARGET (sub_<hex> low32). Find layout_flow
+                // (0xa81224, X1=&inline_content) + create_logical_items (0xa829dc, X1=&content_vec_flow);
+                // peek each as Vec{cap@0, ptr@8, len@16}. DEFINITIVE: is content_vec_flow empty (to_vec
+                // mis-lift) while inline_content is len=1?
+                const lo=Math.max(0,cnt-16384);
+                const TGT={0xa800ac:"layout_flow(&inline_content)",0xa81864:"create_logical_items(&content_vec_flow)"};
+                let hits=[];
+                for (let i=lo; i<cnt; i++){ const a=0x78000+((i&16383)*16); const tgt=D(a+8)>>>0;
+                  if (TGT[tgt]){ const x1=D(a+4)>>>0;
+                    const cap=D(x1)>>>0, ptr=D(x1+8)>>>0, len=D(x1+16)>>>0;
+                    hits.push('  #'+i+' SP=0x'+(D(a)>>>0).toString(16)+' -> '+TGT[tgt]+' X1=0x'+x1.toString(16)+' Vec{cap='+cap+' ptr=0x'+ptr.toString(16)+' len='+len+'}'+(len===0?' *** EMPTY ***':len===1?' (len=1 ok)':'')); } }
+                console.error('POST-TRAP [g172 layout_flow/create_logical_items calls] '+hits.length+':\n'+(hits.slice(-20).join('\n')||'  (neither target call found in ring window)'));
+                // also a quick stack-ptr-X1 dump for context
+                let stk=[];
+                for (let i=lo; i<cnt; i++){ const a=0x78000+((i&16383)*16); const x1=D(a+4)>>>0;
+                  if (x1>=0x10000 && x1<0x30000){ const len=D(x1+16)>>>0,ptr=D(x1+8)>>>0;
+                    stk.push('  #'+i+' tgt=0x'+(D(a+8)>>>0).toString(16)+' X1=0x'+x1.toString(16)+' Vec{ptr=0x'+ptr.toString(16)+' len='+len+'}'); } }
+                console.error('POST-TRAP [g171 stack-ptr X1] '+stk.length+':\n'+(stk.slice(-25).join('\n')||'  none'));
+              } else { console.error('POST-TRAP [g170 SP-TRACE] counter(0x77FF0)='+cnt+' — AZ_SP_TRACE off or no calls'); } }
+            // [g177] DEFINITIVE loop localizer: histogram of the last 512 ring TARGETS (D(a+8)) +
+            // the last 40 entries IN ORDER. The repeating target(s) at the tail = the spinning loop's
+            // call(s). Resolve the hex targets against the server log's "resolved=NAME@0x..ADDR" lines.
+            { const cnt=D(0x77FF0)>>>0;
+              if (cnt>0 && cnt<0x1000000) {
+                const W=Math.min(cnt,16384); const lo=cnt-W;
+                const freq=new Map(); const spmin=new Map(); const spmax=new Map();
+                for (let i=lo;i<cnt;i++){ const a=0x78000+((i&16383)*16); const t=D(a+8)>>>0; const sp=D(a)>>>0;
+                  freq.set(t,(freq.get(t)||0)+1);
+                  spmin.set(t,Math.min(spmin.get(t)??sp,sp)); spmax.set(t,Math.max(spmax.get(t)??sp,sp)); }
+                const NAMED={0xb4822c:'reconcile_recursive',0xe64da8:'restyle',0xeba5fc:'SipHasher::write(fingerprint)',0xe675e4:'get_property',0xe68b24:'get_font_size',0xb638f0:'get_display_property_internal',0xf9e5c8:'CssProperty::get_type'};
+                const top=[...freq.entries()].sort((x,y)=>y[1]-x[1]).slice(0,18)
+                  .map(([t,c])=>'  sub_'+t.toString(16)+'  x'+c+'  SP=[0x'+(spmin.get(t)>>>0).toString(16)+'..0x'+(spmax.get(t)>>>0).toString(16)+']'+(NAMED[t]?'  '+NAMED[t]:'')).join('\n');
+                console.error('POST-TRAP [g178 WHOLE-RING HISTOGRAM '+W+' of '+cnt+' calls] (SP-range: flat=loop, wide=recursion):\n'+top);
+                for (const [t,nm] of Object.entries(NAMED)){ const k=+t; console.error('  >> '+nm+' (sub_'+k.toString(16)+'): count='+(freq.get(k)||0)+(freq.get(k)?' SP=[0x'+(spmin.get(k)>>>0).toString(16)+'..0x'+(spmax.get(k)>>>0).toString(16)+']':'')); }
+                // [g178] dump WHOLE ring to a file for offline structure analysis (SP descent = recursion).
+                try { const fs=require('fs'); let out='';
+                  for (let i=lo;i<cnt;i++){ const a=0x78000+((i&16383)*16); out+=i+','+(D(a)>>>0).toString(16)+','+(D(a+4)>>>0).toString(16)+','+(D(a+8)>>>0).toString(16)+'\n'; }
+                  fs.writeFileSync('/tmp/ring_full.csv',out); console.error('POST-TRAP [g178] whole ring ('+(cnt-lo)+' entries) → /tmp/ring_full.csv (i,SP,X1,tgt all hex)');
+                } catch(e){ console.error('ring dump failed: '+e); }
+                const tail=[]; const t0=Math.max(lo,cnt-40);
+                for (let i=t0;i<cnt;i++){ const a=0x78000+((i&16383)*16);
+                  tail.push('  #'+i+' SP=0x'+(D(a)>>>0).toString(16)+' X1=0x'+(D(a+4)>>>0).toString(16)+' tgt=sub_'+((D(a+8)>>>0).toString(16))); }
+                console.error('POST-TRAP [g177 LAST 40 RING ENTRIES in call order = the innermost loop cycle]:\n'+tail.join('\n'));
+              } }
+            // [g150 DEEP-FIX] layout_flow ENTRY: content ref ptr (0x60BD0) + content.len through the ref (0x60BD4).
+            { const fp=D(0x60BD0)>>>0, fl=D(0x60BD4)>>>0; const flv=((fl&0xffff0000)===0xc0de0000)?(fl&0xffff):'unset';
+              const cp2=D(0x606A0)>>>0;
+              const verdict=(fp!==0&&cp2!==0&&fp!==cp2)?'*** REF MIS-LIFTS: layout_flow content ptr != layout_ifc inline_content ptr (g56 stack-addr) ***'
+                          :(fp===cp2&&fp!==0&&flv===0)?'*** ptr SAME but len read 0 → LEN-LOAD-THROUGH-REF mis-lift (llc/stack-reloc) ***'
+                          :(flv!==0&&flv!=='unset')?'len OK at entry ('+flv+') → drop is in to_vec/create_logical_items':'fp unset?';
+              console.error('POST-TRAP [g150 layout_flow] content.ptr(0x60BD0)=0x'+fp.toString(16)+' | content.len-via-ref(0x60BD4)='+flv+' | (layout_ifc inline_content.ptr=0x'+cp2.toString(16)+')  → '+verdict); }
+            // [g156] RAW content.len (0x60BD8) + direct [ptr+16] read (0x60BDC) — garbage(stack-addr) vs 0 vs 1.
+            { const raw=D(0x60BD8)>>>0, dir=D(0x60BDC)>>>0;
+              const cls=v=>(v===1?'=1 ✓CORRECT':v===0?'=0 (clean zero)':(v>=0x20000&&v<0x40000)?'=0x'+v.toString(16)+' ★STACK-ADDR → CLOBBERED (frame/save-slot overlap, g156 CONFIRMED)':'=0x'+v.toString(16)+' (garbage)');
+              console.error('POST-TRAP [g156 raw-len] content.len() RAW(0x60BD8)'+cls(raw)+' | direct *[ptr+16](0x60BDC)'+cls(dir)); }
         }
         process.exit(1);
     }
@@ -664,6 +825,14 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         // aren't read in POST-TRAP). NOTE 0x607C0/C4 collide w/ old g70 markers; 0x607D0+ are clean.
         const Dh = a => mini.AzStartup_peekU32(a) >>> 0;
         console.log('[g119 measure-path] cli-entry content.len(0x607D0)=0x' + Dh(0x607D0).toString(16) + ' | Stage-2 mark(0x607E8)=0x' + Dh(0x607E8).toString(16) + (Dh(0x607E8)===0xc0de0444?' ✓visual built':'') + ' visual.len(0x607E0)=0x' + Dh(0x607E0).toString(16) + ' | Stage-3 mark(0x607F0)=0x' + Dh(0x607F0).toString(16) + (Dh(0x607F0)===0xc0de0555?' ✓✓ SHAPED!':' ✗ shape not done') + ' shaped.len(0x607EC)=0x' + Dh(0x607EC).toString(16));
+        // [g201 SUCCESS-PATH WRITE-TRACE] mirror of the POST-TRAP dump (708) on the SUCCESS path, so AZ_WRITE_TRACE
+        // data survives even if the instrumentation MASKS the hang. Shows every guest i64 write of a heap ptr
+        // (>=0x6000000) + its dest addr → the resize's self.table.ctrl write-back. MISSING or wrong addr = the bug.
+        { const cnt = Dh(0xCFFF0) >>> 0;
+          if (cnt > 0) { const lo = Math.max(0, cnt - 16384); const hw = [];
+            for (let i=lo;i<cnt;i++){ const a=0xD0000+((i&16383)*8); const addr=Dh(a)>>>0, val=Dh(a+4)>>>0; if (val>=0x6000000) hw.push('  ['+i+'] *0x'+addr.toString(16)+' = 0x'+val.toString(16)); }
+            console.log('[g201 WRITE-TRACE success] '+cnt+' guest-i64 writes; '+hw.length+' heap-ptr writes (resize ctrl write-back among them):\n'+(hw.slice(-30).join('\n')||'  (no heap-ptr writes traced)'));
+          } else console.log('[g201 WRITE-TRACE success] counter(0xCFFF0)='+cnt+' — AZ_WRITE_TRACE off or no guest-i64 writes in matched fns'); }
         // [g132 VERIFY] layout_ifc output.overflow_size (IFC line-box bounds set from main_frag.bounds()).
         // height>0 proves the text LAID OUT (positioned into a line box), not just shaped.
         { const f32 = b => new Float32Array(new Uint32Array([b>>>0]).buffer)[0];

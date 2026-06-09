@@ -7055,6 +7055,10 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     // correct; same Vec-len mis-lift class as the original sret bug, here on std `collect()` which can't be
     // out-param'd). Read len via a volatile round-trip (guaranteed-correct, like the marker) and index via
     // get_unchecked (the index's bounds-check len read mis-lifts the same way; len is valid → sound).
+    // [g195 — collect_and_measure_inline_content_impl is DEAD on the web lift (NOT lifted for hello-world
+    // OR web-nested-text; both lay out via measure_intrinsic_widths + layout_flow instead). So this g139
+    // Vec-len workaround never executes on the web lift → it's irrelevant/deletable (kept: harmless, and
+    // unverified-dead for other layouts). The cron's "collect_and_measure Vec-len" target is a DEAD PATH.]
     #[cfg(feature = "web_lift")]
     let dom_children_len = unsafe {
         core::ptr::write_volatile(0x606B4 as *mut u32, dom_children.len() as u32);
