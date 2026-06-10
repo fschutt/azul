@@ -1,0 +1,26 @@
+[package]
+name = "aztest"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = """
+    Wayland GUI-test input injector for KDE/KWin sessions. Speaks the
+    org_kde_kwin_fake_input protocol (the same path KDE Connect uses), so
+    injected pointer/keyboard events route through the REAL compositor and
+    arrive at apps as genuine wl_pointer/wl_keyboard input — no root, no
+    uinput. Companion to scripts/azshot.py (portal screenshots).
+"""
+publish = false
+
+# Standalone on purpose: keeps wayland-client/scanner out of the azul
+# workspace lockfile and lets it build without touching the main tree.
+[workspace]
+
+[dependencies]
+wayland-client = "0.31"
+wayland-backend = "0.3"
+wayland-scanner = "0.31"
+
+[[bin]]
+name = "azinput"
+path = "src/main.rs"
