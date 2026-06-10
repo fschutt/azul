@@ -1049,12 +1049,18 @@ pub fn reconcile_recursive(
     // niche-enum mis-discriminant) wrongly steering cold nodes into the else.
     let new_node_idx = if dirty_flag >= DirtyFlag::Layout || old_tree.is_none() {
         { let _ = (0xBB00_0001u32); }
-        new_tree_builder.create_node_from_dom(
+        let idx = new_tree_builder.create_node_from_dom(
             styled_dom,
             new_dom_id,
             new_parent_idx,
             debug_messages,
-        )
+        );
+        // Blockify replaced/inline flex-or-grid items (CSS Display 3 §2.7). The
+        // full `process_node` build does this; this incremental path called
+        // `create_node_from_dom` directly and skipped it, so a flex-item <img>
+        // (e.g. the AzulPaint canvas) stayed inline and ignored flex-grow.
+        new_tree_builder.blockify_node_display(styled_dom, new_dom_id, idx, new_parent_idx);
+        idx
     } else {
         { let _ = (0xBB00_0002u32); }
         // Paint-only or clean: clone the old node (preserving layout cache)
@@ -1161,9 +1167,26 @@ pub fn reconcile_recursive(
         .iter()
         .any(|&id| is_block_level(styled_dom, id));
 
-    if !has_block_child {
-        // All children are inline - no anonymous boxes needed
-        // Simple case: process each child directly
+    // CSS Flexbox §4 / Grid §6: every in-flow child of a flex/grid container
+    // becomes a (blockified) flex/grid item. Anonymous-block wrapping of inline
+    // runs is a BLOCK-container concept and must NOT apply here — otherwise an
+    // inline-level child (e.g. an <img> with flex-grow, default display
+    // inline-block) gets wrapped in an anonymous IFC block, so it's no longer a
+    // direct flex item and its flex-grow is ignored (laid out 300×0). Processing
+    // each child directly lets `blockify_node_display` (in create_node_from_dom)
+    // see the flex/grid parent and blockify the child into a real flex item.
+    let parent_is_flex_or_grid = matches!(
+        get_display_type(styled_dom, new_dom_id),
+        LayoutDisplay::Flex
+            | LayoutDisplay::InlineFlex
+            | LayoutDisplay::Grid
+            | LayoutDisplay::InlineGrid
+    );
+
+    if !has_block_child || parent_is_flex_or_grid {
+        // All children are inline (block container) OR the parent is a flex/grid
+        // container (all children are direct items) — no anonymous boxes needed.
+        // Process each child directly.
         for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
             // DOM-ID match rather than positional — tree builder
             // may have dropped some DOM children (whitespace text

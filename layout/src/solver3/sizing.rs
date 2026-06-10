@@ -357,6 +357,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // +spec:containing-block:1da6dc - use initial CB inline size for replaced elements with aspect ratio but no intrinsic size
                 // Per css-sizing-3 §5.1: "use an inline size matching the corresponding dimension
                 // of the initial containing block and calculate the other dimension using the aspect ratio"
+                let has_intrinsic = size.width > 0.0 || size.height > 0.0;
                 let (width, height) = if size.width > 0.0 && size.height > 0.0 {
                     (size.width, size.height)
                 } else if size.width > 0.0 {
@@ -372,13 +373,27 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     let w = self.ctx.viewport_size.width.min(300.0);
                     (w, w / 2.0)
                 };
+                // A replaced element with NO intrinsic size (e.g. a RenderImageCallback
+                // <img> like the AzulPaint canvas) must behave like a VirtualView: keep
+                // the 300×150 fallback as the min/max-content (so it has a sensible
+                // default) but leave `preferred` as None so `flex-grow` / explicit CSS
+                // can size it. A `Some(preferred)` here pins the box and defeats
+                // flex-grow (the canvas was laid out 300×0 — see the VirtualView arm
+                // above, which already uses None for exactly this reason). Images WITH
+                // a real intrinsic size keep `preferred = Some` so they display at their
+                // natural size when unconstrained.
+                let (pref_w, pref_h) = if has_intrinsic {
+                    (Some(width), Some(height))
+                } else {
+                    (None, None)
+                };
                 return Ok(IntrinsicSizes {
                     min_content_width: width,
                     max_content_width: width,
-                    preferred_width: Some(width),
+                    preferred_width: pref_w,
                     min_content_height: height,
                     max_content_height: height,
-                    preferred_height: Some(height),
+                    preferred_height: pref_h,
                 });
             }
         }

@@ -1961,6 +1961,69 @@ impl LayoutTreeBuilder {
     // discriminant decode mis-reads the Ok as Err (the rc=5 root cause: reconcile
     // reaches this fn but returns Err before its own Ok). Dropping the Result
     // removes that mis-lifting `?`.
+    /// Apply CSS Display 3 §2.7/§2.8 blockification to a freshly-created node:
+    /// a flex/grid item (or root / abs-pos / floated box) whose specified display
+    /// is inline-level computes to its block-level equivalent.
+    ///
+    /// `process_node` (the full tree build) does this inline, but the INCREMENTAL
+    /// tree builder (`cache.rs` reconcile → `create_node_from_dom`) bypassed it.
+    /// Without it, a replaced inline flex item — e.g. an `<img>` canvas with
+    /// `flex-grow: 1` (AzulPaint) — stayed inline, so its flex-grow was ignored
+    /// and it was laid out 300×0 (the replaced-element default width, 0 height).
+    /// Must be called AFTER the node is created and AFTER its parent's
+    /// formatting context is known (the build is top-down, so the parent exists).
+    pub fn blockify_node_display(
+        &mut self,
+        styled_dom: &StyledDom,
+        dom_id: NodeId,
+        node_idx: usize,
+        parent_idx: Option<usize>,
+    ) {
+        let node_data = &styled_dom.node_data.as_container()[dom_id];
+        // CSS Display 3 §2.4: a replaced element with a layout-internal display
+        // value uses 'inline' — so it's inline-level and thus blockifiable.
+        let raw_display = {
+            let d = get_display_type(styled_dom, dom_id);
+            if d.is_layout_internal() && is_replaced_element(node_data) {
+                LayoutDisplay::Inline
+            } else {
+                d
+            }
+        };
+        let (position, float) = self
+            .nodes
+            .get(node_idx)
+            .map(|n| (n.computed_style.position, n.computed_style.float))
+            .unwrap_or_default();
+        let is_absolute_or_fixed =
+            matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed);
+        let is_floated = float != LayoutFloat::None;
+        let is_root = parent_idx.is_none();
+        let is_flex_grid_child = parent_idx
+            .and_then(|p| self.nodes.get(p))
+            .map(|n| {
+                matches!(
+                    n.formatting_context,
+                    FormattingContext::Flex | FormattingContext::Grid
+                )
+            })
+            .unwrap_or(false);
+        let display_type = crate::solver3::getters::get_computed_display(
+            raw_display,
+            is_absolute_or_fixed,
+            is_floated,
+            is_root,
+            is_flex_grid_child,
+        );
+        if display_type != raw_display {
+            if let Some(node) = self.nodes.get_mut(node_idx) {
+                node.computed_style.display = display_type;
+                node.formatting_context =
+                    determine_formatting_context_for_display(styled_dom, dom_id, display_type);
+            }
+        }
+    }
+
     pub fn create_node_from_dom(
         &mut self,
         styled_dom: &StyledDom,
