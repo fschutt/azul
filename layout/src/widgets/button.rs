@@ -1053,26 +1053,20 @@ impl Button {
             Class(AzString::from(type_class)),
         ];
 
-        // ⚠ BISECTION step 2 (REVERT): strip the label's inline css (label_style). A text
-        // node WITH with_css_props is the untested combination. If web-button-nocb RUNS now
-        // → the label's inline css is the OOB cause; if it still OOBs → ids/classes/structure.
-        let _ = &self.label_style;
-        let label_dom = Dom::create_text(self.label);
+        // (2026-06-10: the June-02 bisection strips are REVERTED — the underlying corruption
+        // was the alloc collect-machinery Leaf-stub in the web transpiler, fixed there. The
+        // label keeps its inline css; the button carries its on_click callbacks + tab index
+        // again — without them every Button click was a silent no-op on ALL backends, and the
+        // web route-walk discovered 0 callbacks. The FIX-A ordering (container style before
+        // ids/classes) is kept: builder-order is semantically neutral natively.)
+        let label_dom = Dom::create_text(self.label)
+            .with_css_props(self.label_style);
 
-        // ⚠ BISECTION step 3 (REVERT): strip ids/classes (const-str AzStrings),
-        // callbacks, tab_index. Leaves Button node + text child + minimal container css.
-        // RUNS → ids/classes/tab_index was it; OOBs → the bare structure / NodeType::Button.
-        // ⚠ BISECTION step 4 (REVERT): bare structure RAN; add back ONLY ids/classes
-        // (const-str AzStrings via from_const_str). OOBs → ids/classes is the root.
-        // ⚠ BISECTION step 6 (REVERT): REORDER — write container style (with_css_props)
-        // BEFORE adding the extra box (with_ids_and_classes). The build-time corruption
-        // (button.style.rules=garbage) is triggered by the extra-box machinery; if writing
-        // style first leaves it intact → the bug is set_css_props-when-extra-exists (cheap
-        // fix = order). If still corrupt → the extra-box write clobbers style / sret-of-extra.
-        let _ = &callbacks;
         Dom::create_node(NodeType::Button)
             .with_child(label_dom)
             .with_css_props(self.container_style)
             .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+            .with_callbacks(callbacks.into())
+            .with_tab_index(TabIndex::Auto)
     }
 }
