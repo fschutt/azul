@@ -5425,9 +5425,32 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
             // no longer be a tail call. (Previously only `tail call ptr @sub_` was de-tailed.)
             out.push_str(&line.replacen("tail call ptr @", "call ptr @", 1));
             out.push('\n');
+            // LEAK-GATED restore (class-B root-cause fix, 2026-06-10). The original
+            // UNCONDITIONAL restore enforced AAPCS callee-saved preservation across every
+            // wrapped call — but `parse_sub_call` also matches lifted TAIL-JUMPS
+            // (`b <target>` → missing_block/__az_indirect_dispatch → call): those are
+            // CONTINUATIONS of the current frame, not call boundaries. A continuation
+            // legitimately pops the frame (SP_after > SP_before) and restores
+            // callee-saveds itself; force-rolling SP/X19-X29/D8-D15 back re-entered the
+            // dead frame and resurrected stale register values, so the caller's
+            // subsequent frame-relative reads/writes landed on garbage (the historic
+            // "sret Vec.len = pointer-shaped stack value" class-B corruption — e.g. the
+            // shape_text -> Result<Vec<Glyph>> chain whose inner shaper tail-jumps into
+            // unicode_bidi/get_ua_property).
+            //
+            // The repair this pass exists for (M12.6: a LEAKY callee whose lifted
+            // epilogue DROPS the `add sp,#N` restore, returning with SP *below* entry)
+            // is detected precisely by `SP_after < SP_before`. Restore the snapshot ONLY
+            // in that case; otherwise keep the callee's (correct) register state.
+            out.push_str(&format!(
+                "{indent}%azspa_{k} = load i64, ptr %azg_{k}_11, align 8\n\
+                 {indent}%azleak_{k} = icmp ult i64 %azspa_{k}, %azv_{k}_11\n"
+            ));
             for j in 0..CS_OFFSETS.len() {
                 out.push_str(&format!(
-                    "{indent}store i64 %azv_{k}_{j}, ptr %azg_{k}_{j}, align 8\n"
+                    "{indent}%aza_{k}_{j} = load i64, ptr %azg_{k}_{j}, align 8\n\
+                     {indent}%azs_{k}_{j} = select i1 %azleak_{k}, i64 %azv_{k}_{j}, i64 %aza_{k}_{j}\n\
+                     {indent}store i64 %azs_{k}_{j}, ptr %azg_{k}_{j}, align 8\n"
                 ));
             }
             k += 1;
