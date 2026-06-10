@@ -129,7 +129,7 @@ impl PlatformCapability {
         } else if cfg!(target_os = "ios") {
             cap(true, "CoreMotion", "")
         } else if cfg!(target_os = "android") {
-            cap(true, "SensorManager", "")
+            cap(false, "SensorManager (JNI)", "Rust path ready; AzulSensors.java helper pending")
         } else if cfg!(target_os = "macos") {
             cap(false, "CoreMotion", "most Macs have no accelerometer; reading stays None")
         } else if cfg!(target_os = "windows") {
@@ -154,16 +154,18 @@ impl PlatformCapability {
         }
     }
 
-    /// Probe geolocation. Currently a stub on every platform.
+    /// Probe geolocation. Real backends: geoclue D-Bus loop (Linux),
+    /// CLLocationManager (macOS/iOS). Android's Rust/JNI path is wired but the
+    /// `AzulGeolocation.java` helper hasn't shipped; Windows is still a stub.
     pub fn geolocation() -> PlatformCapability {
         if cfg!(target_os = "linux") {
-            cap(false, "geoclue (D-Bus)", "not yet implemented (stub)")
+            cap(true, "geoclue (D-Bus)", "needs the GeoClue2 service; fix delivered async")
         } else if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
-            cap(false, "CoreLocation", "not yet implemented (stub)")
+            cap(true, "CoreLocation", "needs location permission; fix delivered async")
         } else if cfg!(target_os = "windows") {
             cap(false, "WinRT Geolocation", "not yet implemented (stub)")
         } else if cfg!(target_os = "android") {
-            cap(false, "LocationManager", "not yet implemented (stub)")
+            cap(false, "FusedLocationProvider (JNI)", "Rust path ready; AzulGeolocation.java helper pending")
         } else {
             cap(false, "none", "no geolocation backend on this target")
         }
