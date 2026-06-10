@@ -992,7 +992,7 @@ pub fn run_web(
     // Phase C: feed every discovered callback into the (still-stubbed) lift
     // pipeline. Discovery is functional (DOM walk + dladdr); `wasm_bytes`
     // stays empty until the remill / LLVM-IR / wasm-link pass is wired up.
-    let cb_wasms = discover_and_transpile_callbacks(&discovered_per_route);
+    let mut cb_wasms = discover_and_transpile_callbacks(&discovered_per_route);
     eprintln!(
         "[azul-web] Discovered {} unique callbacks across {} route(s); transpile lift is stubbed",
         cb_wasms.len(), discovered_per_route.len(),
@@ -1022,7 +1022,7 @@ pub fn run_web(
     };
     // Dev knob: skip layout-cb lift for fast iteration while debugging
     // cb-side regressions. Set AZ_SKIP_LAYOUT_LIFT=1 to bypass.
-    let layout_wasms = if std::env::var_os("AZ_SKIP_LAYOUT_LIFT").is_some() {
+    let mut layout_wasms = if std::env::var_os("AZ_SKIP_LAYOUT_LIFT").is_some() {
         eprintln!("[azul-web] AZ_SKIP_LAYOUT_LIFT=1 — skipping layout-cb lift");
         Vec::new()
     } else {
@@ -1071,6 +1071,59 @@ pub fn run_web(
         boundary_wasms.len(),
         symbol_table::shards_enabled(),
     );
+
+    // Phase D-cache (2026-06-10): turn the cb/layout wasm URL hashes into REAL
+    // content hashes. The HTML is pre-rendered BEFORE the lifts, so the URLs are
+    // emitted with `fnv1a64(name)` placeholders — which are CONSTANT across
+    // builds. Served with `Cache-Control: immutable, max-age=1yr`, a browser
+    // would keep the FIRST layout.wasm it ever saw and pair it with each new
+    // build's mini.wasm (mini IS content-hashed) → call_indirect signature
+    // mismatch in AzStartup_initLayoutCache after any rebuild. Rewrite every
+    // route's HTML (preload hints + data-az-wasm attrs) with the lifted bytes'
+    // hash; the /az/cb/ and /az/layout/ route handlers match by NAME and treat
+    // the hash purely as a cache key, so no handler change is needed.
+    {
+        let mut url_rewrites: Vec<(String, String)> = Vec::new();
+        for cb in &mut cb_wasms {
+            if cb.wasm_bytes.is_empty() {
+                continue;
+            }
+            let real = fnv1a64_hex(&cb.wasm_bytes);
+            if real != cb.content_hash {
+                url_rewrites.push((
+                    format!("/az/cb/{}.{}.wasm", cb.name, cb.content_hash),
+                    format!("/az/cb/{}.{}.wasm", cb.name, real),
+                ));
+                cb.content_hash = real;
+            }
+        }
+        for lw in &mut layout_wasms {
+            if lw.wasm_bytes.is_empty() {
+                continue;
+            }
+            let real = fnv1a64_hex(&lw.wasm_bytes);
+            if real != lw.content_hash {
+                url_rewrites.push((
+                    format!("/az/layout/{}.{}.wasm", lw.name, lw.content_hash),
+                    format!("/az/layout/{}.{}.wasm", lw.name, real),
+                ));
+                lw.content_hash = real;
+            }
+        }
+        if !url_rewrites.is_empty() {
+            for route in rendered_routes.values_mut() {
+                for (old, new) in &url_rewrites {
+                    if route.html.contains(old.as_str()) {
+                        route.html = route.html.replace(old.as_str(), new.as_str());
+                    }
+                }
+            }
+            eprintln!(
+                "[azul-web] content-hashed {} wasm URL(s) in the pre-rendered HTML",
+                url_rewrites.len(),
+            );
+        }
+    }
 
     // Phase E: Start HTTP server
     let bind_addr = web_config.bind;
