@@ -1982,8 +1982,27 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         {
                             return FnClass::NeverLift;
                         }
+                        // COLLECT-CHAIN ROOT-CAUSE (2026-06-10): `Vec::from_iter`/`collect()` lowers
+                        // to `alloc::vec::spec_from_iter*::from_iter`, `alloc::vec::in_place_collect::
+                        // from_iter_in_place`, and `spec_extend`/`extend_trusted`/`extend_desugared` —
+                        // ALL real-work Vec builders that the runtime-crates filter stubbed to Leaf.
+                        // The no-op stub never writes the collected Vec through its sret dest, so every
+                        // `.iter().map(..).collect::<Vec<_>>()` in lifted code returned stack garbage
+                        // (len=0 on a clean frame; pointer-shaped values like 0x27370 on a dirty one).
+                        // THIS was the real "class-B sret mis-lift": the historic shape_text garbage
+                        // lens (g126/g127), the Ok→Err Result<Vec> reads (g76/g78), the corrupt
+                        // FontChainKey from from_selectors (g121/g122, families.len 4-vs-3), and the
+                        // css.rs From<CssPropertyWithConditionsVec> FIX-B rewrite were all this one
+                        // classifier gap. Same fix class as raw_vec/btree/resize below: lift them.
                         if crate_name == "alloc"
-                            && (name.contains("raw_vec") || name.contains("btree"))
+                            && (name.contains("raw_vec")
+                                || name.contains("btree")
+                                || name.contains("from_iter")
+                                || name.contains("in_place_collect")
+                                || name.contains("spec_from_iter")
+                                || name.contains("spec_extend")
+                                || name.contains("extend_trusted")
+                                || name.contains("extend_desugared"))
                         {
                             // raw_vec: see above. btree (M12.7): BTreeMap's drop
                             // drains the tree via `IntoIter::dying_next`, which
