@@ -3053,9 +3053,22 @@ fn determine_formatting_context_for_display(
 /// The logic now correctly identifies all BFC roots.
 fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> FormattingContext {
     let node_data = &styled_dom.node_data.as_container()[node_id];
+    // [g147j az-web-lift DIAG] OUTER determine_ entry (0x60BB0+slot): 1=Text early-exit,
+    // 0x10|disc = went through for_display and returned that repr(C,u8) discriminant.
+    // Discriminates "never called during the lifted build" (slot stays 0) vs "called but
+    // the for_display match mis-routes" (here=0x10|x while the g147h inner markers stay 0)
+    // vs "value correct at build, corrupted later" (here says Inline, dispatch reads garbage).
     if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+        #[cfg(feature = "web_lift")]
+        unsafe { crate::az_mark(0x60BB0 + (node_id.index() & 7) as u32 * 4, 0xC0DE0001); }
         return FormattingContext::Inline;
     }
     let display_type = get_display_type(styled_dom, node_id);
-    determine_formatting_context_for_display(styled_dom, node_id, display_type)
+    let fc = determine_formatting_context_for_display(styled_dom, node_id, display_type);
+    #[cfg(feature = "web_lift")]
+    unsafe {
+        let disc: u8 = core::ptr::read_volatile((&fc) as *const FormattingContext as *const u8);
+        crate::az_mark(0x60BB0 + (node_id.index() & 7) as u32 * 4, 0xC0DE0010 | disc as u32);
+    }
+    fc
 }

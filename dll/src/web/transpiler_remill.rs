@@ -1738,10 +1738,18 @@ impl RemillTranspiler {
                         "get_ua_property",
                         "determine_formatting_context_for_display",
                         "4Once4call",
+                        // 2026-06-10 (fn-ptr targets): azul_core::task time callbacks are
+                        // reached ONLY through fn POINTERS stored in callback structs
+                        // (GetSystemTimeCallback etc.) — invisible to the BL/B scan, so the
+                        // dispatcher unk-dropped every call (the persistent Instant::now /
+                        // std_instant_clone drops in the indirect ring).
+                        "4task7Instant3now",
+                        "4task11std_instant",
                     ];
                     if e.classification.is_recursable()
                         && JT_SEEDS.iter().any(|s| e.canonical_name.contains(s))
                     {
+                        eprintln!("[azul-web]   jt-seed: {}", e.canonical_name);
                         queue.push_back(TransitiveLiftTarget::Dep {
                             name: e.canonical_name.clone(),
                             addr: e.canonical_addr,
@@ -2308,6 +2316,32 @@ impl RemillTranspiler {
         // (2026-06-03: see the sequential path — force-enqueuing ALL ~8048 _OUTLINED_FUNCTION_*
         // blows the runaway limit; reverted. Fix needs a narrowed set / raised limits / dispatcher
         // epilogue emulation.)
+        // 2026-06-10 (fn-ptr roots): seed targets that are reached ONLY through function
+        // POINTERS whose values live in mirrored DATA (callback-struct fields like
+        // azul_core::task::GetSystemTimeCallback) — invisible to both the BL/B scan and the
+        // adrp+add scan, so they were never lifted and the indirect dispatcher unk-dropped
+        // every call (the persistent Instant::now / std_instant_clone drops). The dispatcher's
+        // native-truncated alias labels already route the values once the bodies exist.
+        if let Some(t) = table {
+            for pats in [
+                &["azul_core", "task", "Instant"][..],
+                &["azul_core", "task", "std_instant"][..],
+            ] {
+                for (name, addr, size) in t.find_recursable_by_name(pats) {
+                    if visited.contains(&addr) {
+                        continue;
+                    }
+                    let size = if size > 0 { size } else { super::LIFT_READ_WINDOW };
+                    queue.push_back((
+                        name,
+                        addr,
+                        size,
+                        canonical_sig.clone(),
+                        format!("__az_dep_{:x}", addr),
+                    ));
+                }
+            }
+        }
         while let Some((name, addr, size, sig, export_as)) = queue.pop_front() {
             if !visited.insert(addr) {
                 continue;

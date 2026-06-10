@@ -860,6 +860,22 @@ impl SymbolTable {
         None
     }
 
+    /// Find Recursable function entries whose canonical name contains ALL of
+    /// `must_contain`'s substrings. Used to seed the transitive lift with
+    /// fn-POINTER-called targets (their pointers live in mirrored DATA — e.g.
+    /// `azul_core::task::Instant::now` stored in GetSystemTimeCallback — so the
+    /// BL/B byte-scan and the adrp+add scan never discover them).
+    pub fn find_recursable_by_name(&self, must_contain: &[&str]) -> Vec<(String, usize, usize)> {
+        self.by_addr
+            .values()
+            .filter(|e| {
+                e.classification.is_recursable()
+                    && must_contain.iter().all(|p| e.canonical_name.contains(p))
+            })
+            .map(|e| (e.canonical_name.clone(), e.canonical_addr, e.size))
+            .collect()
+    }
+
     /// True when `addr` falls inside any tracked image's SYNTH span
     /// `[synth_base, synth_base + image_len)`. Used by the indirect-call
     /// dispatcher to reject native-truncated alias case labels that would

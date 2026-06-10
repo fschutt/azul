@@ -415,6 +415,9 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
             + (shp>0 && shp<0x1000 ? ' → ✓✓✓ SHAPING COMPLETED with ' + shp + ' glyphs (text MEASURED)' : '')); }
         // [az-sret-probe] class-B witness readout (cache.rs az_sret_probe, called from layout_flow)
         { const D2 = a => mini.AzStartup_peekU32(a) >>> 0;
+          { let fcj = []; for (let i = 0; i < 8; i++) { const v = D2(0x60BB0 + i*4);
+              fcj.push(v === 0 ? '-' : ((v>>>16) === 0xC0DE ? ((v&0xFF)===1?'Text':'fd:0x'+((v&0xFF)^0x10).toString(16)) : '?0x'+v.toString(16))); }
+            console.error('[g147j outer-determine per-slot] ' + fcj.join(' ')); }
           console.error('INDIRECT-CALLS total(0x4014C)=' + D2(0x4014C) + ' dispatcher-unk(0x40158)=' + D2(0x40158) + ' weak-default(0x4015C)=' + D2(0x4015C)
             + ' | missing_block count(0x400FC)=' + D2(0x400FC) + ' | remill_error count(0x400F4)=' + D2(0x400F4));
           let ring = []; for (let i = 0; i < 16; i++) ring.push('0x' + D2(0x401A0 + i*4).toString(16));
@@ -967,15 +970,6 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         console.log('[g121 shape-path] font_stack arm(0x60820)=' + (arm===1?'Ref':arm===2?'Stack':'0x'+arm.toString(16)) + ' | chain_cache.len(0x60824)=0x' + Dh(0x60824).toString(16) + ' | chain.get(0x60828)=' + (getr===1?'Some ✓':getr===0xEE?'None ✗SKIP (key mismatch → no shape)':'0x'+getr.toString(16)) + ' | reached-fallback(0x6082C)=0x' + Dh(0x6082C).toString(16));
         const cpath = Dh(0x60830);
         console.log('[g122 chain-resolve] path(0x60830)=' + (cpath===1?'get/Ord ✓':cpath===2?'find/Eq (Ord BROKEN)':cpath===3?'only-chain (Ord+Eq BROKEN)':cpath===0xEE?'NONE (no chains)':'0x'+cpath.toString(16)));
-        { const p0 = Dh(0x60870), p1 = Dh(0x60874), p2 = Dh(0x60878), p3 = Dh(0x6087C);
-          if ((p0 >>> 16) === 0xC0DE) {
-            console.log('[g122b key-compare] families.len q=' + ((p0>>8)&0xF) + ' s=' + (p0&0xF)
-              + ' | first-family q=[0x' + ((p1>>>24)&0xFF).toString(16) + ' len ' + ((p1>>>16)&0xFF) + '] s=[0x' + ((p1>>>8)&0xFF).toString(16) + ' len ' + (p1&0xFF) + ']'
-              + ' | weight q=' + ((p2>>>16)&0xFFFF) + ' s=' + (p2&0xFFFF)
-              + ' | flags(q.i,q.o,s.i,s.o)=' + (p3&0xF).toString(2).padStart(4,'0')
-              + ' | fields_eq=' + ((p3>>8)&1) + ' full_eq=' + ((p3>>9)&1)
-              + ((p3&0x100) && !(p3&0x200) ? ' → ✗✗ FIELDS EQUAL but derived == says NO → PartialEq mis-lift!' :
-                 !(p3&0x100) ? ' → fields genuinely differ (key VALUE corrupt, not the comparator)' : ' → both eq (then why did get miss? Ord-only)')); } }
         // [g123] shape_with_font_fallback fast path → shape_text_correctly → font.shape_text (the allsorts shaper).
         const seg = Dh(0x60850), gl = Dh(0x60868);
         console.log('[g123 shaper] segments(0x60850)=0x' + seg.toString(16) + ' | first(0x60854)=' + (Dh(0x60854)===1?'Some':Dh(0x60854)===0xEE?'None(0 segs)':'0x'+Dh(0x60854).toString(16)) + ' | loaded_fonts.get(0x60858)=' + (Dh(0x60858)===1?'Some':Dh(0x60858)===0xEE?'MISS':'0x'+Dh(0x60858).toString(16)) + ' | reached-stc(0x60860)=0x' + Dh(0x60860).toString(16) + ' | stc-entered(0x60864)=0x' + Dh(0x60864).toString(16) + ' | font.shape_text(0x60868)=' + ((gl&0x80000000)?('RETURNED '+(gl&0x7fffffff)+' glyphs'):('✗NOT RETURNED (unlifted shaper / __remill_error)')));
