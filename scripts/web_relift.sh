@@ -26,7 +26,7 @@ sleep 2
 # 2. Launch the server (forks+exits; it relifts the dylib → wasm, ~15-30 min).
 echo "LAUNCH $(date) bin=$BIN"
 DYLD_LIBRARY_PATH=$DYLDIR REMILL_LIFT_BIN=$RL \
-  AZ_BACKEND=web://127.0.0.1:8800 AZ_NO_LIFT_CACHE=1 \
+  AZ_BACKEND=web://127.0.0.1:8800 AZ_LIFT_CACHE=1 AZ_PREFLIGHT=1 \
   nohup "$BIN" > "$LOG" 2>&1 &
 
 # 3. Wait for the port (poll, never kill -0 the launch pid). ~50 min cap (300*10s).

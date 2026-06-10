@@ -1127,6 +1127,11 @@ pub fn run_web(
         }
     }
 
+    // Phase 0.2 preflight: report any function that lifted with __remill_error
+    // (undecoded instruction) / __remill_missing_block. No-op unless AZ_PREFLIGHT=1.
+    #[cfg(feature = "web-transpiler")]
+    transpiler_remill::preflight_report();
+
     // Phase E: Start HTTP server
     let bind_addr = web_config.bind;
     eprintln!("[azul-web] Listening on http://{}", bind_addr);

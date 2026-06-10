@@ -766,6 +766,7 @@ impl RemillTranspiler {
             if let Ok(ir) = std::fs::read_to_string(cp) {
                 // Mirror into scratch so downstream stem-based reads work.
                 let _ = std::fs::write(&lifted_ir_path, &ir);
+                preflight_scan(fn_name, &ir);
                 return Ok(ir);
             }
         }
@@ -783,6 +784,7 @@ impl RemillTranspiler {
                     fn_name: fn_name.to_string(),
                     reason: format!("write lifted IR: {e}"),
                 })?;
+                preflight_scan(fn_name, &ir);
                 return Ok(ir);
             }
             #[cfg(not(feature = "web-transpiler-static"))]
@@ -822,6 +824,7 @@ impl RemillTranspiler {
             }
             let _ = std::fs::write(cp, &ir);
         }
+        preflight_scan(fn_name, &ir);
         Ok(ir)
     }
 
@@ -4898,26 +4901,158 @@ fn remill_export_symbol(entry_addr: u64) -> String {
     format!("sub_{:x}", entry_addr)
 }
 
-/// Bump when anything that changes lifted-IR output for the SAME input
-/// bytes changes (the byte rewrites in `lift_fn`, the remill version,
-/// the synth-address scheme). Invalidates the on-disk lift cache.
-const LIFT_CACHE_VERSION: u32 = 1;
+/// Bump when a TRANSPILER-SOURCE change alters lifted-IR output for the SAME
+/// input bytes (the byte rewrites in `lift_fn`, the synth-address scheme). The
+/// remill ENGINE rev is captured automatically by [`engine_fingerprint`], so
+/// you only bump this for changes inside this crate's lift logic.
+const LIFT_CACHE_VERSION: u32 = 2;
+
+/// Fingerprint of the lifting ENGINE — the `remill-lift-17` binary — folded
+/// into the cache key so an engine change auto-invalidates every entry without
+/// a manual version bump. (The user's requirement: "we hash based on the asm
+/// content … only recompile the functions that actually changed, even if the
+/// engine changes.") Cheap proxy = the binary's (len, mtime); computed once.
+/// `0` when the binary can't be stat'd (env unset / missing) → falls back to
+/// the version-only key, same as before.
+fn engine_fingerprint() -> u64 {
+    use std::sync::OnceLock;
+    static FP: OnceLock<u64> = OnceLock::new();
+    *FP.get_or_init(|| {
+        let path = std::env::var_os("REMILL_LIFT_BIN")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                // Mirror the default the subprocess path resolves to.
+                which_remill_lift()
+            });
+        let Some(path) = path else { return 0 };
+        let Ok(meta) = std::fs::metadata(&path) else { return 0 };
+        let len = meta.len();
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        // Fold len + mtime into one u64 (FNV-ish).
+        let mut h: u64 = super::FNV_OFFSET_BASIS;
+        for b in len.to_le_bytes().iter().chain(mtime.to_le_bytes().iter()) {
+            h ^= *b as u64;
+            h = h.wrapping_mul(super::FNV_PRIME);
+        }
+        h
+    })
+}
+
+/// Best-effort resolution of the default `remill-lift-17` path when
+/// `REMILL_LIFT_BIN` is unset — only used for the cache fingerprint, so a miss
+/// (→ 0 fingerprint) is harmless. Kept tiny + dependency-free.
+fn which_remill_lift() -> Option<PathBuf> {
+    let candidates = [
+        "/Users/fschutt/Development/azul/third_party/remill-install/build/remill/bin/lift/remill-lift-17",
+    ];
+    candidates.iter().map(PathBuf::from).find(|p| p.exists())
+}
+
+// =====================================================================
+// Phase 0.2 — preflight "clean-lift" gate.
+//
+// After every function is lifted, scan its IR for `call … @__remill_error`
+// (an UNDECODED instruction — a real silent-corruption red flag) and
+// `@__remill_missing_block` (unrecovered control flow — often benign, the
+// indirect dispatcher handles tail-jumps, but worth surfacing). Accumulate per
+// function and print a sorted report at server startup so an incomplete lift is
+// visible BEFORE it mis-behaves at runtime. Opt-in via `AZ_PREFLIGHT=1`.
+// =====================================================================
+
+/// `fn_name -> (remill_error_calls, missing_block_calls)` for the current
+/// server process. Populated by [`preflight_scan`] when `AZ_PREFLIGHT` is set.
+static PREFLIGHT: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeMap<String, (u32, u32)>>> =
+    std::sync::OnceLock::new();
+
+fn preflight_enabled() -> bool {
+    std::env::var_os("AZ_PREFLIGHT").is_some()
+}
+
+/// Count `call … @__remill_error(` and `call … @__remill_missing_block(` sites
+/// in `ir` and record them under `fn_name`. No-op unless `AZ_PREFLIGHT` is set.
+fn preflight_scan(fn_name: &str, ir: &str) {
+    if !preflight_enabled() {
+        return;
+    }
+    let mut errors = 0u32;
+    let mut missing = 0u32;
+    for line in ir.lines() {
+        if !line.contains("call ") {
+            continue;
+        }
+        if line.contains("@__remill_error") {
+            errors += 1;
+        }
+        if line.contains("@__remill_missing_block") {
+            missing += 1;
+        }
+    }
+    if errors == 0 && missing == 0 {
+        return;
+    }
+    let map = PREFLIGHT.get_or_init(|| std::sync::Mutex::new(std::collections::BTreeMap::new()));
+    if let Ok(mut m) = map.lock() {
+        let e = m.entry(fn_name.to_string()).or_insert((0, 0));
+        // Keep the max across re-lifts of the same fn (cache hits re-scan).
+        e.0 = e.0.max(errors);
+        e.1 = e.1.max(missing);
+    }
+}
+
+/// Print the accumulated preflight report. Call once at server startup (after
+/// all lifts). No-op unless `AZ_PREFLIGHT` is set.
+pub fn preflight_report() {
+    if !preflight_enabled() {
+        return;
+    }
+    let Some(map) = PREFLIGHT.get() else {
+        eprintln!("[azul-web][preflight] CLEAN — 0 functions with __remill_error/__remill_missing_block");
+        return;
+    };
+    let Ok(m) = map.lock() else { return };
+    let with_error: Vec<_> = m.iter().filter(|(_, (e, _))| *e > 0).collect();
+    let with_missing: Vec<_> = m.iter().filter(|(_, (e, mb))| *e == 0 && *mb > 0).collect();
+    let total_err: u32 = m.values().map(|(e, _)| e).sum();
+    eprintln!(
+        "[azul-web][preflight] {} fn(s) with __remill_ERROR ({} undecoded-instr call sites total), \
+         {} fn(s) with only missing_block",
+        with_error.len(),
+        total_err,
+        with_missing.len(),
+    );
+    // The red flags first (undecoded instructions = silent corruption risk).
+    let mut errs: Vec<_> = with_error.into_iter().collect();
+    errs.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+    for (name, (e, mb)) in errs.iter().take(40) {
+        eprintln!("[azul-web][preflight]   ✗ {e:>3} error  {mb:>3} missing  {name}");
+    }
+    if errs.is_empty() {
+        eprintln!("[azul-web][preflight]   ✓ no undecoded instructions — every function lifted cleanly");
+    }
+}
 
 /// On-disk cache for `lift_fn`'s raw remill IR. The IR is synth-addressed
 /// (stable across process restarts + dll relinks that don't change a
 /// function's machine bytes), so caching it skips the expensive
 /// `remill-lift-17` subprocess on re-lifts. Keyed by the (post-rewrite)
-/// function bytes + the synth lift address + the cache version. Lives in
+/// function bytes + the synth lift address + the cache version + the ENGINE
+/// fingerprint (so an engine change auto-invalidates). Lives in
 /// `$TMPDIR/az-lift-cache` (persists across server restarts; clear with
 /// `rm -rf` or `AZ_LIFT_CACHE_CLEAR=1`). Disable entirely with
 /// `AZ_NO_LIFT_CACHE=1`.
 fn lift_cache_path(rewritten_bytes: &[u8], lift_addr: u64) -> PathBuf {
     let dir = std::env::temp_dir().join("az-lift-cache");
     let key = format!(
-        "{}_{:x}_v{}",
+        "{}_{:x}_v{}_e{:x}",
         super::fnv1a64_hex(rewritten_bytes),
         lift_addr,
-        LIFT_CACHE_VERSION
+        LIFT_CACHE_VERSION,
+        engine_fingerprint(),
     );
     dir.join(format!("{key}.lifted.ll"))
 }
