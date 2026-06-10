@@ -654,10 +654,13 @@ extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny 
 
 // ───────── Layout ──────────────────────────────────────────────────────
 
-const HEADER: &str = "background: #2b2b2b; color: white; padding: 12px 20px; \
+// NOTE: `display: flex` is REQUIRED for `flex-direction: row` to take effect —
+// azul's default display is `block` (taffy_bridge: LayoutDisplay::default ->
+// Display::Block), so a div with only `flex-direction: row` lays its children
+// out as block boxes (full-width, stacked vertically). The header used to omit
+// `display: flex`, which is why the toolbar buttons stacked on top of each other.
+const HEADER: &str = "display: flex; background: #2b2b2b; color: white; padding: 12px 20px; \
     flex-direction: row; align-items: center; font-family: sans-serif; font-size: 16px;";
-const BTN: &str = "background: #3a3a3a; color: white; padding: 8px 14px; margin-right: 8px; \
-    border-radius: 6px; font-size: 14px; cursor: pointer;";
 const CANVAS: &str = "flex-grow: 1; position: relative; overflow: hidden;";
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
 
@@ -668,16 +671,14 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .unwrap_or((0, 0, true));
     let _ = n_undone;
 
-    let mode_label = if metaballs { "Effect: Metaballs" } else { "Effect: Brush" };
+    // Actions (Undo/Redo/Clear/Import/Export/effect toggle) live in the menu bar
+    // below — not as inline buttons. The header is just the title + live status.
+    let mode_label = if metaballs { "Metaballs" } else { "Brush" };
     let header = Dom::create_div()
         .with_css(HEADER)
-        .with_child(Dom::create_text(format!("AzulPaint · {} strokes", n_strokes).as_str()))
-        .with_child(button("Undo", data.clone(), on_undo))
-        .with_child(button("Redo", data.clone(), on_redo))
-        .with_child(button("Clear", data.clone(), on_clear))
-        .with_child(button(mode_label, data.clone(), on_toggle_mode))
-        .with_child(button("Import", data.clone(), on_import))
-        .with_child(button("Export", data.clone(), on_export));
+        .with_child(Dom::create_text(
+            format!("AzulPaint  ·  {} strokes  ·  Effect: {}", n_strokes, mode_label).as_str(),
+        ));
 
     // The canvas: a single image driven by render_canvas. Its dataset is a
     // CanvasCache that shares the PaintState; the merge callback persists the
@@ -709,23 +710,24 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     // popup fallback (Wayland/KDE — menus aren't render-intensive so software is fine).
     // Sub-menus exercise the popup path; click actions (with_callback) are a follow-up.
     use azul::menu::{Menu, MenuItem, StringMenuItem};
-    let item = |label: &str| MenuItem::string(StringMenuItem::create(label));
+    // Functional menu items: each carries the same callback the old inline
+    // toolbar buttons used, so File/Edit/View actually drive the app.
+    let action = |label: &str, cb: CallbackType| {
+        MenuItem::string(StringMenuItem::create(label).with_callback(data.clone(), cb))
+    };
     let menu = Menu::create(vec![
         MenuItem::string(StringMenuItem::create("File").with_children(vec![
-            item("New"),
-            item("Open…"),
-            item("Save…"),
-            item("Quit"),
+            action("Import image…", on_import),
+            action("Export PNG…", on_export),
         ])),
         MenuItem::string(StringMenuItem::create("Edit").with_children(vec![
-            item("Undo"),
-            item("Redo"),
-            item("Clear"),
+            action("Undo", on_undo),
+            action("Redo", on_redo),
+            action("Clear", on_clear),
         ])),
         MenuItem::string(StringMenuItem::create("View").with_children(vec![
-            item("Toggle Metaballs"),
+            action("Toggle effect (Brush / Metaballs)", on_toggle_mode),
         ])),
-        item("Help"),
     ]);
 
     // Right-click context menu on the canvas: switch the paint effect. This is the
@@ -749,13 +751,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(canvas)
 }
 
-fn button(label: &str, data: RefAny, cb: CallbackType) -> Dom {
-    Dom::create_div()
-        .with_css(BTN)
-        .with_child(Dom::create_text(label))
-        .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data, cb)
-}
-
 // ───────── Input ────────────────────────────────────────────────────────
 
 fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
@@ -774,7 +769,14 @@ fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
             ));
         }
     }
-    let pos = info.get_cursor_relative_to_node().into_option()?;
+    let pos_opt = info.get_cursor_relative_to_node().into_option();
+    if std::env::var("AZ_PAINT_DEBUG").is_ok() {
+        match &pos_opt {
+            Some(p) => eprintln!("[paint] cursor_relative_to_node = Some({}, {})", p.x, p.y),
+            None => eprintln!("[paint] cursor_relative_to_node = None"),
+        }
+    }
+    let pos = pos_opt?;
     Some((
         StrokePoint {
             x: pos.x,
@@ -789,6 +791,9 @@ fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
 }
 
 extern "C" fn on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
+    if std::env::var("AZ_PAINT_DEBUG").is_ok() {
+        eprintln!("[paint] on_pointer_down FIRED");
+    }
     let (point, is_eraser) = match extract_point(&info) {
         Some(p) => p,
         None => return Update::DoNothing,
