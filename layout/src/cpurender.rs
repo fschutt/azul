@@ -3297,11 +3297,25 @@ pub fn render_display_list_damaged(
         pixmap.fill_rect(px, py, pw, ph, 255, 255, 255, 255);
     }
 
-    // No union needed — items are individually tested against each damage rect
-    // below (line-by-line). We iterate items ONCE (not per-rect) to avoid
+    // Items are individually tested against each damage rect below
+    // (line-by-line). We iterate items ONCE (not per-rect) to avoid
     // double-rendering items that span multiple rects (alpha-blending artifacts).
+    //
+    // The BASE CLIP is the union of the damage rects: an item that only
+    // PARTIALLY intersects the damage must not repaint its full bounds —
+    // otherwise it overpaints neighbours that don't intersect the damage and
+    // therefore never repaint. (Live bug: the maps header background TOUCHES
+    // the VirtualView damage band below it, so it repainted all 70px of
+    // header — wiping the toolbar buttons, which lie outside the damage and
+    // were skipped. The toolbar vanished on the first incremental frame.)
+    let union = {
+        let mut it = damage_rects.iter();
+        let first = *it.next().unwrap();
+        it.fold(first, |acc, r| union_rect(&acc, r))
+    };
+    let base_clip = logical_rect_to_az_rect(&union, dpi_factor);
     let mut transform_stack = vec![TransAffine::new()];
-    let mut clip_stack: Vec<Option<AzRect>> = vec![None]; // no outer clip — per-rect filtering suffices
+    let mut clip_stack: Vec<Option<AzRect>> = vec![base_clip];
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
     let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
 

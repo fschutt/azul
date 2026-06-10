@@ -363,13 +363,19 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
         ],
         ..Default::default()
     };
-    // Parent DL: dark header strip, then the VirtualView clipped to the lower
-    // region (y 78..488).
+    // Parent DL: dark header strip with a blue "button" inside it, then the
+    // VirtualView clipped to the lower region (y 78..488).
+    let blue = ColorU { r: 74, g: 144, b: 226, a: 255 };
     let parent_dl = DisplayList {
         items: vec![
             DisplayListItem::Rect {
                 bounds: rect(8.0, 8.0, 624.0, 70.0),
                 color: dark,
+                border_radius: BorderRadius::default(),
+            },
+            DisplayListItem::Rect {
+                bounds: rect(168.0, 22.0, 35.0, 42.0),
+                color: blue,
                 border_radius: BorderRadius::default(),
             },
             DisplayListItem::PushClip {
@@ -402,23 +408,57 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
     let mut out = cpurender::AzulPixmap::new(640, 480).expect("pixmap");
     compositor.composite_frame(&mut out, 1.0);
 
-    let px = |x: usize, y: usize| -> (u8, u8, u8) {
+    let px = |o: &cpurender::AzulPixmap, x: usize, y: usize| -> (u8, u8, u8) {
         let i = (y * 640 + x) * 4;
-        let d = out.data();
+        let d = o.data();
         (d[i], d[i + 1], d[i + 2])
     };
-    println!("header (40,40)={:?} child-region (40,200)={:?}", px(40, 40), px(40, 200));
+    println!("header (40,40)={:?} child-region (40,200)={:?}", px(&out, 40, 40), px(&out, 40, 200));
     assert_eq!(
-        px(40, 40),
+        px(&out, 40, 40),
         (43, 43, 43),
         "the child's own PushClip escaped the VirtualView composite clip and \
          painted over the parent's header"
     );
     assert_eq!(
-        px(40, 200),
+        px(&out, 40, 200),
         (231, 233, 236),
         "the child must still paint INSIDE the composite bounds"
     );
+    assert_eq!(px(&out, 180, 40), (74, 144, 226), "the header button must paint (full path)");
+
+    // INCREMENTAL path: damage only the VirtualView band (what a tile
+    // writeback produces). The header background TOUCHES the band, so it is
+    // repainted — but must be clipped to the damage region; before the fix it
+    // repainted its full 70px and wiped the button (which doesn't intersect
+    // the damage and is skipped). Live symptom: the toolbar disappeared on
+    // the first incremental frame after a perfect first paint.
+    cpurender::render_display_list_damaged(
+        &parent_dl,
+        &mut out,
+        1.0,
+        &renderer_resources,
+        None,
+        &mut glyph_cache,
+        &render_state,
+        &[LogicalRect {
+            origin: LogicalPosition { x: 8.0, y: 78.0 },
+            size: LogicalSize { width: 624.0, height: 402.0 },
+        }],
+    )
+    .expect("render_display_list_damaged");
+    println!(
+        "after incremental: button(180,40)={:?} header(40,12)={:?} child(40,200)={:?}",
+        px(&out, 180, 40), px(&out, 40, 12), px(&out, 40, 200)
+    );
+    assert_eq!(
+        px(&out, 180, 40),
+        (74, 144, 226),
+        "incremental repaint of the VirtualView band wiped the header button \
+         (partial-intersect item repainted unclipped over a skipped neighbour)"
+    );
+    assert_eq!(px(&out, 40, 12), (43, 43, 43), "header background must survive incremental repaint");
+    assert_eq!(px(&out, 40, 200), (231, 233, 236), "child band must repaint");
 }
 
 /// Cold pass: the header must get its content height (~37px+), not 0.
