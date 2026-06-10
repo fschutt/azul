@@ -487,6 +487,65 @@ impl MapTileCache {
     pub fn mark_tile_failed(&mut self, tile: MapTileId, error: AzString) {
         self.tiles.insert(tile, TileEntry::Failed { error });
     }
+
+    /// Bound the tile cache by evicting tiles far from the current viewport.
+    ///
+    /// Without this, `tiles` grows without limit — panning across the world or
+    /// zooming in and out keeps every tile ever fetched (each decoded SVG is
+    /// tens-to-hundreds of KB), so a long session leaks memory. Called after a
+    /// viewport change once the new view's tiles are queued.
+    ///
+    /// Eviction is viewport-distance based (the right policy for spatial data,
+    /// stronger than plain LRU): each tile is scored by zoom mismatch + squared
+    /// distance from the viewport centre (projected into the current zoom's tile
+    /// space), and the farthest are dropped first. IN-FLIGHT tiles
+    /// (`Pending`/`Fetching`) are never evicted (their worker would write into a
+    /// gone entry), and on-screen tiles score near-zero so they survive.
+    pub fn prune_distant_tiles(&mut self) {
+        const MAX_CACHED_TILES: usize = 192;
+        if self.tiles.len() <= MAX_CACHED_TILES {
+            return;
+        }
+
+        let z = (self.viewport.zoom.floor() as i32)
+            .clamp(self.layer.min_zoom as i32, self.layer.max_zoom as i32)
+            as u8;
+        let tile_count = 1u32 << z as u32;
+        let cx = lon_to_tile_x(self.viewport.centre_lon_deg, tile_count as f64);
+        let cy = lat_to_tile_y(self.viewport.centre_lat_deg, tile_count as f64);
+
+        // Higher score = evict sooner.
+        let score = |id: &MapTileId| -> f64 {
+            let zt_count = 1u32 << id.z as u32;
+            // Project the tile's centre into the CURRENT zoom's tile space so
+            // distances across zoom levels are comparable.
+            let scale = tile_count as f64 / zt_count as f64;
+            let tx = (id.x as f64 + 0.5) * scale;
+            let ty = (id.y as f64 + 0.5) * scale;
+            let dz = (id.z as i32 - z as i32).abs() as f64;
+            let dx = tx - cx;
+            let dy = ty - cy;
+            dz * 10_000.0 + dx * dx + dy * dy
+        };
+
+        let mut evictable: alloc::vec::Vec<(f64, MapTileId)> = self
+            .tiles
+            .iter()
+            .filter(|(_, e)| !matches!(e, TileEntry::Pending | TileEntry::Fetching))
+            .map(|(id, _)| (score(id), *id))
+            .collect();
+        // Farthest first.
+        evictable.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(core::cmp::Ordering::Equal));
+
+        let mut to_remove = self.tiles.len().saturating_sub(MAX_CACHED_TILES);
+        for (_, id) in evictable {
+            if to_remove == 0 {
+                break;
+            }
+            self.tiles.remove(&id);
+            to_remove -= 1;
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1018,6 +1077,10 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
                 style_css: style_css.clone(),
             });
         }
+        // Now that the current view's tiles are queued (Fetching, so eviction
+        // protects them), bound the cache by dropping tiles far from the
+        // viewport — otherwise panning/zooming grows it without limit.
+        cache.prune_distant_tiles();
     }
 
     let cb = {
@@ -1645,5 +1708,68 @@ mod tests {
         assert!(x1 > 15, "east-edge viewport should over-scan into wrapped columns");
         assert_eq!(wrap_tile_x(x0, 16), x0.rem_euclid(16) as u32);
         assert_eq!(wrap_tile_x(x1, 16), x1.rem_euclid(16) as u32);
+    }
+
+    fn test_cache() -> MapTileCache {
+        let layer = MapTileLayer {
+            url_template: AzString::from("{z}/{x}/{y}"),
+            min_zoom: 0,
+            max_zoom: 19,
+            attribution: AzString::from(""),
+            style_css: AzString::from(""),
+        };
+        let viewport = MapViewport {
+            centre_lat_deg: 0.0,
+            centre_lon_deg: 0.0,
+            zoom: 4.0,
+            bearing_deg: 0.0,
+            pitch_deg: 0.0,
+        };
+        MapTileCache::new(layer, viewport)
+    }
+
+    #[test]
+    fn prune_evicts_distant_tiles_keeps_near_and_inflight() {
+        let mut cache = test_cache();
+        // Centre at z4 is tile (8, 8). Fill a big z4 grid (Ready) — far more than
+        // the 192 cap — plus a near Pending tile and a near Ready tile.
+        for x in 0..20u32 {
+            for y in 0..20u32 {
+                cache
+                    .tiles
+                    .insert(MapTileId { z: 4, x, y }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+            }
+        }
+        // A near, in-flight tile (must NEVER be evicted).
+        cache.tiles.insert(MapTileId { z: 4, x: 8, y: 8 }, TileEntry::Pending);
+        // A near, ready tile (should survive — low distance score).
+        cache.tiles.insert(MapTileId { z: 4, x: 9, y: 8 }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+        // A very far ready tile (should be evicted first).
+        cache.tiles.insert(MapTileId { z: 4, x: 0, y: 0 }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+
+        assert!(cache.tiles.len() > 192, "precondition: over the cap");
+        cache.prune_distant_tiles();
+
+        assert!(cache.tiles.len() <= 192, "cache must be bounded after prune");
+        // In-flight tile survives.
+        assert!(matches!(
+            cache.tiles.get(&MapTileId { z: 4, x: 8, y: 8 }),
+            Some(TileEntry::Pending)
+        ));
+        // Near tile survives; the corner tile is gone.
+        assert!(cache.tiles.contains_key(&MapTileId { z: 4, x: 9, y: 8 }));
+        assert!(!cache.tiles.contains_key(&MapTileId { z: 4, x: 0, y: 0 }));
+    }
+
+    #[test]
+    fn prune_is_noop_under_cap() {
+        let mut cache = test_cache();
+        for x in 0..4u32 {
+            cache
+                .tiles
+                .insert(MapTileId { z: 4, x, y: 8 }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+        }
+        cache.prune_distant_tiles();
+        assert_eq!(cache.tiles.len(), 4, "under the cap → nothing evicted");
     }
 }
