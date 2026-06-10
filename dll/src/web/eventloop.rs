@@ -915,6 +915,11 @@ pub unsafe extern "C" fn AzStartup_hitTest(
         let ry = *buf.add(off + 1);
         let rw = *buf.add(off + 2);
         let rh = *buf.add(off + 3);
+        // Skip sentinel/unpositioned rects (display:none, anonymous, or
+        // not-yet-laid-out nodes carry u32::MAX coords).
+        if rx == u32::MAX {
+            continue;
+        }
         if x >= rx
             && x < rx.wrapping_add(rw)
             && y >= ry
@@ -923,9 +928,13 @@ pub unsafe extern "C" fn AzStartup_hitTest(
             return i;
         }
     }
-    // No rect matched — fall back to last registered cb node so
-    // tests + simple demos still dispatch.
-    s.last_registered_cb_node_idx
+    // 2026-06-10: NO rect matched → return MAX (genuine miss). The old
+    // `last_registered_cb_node_idx` fallback made EVERY click in empty space
+    // dispatch to the most-recently-registered callback (the button) — i.e.
+    // "click anywhere increments the counter". A real bbox miss must be a miss;
+    // dispatchEvent then does nothing. (The `positioned_rects_len == 0` guard
+    // above still covers the "layout never ran" case for trivial demos.)
+    u32::MAX
 }
 
 // =====================================================================
