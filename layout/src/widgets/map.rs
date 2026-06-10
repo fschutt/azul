@@ -609,10 +609,17 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
     // map stayed blank. Returning the persistent (old) cache fixes it at the root
     // — workers, dataset and VirtualView all reference one underlying allocation.
     //
-    // The freshly-built `new_data` only carries layout-callback-controlled config
-    // (the fetch worker the `.dom()` shim wired); adopt that if the persistent
-    // cache somehow lacks it, then return the persistent cache with its live
-    // tiles + viewport intact.
+    // The freshly-built `new_data` carries the layout-callback-controlled
+    // CONFIG: the fetch worker the `.dom()` shim wired, and — critically — the
+    // viewport/layer the app passed to `with_viewport()` / `create()` for THIS
+    // build. Adopt those into the persistent cache: app callbacks (zoom
+    // buttons, Recentre, Locate) mutate app state and return RefreshDom, and
+    // the merge previously discarded that new viewport ("viewport intact"),
+    // so external viewport changes never took effect — only the widget's
+    // internal drag/wheel (which mutate the persistent cache directly)
+    // worked. Widget-internal changes stay consistent because every build's
+    // `with_viewport()` receives the app state, which the on_viewport_changed
+    // hook keeps in sync with internal pans/zooms.
     {
         let new_g = new_data.downcast_ref::<MapTileCache>();
         let old_guard = old_data.downcast_mut::<MapTileCache>();
@@ -620,6 +627,9 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
             if old_g.fetch_callback.is_none() {
                 old_g.fetch_callback = new_g.fetch_callback.clone();
             }
+            old_g.viewport = new_g.viewport;
+            old_g.layer = new_g.layer.clone();
+            old_g.on_viewport_changed = new_g.on_viewport_changed.clone();
         }
     }
     old_data
@@ -1635,18 +1645,33 @@ mod tests {
     }
 
     #[test]
-    fn merge_keeps_live_viewport_across_relayout() {
-        // Returning the persistent (old) cache keeps the LIVE pan/zoom state. The
-        // freshly-built cache from dom() carries only default config, so its
-        // viewport must NOT clobber the user's panned/zoomed one.
+    fn merge_adopts_build_viewport_but_keeps_tiles() {
+        // CONTRACT (changed 2026-06-10): `with_viewport()` is authoritative on
+        // every rebuild. App callbacks (zoom buttons / Recentre / Locate)
+        // mutate app state and RefreshDom; the old merge kept the persistent
+        // cache's viewport "intact", silently discarding those changes — the
+        // demo's +/− buttons fired but did nothing. Widget-internal drags stay
+        // consistent because the on_viewport_changed hook mirrors them into
+        // app state, which the next build passes back via with_viewport().
+        // Tiles and the fetch worker stay with the persistent cache: workers
+        // hold clones of that very RefAny, so writebacks keep landing in it.
         let mut old_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(5.0));
-        old_cache.viewport.zoom = 7.0; // user zoomed after creation
+        old_cache.viewport.zoom = 7.0; // internal state from previous frames
+        let tile = MapTileId { z: 2, x: 1, y: 1 };
+        old_cache.tiles.insert(tile, TileEntry::Ready { svg: "<svg/>".into() });
+
         let new_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(2.0));
 
         let mut merged =
             merge_map_tile_cache(RefAny::new(new_cache), RefAny::new(old_cache));
         let g = merged.downcast_ref::<MapTileCache>().unwrap();
-        approx(g.viewport.zoom as f64, 7.0, 1e-6);
+        // The build's viewport wins…
+        approx(g.viewport.zoom as f64, viewport_at(2.0).zoom as f64, 1e-6);
+        // …while the fetched tiles survive in the same allocation.
+        assert!(
+            g.tiles.contains_key(&tile),
+            "fetched tiles must survive the merge (workers write into this cache)"
+        );
     }
 
     #[test]

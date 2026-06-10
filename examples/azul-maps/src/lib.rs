@@ -19,6 +19,7 @@
 
 use azul::prelude::*;
 use azul::dom::{GeolocationProbeConfig, MapPinTapCallback};
+use azul::widgets::MapViewportChangedCallback;
 use azul::misc::SensorKind;
 use azul::option::OptionRefAny;
 use azul::task::TerminateTimer;
@@ -322,6 +323,17 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 
     let map = MapWidget::create(layer)
         .with_viewport(viewport)
+        // Keep MapState.viewport in sync with widget-internal drags/wheel-zooms.
+        // Without this the app state goes stale, and any RefreshDom (the +/−
+        // buttons, Recentre) would rebuild the widget with the OLD viewport —
+        // snapping the map back. Also live-updates the header readout.
+        .with_on_viewport_changed(
+            data.clone(),
+            MapViewportChangedCallback {
+                cb: on_viewport_changed,
+                callable: OptionRefAny::None,
+            },
+        )
         .with_on_pin_tap(
             data.clone(),
             MapPinTapCallback {
@@ -446,8 +458,21 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 // ───────── Callbacks ──────────────────────────────────────────────────
 
 extern "C" fn on_zoom_in(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        eprintln!("[map-demo] on_zoom_in FIRED");
+    }
     if let Some(mut s) = data.downcast_mut::<MapState>() {
         s.zoom_in();
+    }
+    Update::RefreshDom
+}
+
+// Widget-internal pan/zoom (drag, wheel, pinch) → mirror into MapState so the
+// next RefreshDom rebuild passes the CURRENT viewport back to the widget (and
+// the header readout stays live).
+extern "C" fn on_viewport_changed(mut data: RefAny, _info: CallbackInfo, vp: MapViewport) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MapState>() {
+        s.viewport = vp;
     }
     Update::RefreshDom
 }

@@ -183,11 +183,66 @@ impl CpuHitTester {
     ) {
         self.node_rects.clear();
 
+        // VirtualView / iframe child DOMs lay out in CHILD-LOCAL coordinates
+        // (origin 0,0) but live on screen at the host VirtualView item's
+        // bounds. Hit entries must be TRANSLATED there and CLIPPED to the
+        // composite bounds — otherwise the child's nodes claim pointer events
+        // across the whole window (live bug: azul-maps' tile grid ate every
+        // click on the header toolbar, so the buttons never fired; the same
+        // escape the renderer had before intersect_clips()).
+        //
+        // Resolve placements iteratively so nested VirtualViews accumulate
+        // their host offsets (a child's own VirtualView item is in that
+        // child's local space).
+        let mut placements: BTreeMap<DomId, LogicalRect> = BTreeMap::new();
+        for _ in 0..4 {
+            // bounded depth; each pass resolves one nesting level
+            let mut changed = false;
+            for (host_dom, lr) in layout_results {
+                let host_offset = if host_dom.inner == 0 {
+                    Some(LogicalPosition::zero())
+                } else {
+                    placements.get(host_dom).map(|r| r.origin)
+                };
+                let Some(host_offset) = host_offset else { continue };
+                for item in lr.display_list.items.iter() {
+                    if let crate::solver3::display_list::DisplayListItem::VirtualView {
+                        child_dom_id,
+                        bounds,
+                        ..
+                    } = item
+                    {
+                        let b = *bounds.inner();
+                        let absolute = LogicalRect {
+                            origin: LogicalPosition {
+                                x: b.origin.x + host_offset.x,
+                                y: b.origin.y + host_offset.y,
+                            },
+                            size: b.size,
+                        };
+                        if placements.get(child_dom_id) != Some(&absolute) {
+                            placements.insert(*child_dom_id, absolute);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+
         for (dom_id, layout_result) in layout_results {
             let mut entries = Vec::new();
 
             let positions = &layout_result.calculated_positions;
             let nodes = &layout_result.layout_tree.nodes;
+
+            // Child DOM: shift into window space + clip to the composite rect.
+            let (offset, dom_clip) = match placements.get(dom_id) {
+                Some(b) => (b.origin, Some(*b)),
+                None => (LogicalPosition::zero(), None),
+            };
 
             // Walk the layout nodes and their computed positions
             for (idx, node) in nodes.iter().enumerate() {
@@ -210,14 +265,17 @@ impl CpuHitTester {
                 };
 
                 let rect = LogicalRect {
-                    origin: pos,
+                    origin: LogicalPosition {
+                        x: pos.x + offset.x,
+                        y: pos.y + offset.y,
+                    },
                     size,
                 };
 
                 entries.push(HitTestEntry {
                     node_id,
                     rect,
-                    clip: None, // TODO: compute clip chains
+                    clip: dom_clip,
                     pointer_events_none: false, // TODO: check CSS property
                 });
             }
