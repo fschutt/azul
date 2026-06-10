@@ -800,26 +800,54 @@ pub fn transfer_states(
 
         match (new_dataset, old_dataset) {
             (Some(new_data), Some(old_data)) => {
+                // The fresh DOM's dataset allocation. A widget builds its dataset,
+                // its VirtualView content `refany`, AND its event-callback
+                // `refany`s from clones of ONE `RefAny` — so every one shares THIS
+                // allocation (`RefAny::clone` shares `sharing_info`; only the
+                // per-clone `instance_id` differs). The merge below keeps the
+                // PERSISTENT (old) allocation (e.g. MapWidget shares its tile cache
+                // so background fetch threads keep writing into it), so every clone
+                // of the fresh one is now orphaned and must be re-pointed — or the
+                // widget fragments across two caches: the VirtualView rendered an
+                // empty clone (blank/grey tiles) while the live data sat in the
+                // dataset, and pan/zoom mutated yet a third copy. Identity = the
+                // shared `RefCountInner` pointer (`sharing_info.ptr`).
+                let orphan_alloc = new_data.sharing_info.ptr as usize;
+
                 // 3. EXECUTE THE MERGE CALLBACK
                 // The callback receives both datasets and returns the merged result
                 let merged = (merge_callback.cb)(new_data, old_data);
 
-                // 3b. If this node ALSO drives a VirtualView, re-point its content
-                // callback's `refany` at the SAME merged dataset. A widget builds
-                // its dataset and VirtualView refany from ONE `RefAny::clone()`
-                // (so they share storage), but a RefreshDom rebuilds the node with
-                // a FRESH pair — and the merge callback may keep the persistent
-                // data on the OLD RefAny (e.g. MapWidget shares its tile cache so
-                // background fetch threads keep writing into it). Without this
-                // re-sync the VirtualView would read the fresh, empty clone while
-                // the live data sat in the dataset — so async-loaded content
-                // (map tiles) would never reach the rendered view after a relayout.
-                if let Some(vv) = new_node_data[new_idx].get_virtual_view_node() {
-                    vv.refany = merged.clone();
-                }
-
                 // 4. Store the merged result back in the new node
-                new_node_data[new_idx].set_dataset(OptionRefAny::Some(merged));
+                new_node_data[new_idx].set_dataset(OptionRefAny::Some(merged.clone()));
+
+                // 5. UNIFY: re-point every refany across the NEW DOM that was a
+                // clone of the now-discarded fresh dataset onto the merged result,
+                // so the whole widget reads ONE cache. Covers VirtualView content
+                // refanys + event-callback refanys + any node's dataset cloned
+                // from the same source. (Generalises the old special-case that
+                // only re-pointed a VirtualView ON the merge node itself — the
+                // MapWidget puts its VirtualView in a CHILD and its pan/zoom
+                // callbacks on the parent, which that case missed.)
+                for nd in new_node_data.iter_mut() {
+                    if let Some(vv) = nd.get_virtual_view_node() {
+                        if vv.refany.sharing_info.ptr as usize == orphan_alloc {
+                            vv.refany = merged.clone();
+                        }
+                    }
+                    for cb in nd.callbacks.as_mut().iter_mut() {
+                        if cb.refany.sharing_info.ptr as usize == orphan_alloc {
+                            cb.refany = merged.clone();
+                        }
+                    }
+                    let ds_is_orphan = nd
+                        .get_dataset()
+                        .map(|ds| ds.sharing_info.ptr as usize == orphan_alloc)
+                        .unwrap_or(false);
+                    if ds_is_orphan {
+                        nd.set_dataset(OptionRefAny::Some(merged.clone()));
+                    }
+                }
             }
             (new_ds, old_ds) => {
                 // One or both datasets missing - restore what we had
