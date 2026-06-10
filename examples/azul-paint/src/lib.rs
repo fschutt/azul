@@ -515,6 +515,9 @@ fn render_metaballs_gpu(
 /// when `PaintState.rev` differs from the cache's `rendered_rev`.
 extern "C" fn render_canvas(mut data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
     let size = info.get_bounds().get_physical_size();
+    if std::env::var("AZ_PAINT_DEBUG").is_ok() {
+        eprintln!("[paint] render_canvas bounds = {}x{}", size.width, size.height);
+    }
     let (w, h) = (size.width.max(1), size.height.max(1));
     let placeholder = ImageRef::null_image(w as usize, h as usize, RawImageFormat::RGBA8, U8VecRef::from(&[][..]));
     render_canvas_inner(&mut data, &mut info, w, h).unwrap_or(placeholder)
