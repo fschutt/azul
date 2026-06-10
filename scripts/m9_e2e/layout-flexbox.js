@@ -238,7 +238,7 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
                     const bL = Number(dv.getBigUint64(boxPtr + 8, true));
                     const bC = Number(dv.getBigUint64(boxPtr + 16, true));
                     let bt = ''; if (bL > 0 && bL < 64 && bP > 0 && (bP + bL) < memory.buffer.byteLength) for (let k = 0; k < bL; k++) { const c = u8[bP + k]; bt += (c >= 32 && c < 127) ? String.fromCharCode(c) : '.'; }
-                    console.log('[boxed-azstring] BoxOrStatic ptr@node+16=0x' + boxPtr.toString(16) + ' → boxed AzString {ptr=0x' + bP.toString(16) + ' len=' + bL + ' cap=' + bC + '} text="' + bt + '" → ' + (bL === 5 && bt === 'Hello' ? '✓✓✓ TEXT IS CORRECT (the layout hang is downstream: box-deref/shaping)' : 'still wrong'));
+                    console.log('[boxed-azstring] BoxOrStatic ptr@node+16=0x' + boxPtr.toString(16) + ' → boxed AzString {ptr=0x' + bP.toString(16) + ' len=' + bL + ' cap=' + bC + '} text="' + bt + '" → ' + (bL > 0 && bL < 64 && bL === bt.length ? '✓ string header consistent (len matches text)' : 'len/text inconsistent'));
                 }
                 let txt = ''; const p = azPtr & 0xFFFFFFFF;
                 if (azLen > 0 && azLen < 64 && p > 0 && (p + azLen) < memory.buffer.byteLength) for (let k = 0; k < azLen; k++) { const c = u8[p + k]; txt += (c >= 32 && c < 127) ? String.fromCharCode(c) : '.'; }
@@ -413,6 +413,14 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         { const shp = mini.AzStartup_peekU32(0x40700) >>> 0, sph = mini.AzStartup_peekU32(0x407A0) >>> 0;
           console.error('SUCCESS shaping probe(0x40700)=0x' + shp.toString(16) + ' phase(0x407A0)=' + sph
             + (shp>0 && shp<0x1000 ? ' → ✓✓✓ SHAPING COMPLETED with ' + shp + ' glyphs (text MEASURED)' : '')); }
+        // [az-sret-probe] class-B witness readout (cache.rs az_sret_probe, called from layout_flow)
+        { const D2 = a => mini.AzStartup_peekU32(a) >>> 0;
+          console.error('INDIRECT-CALLS total(0x4014C)=' + D2(0x4014C) + ' dispatcher-unk(0x40158)=' + D2(0x40158) + ' weak-default(0x4015C)=' + D2(0x4015C)
+            + ' | missing_block count(0x400FC)=' + D2(0x400FC) + ' | remill_error count(0x400F4)=' + D2(0x400F4));
+          let ring = []; for (let i = 0; i < 16; i++) ring.push('0x' + D2(0x401A0 + i*4).toString(16));
+          console.error('INDIRECT/ERR-RING(0x401A0, shared) ' + ring.join(' '));
+          let mbring = []; for (let i = 0; i < 16; i++) mbring.push('0x' + D2(0x40160 + i*4).toString(16));
+          console.error('MISSING-BLOCK-RING(0x40160) ' + mbring.join(' ')); }
         // [az-diag g51 REVERT] BISECTION: last layout-phase marker @0x40704 (mod.rs). Tells WHERE
         // InvalidTree fires: <0x71=in reconcile(520); 0x71=in intrinsic-clear/compute_counters(524-558);
         // 0x72=in remap/mark_dirty/ctx/early-exit(560-741); 0x80=in the layout loop pre-sizing(742-762);
@@ -860,11 +868,13 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
             + ' | layout_flow(0x60688)=' + (lf===0xc0de0688?'Ok ✓':lf===0xee?('*** Err *** (errword=0x'+le.toString(16)+') → zero-sized, text NOT positioned'):'0x'+lf.toString(16)+' (not reached)')); }
         // [g134] out-param pointer match + did _impl complete? entry(0x60690)=impl content ptr, 0x60694=entry mark|ifc_idx,
         // 0x60698=_impl's content.len at final return, 0x6069C=reached-final-return, 0x606A0=caller inline_content ptr.
-        { const ip = Dh(0x60690), em = Dh(0x60694), il = Dh(0x60698), fr = Dh(0x6069C), cp = Dh(0x606A0);
-          console.log('[g134 outparam] _impl content.ptr(0x60690)=0x' + ip.toString(16) + ' | caller content.ptr(0x606A0)=0x' + cp.toString(16)
-            + (ip===cp && ip!==0 ? ' ✓SAME Vec' : ' ✗DIFFERENT → &mut out-param ptr MIS-LIFTS (stack-addr class)')
+        { const ip = Dh(0x60690), em = Dh(0x60694), il = Dh(0x60698), fr = Dh(0x6069C), callerLen = Dh(0x60680);
+          console.log('[g134 by-value-return] _impl content.ptr(0x60690)=0x' + ip.toString(16)
             + ' | _impl entry(0x60694)=0x' + em.toString(16) + ' (ifc_root_index=' + (em & 0xffff) + ')'
-            + ' | _impl final-return(0x6069C)=' + (fr===0xc0de069c?('REACHED, _impl content.len='+il+(il>0?' → data mis-lifts to caller (caller sees 0)':' → _impl ALSO collected 0')):'NOT reached → real early ? Err in _impl')); }
+            + ' | _impl final-return(0x6069C)=' + (fr===0xc0de069c
+                ? ('REACHED, _impl content.len=' + il + ' vs caller len(0x60680)=' + callerLen
+                   + (il === callerLen ? ' ✓ MATCH (by-value (Vec,HashMap) return lifts OK)' : ' ✗ MISMATCH → return-value mis-lift'))
+                : 'NOT reached → real early ? Err in _impl')); }
         // [g135] which tree.get fails (6449 vs 6706) + tree validity at _impl entry.
         { const seq = Dh(0x606A4), nl = Dh(0x606A8), gs = Dh(0x606AC), rt = Dh(0x606B0);
           console.log('[g135 tree.get] _impl tree.nodes.len(0x606A8)=' + nl + ' | tree.root(0x606B0)=' + rt
@@ -957,6 +967,15 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         console.log('[g121 shape-path] font_stack arm(0x60820)=' + (arm===1?'Ref':arm===2?'Stack':'0x'+arm.toString(16)) + ' | chain_cache.len(0x60824)=0x' + Dh(0x60824).toString(16) + ' | chain.get(0x60828)=' + (getr===1?'Some ✓':getr===0xEE?'None ✗SKIP (key mismatch → no shape)':'0x'+getr.toString(16)) + ' | reached-fallback(0x6082C)=0x' + Dh(0x6082C).toString(16));
         const cpath = Dh(0x60830);
         console.log('[g122 chain-resolve] path(0x60830)=' + (cpath===1?'get/Ord ✓':cpath===2?'find/Eq (Ord BROKEN)':cpath===3?'only-chain (Ord+Eq BROKEN)':cpath===0xEE?'NONE (no chains)':'0x'+cpath.toString(16)));
+        { const p0 = Dh(0x60870), p1 = Dh(0x60874), p2 = Dh(0x60878), p3 = Dh(0x6087C);
+          if ((p0 >>> 16) === 0xC0DE) {
+            console.log('[g122b key-compare] families.len q=' + ((p0>>8)&0xF) + ' s=' + (p0&0xF)
+              + ' | first-family q=[0x' + ((p1>>>24)&0xFF).toString(16) + ' len ' + ((p1>>>16)&0xFF) + '] s=[0x' + ((p1>>>8)&0xFF).toString(16) + ' len ' + (p1&0xFF) + ']'
+              + ' | weight q=' + ((p2>>>16)&0xFFFF) + ' s=' + (p2&0xFFFF)
+              + ' | flags(q.i,q.o,s.i,s.o)=' + (p3&0xF).toString(2).padStart(4,'0')
+              + ' | fields_eq=' + ((p3>>8)&1) + ' full_eq=' + ((p3>>9)&1)
+              + ((p3&0x100) && !(p3&0x200) ? ' → ✗✗ FIELDS EQUAL but derived == says NO → PartialEq mis-lift!' :
+                 !(p3&0x100) ? ' → fields genuinely differ (key VALUE corrupt, not the comparator)' : ' → both eq (then why did get miss? Ord-only)')); } }
         // [g123] shape_with_font_fallback fast path → shape_text_correctly → font.shape_text (the allsorts shaper).
         const seg = Dh(0x60850), gl = Dh(0x60868);
         console.log('[g123 shaper] segments(0x60850)=0x' + seg.toString(16) + ' | first(0x60854)=' + (Dh(0x60854)===1?'Some':Dh(0x60854)===0xEE?'None(0 segs)':'0x'+Dh(0x60854).toString(16)) + ' | loaded_fonts.get(0x60858)=' + (Dh(0x60858)===1?'Some':Dh(0x60858)===0xEE?'MISS':'0x'+Dh(0x60858).toString(16)) + ' | reached-stc(0x60860)=0x' + Dh(0x60860).toString(16) + ' | stc-entered(0x60864)=0x' + Dh(0x60864).toString(16) + ' | font.shape_text(0x60868)=' + ((gl&0x80000000)?('RETURNED '+(gl&0x7fffffff)+' glyphs'):('✗NOT RETURNED (unlifted shaper / __remill_error)')));
