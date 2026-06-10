@@ -395,6 +395,16 @@ impl CompositorState {
             })
             .collect();
 
+        #[cfg(feature = "std")]
+        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            for (id, range, bounds, scroll_id, child_ranges) in &layer_ranges {
+                std::eprintln!(
+                    "[cpu-layer] render id={:?} range={:?} bounds={:?} scroll={:?} skip={:?} (dl_len={})",
+                    id, range, bounds, scroll_id, child_ranges, display_list.items.len()
+                );
+            }
+        }
+
         for (layer_id, range, layer_bounds, scroll_id, child_ranges) in &layer_ranges {
             let (start, end) = *range;
             if start >= end || start >= display_list.items.len() {
@@ -1803,6 +1813,29 @@ struct AzRect {
     y: f32,
     width: f32,
     height: f32,
+}
+
+/// Intersect a freshly-pushed clip with the currently-active one. `None`
+/// means "no clip". An EMPTY intersection clips everything (zero-area rect) —
+/// it must NOT degrade to `None`/unclipped, or nested clips could escape
+/// their parents.
+fn intersect_clips(current: Option<AzRect>, new: Option<AzRect>) -> Option<AzRect> {
+    match (current, new) {
+        (Some(cur), Some(new)) => {
+            let x0 = cur.x.max(new.x);
+            let y0 = cur.y.max(new.y);
+            let x1 = (cur.x + cur.width).min(new.x + new.width);
+            let y1 = (cur.y + cur.height).min(new.y + new.height);
+            Some(AzRect {
+                x: x0,
+                y: y0,
+                width: (x1 - x0).max(0.0),
+                height: (y1 - y0).max(0.0),
+            })
+        }
+        (Some(cur), None) => Some(cur),
+        (None, new) => new,
+    }
 }
 
 impl AzRect {
@@ -3751,8 +3784,18 @@ fn render_single_item(
             bounds,
             border_radius,
         } => {
-            let new_clip = logical_rect_to_az_rect(bounds.inner(), dpi_factor);
-            clip_stack.push(new_clip);
+            // Two fixes (the invisible-maps-header bug):
+            // 1. The clip must live in the same coordinate space items draw in
+            //    (`pos - accumulated_scroll`) — shift it via scroll_rect() like
+            //    every drawing arm. A VirtualView child's PushClip otherwise
+            //    lands at raw child-local coordinates on the window.
+            // 2. A nested clip can only NARROW the active one. Pushing the rect
+            //    verbatim let a child DL's own PushClip REPLACE the VirtualView
+            //    composite clip, so the child painted over the whole window
+            //    (the maps header/toolbar disappeared under the tile grid).
+            let new_clip = logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor);
+            let merged = intersect_clips(clip_stack.last().copied().flatten(), new_clip);
+            clip_stack.push(merged);
         }
         DisplayListItem::PopClip => {
             clip_stack.pop();
@@ -3814,16 +3857,23 @@ fn render_single_item(
             #[cfg(feature = "std")]
             if std::env::var("AZ_MAP_DEBUG").is_ok() {
                 eprintln!(
-                    "[cpu-vview] VirtualView item: child_dom_id={} found={} items={} avail_ids={:?}",
+                    "[cpu-vview] VirtualView item: child_dom_id={} found={} items={} bounds={:?} avail_ids={:?}",
                     child_dom_id.inner,
                     child_dl.is_some(),
                     child_dl.as_ref().map(|d| d.items.len()).unwrap_or(0),
+                    bounds.inner(),
                     render_state.virtual_view_display_lists.keys().map(|k| k.inner).collect::<alloc::vec::Vec<_>>(),
                 );
             }
             if let Some(child_dl) = child_dl {
                 let vv_origin = bounds.inner().origin;
-                clip_stack.push(logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor));
+                // Intersect with the active clip (the VirtualView may itself sit
+                // inside a clipped/scrolled container) — same rule as PushClip.
+                let vv_clip = intersect_clips(
+                    clip_stack.last().copied().flatten(),
+                    logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor),
+                );
+                clip_stack.push(vv_clip);
                 scroll_offset_stack.push((scroll_dx - vv_origin.x, scroll_dy - vv_origin.y));
                 for child_item in child_dl.items.iter() {
                     render_single_item(

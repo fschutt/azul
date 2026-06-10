@@ -468,6 +468,49 @@ impl CpuBackend {
                 "[cpu-vview] render_frame: layout_results ids={:?}, vview_dls (id,items)={:?}",
                 all_ids, summary
             );
+            // Item-kind census of the ROOT display list being rendered + whether
+            // the maps header's #2b2b2b background rect made it in.
+            use azul_layout::solver3::display_list::DisplayListItem as I;
+            let mut rects = 0; let mut texts = 0; let mut vviews = 0; let mut other = 0;
+            let mut dark_rect = false;
+            for it in display_list.items.iter() {
+                match it {
+                    I::Rect { color, .. } => {
+                        rects += 1;
+                        if color.r == 0x2b && color.g == 0x2b && color.b == 0x2b { dark_rect = true; }
+                    }
+                    I::Text { .. } | I::TextLayout { .. } => texts += 1,
+                    I::VirtualView { .. } | I::VirtualViewPlaceholder { .. } => vviews += 1,
+                    _ => other += 1,
+                }
+            }
+            eprintln!(
+                "[cpu-vview] ROOT DL census: total={} rects={} texts={} vviews={} other={} header_dark_rect={}",
+                display_list.items.len(), rects, texts, vviews, other, dark_rect
+            );
+            // One-shot full item dump (first frame only): every Push/Pop with
+            // bounds — the header is dropped by SOMETHING among these.
+            use std::sync::atomic::{AtomicBool, Ordering as AOrd};
+            static DUMPED_ITEMS: AtomicBool = AtomicBool::new(false);
+            if !DUMPED_ITEMS.swap(true, AOrd::Relaxed) {
+                for (i, it) in display_list.items.iter().enumerate() {
+                    let desc = match it {
+                        I::Rect { color, bounds, .. } => format!(
+                            "Rect rgb({},{},{}) {:?}", color.r, color.g, color.b, bounds.inner()),
+                        I::Text { .. } => "Text".to_string(),
+                        I::TextLayout { .. } => "TextLayout".to_string(),
+                        I::VirtualView { bounds, .. } => format!("VView {:?}", bounds.inner()),
+                        I::VirtualViewPlaceholder { bounds, .. } =>
+                            format!("VViewPh {:?}", bounds.inner()),
+                        other => {
+                            // Debug-print the variant; truncate to keep one line.
+                            let s = format!("{:?}", other);
+                            s.chars().take(110).collect::<String>()
+                        }
+                    };
+                    eprintln!("[cpu-vview]   [{i:2}] {desc}");
+                }
+            }
         }
         let render_state =
             cpurender::CpuRenderState::from_gpu_cache(gpu_cache, dom_id, &scroll_offsets)
@@ -498,6 +541,25 @@ impl CpuBackend {
                 );
             }
             compositor.composite_frame(&mut output, dpi_factor);
+        }
+
+        // AZ_DUMP_FRAME_DIR=/tmp/frames dumps every rendered CPU frame as a
+        // numbered PNG — splits "rendered wrong" from "presented wrong" when a
+        // backend shows pixels that contradict the display list.
+        if let Ok(dir) = std::env::var("AZ_DUMP_FRAME_DIR") {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            static FRAME_N: AtomicUsize = AtomicUsize::new(0);
+            let n = FRAME_N.fetch_add(1, Ordering::Relaxed);
+            if n < 40 {
+                if let Ok(bytes) = output.encode_png() {
+                    let _ = std::fs::create_dir_all(&dir);
+                    let _ = std::fs::write(
+                        format!("{}/frame_{:03}_{}.png", dir, n,
+                            if is_incremental { "inc" } else { "full" }),
+                        bytes,
+                    );
+                }
+            }
         }
 
         self.previous_display_list = Some(display_list.clone());

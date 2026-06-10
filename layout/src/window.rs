@@ -1295,7 +1295,7 @@ impl LayoutWindow {
 
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
             eprintln!("[vview] scan found {} VirtualView node(s): {:?}", vviews.len(),
-                vviews.iter().map(|(n, b)| (n.index(), b.size.width, b.size.height)).collect::<Vec<_>>());
+                vviews.iter().map(|(n, b)| (n.index(), b.origin.x, b.origin.y, b.size.width, b.size.height)).collect::<Vec<_>>());
         }
 
         for (node_id, bounds) in vviews {
@@ -1322,6 +1322,12 @@ impl LayoutWindow {
                     } = item
                     {
                         if *placeholder_nid == node_id {
+                            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+                                eprintln!(
+                                    "[vview] placeholder swap: node={} placeholder_bounds={:?} scan_bounds={:?}",
+                                    node_id.index(), placeholder_bounds.inner(), bounds
+                                );
+                            }
                             *item = crate::solver3::display_list::DisplayListItem::VirtualView {
                                 child_dom_id,
                                 bounds: *placeholder_bounds,
