@@ -16,7 +16,7 @@ description = """
 publish = false
 
 [dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "map-tiles"] }
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "map-tiles", "a11y"] }
 
 # On Android the crate builds as a NativeActivity cdylib: link the android-activity
 # glue into libazul (so it provides android_main / ANativeActivity_onCreate) and

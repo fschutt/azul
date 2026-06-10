@@ -1088,6 +1088,22 @@ impl WaylandWindow {
             },
         };
 
+        // Initialize the accessibility adapter (open the AT-SPI connection via
+        // accesskit_unix). X11 does this at window creation (x11/mod.rs); Wayland
+        // previously constructed the adapter but never initialized it, so
+        // `update_tree()` silently no-op'd (inner Adapter stayed None) and NO
+        // a11y tree was ever published on native Wayland. Mirror X11 here.
+        #[cfg(feature = "a11y")]
+        {
+            let window_name = "Azul Window";
+            window
+                .accessibility_adapter
+                .initialize(window_name)
+                .map_err(|e| {
+                    WindowError::PlatformError(format!("Accessibility init failed: {}", e))
+                })?;
+        }
+
         // Initialize monitor cache once at window creation
         if let Some(ref lw) = window.common.layout_window {
             if let Ok(mut guard) = lw.monitors.lock() {
