@@ -1342,11 +1342,21 @@ extern "C" fn map_widget_render(
                 ((y as f32 - centre_y) * tile_px + height_px * 0.5).round() as i32;
             let size_px = tile_px.round().max(1.0) as i32;
 
+            // Placeholder (still-loading) tiles show the loading grid — a grey
+            // background + 1px border — so fetch state is visible. A LOADED tile
+            // drops that chrome entirely: the decoded SVG covers the tile, and
+            // keeping the per-tile border would draw a grey seam-grid over the
+            // whole map (user-reported "small grey borders around the tiles").
+            let is_ready = matches!(states.get(&id), Some(TileDisplay::Svg(_)));
+            let chrome = if is_ready {
+                ""
+            } else {
+                "background: #e7e9ec; border: 1px solid #d0d4d9;"
+            };
             let style = alloc::format!(
                 "position: absolute; left: {}px; top: {}px; \
-                 width: {}px; height: {}px; \
-                 background: #e7e9ec; border: 1px solid #d0d4d9;",
-                screen_x, screen_y, size_px, size_px
+                 width: {}px; height: {}px; {}",
+                screen_x, screen_y, size_px, size_px, chrome
             );
 
             let mut tile_div = Dom::create_div().with_css(style.as_str());

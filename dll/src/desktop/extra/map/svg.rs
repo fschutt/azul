@@ -207,16 +207,14 @@ pub fn features_to_svg(features: &[geojson::Feature], tile: MapTileId, mapcss: &
         };
 
         match &geom.value {
-            geojson::Value::Point(pos) => {
-                let (x, y) = read_pos(pos, &project);
-                emit_circle(&mut out, x, y, &style);
-            }
-            geojson::Value::MultiPoint(points) => {
-                for pos in points {
-                    let (x, y) = read_pos(pos, &project);
-                    emit_circle(&mut out, x, y, &style);
-                }
-            }
+            // Point / MultiPoint features in an MVT tile are LABEL ANCHORS and POI
+            // markers (place names, mountain peaks, POIs, housenumbers …) — not
+            // shapes meant to be drawn. Rendering them as raw circles scattered
+            // little grey dots across every country (user-reported). A real map
+            // renders these as text labels / icons (a future text-on-map feature);
+            // until then they are skipped rather than drawn as dots. `emit_circle`
+            // is retained for that future use.
+            geojson::Value::Point(_) | geojson::Value::MultiPoint(_) => {}
             geojson::Value::LineString(line) => {
                 emit_polyline(&mut out, line, &project, &style);
             }
@@ -243,6 +241,8 @@ pub fn features_to_svg(features: &[geojson::Feature], tile: MapTileId, mapcss: &
     out
 }
 
+// Retained for the future text/icon-on-map feature (see the Point arm above).
+#[allow(dead_code)]
 fn read_pos<F: Fn(f64, f64) -> (f64, f64)>(pos: &[f64], project: &F) -> (f64, f64) {
     if pos.len() < 2 {
         return (0.0, 0.0);
@@ -250,6 +250,7 @@ fn read_pos<F: Fn(f64, f64) -> (f64, f64)>(pos: &[f64], project: &F) -> (f64, f6
     project(pos[0], pos[1])
 }
 
+#[allow(dead_code)]
 fn emit_circle(out: &mut String, x: f64, y: f64, style: &LayerStyle) {
     use core::fmt::Write;
     let _ = write!(
@@ -350,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn point_emits_circle() {
+    fn point_features_are_skipped_not_drawn_as_dots() {
         let mut f = geojson::Feature {
             bbox: None,
             geometry: Some(geojson::Geometry::new(geojson::Value::Point(vec![
@@ -368,7 +369,8 @@ mod tests {
         );
         f.properties = Some(props);
 
+        // Point features (place/POI label anchors) must NOT be drawn as dots.
         let svg = features_to_svg(&[f], MapTileId { z: 11, x: 327, y: 791 }, "");
-        assert!(svg.contains("<circle"));
+        assert!(!svg.contains("<circle"));
     }
 }
