@@ -283,6 +283,95 @@ fn export_png(img: &RawImage, path: &str) {
     }
 }
 
+/// Serialize committed strokes to a standalone SVG document. Unlike the PNG
+/// export (a readback of the rasterized canvas), this writes the *model*: every
+/// stroke as vector primitives, so the result scales losslessly. The viewBox is
+/// the strokes' bounding box plus pen radius (the model has no canvas size).
+/// Brush strokes become round-capped line segments (width from pressure);
+/// metaball strokes become one ellipse per dab (pressure -> size, tilt ->
+/// elongation + rotation) -- the field-merge between dabs is raster-only and is
+/// approximated by the overlapping ellipses.
+fn strokes_to_svg(strokes: &[Stroke], metaball_mode: bool) -> String {
+    use std::fmt::Write;
+
+    let bg = canvas_bg();
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut max_y = f32::MIN;
+    for s in strokes {
+        for p in &s.points {
+            let r = BASE_RADIUS * (0.4 + 0.6 * p.pressure.clamp(0.0, 1.0)) + 2.0;
+            min_x = min_x.min(p.x - r);
+            min_y = min_y.min(p.y - r);
+            max_x = max_x.max(p.x + r);
+            max_y = max_y.max(p.y + r);
+        }
+    }
+    if min_x > max_x {
+        // No points at all: emit a small empty page.
+        min_x = 0.0;
+        min_y = 0.0;
+        max_x = 64.0;
+        max_y = 64.0;
+    }
+    let (w, h) = ((max_x - min_x).max(1.0), (max_y - min_y).max(1.0));
+
+    let mut out = String::with_capacity(strokes.len() * 128 + 256);
+    let _ = write!(
+        out,
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"{:.1} {:.1} {:.1} {:.1}\">",
+        min_x, min_y, w, h
+    );
+    let _ = write!(
+        out,
+        "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"rgb({},{},{})\" />",
+        min_x, min_y, w, h, bg.r, bg.g, bg.b
+    );
+
+    for s in strokes {
+        let col = if s.is_eraser { bg } else { s.color };
+        let rgb = format!("rgb({},{},{})", col.r, col.g, col.b);
+        if metaball_mode {
+            for p in &s.points {
+                let pr = p.pressure.clamp(0.0, 1.0);
+                let r = BASE_RADIUS * (0.4 + 0.6 * pr);
+                let tilt = (p.tilt_x * p.tilt_x + p.tilt_y * p.tilt_y).sqrt().clamp(0.0, 1.0);
+                let (rx, ry) = (r * (1.0 + tilt), (r * (1.0 - 0.5 * tilt)).max(0.2));
+                let angle_deg = (p.tilt_y.atan2(p.tilt_x) + p.barrel_roll_rad).to_degrees();
+                let _ = write!(
+                    out,
+                    "<ellipse cx=\"{:.1}\" cy=\"{:.1}\" rx=\"{:.1}\" ry=\"{:.1}\" \
+                     transform=\"rotate({:.1} {:.1} {:.1})\" fill=\"{}\" />",
+                    p.x, p.y, rx, ry, angle_deg, p.x, p.y, rgb
+                );
+            }
+        } else if s.points.len() == 1 {
+            let p = &s.points[0];
+            let r = BASE_RADIUS * (0.4 + 0.6 * p.pressure.clamp(0.0, 1.0));
+            let _ = write!(
+                out,
+                "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"{:.1}\" fill=\"{}\" />",
+                p.x, p.y, r, rgb
+            );
+        } else {
+            for seg in s.points.windows(2) {
+                let (a, b) = (&seg[0], &seg[1]);
+                let p_avg = ((a.pressure + b.pressure) * 0.5).clamp(0.0, 1.0);
+                let width = 2.0 * BASE_RADIUS * (0.4 + 0.6 * p_avg);
+                let _ = write!(
+                    out,
+                    "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" \
+                     stroke=\"{}\" stroke-width=\"{:.1}\" stroke-linecap=\"round\" />",
+                    a.x, a.y, b.x, b.y, rgb, width
+                );
+            }
+        }
+    }
+    out.push_str("</svg>");
+    out
+}
+
 /// CPU 2D-metaball renderer (binary-only effect, separate from the core brush).
 /// Each stroke point becomes an anisotropic "ball" that reacts to the pen:
 /// **pressure -> size**, **tilt -> elongation + orientation**, **barrel-roll ->
@@ -722,6 +811,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         MenuItem::string(StringMenuItem::create("File").with_children(vec![
             action("Import image…", on_import),
             action("Export PNG…", on_export),
+            action("Export SVG…", on_export_svg),
         ])),
         MenuItem::string(StringMenuItem::create("Edit").with_children(vec![
             action("Undo", on_undo),
@@ -928,6 +1018,27 @@ extern "C" fn on_export(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
+// Export SVG: serialize the stroke MODEL (vector data) directly — no readback
+// of the rasterized canvas needed, so this writes synchronously here instead
+// of round-tripping through the render callback like the PNG export.
+extern "C" fn on_export_svg(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let picked = FileDialog::save_file("Export SVG", OptionString::None);
+    let path = match picked.into_option() {
+        Some(p) => p,
+        None => return Update::DoNothing,
+    };
+    let svg = match data.downcast_ref::<PaintState>() {
+        Some(s) => strokes_to_svg(&s.strokes, s.metaball_mode),
+        None => return Update::DoNothing,
+    };
+    let mut path = path.as_str().to_string();
+    if !path.to_ascii_lowercase().ends_with(".svg") {
+        path.push_str(".svg");
+    }
+    let _ = std::fs::write(&path, svg);
+    Update::DoNothing
+}
+
 /// Start the app. Desktop/iOS: blocks. Android: stashes window options.
 pub fn start() {
     let data = RefAny::new(PaintState::new());
@@ -941,4 +1052,54 @@ pub fn start() {
 #[ctor::ctor]
 fn android_ctor() {
     start();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pt(x: f32, y: f32, pressure: f32) -> StrokePoint {
+        StrokePoint { x, y, pressure, tilt_x: 0.0, tilt_y: 0.0, barrel_roll_rad: 0.0 }
+    }
+
+    #[test]
+    fn svg_export_brush_strokes_as_lines() {
+        let strokes = vec![Stroke {
+            points: vec![pt(10.0, 20.0, 0.5), pt(40.0, 60.0, 1.0)],
+            color: ColorU { r: 200, g: 30, b: 40, a: 255 },
+            is_eraser: false,
+        }];
+        let svg = strokes_to_svg(&strokes, false);
+        assert!(svg.starts_with("<svg"), "{svg}");
+        assert!(svg.ends_with("</svg>"), "{svg}");
+        assert!(svg.contains("<line"), "brush stroke must serialize as line segments: {svg}");
+        assert!(svg.contains("rgb(200,30,40)"), "stroke colour must survive: {svg}");
+        assert!(svg.contains("stroke-linecap=\"round\""), "{svg}");
+        // viewBox must cover the points (plus radius padding).
+        assert!(svg.contains("viewBox=\""), "{svg}");
+    }
+
+    #[test]
+    fn svg_export_metaball_strokes_as_ellipses_and_eraser_uses_bg() {
+        let strokes = vec![Stroke {
+            points: vec![pt(5.0, 5.0, 0.8)],
+            color: ColorU { r: 1, g: 2, b: 3, a: 255 },
+            is_eraser: true,
+        }];
+        let svg = strokes_to_svg(&strokes, true);
+        let bg = canvas_bg();
+        assert!(svg.contains("<ellipse"), "metaball stroke must serialize as ellipses: {svg}");
+        assert!(
+            svg.contains(&format!("rgb({},{},{})", bg.r, bg.g, bg.b)),
+            "eraser must use the canvas background colour: {svg}"
+        );
+        assert!(!svg.contains("rgb(1,2,3)"), "eraser must NOT use the stroke colour: {svg}");
+    }
+
+    #[test]
+    fn svg_export_empty_model_is_valid() {
+        let svg = strokes_to_svg(&[], true);
+        assert!(svg.starts_with("<svg") && svg.ends_with("</svg>"), "{svg}");
+        assert!(!svg.contains("inf") && !svg.contains("NaN"), "{svg}");
+    }
 }
