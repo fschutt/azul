@@ -3969,17 +3969,11 @@ pub fn resolve_font_chains_with_registry(
         }
 
         // Build font families list
-        let font_families: Vec<String> = font_stack
-            .iter()
-            .map(|s| s.family.clone())
-            .filter(|f| !f.is_empty())
-            .collect();
-
-        let font_families = if font_families.is_empty() {
-            vec!["sans-serif".to_string()]
-        } else {
-            font_families
-        };
+        // (2026-06-10) Build the key through the ONE canonical constructor
+        // (FontChainKey::from_selectors — first-wins dedup + the same empty-stack
+        // fallback) so the stored key always matches the shaping-time lookup key.
+        let canonical_key = crate::text3::cache::FontChainKey::from_selectors(font_stack);
+        let font_families = canonical_key.font_families.clone();
 
         let weight = font_stack[0].weight;
         let is_italic = font_stack[0].style == FontStyle::Italic;
@@ -4199,17 +4193,11 @@ pub fn resolve_font_chains_fast(
             continue;
         }
 
-        let font_families: Vec<String> = font_stack
-            .iter()
-            .map(|s| s.family.clone())
-            .filter(|f| !f.is_empty())
-            .collect();
-
-        let font_families = if font_families.is_empty() {
-            vec!["sans-serif".to_string()]
-        } else {
-            font_families
-        };
+        // (2026-06-10) Build the key through the ONE canonical constructor
+        // (FontChainKey::from_selectors — first-wins dedup + the same empty-stack
+        // fallback) so the stored key always matches the shaping-time lookup key.
+        let canonical_key = crate::text3::cache::FontChainKey::from_selectors(font_stack);
+        let font_families = canonical_key.font_families.clone();
 
         let weight = font_stack[0].weight;
         let is_italic = font_stack[0].style == FontStyle::Italic;

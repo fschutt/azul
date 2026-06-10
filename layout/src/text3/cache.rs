@@ -293,11 +293,20 @@ impl FontChainKeyOrRef {
 impl FontChainKey {
     /// Create a FontChainKey from a slice of font selectors
     pub fn from_selectors(font_stack: &[FontSelector]) -> Self {
-        let font_families: Vec<String> = font_stack
-            .iter()
-            .map(|s| s.family.clone())
-            .filter(|f| !f.is_empty())
-            .collect();
+        // (2026-06-10) FIRST-WINS DEDUP: cascaded font stacks can carry duplicate
+        // families (e.g. [serif, sans-serif, serif, monospace] when the UA fallback
+        // list is appended to a stack already naming serif). The pre-resolve
+        // collector dedupes its stacks, so without deduping HERE the shaping-time
+        // key never matched the stored key (the g121/g122 chain-lookup misses).
+        // This is THE canonical FontChainKey constructor — every key-build site
+        // must go through it so lookups match by construction.
+        let mut font_families: Vec<String> = Vec::new();
+        for sel in font_stack {
+            if sel.family.is_empty() || font_families.iter().any(|f| *f == sel.family) {
+                continue;
+            }
+            font_families.push(sel.family.clone());
+        }
 
         let font_families = if font_families.is_empty() {
             vec!["serif".to_string()]
@@ -6934,54 +6943,14 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         let cache_key = FontChainKey::from_selectors(selectors);
                         unsafe { crate::az_mark((0x60824) as u32, (font_chain_cache.len() as u32) as u32); } // [g121] chain map len
 
-                        // Look up pre-resolved font chain.
-                        // [g122 az-web-lift] BTreeMap `.get()` (FontChainKey `Ord::cmp`) MIS-LIFTS on the
-                        // web (g121: chain IS present, len=1, but get=None → key-comparison mis-routes,
-                        // likely the FcWeight enum / Vec<String> cmp). Fall back: linear scan by `==`
-                        // (PartialEq), then — when there is exactly ONE chain (unambiguous, the common
-                        // single-font case) — use it directly so text still shapes. Native: `.get()` hits.
-                        let by_get = font_chain_cache.get(&cache_key);
-                        let by_find = if by_get.is_none() {
-                            font_chain_cache.iter().find(|(k, _)| **k == cache_key).map(|(_, v)| v)
-                        } else { None };
-                        // [g122b az-web-lift DIAG] field-by-field probe vs the FIRST stored key —
-                        // pinpoints WHICH field diverges (or whether == itself lies on equal data).
-                        // 0x60870: probe(0xC0DE)|qlen<<8|slen — font_families.len of query|stored
-                        // 0x60874: first family — query first byte<<24|len<<16 || stored first byte<<8|len
-                        // 0x60878: weight disc query<<16 | stored (via as u8 on FcWeight)
-                        // 0x6087C: flags: q.italic|q.oblique<<1|s.italic<<2|s.oblique<<3 | fields_eq<<8 | full_eq<<9
-                        #[cfg(feature = "web_lift")]
-                        if by_get.is_none() {
-                            if let Some((sk, _)) = font_chain_cache.iter().next() {
-                                let qf = &cache_key.font_families;
-                                let sf = &sk.font_families;
-                                let qb = qf.first().map(|s| s.as_bytes().first().copied().unwrap_or(0)).unwrap_or(0xFF);
-                                let sb = sf.first().map(|s| s.as_bytes().first().copied().unwrap_or(0)).unwrap_or(0xFF);
-                                let ql = qf.first().map(|s| s.len() as u8).unwrap_or(0xFF);
-                                let sl = sf.first().map(|s| s.len() as u8).unwrap_or(0xFF);
-                                let fam_eq = qf == sf;
-                                let w_eq = cache_key.weight == sk.weight;
-                                let i_eq = cache_key.italic == sk.italic && cache_key.oblique == sk.oblique;
-                                let full_eq = cache_key == *sk;
-                                unsafe {
-                                    crate::az_mark((0x60870) as u32, (0xC0DE0000u32 | ((qf.len() as u32 & 0xF) << 8) | (sf.len() as u32 & 0xF)) as u32);
-                                    crate::az_mark((0x60874) as u32, (((qb as u32) << 24) | ((ql as u32) << 16) | ((sb as u32) << 8) | (sl as u32)) as u32);
-                                    crate::az_mark((0x60878) as u32, (((cache_key.weight as u32 & 0xFFFF) << 16) | (sk.weight as u32 & 0xFFFF)) as u32);
-                                    crate::az_mark((0x6087C) as u32, ((cache_key.italic as u32) | ((cache_key.oblique as u32) << 1)
-                                        | ((sk.italic as u32) << 2) | ((sk.oblique as u32) << 3)
-                                        | (((fam_eq && w_eq && i_eq) as u32) << 8) | ((full_eq as u32) << 9)) as u32);
-                                }
-                            }
-                        }
-                        let by_only = if by_get.is_none() && by_find.is_none() && font_chain_cache.len() == 1 {
-                            font_chain_cache.values().next()
-                        } else { None };
-                        // [g122] which path resolved the chain: 1=get(Ord ok) 2=find(Eq ok,Ord broken) 3=only(both broken) 0xEE=none
-                        unsafe { crate::az_mark((0x60830) as u32, (if by_get.is_some() { 1 } else if by_find.is_some() { 2 } else if by_only.is_some() { 3 } else { 0xEE }) as u32); }
-                        let font_chain = match by_get.or(by_find).or(by_only) {
+                        // Look up the pre-resolved font chain. (2026-06-10: the g122
+                        // by_find/by_only fallback chain is GONE — the historic miss was a
+                        // KEY-CONSTRUCTION divergence (duplicated families on the query side,
+                        // deduped on the store side), fixed by routing every key build through
+                        // FontChainKey::from_selectors. Verified lifted: lookup path = get.)
+                        let font_chain = match font_chain_cache.get(&cache_key) {
                             Some(chain) => chain,
                             None => {
-                                unsafe { crate::az_mark((0x60828) as u32, (0x000000EEu32) as u32); } // [g121] no chain (SKIP)
                                 if let Some(msgs) = debug_messages {
                                     msgs.push(LayoutDebugMessage::warning(format!(
                                         "[TextLayout] Font chain not pre-resolved for {:?} - text will \
@@ -6993,8 +6962,6 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                 continue;
                             }
                         };
-                        unsafe { crate::az_mark((0x60828) as u32, (0x00000001u32) as u32); } // [g121] chain resolved
-                        unsafe { crate::az_mark((0x6082C) as u32, (0xC0DE082Cu32) as u32); } // [g121] reached fallback
 
                         // Per-character font fallback: split text by font coverage
                         shape_with_font_fallback(
