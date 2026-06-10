@@ -1233,16 +1233,31 @@ pub fn run(
 
                             // TODO(wayland-popup): when
                             // pending_create.window_state.flags.window_type ==
-                            // WindowType::Menu, this should not create a fresh
-                            // toplevel — Wayland menus must be xdg_popup
-                            // surfaces parented via xdg_surface::get_popup with
-                            // an xdg_positioner anchored to the trigger rect on
-                            // the parent. The trigger rect is stashed inside
-                            // the layout-callback RefAny as
-                            // `wayland::menu::MenuLayoutData::trigger_rect`.
-                            // Implementing this needs xdg_positioner bindings
-                            // in wayland/dlopen.rs and parent-serial threading
-                            // for the popup grab.
+                            // WindowType::Menu this creates a fresh xdg_toplevel,
+                            // which the compositor places + decorates itself — so
+                            // the menu is mispositioned (a Wayland client cannot
+                            // place its own surfaces) AND has no grab (no
+                            // click-outside dismiss). Wayland menus must instead
+                            // be xdg_popup surfaces via xdg_surface::get_popup
+                            // with an xdg_positioner anchored to the trigger rect
+                            // on the parent (stashed in the layout-callback RefAny
+                            // as `wayland::menu::MenuLayoutData::trigger_rect`).
+                            //
+                            // NOTE (verified 2026-06-10): the bindings already
+                            // exist — `xdg_positioner_*`, `xdg_surface_get_popup`,
+                            // `xdg_popup_grab` are loaded in wayland/dlopen.rs, and
+                            // `WaylandPopup::new()` (wayland/mod.rs) ALREADY builds
+                            // the positioner, calls get_popup, registers the
+                            // popup_done listener and grabs with the parent's
+                            // pointer serial. What is still missing is purely the
+                            // run-loop INTEGRATION: route Menu windows to
+                            // `WaylandPopup::new` instead of `WaylandWindow::new`,
+                            // add a `LinuxWindow::WaylandPopup` variant (or nest
+                            // the popup under its parent) so it gets its own
+                            // render/event/dismiss lifecycle, and drive
+                            // destroy-on-popup_done. Behaviour is untestable
+                            // headlessly (no Wayland input injection) → must be
+                            // verified interactively on native Wayland.
 
                             match super::linux::wayland::WaylandWindow::new(
                                 pending_create,
