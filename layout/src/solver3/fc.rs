@@ -516,7 +516,18 @@ fn layout_flex_grid<T: ParsedFontTrait>(
             }
         })
     } else {
-        None
+        // Non-root flex/grid container with `width: auto`: for a block-level
+        // child the parent's block layout has ALREADY resolved the used width
+        // (auto → fill containing block) before descending into this FC — pass
+        // it through as the definite border-box width, exactly like the root
+        // branch does with its used_size. Without this, known_dimensions.width
+        // stays None and taffy treats a column container's cross axis as
+        // INDEFINITE, so `align-items: stretch` items get the flex line's
+        // max-content width instead of the container width (live bug: under
+        // the injected Html menubar wrapper, AzulPaint's body laid out its
+        // header AND canvas at 315.776px — the header text's max-content —
+        // instead of the body's 624px).
+        node.used_size.as_ref().map(|s| s.width)
     };
     let effective_height = if has_explicit_height {
         explicit_height

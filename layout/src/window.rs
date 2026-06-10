@@ -817,18 +817,55 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<(), solver3::LayoutError> {
+        // Child DOMs (VirtualView / iframe) must NOT lay out into the root's
+        // live cache: the impl below writes tree + calculated_positions into
+        // `self.layout_cache`, so a child pass CLOBBERS the root's geometry —
+        // `get_node_layout_rect` and the next incremental relayout then read
+        // the child's tree instead of the root's (live bug: azul-maps' header
+        // laid out 640x0/None → toolbar invisible and unclickable while the
+        // map child DOM rendered fine). Children lay out cold by design, so
+        // give a child a fresh scratch cache and restore the root's cache
+        // afterwards; the per-DOM snapshot lives in `layout_results`. Nested
+        // children stack their swaps.
+        let is_child_dom = styled_dom.dom_id.inner != 0;
+        if is_child_dom {
+            let saved_root_cache = core::mem::take(&mut self.layout_cache);
+            let result = self.layout_dom_recursive_impl(
+                styled_dom,
+                window_state,
+                renderer_resources,
+                system_callbacks,
+                debug_messages,
+            );
+            self.layout_cache = saved_root_cache;
+            return result;
+        }
+        self.layout_dom_recursive_impl(
+            styled_dom,
+            window_state,
+            renderer_resources,
+            system_callbacks,
+            debug_messages,
+        )
+    }
+
+    fn layout_dom_recursive_impl(
+        &mut self,
+        styled_dom: StyledDom,
+        window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<(), solver3::LayoutError> {
         let dom_id = if styled_dom.dom_id.inner == 0 {
             DomId::ROOT_ID
         } else {
             styled_dom.dom_id
         };
 
-        // The solver3 layout cache is shared across the root and every VirtualView
-        // / iframe child DOM. A child's callback rebuilds its DOM wholesale on each
-        // invocation (fresh, reassigned NodeIds), so incremental reuse of the prior
-        // tree is invalid — it can graft NodeIds absent from the new StyledDom and
-        // panic when the child shrinks (map zoom-out dropping tiles). Lay child
-        // DOMs out cold; the root keeps its frame-to-frame incremental cache.
+        // Children enter with a fresh scratch cache (see the wrapper above);
+        // reset_incremental() is kept as belt-and-braces for any direct
+        // callers and is a no-op on a fresh cache.
         if dom_id != DomId::ROOT_ID {
             self.layout_cache.reset_incremental();
         }
