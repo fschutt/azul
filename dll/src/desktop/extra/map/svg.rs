@@ -173,6 +173,14 @@ pub fn features_to_svg(features: &[geojson::Feature], tile: MapTileId, mapcss: &
         "<svg xmlns=\"http://www.w3.org/2000/svg\" \
          viewBox=\"0 0 256 256\" width=\"256\" height=\"256\">",
     );
+    // Opaque base layer covering the whole tile. MVT encodes islands/lakes as
+    // EVEN-ODD HOLES in a larger polygon (e.g. arctic islands are holes in the
+    // ocean `water` polygon) — without a base, those holes are transparent and
+    // show whatever is behind the tile (a dark parent → solid-black islands once
+    // the placeholder tile background was removed). The base = the land colour,
+    // so holes read as land and ocean is painted over it by the `water` polygons.
+    // (A future MapCSS `canvas { fill: … }` rule should drive this base colour.)
+    out.push_str("<rect x=\"0\" y=\"0\" width=\"256\" height=\"256\" fill=\"#d6d8db\" />");
 
     // Tile bounding box in degrees. We project each Position back into
     // the 0..256 pixel range of *this* tile.
