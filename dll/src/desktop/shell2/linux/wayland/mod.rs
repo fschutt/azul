@@ -3207,6 +3207,7 @@ impl WaylandWindow {
                     // drained and async-loaded VirtualView content never
                     // appears (same fix as the X11 CPU branch). Must run
                     // BEFORE render_frame reads layout_results.
+                    let mut vviews_rebuilt = false;
                     if let Some(lw) = self.common.layout_window.as_mut() {
                         if !lw.pending_virtual_view_updates.is_empty() {
                             let system_callbacks =
@@ -3214,12 +3215,25 @@ impl WaylandWindow {
                             let current_window_state = lw.current_window_state.clone();
                             let renderer_resources =
                                 std::mem::take(&mut lw.renderer_resources);
-                            lw.process_pending_virtual_view_updates(
+                            let updated = lw.process_pending_virtual_view_updates(
                                 &current_window_state,
                                 &renderer_resources,
                                 &system_callbacks,
                             );
                             lw.renderer_resources = renderer_resources;
+                            vviews_rebuilt = !updated.is_empty();
+                        }
+                    }
+                    // The drain REBUILT VirtualView child DOMs (fresh NodeIds).
+                    // The CPU hit-tester still indexes the previous generation's
+                    // rects — rebuild it now, or the next pointer move hit-tests
+                    // stale NodeIds (cursor panic / events on the wrong node).
+                    if vviews_rebuilt {
+                        if let (Some(cpu_ht), Some(lw)) = (
+                            self.common.cpu_hit_tester.as_mut(),
+                            self.common.layout_window.as_ref(),
+                        ) {
+                            cpu_ht.rebuild_from_layout(&lw.layout_results);
                         }
                     }
 

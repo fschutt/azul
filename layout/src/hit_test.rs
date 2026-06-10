@@ -96,17 +96,32 @@ impl CursorTypeHitTest {
             // Check regular_hit_test_nodes (DOM nodes with CSS cursor property)
             for (node_id, hit_item) in hit_nodes.regular_hit_test_nodes.iter() {
                 let node_depth = hit_item.hit_depth;
-                
+
                 // Only consider this node if it's in front of our current best
                 if node_depth >= best_depth {
                     continue;
                 }
-                
+
+                // CHECKED access: hit-test results can reference a PREVIOUS
+                // generation of a VirtualView child DOM — the child is rebuilt
+                // in place with fresh (possibly fewer) NodeIds while the hover
+                // state / CPU hit-tester still hold last frame's ids (e.g.
+                // panning the MapWidget shrinks the tile grid). Blind indexing
+                // panicked here ("len is 25 but the index is 27"); a stale id is
+                // skipped instead — the next pointer move re-hit-tests against
+                // the fresh tree.
+                let (Some(node_data), Some(styled_node)) = (
+                    node_data_container.get(*node_id),
+                    styled_nodes.get(*node_id),
+                ) else {
+                    continue;
+                };
+
                 // Query the CSS cursor property for this node
                 let cursor_prop = styled_dom.get_css_property_cache().get_cursor(
-                    &node_data_container[*node_id],
+                    node_data,
                     node_id,
-                    &styled_nodes[*node_id].styled_node_state,
+                    &styled_node.styled_node_state,
                 );
                 
                 // If this node has an explicit cursor property, use it
@@ -124,9 +139,8 @@ impl CursorTypeHitTest {
                     // this makes them consistent. Does NOT affect the text_input
                     // widget, which sets cursor:text explicitly and so takes the
                     // branch above.)
-                    let nd = &node_data_container[*node_id];
-                    if nd.is_contenteditable()
-                        || matches!(nd.node_type, azul_core::dom::NodeType::TextArea)
+                    if node_data.is_contenteditable()
+                        || matches!(node_data.node_type, azul_core::dom::NodeType::TextArea)
                     {
                         cursor_node = Some((*dom_id, *node_id));
                         cursor_icon = MouseCursorType::Text;

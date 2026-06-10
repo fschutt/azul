@@ -7493,12 +7493,29 @@ impl LayoutWindow {
         let vviews_to_update = core::mem::take(&mut self.pending_virtual_view_updates);
 
         // Process them
-        self.process_virtual_view_updates(
+        let updated = self.process_virtual_view_updates(
             &vviews_to_update,
             window_state,
             renderer_resources,
             system_callbacks,
-        )
+        );
+
+        // An in-place rebuild gives each child DOM FRESH NodeIds with no
+        // reconcile mapping. Any hover/hit state recorded against the old
+        // generation is now dangling — resolving it against the new styled DOM
+        // reads out of bounds (hit_test.rs cursor panic while panning the map)
+        // or targets the wrong node. Purge the rebuilt children's hits; the
+        // next pointer move re-populates them from a fresh hit test.
+        for (parent_dom, node_id) in &updated {
+            if let Some(child_dom) = self
+                .virtual_view_manager
+                .get_nested_dom_id(*parent_dom, *node_id)
+            {
+                self.hover_manager.purge_dom(&child_dom);
+            }
+        }
+
+        updated
     }
 
     /// Helper: Extract VirtualView bounds from layout results

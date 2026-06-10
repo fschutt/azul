@@ -138,6 +138,26 @@ impl HoverManager {
             .unwrap_or(0)
     }
 
+    /// Purge every recorded hit-test entry for `dom_id` across all input
+    /// points and all history frames.
+    ///
+    /// Called when a VirtualView child DOM is rebuilt IN PLACE (fresh NodeIds,
+    /// no reconcile mapping — e.g. a MapWidget pan rebuilding the tile grid):
+    /// the recorded hits for that DOM reference the OLD generation's NodeIds,
+    /// and consumers that resolve them against the NEW styled DOM read out of
+    /// bounds (the hit_test.rs cursor panic: "len is 25 but the index is 27")
+    /// or target the wrong node. Unlike incremental reconciles there is no
+    /// NodeId map to `remap` with, so the only safe option is to forget that
+    /// DOM's hits; the next pointer move re-populates them from a fresh
+    /// hit test.
+    pub fn purge_dom(&mut self, dom_id: &azul_core::dom::DomId) {
+        for history in self.hover_histories.values_mut() {
+            for frame in history.iter_mut() {
+                frame.hovered_nodes.remove(dom_id);
+            }
+        }
+    }
+
     /// Clear all hover history for all input points
     pub fn clear(&mut self) {
         self.hover_histories.clear();
