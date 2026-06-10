@@ -178,6 +178,15 @@ fn handle_connection(
         ("GET", "/az/loader.js") => {
             send_response(&mut stream, 200, "application/javascript", loader_js.as_bytes())
         }
+        // 2026-06-10: the dylib's embedded fallback TTF, fetched by the loader and fed to
+        // AzStartup_setFallbackFont so the wasm-side solver shapes text with REAL bytes
+        // (the lifted const mirror only covers statically-accessed pages of the font).
+        ("GET", "/az/fallback.ttf") => send_response_cached(
+            &mut stream,
+            200,
+            "font/ttf",
+            super::eventloop::AZ_WEB_FALLBACK_FONT_BYTES,
+        ),
         ("GET", p) if p.starts_with("/az/mini.") && p.ends_with(".wasm") => {
             send_response_cached(&mut stream, 200, "application/wasm", &state.mini_wasm)
         }

@@ -323,28 +323,20 @@ async function azBootstrap() {
     //      boundaries array).
     await azLoadBoundaryShards();
 
-    // 2. Initialize App. AzStartup_init returns the eventloop state ptr.
-    //    M8.7c-3 ignores the JSON payload args (the AArch64-layout
-    //    RefAny is constructed entirely on the JS side below — see
-    //    azHydrate); a future pass will run the user's lifted
-    //    fromJson via __az_call_indirect instead of building the
-    //    aggregate by hand.
-    azState = azMini.AzStartup_init(0, 0);
-    if (!azState) {
-        console.error('[azul-web] AzStartup_init returned 0');
-        return;
-    }
-    console.debug('[azul-web] AzStartup_init → state ptr', azState);
-
-    // 3. Hydrate the wasm-side RefAny from the server-embedded
-    //    az-hydrate block.
-    azHydrate();
+    // 2./3. (2026-06-10 BOOTSTRAP-ORDER FIX) init + hydrate MOVED BELOW the cb/layout wasm
+    //    instantiations. Every module instantiation re-runs its DATA SEGMENTS over the
+    //    shared memory; the layout wasm carries the multi-MiB lifted-data mirror whose
+    //    segments span the same band the bump heap allocates from (0x110000..~0x8664000 ∋
+    //    0x6000000). Init/hydrate before it → EventloopState/RefAny/model bytes are
+    //    CLOBBERED by the mirror → the cb's type_id check fails → every click = DoNothing.
+    //    (Same ordering the node harness has always used — see layout-flexbox.js.)
 
     // 4. Discover + instantiate per-callback WASMs. Each gets put at
     //    table[node_idx] AND recorded in azNodeCbFns so the
     //    direct-invoke click handler below can call them without
     //    going through AzStartup_dispatchEvent.
     var cbs = document.querySelectorAll('[data-az-cb][data-az-wasm]');
+    var azCbNodeIdxs = [];
     for (var i = 0; i < cbs.length; i++) {
         var el = cbs[i];
         var nodeIdxStr = el.getAttribute('data-az-cb');
@@ -365,12 +357,10 @@ async function azBootstrap() {
             }
             azTable.set(nodeIdx, cbFn);
             azFnAddrToTableIdx.set(nodeIdx, nodeIdx);
-            // M9-4: tell mini about this cb-bearing node so the
-            // wasm-side AzStartup_hitTest can return it without a
-            // JS-side DOM-id-regex round-trip.
-            if (typeof azMini.AzStartup_registerCbNode === 'function') {
-                azMini.AzStartup_registerCbNode(azState, nodeIdx);
-            }
+            // M9-4: remember the cb-bearing node; AzStartup_registerCbNode
+            // is called AFTER init (azState doesn't exist yet — see the
+            // bootstrap-order fix below).
+            azCbNodeIdxs.push(nodeIdx);
             console.debug('[azul-web] cb node=' + nodeIdx + ' loaded from ' + url +
                           ' → table[' + nodeIdx + ']');
         } catch (e) {
@@ -402,60 +392,92 @@ async function azBootstrap() {
                 azLayoutCb = cbFn;
                 console.info('[azul-web] layout cb loaded from ' + layoutUrl +
                              ' → table[' + azLayoutCbTableIdx + ']');
-
-                // M9-3: hand the table_idx + refany off to mini, then
-                // drive the first layout pass. The viewport size is
-                // window.innerWidth/Height for now; M9-5 will reflow
-                // on resize events.
-                if (typeof azMini.AzStartup_setLayoutCbTableIdx === 'function') {
-                    azMini.AzStartup_setLayoutCbTableIdx(azState, azLayoutCbTableIdx);
-                }
-                if (typeof azMini.AzStartup_setRefAny === 'function' && azRefAnyPtr) {
-                    azMini.AzStartup_setRefAny(azState, azRefAnyPtr);
-                }
-                if (typeof azMini.AzStartup_initLayoutCache === 'function') {
-                    var viewportW = (typeof window !== 'undefined' && window.innerWidth) || 800;
-                    var viewportH = (typeof window !== 'undefined' && window.innerHeight) || 600;
-                    var initRc = azMini.AzStartup_initLayoutCache(azState, viewportW, viewportH, 0);
-                    var domPtr = (typeof azMini.AzStartup_getCurrentDomPtr === 'function')
-                        ? azMini.AzStartup_getCurrentDomPtr(azState) : 0;
-                    console.info('[azul-web] initLayoutCache rc=' + initRc +
-                                 ' current_dom_ptr=' + domPtr);
-
-                    // M11 Sprint 1: hydrate the wasm-side StyledDom +
-                    // run layout solver. Sprint 2's hit-test consumes
-                    // the positioned-rects cache. Failures log but
-                    // don't abort — the legacy dispatch path keeps
-                    // working (hit-test falls back to last registered
-                    // cb node when the cache is empty).
-                    if (initRc === 0 && domPtr &&
-                        typeof azMini.AzStartup_hydrateStyledDom === 'function') {
-                        var hydrateRc = azMini.AzStartup_hydrateStyledDom(azState);
-                        var hydrated = (typeof azMini.AzStartup_isStyledDomHydrated === 'function')
-                            ? azMini.AzStartup_isStyledDomHydrated(azState) : 0;
-                        var nodeCount = (typeof azMini.AzStartup_getDomNodeCount === 'function')
-                            ? azMini.AzStartup_getDomNodeCount(azState) : 0;
-                        console.info('[azul-web] hydrateStyledDom rc=' + hydrateRc +
-                                     ' hydrated=' + hydrated +
-                                     ' node_count=' + nodeCount);
-                        if (hydrateRc === 0 &&
-                            typeof azMini.AzStartup_solveLayout === 'function') {
-                            var solveRc = azMini.AzStartup_solveLayout(
-                                azState, viewportW, viewportH,
-                            );
-                            var solved = (typeof azMini.AzStartup_isLayoutSolved === 'function')
-                                ? azMini.AzStartup_isLayoutSolved(azState) : 0;
-                            var rectsLen = (typeof azMini.AzStartup_getPositionedRectsLen === 'function')
-                                ? azMini.AzStartup_getPositionedRectsLen(azState) : 0;
-                            console.info('[azul-web] solveLayout rc=' + solveRc +
-                                         ' solved=' + solved +
-                                         ' rects_len=' + rectsLen);
-                        }
-                    }
-                }
             }
         } catch (e) {
             console.warn('[azul-web] failed to instantiate ' + layoutUrl + ':', e);
+        }
+    }
+
+    // 4.6. (2026-06-10 BOOTSTRAP-ORDER FIX) Every wasm is instantiated — the shared
+    //      memory's data segments are final. NOW seed the bump heap (each module's
+    //      segments can clobber @__az_bump_ptr's linear-memory copy), build the state,
+    //      hydrate the RefAny/model, and only then run the layout pipeline.
+    if (typeof azMini.AzStartup_resetBumpHeap === 'function') {
+        azMini.AzStartup_resetBumpHeap(96 * 1024 * 1024);
+    }
+    azState = azMini.AzStartup_init(0, 0);
+    if (!azState) {
+        console.error('[azul-web] AzStartup_init returned 0');
+        return;
+    }
+    console.debug('[azul-web] AzStartup_init → state ptr', azState);
+    azHydrate();
+    for (var ri = 0; ri < azCbNodeIdxs.length; ri++) {
+        if (typeof azMini.AzStartup_registerCbNode === 'function') {
+            azMini.AzStartup_registerCbNode(azState, azCbNodeIdxs[ri]);
+        }
+    }
+    if (azLayoutCb) {
+        if (typeof azMini.AzStartup_setLayoutCbTableIdx === 'function') {
+            azMini.AzStartup_setLayoutCbTableIdx(azState, azLayoutCbTableIdx);
+        }
+        if (typeof azMini.AzStartup_setRefAny === 'function' && azRefAnyPtr) {
+            azMini.AzStartup_setRefAny(azState, azRefAnyPtr);
+        }
+
+        // Feed the fallback font (server route /az/fallback.ttf serves the dylib's
+        // embedded TTF). Without real font bytes the wasm-side solver can't shape
+        // text → text nodes get no rects → bbox hit-testing can't see the button.
+        if (typeof azMini.AzStartup_setFallbackFont === 'function') {
+            try {
+                var fontResp = await fetch('/az/fallback.ttf');
+                if (fontResp.ok) {
+                    var fontBytes = new Uint8Array(await fontResp.arrayBuffer());
+                    var fontPtr = azMini.AzStartup_alloc(fontBytes.length);
+                    new Uint8Array(azMemory.buffer).set(fontBytes, fontPtr);
+                    azMini.AzStartup_setFallbackFont(fontPtr, fontBytes.length);
+                    console.debug('[azul-web] fallback font registered (' + fontBytes.length + ' bytes)');
+                }
+            } catch (e) {
+                console.warn('[azul-web] fallback font fetch failed:', e);
+            }
+        }
+
+        if (typeof azMini.AzStartup_initLayoutCache === 'function') {
+            var viewportW = (typeof window !== 'undefined' && window.innerWidth) || 800;
+            var viewportH = (typeof window !== 'undefined' && window.innerHeight) || 600;
+            var initRc = azMini.AzStartup_initLayoutCache(azState, viewportW, viewportH, 0);
+            var domPtr = (typeof azMini.AzStartup_getCurrentDomPtr === 'function')
+                ? azMini.AzStartup_getCurrentDomPtr(azState) : 0;
+            console.info('[azul-web] initLayoutCache rc=' + initRc +
+                         ' current_dom_ptr=' + domPtr);
+
+            // M11 Sprint 1: hydrate the wasm-side StyledDom + run the layout
+            // solver. Failures log but don't abort — hit-test falls back to
+            // the last registered cb node when the rects cache is empty.
+            if (initRc === 0 && domPtr &&
+                typeof azMini.AzStartup_hydrateStyledDom === 'function') {
+                var hydrateRc = azMini.AzStartup_hydrateStyledDom(azState);
+                var hydrated = (typeof azMini.AzStartup_isStyledDomHydrated === 'function')
+                    ? azMini.AzStartup_isStyledDomHydrated(azState) : 0;
+                var nodeCount = (typeof azMini.AzStartup_getDomNodeCount === 'function')
+                    ? azMini.AzStartup_getDomNodeCount(azState) : 0;
+                console.info('[azul-web] hydrateStyledDom rc=' + hydrateRc +
+                             ' hydrated=' + hydrated +
+                             ' node_count=' + nodeCount);
+                // Prefer the REAL solver (the one the node e2e harness exercises);
+                // fall back to the legacy partial solve.
+                var solveFn = azMini.AzStartup_solveLayoutReal || azMini.AzStartup_solveLayout;
+                if (hydrateRc === 0 && typeof solveFn === 'function') {
+                    var solveRc = solveFn(azState, viewportW, viewportH);
+                    var solved = (typeof azMini.AzStartup_isLayoutSolved === 'function')
+                        ? azMini.AzStartup_isLayoutSolved(azState) : 0;
+                    var rectsLen = (typeof azMini.AzStartup_getPositionedRectsLen === 'function')
+                        ? azMini.AzStartup_getPositionedRectsLen(azState) : 0;
+                    console.info('[azul-web] solveLayout rc=' + solveRc +
+                                 ' solved=' + solved + ' rects_len=' + rectsLen);
+                }
+            }
         }
     }
 
@@ -572,6 +594,15 @@ function azModifierBits(e) {
 }
 
 function azDispatch(kind, domEvent) {
+    // (2026-06-10) AzStartup_dispatchEvent does not yet filter by the callback's
+    // registered EventFilter (it invokes the hit node's cb for ANY kind), so a single
+    // physical click would fire the cb three times (mousedown + mouseup + click).
+    // Until per-filter dispatch lands wasm-side, only the gesture-complete events
+    // invoke callbacks; the rest return early.
+    if (kind === EVT_MOUSEDOWN || kind === EVT_MOUSEUP || kind === EVT_DBLCLICK ||
+        kind === EVT_MOUSEMOVE || kind === EVT_FOCUSIN || kind === EVT_FOCUSOUT) {
+        return;
+    }
     var evtPtr = azMini.AzStartup_alloc(EVENT_BUFFER_SIZE);
     var outLenPtr = azMini.AzStartup_alloc(OUT_LEN_SIZE);
     if (!evtPtr || !outLenPtr) {
