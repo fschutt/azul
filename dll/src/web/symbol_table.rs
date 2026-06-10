@@ -859,6 +859,21 @@ impl SymbolTable {
         }
         None
     }
+
+    /// True when `addr` falls inside any tracked image's SYNTH span
+    /// `[synth_base, synth_base + image_len)`. Used by the indirect-call
+    /// dispatcher to reject native-truncated alias case labels that would
+    /// collide with a real synthetic address (mis-routing a dispatch is far
+    /// worse than dropping it).
+    pub fn is_synth_in_image_span(&self, addr: usize) -> bool {
+        for r in &self.image_rebases {
+            let len = r.native_end.saturating_sub(r.native_base);
+            if addr >= r.synth_base && addr < r.synth_base.wrapping_add(len) {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 // ── Image enumeration ───────────────────────────────────────────────

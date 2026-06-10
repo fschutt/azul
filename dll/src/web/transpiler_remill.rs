@@ -2209,6 +2209,21 @@ impl RemillTranspiler {
                     cs.push((label, c));
                 }
             }
+            // 2026-06-10: ALSO match the NATIVE address truncated to 32 bits. Function
+            // pointers stored in MIRRORED DATA (vtables, fn-ptr struct fields baked into
+            // __DATA_CONST) carry the callee's NATIVE address; the wasm-side blr then
+            // dispatches with that value, which the synth-keyed switch missed (silent
+            // unk-drop). Adding `native & 0xFFFFFFFF` as an alias label routes them.
+            // Collision guard: skip when the truncated native is itself a valid synth
+            // (ASLR can land the user binary's truncated natives inside the synth band —
+            // mis-routing would be far worse than a dropped call).
+            let trunc = (a as u64) & 0xFFFF_FFFF;
+            if trunc != 0
+                && !tbl.is_synth_in_image_span(trunc as usize)
+                && seen.insert(trunc)
+            {
+                cs.push((trunc, c));
+            }
         }
         cs
     }
@@ -2297,7 +2312,15 @@ impl RemillTranspiler {
             }
             // Scan this fn's bytes for BL/B targets.
             let bytes_slice = unsafe { std::slice::from_raw_parts(addr as *const u8, size) };
-            let bl_targets = scan_arm64_bl_b_targets(bytes_slice, addr);
+            let mut bl_targets = scan_arm64_bl_b_targets(bytes_slice, addr);
+            // 2026-06-10: ALSO scan `adrp+add` code-address materializations (function
+            // POINTERS taken for vtables / callback structs, e.g. azul_core::task::
+            // Instant::now stored in GetSystemTimeCallback). Those targets are reached
+            // only via blr at runtime — the BL/B scan never sees them, they stay
+            // unlifted, and the indirect dispatcher silently unk-drops the call. The
+            // resolve() filter below keeps only addresses that are REAL function
+            // entries, so stray data adrp+adds are discarded.
+            bl_targets.extend(scan_arm64_adrp_add_code_targets(bytes_slice, addr));
             targets.push(Target {
                 name: name.clone(),
                 addr,
@@ -7586,6 +7609,63 @@ fn scan_arm64_adrp_accesses(
             // what's at the target without reading memory at compile
             // time; clear Rt as a known-address.
             adrp_targets[rt] = None;
+        }
+        offset += 4;
+    }
+    out
+}
+
+/// Scan ARM64 bytes for `adrp Xd, page` followed (within the same window, same
+/// register, no intervening overwrite of Xd by another adrp) by
+/// `add Xd2, Xd, #imm12{, lsl #12}` — the idiom that materializes a CODE
+/// ADDRESS into a register (taking a function pointer). Returns the computed
+/// absolute targets. Callers must filter through `SymbolTable::resolve` (exact
+/// entry match) — data/string adrp+adds produce addresses that resolve to
+/// nothing and are discarded.
+fn scan_arm64_adrp_add_code_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+    let mut out = Vec::new();
+    // reg -> page value materialized by the most recent adrp
+    let mut pages: [Option<i64>; 32] = [None; 32];
+    let mut offset = 0;
+    while offset + 4 <= fn_bytes.len() {
+        let instr = u32::from_le_bytes([
+            fn_bytes[offset],
+            fn_bytes[offset + 1],
+            fn_bytes[offset + 2],
+            fn_bytes[offset + 3],
+        ]);
+        let pc = fn_addr.wrapping_add(offset);
+        // ADRP: bit31=1, bits 28..24 = 0b10000.
+        if (instr >> 31) == 1 && ((instr >> 24) & 0x1F) == 0x10 {
+            let rd = (instr & 0x1F) as usize;
+            let immlo = ((instr >> 29) & 0x3) as u32;
+            let immhi = ((instr >> 5) & 0x7FFFF) as u32;
+            let imm21 = ((immhi << 2) | immlo) as i64;
+            let signed = if imm21 & (1 << 20) != 0 {
+                imm21 | !0x1F_FFFF_i64
+            } else {
+                imm21
+            };
+            let page = ((pc & !0xFFF) as i64).wrapping_add(signed << 12);
+            pages[rd] = Some(page);
+        }
+        // ADD (immediate, 64-bit): sf=1 op=0 S=0 -> bits 31..23 = 1_0_0_100010, sh at bit 22.
+        else if (instr >> 23) == 0b1_0_0_100010 {
+            let rn = ((instr >> 5) & 0x1F) as usize;
+            let rd = (instr & 0x1F) as usize;
+            let sh = (instr >> 22) & 1;
+            let imm12 = ((instr >> 10) & 0xFFF) as i64;
+            if let Some(page) = pages[rn] {
+                let target = page.wrapping_add(if sh == 1 { imm12 << 12 } else { imm12 });
+                if target > 0 {
+                    out.push(target as usize);
+                }
+            }
+            // The add overwrites rd — if rd held a page, it no longer does
+            // (unless rd==rn, where the result is the target, not a page).
+            if rd != rn {
+                pages[rd] = None;
+            }
         }
         offset += 4;
     }
