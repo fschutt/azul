@@ -3010,6 +3010,14 @@ pub struct CpuRenderState {
     /// item's `bounds.origin`, clipped to `bounds`). Empty for non-window renders.
     pub virtual_view_display_lists:
         std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    /// Resolved images for `DecodedImage::Callback` `<img>` nodes, keyed by the
+    /// callback image's hash. The CPU renderer can't invoke `RenderImageCallback`s
+    /// itself (it would draw a grey placeholder); the backend pre-invokes them
+    /// via [`crate::window::LayoutWindow::invoke_cpu_image_callbacks`] and passes
+    /// the produced images here, where the `DisplayListItem::Image` arm looks
+    /// them up by hash. Empty when there are no callback images.
+    pub image_callback_results:
+        std::collections::BTreeMap<azul_core::resources::ImageRefHash, azul_core::resources::ImageRef>,
 }
 
 impl CpuRenderState {
@@ -3020,7 +3028,20 @@ impl CpuRenderState {
             opacities: HashMap::new(),
             system_style: None,
             virtual_view_display_lists: std::collections::BTreeMap::new(),
+            image_callback_results: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// Provide the resolved `RenderImageCallback` images (see the field doc).
+    pub fn with_image_callback_results(
+        mut self,
+        results: std::collections::BTreeMap<
+            azul_core::resources::ImageRefHash,
+            azul_core::resources::ImageRef,
+        >,
+    ) -> Self {
+        self.image_callback_results = results;
+        self
     }
 
     /// Provide the nested `VirtualView` child DOM display lists so the CPU
@@ -3101,6 +3122,7 @@ impl CpuRenderState {
             opacities,
             system_style: None,
             virtual_view_display_lists: std::collections::BTreeMap::new(),
+            image_callback_results: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -3609,10 +3631,16 @@ fn render_single_item(
         }
         DisplayListItem::Image { bounds, image, .. } => {
             let clip = *clip_stack.last().unwrap();
+            // A `DecodedImage::Callback` `<img>` (e.g. the AzulPaint canvas) can't
+            // be rasterised here — the renderer can't run the callback. The backend
+            // pre-invoked it into `image_callback_results`; swap in the produced
+            // image (keyed by the callback image's hash). Falls back to `image`
+            // (→ grey placeholder) only if no result was produced.
+            let resolved = render_state.image_callback_results.get(&image.get_hash());
             render_image(
                 pixmap,
                 &scroll_rect(bounds.inner()),
-                image,
+                resolved.unwrap_or(image),
                 clip,
                 dpi_factor,
             )?;

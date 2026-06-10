@@ -391,6 +391,13 @@ pub struct LayoutWindow {
     pub font_manager: FontManager<FontRef>,
     /// Cache to store decoded images
     pub image_cache: ImageCache,
+    /// CPU-backend resolution of `RenderImageCallback` images: the produced
+    /// image for each callback-image node, keyed by the ORIGINAL callback
+    /// image's hash. Populated by [`LayoutWindow::invoke_cpu_image_callbacks`]
+    /// before each CPU `render_frame`; consumed by cpurender (which otherwise
+    /// draws a grey placeholder for `DecodedImage::Callback`). Empty on the GPU
+    /// path (WebRender invokes callbacks itself via `process_image_callback_updates`).
+    pub cpu_image_callback_results: BTreeMap<ImageRefHash, ImageRef>,
     /// Cached layout results for all DOMs (root + virtualized views)
     pub layout_results: BTreeMap<DomId, DomLayoutResult>,
     /// Scroll state manager for all nodes across all DOMs
@@ -605,6 +612,7 @@ impl LayoutWindow {
             text_cache: TextLayoutCache::new(),
             font_manager,
             image_cache: ImageCache::default(),
+            cpu_image_callback_results: BTreeMap::new(),
             layout_results: BTreeMap::new(),
             scroll_manager: ScrollManager::new(),
             gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
@@ -1346,6 +1354,103 @@ impl LayoutWindow {
                 }
             })
             .collect()
+    }
+
+    /// Invoke every `RenderImageCallback` image once and cache the produced
+    /// image, keyed by the ORIGINAL callback image's hash.
+    ///
+    /// The CPU renderer (`cpurender`) cannot invoke image callbacks itself — it
+    /// draws a grey placeholder for `DecodedImage::Callback` (e.g. the AzulPaint
+    /// canvas: an `<img>` whose data is a callback). The GPU path handles this
+    /// in `process_image_callback_updates` (producing WebRender textures); this
+    /// is the CPU equivalent, producing images that `render_frame` blits via
+    /// [`crate::cpurender`]'s image path.
+    ///
+    /// Pass the backend's GL context. In CPU render mode it is effectively
+    /// `None`/unusable, so a callback like AzulPaint's `render_canvas` takes its
+    /// CPU branch and returns a raw `RawImage`. The result is stored in
+    /// [`Self::cpu_image_callback_results`] and threaded into `CpuRenderState`.
+    ///
+    /// No-op (clears the cache) when there are no callback images, so normal
+    /// apps pay nothing.
+    pub fn invoke_cpu_image_callbacks(&mut self, gl_context: &OptionGlContextPtr) {
+        use azul_core::resources::DecodedImage;
+
+        // Phase 1: collect every callback-image node + its laid-out size.
+        let hidpi_factor = self.current_window_state.size.get_hidpi_factor();
+        let mut to_invoke: Vec<(DomId, NodeId, ImageRefHash, HidpiAdjustedBounds, ImageRef)> =
+            Vec::new();
+        for (dom_id, lr) in &self.layout_results {
+            let node_data_container = lr.styled_dom.node_data.as_container();
+            for (idx, node) in lr.layout_tree.nodes.iter().enumerate() {
+                let node_dom_id = match node.dom_node_id {
+                    Some(n) => n,
+                    None => continue,
+                };
+                let node_data = match node_data_container.get(node_dom_id) {
+                    Some(nd) => nd,
+                    None => continue,
+                };
+                if let NodeType::Image(image_ref) = node_data.get_node_type() {
+                    if !matches!(image_ref.get_data(), DecodedImage::Callback(_)) {
+                        continue;
+                    }
+                    let _ = idx;
+                    let size = node.used_size.unwrap_or_default();
+                    let bounds = HidpiAdjustedBounds {
+                        logical_size: size,
+                        hidpi_factor,
+                    };
+                    to_invoke.push((
+                        *dom_id,
+                        node_dom_id,
+                        image_ref.get_hash(),
+                        bounds,
+                        // NodeType::Image wraps the ImageRef in BoxOrStatic; deref
+                        // to clone the inner ImageRef (cheap, refcounted).
+                        (**image_ref).clone(),
+                    ));
+                }
+            }
+        }
+
+        if to_invoke.is_empty() {
+            self.cpu_image_callback_results.clear();
+            return;
+        }
+
+        // Phase 2: invoke each callback, collecting the produced image by the
+        // ORIGINAL callback image's hash (so cpurender can look it up from the
+        // unchanged display-list `Image` item). Results go into a local map so
+        // the immutable borrows of image_cache/fc_cache don't conflict with the
+        // mutable store at the end.
+        let mut results: BTreeMap<ImageRefHash, ImageRef> = BTreeMap::new();
+        for (dom_id, node_id, hash, bounds, image_ref) in to_invoke {
+            let domnode_id = DomNodeId {
+                dom: dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+            };
+            let info = crate::callbacks::RenderImageCallbackInfo::new(
+                domnode_id,
+                bounds,
+                gl_context,
+                &self.image_cache,
+                &self.font_manager.fc_cache,
+            );
+            let produced = match image_ref.get_data() {
+                DecodedImage::Callback(core_callback) if core_callback.callback.cb != 0 => {
+                    let cb = crate::callbacks::RenderImageCallback::from_core(&core_callback.callback);
+                    let refany = core_callback.refany.clone();
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (cb.cb)(refany, info)))
+                        .ok()
+                }
+                _ => None,
+            };
+            if let Some(img) = produced {
+                results.insert(hash, img);
+            }
+        }
+        self.cpu_image_callback_results = results;
     }
 
     /// Handle a window resize by updating the cached layout.

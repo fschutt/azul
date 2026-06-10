@@ -2531,6 +2531,13 @@ impl X11Window {
                         }
                     }
 
+                    // Resolve RenderImageCallback <img> nodes into CPU images (the
+                    // renderer can't invoke callbacks; e.g. the AzulPaint canvas).
+                    // gl=None forces the callback's CPU branch.
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        lw.invoke_cpu_image_callbacks(&azul_core::gl::OptionGlContextPtr::None);
+                    }
+
                     if let Some(ref layout_window) = self.common.layout_window {
                         let dom_id = DomId { inner: 0 };
                         // render_frame looks up the layout result itself; we only
