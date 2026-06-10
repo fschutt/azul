@@ -189,8 +189,16 @@ pub fn features_to_svg(features: &[geojson::Feature], tile: MapTileId, mapcss: &
     let lon_west = tile.x as f64 / tile_count_f * 360.0 - 180.0;
     // Use Web-Mercator forward transform for lat → world y, then
     // localise. Avoids a separate lat_north/south computation.
+    // Clamp to the Web-Mercator latitude limit (±85.0511°, where the projection
+    // is square). Beyond it tan(lat) explodes: a polygon vertex at the pole
+    // (lat 90°) projects to local_y ≈ -5685 px — ~22 tiles off-tile — and such
+    // extreme off-tile coordinates overflow the CPU SVG rasteriser's edge math
+    // into solid-black fills (the user-reported high-arctic black polygons).
+    // Clamping pins near-pole vertices to the tile's top/bottom edge, which is
+    // the correct Web-Mercator behaviour anyway (the poles are at infinity).
     let mercator_y = |lat: f64| -> f64 {
-        let r = lat.to_radians();
+        const MAX_MERCATOR_LAT: f64 = 85.051_128_779_806_59;
+        let r = lat.clamp(-MAX_MERCATOR_LAT, MAX_MERCATOR_LAT).to_radians();
         (1.0 - (r.tan() + 1.0 / r.cos()).ln() / core::f64::consts::PI) / 2.0
     };
     let project = |lon: f64, lat: f64| -> (f64, f64) {
@@ -380,5 +388,60 @@ mod tests {
         // Point features (place/POI label anchors) must NOT be drawn as dots.
         let svg = features_to_svg(&[f], MapTileId { z: 11, x: 327, y: 791 }, "");
         assert!(!svg.contains("<circle"));
+    }
+
+    #[test]
+    fn high_latitude_polygon_coords_stay_bounded() {
+        // A polygon ring reaching the North Pole (lat 90°). Without the
+        // Web-Mercator latitude clamp in `mercator_y`, the pole vertex projects
+        // to local_y ≈ -5685 px (~22 tiles above this tile); such extreme
+        // off-tile coordinates overflow the CPU SVG rasteriser into solid-black
+        // fills (reported high-arctic black polygons). The clamp pins near-pole
+        // vertices to the tile edge, so every projected coordinate stays sane.
+        let ring = vec![
+            vec![-100.0, 80.0],
+            vec![-60.0, 83.0],
+            vec![-80.0, 90.0], // North Pole — the Mercator singularity
+            vec![-100.0, 80.0],
+        ];
+        let mut f = geojson::Feature {
+            bbox: None,
+            geometry: Some(geojson::Geometry::new(geojson::Value::Polygon(vec![ring]))),
+            id: None,
+            properties: None,
+            foreign_members: None,
+        };
+        let mut props = serde_json::Map::new();
+        props.insert(
+            "layer".to_string(),
+            serde_json::Value::String("ice".to_string()),
+        );
+        f.properties = Some(props);
+
+        let svg = features_to_svg(&[f], MapTileId { z: 2, x: 1, y: 0 }, "");
+        assert!(
+            !svg.contains("inf") && !svg.contains("NaN"),
+            "non-finite coordinate leaked into SVG: {svg}"
+        );
+        // Bound every coordinate inside the <path d="..."> data. A clamped 90°
+        // vertex yields local_y ≈ 0; an unclamped one yields ~-5685. Scope the
+        // scan to the path data only (the xmlns URL contains a literal "2000").
+        let mut rest = svg.as_str();
+        let mut checked = 0usize;
+        while let Some(start) = rest.find("d=\"") {
+            let data = &rest[start + 3..];
+            let end = data.find('"').expect("unterminated d attribute");
+            for tok in data[..end].split(|c: char| matches!(c, 'M' | 'L' | 'Z' | ' ' | ',')) {
+                if let Ok(v) = tok.trim().parse::<f64>() {
+                    checked += 1;
+                    assert!(
+                        v.abs() < 2000.0,
+                        "projected coordinate {v} is out of bounds (unclamped Mercator?): {svg}"
+                    );
+                }
+            }
+            rest = &data[end..];
+        }
+        assert!(checked >= 8, "expected path coordinates to check, got {checked}: {svg}");
     }
 }
