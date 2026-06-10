@@ -2325,11 +2325,10 @@ pub mod parsed {
             language: crate::font_traits::Language,
             direction: crate::font_traits::BidiDirection,
             style: &crate::font_traits::StyleProperties,
-            out: &mut Vec<crate::font_traits::Glyph>, // [g127] out-param (avoid sret Vec-len mis-lift)
-        ) -> Result<(), crate::font_traits::LayoutError> {
+        ) -> Result<Vec<crate::font_traits::Glyph>, crate::font_traits::LayoutError> {
             // Call the existing shape_text_for_parsed_font method (defined in default.rs)
             crate::text3::default::shape_text_for_parsed_font(
-                self, text, script, language, direction, style, out,
+                self, text, script, language, direction, style,
             )
         }
 

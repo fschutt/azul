@@ -602,7 +602,7 @@ pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -
         // parent → 0xC0000000 marker @0x40540+parent*4. REVERT before commit.
         unsafe {
             let pi = parent_dom_id.index();
-            if pi < 8 { core::ptr::write_volatile((0x40540 + pi * 4) as *mut u32, 0xC000_0000u32); }
+            if pi < 8 { crate::az_mark(((0x40540 + pi * 4)) as u32, (0xC000_0000u32) as u32); }
         }
         return children;
     };
@@ -628,10 +628,7 @@ pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -
     unsafe {
         let pi = parent_dom_id.index();
         if pi < 8 {
-            core::ptr::write_volatile(
-                (0x40540 + pi * 4) as *mut u32,
-                0xCC00_0000u32 | (children.len() as u32 & 0xffff),
-            );
+            crate::az_mark(((0x40540 + pi * 4)) as u32, (0xCC00_0000u32 | (children.len() as u32 & 0xffff)) as u32);
         }
     }
     children
@@ -2020,7 +2017,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     #[cfg(feature = "web_lift")]
     unsafe {
         let m = match compute_mode { ComputeMode::PerformLayout => 0xC0DE0002u32, _ => 0xC0DE0001u32 };
-        core::ptr::write_volatile((0x60980 + (node_index & 7) * 4) as *mut u32, m);
+        crate::az_mark(((0x60980 + (node_index & 7) * 4)) as u32, (m) as u32);
     }
     let _probe = match compute_mode {
         ComputeMode::ComputeSize => crate::probe::Probe::span("size_node"),
@@ -2086,7 +2083,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                 // Pass-1 (0x60A40 set) but this miss-flag is UNSET → calculate(child,ComputeSize) hit
                 // the cache instead (so layout_formatting_context/layout_ifc were skipped).
                 #[cfg(feature = "web_lift")]
-                unsafe { core::ptr::write_volatile((0x60A60 + (node_index & 7) * 4) as *mut u32, 0xC0DE0001); }
+                unsafe { crate::az_mark(((0x60A60 + (node_index & 7) * 4)) as u32, (0xC0DE0001) as u32); }
                 drop(crate::probe::Probe::span("size_cache_miss"));
             }
             ComputeMode::PerformLayout => {

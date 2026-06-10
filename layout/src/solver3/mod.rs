@@ -527,11 +527,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     let mut new_tree = Box::new(new_tree_val);
     { let _ = (0xDD00_0002u32); }
     // [az-diag g51 REVERT] 0x71 = reconcile_and_invalidate returned OK (no InvalidTree in reconcile).
-    unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x71u32); }
+    unsafe { crate::az_mark((0x60704) as u32, (0x71u32) as u32); }
     // [az-diag g54 REVERT] 0x40740 = new_tree.nodes.len() RIGHT AFTER reconcile. If 0 → reconcile
     // built an empty LayoutTree (the bug is in reconcile_recursive/create_node_from_dom). If 2 →
     // reconcile is fine and the tree gets emptied/mis-lifted downstream (check 0x40744 at the loop).
-    unsafe { core::ptr::write_volatile(0x60740 as *mut u32, new_tree.nodes.len() as u32); }
+    unsafe { crate::az_mark((0x60740) as u32, (new_tree.nodes.len() as u32) as u32); }
     crate::probe::sample_peak_rss("rss:after_reconcile");
     crate::probe::sample_phase_peak("rss:peak_during_reconcile");
 
@@ -570,7 +570,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cache::compute_counters(&new_dom, &new_tree, &mut counter_values);
     }
     // [az-diag g51 REVERT] 0x72 = compute_counters done (InvalidTree, if any, is after here).
-    unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x72u32); }
+    unsafe { crate::az_mark((0x60704) as u32, (0x72u32) as u32); }
 
     // Step 1.4: Resize and invalidate per-node cache (Taffy-inspired 9+1 slot cache)
     // Move cache_map out of LayoutCache for the duration of layout (avoids borrow conflicts).
@@ -754,7 +754,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     { let _ = (0xDD00_0003u32); }
     // [az-diag g51 REVERT] 0x80 = reached the incremental layout loop (past early-exit + remap + dirty loops).
-    unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x80u32); }
+    unsafe { crate::az_mark((0x60704) as u32, (0x80u32) as u32); }
     // [az-diag g65 PATH-B VALIDATION] new_tree is still valid here (=2). Clone it into the HEAP-backed
     // cache.tree (set AFTER the remap+early-exit which read the OLD cache.tree). cache is the stable
     // &mut arg (read correctly throughout), so cache.tree is NOT a deep-SP-relative stack local. At the
@@ -766,8 +766,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Vec::clone MIS-LIFTS (drops a node) → the full MOVE-based cache.tree refactor avoids it (do it).
     // If src=1=clone → corruption already reached line 758 (heisenbug) → move won't help.
     unsafe {
-        core::ptr::write_volatile(0x607C0 as *mut u32, new_tree.nodes.len() as u32);
-        core::ptr::write_volatile(0x607C4 as *mut u32, cache.tree.as_ref().map(|t| t.nodes.len()).unwrap_or(999) as u32);
+        crate::az_mark((0x607C0) as u32, (new_tree.nodes.len() as u32) as u32);
+        crate::az_mark((0x607C4) as u32, (cache.tree.as_ref().map(|t| t.nodes.len()).unwrap_or(999) as u32) as u32);
     }
 
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
@@ -785,18 +785,18 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.calculated_positions.clone()
         };
         // [az-diag g70 RELIABLE free-band] 0x60780 = nodes.len AFTER the in-loop calculated_positions.clone().
-        unsafe { core::ptr::write_volatile(0x60780 as *mut u32, new_tree.nodes.len() as u32); }
+        unsafe { crate::az_mark((0x60780) as u32, (new_tree.nodes.len() as u32) as u32); }
         let mut reflow_needed_for_scrollbars = false;
 
         {
             crate::probe::reset_peak();
             // [az-diag g70 RELIABLE free-band] 0x60784 = nodes.len AFTER reset_peak (before the calc Span).
-            unsafe { core::ptr::write_volatile(0x60784 as *mut u32, new_tree.nodes.len() as u32); }
+            unsafe { crate::az_mark((0x60784) as u32, (new_tree.nodes.len() as u32) as u32); }
             let _p = crate::probe::Probe::span("calc_intrinsic_sizes");
             // [az-diag g70 RELIABLE free-band] 0x60788 = nodes.len AFTER the calc_intrinsic_sizes Span.
-            unsafe { core::ptr::write_volatile(0x60788 as *mut u32, new_tree.nodes.len() as u32); }
+            unsafe { crate::az_mark((0x60788) as u32, (new_tree.nodes.len() as u32) as u32); }
             // [az-diag REVERT] 0x90 = about to call calculate_intrinsic_sizes (the SIMD/text intrinsic pass).
-            unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x90u32); }
+            unsafe { crate::az_mark((0x60704) as u32, (0x90u32) as u32); }
             // [az-diag g72 FIX] REMOVED the g48 `#[cfg(feature="web_lift")] panic!(...)` that lived
             // here. web-transpiler => azul-layout?/web_lift IS enabled (dll/Cargo.toml:651), so this
             // panic WAS compiled in, and with `-Z build-std-features=panic_immediate_abort` it lowered
@@ -809,8 +809,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // [az-diag g65 PATH-B VALIDATION] 0x40748 = stack new_tree.nodes.len() (expect 0),
             // 0x4074C = HEAP cache.tree.nodes.len() (expect 2 if path B sidesteps the corruption).
             unsafe {
-                core::ptr::write_volatile(0x60748 as *mut u32, new_tree.nodes.len() as u32);
-                core::ptr::write_volatile(0x6074C as *mut u32, cache.tree.as_ref().map(|t| t.nodes.len()).unwrap_or(999) as u32);
+                crate::az_mark((0x60748) as u32, (new_tree.nodes.len() as u32) as u32);
+                crate::az_mark((0x6074C) as u32, (cache.tree.as_ref().map(|t| t.nodes.len()).unwrap_or(999) as u32) as u32);
             }
             calculate_intrinsic_sizes(
                 &mut ctx,
@@ -819,7 +819,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 &recon_result.intrinsic_dirty,
             )?;
             // [az-diag REVERT] 0x91 = calculate_intrinsic_sizes done.
-            unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0x91u32); }
+            unsafe { crate::az_mark((0x60704) as u32, (0x91u32) as u32); }
         }
         crate::probe::sample_peak_rss("rss:after_calc_intrinsic");
         crate::probe::sample_phase_peak("rss:peak_during_intrinsic");

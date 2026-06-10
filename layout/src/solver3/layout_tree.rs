@@ -2105,13 +2105,10 @@ impl LayoutTreeBuilder {
         // calls @0x40500 + record each dom_id into a 14-slot ring @0x40504. REVERT
         // before commit. Runs only in lifted wasm (server lifts, never runs natively).
         unsafe {
-            let c = core::ptr::read_volatile(0x40500 as *const u32);
-            core::ptr::write_volatile(0x60500 as *mut u32, c.wrapping_add(1));
+            let c = crate::az_mark_read(0x40500);
+            crate::az_mark((0x60500) as u32, (c.wrapping_add(1)) as u32);
             if (c as usize) < 14 {
-                core::ptr::write_volatile(
-                    (0x40504 + (c as usize) * 4) as *mut u32,
-                    0xDD000000 | (dom_id.index() as u32 & 0xffff),
-                );
+                crate::az_mark(((0x40504 + (c as usize) * 4)) as u32, (0xDD000000 | (dom_id.index() as u32 & 0xffff)) as u32);
             }
         }
         index
@@ -2982,7 +2979,7 @@ fn determine_formatting_context_for_display(
         // For the divs (node_id 1,3): 2 ⇒ computed Inline correctly (bug is store/clone/read); 4 ⇒
         // has_only_inline_children mis-lifted to false (computed Block).
         #[cfg(feature = "web_lift")]
-        unsafe { core::ptr::write_volatile((0x60B60 + (node_id.index() & 7) * 4) as *mut u32, 0xC0DE0001); }
+        unsafe { crate::az_mark(((0x60B60 + (node_id.index() & 7) * 4)) as u32, (0xC0DE0001) as u32); }
         return FormattingContext::Inline;
     }
     // +spec:display-property:2a8d62 - block containers with inline-level content establish an IFC
@@ -3001,11 +2998,11 @@ fn determine_formatting_context_for_display(
         LayoutDisplay::Block | LayoutDisplay::ListItem => {
             if has_only_inline_children(styled_dom, node_id) {
                 #[cfg(feature = "web_lift")]
-                unsafe { core::ptr::write_volatile((0x60B60 + (node_id.index() & 7) * 4) as *mut u32, 0xC0DE0002); }
+                unsafe { crate::az_mark(((0x60B60 + (node_id.index() & 7) * 4)) as u32, (0xC0DE0002) as u32); }
                 FormattingContext::Inline
             } else {
                 #[cfg(feature = "web_lift")]
-                unsafe { core::ptr::write_volatile((0x60B60 + (node_id.index() & 7) * 4) as *mut u32, 0xC0DE0004); }
+                unsafe { crate::az_mark(((0x60B60 + (node_id.index() & 7) * 4)) as u32, (0xC0DE0004) as u32); }
                 FormattingContext::Block {
                     establishes_new_context: establishes_new_block_formatting_context(
                         styled_dom, node_id,

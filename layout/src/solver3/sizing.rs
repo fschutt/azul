@@ -107,7 +107,7 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // is in 121-142. compute_dirty_ancestor_closure RETURNS a HashSet by sret — prime suspect:
     // sret-slot overlapping new_tree, or the hashbrown empty-map bug. 0x407B4 (post-compute_dirty)
     // isolates compute_dirty vs calculator-creation.
-    unsafe { core::ptr::write_volatile(0x607B0 as *mut u32, tree.nodes.len() as u32); }
+    unsafe { crate::az_mark((0x607B0) as u32, (tree.nodes.len() as u32) as u32); }
     if dirty_nodes.is_empty() {
         return Ok(());
     }
@@ -122,7 +122,7 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // excel.html even when only 3 nodes were actually dirty.
     let dirty_closure = compute_dirty_ancestor_closure(tree, dirty_nodes);
     // [az-diag g59 REVERT] 0x407B4 = nodes.len AFTER compute_dirty_ancestor_closure (its HashSet sret).
-    unsafe { core::ptr::write_volatile(0x607B4 as *mut u32, tree.nodes.len() as u32); }
+    unsafe { crate::az_mark((0x607B4) as u32, (tree.nodes.len() as u32) as u32); }
 
     let mut calculator = IntrinsicSizeCalculator::new(ctx, text_cache);
     calculator.dirty_closure = Some(dirty_closure);
@@ -144,12 +144,12 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // tree.get(root)=None (0x40738=0) or nodes.len()=0 (0x40734), the InvalidTree@229 is
     // because RECONCILE produced a broken tree — root cause is reconcile, not sizing.
     unsafe {
-        core::ptr::write_volatile(0x60730 as *mut u32, tree.root as u32);
-        core::ptr::write_volatile(0x60734 as *mut u32, tree.nodes.len() as u32);
-        core::ptr::write_volatile(0x60738 as *mut u32, tree.get(tree.root).is_some() as u32);
+        crate::az_mark((0x60730) as u32, (tree.root as u32) as u32);
+        crate::az_mark((0x60734) as u32, (tree.nodes.len() as u32) as u32);
+        crate::az_mark((0x60738) as u32, (tree.get(tree.root).is_some() as u32) as u32);
         // [az-diag g55] 0x4075C = the `tree` ptr the CALLEE sees. Compare with 0x40748
         // (caller's &new_tree). Same → nodes-field-offset mis-lift; differ → &mut arg mis-passed.
-        core::ptr::write_volatile(0x6075C as *mut u32, (tree as *const LayoutTree as usize) as u32);
+        crate::az_mark((0x6075C) as u32, ((tree as *const LayoutTree as usize) as u32) as u32);
     }
     calculator.calculate_intrinsic_recursive(tree, tree.root, false)?;
     ctx.debug_log("Finished intrinsic size calculation");
@@ -207,7 +207,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
     ) -> Result<IntrinsicSizes> {
         // [az-diag g52 REVERT] 0x40720 = node_index entering calculate_intrinsic_recursive
         // (last value after the run = the node that InvalidTree'd or the stray child).
-        unsafe { core::ptr::write_volatile(0x60720 as *mut u32, node_index as u32); }
+        unsafe { crate::az_mark((0x60720) as u32, (node_index as u32) as u32); }
         // Fast path: if this subtree has no dirty nodes AND we
         // already have a cached intrinsic, return the cached value
         // and skip the whole descent. Caller is the ancestor-closure
@@ -294,7 +294,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let mut child_intrinsics = Vec::with_capacity(n);
         for &child_index in children {
             // [az-diag g52 REVERT] 0x40728 = child_index about to recurse (last = the stray).
-            unsafe { core::ptr::write_volatile(0x60728 as *mut u32, child_index as u32); }
+            unsafe { crate::az_mark((0x60728) as u32, (child_index as u32) as u32); }
             // [g52 FIX] Defensive: reconcile can mis-list a stray/out-of-range child_index
             // (a Text node mis-listed as a layout child, or a lift artifact in the children
             // array). The unguarded recursion would hit `tree.get(child_index).ok_or(InvalidTree)`
@@ -606,10 +606,10 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // [az-diag REVERT] 0xA0 = calculate_ifc_root_intrinsic_sizes entry.
         // [g75] 0x60758 = how many times this IFC sizer is entered; 0x6075C = node_index of THIS call.
         unsafe {
-            core::ptr::write_volatile(0x60704 as *mut u32, 0xA0u32);
-            let c = core::ptr::read_volatile(0x60758 as *const u32).wrapping_add(1);
-            core::ptr::write_volatile(0x60758 as *mut u32, c);
-            core::ptr::write_volatile(0x6075C as *mut u32, node_index as u32);
+            crate::az_mark((0x60704) as u32, (0xA0u32) as u32);
+            let c = crate::az_mark_read(0x60758).wrapping_add(1);
+            crate::az_mark((0x60758) as u32, (c) as u32);
+            crate::az_mark((0x6075C) as u32, (node_index as u32) as u32);
         }
         // Collect all inline content from this IFC root and its inline descendants
         // [g76] EXPLICIT match (was `?`): the g75 markers showed collect_inline_content reaching its
@@ -627,15 +627,12 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // mis-lifted Ok→Err (g76/g77 PROVED it: 0x60760=0xEE despite the source reaching B8). Filling
         // a `&mut Vec` out-param and returning `Result<()>` (register-returned, NO sret-of-Vec) lifts
         // cleanly — the established M12.7 "a pointer arg lifts cleanly" pattern. 0x60760 should now =1.
-        let mut inline_content: Vec<InlineContent> = Vec::new();
-        // [g119 az-web-lift] IGNORE collect's Result<(),LayoutError> status — its Ok→Err discriminant
-        // mis-lifts on the web (heisenbug; repr(C,u8) on LayoutError should fix it, this is the robust
-        // belt). The out-param `inline_content` is filled correctly REGARDLESS (g111: out.len=1, textlen=5),
-        // and the `is_empty()` guard below handles a genuine failure → default intrinsic (no crash).
-        let _collect_status = collect_inline_content(&mut self.ctx, tree, node_index, &mut inline_content);
-        unsafe { core::ptr::write_volatile(0x60760 as *mut u32, if _collect_status.is_ok() { 0x00000001u32 } else { 0x000000EEu32 }); }
+        let collect_result = collect_inline_content(&mut self.ctx, tree, node_index);
+        #[cfg(feature = "web_lift")]
+        unsafe { crate::az_mark((0x60760) as u32, (if collect_result.is_ok() { 0x00000001u32 } else { 0x000000EEu32 }) as u32); }
+        let inline_content: Vec<InlineContent> = collect_result?;
         // [az-diag REVERT] 0xA1 = collect_inline_content done (next = measure_intrinsic_widths).
-        unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0xA1u32); }
+        unsafe { crate::az_mark((0x60704) as u32, (0xA1u32) as u32); }
 
         if inline_content.is_empty() {
             return Ok(IntrinsicSizes::default());
@@ -669,9 +666,9 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         {
             let cl = self.ctx.font_manager.font_chain_cache.len();
             unsafe {
-                core::ptr::write_volatile(0x60768 as *mut u32, cl as u32);
-                core::ptr::write_volatile(0x6076C as *mut u32, loaded_fonts.len() as u32);
-                core::ptr::write_volatile(0x60704 as *mut u32, 0xA15u32);
+                crate::az_mark((0x60768) as u32, (cl as u32) as u32);
+                crate::az_mark((0x6076C) as u32, (loaded_fonts.len() as u32) as u32);
+                crate::az_mark((0x60704) as u32, (0xA15u32) as u32);
             }
             // [g88] g85+g87 PROVED whack-a-mole does NOT converge: BTreeMap'd unique_font_keys (chain
             // ✓), supported_features+lookups_index (g85), ReadCache (g87) — STILL HANGS. Too many
@@ -705,7 +702,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         };
 
         // [az-diag REVERT] 0xA2 = measure_intrinsic_widths done (text measured, no OOB here).
-        unsafe { core::ptr::write_volatile(0x60704 as *mut u32, 0xA2u32); }
+        unsafe { crate::az_mark((0x60704) as u32, (0xA2u32) as u32); }
         let min_width = intrinsic_text.min_content_width;
         let max_width = intrinsic_text.max_content_width;
 
@@ -1065,22 +1062,22 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait>(
     // Recursively collect inline content from this node and its inline descendants
     collect_inline_content_recursive(ctx, tree, ifc_root_index, out)?;
     // [g73] B8 = top-level recursion returned Ok (collect_inline_content complete).
-    unsafe { core::ptr::write_volatile(0x6071C as *mut u32, 0xB8u32); }
+    unsafe { crate::az_mark((0x6071C) as u32, (0xB8u32) as u32); }
     // [az-diag REVERT g111] Is the built InlineContent's discriminant correct in MEMORY?
     // out[0].disc should be 0 (Text). If garbage → split_text_for_whitespace mis-built the tag
     // (construction mis-lift). If 0 (correct) → the lift mis-READS it in create_logical_items's
     // match (deeper). Also capture out.len/ptr + size_of::<InlineContent> (stride) to check the
     // slice/iteration. Upstream of the trap, lifted-only path (native-safe).
     unsafe {
-        core::ptr::write_volatile(0x607A0 as *mut u32, out.len() as u32);
-        core::ptr::write_volatile(0x607A4 as *mut u32, out.as_ptr() as usize as u32);
-        core::ptr::write_volatile(0x607AC as *mut u32, core::mem::size_of::<InlineContent>() as u32);
+        crate::az_mark((0x607A0) as u32, (out.len() as u32) as u32);
+        crate::az_mark((0x607A4) as u32, (out.as_ptr() as usize as u32) as u32);
+        crate::az_mark((0x607AC) as u32, (core::mem::size_of::<InlineContent>() as u32) as u32);
         if !out.is_empty() {
             let disc = *(out.as_ptr() as *const u64);
-            core::ptr::write_volatile(0x607A8 as *mut u32, disc as u32);
-            core::ptr::write_volatile(0x607B8 as *mut u32, (disc >> 32) as u32);
+            crate::az_mark((0x607A8) as u32, (disc as u32) as u32);
+            crate::az_mark((0x607B8) as u32, ((disc >> 32) as u32) as u32);
         }
-        core::ptr::write_volatile(0x607BC as *mut u32, 0xC0DE0111u32);
+        crate::az_mark((0x607BC) as u32, (0xC0DE0111u32) as u32);
     }
 
     ctx.debug_log(&format!(
@@ -1112,11 +1109,11 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     // FAILURE distinctly (inline-phase=0xBAD) so a node_index that fails HERE (before B1) is
     // visible even though a PRIOR successful call already wrote B8. This is the suspected
     // InvalidTree site (phase stuck at 0xA0 + B8 reached ⇒ a 2nd IFC call fails at this get).
-    unsafe { core::ptr::write_volatile(0x60754 as *mut u32, node_index as u32); }
+    unsafe { crate::az_mark((0x60754) as u32, (node_index as u32) as u32); }
     let node = match tree.get(node_index) {
         Some(n) => n,
         None => {
-            unsafe { core::ptr::write_volatile(0x6071C as *mut u32, 0xBADu32); }
+            unsafe { crate::az_mark((0x6071C) as u32, (0xBADu32) as u32); }
             return Err(LayoutError::InvalidTree);
         }
     };
@@ -1129,14 +1126,14 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     };
 
     // [az-diag REVERT] 0x4071C=0xB1 = about to extract_text_from_node (THIS node).
-    unsafe { core::ptr::write_volatile(0x6071C as *mut u32, 0xB1u32); }
+    unsafe { crate::az_mark((0x6071C) as u32, (0xB1u32) as u32); }
     // First check if THIS node is a text node
     if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
         // [az-diag REVERT] extract_text_from_node returned: 0x40714=text.len() (must be 5 for
         // "Hello"; garbage = the Text-variant AzString len mis-lifts), 0x4071C=0xB2 reached.
         unsafe {
-            core::ptr::write_volatile(0x60714 as *mut u32, text.len() as u32);
-            core::ptr::write_volatile(0x6071C as *mut u32, 0xB2u32);
+            crate::az_mark((0x60714) as u32, (text.len() as u32) as u32);
+            crate::az_mark((0x6071C) as u32, (0xB2u32) as u32);
         }
         let style_props = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
         ctx.debug_log(&format!("Found text in node {}: '{}'", node_index, text));
@@ -1148,10 +1145,10 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
             style_props,
         );
         // [az-diag REVERT] 0x4071C=0xB3 = split_text_for_whitespace done.
-        unsafe { core::ptr::write_volatile(0x6071C as *mut u32, 0xB3u32); }
+        unsafe { crate::az_mark((0x6071C) as u32, (0xB3u32) as u32); }
         content.extend(text_items);
         // [g73] B4 = content.extend done (past B3).
-        unsafe { core::ptr::write_volatile(0x6071C as *mut u32, 0xB4u32); }
+        unsafe { crate::az_mark((0x6071C) as u32, (0xB4u32) as u32); }
     }
 
     // CRITICAL: Also check DOM children for text nodes!
@@ -1174,9 +1171,9 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
             // "Hello" this must be 5; a garbage/huge value = the Text-variant AzString len
             // mis-lifts → as_str().to_string() copies a garbage range → memory.fill OOB.
             unsafe {
-                core::ptr::write_volatile(0x60714 as *mut u32, text_data.as_str().len() as u32);
-                core::ptr::write_volatile(0x60718 as *mut u32, text_data.as_str().as_ptr() as usize as u32);
-                core::ptr::write_volatile(0x6071C as *mut u32, 0xA3u32);
+                crate::az_mark((0x60714) as u32, (text_data.as_str().len() as u32) as u32);
+                crate::az_mark((0x60718) as u32, (text_data.as_str().as_ptr() as usize as u32) as u32);
+                crate::az_mark((0x6071C) as u32, (0xA3u32) as u32);
             }
             let text = text_data.as_str().to_string();
             let style_props = Arc::new(get_style_properties(ctx.styled_dom, child_id, ctx.system_style.as_ref(), azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
@@ -1195,7 +1192,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         }
     }
     // [g73] B6 = DOM-children loop done (about to process_layout_children).
-    unsafe { core::ptr::write_volatile(0x6071C as *mut u32, 0xB6u32); }
+    unsafe { crate::az_mark((0x6071C) as u32, (0xB6u32) as u32); }
 
     process_layout_children(ctx, tree, node_index, content)
 }
@@ -1211,11 +1208,11 @@ fn process_layout_children<T: ParsedFontTrait>(
     use azul_css::props::layout::{LayoutHeight, LayoutWidth};
 
     // [g73] PLC entry: 0x60708 = 0xC0<<24 | node_index (which node's children we process).
-    unsafe { core::ptr::write_volatile(0x60708 as *mut u32, 0xC0000000u32 | (node_index as u32 & 0xFFFFFF)); }
+    unsafe { crate::az_mark((0x60708) as u32, (0xC0000000u32 | (node_index as u32 & 0xFFFFFF)) as u32); }
     // Process layout tree children (these are elements with layout properties)
     for &child_index in tree.children(node_index) {
         // [g73] PLC loop: 0x6070C = current child_index being processed.
-        unsafe { core::ptr::write_volatile(0x6070C as *mut u32, child_index as u32); }
+        unsafe { crate::az_mark((0x6070C) as u32, (child_index as u32) as u32); }
         // 2026-06-02: was `.ok_or(LayoutError::InvalidTree)?` — a stray/invalid child_index in
         // tree.children (likely a Text node mis-listed during reconcile, since Text is INLINE
         // content not a layout-tree node) aborted the WHOLE intrinsic-sizing pass with
@@ -1339,11 +1336,10 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
     ifc_root_index: usize,
-    out: &mut Vec<InlineContent>,
-) -> Result<()> {
-    // [g78] out-param (was `-> Result<Vec<InlineContent>>`): the by-value Vec return mis-lifted
-    // Ok→Err on the web backend. Result<()> + &mut Vec out-param lifts cleanly.
-    collect_inline_content_for_sizing(ctx, tree, ifc_root_index, out)
+) -> Result<Vec<InlineContent>> {
+    let mut out = Vec::new();
+    collect_inline_content_for_sizing(ctx, tree, ifc_root_index, &mut out)?;
+    Ok(out)
 }
 
 // +spec:height-calculation:1c899b - width and height properties specify the preferred size of the box
@@ -2414,11 +2410,11 @@ pub fn extract_text_from_node(styled_dom: &StyledDom, node_id: NodeId) -> Option
                 let ptr_field = core::ptr::read_volatile(raw);
                 let len_field = core::ptr::read_volatile(raw.add(1));
                 let cap_field = core::ptr::read_volatile(raw.add(2));
-                core::ptr::write_volatile(0x60714 as *mut u32, len_field as u32);
-                core::ptr::write_volatile(0x60718 as *mut u32, ptr_field as u32);
-                core::ptr::write_volatile(0x6071C as *mut u32, 0xB5u32);
-                core::ptr::write_volatile(0x60720 as *mut u32, cap_field as u32);
-                core::ptr::write_volatile(0x60724 as *mut u32, (len_field >> 32) as u32);
+                crate::az_mark((0x60714) as u32, (len_field as u32) as u32);
+                crate::az_mark((0x60718) as u32, (ptr_field as u32) as u32);
+                crate::az_mark((0x6071C) as u32, (0xB5u32) as u32);
+                crate::az_mark((0x60720) as u32, (cap_field as u32) as u32);
+                crate::az_mark((0x60724) as u32, ((len_field >> 32) as u32) as u32);
             }
             Some(text_data.as_str().to_string())
         }

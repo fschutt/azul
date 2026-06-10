@@ -180,11 +180,10 @@ impl ParsedFontTrait for FontRef {
         language: crate::text3::script::Language,
         direction: BidiDirection,
         style: &StyleProperties,
-        out: &mut Vec<Glyph>, // [g127] out-param (avoid sret Vec-len mis-lift)
-    ) -> Result<(), LayoutError> {
+    ) -> Result<Vec<Glyph>, LayoutError> {
         // Delegate to the inner ParsedFont's shape_text, passing self as font_ref
         let parsed = get_parsed_font(self);
-        parsed.shape_text_for_font_ref(self, text, script, language, direction, style, out)
+        parsed.shape_text_for_font_ref(self, text, script, language, direction, style)
     }
 
     fn get_hash(&self) -> u64 {
@@ -349,11 +348,9 @@ impl ParsedFont {
         language: crate::text3::script::Language,
         direction: BidiDirection,
         style: &StyleProperties,
-        out: &mut Vec<Glyph>, // [g127] out-param (avoid sret Vec-len mis-lift)
-    ) -> Result<(), LayoutError> {
+    ) -> Result<Vec<Glyph>, LayoutError> {
         // Use the common shaping implementation
-        let mut shaped = Vec::new();
-        shape_text_internal(self, text, script, language, direction, style, &mut shaped)?;
+        let shaped = shape_text_internal(self, text, script, language, direction, style)?;
 
         // Convert Glyph - now using font_hash and font_metrics instead of font reference
         let font_hash = font_ref.get_hash();
@@ -366,7 +363,7 @@ impl ParsedFont {
             cap_height: self.font_metrics.cap_height,
         };
 
-        out.extend(shaped
+        Ok(shaped
             .into_iter()
             .map(|g| Glyph {
                 glyph_id: g.glyph_id,
@@ -388,8 +385,8 @@ impl ParsedFont {
                 orientation: g.orientation,
                 script: g.script,
                 bidi_level: g.bidi_level,
-            }));
-        Ok(())
+            })
+            .collect())
     }
 
     fn get_hash(&self) -> u64 {
@@ -770,12 +767,11 @@ fn shape_text_internal(
     language: crate::text3::script::Language,
     direction: BidiDirection,
     style: &StyleProperties,
-    out: &mut Vec<Glyph>, // [g127] out-param: avoid the sret Vec-len mis-lift (see ParsedFontTrait::shape_text)
-) -> Result<(), LayoutError> {
+) -> Result<Vec<Glyph>, LayoutError> {
     // [az-diag REVERT] wasm-only probe: shaping ENTERED → sentinel 0xE0000000 at
     // 0x40700 (overwritten with the glyph count at the Ok(..) return). After a
     // trap: 0xE0000000=shaping panicked inside; <0x1000=completed w/ that count; 0=not reached.
-    unsafe { core::ptr::write_volatile(0x60700 as *mut u32, 0xE0000000u32); }
+    unsafe { crate::az_mark((0x60700) as u32, (0xE0000000u32) as u32); }
     // [az-diag REVERT] web-lift hang localization: server.log shows the lift pulls in
     // allsorts gsub::apply_subst_context + Ligature::apply, and solveLayoutReal hangs with
     // NO trap (so it's NOT in my capped char-walk/for-info loops) → the infinite loop is
@@ -791,8 +787,8 @@ fn shape_text_internal(
     // 0 = normal.
     const AZ_SHAPE_BISECT: u32 = 0;
     if AZ_SHAPE_BISECT == 1 {
-        unsafe { core::ptr::write_volatile(0x607A0 as *mut u32, 0x9001u32); }
-        return Ok(());
+        unsafe { crate::az_mark((0x607A0) as u32, (0x9001u32) as u32); }
+        return Ok(Vec::new());
     }
     let script_tag = to_opentype_script_tag(script);
     #[cfg(feature = "text_layout_hyphenation")]
@@ -826,7 +822,7 @@ fn shape_text_internal(
     // walk: char_indices' UTF-8 byte advance is the same mechanism the web lift may mis-advance
     // to 0 (→ infinite collect → slow OOM = "hang"). The panic converts that hang into a TRAP
     // the harness catch can read. Semantically identical to the original.
-    unsafe { core::ptr::write_volatile(0x607A0 as *mut u32, 1u32); }
+    unsafe { crate::az_mark((0x607A0) as u32, (1u32) as u32); }
     let mut raw_glyphs: Vec<allsorts::gsub::RawGlyph<()>> = Vec::new();
     {
         let mut ci = 0usize;
@@ -834,7 +830,7 @@ fn shape_text_internal(
         while ci < text.len() {
             fuel += 1;
             if fuel > 50_000 {
-                unsafe { core::ptr::write_volatile(0x607A4 as *mut u32, 0x5CA90002u32); }
+                unsafe { crate::az_mark((0x607A4) as u32, (0x5CA90002u32) as u32); }
                 panic!("az-diag raw_glyphs char-walk fuel cap");
             }
             let ch = match text[ci..].chars().next() {
@@ -857,7 +853,7 @@ fn shape_text_internal(
             ci += ch.len_utf8();
         }
     }
-    unsafe { core::ptr::write_volatile(0x607A0 as *mut u32, 2u32); }
+    unsafe { crate::az_mark((0x607A0) as u32, (2u32) as u32); }
 
     if let Some(gsub) = parsed_font.gsub().filter(|_| !AZ_SKIP_GSUB_GPOS) {
         let features = if user_features.is_empty() {
@@ -882,7 +878,7 @@ fn shape_text_internal(
         )
         .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
     }
-    unsafe { core::ptr::write_volatile(0x607A0 as *mut u32, 3u32); } // [az-diag] gsub done
+    unsafe { crate::az_mark((0x607A0) as u32, (3u32) as u32); } // [az-diag] gsub done
 
     let mut infos = gpos::Info::init_from_glyphs(opt_gdef, raw_glyphs);
 
@@ -905,7 +901,7 @@ fn shape_text_internal(
         )
         .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
     }
-    unsafe { core::ptr::write_volatile(0x607A0 as *mut u32, 4u32); } // [az-diag] gpos done
+    unsafe { crate::az_mark((0x607A0) as u32, (4u32) as u32); } // [az-diag] gpos done
 
     let font_size = style.font_size_px;
     let scale_factor = if parsed_font.font_metrics.units_per_em > 0 {
@@ -931,7 +927,7 @@ fn shape_text_internal(
     for info in infos.iter() {
         __fi_fuel += 1;
         if __fi_fuel > 50_000 {
-            unsafe { core::ptr::write_volatile(0x607A4 as *mut u32, 0x5CA90003u32); }
+            unsafe { crate::az_mark((0x607A4) as u32, (0x5CA90003u32) as u32); }
             panic!("az-diag for-info fuel cap");
         }
         let cluster = info.glyph.liga_component_pos as u32;
@@ -987,16 +983,13 @@ fn shape_text_internal(
         shaped_glyphs.push(glyph);
     }
 
-    unsafe { core::ptr::write_volatile(0x607A0 as *mut u32, 5u32); } // [az-diag] for-info done
+    unsafe { crate::az_mark((0x607A0) as u32, (5u32) as u32); } // [az-diag] for-info done
     // [az-diag REVERT] wasm-only probe: shaping COMPLETED → overwrite the entry
     // sentinel at 0x40700 with the produced glyph count. Tests the "0 glyphs"
     // theory for the solver unwrap-None panic. Safe: shape_text_internal only
     // runs in the wasm solveLayoutReal path (render_initial_page is cascade-only).
-    unsafe { core::ptr::write_volatile(0x60700 as *mut u32, shaped_glyphs.len() as u32); }
-    // [g127] append element-wise into the caller's out-param (NOT a Vec move/return) — reads
-    // shaped_glyphs.len here (correct) and fills `out`, so the caller reads its own header len.
-    out.append(&mut shaped_glyphs);
-    Ok(())
+    unsafe { crate::az_mark((0x60700) as u32, (shaped_glyphs.len() as u32) as u32); }
+    Ok(shaped_glyphs)
 }
 
 /// Public helper function to shape text for ParsedFont, returning Glyph
@@ -1008,8 +1001,7 @@ pub fn shape_text_for_parsed_font(
     language: crate::text3::script::Language,
     direction: BidiDirection,
     style: &StyleProperties,
-    out: &mut Vec<Glyph>, // [g127] out-param (avoid sret Vec-len mis-lift)
-) -> Result<(), LayoutError> {
+) -> Result<Vec<Glyph>, LayoutError> {
     // Delegate to the single internal implementation
-    shape_text_internal(parsed_font, text, script, language, direction, style, out)
+    shape_text_internal(parsed_font, text, script, language, direction, style)
 }

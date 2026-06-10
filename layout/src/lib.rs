@@ -42,6 +42,29 @@
 extern crate alloc;
 extern crate core;
 
+/// Web-lift diagnostic marker: a volatile store of `val` to the absolute wasm
+/// linear-memory address `addr` (the 0x40000–0xF0000 free band the e2e harness
+/// peeks via `AzStartup_peekU32`). Compiles to NOTHING without the `web_lift`
+/// feature — absolute-address stores would segfault native builds (macOS
+/// `__PAGEZERO` covers the low 4 GiB). All in-tree diagnostic markers MUST go
+/// through this helper rather than calling `core::ptr::write_volatile` on a
+/// literal address directly.
+#[inline(always)]
+pub unsafe fn az_mark(_addr: u32, _val: u32) {
+    #[cfg(feature = "web_lift")]
+    core::ptr::write_volatile(_addr as usize as *mut u32, _val);
+}
+
+/// Read counterpart of [`az_mark`] (marker counters like `0x60758`).
+/// Returns 0 without the `web_lift` feature.
+#[inline(always)]
+pub unsafe fn az_mark_read(_addr: u32) -> u32 {
+    #[cfg(feature = "web_lift")]
+    return core::ptr::read_volatile(_addr as usize as *const u32);
+    #[cfg(not(feature = "web_lift"))]
+    0
+}
+
 /// Font traits available regardless of text layout feature.
 pub mod font_traits;
 /// Optional probe instrumentation. With the `probe` feature off this
