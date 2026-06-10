@@ -2801,6 +2801,57 @@ pub fn compute_display_list_damage(
     Some(damage)
 }
 
+/// Are two display lists visually identical? (same length, same item
+/// discriminants, every item `is_visually_equal`). Cheaper proxy than a
+/// structural hash, reusing the same per-item comparison the damage diff uses.
+pub fn display_lists_visually_equal(a: &DisplayList, b: &DisplayList) -> bool {
+    if a.items.len() != b.items.len() {
+        return false;
+    }
+    a.items.iter().zip(b.items.iter()).all(|(x, y)| {
+        std::mem::discriminant(x) == std::mem::discriminant(y) && x.is_visually_equal(y)
+    })
+}
+
+/// Damage rects for `VirtualView` child DOMs whose content changed since the
+/// previous frame.
+///
+/// The parent display list only carries a `VirtualView { child_dom_id, bounds }`
+/// item that stays byte-identical when the *child* DOM re-renders (e.g. a
+/// MapWidget tile arriving on a worker thread and re-invoking the VirtualView
+/// in place). So `compute_display_list_damage` — which only diffs the parent —
+/// reports "nothing changed", and `render_frame` would skip the frame, freezing
+/// the child content. This compares each VirtualView's child DL against the
+/// previous frame's and returns the on-screen bounds of every one that differs,
+/// so the caller can damage exactly those regions.
+///
+/// `current` / `previous` are keyed by the child `DomId` (the non-root entries
+/// of `layout_results`). A child that is newly present or newly absent counts
+/// as changed.
+pub fn compute_virtual_view_damage(
+    parent: &DisplayList,
+    current: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    previous: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+) -> Vec<LogicalRect> {
+    let mut damage = Vec::new();
+    for item in parent.items.iter() {
+        if let DisplayListItem::VirtualView { child_dom_id, bounds, .. } = item {
+            let changed = match (current.get(child_dom_id), previous.get(child_dom_id)) {
+                (Some(c), Some(p)) => {
+                    // Same Arc → definitely unchanged (cheap fast-path).
+                    !std::sync::Arc::ptr_eq(c, p) && !display_lists_visually_equal(c, p)
+                }
+                (Some(_), None) | (None, Some(_)) => true,
+                (None, None) => false,
+            };
+            if changed {
+                damage.push(*bounds.inner());
+            }
+        }
+    }
+    damage
+}
+
 /// Merge overlapping or adjacent damage rects to reduce overdraw.
 fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
     if rects.len() <= 1 {

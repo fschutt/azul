@@ -3199,6 +3199,30 @@ impl WaylandWindow {
                 {
                     use azul_core::dom::DomId;
 
+                    // Re-invoke any VirtualViews queued for in-place re-render
+                    // (e.g. MapWidget tiles delivered by a background writeback
+                    // that called trigger_all_virtual_view_rerender). The GPU
+                    // path drains this inside generate_frame; the CPU path has
+                    // no generate_frame, so without this the queue is never
+                    // drained and async-loaded VirtualView content never
+                    // appears (same fix as the X11 CPU branch). Must run
+                    // BEFORE render_frame reads layout_results.
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        if !lw.pending_virtual_view_updates.is_empty() {
+                            let system_callbacks =
+                                azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+                            let current_window_state = lw.current_window_state.clone();
+                            let renderer_resources =
+                                std::mem::take(&mut lw.renderer_resources);
+                            lw.process_pending_virtual_view_updates(
+                                &current_window_state,
+                                &renderer_resources,
+                                &system_callbacks,
+                            );
+                            lw.renderer_resources = renderer_resources;
+                        }
+                    }
+
                     let rendered = if let Some(ref layout_window) = self.common.layout_window {
                         let dom_id = DomId { inner: 0 };
                         // render_frame looks up the layout result itself; we only

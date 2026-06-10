@@ -179,6 +179,19 @@ pub struct CpuBackend {
     /// on scroll, so the diff alone only catches the scrollbar).
     #[cfg(feature = "cpurender")]
     pub previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap,
+    /// Previous frame's `VirtualView` child-DOM display lists (keyed by child
+    /// `DomId`). The parent display list's `VirtualView` item is unchanged when
+    /// only the child re-renders (async tile writeback, etc.), so the parent-DL
+    /// diff can't see it. Comparing child DLs frame-to-frame lets `render_frame`
+    /// damage the VirtualView region when its content changed — otherwise the
+    /// "nothing changed → skip" path freezes async VirtualView content. Without
+    /// this, the MapWidget showed only the placeholder grid on backends (Wayland)
+    /// that don't get spurious WM expose events to force a full repaint.
+    #[cfg(feature = "cpurender")]
+    pub previous_vview_dls: std::collections::BTreeMap<
+        azul_core::dom::DomId,
+        std::sync::Arc<azul_layout::solver3::display_list::DisplayList>,
+    >,
 }
 
 impl Default for CpuBackend {
@@ -203,6 +216,8 @@ impl CpuBackend {
             last_present_damage: FrameDamage::None,
             #[cfg(feature = "cpurender")]
             previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap::new(),
+            #[cfg(feature = "cpurender")]
+            previous_vview_dls: std::collections::BTreeMap::new(),
         }
     }
 
@@ -282,6 +297,29 @@ impl CpuBackend {
             _ => None, // first frame or resize → full repaint
         };
 
+        // VirtualView child-DOM damage. A child DOM (e.g. the MapWidget tile
+        // grid) re-renders IN PLACE when async content arrives (a tile writeback
+        // re-invokes the VirtualView), but the PARENT display list's VirtualView
+        // item is byte-identical — so `compute_display_list_damage` above sees no
+        // change and `render_frame` would take the "nothing changed → skip" path,
+        // freezing the child content. Build the child DLs now and diff them
+        // against last frame's; any that changed get their on-screen bounds
+        // damaged below. This is why the map showed only the placeholder grid on
+        // Wayland — which, unlike X11, gets no spurious WM expose/configure events
+        // to force a full repaint and mask the bug.
+        let vview_dls: std::collections::BTreeMap<DomId, std::sync::Arc<azul_layout::solver3::display_list::DisplayList>> =
+            layout_window
+                .layout_results
+                .iter()
+                .filter(|(id, _)| id.inner != dom_id.inner)
+                .map(|(id, r)| (*id, std::sync::Arc::new(r.display_list.clone())))
+                .collect();
+        let vview_damage = cpurender::compute_virtual_view_damage(
+            display_list, &vview_dls, &self.previous_vview_dls,
+        );
+        let has_vview_damage = !vview_damage.is_empty();
+        self.previous_vview_dls = vview_dls.clone();
+
         // #13/#14: scroll. The display list is UNCHANGED on scroll — content
         // items live at content coords and the scroll is applied at render time
         // via render_state.scroll_offsets — so the diff above only ever catches
@@ -336,9 +374,14 @@ impl CpuBackend {
 
         match dl_damage {
             Some(rects)
-                if rects.is_empty() && resize_damage.is_empty() && !has_scroll =>
+                if rects.is_empty()
+                    && resize_damage.is_empty()
+                    && !has_scroll
+                    && !has_vview_damage =>
             {
-                // Nothing changed — skip rendering entirely
+                // Nothing changed — skip rendering entirely. (`!has_vview_damage`
+                // keeps us out of this branch when only a VirtualView child DOM
+                // changed — that case must still re-composite, see below.)
                 self.previous_display_list = Some(display_list.clone());
                 self.last_frame_damage = FrameDamage::None;
                 self.last_present_damage = FrameDamage::None;
@@ -356,6 +399,13 @@ impl CpuBackend {
                 all_damage = resize_damage;
                 is_incremental = false;
             }
+        }
+
+        // A VirtualView child DOM changed (async content) — damage its on-screen
+        // region so the incremental path re-composites it. The full-repaint path
+        // redraws everything anyway, so this only matters when incremental.
+        if is_incremental && has_vview_damage {
+            all_damage.extend(vview_damage);
         }
 
         // Acquire output pixmap — reuse buffer for both grow and shrink
@@ -405,18 +455,10 @@ impl CpuBackend {
         // this render_frame is reusable by them. The headless harness has an empty
         // GPU cache, so this is equivalent to `new(scroll_offsets)` there.
         let gpu_cache = layout_window.gpu_state_manager.get_cache(dom_id);
-        // Hand the nested VirtualView child DOMs (every non-root DomId in
-        // layout_results) to the renderer so the CPU `VirtualView` arm can
-        // composite them — they're separate LayoutResults the normal layout loop
-        // produced (e.g. the MapWidget's tile grid). Without this the CPU backend
-        // only drew the debug placeholder rect.
-        let vview_dls: std::collections::BTreeMap<DomId, std::sync::Arc<azul_layout::solver3::display_list::DisplayList>> =
-            layout_window
-                .layout_results
-                .iter()
-                .filter(|(id, _)| id.inner != dom_id.inner)
-                .map(|(id, r)| (*id, std::sync::Arc::new(r.display_list.clone())))
-                .collect();
+        // `vview_dls` (the nested VirtualView child DOM display lists — e.g. the
+        // MapWidget's tile grid) was built earlier for the child-DOM damage diff;
+        // it's handed to the renderer here so the CPU `VirtualView` arm can
+        // composite them. Without this the CPU backend only drew a placeholder.
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
             let summary: std::vec::Vec<(usize, usize)> =
                 vview_dls.iter().map(|(id, dl)| (id.inner, dl.items.len())).collect();
