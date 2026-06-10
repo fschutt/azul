@@ -786,6 +786,11 @@ impl X11Window {
         if actions.is_empty() {
             return;
         }
+        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            eprintln!("[a11y] {} action(s) polled: {:?}",
+                actions.len(),
+                actions.iter().map(|(d, n, a)| (d.inner, n.index(), format!("{:?}", a))).collect::<Vec<_>>());
+        }
 
         let now = std::time::Instant::now();
         for (dom_id, node_id, action) in actions {
@@ -793,6 +798,18 @@ impl X11Window {
                 let affected = lw.process_accessibility_action(dom_id, node_id, action, now);
                 if !affected.is_empty() {
                     self.common.display_list_dirty = true;
+                    // Invoke the callbacks the action mapped to (synthetic
+                    // MouseUp for the Default/click action, etc.) — previously
+                    // this map was dropped and screen-reader activation did
+                    // nothing.
+                    use crate::desktop::shell2::common::event::PlatformWindow as _;
+                    let update = self.dispatch_accessibility_events(&affected);
+                    if !matches!(update, azul_core::callbacks::Update::DoNothing) {
+                        // The callback asked for a refresh (e.g. RefreshDom
+                        // from a zoom button) — regenerate on the next frame,
+                        // exactly like pointer-event dispatch does.
+                        self.common.frame_needs_regeneration = true;
+                    }
                 }
             }
         }
@@ -1830,6 +1847,13 @@ impl X11Window {
         use super::super::common::event::PlatformWindow;
         use std::mem;
 
+        // Drain accessibility actions on EVERY loop wake-up, not just in the
+        // render path — frames are skipped when nothing changed, so an action
+        // arriving on an idle window would otherwise sit in pending_actions
+        // until an unrelated repaint.
+        #[cfg(feature = "a11y")]
+        self.process_accessibility_actions();
+
         let connection_fd = unsafe { (self.xlib.XConnectionNumber)(self.display) };
 
         unsafe {
@@ -2474,6 +2498,15 @@ impl X11Window {
         } else {
             false
         };
+
+        // Drain accessibility actions queued by the AT-SPI adapter (a screen
+        // reader's 'click' on a button, etc.). The accesskit thread only parks
+        // them in pending_actions; process_accessibility_actions() existed on
+        // every backend but NOTHING ever called it — do_action() returned True
+        // at the D-Bus level and the action was never dispatched. Must run
+        // before the render-mode borrow below (it takes &mut self).
+        #[cfg(feature = "a11y")]
+        self.process_accessibility_actions();
 
         // CPU rendering path: skip WebRender steps, render directly via cpurender
         if let RenderMode::Cpu(gc) = &self.render_mode {

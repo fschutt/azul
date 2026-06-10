@@ -686,6 +686,18 @@ impl WaylandWindow {
                 let affected = lw.process_accessibility_action(dom_id, node_id, action, now);
                 if !affected.is_empty() {
                     self.common.display_list_dirty = true;
+                    // Invoke the callbacks the action mapped to (synthetic
+                    // MouseUp for the Default/click action, etc.) — previously
+                    // this map was dropped and screen-reader activation did
+                    // nothing.
+                    use crate::desktop::shell2::common::event::PlatformWindow as _;
+                    let update = self.dispatch_accessibility_events(&affected);
+                    if !matches!(update, azul_core::callbacks::Update::DoNothing) {
+                        // The callback asked for a refresh (e.g. RefreshDom
+                        // from a zoom button) — regenerate on the next frame,
+                        // exactly like pointer-event dispatch does.
+                        self.common.frame_needs_regeneration = true;
+                    }
                 }
             }
         }
@@ -2474,6 +2486,14 @@ impl WaylandWindow {
                 self.accessibility_adapter.update_tree(tree_update);
             }
         }
+
+        // Drain accessibility actions queued by the AT-SPI adapter (a screen
+        // reader's 'click' etc.). The accesskit thread only parks them in
+        // pending_actions; process_accessibility_actions() existed on every
+        // backend but NOTHING ever called it — do_action() returned True at the
+        // D-Bus level and the action was never dispatched.
+        #[cfg(feature = "a11y")]
+        self.process_accessibility_actions();
 
         // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
         // layout's reconciliation and dispatch them through the normal callback

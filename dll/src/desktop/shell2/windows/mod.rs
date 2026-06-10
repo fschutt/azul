@@ -3817,6 +3817,18 @@ impl Win32Window {
                 let affected = lw.process_accessibility_action(dom_id, node_id, action, now);
                 if !affected.is_empty() {
                     self.common.display_list_dirty = true;
+                    // Invoke the callbacks the action mapped to (synthetic
+                    // MouseUp for the Default/click action, etc.) — previously
+                    // this map was dropped and screen-reader activation did
+                    // nothing.
+                    use crate::desktop::shell2::common::event::PlatformWindow as _;
+                    let update = self.dispatch_accessibility_events(&affected);
+                    if !matches!(update, azul_core::callbacks::Update::DoNothing) {
+                        // The callback asked for a refresh (e.g. RefreshDom
+                        // from a zoom button) — regenerate on the next frame,
+                        // exactly like pointer-event dispatch does.
+                        self.common.frame_needs_regeneration = true;
+                    }
                 }
             }
         }

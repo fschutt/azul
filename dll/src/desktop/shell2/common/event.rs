@@ -3483,6 +3483,72 @@ pub trait PlatformWindow {
         layout_window.process_accessibility_action(dom_id, node_id, action, now)
     }
 
+    /// Dispatch the synthetic events an accessibility action produced
+    /// (`process_accessibility_action`'s affected-nodes map) through the
+    /// normal propagated-callback machinery. Every backend used to drop this
+    /// map on the floor — a screen reader's activation (AT-SPI `do_action`,
+    /// UIA Invoke, NSAccessibility press) was accepted on the bus, decoded to
+    /// the correct node, and then never invoked any callback.
+    #[cfg(feature = "a11y")]
+    fn dispatch_accessibility_events(
+        &mut self,
+        affected: &BTreeMap<azul_core::dom::DomNodeId, (Vec<EventFilter>, bool)>,
+    ) -> azul_core::callbacks::Update {
+        use azul_core::events::{
+            EventData, EventSource, EventType, FocusEventFilter, HoverEventFilter,
+            KeyModifiers, MouseButton, MouseEventData, SyntheticEvent,
+        };
+
+        let timestamp = azul_core::task::Instant::System(std::time::Instant::now().into());
+        let mut events = Vec::new();
+        for (node, (filters, _needs_relayout)) in affected {
+            // Synthetic pointer events carry the node's centre as the cursor
+            // position so callbacks that read it (get_cursor_relative_to_node)
+            // see a sane in-bounds point.
+            let centre = self
+                .get_layout_window()
+                .and_then(|lw| lw.get_node_layout_rect(*node))
+                .map(|r| azul_core::geom::LogicalPosition {
+                    x: r.origin.x + r.size.width / 2.0,
+                    y: r.origin.y + r.size.height / 2.0,
+                })
+                .unwrap_or(azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 });
+            let mouse_data = || {
+                EventData::Mouse(MouseEventData {
+                    position: centre,
+                    button: MouseButton::Left,
+                    buttons: 0,
+                    modifiers: KeyModifiers::default(),
+                })
+            };
+            for f in filters {
+                let (event_type, data) = match f {
+                    EventFilter::Hover(HoverEventFilter::MouseUp)
+                    | EventFilter::Focus(FocusEventFilter::MouseUp) => {
+                        (EventType::MouseUp, mouse_data())
+                    }
+                    EventFilter::Hover(HoverEventFilter::MouseDown)
+                    | EventFilter::Focus(FocusEventFilter::MouseDown) => {
+                        (EventType::MouseDown, mouse_data())
+                    }
+                    _ => continue,
+                };
+                events.push(SyntheticEvent::new(
+                    event_type,
+                    EventSource::Synthetic,
+                    *node,
+                    timestamp.clone(),
+                    data,
+                ));
+            }
+        }
+        if events.is_empty() {
+            return azul_core::callbacks::Update::DoNothing;
+        }
+        let (_, update, _) = self.dispatch_events_propagated(&events);
+        update
+    }
+
     /// Drain `LayoutWindow.pending_lifecycle_events` and dispatch each event.
     ///
     /// Reconciliation (see `common::layout::regenerate_layout`) queues
