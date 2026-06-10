@@ -357,10 +357,11 @@ async function azBootstrap() {
             }
             azTable.set(nodeIdx, cbFn);
             azFnAddrToTableIdx.set(nodeIdx, nodeIdx);
-            // M9-4: remember the cb-bearing node; AzStartup_registerCbNode
-            // is called AFTER init (azState doesn't exist yet — see the
-            // bootstrap-order fix below).
-            azCbNodeIdxs.push(nodeIdx);
+            // M9-4: remember the cb-bearing node + its registered event kind
+            // (data-az-ev mirrors the callback's EventFilter); the wasm-side
+            // registration happens AFTER init (azState doesn't exist yet —
+            // see the bootstrap-order fix below).
+            azCbNodeIdxs.push({ idx: nodeIdx, kind: azEvNameToKind(el.getAttribute('data-az-ev') || 'click') });
             console.debug('[azul-web] cb node=' + nodeIdx + ' loaded from ' + url +
                           ' → table[' + nodeIdx + ']');
         } catch (e) {
@@ -413,8 +414,10 @@ async function azBootstrap() {
     console.debug('[azul-web] AzStartup_init → state ptr', azState);
     azHydrate();
     for (var ri = 0; ri < azCbNodeIdxs.length; ri++) {
-        if (typeof azMini.AzStartup_registerCbNode === 'function') {
-            azMini.AzStartup_registerCbNode(azState, azCbNodeIdxs[ri]);
+        if (typeof azMini.AzStartup_registerCbNodeKind === 'function') {
+            azMini.AzStartup_registerCbNodeKind(azState, azCbNodeIdxs[ri].idx, azCbNodeIdxs[ri].kind);
+        } else if (typeof azMini.AzStartup_registerCbNode === 'function') {
+            azMini.AzStartup_registerCbNode(azState, azCbNodeIdxs[ri].idx);
         }
     }
     if (azLayoutCb) {
@@ -593,16 +596,25 @@ function azModifierBits(e) {
     return bits;
 }
 
-function azDispatch(kind, domEvent) {
-    // (2026-06-10) AzStartup_dispatchEvent does not yet filter by the callback's
-    // registered EventFilter (it invokes the hit node's cb for ANY kind), so a single
-    // physical click would fire the cb three times (mousedown + mouseup + click).
-    // Until per-filter dispatch lands wasm-side, only the gesture-complete events
-    // invoke callbacks; the rest return early.
-    if (kind === EVT_MOUSEDOWN || kind === EVT_MOUSEUP || kind === EVT_DBLCLICK ||
-        kind === EVT_MOUSEMOVE || kind === EVT_FOCUSIN || kind === EVT_FOCUSOUT) {
-        return;
+// (2026-06-10) data-az-ev attribute value → EVT_* kind int, for
+// AzStartup_registerCbNodeKind. Unknown names register as EVT_CLICK.
+function azEvNameToKind(name) {
+    switch (name) {
+        case 'click':     return EVT_CLICK;
+        case 'mousedown': return EVT_MOUSEDOWN;
+        case 'mouseup':   return EVT_MOUSEUP;
+        case 'dblclick':  return EVT_DBLCLICK;
+        case 'wheel':     return EVT_WHEEL;
+        case 'keydown':   return EVT_KEYDOWN;
+        case 'keyup':     return EVT_KEYUP;
+        case 'focus':     return EVT_FOCUSIN;
+        case 'blur':      return EVT_FOCUSOUT;
+        case 'scroll':    return EVT_SCROLL;
+        default:          return EVT_CLICK;
     }
+}
+
+function azDispatch(kind, domEvent) {
     var evtPtr = azMini.AzStartup_alloc(EVENT_BUFFER_SIZE);
     var outLenPtr = azMini.AzStartup_alloc(OUT_LEN_SIZE);
     if (!evtPtr || !outLenPtr) {

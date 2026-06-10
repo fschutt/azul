@@ -210,6 +210,12 @@ pub struct EventloopState {
     /// `3` (the `data-az-cb="3"` value). Real bbox-based hit-test
     /// arrives with M9-3b's LayoutWindow embed.
     pub last_registered_cb_node_idx: u32,
+    /// 2026-06-10 (per-EventFilter dispatch): event KIND each cb node is
+    /// registered for, indexed by node_idx (the loader derives the kind from
+    /// the emitted `data-az-ev` attribute via AzStartup_registerCbNodeKind).
+    /// 0xFF = no registration → dispatchEvent keeps the legacy
+    /// invoke-on-any-kind behavior for that node.
+    pub cb_node_kinds: [u8; 64],
 
     // M9-6 fields ─────────────────────────────────────────────────
 
@@ -450,6 +456,7 @@ pub unsafe extern "C" fn AzStartup_init(_json_ptr: u32, _json_len: u32) -> u32 {
         current_dom_ptr: 0,
         last_layout_status: 0,
         last_registered_cb_node_idx: u32::MAX,
+        cb_node_kinds: [0xFF; 64],
         model_ptr: 0,
         display_text_node_idx: u32::MAX,
         patch_buf_ptr: 0,
@@ -816,6 +823,25 @@ pub unsafe extern "C" fn AzStartup_registerCbNode(state: u32, node_idx: u32) {
     let s = &mut *(state as usize as *mut EventloopState);
     s.last_registered_cb_node_idx = node_idx;
     s.cb_fn_cache.insert(node_idx, node_idx as u64);
+}
+
+/// 2026-06-10 (per-EventFilter dispatch): like [`AzStartup_registerCbNode`]
+/// but also records the EVENT KIND (the loader's EVT_* int, derived from the
+/// `data-az-ev` attribute that mirrors the callback's registered EventFilter).
+/// [`AzStartup_dispatchEvent`] only invokes the hit node's callback when the
+/// incoming kind matches — a single physical click no longer triple-fires
+/// through mousedown + mouseup + click.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_registerCbNodeKind(state: u32, node_idx: u32, kind: u32) {
+    if state == 0 {
+        return;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    s.last_registered_cb_node_idx = node_idx;
+    s.cb_fn_cache.insert(node_idx, node_idx as u64);
+    if (node_idx as usize) < s.cb_node_kinds.len() {
+        s.cb_node_kinds[node_idx as usize] = kind as u8;
+    }
 }
 
 /// Record the wasm offset of the user-data model that the hydrated
@@ -2054,6 +2080,17 @@ pub unsafe extern "C" fn AzStartup_dispatchEvent(
     if node_idx == u32::MAX {
         core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
         return 0;
+    }
+
+    // 2026-06-10 (per-EventFilter dispatch): when the hit node registered a
+    // specific event kind, only that kind invokes its callback. Unregistered
+    // nodes (0xFF) keep the legacy invoke-on-any-kind behavior.
+    if (node_idx as usize) < s.cb_node_kinds.len() {
+        let reg = s.cb_node_kinds[node_idx as usize];
+        if reg != 0xFF && reg as u32 != _kind {
+            core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
+            return 0;
+        }
     }
 
     // Resolve cb fn-addr → table_idx. M9-3b will replace

@@ -63,6 +63,8 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_pokeLastLayout",
     // M9-4: WASM-side hit-test (stub, returns last registered cb node).
     "AzStartup_registerCbNode",
+    // 2026-06-10: per-EventFilter dispatch — registerCbNode + the event kind.
+    "AzStartup_registerCbNodeKind",
     "AzStartup_hitTest",
     // M9-5: TLV patch emission.
     "AzStartup_buildCounterPatch",

@@ -257,6 +257,17 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             ],
             ret: None,
         }),
+        // 2026-06-10 per-EventFilter dispatch: registerCbNode + the EVT_* kind.
+        "AzStartup_registerCbNodeKind" => Some(CallbackSignature {
+            kind: "AzStartup_registerCbNodeKind".to_string(),
+            // (state: u32, node_idx: u32, kind: u32) -> ()
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+                Pcs::Wreg { state_byte_offset: X2 },
+            ],
+            ret: None,
+        }),
         "AzStartup_hitTest" => Some(CallbackSignature {
             kind: "AzStartup_hitTest".to_string(),
             // (state: u32, x_bits: u32, y_bits: u32) -> node_idx: u32
