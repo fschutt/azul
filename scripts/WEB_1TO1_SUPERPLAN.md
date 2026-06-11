@@ -78,7 +78,34 @@ ptr@0x40060 bump@0x40020.
   (the 16-byte LOAD) → then opt-bisect THAT fn's IR the same way (dup-store OR a dropped 2nd load).
 - Artifacts: scripts/classB_artifacts/{build_compact,create_logical,reorder}.{opt,linked}.ll
   (gitignored). Re-capture per-fn via the KEEP_SCRATCH recipe (FINAL STATUS above).
-## 🎯🎯 MECHANISM-B SHARPLY LOCALIZED to join_generic_copy's String sret return — ptr↔len SWAPPED (2026-06-11 ~18:40, Fable, cron wake)
+## ⛔ MECHANISM-B = join_generic_copy faithful-lift value-flow swap — relift/probe method EXHAUSTED, needs executable reproducer (2026-06-11 ~19:10, Fable, cron wake)
+**PROVEN culprit (commit bec0d1b45): `<[&str]>::join` (alloc::str::join_generic_copy).** Chain-split
+of `collapsed = chars().map().collect::<String>().split(' ').filter().collect::<Vec<&str>>().join(" ")`
+in split_text (fc.rs ~8716) with per-stage probes (0x60C64..74):
+- s1 collect::<String> = {ptr=0xa294828, len=1} ✓
+- v collect::<Vec<&str>> = len 1; v[0] = {ptr=0xa294828, len=1} ✓
+- collapsed = join(" ") = {ptr=1, len=0xa294828} ✗ (== s1's {len,ptr} SWAPPED)
+All inputs correct ⇒ join's body is the bug. join at O0 (opt+llc) still corrupt ⇒ FAITHFUL lift.
+**ALL instruction-level swaps RULED OUT** — isolated-lifted and verified CORRECT operand order:
+GPR `ldp x1,x26,[x25]`, GPR `stp xzr,x9,[x8]`, NEON `ldp q2,q3` + `ldp q4,q5,[x9],#0x40` (post-index),
+NEON `stp q2,q3` + `stp q4,q5,[x10],#0x40`. So the ptr↔len swap is NOT a load/store pair operand
+swap — it's a subtle VALUE-FLOW mis-lift inside join's body (a MOV/arith/phi or the length-accum
+loop reading element {ptr,len} transposed) that only manifests AT RUNTIME, in std code that can't
+be instrumented with az_mark (it's alloc::str, not azul source).
+**⇒ The relift+probe+isolated-instruction-lift method is EXHAUSTED for this bug.** 11 hypotheses
+ruled out across 3 wakes. NEXT METHOD (different kind of effort — for a dedicated session):
+1. **Executable reproducer**: lift join_generic_copy standalone (have /tmp/join.ll), link with
+   remill's runtime (third_party/remill-install), init a mock State (X8=sret dest, X0:X1 = a
+   &[&str] of one elem → "5"), set up mock memory, EXECUTE, read the output String {ptr,len}. This
+   gives fast iteration to pinpoint the mis-lifted op + test a remill-fork fix — no 6-min relift.
+2. OR diff join's lifted IR semantics against the ARM64 reference for the length-accum loop
+   (bb1730/1780/1804/1848 region in the dylib disasm: `ldp x1,x2,[x28]; sub; subs x26; add x22`).
+3. The fix will be in the remill fork (a semantics/decoder correction) — NOT a store-order patch.
+**ua_css (S7) is BLOCKED behind mech-B for WEB verification** (all web layout traps here), but can
+be aligned source-side + desktop-verified independently if a wake wants visible progress.
+Probes live: chain stages 0x60C64/68/6C/70/74, collapsed 0x60C5C/60, push-site 0x60C50/54/58.
+
+## 🎯🎯 (superseded) MECHANISM-B SHARPLY LOCALIZED to join_generic_copy (2026-06-11 ~18:40, Fable, cron wake)
 **The String built by `<...>.collect::<Vec<_>>().join(" ")` (var `collapsed` in split_text, fc.rs
 ~8723) comes back with its ptr and len fields SWAPPED.** Probe (plain full-opt relift):
 `collapsed.as_ptr()==1` (== the real length of "5"!) and `collapsed.len()==0xa294828` (== a heap
