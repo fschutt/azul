@@ -87,12 +87,21 @@ ptr↔len swap. `final_text` (= String::new()+push_str(&collapsed)) inherits it 
 create_logical 170MB slice → OOB. The culprit is `_ZN5alloc3str17join_generic_copy17h...` (a
 split_text callee, returns String via sret) — its lift writes the sret String's {ptr,cap,len}
 words in the WRONG ORDER (or a single-element join fast-path mis-lifts).
-**CRITICAL: join_generic_copy was NEVER in my AZ_LOWOPT O0 tests** — so the earlier "faithful-lift"
-conclusion was premature for THIS function. Test IN FLIGHT: `AZ_LOWOPT_FNS=join_generic_copy,
-split_text_for_whitespace` (server_joinlow.log) — peek 0x60C5C (collapsed.len): ==1 ⇒ join's
-opt/llc bug (then opt-bisect join via AZ_BISECT_FN=join_generic_copy); still ==0xa294828 ⇒ join's
-FAITHFUL lift (examine its sret String-write word order; standalone-lift join_generic_copy from
-the dylib and check the 3 sret stores' offsets/values).
+**RESULT: `AZ_LOWOPT_FNS=join_generic_copy,split_text` STILL corrupt** (collapsed.len==0xa294828,
+ptr==1). ⇒ join's FAITHFUL lift swaps the sret String's ptr↔len (9 hypotheses now incl. join
+opt/llc). Standalone-lifted join_generic_copy (h9c9d2f7abfe94f50 @0xbb15ec → /tmp/join.ll, 0
+__remill_error). ⚠ But standalone may NOT reproduce a context-dependent swap (the NEON copy also
+lifted correctly standalone yet wasn't reproducible-in-isolation). The swap could be in: (i) join's
+sret String stores (word order), (ii) split_text's READ of `collapsed` (both O0, so faithful), or
+(iii) the sret-dest (x8) setup at the call site.
+**NEXT (precise):** (1) Probe `collapsed`'s RAW words (word0/1/2 via `&collapsed as *const String
+as *const u64`) to confirm the in-memory layout is literally {1, ?, 0xa294828} (vs an accessor-read
+swap). (2) Capture join_generic_copy's BUNDLE via AZ_REMILL_KEEP_SCRATCH=1 (find __az_dep_<join_addr>
+.linked.ll) and examine its sret String stores IN CONTEXT — look for the 3 writes (ptr@+0, cap@+8,
+len@+16) to the sret/X8 pointer and whether their values/offsets are swapped. (3) If join is clean
+in its bundle, the swap is at the call site (sret dest setup) in split_text — examine that.
+A single-element join (`["5"].join(" ")`) may hit a fast-path (return the element / extend) that
+mis-lifts. Fix lift-side (remill sret semantics or the specific store).
 **NEW probes (committed next): collapsed.len/ptr @0x60C5C/60, push-site id/len/ptr @0x60C50/54/58.**
 Fix will be lift-side (dll/src/web or remill fork). If join's sret stores are reordered by the
 lift, that's a remill semantics issue (like the historic sret class); if opt, opt-bisect it.
