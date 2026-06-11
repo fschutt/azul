@@ -4599,15 +4599,22 @@ impl RemillTranspiler {
 target datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"
 target triple = "wasm32-unknown-unknown"
 
-@__az_bump_ptr = external global i32, align 4
+; The bump pointer lives at a FIXED shared linear address (0x40020 = 262176),
+; NOT a per-module global — every wasm module (mini + each per-cb + layout)
+; shares ONE bump heap. (A per-module `@__az_bump_ptr` global gave each module
+; its own pointer; a per-cb copy was uninitialized/clobbered, so a cb that
+; ALLOCATES — e.g. set_css_property's `vec![property]` — got 0 back and trapped
+; in handle_alloc_error. hello-world's cb never allocated, hiding it.) 0x40020
+; is in the diagnostic scratch band (alongside the bump diag at 0x40030, proven
+; to survive the full run), below the data mirror (0x110000+).
 
 define i32 @AzStartup_snapshotBumpHeap() {
-  %v = load i32, ptr @__az_bump_ptr, align 4
+  %v = load i32, ptr inttoptr (i64 262176 to ptr), align 4
   ret i32 %v
 }
 
 define void @AzStartup_resetBumpHeap(i32 %snapshot) {
-  store i32 %snapshot, ptr @__az_bump_ptr, align 4
+  store i32 %snapshot, ptr inttoptr (i64 262176 to ptr), align 4
   ret void
 }
 "#;
@@ -4920,7 +4927,7 @@ fn remill_export_symbol(entry_addr: u64) -> String {
 /// input bytes (the byte rewrites in `lift_fn`, the synth-address scheme). The
 /// remill ENGINE rev is captured automatically by [`engine_fingerprint`], so
 /// you only bump this for changes inside this crate's lift logic.
-const LIFT_CACHE_VERSION: u32 = 2;
+const LIFT_CACHE_VERSION: u32 = 3;
 
 /// Fingerprint of the lifting ENGINE — the `remill-lift-17` binary — folded
 /// into the cache key so an engine change auto-invalidates every entry without
@@ -6268,11 +6275,11 @@ fn emit_helper_ir(
                        store volatile i64 %dbgcp_{n}, ptr inttoptr (i64 262200 to ptr), align 8\n  \
                        %size_a_{n} = add i64 %size_{n}, 7\n  \
                        %size_aligned_{n} = and i64 %size_a_{n}, -8\n  \
-                       %old_{n} = load i32, ptr @__az_bump_ptr, align 4\n  \
+                       %old_{n} = load i32, ptr inttoptr (i64 262176 to ptr), align 4\n  \
                        %old_i64_{n} = zext i32 %old_{n} to i64\n  \
                        %new_i64_{n} = add i64 %old_i64_{n}, %size_aligned_{n}\n  \
                        %new_{n} = trunc i64 %new_i64_{n} to i32\n  \
-                       store i32 %new_{n}, ptr @__az_bump_ptr, align 4\n  \
+                       store i32 %new_{n}, ptr inttoptr (i64 262176 to ptr), align 4\n  \
                        store i64 %old_i64_{n}, ptr %x0_p_{n}, align 8\n  \
                        store volatile i64 %old_i64_{n}, ptr inttoptr (i64 262208 to ptr), align 8\n  \
                        %dest_p_{n} = inttoptr i32 %old_{n} to ptr\n  \
@@ -6333,11 +6340,11 @@ fn emit_helper_ir(
                        store volatile i64 %dbgcrp_{n}, ptr inttoptr (i64 262200 to ptr), align 8\n  \
                        %new_size_a_{n} = add i64 %new_size_{n}, 7\n  \
                        %new_size_aligned_{n} = and i64 %new_size_a_{n}, -8\n  \
-                       %old_bump_{n} = load i32, ptr @__az_bump_ptr, align 4\n  \
+                       %old_bump_{n} = load i32, ptr inttoptr (i64 262176 to ptr), align 4\n  \
                        %old_bump_i64_{n} = zext i32 %old_bump_{n} to i64\n  \
                        %new_bump_i64_{n} = add i64 %old_bump_i64_{n}, %new_size_aligned_{n}\n  \
                        %new_bump_{n} = trunc i64 %new_bump_i64_{n} to i32\n  \
-                       store i32 %new_bump_{n}, ptr @__az_bump_ptr, align 4\n  \
+                       store i32 %new_bump_{n}, ptr inttoptr (i64 262176 to ptr), align 4\n  \
                        %new_ptr_p_{n} = inttoptr i32 %old_bump_{n} to ptr\n  \
                        %cmp_{n} = icmp ult i64 %old_size_{n}, %new_size_{n}\n  \
                        %copy_size_{n} = select i1 %cmp_{n}, i64 %old_size_{n}, i64 %new_size_{n}\n  \
@@ -6817,8 +6824,10 @@ fn emit_helper_ir(
     // `link_objects_to_wasm`). The heap [96..128 MiB] absorbs
     // ~32 MiB of bump-allocated short-lived data per request;
     // memory.grow extends it at runtime if needed.
-    let bump_global = "@__az_bump_ptr = linkonce_odr global i32 100663296, align 4\n\
-        @__az_call_observer = linkonce_odr global i32 0, align 4\n\
+    // @__az_bump_ptr is GONE — the bump pointer is now a fixed shared linear
+    // address (0x40020) referenced by inttoptr in the BumpAlloc/Realloc bodies,
+    // so every module shares one bump heap (see emit_bump_helpers_object).
+    let bump_global = "@__az_call_observer = linkonce_odr global i32 0, align 4\n\
         declare i32 @__az_resolve_callback(i64) #1\n";
     let _ = export_as; // used inside the format string via the named arg below
     format!(
