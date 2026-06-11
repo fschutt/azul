@@ -411,13 +411,16 @@ fn create_icon_dom(icon: &OptionMenuItemIcon) -> Dom {
                     ]));
                 }
             }
-            MenuItemIcon::Image(_image_ref) => {
-                // TODO: Render image icon
-                // This requires image rendering support in Azul
-                icon_dom = icon_dom.with_ids_and_classes(IdOrClassVec::from_vec(vec![
-                    IdOrClass::Class("menu-item-icon".into()),
-                    IdOrClass::Class("menu-item-image-icon".into()),
-                ]));
+            MenuItemIcon::Image(image_ref) => {
+                // Render the custom image (typically 16x16) as a real image node.
+                // (The old TODO predates azul's image rendering — Dom::create_image
+                // now exists, so the icon's ImageRef no longer has to be dropped.)
+                icon_dom = Dom::create_image(image_ref.clone()).with_ids_and_classes(
+                    IdOrClassVec::from_vec(vec![
+                        IdOrClass::Class("menu-item-icon".into()),
+                        IdOrClass::Class("menu-item-image-icon".into()),
+                    ]),
+                );
             }
         }
     }
@@ -660,5 +663,34 @@ impl SystemStyleMenuExt for SystemStyle {
             rule.priority = azul_css::css::rule_priority::SYSTEM;
         }
         parsed_css
+    }
+}
+
+#[cfg(test)]
+mod menu_icon_tests {
+    use super::*;
+    use azul_core::dom::NodeType;
+    use azul_core::resources::{ImageRef, RawImageFormat};
+
+    /// A menu item's Image icon must render as a real image node. Previously the
+    /// `MenuItemIcon::Image` arm dropped the `ImageRef` (a TODO) and only added a
+    /// CSS class, so custom menu icons never appeared.
+    #[test]
+    fn image_icon_renders_as_an_image_node() {
+        let img = ImageRef::null_image(16, 16, RawImageFormat::BGRA8, Vec::new());
+        let dom = create_icon_dom(&OptionMenuItemIcon::Some(MenuItemIcon::Image(img)));
+        assert!(
+            matches!(dom.root.node_type, NodeType::Image(_)),
+            "Image icon must render as an Image node, got {:?}",
+            dom.root.node_type
+        );
+    }
+
+    /// A checkbox icon is NOT an image node — guards the two icon arms from being
+    /// conflated.
+    #[test]
+    fn checkbox_icon_is_not_an_image_node() {
+        let dom = create_icon_dom(&OptionMenuItemIcon::Some(MenuItemIcon::Checkbox(true)));
+        assert!(!matches!(dom.root.node_type, NodeType::Image(_)));
     }
 }
