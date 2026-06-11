@@ -206,9 +206,9 @@ checksum = "c583acf993cf4245c4acb0a2cc2ab1f9cc097de73411bb6d3647ff6af2b1013d"
 
 [[package]]
 name = "allsorts-azul"
-version = "0.16.4"
+version = "0.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8aac33af78a640c69b7704ecf89dd5db8473823b55bebc89e029566abf855b8f"
+checksum = "57b2116c9f1e188279c88bdee232fc3d71a107d419eab79fcd35e6f8cb6954e6"
 dependencies = [
  "bitflags 2.11.1",
  "brotli-decompressor",
