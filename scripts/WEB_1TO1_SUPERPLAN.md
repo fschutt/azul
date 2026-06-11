@@ -67,10 +67,15 @@ loop, build commands) → `scripts/WEB_BACKEND_1TO1_PLAN.md` (architecture refer
   - [x] azDispatchTargeted + azNodeIdxFromTarget (az_N from DOM target) for focus/enter/leave/key.
   - Multi-cb-per-node is OUT of scope v1 (cb_fn_cache is one-cb-per-node); test app uses one
     node per event kind.
-  - [ ] VERIFY: `examples/c/web-events.c` (9 cbs, counters[16] model) via
-        `scripts/m9_e2e/web-events-cdp.js` — synthesizes real CDP input per kind, asserts
-        counters via `__azProbe.mini.AzStartup_peekU32(__azProbe.modelPtr + 4*kind)`.
-        Then hello-world relift as regression.
+  - [x] **VERIFIED + COMMITTED** (2026-06-11): web-events-min.c (~5 nodes, under the class-B
+        trap) CDP-green — click (single-target hit-test) + keydown + resize (Window broadcast)
+        all reach their wasm cbs (counters 0→1/0→1/0→2). Commits 43b2a455f (core web_lift +
+        get_data_len), 3438d602e (S1 routing + hydration), 4091af06d (obj-cache + store-log
+        windowing), bfab10060 (test apps/harnesses/docs). web-events.c (19 nodes) still traps
+        on class-B — kept as the reproducer. Post-revert regression re-confirmed green.
+  - NOTE: full 9-kind web-events.c verification (mousemove/wheel/enter/leave/contextmenu)
+    is BLOCKED by class-B (needs ≥19 nodes). Re-run scripts/m9_e2e/web-events-cdp.js once
+    class-B is fixed to close S1 100%.
 
 - **S2 — OUTPUT: callback modifies CSS, wasm cascades, TLV sets inline attrs**
   - The bug: `AzStartup_dispatchEvent` passes raw event bytes as the cb's `info` ptr
@@ -333,7 +338,155 @@ the memory-map audit (mirror pages, bump base 96MiB, ring buffers 0x40000-0x5000
   instrument the LOCAL frame (window build_compact's sp-region) to see if tier2b's local slot
   is correct just before the return copy (distinguishes (a) vs (b)).
 
-## Next action
+## ✅ S1 DONE (committed 2026-06-11 ~04:12). Class-B is now the gating blocker for S2+.
+The next slices (S2 CSS-out, timers, images) all need apps richer than 5 nodes → they will
+trip class-B. So class-B must be fixed (or stopgapped) BEFORE S2 can be e2e-verified. Two paths:
+ - PROPER FIX (preferred): localize via AZ_NO_HOST_SCOPE + local-frame instrument (below),
+   then fix in transpiler/remill (alias-tagging on the q-pair sret copy, or the memory-model
+   lowering of the q-transfer high half).
+ - STOPGAP (if proper fix is multi-session): convert build_compact_cache_with_inheritance to a
+   `&mut CompactLayoutCache` out-param (web_lift-gated, documented TODO-remove) — the sanctioned
+   class-B workaround pattern from HANDOFF §4.A. Unblocks ALL slices immediately.
+
+## class-B RE-FRAMED (2026-06-11 ~04:20): NOT the return copy — a fill-loop clobber
+- AZ_NO_HOST_SCOPE=1: STILL TRAPS ⇒ alias tagging is NOT the cause.
+- KEY LOGIC: the return copy is FIXED 176 bytes (struct holds Vec headers, not inline node
+  data) regardless of node count. hello-world (5 nodes) works, web-events (19) traps, SAME
+  return copy ⇒ the return copy is NOT the corruptor. The local cache must already be corrupt
+  BEFORE the return — a NODE-COUNT-DEPENDENT fill-loop store clobbering tier2b's local Vec
+  header (ptr+len) for larger N (more iterations / bigger buffers). cap survives because it's
+  the middle word; ptr+len are the clobbered ones.
+- Ruled out so far: instruction decoders (str q/ldur q faithful), opt (-O0 no fix), FIX_SP
+  (breaks earlier, inconclusive), alias scopes (NO_HOST_SCOPE no fix).
+- events-ret (in flight): guarded return-point probe in compact.rs:745 (R_ret_ptr/len/cap/nodes
+  at 0x60680). If tier2b is ALREADY (ptr=garbage,len=0) at the return ⇒ CONFIRMED fill clobber
+  (the out-param stopgap would NOT fix it — must find the clobbering store). If tier2b is GOOD
+  at the return ⇒ it IS the return copy after all (then out-param stopgap works).
+
+## class-B: probe-guard bug + the from_elem connection (events-ret → ret2)
+- events-ret R markers all 0 = the guard `p != 0` SKIPPED (tier2b ptr was 0/null at return,
+  not just "didn't fire" — bump alloc_count=278 proves the cascade ran). FIXED the guard to
+  `p < 4GiB` alone (null ptr now logs) + reached-sentinel 0x600DCAFE@0x60678. ret2 in flight.
+- CONNECTION: with_capacity (css/compact_cache.rs:1466) builds tier2b via
+  `vec![CompactTextProps::default(); n]` — CompactTextProps::default() is NON-ZERO (sentinel
+  fields, e.g. line_height=I16_SENTINEL/0x7ffe per disasm) → `from_elem` (generic SpecFromElem,
+  24-byte element), UNLIKE tier1's `vec![0u64; n]` (alloc_zeroed fast path, WORKS). The
+  24-byte-element from_elem differs in codegen from the witness's Vec<u64> (8-byte element,
+  PASSED). So the suspect narrows to either from_elem's by-value Vec return for a 24B element
+  type, or a fill-store clobber — ret2's R probe (corrupt-at-return?) + local-struct store log
+  (0x2e800-0x2f000, headers only — buffers are heap) decide.
+
+## class-B FIX ATTEMPT (2026-06-11 ~04:40): from_elem → push-loop
+- ret2: probe STILL didn't fire (reached-sentinel 0x60678=0) despite build_compact's body
+  running (store ring) — the return-tail probe is unreachable for an unknown reason (likely
+  inlining/ordering); abandoned the probe approach.
+- ROOT-CAUSE HYPOTHESIS (high confidence): tier1_enums = `vec![0u64; n]` (zeroed → alloc_zeroed
+  fast path) WORKS; tier2b_text = `vec![CompactTextProps::default(); n]` where default() is
+  NON-ZERO (line_height=I16_SENTINEL) → generic `alloc::vec::from_elem`/SpecFromElem (24-byte
+  element, clone-fill, by-value Vec return) → remill MIS-LIFTS → tier2b arrives len=0. Same for
+  tier2_dims/tier2_cold (non-zero defaults) — but only tier2b's len=0 CRASHES (index panic in
+  collect_font_stacks); the others are silent layout-number bugs (the user-deferred category).
+- FIX (web_lift-gated, allowed as web-specific code): `az_filled_vec(elem, n)` in
+  css/compact_cache.rs builds via with_capacity + push loop (avoids from_elem; the staged
+  witness proved push-built vecs round-trip). Applied to tier2_dims/tier2_cold/tier2b_text.
+  Native keeps `vec![elem; n]`. Wired web_lift through css (css/Cargo.toml + core forwards
+  azul-css/web_lift). TODO-remove once the transpiler/remill from_elem sret mis-lift is fixed.
+- events-fix (in flight): relift web-events.bin (19 nodes) → /tmp/cdp_laidout.js: if it LAYS
+  OUT (no unreachable, state set) ⇒ HYPOTHESIS CONFIRMED + class-B unblocked (and likely many
+  layout bugs too). Then web-events-cdp.js full 9-kind → S1 100%.
+
+## ❌ from_elem fix FAILED + class-B CONSOLIDATED STATE (2026-06-11 ~04:50)
+- az_filled_vec push-loop compiled in (with_capacity 1176B, 0 from_elem calls) but STILL TRAPS
+  ⇒ NOT from_elem construction. REVERTED (tree clean; core/layout web_lift feature kept,
+  committed). css/core css-web_lift wiring reverted.
+- **DECISIVE re-read of the ret2 store ring**: the 0→19 counter loop near the end = the line-743
+  `prev_font_hashes = tier2b.iter().map(...).collect()` iterating tier2b 19× ⇒ **tier2b len=19
+  was CORRECT at line 743**. So corruption is AFTER 743 = the sret RETURN COPY (and the
+  `Some()` move). Resolves the "node-count-independent return copy vs node-count-dependent crash"
+  contradiction: hello-world's tier2b ALSO gets corrupted by the same return copy, but its
+  garbage len is non-crashing (reads past buffer = wrong fonts, no panic), while web-events
+  gets len=0 (→ tier2b[0] index panic). So it IS the build_compact 176-byte sret return copy.
+- **The return copy = 11× `str q` (NEON 128-bit) to x24 (sret dest = state+672 via mov x24,x8
+  at entry). tier2b ptr@0x50 + len@0x58 ride `str q1,[x24,#0x50]` (corrupt); cap@0x48 rides
+  `str q0,[x24,#0x40]` (survives).** BOTH `str q` (0117803d) and `ldur q` lift FAITHFULLY in
+  isolation (correct offsets, 2× read/write_memory_64). RULED OUT: instruction decoders, opt
+  (-O0), alias scopes (AZ_NO_HOST_SCOPE), FIX_SP (breaks earlier), from_elem construction.
+- **REMAINING SUSPECT (for a future focused session)**: remill's memory-model lowering of the
+  q-pair HIGH half (the 2nd write_memory_64 → wasm i64.store at dest+8) in the LINKED pipeline,
+  OR x24 (sret dest) value threading through the q-copy. Next probes: capture build_compact's
+  post-opt + post-lower .opt.ll (scratch watcher) and read the return block's str-q1 lowering;
+  OR a targeted store-log windowed to the sret DEST (state+672-derived base) during the return.
+  The probe-at-return (compact.rs:745) mysteriously won't fire — abandon source probes for the
+  return; use transpiler store-log on the dest instead.
+- ⚠ The probe-won't-fire at line 745 despite line 743 running 19× is itself unexplained (CFG
+  tail handling between the collect and the bl-return) — worth a look.
+
+## Next action — PIVOT to S2 (class-B deferred; it only blocks LARGE apps, not per-API verify)
+S1 is committed + verified on a minimal app. The same minimal-app strategy verifies S2-S7 — so
+class-B (the known-hard prior-session sret bug, now thoroughly localized above) does NOT block
+the deliverable. Proceed:
+1. **S2 — callback modifies CSS, wasm cascades, TLV sets inline style.** Concrete recipe
+   (dll/src/web/eventloop.rs `invoke_node_cb` / `dispatchEvent`):
+   a. Build the changes sink in lifted Rust: `let changes: Arc<Mutex<Vec<CallbackChange>>> =
+      Arc::new(Mutex::new(Vec::new()));` (Arc=atomic refcount lifts; Mutex=os_unfair_lock=Leaf
+      no-op = correct single-thread).
+   b. Build CallbackInfo via `CallbackInfo::new(ref_data, &changes, hit_dom_node, None, None)`
+      (approach B — lets the constructor handle the repr(C) layout; no manual offsets). ref_data:
+      set_css_property does NOT deref it (only uses the passed node_id + self.changes), so pass a
+      FAKE &CallbackInfoRefData = `unsafe { &*(some_zeroed_alloc as *const CallbackInfoRefData) }`
+      — the ctor only stores the pointer. hit_dom_node = DomNodeId{ dom: DomId{inner:0}, node:
+      NodeId/AzNodeId from node_idx }. Pass `&info as *const CallbackInfo as u32` as the info_ptr
+      to __az_call_indirect (REPLACES event_bytes_ptr — THE linchpin fix; today every
+      AzCallbackInfo_* reads event bytes as CallbackInfo).
+   c. After the cb returns, DRAIN in place (NOT take_changes() — returns Vec by value = class-B):
+      `if let Ok(cs) = changes.lock() { for c in cs.iter() { match c { ... } } }`. Translate:
+      ChangeNodeCssProperties{node_id, properties} / OverrideNodeCssProperties → for each
+      `properties.iter()`: `p.format_css()` (→ "key: value;", 24B String sret = small, the
+      PASSING witness class) → emit PATCH_KIND_SET_INLINE_STYLE TLV (node_id, css-decl bytes)
+      via AzStartup_buildPatch into a growable patch buf; ChangeNodeText{node_id,text}→SET_TEXT;
+      SetFocusTarget→FOCUS; ScrollTo→SCROLL_TO. Accumulate multiple patches (loop appends TLVs).
+   d. JS dll/src/web/loader_js.rs azApplyPatches case 4 (SET_INLINE_STYLE): change from
+      `el.setAttribute('style', css)` (clobbers server inline styles) to per-declaration parse +
+      `el.style.setProperty(name, value)` MERGE (split payload on ';', each "k: v").
+   e. Test: examples/c/web-setcss-min.c — 1 click div, on_click calls
+      `AzCallbackInfo_setCssProperty(info, hit_node, background-color: red)` + width; CDP click →
+      assert el.style.backgroundColor changed. ~4 nodes (under class-B).
+   ⚠ LIFT RISK to watch: Arc/Mutex/Vec<CallbackChange> ops + the match — if any mis-lift, bisect
+   with a single-variant drain first. CssPropertyVec.iter() + format_css String return are the
+   main sret concerns (small, expected OK).
+2. Then timers (S3), images/fonts (S4), etc. — all on minimal apps until class-B is fixed.
+
+## (historical) ret2 relift up
+0. node /tmp/cdp_patch_probe.js → R markers: reached-sentinel 0x600DCAFE@0x60678 present?
+   - present + R_ret_len=0/ptr small ⇒ corrupt AT return → read the local-struct store ring
+     for the write that zeroes tier2b's header → trace to from_elem return or a fill store →
+     fix in transpiler/remill. (out-param stopgap will NOT help a from_elem/fill bug.)
+   - present + R_ret_len=19 ⇒ clean at return → it IS build_compact's own sret return-copy →
+     out-param stopgap unblocks.
+   - sentinel ABSENT ⇒ probe still not reached → build_compact runs elsewhere / a different
+     compact path; re-locate (grep server log for which sub builds the cache hydrate vs layout).
+
+## (historical) events-ret relift up
+1. node /tmp/cdp_patch_probe.js → R_ret_* (0x60680):
+   - len=0 at return ⇒ fill clobber confirmed → instrument build_compact's LOCAL frame
+     (AZ_LOG_STORES windowed to its SP region) to catch the store that zeroes tier2b's local
+     len → it's a mis-lifted element-index store address (likely a multiply/add or a NEON
+     element store) → fix in remill/transpiler. NO stopgap shortcut.
+   - len=19 at return ⇒ return-copy after all → apply out-param stopgap to unblock S2+.
+2. Fix/stopgap → web-events lays out → web-events-cdp.js full 9-kind → S1 100% → S2.
+
+## (historical) AZ_NO_HOST_SCOPE plan
+1. AZ_NO_HOST_SCOPE=1 relift (env-only, warm-ish) → markers: if tier2b GREEN, the host/guest
+   alias-scope tagging on the q-pair sret copy is wrong → fix the tagger (don't mark the
+   sret-dest stores noalias vs the source field loads). If still bad → local-frame instrument:
+   AZ_LOG_STORES=build_compact… windowed to build_compact's SP region, id-floored to the tail,
+   to see if tier2b's LOCAL slot is already (ptr=garbage,len=0) before the return copy reads it
+   (distinguishes memory-model-lowering bug vs body-store-clobbers-local).
+2. If proper fix lands → relift web-events.bin (19 nodes) → web-events-cdp.js full 9-kind green
+   → S1 100%. Else apply the out-param STOPGAP, relift, verify web-events, then proceed to S2.
+3. S2 (real CallbackInfo + CSS-out via TLV) once any non-trivial app lays out.
+
+## (historical) earlier Next action
 1. web-events-min.bin relift up → if it lays out (under threshold): node
    scripts/m9_e2e/web-events-min-cdp.js → click + keydown-broadcast + resize-broadcast all
    increment ⇒ S1 VERIFIED → COMMIT the S1 batch (remill NZCV already committed; this commits
