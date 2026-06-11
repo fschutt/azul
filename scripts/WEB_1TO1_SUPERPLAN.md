@@ -78,7 +78,36 @@ ptr@0x40060 bump@0x40020.
   (the 16-byte LOAD) → then opt-bisect THAT fn's IR the same way (dup-store OR a dropped 2nd load).
 - Artifacts: scripts/classB_artifacts/{build_compact,create_logical,reorder}.{opt,linked}.ll
   (gitignored). Re-capture per-fn via the KEEP_SCRATCH recipe (FINAL STATUS above).
-## ⛔⛔ MECHANISM-B = join_generic_copy bytes-Vec BUILD loop reads element ptr-not-len — ALL q/pair instrs verified correct; HARD-BLOCKED for autonomous loop (2026-06-11 ~19:45, Fable, cron wake)
+## 🛑 AUTONOMOUS LOOP CONCLUDED (2026-06-11 ~20:00, Fable) — cron 92e18a26 DELETED; mech-B hard-blocked (needs dedicated reproducer session); ua_css source-aligned
+**Why stopped:** Both remaining tasks hit a wall the 30-min relift-loop can't pass.
+- **(1) class-B MECHANISM B — HARD-BLOCKED.** PROVEN culprit = `<[&str]>::join` (alloc::str::
+  join_generic_copy): its bytes-Vec BUILD loop produces a String whose len = the element's PTR
+  (0xa294828) instead of its len (1) — chain-split proved every input stage (collect::<String>,
+  Vec<&str>, v[0]) is correct; from_utf8 moves the Vec faithfully; the Vec is already corrupt.
+  Ruled out (12+ hypotheses, 3+ wakes, ~25 relifts): opt (per-fn opt-bisect N=0), llc (-O0),
+  EarlyCSE/alias-scope, callee-saved-GPR clobber, AND — verified by isolated-lift — GPR ldp, GPR
+  stp, NEON ldp q (incl. post-index), NEON stp q (incl. post-index), single ldr q (all correct
+  half-order). ⇒ it's a runtime REGISTER value-flow mis-lift inside join's build loop, in
+  alloc::str (uninstrumentable via az_mark; AZ_WRITE_TRACE needs a cache-clear re-lift and only
+  catches writes not the register computation). **This needs a DEDICATED SESSION, not 30-min
+  wakes:** build an executable reproducer — lift join_generic_copy (have /tmp/join.ll) + link
+  remill's runtime (third_party/remill-install; NO ready aarch64 runner → custom C harness) +
+  mock State (X0:X1 = &[&str] of one "5", X8 = sret dest) + mock memory → EXECUTE → inspect output
+  {ptr,cap,len}; differential-test / instruction-bisect the build loop to find the op whose lifted
+  semantics route the element ptr into the length; fix in the remill fork. Mechanism B GATES the
+  entire web backend (all web layout traps here).
+- **(2) ua_css (S7) — SOURCE-ALIGNED, web-verify DEFERRED.** core/src/ua_css.rs is a structured
+  (NodeType,PropertyType)→CssProperty map already Chrome-aligned: body margin 8px; h1-h6
+  font-sizes 2em/1.5em/1.17em/1em/0.83em/0.67em + their margins; p margin 1em; display types for
+  div/p/main/header/footer/section/article/aside/nav + table/* + list-item. A full Chrome-parity
+  audit + web-verification is BLOCKED behind mechanism B (can't CDP-verify rendering until the
+  renderer stops trapping). No source changes made this wake (it's already substantial).
+**TO RESUME:** re-create the cron (CronCreate, the same prompt) OR — better — start a dedicated
+reproducer session for mechanism B (the real unblock). All findings + the reproducer recipe are
+above. Diag probes [az-diag REVERT] live in fc.rs split_text (chain-split + stage markers) — revert
+when the engine is green. Branch tip pushed.
+
+## ⛔⛔ (detail) MECHANISM-B = join_generic_copy bytes-Vec BUILD loop reads element ptr-not-len (2026-06-11 ~19:45, Fable, cron wake)
 **This wake refined it further.** Traced join h9c9d (now @0xb3dd90) → it ends by moving the built
 bytes-Vec into a String via `String::from_utf8` (b3e110): success path does
 `ldr q0,[x20]; ldr q1,[sp..]; stp q0,q1,[x19]` — and `collapsed.len` (word2) = `[x20+0x10]` =
