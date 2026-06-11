@@ -28,6 +28,11 @@ use azul_css::{AzString, U8Vec};
 #[cfg(feature = "video-native")]
 pub mod demux;
 
+// Hardware-decode capability probe + driver-provisioning planner (always built;
+// no extra crate deps). Drives `capability::video_codec()` and the "install the
+// drivers for me?" flow.
+pub mod provision;
+
 /// The native codec backend this build selects, by target OS.
 fn backend() -> &'static str {
     if cfg!(any(target_os = "ios", target_os = "macos")) {
