@@ -23,6 +23,11 @@ use core::ffi::c_void;
 use azul_core::video::{OptionVideoFrame, VideoFrame};
 use azul_css::{AzString, U8Vec};
 
+// MP4 -> H.264 Annex-B demux (the elementary stream gpu-video needs). Behind
+// `video-native`; pure Rust + unit-tested, no GPU required.
+#[cfg(feature = "video-native")]
+pub mod demux;
+
 /// The native codec backend this build selects, by target OS.
 fn backend() -> &'static str {
     if cfg!(any(target_os = "ios", target_os = "macos")) {

@@ -71,6 +71,11 @@ accesskit = { version = "0.24", default-features = false, optional = true }
 # PNG encoding for screenshots
 png = { version = "0.18", default-features = false, optional = true }
 
+# MP4 demux for the video decoder (extracts the H.264 elementary stream that
+# gpu-video needs; gpu-video itself does NOT demux). Pure Rust, behind
+# `video-native`. See dll/src/desktop/extra/video_codec/demux.rs.
+mp4 = { version = "0.14", default-features = false, optional = true }
+
 # Windows-only: libm for math functions
 libm = { version = "0.2.2", default-features = false, optional = true }
 
@@ -708,6 +713,11 @@ cpurender = ["azul-layout", "azul-layout/cpurender"]
 # stub); turn ON for an actual Windows build with mingw/MSVC. No effect on
 # non-Windows targets (nokhwa is windows-only).
 camera-native = ["dep:nokhwa"]
+# Real video decode backend. The MP4->H.264 Annex-B demuxer (pure Rust, `mp4`
+# crate) is unit-testable anywhere; the gpu-video (Vulkan Video) decoder is
+# added on top in a later step. OFF by default so the stub (video_codec/mod.rs)
+# keeps default + cross-compile builds lean. Turn ON for a real video build.
+video-native = ["dep:mp4"]
 font_loading = ["azul-layout", "azul-layout/font_loading"]
 font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithreaded"]
 font_async_registry = ["font_loading", "azul-layout/font_async_registry"]
