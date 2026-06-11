@@ -6209,6 +6209,11 @@ pub fn create_logical_items(
                             style: style_to_use,
                         });
                     } else {
+                        // [az-diag REVERT] class-B push probe: source slice len
+                        // @0x607C8; just-pushed element len/hi/ptr @0x607D0..D8;
+                        // push counter @0x607DC. Splits corrupt-at-push from
+                        // corrupt-upstream from corrupt-after-return.
+                        unsafe { crate::az_mark(0x607C8, text_slice.len() as u32) };
                         items.push(LogicalItem::Text {
                             source: ContentIndex {
                                 run_index: run_idx as u32,
@@ -6219,6 +6224,15 @@ pub fn create_logical_items(
                             marker_position_outside,
                             source_node_id: run.source_node_id,
                         });
+                        unsafe {
+                            if let Some(LogicalItem::Text { text, .. }) = items.last() {
+                                crate::az_mark(0x607D0, text.len() as u32);
+                                crate::az_mark(0x607D4, ((text.len() as u64) >> 32) as u32);
+                                crate::az_mark(0x607D8, text.as_ptr() as usize as u32);
+                            }
+                            let n = crate::az_mark_read(0x607DC);
+                            crate::az_mark(0x607DC, n.wrapping_add(1));
+                        }
                     }
                 }
         } else {
@@ -6358,8 +6372,21 @@ pub fn reorder_logical_items(
             LogicalItem::CombinedText { text, .. } => text.as_str(),
             _ => "\u{FFFC}",
         };
+        // [az-diag REVERT] class-B garbage-len probe @0x607B0..C4: which
+        // item feeds a corrupt length into the byte loop (the 681MB bump
+        // blowout). High words at +4 are the smoking gun if nonzero.
+        unsafe {
+            crate::az_mark(0x607B0, logical_items.len() as u32);
+            crate::az_mark(0x607B4, idx as u32);
+            crate::az_mark(0x607B8, text.len() as u32);
+            crate::az_mark(0x607BC, ((text.len() as u64) >> 32) as u32);
+        }
         let start_byte = bidi_str.len();
         bidi_str.push_str(text);
+        unsafe {
+            crate::az_mark(0x607C0, bidi_str.len() as u32);
+            crate::az_mark(0x607C4, ((bidi_str.len() as u64) >> 32) as u32);
+        }
         for _ in start_byte..bidi_str.len() {
             item_map.push(idx);
         }

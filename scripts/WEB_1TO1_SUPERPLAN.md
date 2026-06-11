@@ -12,7 +12,74 @@ this file, CronList → CronDelete.
 loop, build commands) → `scripts/WEB_BACKEND_1TO1_PLAN.md` (architecture reference).
 
 ---
-## ✅ FINAL STATUS (2026-06-11 ~08:10) — CONSOLIDATED, cron `f1b4a997` DELETED, decision point for user
+## 🔄 POST-REBASE STATE (2026-06-11 ~13:45) — rebased onto mobile-ios-android 82171735d; THREE new engine fixes landed; class-B deep fix IN PROGRESS
+User decided: rebase → backup → **class-B deep fix** → ua_css (S7). Rebase done (27 commits
+replayed, zero contribution drift, dll/src/web byte-identical; Cargo.lock fixup 84bac13bb;
+codegen regenerated — upstream changed struct sizes, C bins rebuilt against fresh azul.h).
+Backup force-pushed (e575cebb5 → 808c0320a; pre-rebase tip preserved in that remote commit).
+
+**Post-rebase trap-peeling (each layer a REAL lift gap exposed by upstream's 208 commits
+shifting code into latent holes; all fixed + committed 7c6f50546 + diag 808c0320a):**
+1. **macOS TLV (thread-locals)**: lifted `adrp x0,<desc>; ldr x8,[x0]; blr x8` fell into the
+   dispatcher's unknown-drop → X0 stayed = descriptor addr → std read descriptor bytes as the
+   LocalKey state byte → `panic_access_error` (first hit: RandomState KEYS in `HashSet::new`
+   inside get_loaded_font_ids). FIX: TlvRegion geometry (symbol_table) + mirror-seed at the
+   chokepoint + thunk→AZ_TLV_MAGIC_PC (0xA271C0DE) rewrite + dispatcher case computing
+   `X0 = tls_base_synth + desc.offset`. TLS = statics (single-threaded wasm).
+2. **Heap/synth-band collision**: bump base 96MiB but the rebased dylib's synth band ends
+   ~101MiB → allocations STOMPED mirrored data (TLV descriptors read as heap garbage). FIX:
+   bump base → 160MiB (memory is 512MiB). ⚠ This is the standing "memory-map audit" class —
+   any future dylib growth past 160MiB re-collides (warn: check `TLV: seeded` log's
+   tls_base_synth on relifts).
+3. **probe.rs under web_lift**: with TLS *working*, probe spans flipped from
+   harmlessly-failing `try_with` to actually running → `Instant::now`/`task_info` mach
+   syscalls (unliftable). FIX: probe imp → no-op module under web_lift; sample_peak_rss gated.
+4. Loader `solveLayout` try/catch (bootstrap survives traps; __azProbe installs → peek-based
+   debugging works on a trapped page — this unlocked the whole hunt).
+
+**Verified progress**: thread-locals initialize; get_loaded_font_ids runs 3× over a 3-font map
+(iteration fine!); font chains resolve (chains.len=1); phases pass 0x82. **REMAINING TRAP**
+(hello-world still counter-5): text3 `reorder_logical_items` → Vec reserve → `finish_grow`
+traps; bump_ptr blows past memory (0x28a529e0 ≈ 681MB from 160MiB base) with last_alloc diag
+low-words 0 ⇒ **garbage HIGH WORD in allocation size — the class-B multi-word family**, now in
+the text-shaping path (upstream's kerning/coverage work exercises it differently). This is the
+NEW class-B witness (alongside getHitNode 16B + build_compact 176B sret).
+
+**Diag markers live** (all [az-diag REVERT]-tagged): get_loaded_font_ids 0x60780..C;
+prev_font_hashes header 0x60794..C; merge bracket 0x607A0..A8; phase 0x60704; chains 0x60770;
+reorder len 0x607B0..C4; create_logical push 0x607C8..DC; **AzString raw words 0x607E0..F0**.
+Peek tooling: /tmp/cdp_peek_multi.js (any addr list), /tmp/cdp_first_trap.js (pause-on-exc
+stack), /tmp/cdp_solve_stack.js (re-invoke solve). Bump diag: size@0x40050(i64) count@0x40058
+ptr@0x40060 bump@0x40020.
+
+## 🎯 CLASS-B BREAKTHROUGH (2026-06-11 ~14:40): root-caused + FIXED mechanism A; class-B is ≥2 mechanisms
+**Method that finally worked: opt-bisect.** Captured the FAILING fn's real subprocess IR via
+`AZ_REMILL_KEEP_SCRATCH=1` (the `{stem}.linked.ll` pre-opt + `{stem}.opt.ll` post-opt), then
+`opt -O2 -opt-bisect-limit=N` binary-search on a dup-store heuristic (two adjacent guest
+`store volatile i64` with the SAME value = a multi-word value mis-collapsed).
+- **MECHANISM A (FIXED, committed dd055272e)**: `-O2` pass #560 **EarlyCSE** collapses two guest
+  stores that must hold different register values (a &str fat-pointer ptr@sp+472 + field@sp+488)
+  into one. CAUSE: remill tags State-register vs guest-memory as mutually-noalias
+  (`!alias.scope !0`/`!noalias !3`) — sound on HW (disjoint spaces), UNSOUND on wasm (one linear
+  memory, 32-bit-truncated guest ptrs can hit the State struct). EarlyCSE forwards a non-volatile
+  register load across volatile guest stores. FIX = `strip_alias_scope_metadata()` on the linked
+  IR before opt (default-on, `AZ_KEEP_ALIAS_SCOPE=1` to keep; LIFT_CACHE_VERSION→4 + key folds the
+  toggle). VERIFIED RUNNING: 0/1795 served `.opt.ll` retain `alias.scope`. ⭐ This explains why
+  the prior `AZ_NO_HOST_SCOPE` dead-ended — it only stripped tag_state_accesses's 90004/5, never
+  remill's native !0/!3 that EarlyCSE actually trusted.
+- **MECHANISM B (OPEN, the residual hello-world trap)**: a 16-byte multi-word VALUE's 2nd word
+  drops on READ/RETURN — survives the strip (alias-metadata-independent). Witnesses: getHitNode
+  (DomNodeId x0:x1) and **AzString `.as_str()`**: hello-world's NodeType::Text AzString feeds
+  `text.as_str()` a len of 0xa294828 (= heap_base 0xA000000 + 0x294828 = a HEAP POINTER in the
+  len slot) → text3 create_logical builds a 170MB &str → Vec grow → finish_grow OOB trap. NOT
+  EarlyCSE. Suspect: wasm multi-value/struct ABI lowering in llc, or GVN/DSE of the {ptr,len}
+  load pair. NEXT: AzString-raw-word probe @0x607E0..F0 (window.rs collect_inline_content_for_node)
+  splits corrupt-at-build (the 16-byte STORE when the cb built the AzString) vs as_str-misreads
+  (the 16-byte LOAD) → then opt-bisect THAT fn's IR the same way (dup-store OR a dropped 2nd load).
+- Artifacts: scripts/classB_artifacts/{build_compact,create_logical,reorder}.{opt,linked}.ll
+  (gitignored). Re-capture per-fn via the KEEP_SCRATCH recipe (FINAL STATUS above).
+
+## (superseded by the above) FINAL STATUS (2026-06-11 ~08:10) — CONSOLIDATED, cron `f1b4a997` DELETED, decision point for user
 **Shipped + green (all committed):** S0 (preflight + lift/obj cache), remill NZCV decoder
 (fork 70050e0), S1 (every JS input event → wasm cb, CDP-proven), generic byte-image hydration,
 shared bump heap + cache-v3. hello-world (counter 5→6) and web-events-min (click/keydown/resize)

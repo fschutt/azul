@@ -5648,6 +5648,22 @@ impl LayoutWindow {
                 // Simple text node - create a single StyledRun
                 let style = self.get_text_style_for_node(dom_id, node_id);
 
+                // [az-diag REVERT] class-B mechanism-B probe: raw AzString
+                // words BEFORE as_str(). 0x607E0=ptr-lo, E4=ptr-hi, E8=len-lo,
+                // EC=len-hi, F0=as_str().len(). If the struct's len word is
+                // already a heap ptr ⇒ corrupt-at-build (the 16-byte store);
+                // if struct is sane but as_str().len() is garbage ⇒ as_str's
+                // 16-byte read mis-lifts (the getHitNode class).
+                unsafe {
+                    let s: &AzString = text; // BoxOrStatic<AzString>: Deref
+                    let raw = s as *const AzString as *const u64;
+                    crate::az_mark(0x607E0, (*raw) as u32);
+                    crate::az_mark(0x607E4, ((*raw) >> 32) as u32);
+                    crate::az_mark(0x607E8, (*raw.add(1)) as u32);
+                    crate::az_mark(0x607EC, ((*raw.add(1)) >> 32) as u32);
+                    crate::az_mark(0x607F0, s.as_str().len() as u32);
+                }
+
                 vec![InlineContent::Text(StyledRun {
                     text: text.as_str().to_string(),
                     style,
