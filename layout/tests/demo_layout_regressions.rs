@@ -632,3 +632,70 @@ fn paint_canvas_with_menubar_wrapper_must_stretch_full_width() {
         canvas_rect.size.height
     );
 }
+
+/// #3 (geometry): each software-menubar top-level item is a `display:flex` row
+/// with a SINGLE text child ("File"/"Edit"/"View") — the #11 family ("flex item
+/// with a single text child constrains the text width to the cross-axis height"),
+/// which clipped "View" (~28px) toward "V" when the text width collapsed to the
+/// bar's 26px height. Faithful GEOMETRY repro with concrete colors (the live bar
+/// themes via `system:` colors, which don't resolve headlessly and would drop the
+/// whole rule → irrelevant to width). Guards: items lay out as a horizontal row,
+/// and "View" keeps a full-width content box (no clip).
+#[test]
+fn menubar_flex_row_items_lay_out_horizontally_without_clipping() {
+    let bar = Dom::create_div()
+        .with_ids_and_classes(class("mbar"))
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("mitem"))
+                .with_child(Dom::create_text("File")),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("mitem"))
+                .with_child(Dom::create_text("Edit")),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("mitem"))
+                .with_child(Dom::create_text("View")),
+        );
+    let dom = Dom::create_body().with_child(bar);
+    let css = r#"
+        .mbar { display: flex; flex-direction: row; align-items: stretch;
+            width: 100%; height: 26px; font-size: 14px; }
+        .mitem { display: flex; flex-direction: row; align-items: center;
+            padding-left: 10px; padding-right: 10px; }
+    "#;
+    let lw = layout_dom(dom, css, 640.0, 480.0);
+
+    // body(0) bar(1) File-item(2) File-text(3) Edit-item(4) Edit-text(5)
+    // View-item(6) View-text(7)
+    for n in 0..=7 {
+        println!("node {:2} -> {:?}", n, lw.get_node_layout_rect(node_id(n)));
+    }
+    let file_item = lw.get_node_layout_rect(node_id(2)).expect("File item rect");
+    let view_item = lw.get_node_layout_rect(node_id(6)).expect("View item rect");
+
+    // Horizontal row: items share the top edge and march rightward. A block/column
+    // regression stacks them (same x, increasing y).
+    assert!(
+        (view_item.origin.y - file_item.origin.y).abs() < 1.0,
+        "menubar items must share one row: File y={}, View y={} (stacked vertically?)",
+        file_item.origin.y,
+        view_item.origin.y
+    );
+    assert!(
+        view_item.origin.x > file_item.origin.x + 30.0,
+        "View must sit to the RIGHT of File (File x={}, View x={}) — items stacked instead of a row",
+        file_item.origin.x,
+        view_item.origin.x
+    );
+    // Not clipped: "View" (4 glyphs @14px ≈28px) + 20px padding ≈48px; a collapse
+    // to the 26px cross-axis height would shrink the item toward ~27px ("V").
+    assert!(
+        view_item.size.width > 35.0 && view_item.size.width < 120.0,
+        "View item width = {} (expected ~45–55px; <35 means the text clipped toward 'V')",
+        view_item.size.width
+    );
+}
