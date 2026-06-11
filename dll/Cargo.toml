@@ -263,6 +263,10 @@ android_logger = { version = "0.14", optional = true }
 jni = { version = "0.21", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+# Runtime loader for the Vulkan loader (vulkan-1.dll) — the hardware-decode
+# capability probe (video_codec/provision.rs) dlopen's it to check for
+# VK_KHR_video_decode_h264, same as the Linux path. No link-time dependency.
+libloading = "0.8"
 # Windows mic + AudioSink via cpal (WASAPI = pure-Rust `windows` crate, no
 # build-time bindgen). macOS/iOS use AVFoundation (objc2-avf-audio) instead so the
 # apple builds CROSS-COMPILE — cpal's coreaudio-sys needs libclang + the CoreAudio

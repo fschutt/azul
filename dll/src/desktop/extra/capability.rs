@@ -201,17 +201,28 @@ impl PlatformCapability {
         }
     }
 
-    /// Probe the hardware video codec. Currently a stub on every platform
-    /// (encode/decode are no-ops), so reported as unavailable.
+    /// Probe hardware video decode for real (see
+    /// [`crate::desktop::extra::video_codec::provision`]): on Apple/Android the
+    /// built-in system codec, on Linux/Windows a live Vulkan
+    /// `VK_KHR_video_decode_h264` device-extension probe. When unavailable, the
+    /// reason notes whether a driver install could enable it (the full command
+    /// list lives in `ProvisionPlan`).
     pub fn video_codec() -> PlatformCapability {
-        if cfg!(any(target_os = "macos", target_os = "ios")) {
-            cap(false, "VideoToolbox", "not yet implemented (stub)")
-        } else if cfg!(target_os = "android") {
-            cap(false, "MediaCodec", "not yet implemented (stub)")
-        } else if cfg!(any(target_os = "linux", target_os = "windows")) {
-            cap(false, "gpu-video", "not yet implemented (stub)")
+        let p = crate::desktop::extra::video_codec::provision::probe_hw_decode();
+        let reason = if p.available {
+            AzString::from_const_str("")
+        } else if p.can_remediate {
+            AzString::from(format!(
+                "{} — a driver install can enable it (ProvisionPlan::detect)",
+                p.detail
+            ))
         } else {
-            cap(false, "none", "no video-codec backend on this target")
+            AzString::from(p.detail)
+        };
+        PlatformCapability {
+            available: p.available,
+            backend: AzString::from_const_str(p.backend),
+            reason,
         }
     }
 }
