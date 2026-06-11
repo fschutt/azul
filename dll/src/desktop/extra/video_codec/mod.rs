@@ -38,6 +38,10 @@ pub mod pipeline;
 // drivers for me?" flow.
 pub mod provision;
 
+// The one-call startup readiness check + its outcome — the FFI/DLL surface an
+// app uses at launch to verify the box is ready for hardware video decode.
+pub use provision::{VideoProvisionOutcome, VideoStartupCheck};
+
 /// The native codec backend this build selects, by target OS.
 fn backend() -> &'static str {
     if cfg!(any(target_os = "ios", target_os = "macos")) {
