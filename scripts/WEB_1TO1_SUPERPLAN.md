@@ -421,7 +421,257 @@ trip class-B. So class-B must be fixed (or stopgapped) BEFORE S2 can be e2e-veri
 - ⚠ The probe-won't-fire at line 745 despite line 743 running 19× is itself unexplained (CFG
   tail handling between the collect and the bl-return) — worth a look.
 
-## Next action — PIVOT to S2 (class-B deferred; it only blocks LARGE apps, not per-API verify)
+## S2 IMPLEMENTED (2026-06-11 ~05:10) — verify pending (events-s2 relift)
+- CallbackInfo::new_web (layout/callbacks.rs, web_lift-gated): minimal CallbackInfo with null
+  ref_data + the change-sink Arc<Mutex<Vec<CallbackChange>>> + hit node. set_css_property/
+  change_text/etc. only use changes + node_id (not ref_data) → null is safe; get_hit_node just
+  returns self.hit_dom_node.
+- eventloop.rs invoke_node_cb REWRITTEN: builds `Arc::new(Mutex::new(Vec::new()))`, a
+  CallbackInfo via new_web (hit = DomNodeId{ROOT, NodeId(node_idx)}), passes &info as info_ptr
+  (REPLACES the raw-event-bytes ptr — the linchpin S2 fix). After the cb, s2_drain_changes
+  drains via lock()+iter() (NOT take_changes = class-B): ChangeNodeCssProperties/
+  OverrideNodeCssProperties → per-property format_css() → SET_INLINE_STYLE TLV;
+  ChangeNodeText → SET_TEXT. s2_append_patch accumulates into patch_buf_ptr (4 KiB,
+  patch_buf_used tracked). dispatchEvent resets patch_buf_used=0, returns S2 patches when
+  present (else the legacy hello-world counter fallback).
+- loader_js azApplyPatches case 4: per-decl el.style.setProperty MERGE (was setAttribute clobber).
+- BOTH crates cargo-check clean. Test: examples/c/web-setcss-min.c (1 click div, on_click sets
+  width:300px on hit node) + scripts/m9_e2e/web-setcss-cdp.js (asserts el.style.width=300px).
+- ⚠ LIFT RISK (verify): Arc/Mutex/Vec<CallbackChange> ops + the match + format_css String sret.
+  If the CSS doesn't apply, bisect: (a) does the cb even run (counter-style probe)? (b) does
+  changes get a push (peek patch_buf_used)? (c) does format_css return a sane string?
+
+## S2 ROOT-CAUSE: cb-side allocation returned 0 (FIX applied 2026-06-11 ~05:30)
+- S2 infra WORKS: the cb ran with the real CallbackInfo, reached set_css_property. But it
+  TRAPPED there: `vec![property]` → `__rust_alloc(136)` returned 0 → handle_alloc_error →
+  unreachable. hello-world's cb never allocated (just increments a counter), so this was hidden.
+- ROOT CAUSE: per-cb wasms have "0 mini imports" — each BUNDLES its own BumpAlloc body with its
+  OWN `@__az_bump_ptr` (a per-module global / linear-mem copy), which for a cb is uninitialized
+  or clobbered by the layout wasm's data-segment mirror → returns 0. mini's works (it's reset +
+  not clobbered); the cb's is broken.
+- FIX (transpiler_remill.rs): bump pointer moved from the per-module `@__az_bump_ptr` global to a
+  FIXED SHARED linear address 0x40020 (262176, inttoptr in every BumpAlloc/Realloc body +
+  snapshot/reset helpers). All modules now share ONE bump heap. 0x40020 is in the proven-reliable
+  diagnostic band (next to the bump diag at 0x40030), below the mirror (0x110000). Init relies on
+  resetBumpHeap(96MiB) (loader line 411, before the first alloc) — the data-segment init is gone.
+- events-s2b in flight: web-setcss-min relift. ⚠ REGRESSION RISK: this changes mini's working
+  allocator → MUST re-verify hello-world (counter) + web-events-min (S1) after.
+
+## S2 progress: bump fix VERIFIED, node-encoding bug FOUND+FIXED (2026-06-11 ~05:40)
+- bump-ptr-shared fix CONFIRMED WORKING: on click the cb allocated (alloc_count 872→887,
+  bump@0x40020 advanced to ~103MB). cb-side allocation is UNBLOCKED.
+- New trap was MY bug: set_css_property's `.expect("node should not be None")` panicked because
+  `hit_dom_node.node.inner` was 0. Cause: invoke_node_cb built the node via
+  `from_crate_internal(Some(NodeId::new(node_idx)))` — the Option<NodeId> niche/encoding chain
+  mis-lifts to inner=0. FIX: `NodeHierarchyItemId::from_raw(node_idx + 1)` (direct 1-based
+  encoding, no Option). events-s2c relifting.
+- LESSON: avoid Option<niche-type> construction in lifted glue; use direct/raw constructors.
+
+## S2 trap still in set_css_property after node fix (events-s2c→s2d, 2026-06-11 ~05:50)
+- Bump diagnostics post-trap: last_alloc_size=48 → valid ptr (0x62a25e8), alloc_count=887.
+  So allocs WORK; the trap is NOT alloc-fail. set_css_property's `.expect` runs BEFORE its
+  136-byte vec alloc, so the 48-byte alloc was from the earlier AzCssProperty_width → set_css_
+  property's expect (node=0) panics before its own alloc. So node IS still 0 despite from_raw.
+- events-s2d (in flight): markers in invoke_node_cb — 0x40090=node_idx, 0x40094=node_idx+1,
+  0x40098=0xCB000000|update (written only if the cb RETURNS). Peek post-trap:
+  - node_idx sane (e.g. 1) + 0x40098 absent ⇒ mini built the node fine; the cb's getHitNode/
+    copy reads hit_dom_node wrong (CallbackInfo layout/copy-size mismatch between mini's build
+    and the cb wrapper) → inspect the cb wrapper's info copy.
+  - node_idx weird (huge/MAX) ⇒ the hit-test/dispatch fed a bad index → fix routing.
+
+## S2 state consolidated (2026-06-11 ~06:00)
+- s2d markers (DEFINITIVE on mini's side): node_idx=1, node+1=2 fed correctly; cb_returned=0
+  (cb trapped). So MINI's input is correct; the trap is in the cb's set_css_property.
+- The trap is the 16-byte DomNodeId `node` half being 0 by the time set_css_property reads it
+  (`.expect("node should not be None")` OR a downstream large-value push — not yet disambiguated
+  because the s2e info[16] peek build FAILED VALIDATION). The chain that could drop the node
+  half: new_web's struct-literal store of the 16-byte hit_dom_node, getHitNode's 16-byte
+  multi-register return, or set_css_property's 16-byte node arg — all CLASS-B-FAMILY (multi-word
+  value handling). hello-world never exercised 16-byte struct returns (its cb just increments).
+- ⚠ s2e FLUKE: adding one marker read produced an 8-byte mini ("Fatal: error validating input
+  (falling back to un-opt'd wasm)"). Either the marker IR or — more likely — the NEW obj cache
+  (cache-v2a) served an incompatible object. WATCH: if the hello-world regression ALSO yields an
+  8-byte mini, SUSPECT THE OBJ CACHE → disable it (AZ_NO_LIFT_CACHE=1 or guard obj_cache_path
+  harder) and re-verify. The obj cache key may not fully capture a change.
+
+## VERIFIED THIS ARC (commit candidates)
+- bump-ptr-shared fix (transpiler_remill.rs): cb-side allocation works (alloc_count 872→887 on
+  click; bump@0x40020 advances). Needs hello-world regression (in flight) to confirm no
+  mini-allocator regression, then COMMIT.
+- S2 infra (new_web + eventloop drain + loader case-4 + node from_raw fix): correct + compiles,
+  but CSS round-trip BLOCKED by the 16-byte DomNodeId class-B-family gap above. Hold or commit
+  with honest "infra; CSS blocked" framing.
+
+## ⚠ OBJ-CACHE POLLUTION confirmed (2026-06-11 ~06:05)
+- hello-world regression (cache WARM) → 8-byte mini ("Fatal: error validating input") + cb
+  LinkError "memory import must be a WebAssembly.Memory object" (downstream of the stub mini).
+  Reverting the marker did NOT fix it ⇒ NOT the marker. It's the cache-v2a OBJECT CACHE serving
+  a stale/incompatible object across the bump-fix IR change (likely a bad object cached during
+  the s2e validation-failed build, OR a key that missed the bump-body change). s2b/c/d worked
+  because their cache was freshly populated post-bump-fix; a later build polluted it.
+- ACTION TAKEN: cleared $TMPDIR/az-lift-cache, cold re-relift hello-world (bsn7otixv).
+- PERMANENT FIX (after confirming clear works): bump LIFT_CACHE_VERSION (invalidates all
+  obj-cache entries) AND make obj_cache_path NEVER cache an object whose build later fails
+  validation/link (cache only fully-validated outputs), or fold a hash of emit_helper_ir's
+  bump/global section into the key. Until fixed, run debug relifts with AZ_NO_LIFT_CACHE=1.
+
+## OBJ-CACHE POLLUTION CONFIRMED + FIXED; hello-world DISPLAY regression (2026-06-11 ~06:15)
+- Cleared cache → mini valid (27MB un-opt'd; the "error validating input → un-opt fallback" is
+  PRE-EXISTING/harmless, 2× in the very first relift too). ⇒ obj-cache pollution was the 8-byte
+  mini. PERMANENT FIX: bumped LIFT_CACHE_VERSION 2→3 (invalidates all stale obj-cache entries).
+  TODO still: harden obj_cache_path to never cache validation-failed builds (defensive).
+- hello-world REGRESSION (S2 infra): the cb RUNS and increments the model (peeked 5→6, no
+  exceptions) but the DISPLAY stays 5 — dispatchEvent emits NO patch (out_len=0 on the kind=0
+  click). So the cb works; the counter-fallback patch path doesn't fire post-S2. hwreg3 markers
+  (0x400A0 update / A4 model_ptr / A8 display_text_node_idx / AC patch_buf_used) will say why:
+  update=0 ⇒ RefreshDom return lost across the bigger invoke_node_cb frame (Arc/info/s2_drain);
+  display=MAX ⇒ my new patch_buf_used struct field shifted the layout; else ⇒ buildCounterPatch
+  alloc.
+
+## CONSOLIDATING to green (2026-06-11 ~06:25): S2 infra REVERTED
+- hwreg3 markers: update=1 (RefreshDom return fine), but s.model_ptr=0 + s.display_text_node_idx=0
+  at dispatch (both set by the loader's setModelPtr/setDisplayNode, which ARE reached — the cb
+  works so we pass the !azRefAnyPtr guard). The cb increments the model (5→6) but the
+  counter-fallback patch never fires (model_ptr=0). model_ptr/display are EARLY struct fields
+  (offsets unchanged by my end-additions), setter+reader share one build — yet read 0. Root
+  cause not quickly found (possible EventloopState default-repr re-pack interaction, or a
+  later write zeroing them).
+- DECISION (session very long, S2 blocked by 16-byte DomNodeId anyway): reverted the UNCOMMITTED
+  S2 infra (git checkout eventloop.rs + loader_js.rs + callbacks.rs → committed S1 state). KEPT:
+  bump-ptr-shared fix + LIFT_CACHE_VERSION=3 (transpiler_remill.rs, uncommitted) + web-setcss
+  test files. hwreg4 = S1+bump relift of hello-world to test this baseline.
+
+## ✅ GREEN BASELINE RESTORED + bump fix COMMITTED (2026-06-11 ~06:35)
+- hwreg4: hello-world counter 5→6 DISPLAYS with S1 + bump fix (S2 reverted), mini valid (26MB).
+  ⇒ bump fix is CLEAN; the display regression was entirely the S2 infra. COMMITTED the bump
+  fix + LIFT_CACHE_VERSION=3 (commit 2d535469e).
+- s1reg (in flight): web-events-min relift to confirm S1 routing still green with the bump fix.
+
+## S2 RE-APPROACH (focused session) — two precise blockers, both likely fixable
+The S2 infra (real CallbackInfo + CallbackChange→TLV drain) was reverted from the working tree
+but is fully specified in this file's S2 recipe (and recoverable from git reflog of eventloop.rs
+before commit 2d535469e). When re-approaching:
+1. **16-byte DomNodeId class-B-family gap**: set_css_property's `.expect("node should not be
+   None")` panics because hit_dom_node.node is 0 in the cb. Mini FED node_idx=1/+1=2 correctly
+   (s2d markers), so the loss is in new_web's 16-byte hit_dom_node store OR getHitNode's 16-byte
+   multi-register return OR set_css_property's 16-byte node arg. FIX ANGLES: (a) a web-specific
+   getHitNode/setCssProperty path that passes node as a single u64; (b) field-store the node
+   half explicitly; (c) standalone-lift getHitNode + new_web, diff the 16-byte struct
+   store/return, fix in remill (the multi-word value handling — same family as class-B).
+2. **model_ptr=0 dispatch regression**: with the S2 dispatchEvent/EventloopState changes, the
+   counter-fallback's s.model_ptr/display_text_node_idx read 0 (set by the loader, but read 0 at
+   dispatch). Suspect: adding `patch_buf_used` IN THE MIDDLE of EventloopState (between
+   focused_node_idx and viewport_w) perturbed the default-repr re-pack such that some lifted
+   accessor and the reader disagree. FIX: add new EventloopState fields ONLY at the very END
+   (or make the struct repr(C) to freeze the layout), and re-test hello-world's display
+   alongside web-setcss.
+3. cb-side allocation is ALREADY FIXED (committed bump fix) — that prerequisite is done, so the
+   S2 re-approach starts from a cb that CAN allocate.
+
+## ✅ BASELINE FULLY GREEN + COMMITTED (2026-06-11 ~06:40)
+- s1reg: web-events-min CDP green (click 0→1, keydown 0→1, resize 0→2) with the bump fix.
+  hello-world green (5→6 display). Committed this session: S0 (preflight+cache), remill NZCV
+  decoder, S1 (input routing), generic hydration, obj-cache, and the SHARED BUMP HEAP + cache-v3
+  (2d535469e). Tree clean (only untracked web-setcss S2 scaffolding + this superplan).
+
+## 🎯 CLASS-B = THE GATE for S2-S7. MINIMAL REPRODUCER FOUND: AzCallbackInfo_getHitNode
+- getHitNode (native 0x52eb0, 4 instructions): `ldr x8,[x0,#8]; ldr x1,[x0,#0x10]; mov x0,x8; ret`
+  — returns the 16-byte DomNodeId in x0:x1. STANDALONE LIFT IS FAITHFUL (reads info+16 via
+  read_memory_64 → X1, returns both halves). But in the cb PIPELINE the node (x1) half is lost
+  → set_css_property sees node=0 → `.expect` panics. SAME class as build_compact's 176-byte
+  q-pair return copy: faithful standalone, broken in pipeline.
+- This is the SMALLEST class-B witness yet (the prior handoff's 24-byte Vec witness PASSED
+  because it was built via with_capacity+push, NOT a multi-register struct return). getHitNode
+  = a multi-word VALUE returned in registers / read from memory → the 2nd register/word drops.
+- RULED OUT (this session, exhaustively): instruction decoders (str q / ldur q / getHitNode all
+  faithful standalone), opt level (-O0 no fix), alias scopes (AZ_NO_HOST_SCOPE no fix), FIX_SP
+  (breaks earlier), from_elem construction (push-loop no fix). The memory intrinsic bodies
+  (transpiler_remill.rs:6953+ read/write_memory_*) are correct (plain volatile load/store).
+- ⇒ The bug is a PIPELINE transform over the linked module — opt mis-handling consecutive
+  volatile memory-64 ops feeding a multi-register return/struct, OR the wasm multi-value/struct
+  ABI lowering dropping the high register. NEXT-SESSION EXPERIMENT (bounded, high-value):
+  lift getHitNode standalone, then run it through the FULL pipeline (llvm-link helper IR + opt
+  + llc) in isolation and diff — find where x1 (node) is dropped. Capture the .opt.ll. If opt
+  drops it, find the offending pass (try opt -O1/-O0 on JUST getHitNode via AZ_LOWOPT_FNS; if
+  -O0 keeps x1, it's an opt transform → bisect passes; if -O0 also drops it, it's the link /
+  ABI lowering / llc). Then fix in azul_remill.cpp's pipeline or the helper IR.
+
+## Next action (next wake — class-B via the getHitNode minimal reproducer)
+1. Build the standalone getHitNode → full-pipeline harness (or AZ_LOG_STORES / AZ_LOWOPT_FNS on a
+   relift of web-setcss-min with the S2 infra restored) to pin WHERE x1/node is dropped. Fix it.
+2. When class-B is fixed: restore the S2 infra (recipe above; recoverable from git reflog of
+   eventloop.rs/callbacks.rs/loader_js.rs before 2d535469e — they were reverted, not deleted),
+   ALSO fix the model_ptr=0 regression (add EventloopState fields at the END / make it repr(C)),
+   relift web-setcss-min → width→300px, regression hello-world + web-events-min → COMMIT S2 +
+   the web-setcss test scaffolding. Then S3 (timers), S4 (images), etc.
+3. If class-B stays intractable: it's the prior session's known-hard bug; the green baseline
+   (S0/S1/bump) is a solid, shippable checkpoint. Consider asking the user whether to keep
+   grinding class-B or accept per-API verification only on cbs that don't return multi-word
+   structs.
+
+## (historical) hwreg4 relift up
+1. /tmp/cdp_drive.js → counter 5→6 DISPLAY:
+   - GREEN ⇒ bump fix is clean, the regression was the S2 infra → COMMIT bump fix + cache-v3
+     (semantic, transpiler). S1 + bump baseline is solid. Then re-approach S2 in a FOCUSED
+     session: the 16-byte DomNodeId class-B-family gap + the model_ptr=0 dispatch regression
+     are the two things to solve (likely both fixable; the S2 infra diff is recoverable from
+     git reflog / this superplan's S2 recipe).
+   - RED (still 5→5) ⇒ the regression is in COMMITTED S1 or the bump fix. Bisect: revert the
+     bump fix too (git checkout transpiler_remill.rs) → relift; if green, bump fix is the
+     regression (it corrupts EventloopState via allocation/init — investigate the shared-bump
+     init/overlap); if still red, committed S1 broke hello-world's display (a real committed
+     regression to fix — likely the dispatchEvent rewrite's counter-fallback path).
+2. End at a GREEN, committed baseline. Don't leave hello-world broken.
+
+## (historical) hwreg3 relift up
+1. Peek 0x400A0/A4/A8/AC → diagnose per above.
+   - update=0: restructure invoke_node_cb so the cb's Update is preserved (capture before
+     s2_drain into a volatile/explicit slot; or call s2_drain via a helper that can't clobber).
+   - display=MAX or model=0: struct-field shift — verify EventloopState layout / setters.
+2. Fix → hello-world green (5→6 display) → COMMIT bump fix + cache-v3 + the dispatch fix. THEN
+   decide S2 infra: it's blocked by the 16-byte DomNodeId gap AND this regression — if both fixed,
+   keep; else REVERT S2 infra to a green baseline and defer S2-CSS to a focused session.
+   ⚠ The session is very long with S2 regressions — prioritize returning to a GREEN, committable
+   baseline (bump fix + cache fix + hello-world + S1 all working) over finishing S2-CSS.
+
+## (historical) cold hello-world relift up
+1. mini NOT 8 bytes + counter 5→6 ⇒ obj-cache pollution confirmed → bump LIFT_CACHE_VERSION +
+   harden obj cache → COMMIT bump fix. If STILL 8-byte mini ⇒ the bump fix itself emits invalid
+   wasm (revert bump fix, route cb alloc via import instead).
+2. Then S2 16-byte DomNodeId gap (peek info+16 with AZ_NO_LIFT_CACHE=1 to avoid pollution):
+   node=2 → getHitNode 16-byte return drops it; node=0 → new_web store drops it.
+
+## (historical) events-s2d relift up
+1. node /tmp/cdp_clicktrap.js (confirm still trapping) + peek 0x40090/94/98 (AzStartup_peekU32)
+   → diagnose per above → fix → relift → web-setcss-cdp.js green → regression → COMMIT.
+
+## (historical) events-s2c relift up
+1. node scripts/m9_e2e/web-setcss-cdp.js → width→300px ⇒ S2 set_css_property round-trips →
+   then REGRESSION: hello-world (counter, /tmp/cdp_drive.js) + web-events-min (S1) → all green ⇒
+   COMMIT: (a) bump-ptr-shared fix [transpiler], (b) S2 infra [new_web + eventloop drain +
+   loader case-4], (c) node-encoding fix, (d) test app/harness. Semantic commits.
+2. If web-setcss STILL traps: get the new trap (cdp_clicktrap.js). If it's downstream of
+   set_css_property (the push of large CssProperty/CallbackChange) → class-B large-value →
+   document, commit the bump fix alone, defer S2-CSS. If hello-world regressed → revert bump fix.
+
+## (historical) events-s2b relift up
+1. node scripts/m9_e2e/web-setcss-cdp.js → width→300px ⇒ cb-alloc fix + S2 both work → then
+   REGRESSION: relift examples/c/hello-world.bin + /tmp/cdp_drive.js (counter 5→6) AND
+   web-events-min (S1). All green ⇒ COMMIT (S2 infra + bump-ptr-shared fix + setcss test).
+2. If web-setcss still traps in alloc → the fixed-addr 0x40020 is clobbered or reset-timing is
+   off; peek 0x40020 post-trap (AzStartup_peekU32) to see the bump value. If hello-world
+   REGRESSES → the shared-bump change broke mini; revert the bump change, keep S2 infra, and
+   route cb alloc differently (make cb IMPORT __rust_alloc from mini instead of bundling).
+
+## (historical) events-s2 relift up
+1. node scripts/m9_e2e/web-setcss-cdp.js → width→300px ⇒ S2 set_css_property round-trips →
+   COMMIT S2 (new_web + eventloop drain + loader case-4 + test app/harness). Also re-run
+   web-events-min-cdp.js as an S1 regression (the dispatch path changed).
+2. If CSS doesn't apply → bisect per the lift-risk note; likely the CallbackChange Vec/match or
+   format_css. Fall back: single-variant drain, or peek patch_buf_used to localize.
+3. Then S3 (timers) on a minimal app.
+
+## (historical) PIVOT to S2
 S1 is committed + verified on a minimal app. The same minimal-app strategy verifies S2-S7 — so
 class-B (the known-hard prior-session sret bug, now thoroughly localized above) does NOT block
 the deliverable. Proceed:
