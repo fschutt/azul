@@ -6,7 +6,10 @@ use azul::css::ColorU;
 struct WidgetShowcase {
     enable_padding: bool,
     progress: f32,
+    selected_choice: usize,
 }
+
+const CHOICES: &[&str] = &["Red", "Green", "Blue"];
 
 extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let showcase = match data.downcast_ref::<WidgetShowcase>() {
@@ -60,6 +63,17 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     increase_button.set_on_click(data.clone(), increase_progress);
     let increase_dom = increase_button.dom().with_css(margin);
 
+    // Dropdown (opens a popup menu; selecting fires on_choice_change)
+    let choices: Vec<azul::str::String> = CHOICES.iter().map(|s| (*s).into()).collect();
+    let dropdown_dom = DropDown::create(choices)
+        .with_on_choice_change(data.clone(), on_dropdown_change)
+        .dom()
+        .with_css(margin);
+    let selected_label = Dom::create_text(
+        format!("Selected: {}", CHOICES[showcase.selected_choice.min(CHOICES.len() - 1)]).as_str(),
+    )
+    .with_css("margin-bottom: 10px; color: #2a6;");
+
     // Heading
     let heading = Dom::create_p()
         .with_child(Dom::create_text("Widget Showcase"))
@@ -69,6 +83,8 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     Dom::create_body()
         .with_css(padding)
         .with_child(heading)
+        .with_child(dropdown_dom)
+        .with_child(selected_label)
         .with_child(button_dom)
         .with_child(checkbox_dom)
         .with_child(progress_bar)
@@ -112,10 +128,22 @@ extern "C" fn increase_progress(mut data: RefAny, _: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
+// Fired when the user picks a dropdown item (the third arg is the choice index).
+extern "C" fn on_dropdown_change(mut data: RefAny, _: CallbackInfo, choice: usize) -> Update {
+    let mut data = match data.downcast_mut::<WidgetShowcase>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    data.selected_choice = choice;
+    Update::RefreshDom
+}
+
 fn main() {
     let data = RefAny::new(WidgetShowcase {
         enable_padding: true,
         progress: 20.0,
+        selected_choice: 0,
     });
     let app = App::create(data, AppConfig::create());
     let options = WindowCreateOptions::create(layout);
