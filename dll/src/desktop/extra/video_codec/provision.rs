@@ -493,6 +493,72 @@ impl ProvisionPlan {
     }
 }
 
+/// Reboot the machine — the action an app fires when the user confirms the
+/// "driver installed — reboot now?" prompt after a `reboot_required` install.
+///
+/// On Linux this goes through `systemctl reboot`, which logind normally lets an
+/// **active local session** do *without* a password (no elevation needed — a
+/// nicer flow than re-prompting); if polkit refuses, it retries via `pkexec`.
+/// **Reboots immediately** — call only on explicit user confirmation. Returns
+/// only if the reboot was *not* initiated (on success the process is torn down
+/// with the system).
+pub fn reboot_now() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        if try_spawn("systemctl", &["reboot"]) {
+            return Ok(());
+        }
+        if let Some(e) = elevator() {
+            if try_spawn(e, &["systemctl", "reboot"]) {
+                return Ok(());
+            }
+        }
+        Err(String::from(
+            "could not initiate reboot (systemctl reboot refused; try `reboot` manually)",
+        ))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if try_spawn("shutdown", &["/r", "/t", "0"]) {
+            return Ok(());
+        }
+        Err(String::from("could not initiate reboot (shutdown /r failed)"))
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+    {
+        // These platforms decode via a built-in codec; a driver-install reboot
+        // shouldn't arise. Provided for completeness on desktop macOS.
+        #[cfg(target_os = "macos")]
+        if let Some(e) = elevator() {
+            if try_spawn(e, &["shutdown", "-r", "now"]) {
+                return Ok(());
+            }
+        }
+        Err(String::from("reboot not initiated on this platform"))
+    }
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android"
+    )))]
+    {
+        Err(String::from("reboot not supported on this platform"))
+    }
+}
+
+/// Run `program args...`, returning whether it exited successfully. Used for the
+/// reboot trigger (a success means the reboot was accepted / the process is
+/// about to be torn down).
+fn try_spawn(program: &str, args: &[&str]) -> bool {
+    Command::new(program)
+        .args(args)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Outcome of [`ProvisionPlan::run`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProvisionRunResult {
@@ -701,6 +767,103 @@ fn linux_plan() -> ProvisionPlan {
     ProvisionPlan::none("no NVIDIA/AMD/Intel GPU detected to provision")
 }
 
+// ───────────────────────── Install progress ─────────────────────────
+//
+// So an app can draw a progress bar over the multi-minute polkit install
+// instead of being blind, the runner streams each command's output and parses
+// apt's machine-readable `APT::Status-Fd` lines into an overall percentage +
+// the human-readable current step. (Threaded pollable handle: next step; this
+// is the parser + percent math it builds on, all unit-testable.)
+
+/// State of a (possibly background) provisioning install.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProvisionState {
+    /// Not started.
+    Idle,
+    /// A command is currently running.
+    Running,
+    /// All commands succeeded.
+    Succeeded,
+    /// A command failed (see `message`); the install stopped.
+    Failed,
+}
+
+/// Which phase an apt `Status-Fd` line reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AptPhase {
+    /// Downloading archives (`dlstatus:`).
+    Download,
+    /// Unpacking / configuring (`pmstatus:`).
+    Install,
+    /// An error line (`pmerror:`).
+    Error,
+    /// A conffile prompt (`pmconffile:`).
+    ConfFile,
+}
+
+/// One parsed apt `Status-Fd` line.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AptStatus {
+    /// The phase this line reports.
+    pub phase: AptPhase,
+    /// apt's own 0..100 percent for that phase.
+    pub percent: f32,
+    /// Human-readable description (e.g. "Setting up nvidia-driver-535").
+    pub description: String,
+}
+
+/// Parse one line apt writes to the fd named by `-o APT::Status-Fd=N`.
+///
+/// The format is `kind:item:percent:description`, where `description` may itself
+/// contain colons (URLs), so only the first three colons are split on. Returns
+/// `None` for any other line (plain apt chatter), so a caller can feed it every
+/// stdout line indiscriminately.
+pub fn parse_apt_status_line(line: &str) -> Option<AptStatus> {
+    let mut parts = line.splitn(4, ':');
+    let kind = parts.next()?;
+    let phase = match kind {
+        "dlstatus" => AptPhase::Download,
+        "pmstatus" => AptPhase::Install,
+        "pmerror" => AptPhase::Error,
+        "pmconffile" => AptPhase::ConfFile,
+        _ => return None,
+    };
+    let _item = parts.next()?;
+    let percent = parts.next()?.trim().parse::<f32>().ok()?;
+    let description = parts.next().unwrap_or("").trim().to_string();
+    Some(AptStatus {
+        phase,
+        percent: percent.clamp(0.0, 100.0),
+        description,
+    })
+}
+
+/// Map one apt status update to an intra-command 0..100 percent: downloads fill
+/// the lower half, unpack/configure the upper half, so a command that downloads
+/// then installs sweeps 0→100 monotonically (an install with nothing to fetch
+/// simply starts at 50).
+pub fn command_percent(status: &AptStatus) -> f32 {
+    match status.phase {
+        AptPhase::Download => status.percent * 0.5,
+        AptPhase::Install => 50.0 + status.percent * 0.5,
+        // Error/conffile don't move the bar.
+        AptPhase::Error | AptPhase::ConfFile => 0.0,
+    }
+}
+
+/// Overall 0..100 across the whole plan: completed commands count full, the
+/// in-flight command contributes its own fraction.
+pub fn overall_percent(completed_steps: usize, total_steps: usize, cmd_percent: f32) -> u32 {
+    if total_steps == 0 {
+        return 100;
+    }
+    let cmd = cmd_percent.clamp(0.0, 100.0);
+    let done = (completed_steps.min(total_steps)) as f32 * 100.0;
+    let overall = (done + cmd) / total_steps as f32;
+    overall.clamp(0.0, 100.0).round() as u32
+}
+
 #[cfg(test)]
 mod provision_tests {
     use super::*;
@@ -773,5 +936,59 @@ mod provision_tests {
         assert_eq!(c.args, vec!["install"]);
         let plain = ProvisionCommand::new("winget", &["install", "x"], false);
         assert_eq!(plain.display, "winget install x");
+    }
+
+    /// apt Status-Fd lines parse into phase + percent + a description that keeps
+    /// its embedded colons (URLs); non-status chatter yields None.
+    #[test]
+    fn apt_status_lines_parse() {
+        let dl = parse_apt_status_line("dlstatus:1:13.3766:Hole http://archive.ubuntu.com/x")
+            .expect("dlstatus parses");
+        assert_eq!(dl.phase, AptPhase::Download);
+        assert!((dl.percent - 13.3766).abs() < 0.001);
+        assert_eq!(dl.description, "Hole http://archive.ubuntu.com/x");
+
+        let pm = parse_apt_status_line("pmstatus:nvidia-driver-535:50.0:Setting up nvidia-driver-535")
+            .expect("pmstatus parses");
+        assert_eq!(pm.phase, AptPhase::Install);
+        assert_eq!(pm.percent, 50.0);
+
+        assert_eq!(
+            parse_apt_status_line("pmerror:pkg:0:boom").unwrap().phase,
+            AptPhase::Error
+        );
+        assert_eq!(
+            parse_apt_status_line("pmconffile:/etc/x:0:prompt").unwrap().phase,
+            AptPhase::ConfFile
+        );
+        // Plain apt output / arbitrary lines are not status lines.
+        assert!(parse_apt_status_line("Unpacking nvidia-driver-535 ...").is_none());
+        assert!(parse_apt_status_line("").is_none());
+    }
+
+    /// Download fills the lower half of a command, install the upper half.
+    #[test]
+    fn command_percent_splits_download_and_install() {
+        let dl = AptStatus { phase: AptPhase::Download, percent: 100.0, description: String::new() };
+        assert_eq!(command_percent(&dl), 50.0);
+        let pm0 = AptStatus { phase: AptPhase::Install, percent: 0.0, description: String::new() };
+        assert_eq!(command_percent(&pm0), 50.0);
+        let pm100 = AptStatus { phase: AptPhase::Install, percent: 100.0, description: String::new() };
+        assert_eq!(command_percent(&pm100), 100.0);
+    }
+
+    /// Overall percent counts finished commands as full and adds the in-flight
+    /// command's fraction; degenerate inputs clamp.
+    #[test]
+    fn overall_percent_combines_steps_and_command() {
+        // 2-command plan: command 0 fully done, command 1 at 50% -> (100+50)/2 = 75.
+        assert_eq!(overall_percent(1, 2, 50.0), 75);
+        // Nothing done, first command at 0% -> 0.
+        assert_eq!(overall_percent(0, 2, 0.0), 0);
+        // Everything done.
+        assert_eq!(overall_percent(2, 2, 100.0), 100);
+        // No steps -> trivially complete; out-of-range clamps.
+        assert_eq!(overall_percent(0, 0, 0.0), 100);
+        assert_eq!(overall_percent(5, 2, 999.0), 100);
     }
 }

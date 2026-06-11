@@ -64,8 +64,20 @@ fn main() {
     println!("  reboot_required: {}", result.reboot_required);
     println!("  message        : {}", result.message);
     if result.reboot_required {
-        // The app's cue to show "driver installed — reboot now". Here, in the
-        // CLI, we just print it.
-        println!("\n>>> Driver installed. Reboot now, then re-run — `available` should flip to true.");
+        // The app's cue to show "driver installed — reboot now?". A GUI would pop
+        // a dialog; here, with --reboot, we act on it; otherwise we just offer.
+        let do_reboot = std::env::args().any(|a| a == "--reboot");
+        if do_reboot {
+            println!("\n>>> Driver installed — rebooting now…");
+            match azul::desktop::extra::video_codec::provision::reboot_now() {
+                Ok(()) => println!("reboot initiated"),
+                Err(e) => println!("could not reboot automatically: {e}"),
+            }
+        } else {
+            println!(
+                "\n>>> Driver installed. Reboot to load it (re-run with --reboot to do it now), \
+                 then re-run — `available` should flip to true."
+            );
+        }
     }
 }
