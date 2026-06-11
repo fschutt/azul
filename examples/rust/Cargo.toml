@@ -67,6 +67,10 @@ name = "scrolling"
 path = "src/scrolling.rs"
 
 [[example]]
+name = "anim"
+path = "src/anim.rs"
+
+[[example]]
 name = "icu_demo"
 path = "icu_demo.rs"
 required-features = ["icu"]
