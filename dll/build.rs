@@ -643,8 +643,12 @@ fn configure_ios() {
         return;
     }
 
-    // xcode-select is required (provides the iOS SDK linker).
-    check_tool("xcode-select", &["-p"], "Run 'xcode-select --install'");
+    // xcode-select provides the iOS SDK linker — needed to LINK/bundle a real
+    // iOS build, but NOT to `cargo check`. Warn instead of panicking (matching
+    // ios-deploy below) so cross-compile type-checks from a non-macOS host
+    // aren't blocked outright; a real iOS link without it still fails later with
+    // a clear linker error.
+    warn_if_tool_missing("xcode-select", &["-p"], "Run 'xcode-select --install'");
     // ios-deploy is only needed for *device* deploy. Simulator deploy uses
     // `xcrun simctl install/launch` which is part of the Xcode CLT. Warn,
     // do not panic — many devs only target the simulator.
