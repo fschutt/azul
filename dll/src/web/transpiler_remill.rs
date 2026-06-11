@@ -1072,6 +1072,15 @@ impl RemillTranspiler {
         // `opt -O2` cleans + inlines, `llc -mtriple=wasm32` emits the
         // .o. Three process spawns + intermediate file I/O.
         let obj_path = self.scratch_dir.join(format!("{}.o", stem));
+        // S0 cache-v2a: byte-identical (patched IR, helper IR) across bundle
+        // walks → serve the previously produced object and skip the
+        // link/opt/llc chain entirely.
+        let obj_cache_file = obj_cache_path(&patched_ir, &helper_ir, fn_name, &stem, use_native);
+        if let Some(cp) = obj_cache_file.as_deref() {
+            if cp.exists() && std::fs::copy(cp, &obj_path).is_ok() {
+                return Ok(obj_path);
+            }
+        }
         if use_native {
             #[cfg(feature = "web-transpiler-static")]
             {
@@ -1350,6 +1359,12 @@ impl RemillTranspiler {
                 ],
                 fn_name,
             )?;
+        }
+
+        // S0 cache-v2a: persist the freshly produced object under its
+        // content key for the next bundle walk / server restart.
+        if let Some(cp) = obj_cache_file.as_deref() {
+            let _ = std::fs::copy(&obj_path, cp);
         }
 
         // produce_object_for stops here — caller decides whether to
@@ -5036,6 +5051,75 @@ pub fn preflight_report() {
     }
 }
 
+/// S0 cache-v2a (2026-06-11): content-keyed cache for produced wasm32
+/// OBJECTS. The per-bundle transitive walks (mini + layout + one per cb)
+/// re-compile byte-identical lifted IR for every shared dependency — with
+/// N callbacks that's up to N+2 redundant `llvm-link|opt|llc` subprocess
+/// chains per function, which the process sample showed dominating relift
+/// wall time once the lift cache hits. Key = post-rewrite lifted IR +
+/// helper IR + opt flag + the global env toggles that mutate IR pre-llc +
+/// engine fingerprint. Returns `None` (no caching) when the lift cache is
+/// off or any fn-matched IR-mutating diagnostic is active for this fn —
+/// instrumented objects must never be served stale.
+fn obj_cache_path(
+    patched_ir: &str,
+    helper_ir: &str,
+    fn_name: &str,
+    stem: &str,
+    use_native: bool,
+) -> Option<PathBuf> {
+    if std::env::var_os("AZ_LIFT_CACHE").is_none()
+        || std::env::var_os("AZ_NO_LIFT_CACHE").is_some()
+    {
+        return None;
+    }
+    for var in [
+        "AZ_WRITE_TRACE",
+        "AZ_READ_TRACE",
+        "AZ_REG_TRACE",
+        "AZ_LOG_SELFLOOP_VAL",
+        "AZ_LOG_STORES",
+        "AZ_TAG_UNREACHABLE",
+        "AZ_FUEL",
+    ] {
+        if let Ok(t) = std::env::var(var) {
+            if t == "ALL"
+                || t.split(',')
+                    .any(|s| !s.is_empty() && (fn_name.contains(s) || stem.contains(s)))
+            {
+                return None;
+            }
+        }
+    }
+    fn fold(mut h: u64, bytes: &[u8]) -> u64 {
+        for b in bytes {
+            h ^= *b as u64;
+            h = h.wrapping_mul(super::FNV_PRIME);
+        }
+        h
+    }
+    let mut h: u64 = super::FNV_OFFSET_BASIS;
+    h = fold(h, patched_ir.as_bytes());
+    h = fold(h, helper_ir.as_bytes());
+    h = fold(h, opt_flag_for(fn_name).as_bytes());
+    h = fold(
+        h,
+        &[
+            use_native as u8,
+            std::env::var_os("AZ_NO_FIX_SP").is_some() as u8,
+            std::env::var_os("AZ_NO_TRAP_SELFLOOP").is_some() as u8,
+        ],
+    );
+    let dir = std::env::temp_dir().join("az-lift-cache");
+    let _ = std::fs::create_dir_all(&dir);
+    Some(dir.join(format!(
+        "{:016x}_v{}_e{:x}.o",
+        h,
+        LIFT_CACHE_VERSION,
+        engine_fingerprint(),
+    )))
+}
+
 /// On-disk cache for `lift_fn`'s raw remill IR. The IR is synth-addressed
 /// (stable across process restarts + dll relinks that don't change a
 /// function's machine bytes), so caching it skips the expensive
@@ -5352,6 +5436,25 @@ fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
                 .or_else(|| s.parse().ok())
         })
         .unwrap_or(196608);
+    // 2026-06-11: optional LOW bound — lets a trace target ONE region (e.g.
+    // a caller frame at 0x2exxx) without per-loop SP-region (0xffxx) or heap
+    // writes flooding the 3500-entry ring.
+    let win_lo: u32 = std::env::var("AZ_LSWIN_LO")
+        .ok()
+        .and_then(|s| {
+            s.strip_prefix("0x")
+                .and_then(|h| u32::from_str_radix(h, 16).ok())
+                .or_else(|| s.parse().ok())
+        })
+        .unwrap_or(0);
+    // 2026-06-11: optional id floor — instrumentation ids follow static
+    // program order, so `AZ_LSID_LO=N` traces only a function's TAIL (e.g.
+    // an sret return-copy) regardless of target address, without the body's
+    // thousands of loop stores flooding the ring.
+    let id_lo: u32 = std::env::var("AZ_LSID_LO")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     for line in opt_ir.lines() {
         // Log the destination + value of a `store`, OR the dest pointer + LENGTH
         // of a memset/memcpy/memmove (a bulk zero/copy can clobber many cache
@@ -5394,11 +5497,13 @@ fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
     out.push_str(&format!(
         "\ndefine internal void @__az_logst(i32 %addr, i32 %id, i32 %val) {{\n\
          azentry:\n\
-         \x20 %azlo = icmp uge i32 %addr, 0\n\
+         \x20 %azlo = icmp uge i32 %addr, {win_lo}\n\
          \x20 %azhi = icmp ult i32 %addr, {win_hi}\n\
          \x20 %azwin = and i1 %azlo, %azhi\n\
          \x20 %azsp = icmp eq i32 %addr, 983040\n\
-         \x20 %azin = or i1 %azwin, %azsp\n\
+         \x20 %azwin2 = or i1 %azwin, %azsp\n\
+         \x20 %azidok = icmp uge i32 %id, {id_lo}\n\
+         \x20 %azin = and i1 %azwin2, %azidok\n\
          \x20 br i1 %azin, label %azdo, label %azout\n\
          azdo:\n\
          \x20 %azcntp = inttoptr i32 266240 to ptr\n\
