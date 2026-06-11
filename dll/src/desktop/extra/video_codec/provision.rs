@@ -330,6 +330,17 @@ pub struct ProvisionPlan {
     pub summary: String,
     /// Running it needs elevation.
     pub needs_elevation: bool,
+    /// How elevation is obtained, so the app can message correctly and decide
+    /// whether to offer an in-app "Install" button:
+    /// - `"pkexec"` — the **secure path**: polkit shows the OS's own trusted
+    ///   password/biometric dialog; our process never sees the secret. (Polkit
+    ///   itself can use a fingerprint via `pam_fprintd` — the same backend
+    ///   azul-vault uses — if the admin configured it.) Safe to run from a GUI.
+    /// - `"sudo"` — only works from a real terminal (sudo prompts on the tty).
+    ///   A GUI should show the commands and ask the user to run them, NOT collect
+    ///   the password itself.
+    /// - `"none"` — no elevation needed, or no escalator available.
+    pub elevation: String,
     /// A reboot is needed afterwards (driver swap).
     pub needs_reboot: bool,
     /// Commands, in order.
@@ -342,6 +353,7 @@ impl ProvisionPlan {
             possible: false,
             summary: reason.to_string(),
             needs_elevation: false,
+            elevation: String::from("none"),
             needs_reboot: false,
             commands: Vec::new(),
         }
@@ -349,10 +361,18 @@ impl ProvisionPlan {
 
     fn from_commands(summary: String, needs_reboot: bool, commands: Vec<ProvisionCommand>) -> Self {
         let needs_elevation = commands.iter().any(|c| c.elevated);
+        // Report the escalator the app would actually get. pkexec is preferred
+        // (graphical, OS-owned prompt); we never collect the secret ourselves.
+        let elevation = if needs_elevation {
+            elevator().unwrap_or("none").to_string()
+        } else {
+            String::from("none")
+        };
         ProvisionPlan {
             possible: !commands.is_empty(),
             summary,
             needs_elevation,
+            elevation,
             needs_reboot,
             commands,
         }
@@ -726,6 +746,11 @@ mod provision_tests {
             assert!(!plan.summary.is_empty());
             // possible plans always touch system packages → elevation.
             assert!(plan.needs_elevation);
+            // ...and the escalator must be named (this box has pkexec — the
+            // secure graphical path).
+            assert!(plan.elevation == "pkexec" || plan.elevation == "sudo");
+        } else {
+            assert_eq!(plan.elevation, "none");
         }
         // possible == (commands non-empty) invariant.
         assert_eq!(plan.possible, !plan.commands.is_empty());
