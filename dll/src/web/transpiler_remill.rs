@@ -1122,6 +1122,32 @@ impl RemillTranspiler {
                 fn_name,
             )?;
 
+            // [WEB-LIFT FIX 2026-06-11, DEFAULT; AZ_KEEP_ALIAS_SCOPE=1 to disable]
+            // Strip remill's `!alias.scope`/`!noalias` from the linked IR before
+            // opt. remill tags State-register accesses and guest-memory accesses
+            // into mutually-noalias scopes (registers don't alias memory) — sound
+            // on real hardware where the State struct and the guest address space
+            // are disjoint. On wasm they are the SAME linear address space (guest
+            // pointers are truncated to 32 bits and can land on the State struct),
+            // so the scopes are UNSOUND: EarlyCSE (pipeline pass #560, pinned by
+            // opt-bisect) trusts them to forward a non-volatile register load
+            // ACROSS volatile guest stores, collapsing two stores that must hold
+            // different register values (e.g. a &str fat-pointer's ptr@sp+472 and
+            // a later field@sp+488) into one — producing garbage Vec/String
+            // lengths (the class-B multi-word-drop family: getHitNode 16B,
+            // build_compact 176B sret, text3 create_logical_items here). Removing
+            // the metadata makes opt conservatively assume reg/mem may alias;
+            // correctness over the lost forwarding. (strip_noalias_from_sub_args
+            // only handled `noalias` on sub_ ARGS, not these per-access scopes.)
+            if std::env::var_os("AZ_KEEP_ALIAS_SCOPE").is_none() {
+                if let Ok(ir) = std::fs::read_to_string(&linked_ir_path) {
+                    let (stripped, n) = strip_alias_scope_metadata(&ir);
+                    if n > 0 {
+                        let _ = std::fs::write(&linked_ir_path, &stripped);
+                    }
+                }
+            }
+
             let opt_ir_path = self.scratch_dir.join(format!("{}.opt.ll", stem));
             let opt = self.opt.as_deref().ok_or_else(|| TranspileError {
                 fn_name: fn_name.to_string(),
@@ -5037,7 +5063,7 @@ fn remill_export_symbol(entry_addr: u64) -> String {
 /// input bytes (the byte rewrites in `lift_fn`, the synth-address scheme). The
 /// remill ENGINE rev is captured automatically by [`engine_fingerprint`], so
 /// you only bump this for changes inside this crate's lift logic.
-const LIFT_CACHE_VERSION: u32 = 3;
+const LIFT_CACHE_VERSION: u32 = 4;
 
 /// Fingerprint of the lifting ENGINE — the `remill-lift-17` binary — folded
 /// into the cache key so an engine change auto-invalidates every entry without
@@ -5225,6 +5251,9 @@ fn obj_cache_path(
             use_native as u8,
             std::env::var_os("AZ_NO_FIX_SP").is_some() as u8,
             std::env::var_os("AZ_NO_TRAP_SELFLOOP").is_some() as u8,
+            // AZ_KEEP_ALIAS_SCOPE toggles the post-link alias-metadata strip
+            // (default-on); it changes the opt input → must key the object.
+            std::env::var_os("AZ_KEEP_ALIAS_SCOPE").is_some() as u8,
         ],
     );
     let dir = std::env::temp_dir().join("az-lift-cache");
@@ -7453,6 +7482,63 @@ fn strip_noalias_from_sub_args(ir: &str) -> String {
         }
     }
     out
+}
+
+/// [WEB-LIFT FIX 2026-06-11] Remove ALL `!alias.scope`/`!noalias` metadata
+/// from a linked module. remill emits `!alias.scope !0, !noalias !3` on every
+/// State-register access and guest-memory intrinsic to declare registers and
+/// guest memory mutually-non-aliasing — TRUE on hardware (disjoint address
+/// spaces) but FALSE on wasm, where both live in one linear memory and guest
+/// pointers truncate to 32 bits (so a guest store can land on the State
+/// struct). EarlyCSE trusts the metadata and forwards a non-volatile register
+/// load across volatile guest stores, collapsing distinct stores to one value
+/// → garbage Vec/String lengths (the class-B family). Pinned to `-O2` pass
+/// #560 EarlyCSE by opt-bisect; stripping the metadata removes the unsound
+/// premise. NOTE: this removes BOTH remill's native scopes (`!0`/`!3`) and
+/// `tag_state_accesses`'s host/guest lists (`!90004`/`!90005`) — the latter's
+/// `AZ_NO_HOST_SCOPE` toggle never touched remill's, which is why it failed to
+/// fix class-B. Returns (stripped_ir, replacements_made).
+fn strip_alias_scope_metadata(ir: &str) -> (String, u32) {
+    let mut out = String::with_capacity(ir.len());
+    let mut n: u32 = 0;
+    for line in ir.lines() {
+        // Only instruction lines carry trailing `, !alias.scope`/`, !noalias`;
+        // metadata DEFINITIONS (`!0 = !{...}`) start with `!` and are left as
+        // dead defs (harmless — LLVM drops unreferenced metadata).
+        if line.contains("!alias.scope") || line.contains("!noalias") {
+            let mut s = line.to_string();
+            for tag in [", !alias.scope !", ", !noalias !"] {
+                while let Some(pos) = s.find(tag) {
+                    // Remove the tag keyword + its metadata id (digits) or
+                    // an inline `!{...}` group.
+                    let after = pos + tag.len();
+                    let bytes = s.as_bytes();
+                    let mut end = after;
+                    if bytes.get(after) == Some(&b'{') {
+                        // inline group `!{...}` — scan to matching brace
+                        while end < bytes.len() && bytes[end] != b'}' {
+                            end += 1;
+                        }
+                        if end < bytes.len() {
+                            end += 1; // include '}'
+                        }
+                    } else {
+                        while end < bytes.len() && bytes[end].is_ascii_digit() {
+                            end += 1;
+                        }
+                    }
+                    s.replace_range(pos..end, "");
+                    n += 1;
+                }
+            }
+            out.push_str(&s);
+            out.push('\n');
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    (out, n)
 }
 
 fn tag_state_accesses(ir: &str) -> String {
