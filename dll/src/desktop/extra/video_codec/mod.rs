@@ -28,6 +28,11 @@ use azul_css::{AzString, U8Vec};
 #[cfg(feature = "video-native")]
 pub mod demux;
 
+// File -> frames pipeline (demux + feed through VideoDecoder). Behind
+// `video-native`; the decode step is the only hardware-gated part.
+#[cfg(feature = "video-native")]
+pub mod pipeline;
+
 // Hardware-decode capability probe + driver-provisioning planner (always built;
 // no extra crate deps). Drives `capability::video_codec()` and the "install the
 // drivers for me?" flow.
