@@ -430,6 +430,7 @@ impl ProvisionPlan {
             return ProvisionRunResult {
                 ok: false,
                 commands_run: 0,
+                reboot_required: false,
                 message: String::from("no remediation plan for this machine"),
             };
         }
@@ -447,6 +448,7 @@ impl ProvisionPlan {
                         return ProvisionRunResult {
                             ok: false,
                             commands_run: run,
+                            reboot_required: false,
                             message: String::from(
                                 "an elevated step is required but neither pkexec nor sudo is \
                                  available",
@@ -464,6 +466,7 @@ impl ProvisionPlan {
                     return ProvisionRunResult {
                         ok: false,
                         commands_run: run,
+                        reboot_required: false,
                         message: format!("`{}` exited with {}", c.display, s),
                     }
                 }
@@ -471,6 +474,7 @@ impl ProvisionPlan {
                     return ProvisionRunResult {
                         ok: false,
                         commands_run: run,
+                        reboot_required: false,
                         message: format!("`{}` failed to start: {e}", c.display),
                     }
                 }
@@ -479,8 +483,9 @@ impl ProvisionPlan {
         ProvisionRunResult {
             ok: true,
             commands_run: run,
+            reboot_required: self.needs_reboot,
             message: if self.needs_reboot {
-                String::from("all commands succeeded — reboot to load the new driver")
+                String::from("driver installed — reboot now to load it")
             } else {
                 String::from("all commands succeeded")
             },
@@ -495,6 +500,10 @@ pub struct ProvisionRunResult {
     pub ok: bool,
     /// How many commands ran successfully before stopping.
     pub commands_run: usize,
+    /// The install succeeded AND a reboot is required to load the new driver —
+    /// the app's cue to show "driver installed, reboot now". Always false on
+    /// failure. (The pre-install equivalent is `ProvisionPlan::needs_reboot`.)
+    pub reboot_required: bool,
     /// Human-readable result / error.
     pub message: String,
 }
