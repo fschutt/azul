@@ -27,6 +27,42 @@ fn main() {
     println!("  detail        : {}", probe.detail);
     println!("  can_remediate : {}", probe.can_remediate);
 
+    // Reboot-safety gate + autofix demo: would the kernel GRUB defaults to
+    // actually reach root? (The check that would have caught the nvidia
+    // incident, where a new kernel lacked the boot disk's controller driver.)
+    #[cfg(target_os = "linux")]
+    if let Some(kver) = azul::desktop::extra::video_codec::provision::newest_installed_kernel() {
+        use azul::desktop::extra::video_codec::provision::{reboot_safety_check, repair_kernel_plan};
+        println!("\n=== Reboot-safety check (newest installed kernel) ===");
+        let s = reboot_safety_check(&kver);
+        println!("  kernel : {kver}");
+        println!("  safe   : {}", s.safe);
+        println!("  detail : {}", s.detail);
+        if !s.safe {
+            // if broken { fix_it(plan) } — detect a borked install and offer/run
+            // the autofix (install modules-extra + rebuild initramfs).
+            let repair = repair_kernel_plan(&kver);
+            if repair.possible {
+                println!("  -> this kernel is NOT bootable; autofix plan:");
+                println!("     {}", repair.summary);
+                for (i, c) in repair.commands.iter().enumerate() {
+                    println!("       {}. {}", i + 1, c.display);
+                }
+                if std::env::args().any(|a| a == "--repair") {
+                    println!("  -> applying autofix (pkexec will prompt)…");
+                    let r = repair.run();
+                    println!("     ok={} commands_run={} msg={}", r.ok, r.commands_run, r.message);
+                    let after = reboot_safety_check(&kver);
+                    println!("     re-check after fix: safe={} — {}", after.safe, after.detail);
+                } else {
+                    println!("     (pass --repair to apply it now)");
+                }
+            }
+        } else {
+            println!("  -> bootable; ready for hardware video decode after reboot.");
+        }
+    }
+
     if probe.available {
         println!("\nHardware decode is ready — nothing to install.");
         return;

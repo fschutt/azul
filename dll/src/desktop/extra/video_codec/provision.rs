@@ -559,6 +559,222 @@ fn try_spawn(program: &str, args: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
+// ───────────────── Reboot-safety gate (the incident fix) ─────────────────
+
+/// Whether booting a given kernel can actually reach the current root filesystem.
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct RebootSafety {
+    /// The target kernel's module set can reach the running root filesystem.
+    pub safe: bool,
+    /// What was checked / what is missing (for logs and the UI).
+    pub detail: String,
+}
+
+/// Verify a kernel can reach `/` *before* anyone reboots into it.
+///
+/// The failure this prevents: a driver install pulled a brand-new kernel whose
+/// initramfs lacked the boot disk's controller driver (`pata_atiixp`, which
+/// ships in `linux-modules-extra`) -> the disk never appeared -> BusyBox. Every
+/// package was `ii` and the GPU module built, so package-state checks all said
+/// "safe to reboot". This gate asks the real question instead: does
+/// `kernel_version`'s module set contain the driver for the disk that backs `/`,
+/// plus `dm-crypt` when root is encrypted?
+///
+/// Reads only the world-readable `modules.dep`/`modules.builtin` (no root, no
+/// `lsinitramfs`) — which alone would have caught the incident, since the driver
+/// was simply absent from the new kernel's tree. Call before offering
+/// [`reboot_now`] / declaring "safe to reboot". Non-Linux targets return
+/// `safe = true` (no per-kernel initramfs concept).
+pub fn reboot_safety_check(kernel_version: &str) -> RebootSafety {
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = kernel_version;
+        RebootSafety {
+            safe: true,
+            detail: String::from("not applicable on this platform"),
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut reasons = Vec::new();
+        let mut safe = true;
+
+        match root_disk_driver() {
+            Some(driver) => {
+                if kernel_has_module(kernel_version, &driver) {
+                    reasons.push(format!("root-disk driver `{driver}` is in {kernel_version}"));
+                } else {
+                    safe = false;
+                    reasons.push(format!(
+                        "MISSING root-disk driver `{driver}` in {kernel_version} — the disk will \
+                         not appear; install linux-modules-extra-{kernel_version}"
+                    ));
+                }
+            }
+            None => reasons.push(String::from(
+                "could not resolve the root disk's driver (check skipped)",
+            )),
+        }
+
+        if root_is_encrypted() {
+            if kernel_has_module(kernel_version, "dm-crypt") {
+                reasons.push(String::from("dm-crypt present (LUKS root)"));
+            } else {
+                safe = false;
+                reasons.push(format!(
+                    "MISSING dm-crypt in {kernel_version} — encrypted root unreachable"
+                ));
+            }
+        }
+
+        RebootSafety {
+            safe,
+            detail: reasons.join("; "),
+        }
+    }
+}
+
+/// stdout of `program args...` (trimmed), or None on failure/empty.
+#[cfg(target_os = "linux")]
+fn capture(program: &str, args: &[&str]) -> Option<String> {
+    let out = Command::new(program).args(args).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+/// The kernel driver for the **storage controller** the disk backing `/` hangs
+/// off (e.g. `pata_atiixp`, `ahci`, `nvme`, `virtio_pci`) — the at-risk module,
+/// not the generic disk driver (`sd`) which is always present.
+///
+/// `/sys/block/<disk>/device/driver` is the SCSI disk (`sd`); the controller is
+/// further up the device tree. We canonicalise the block device's sysfs path and
+/// return the driver of the deepest PCI function in its ancestry — i.e. the
+/// host controller closest to the disk.
+#[cfg(target_os = "linux")]
+fn root_disk_driver() -> Option<String> {
+    let src = capture("findmnt", &["-no", "SOURCE", "/"])?;
+    // Inverse device tree (raw, no tree-drawing chars): find the TYPE=disk node.
+    let tree = capture("lsblk", &["-rnso", "NAME,TYPE", &src])?;
+    let disk = tree.lines().find_map(|line| {
+        let mut it = line.split_whitespace();
+        let name = it.next()?;
+        if it.next() == Some("disk") {
+            Some(name.to_string())
+        } else {
+            None
+        }
+    })?;
+    // e.g. /sys/devices/pci0000:00/0000:00:14.1/ata1/host0/.../block/sda
+    let real = std::fs::canonicalize(format!("/sys/block/{disk}")).ok()?;
+    for anc in real.ancestors() {
+        let name = match anc.file_name().and_then(|s| s.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        // A PCI function dir is "dddd:bb:dd.f" — two ':' and a '.'.
+        if name.matches(':').count() == 2 && name.contains('.') {
+            if let Ok(link) = std::fs::read_link(anc.join("driver")) {
+                if let Some(d) = link.file_name().and_then(|s| s.to_str()) {
+                    return Some(d.to_string()); // deepest PCI device first -> the controller
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Is `/` backed by a dm-crypt (LUKS) device anywhere in its stack?
+#[cfg(target_os = "linux")]
+fn root_is_encrypted() -> bool {
+    capture("findmnt", &["-no", "SOURCE", "/"])
+        .and_then(|src| capture("lsblk", &["-rnso", "TYPE", &src]))
+        .map(|types| types.lines().any(|t| t.trim() == "crypt"))
+        .unwrap_or(false)
+}
+
+/// Is `module` available to `kernel_version` — as a loadable `.ko` or built-in?
+/// Reads the world-readable `modules.dep`/`modules.builtin`; accepts both `-`
+/// and `_` spellings (dm-crypt vs dm_crypt).
+#[cfg(target_os = "linux")]
+fn kernel_has_module(kernel_version: &str, module: &str) -> bool {
+    let base = format!("/lib/modules/{kernel_version}");
+    let names = [module.replace('_', "-"), module.replace('-', "_")];
+    for index in ["modules.dep", "modules.builtin"] {
+        if let Ok(contents) = std::fs::read_to_string(format!("{base}/{index}")) {
+            for n in &names {
+                if contents.contains(&format!("/{n}.ko")) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// The newest installed kernel — the one GRUB version-sorts to as default. The
+/// kernel a "safe to reboot?" check should target. (Best-effort approximation;
+/// an explicit `GRUB_DEFAULT` can override the sort order.)
+#[cfg(target_os = "linux")]
+pub fn newest_installed_kernel() -> Option<String> {
+    capture("sh", &["-c", "ls -1 /lib/modules | sort -V | tail -1"])
+}
+
+/// A repair plan for a kernel that [`reboot_safety_check`] flagged as unable to
+/// reach root — the "detect a broken install and offer to fix it" path, for
+/// users who hit the bug before the upstream/our-side fixes landed but still
+/// want hardware video decode.
+///
+/// On Debian/Ubuntu the missing storage/crypt driver lives in
+/// `linux-modules-extra-<kver>`; installing it and rebuilding that kernel's
+/// initramfs is the whole fix (the exact recovery from the field incident). The
+/// returned [`ProvisionPlan`] runs through the same consent + [`ProvisionPlan::run`]
+/// path as everything else (shows the commands first, elevates via pkexec). An
+/// already-bootable kernel yields an empty (`possible == false`) plan.
+pub fn repair_kernel_plan(kernel_version: &str) -> ProvisionPlan {
+    let safety = reboot_safety_check(kernel_version);
+    if safety.safe {
+        return ProvisionPlan::none(&format!(
+            "{kernel_version} can already reach root ({}); nothing to repair",
+            safety.detail
+        ));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if which("apt-get") {
+            let extra = format!("linux-modules-extra-{kernel_version}");
+            return ProvisionPlan::from_commands(
+                format!(
+                    "{kernel_version} cannot reach root: {}. Install {extra} (it carries the \
+                     missing driver) and rebuild that kernel's initramfs. Reboot afterwards to \
+                     use the repaired kernel.",
+                    safety.detail
+                ),
+                true, // a reboot is needed to actually run the repaired kernel
+                vec![
+                    ProvisionCommand::new("apt-get", &["install", "-y", extra.as_str()], true),
+                    ProvisionCommand::new(
+                        "update-initramfs",
+                        &["-u", "-k", kernel_version],
+                        true,
+                    ),
+                ],
+            );
+        }
+    }
+    ProvisionPlan::none(&format!(
+        "no automatic repair available for {kernel_version}: {}",
+        safety.detail
+    ))
+}
+
 /// Outcome of [`ProvisionPlan::run`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProvisionRunResult {
@@ -990,5 +1206,49 @@ mod provision_tests {
         // No steps -> trivially complete; out-of-range clamps.
         assert_eq!(overall_percent(0, 0, 0.0), 100);
         assert_eq!(overall_percent(5, 2, 999.0), 100);
+    }
+
+    /// The running kernel can, by definition, reach root (it did) -> safe; a
+    /// kernel with no module tree at all -> unsafe. This is the check that would
+    /// have stopped the incident: the new kernel lacked the root-disk driver.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn reboot_safety_passes_running_kernel_fails_a_bare_one() {
+        if let Some(kver) = capture("uname", &["-r"]) {
+            let r = reboot_safety_check(&kver);
+            eprintln!("[reboot-safety] {kver}: safe={} — {}", r.safe, r.detail);
+            assert!(r.safe, "running kernel must reach root: {}", r.detail);
+        }
+        let bad = reboot_safety_check("0.0.0-nonexistent-generic");
+        assert!(
+            !bad.safe,
+            "a kernel with no module tree must be unsafe: {}",
+            bad.detail
+        );
+    }
+
+    /// A broken kernel yields a repair plan that installs the matching
+    /// modules-extra and rebuilds the initramfs; a healthy one yields nothing.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn repair_plan_targets_modules_extra() {
+        if let Some(kver) = capture("uname", &["-r"]) {
+            assert!(
+                !repair_kernel_plan(&kver).possible,
+                "the running (bootable) kernel needs no repair"
+            );
+        }
+        let plan = repair_kernel_plan("0.0.0-nonexistent-generic");
+        if which("apt-get") {
+            assert!(plan.possible, "a broken kernel on apt should be repairable");
+            let cmds: Vec<&str> = plan.commands.iter().map(|c| c.display.as_str()).collect();
+            let joined = cmds.join(" | ");
+            assert!(
+                joined.contains("linux-modules-extra-0.0.0-nonexistent-generic"),
+                "got: {joined}"
+            );
+            assert!(joined.contains("update-initramfs"), "got: {joined}");
+            assert!(plan.needs_elevation && plan.needs_reboot);
+        }
     }
 }
