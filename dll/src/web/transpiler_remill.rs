@@ -5254,6 +5254,9 @@ fn obj_cache_path(
             // AZ_KEEP_ALIAS_SCOPE toggles the post-link alias-metadata strip
             // (default-on); it changes the opt input → must key the object.
             std::env::var_os("AZ_KEEP_ALIAS_SCOPE").is_some() as u8,
+            // AZ_FULL_CS_RESTORE toggles unconditional X19-X28 restore in
+            // enforce_sp_preservation → changes the post-opt IR → key it.
+            std::env::var_os("AZ_FULL_CS_RESTORE").is_some() as u8,
         ],
     );
     let dir = std::env::temp_dir().join("az-lift-cache");
@@ -5901,11 +5904,28 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
                  {indent}%azleak_{k} = icmp ult i64 %azspa_{k}, %azv_{k}_11\n"
             ));
             for j in 0..CS_OFFSETS.len() {
-                out.push_str(&format!(
-                    "{indent}%aza_{k}_{j} = load i64, ptr %azg_{k}_{j}, align 8\n\
-                     {indent}%azs_{k}_{j} = select i1 %azleak_{k}, i64 %azv_{k}_{j}, i64 %aza_{k}_{j}\n\
-                     {indent}store i64 %azs_{k}_{j}, ptr %azg_{k}_{j}, align 8\n"
-                ));
+                // [az-diag 2026-06-11] AZ_FULL_CS_RESTORE=1 restores the callee-saved
+                // GPRs X19..X28 (CS_OFFSETS indices 0..=9) UNCONDITIONALLY (snapshot),
+                // not leak-gated. Tests the mechanism-B hypothesis: a REAL call (e.g.
+                // split_text's grow_one/do_reserve_and_handle) clobbers a callee-saved
+                // GPR holding a live dest/sret pointer WITHOUT leaking SP, so the
+                // leak-gate (select on SP_after<SP_before) keeps the clobbered value →
+                // the StyledRun.text String is written with a pointer in its len slot.
+                // SP (11), FP (10) and D8..D15 (12..) stay leak-gated to avoid the
+                // tail-jump frame-resurrection the leak-gate was introduced to fix.
+                // DIAGNOSTIC ONLY (may re-break shape_text's tail-jump path); default off.
+                let full_gpr = j <= 9 && std::env::var_os("AZ_FULL_CS_RESTORE").is_some();
+                if full_gpr {
+                    out.push_str(&format!(
+                        "{indent}store i64 %azv_{k}_{j}, ptr %azg_{k}_{j}, align 8\n"
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "{indent}%aza_{k}_{j} = load i64, ptr %azg_{k}_{j}, align 8\n\
+                         {indent}%azs_{k}_{j} = select i1 %azleak_{k}, i64 %azv_{k}_{j}, i64 %aza_{k}_{j}\n\
+                         {indent}store i64 %azs_{k}_{j}, ptr %azg_{k}_{j}, align 8\n"
+                    ));
+                }
             }
             k += 1;
             continue;

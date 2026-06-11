@@ -8759,6 +8759,24 @@ pub fn split_text_for_whitespace(
         }
     }
 
+    // [az-diag REVERT] class-B mech-B build-vs-store split: read split_text's
+    // OWN output's first Text run.text.len() right before returning. 0x60C40=
+    // result.len, 0x60C44=first Text run.text.len, 0x60C48=ptr. If sane (1)
+    // here but create_logical reads garbage (0x60C20) ⇒ corruption is in the
+    // RETURN (sret move of Vec<InlineContent>) or the caller's content.extend/
+    // pass; if garbage HERE ⇒ split built the StyledRun.text String corrupt.
+    #[cfg(feature = "web_lift")]
+    unsafe {
+        crate::az_mark(0x60C40, result.len() as u32);
+        for item in result.iter() {
+            if let InlineContent::Text(run) = item {
+                crate::az_mark(0x60C44, run.text.len() as u32);
+                crate::az_mark(0x60C48, run.text.as_ptr() as usize as u32);
+                break;
+            }
+        }
+    }
+
     result
 }
 

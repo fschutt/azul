@@ -78,6 +78,61 @@ ptr@0x40060 bump@0x40020.
   (the 16-byte LOAD) → then opt-bisect THAT fn's IR the same way (dup-store OR a dropped 2nd load).
 - Artifacts: scripts/classB_artifacts/{build_compact,create_logical,reorder}.{opt,linked}.ll
   (gitignored). Re-capture per-fn via the KEEP_SCRATCH recipe (FINAL STATUS above).
+## 🎯 MECHANISM-B PINNED to ONE FUNCTION: split_text_for_whitespace's result-Vec buffer (2026-06-11 ~17:40, Fable)
+**The corruption is INSIDE split_text_for_whitespace** (fc.rs:8552), confirmed by probing its OWN
+output right before `result` is returned (probe 0x60C40/44/48): `result.len()==1` (CORRECT) but
+`result[0].text.len()==0xa294828` (heap ptr) and `result[0].text.as_ptr()==0xa294870` (heap ptr,
+0x48 away). Input was SANE (fc site-3 as_str().len()==1). So: split builds the StyledRun from a
+sane &str, but `result[0]`'s bytes are pointer-garbage while `result.len` is right ⇒ **`result`'s
+BUFFER POINTER (result.ptr) is wrong** — `result[0]` (= result.ptr[0]) reads the wrong heap
+memory. split_text's hot calls are ALL RawVec grow: do_reserve_and_handle×24, grow_one×14,
+handle_error×12 — the machinery `result.push(InlineContent::Text(StyledRun{text:slice.to_string()}))`
+runs through. So **grow_one/do_reserve_and_handle mis-sets result.ptr** (the realloc-return / Vec
+ptr write-back mis-lifts) in split_text's context.
+RULED OUT (4 hypotheses, each a relift): as_str/16-byte-slice-return (AzString sane);
+create_logical OR-pattern (standalone if-let reads same garbage); EarlyCSE/alias-scope (survives
+strip); callee-saved-GPR-clobber across wrapped call (AZ_FULL_CS_RESTORE=1 no-op — added as an
+env-gated diag, keyed into the obj cache). NOT a dup-store (two DIFFERENT pointers).
+**NEXT:** opt-bisect split_text's captured bundle (scripts/classB_artifacts/split_text.{opt,linked}.ll)
+— focus on grow_one/do_reserve_and_handle's realloc-return handling + the result.ptr write-back;
+find the pass that mangles result.ptr, OR examine the linked.ll (faithful) realloc-return store vs
+opt.ll. The realloc return is a SINGLE-reg ptr (x0), so it's NOT the x0:x1 16-byte case — likely a
+ptr write-back store or a SROA/GVN mis-transform on the RawVec fields. Probes live: split output
+0x60C40/44/48, create_logical entry 0x60C20, fc sites 0x60C00..14, AZ_FULL_CS_RESTORE diag.
+
+## 🔬 MECHANISM-B (earlier this wake) — Vec/RawVec growth in split_text_for_whitespace (2026-06-11 ~17:15, Fable)
+Cron 92e18a26 (fires :13/:43) is LIVE for the autonomous loop. Findings this wake (committed
+75e1bea59, diag probes [az-diag REVERT]):
+- **as_str/16-byte-slice-return RULED OUT.** At fc.rs collect_and_measure (all 3 text sites),
+  the DOM AzString is SANE: {ptr=heap, len=1, cap=1}, as_str().len()=1 for the "5" counter
+  (probes 0x60C00..14). So the bug is NOT the AzString nor as_str's 16-byte return.
+- **Corruption is split_text → create_logical.** At create_logical_items ENTRY, via a STANDALONE
+  single-disc if-let (probe 0x60C20), content[0].text.len() ALREADY = 0xa294828 (a HEAP POINTER:
+  heap_base 0xA000000 + 0x294828), text.as_ptr()=0xa294870 (another heap ptr, 0x48 away). So the
+  StyledRun.text String's {ptr,len} BOTH hold heap pointers. NOT the OR-pattern (standalone reads
+  same garbage). TWO DIFFERENT pointers ⇒ NOT a dup-store ⇒ EarlyCSE/alias-strip heuristic
+  can't catch it (survives strip; 0/1799 opt.ll retain alias.scope).
+- **LOCALIZED:** split_text_for_whitespace's hot calls are ALL Vec/RawVec growth —
+  do_reserve_and_handle×24, grow_one×14, handle_error×12 — which .to_string() + the result
+  Vec<InlineContent> push run through. The g127/g129 "Vec-return len mis-lift" family. Bundle
+  captured: scripts/classB_artifacts/split_text.{opt,linked}.ll + create_logical_v2.opt.ll
+  (gitignored). split_text root = __az_dep_<split_text_addr>; create_logical root =
+  __az_dep_<create_logical_addr>; both their own bundles.
+- **Heisenbug CONFIRMED:** a probe added INSIDE layout_flow moved the trap EARLIER (unreachable
+  before layout_flow, vs OOB-in-reorder without it) — barrier-defeatable optimizer mis-transform
+  per g189. So runtime-probe bisection is unreliable; use OFFLINE opt-bisect (the method that
+  cracked mechanism A).
+- **NEXT (3 attacks, in order of leverage):** (1) opt-bisect split_text's captured bundle with a
+  RUNTIME String-correctness check per bisect-limit (compile→mini→drive; heavy but decisive — the
+  static dup-store heuristic does NOT catch mech-B). (2) Audit enforce_sp_preservation coverage of
+  split_text's grow_one/do_reserve_and_handle calls — the g129 root was an indirect call
+  clobbering X19 (sret/dest ptr); check for an unwrapped call or incomplete saved-reg set near the
+  String/StyledRun construction. (3) g189 volatile-barrier: emit a barrier after each guest store
+  in the construction region. RULES: lift-side fixes only (dll/src/web or remill fork), NOT
+  azul-source out-param hacks. ⚠ DISK: purge azul-web-transpiler-* + az-lift-cache + target/debug
+  when free < 8-9 GiB (ENOSPC → 8-byte-stub → empty mini = false "broken").
+
+## (earlier note) MECHANISM-B CONTENT PATH probe history
 - ⚠ MECHANISM-B CONTENT PATH IS ELUSIVE: probes at BOTH
   window.rs collect_inline_content_for_node::Text (0x607E0..F0) AND
   sizing.rs collect_inline_content_recursive (0x60714/18/1C/54, prior-session markers) read 0
