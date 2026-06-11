@@ -49,7 +49,9 @@ libudev-sys = { git = "https://github.com/fschutt/libudev-azul", tag = "0.1.4" }
 azul-css = { path = "css" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
-printpdf = { git = "https://github.com/fschutt/printpdf", branch = "azul-0.0.9-html" }
+# rev-pinned (azul-0.0.9-html tip 2026-06-11, kuchiki-free html feature) so
+# consumers build reproducibly without a printpdf crates.io release.
+printpdf = { git = "https://github.com/fschutt/printpdf", rev = "ed4a768e1fa3ff7ce19ba2e7991f07b3b813e0bf" }
 # turso (SQLite engine for db-sqlite) pulls io-uring on Linux, which has no
 # prebuilt bindings for i686/armv7/s390x. Fork gates io-uring to 64-bit Linux
 # (falls back to UnixIO elsewhere); upstream "io-uring optional" later. All six

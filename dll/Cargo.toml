@@ -120,12 +120,14 @@ turso = { version = "0.1", optional = true }
 # aegis's `pure-rust` feature (softaes) skips the C build entirely; pull it in
 # directly so feature-unification enables it wherever turso is used.
 aegis = { version = "0.9", features = ["pure-rust"], optional = true }
-# PDF for AzulDoc (P5), gated by `pdf`. `text_layout` shares OUR azul-layout
-# (via the root [patch.crates-io] → local printpdf branch + local azul-*), so
-# the dll links exactly one azul-layout. `default-features = false` drops only
-# the heavy `html`/`kuchiki` path (not needed; PDFs are driven via the JSON
-# document model + our display list).
-printpdf = { version = "0.9.1", default-features = false, features = ["text_layout"], optional = true }
+# PDF for AzulDoc (P5), gated by `pdf`. printpdf shares OUR azul-layout (via
+# the root [patch.crates-io] → local printpdf branch + local azul-*), so the
+# dll links exactly one azul-layout. The `html` feature pulls in printpdf's
+# html/bridge module — `display_list_to_printpdf_ops_with_margins` walks OUR
+# display lists into PDF ops INCLUDING TEXT (SetFont/ShowText via
+# azul_layout::text3::glyphs::get_glyph_runs_pdf) — which dom_to_bytes uses;
+# without it PDFs contained rectangles only (the textless azul-writer bug).
+printpdf = { version = "0.9.1", default-features = false, features = ["html", "images", "png", "jpeg"], optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tfd = { version = "0.1.0", default-features = false, optional = true }

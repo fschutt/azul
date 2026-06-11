@@ -2241,7 +2241,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2462,7 +2462,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5813,7 +5813,7 @@ dependencies = [
 [[package]]
 name = "printpdf"
 version = "0.9.1"
-source = "git+https://github.com/fschutt/printpdf?branch=azul-0.0.9-html#05b20770929ff6d31d5badfab48019e2bbfee564"
+source = "git+https://github.com/fschutt/printpdf?rev=ed4a768e1fa3ff7ce19ba2e7991f07b3b813e0bf#ed4a768e1fa3ff7ce19ba2e7991f07b3b813e0bf"
 dependencies = [
  "allsorts-azul",
  "azul-core",
@@ -5822,7 +5822,9 @@ dependencies = [
  "base64 0.22.1",
  "flate2",
  "getrandom 0.3.4",
+ "image",
  "lopdf",
+ "rust-fontconfig",
  "serde",
  "serde_derive",
  "serde_json",
@@ -5830,6 +5832,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "weezl",
+ "xmlparser",
 ]
 
 [[package]]
@@ -6297,9 +6300,9 @@ dependencies = [
 
 [[package]]
 name = "rust-fontconfig"
-version = "4.4.2"
+version = "4.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "413a979ec33dc011ad34bb4697844ccc0f9f580305e7d7f484357961cf4b6ae7"
+checksum = "43065fe29d0d6e295fa41528b48629bea90e6d1d5ddd12c1beec2bb4fa50df58"
 dependencies = [
  "allsorts-azul",
  "bincode 1.3.3",
@@ -6360,7 +6363,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6984,7 +6987,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7990,7 +7993,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
