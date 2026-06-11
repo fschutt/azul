@@ -639,6 +639,9 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
 
 use crate::callbacks::CallbackInfo;
 use azul_core::callbacks::Update;
+use azul_core::callbacks::TimerCallbackReturn;
+use azul_core::task::{Duration, SystemTimeDiff, TerminateTimer, TimerId};
+use crate::timer::{Timer, TimerCallback, TimerCallbackInfo};
 
 // --- User hook: on_viewport_changed (backreference DI, FFI-exposed) ---
 
@@ -1031,6 +1034,20 @@ extern "C" fn map_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
         eprintln!("[map] after_mount fired");
     }
     spawn_pending_tile_fetches(&mut data, &mut info);
+    // Install a low-frequency sweep timer. Pointer/scroll/after_mount spawn
+    // fetches directly, but a viewport change that originates from a *rebuild*
+    // (an app's zoom/recentre button → with_viewport) marks new tiles `Pending`
+    // in the VirtualView render, which has no `add_thread` — so without this
+    // sweep the map would sit grey after a button-zoom until the next
+    // drag/wheel. The timer's cache clone tracks the persistent dataset
+    // `transfer_states` keeps across rebuilds, so it stays unified.
+    let sweep = Timer::create(
+        data.clone(),
+        TimerCallback::create(map_fetch_sweep_tick),
+        info.get_system_time_fn(),
+    )
+    .with_interval(Duration::System(SystemTimeDiff::from_millis(250)));
+    info.add_timer(TimerId::unique(), sweep);
     // Re-render the VirtualView IN PLACE (not RefreshDom). RefreshDom would
     // rebuild the DOM, allocate a fresh MapTileCache, and orphan the clone of
     // the cache we just handed the worker threads — their tiles would then write
@@ -1115,6 +1132,25 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     #[cfg(feature = "std")]
     if std::env::var("AZ_MAP_DEBUG").is_ok() {
         eprintln!("[map] spawn_pending: {} thread(s) spawned", spawn_count);
+    }
+}
+
+/// Low-frequency timer that spawns fetches for any `Pending` tiles the
+/// VirtualView marked since the last spawn — the path that the
+/// pointer/scroll/after_mount handlers can't cover (a rebuild-driven viewport
+/// change marks tiles `Pending` in the VirtualView render, which has no
+/// `add_thread`). Installed once in `map_on_after_mount`. The `data` clone
+/// tracks the persistent dataset, so writebacks land in the rendered cache.
+/// Cheap no-op when nothing is `Pending`; never `RefreshDom`s (that would
+/// orphan the cache the workers write to — tile writebacks drive re-render).
+extern "C" fn map_fetch_sweep_tick(
+    mut data: RefAny,
+    mut info: TimerCallbackInfo,
+) -> TimerCallbackReturn {
+    spawn_pending_tile_fetches(&mut data, &mut info.callback_info);
+    TimerCallbackReturn {
+        should_update: Update::DoNothing,
+        should_terminate: TerminateTimer::Continue,
     }
 }
 
