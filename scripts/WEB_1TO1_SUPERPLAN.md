@@ -78,6 +78,17 @@ ptr@0x40060 bump@0x40020.
   (the 16-byte LOAD) → then opt-bisect THAT fn's IR the same way (dup-store OR a dropped 2nd load).
 - Artifacts: scripts/classB_artifacts/{build_compact,create_logical,reorder}.{opt,linked}.ll
   (gitignored). Re-capture per-fn via the KEEP_SCRATCH recipe (FINAL STATUS above).
+- ⚠ MECHANISM-B CONTENT PATH IS ELUSIVE: probes at BOTH
+  window.rs collect_inline_content_for_node::Text (0x607E0..F0) AND
+  sizing.rs collect_inline_content_recursive (0x60714/18/1C/54, prior-session markers) read 0
+  — neither fired — yet create_logical_items::push (0x607C8) DID see the garbage len 0xa294828.
+  ⇒ the text reaches create_logical via a THIRD path (suspect: content collected once in the
+  sizing/intrinsic-width pass, CACHED, then re-fed to layout_flow; OR create_logical called from
+  a path that synthesizes content without those collectors). NEXT: find create_logical_items's
+  actual caller in the layout_flow/layout_ifc chain (grep callers; the trap stack was
+  finish_grow←reserve←reorder_logical_items←layout_flow←layout_ifc←layout_formatting_context),
+  probe THERE for the AzString {ptr,len}, then opt-bisect that fn. Mechanism B is the ONLY thing
+  between here and hello-world green on the rebased engine.
 
 ## (superseded by the above) FINAL STATUS (2026-06-11 ~08:10) — CONSOLIDATED, cron `f1b4a997` DELETED, decision point for user
 **Shipped + green (all committed):** S0 (preflight + lift/obj cache), remill NZCV decoder
