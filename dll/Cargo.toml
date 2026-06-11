@@ -831,6 +831,11 @@ name = "appconfig_double_drop"
 path = "examples/appconfig_double_drop.rs"
 required-features = ["link-static"]
 
+[[example]]
+name = "video_codec_provision"
+path = "examples/video_codec_provision.rs"
+required-features = ["link-static"]
+
 # -----------------------------------------------------------------------------
 # Package Metadata
 # -----------------------------------------------------------------------------
