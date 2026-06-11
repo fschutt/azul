@@ -143,7 +143,7 @@ probe = ["dep:libc"]
 # std's queue RwLock `lock_contended` spins forever in single-threaded lifted wasm. `?` = only
 # when rust-fontconfig (font_loading) is on; native builds keep the thread-safe RwLock. Feature
 # unification applies it to azul-core's rust-fontconfig too.
-web_lift = ["rust-fontconfig?/single-thread-unsafe-locks"]
+web_lift = ["rust-fontconfig?/single-thread-unsafe-locks", "azul-core/web_lift"]
 
 # Wire `hint_purge_allocator()` to the matching allocator's pressure-relief
 # call. Without these flags the default macOS path only drains the system

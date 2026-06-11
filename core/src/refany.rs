@@ -772,6 +772,13 @@ impl RefAny {
         self.sharing_info.downcast()._internal_ptr
     }
 
+    /// Returns the byte length of the type-erased payload behind
+    /// [`Self::get_data_ptr`] (`size_of::<T>()` of the stored type;
+    /// `0` for ZSTs).
+    pub fn get_data_len(&self) -> usize {
+        self.sharing_info.downcast()._internal_len
+    }
+
     /// Checks if this is the only `RefAny` instance with no active borrows.
     ///
     /// Returns `true` only if:

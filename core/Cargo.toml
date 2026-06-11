@@ -32,6 +32,11 @@ std = ["css_parser"]
 # CSS parser support
 css_parser = ["azul-css/parser"]
 
+# Web-lift diagnostic/shim hooks (the native→wasm remill pipeline). Enables
+# `#[cfg(feature = "web_lift")]` code in azul-core. Pure additive; native
+# builds never enable it. Mirrors azul-layout's web_lift feature.
+web_lift = []
+
 # Font parsing/introspection (adds allsorts via rust-fontconfig, heavier)
 font_parsing = ["rust-fontconfig/parsing"]
 
