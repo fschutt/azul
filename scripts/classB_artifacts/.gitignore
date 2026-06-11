@@ -2,3 +2,6 @@
 # Regenerate via the CAPTURE RECIPE in scripts/WEB_1TO1_SUPERPLAN.md (FINAL STATUS).
 *.ll
 *.bc
+split_text.opt.ll
+split_text.linked.ll
+create_logical_v2.opt.ll

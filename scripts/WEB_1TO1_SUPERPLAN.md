@@ -1073,3 +1073,10 @@ the deliverable. Proceed:
 2. Fix in transpiler/remill → relift → markers green (tier2b len=19, no trap) → full CDP suite
    → hello-world regression → COMMIT batch (S1 + hydration + obj-cache + AZ_LSWIN_LO/ID +
    core web_lift + the fix + stack-slot fix) → revert probes/witness → S2.
+
+### CDP harness relaunch (cron/next-session)
+If `curl -s http://127.0.0.1:9222/json/version` is down, relaunch headless Chrome:
+`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --remote-debugging-port=9222 --user-data-dir=/tmp/cdp_profile --no-first-run --disable-gpu about:blank &`
+Then: relift (`bash scripts/web_relift.sh examples/c/hello-world.bin /tmp/server.log`, ~6min),
+drive (`node /tmp/cdp_drive.js` — counter 5→6 = green), peek (`node /tmp/cdp_peek_multi.js http://127.0.0.1:8800/ 0xADDR1,0xADDR2`).
+If /tmp/cdp_*.js are missing, recreate from the inline heredocs in the session history (peek = AzStartup_peekU32 wrapper; drive = navigate + console dump).
