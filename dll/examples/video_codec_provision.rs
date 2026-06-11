@@ -59,13 +59,13 @@ fn main() {
 
     println!("\n=== Installing (pkexec will prompt for your password) ===");
     let result = plan.run();
-    println!("  ok           : {}", result.ok);
-    println!("  commands_run : {}", result.commands_run);
-    println!("  message      : {}", result.message);
-    if result.ok && plan.needs_reboot {
-        println!(
-            "\nReboot to load the new driver, then re-run this example — `available` \
-             should flip to true."
-        );
+    println!("  ok             : {}", result.ok);
+    println!("  commands_run   : {}", result.commands_run);
+    println!("  reboot_required: {}", result.reboot_required);
+    println!("  message        : {}", result.message);
+    if result.reboot_required {
+        // The app's cue to show "driver installed — reboot now". Here, in the
+        // CLI, we just print it.
+        println!("\n>>> Driver installed. Reboot now, then re-run — `available` should flip to true.");
     }
 }
