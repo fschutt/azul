@@ -9,6 +9,8 @@
 //! follow-ups; without a backend the widget keeps its test pattern.
 
 #[cfg(target_os = "linux")]
+mod dmabuf;
+#[cfg(target_os = "linux")]
 mod linux;
 
 /// Idempotently register the platform screen-capture backend. Called from the
