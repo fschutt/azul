@@ -33,6 +33,8 @@
 
 use std::process::Command;
 
+use azul_css::AzString;
+
 /// The codec extension that gpu-video (and every H.264 Vulkan Video decoder)
 /// requires on a physical device.
 const VK_EXT_VIDEO_DECODE_H264: &[u8] = b"VK_KHR_video_decode_h264";
@@ -775,6 +777,150 @@ pub fn repair_kernel_plan(kernel_version: &str) -> ProvisionPlan {
     ))
 }
 
+// ───────────────── One-call startup readiness check (DLL surface) ─────────────────
+
+/// Outcome of applying a remediation ([`VideoStartupCheck::remediate`]).
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct VideoProvisionOutcome {
+    /// Every step succeeded.
+    pub ok: bool,
+    /// A reboot is needed to finish (load the new driver / kernel).
+    pub reboot_required: bool,
+    /// Human-readable result / error.
+    pub message: AzString,
+}
+
+impl From<ProvisionRunResult> for VideoProvisionOutcome {
+    fn from(r: ProvisionRunResult) -> Self {
+        VideoProvisionOutcome {
+            ok: r.ok,
+            reboot_required: r.reboot_required,
+            message: r.message.into(),
+        }
+    }
+}
+
+/// A single startup readiness check for hardware video decode — the function an
+/// app calls once at launch (before its main loop) to decide whether to warn the
+/// user and offer a fix, instead of discovering a missing codec mid-session.
+///
+/// Pure inspection: [`run`](Self::run) changes nothing. If it reports work to do,
+/// [`remediate`](Self::remediate) applies it (driver install and/or kernel
+/// repair) through the consent + pkexec path.
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct VideoStartupCheck {
+    /// Hardware video decode is usable right now.
+    pub hw_decode_ready: bool,
+    /// The kernel GRUB will boot can actually reach root (won't drop to an
+    /// initramfs shell) — the safeguard against the kernel-provisioning footgun.
+    pub boot_safe: bool,
+    /// An automatic remediation exists (driver install and/or kernel repair).
+    pub can_remediate: bool,
+    /// Applying the remediation will require a reboot.
+    pub needs_reboot: bool,
+    /// One-line status for a startup banner.
+    pub summary: AzString,
+    /// Full multi-line report (capability + boot-safety + the exact commands a
+    /// remediation would run) for a details pane / consent dialog.
+    pub detail: AzString,
+}
+
+/// (boot_safe, human detail, a kernel repair is available)
+#[cfg(target_os = "linux")]
+fn startup_boot_check() -> (bool, String, bool) {
+    match newest_installed_kernel() {
+        Some(k) => {
+            let s = reboot_safety_check(&k);
+            let repairable = !s.safe && repair_kernel_plan(&k).possible;
+            (s.safe, format!("kernel {k}: {}", s.detail), repairable)
+        }
+        None => (true, String::from("no installed-kernel info available"), false),
+    }
+}
+#[cfg(not(target_os = "linux"))]
+fn startup_boot_check() -> (bool, String, bool) {
+    (true, String::from("boot-safety check is Linux-only"), false)
+}
+
+impl VideoStartupCheck {
+    /// Run all the readiness checks (call once at startup). Inspection only.
+    pub fn run() -> VideoStartupCheck {
+        let probe = probe_hw_decode();
+        let (boot_safe, boot_detail, kernel_repairable) = startup_boot_check();
+        let driver_plan = ProvisionPlan::detect();
+        let driver_installable = !probe.available && driver_plan.possible;
+
+        let can_remediate = kernel_repairable || driver_installable;
+        let needs_reboot = !boot_safe || (driver_installable && driver_plan.needs_reboot);
+
+        let summary = if probe.available && boot_safe {
+            String::from("Hardware video decode is ready.")
+        } else if !boot_safe {
+            String::from(
+                "A kernel update left the default kernel unbootable — a one-click repair is \
+                 available.",
+            )
+        } else if driver_installable {
+            String::from("Hardware video decode is off, but the drivers can be installed.")
+        } else {
+            format!("Hardware video decode is unavailable: {}", probe.detail)
+        };
+
+        let mut detail = format!(
+            "hardware decode: available={} backend={} — {}\nboot path: {} {}",
+            probe.available,
+            probe.backend,
+            probe.detail,
+            if boot_safe { "OK —" } else { "UNBOOTABLE —" },
+            boot_detail,
+        );
+        if driver_installable {
+            detail.push_str(&format!("\ndriver install: {}", driver_plan.summary));
+            for c in &driver_plan.commands {
+                detail.push_str("\n  ");
+                detail.push_str(&c.display);
+            }
+        }
+
+        VideoStartupCheck {
+            hw_decode_ready: probe.available,
+            boot_safe,
+            can_remediate,
+            needs_reboot,
+            summary: summary.into(),
+            detail: detail.into(),
+        }
+    }
+
+    /// Apply whatever [`run`](Self::run) found — repair an unbootable kernel
+    /// first (the urgent one), then install the GPU driver — via the consent +
+    /// pkexec path. **Side-effecting**; call only after the user has seen
+    /// `detail` and consented.
+    pub fn remediate() -> VideoProvisionOutcome {
+        #[cfg(target_os = "linux")]
+        if let Some(k) = newest_installed_kernel() {
+            let rp = repair_kernel_plan(&k);
+            if rp.possible {
+                let r = rp.run();
+                if !r.ok {
+                    return VideoProvisionOutcome::from(r);
+                }
+            }
+        }
+        let dp = ProvisionPlan::detect();
+        if dp.possible {
+            return VideoProvisionOutcome::from(dp.run());
+        }
+        VideoProvisionOutcome {
+            ok: true,
+            reboot_required: false,
+            message: AzString::from_const_str("nothing to remediate"),
+        }
+    }
+}
+
 /// Outcome of [`ProvisionPlan::run`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProvisionRunResult {
@@ -1225,6 +1371,23 @@ mod provision_tests {
             "a kernel with no module tree must be unsafe: {}",
             bad.detail
         );
+    }
+
+    /// The one-call startup check is self-consistent and produces a non-empty
+    /// summary/detail; on this (now-repaired) box the boot path is safe.
+    #[test]
+    fn startup_check_is_self_consistent() {
+        let c = VideoStartupCheck::run();
+        eprintln!(
+            "[startup] hw_ready={} boot_safe={} remediable={} reboot={} :: {}",
+            c.hw_decode_ready, c.boot_safe, c.can_remediate, c.needs_reboot, c.summary.as_str()
+        );
+        assert!(!c.summary.as_str().is_empty());
+        assert!(!c.detail.as_str().is_empty());
+        // ready <=> nothing to remediate for decode (driver side).
+        if c.hw_decode_ready && c.boot_safe {
+            assert!(!c.can_remediate);
+        }
     }
 
     /// A broken kernel yields a repair plan that installs the matching
