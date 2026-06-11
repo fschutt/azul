@@ -131,7 +131,7 @@ impl A11yManager {
                 }
 
                 // Generate stable A11yNodeId: offset by 1 to avoid collision with root_id(0)
-                let a11y_node_id = A11yNodeId(((dom_id.inner as u64) << 32) | ((dom_idx as u64) + 1));
+                let a11y_node_id = Self::encode_a11y_node_id(dom_id.inner, dom_idx);
 
                 // Get layout info: absolute position from calculated_positions,
                 // size from layout node. Uses dom_to_layout to map DOM → layout index.
@@ -494,7 +494,44 @@ impl A11yManager {
             builder.add_action(Action::Click);
         }
 
+        // ARIA relations + live-region from AccessibilityInfo. aria-labelledby /
+        // aria-describedby reference another node; encode its id the SAME way the
+        // tree walk does (encode_a11y_node_id) so the relation resolves to a real
+        // node. is_live_region maps to accesskit's Live property. These were all
+        // previously dropped (screen readers got no labelled-by/described-by
+        // relations and no live-region announcements).
+        if let Some(info) = a11y_info {
+            if let azul_core::dom::OptionDomNodeId::Some(target) = info.labelled_by {
+                if let Some(id) = Self::a11y_node_id_for(&target) {
+                    builder.push_labelled_by(id);
+                }
+            }
+            if let azul_core::dom::OptionDomNodeId::Some(target) = info.described_by {
+                if let Some(id) = Self::a11y_node_id_for(&target) {
+                    builder.push_described_by(id);
+                }
+            }
+            if info.is_live_region {
+                builder.set_live(accesskit::Live::Polite);
+            }
+        }
+
         builder
+    }
+
+    /// Encode a `(DomId.inner, node index)` pair into the stable A11yNodeId used
+    /// throughout the tree (offset by 1 so it never collides with `root_id` 0).
+    /// Shared by the tree walk and the aria-labelledby/-describedby relation
+    /// mapping, so a relation always resolves to the node the walk emitted.
+    fn encode_a11y_node_id(dom_inner: usize, node_idx: usize) -> A11yNodeId {
+        A11yNodeId(((dom_inner as u64) << 32) | ((node_idx as u64) + 1))
+    }
+
+    /// Map an aria-labelledby/-describedby target `DomNodeId` to its A11yNodeId,
+    /// or `None` if the node id can't be resolved.
+    fn a11y_node_id_for(target: &DomNodeId) -> Option<A11yNodeId> {
+        let idx = target.node.into_crate_internal()?.index();
+        Some(Self::encode_a11y_node_id(target.dom.inner, idx))
     }
 
     /// Maps an HTML `NodeType` to an accesskit `Role`.
@@ -798,5 +835,27 @@ impl A11yManager {
     /// Creates a new stub `A11yManager` (no-op when accessibility is disabled).
     pub fn new() -> Self {
         Self { _private: () }
+    }
+}
+
+#[cfg(all(test, feature = "a11y"))]
+mod a11y_relation_tests {
+    use super::A11yManager;
+    use accesskit::NodeId as A11yNodeId;
+
+    /// The a11y node-id encoding must stay in lockstep with the tree walk:
+    /// `(dom.inner << 32) | (idx + 1)`. labelled_by/described_by relations encode
+    /// their targets the same way, so any drift here would point a relation at
+    /// the wrong (or a nonexistent) node.
+    #[test]
+    fn a11y_node_id_encoding_is_stable_and_offset() {
+        assert_eq!(A11yManager::encode_a11y_node_id(0, 0), A11yNodeId(1));
+        assert_eq!(A11yManager::encode_a11y_node_id(0, 5), A11yNodeId(6));
+        assert_eq!(
+            A11yManager::encode_a11y_node_id(2, 3),
+            A11yNodeId((2u64 << 32) | 4)
+        );
+        // Never collides with the root window node (id 0).
+        assert_ne!(A11yManager::encode_a11y_node_id(0, 0), A11yNodeId(0));
     }
 }
