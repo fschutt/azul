@@ -78,7 +78,57 @@ ptr@0x40060 bump@0x40020.
   (the 16-byte LOAD) → then opt-bisect THAT fn's IR the same way (dup-store OR a dropped 2nd load).
 - Artifacts: scripts/classB_artifacts/{build_compact,create_logical,reorder}.{opt,linked}.ll
   (gitignored). Re-capture per-fn via the KEEP_SCRATCH recipe (FINAL STATUS above).
-## 🎯 MECHANISM-B PINNED to ONE FUNCTION: split_text_for_whitespace's result-Vec buffer (2026-06-11 ~17:40, Fable)
+## 🎯🎯 MECHANISM-B SHARPLY LOCALIZED to join_generic_copy's String sret return — ptr↔len SWAPPED (2026-06-11 ~18:40, Fable, cron wake)
+**The String built by `<...>.collect::<Vec<_>>().join(" ")` (var `collapsed` in split_text, fc.rs
+~8723) comes back with its ptr and len fields SWAPPED.** Probe (plain full-opt relift):
+`collapsed.as_ptr()==1` (== the real length of "5"!) and `collapsed.len()==0xa294828` (== a heap
+pointer). So word0 (ptr slot) holds the length and word2 (len slot) holds the pointer — a clean
+ptr↔len swap. `final_text` (= String::new()+push_str(&collapsed)) inherits it → StyledRun.text →
+create_logical 170MB slice → OOB. The culprit is `_ZN5alloc3str17join_generic_copy17h...` (a
+split_text callee, returns String via sret) — its lift writes the sret String's {ptr,cap,len}
+words in the WRONG ORDER (or a single-element join fast-path mis-lifts).
+**CRITICAL: join_generic_copy was NEVER in my AZ_LOWOPT O0 tests** — so the earlier "faithful-lift"
+conclusion was premature for THIS function. Test IN FLIGHT: `AZ_LOWOPT_FNS=join_generic_copy,
+split_text_for_whitespace` (server_joinlow.log) — peek 0x60C5C (collapsed.len): ==1 ⇒ join's
+opt/llc bug (then opt-bisect join via AZ_BISECT_FN=join_generic_copy); still ==0xa294828 ⇒ join's
+FAITHFUL lift (examine its sret String-write word order; standalone-lift join_generic_copy from
+the dylib and check the 3 sret stores' offsets/values).
+**NEW probes (committed next): collapsed.len/ptr @0x60C5C/60, push-site id/len/ptr @0x60C50/54/58.**
+Fix will be lift-side (dll/src/web or remill fork). If join's sret stores are reordered by the
+lift, that's a remill semantics issue (like the historic sret class); if opt, opt-bisect it.
+
+## 🧭 (earlier this wake) MECHANISM-B narrowed: NOT split_text opt/llc, NOT NEON copy (2026-06-11 ~18:20, Fable, cron wake)
+**Decisively narrowed this wake (8 relifts). The corruption is in the FAITHFUL remill lift, not LLVM.**
+Built a per-fn opt-bisect harness (committed 2fa7b96b3): `AZ_BISECT_FN=<substr> AZ_BISECT_LIMIT=N`
+appends `-opt-bisect-limit=N` to ONLY that fn's opt (cache-keyed → only it re-lifts). Plus
+`AZ_LOWOPT_FNS=a,b,c` (opt -O0 AND llc -O0 per fn) and `AZ_FULL_CS_RESTORE` (X19-X28 uncond restore).
+Tests on split_text's output marker 0x60C44 (==0xa294828 = corrupt, ==1 = clean):
+- `AZ_BISECT_LIMIT=0` (split_text, 0 opt passes, 3.4MB unopt bundle) → STILL corrupt.
+- `AZ_LOWOPT_FNS=split_text` (opt+llc O0) → STILL corrupt ⇒ not split_text's opt/llc.
+- `AZ_LOWOPT_FNS=split_text,grow_one,do_reserve_and_handle` → STILL corrupt.
+- `AZ_LOWOPT_FNS=split_text,grow_one,do_reserve_and_handle,spec_from_iter,to_vec,copy_from_slice`
+  → STILL corrupt ⇒ not ANY of these at opt/llc.
+- `AZ_FULL_CS_RESTORE=1` → no effect ⇒ not a callee-saved-GPR clobber.
+- Standalone-lifted split_text's NEON `ldp q2,q3,[x9,#-0x20]; ldp q4,q5,[x9],#0x40` (post-index) AND
+  `stp q2,q3,[x10,#-0x20]; stp q4,q5,[x10],#0x40`: BOTH lift CORRECTLY (4×64-bit reads/writes +
+  x9/x10 += 0x40). split_text preflight has 0 `__remill_error` (fully decoded). So the 16-byte
+  NEON copy is NOT the bug.
+**8 HYPOTHESES RULED OUT**: as_str 16-byte return; create_logical OR-pattern; EarlyCSE/alias-scope;
+callee-saved-GPR clobber; split_text opt; split_text llc; grow_one/reserve opt/llc; String-build
+callees (to_vec/spec_from_iter/copy_from_slice) opt/llc. ⇒ The faithful remill lift of SOME
+correctly-DECODED instruction in this path has WRONG semantics (a mis-lifted-but-not-errored op),
+OR a callee not yet lowered (e.g. `<str>::to_owned`, the String sret return, the InlineContent enum
+store). The String at result[0].text genuinely holds len=0xa294828/ptr=0xa294870 in memory
+(consistent across 3 reader fns), built from a sane len-1 &str.
+**NEXT:** (a) Confirm faithful with global `AZ_OPT_LEVEL=0` (⚠ huge/slow wasm — may not load; try
+once). (b) Examine split_text's faithful IR (scripts/classB_artifacts/split_text.linked.ll OR
+standalone /tmp/split.ll) for the `result.push(InlineContent::Text(StyledRun{text:to_string()}))`
+region — the StyledRun.text len store + the String sret return from to_owned/to_string. (c) Probe
+the to_string() result's len right after the call inside split_text (accept heisenbug risk). (d)
+Lower the remaining String path: `to_owned`, `to_string`, `String` ctor, the enum store memcpy.
+Markers live: split output 0x60C40/44/48, create_logical entry 0x60C20, fc sites 0x60C00..14.
+
+## 🎯 (earlier this wake) MECHANISM-B PINNED to split_text_for_whitespace's result-Vec buffer (2026-06-11 ~17:40, Fable)
 **The corruption is INSIDE split_text_for_whitespace** (fc.rs:8552), confirmed by probing its OWN
 output right before `result` is returned (probe 0x60C40/44/48): `result.len()==1` (CORRECT) but
 `result[0].text.len()==0xa294828` (heap ptr) and `result[0].text.as_ptr()==0xa294870` (heap ptr,

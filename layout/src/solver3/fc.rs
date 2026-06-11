@@ -8622,8 +8622,16 @@ pub fn split_text_for_whitespace(
                 let mut tab_parts = segment.split('\t').peekable();
                 while let Some(part) = tab_parts.next() {
                     if !part.is_empty() {
+                        // [az-diag REVERT] mech-B build-vs-store @ push site 1 (part.to_string()).
+                        let __az_part_s = part.to_string();
+                        #[cfg(feature = "web_lift")]
+                        unsafe {
+                            crate::az_mark(0x60C50, 1);
+                            crate::az_mark(0x60C54, __az_part_s.len() as u32);
+                            crate::az_mark(0x60C58, __az_part_s.as_ptr() as usize as u32);
+                        }
                         result.push(InlineContent::Text(StyledRun {
-                            text: part.to_string(),
+                            text: __az_part_s,
                             style: Arc::clone(&style),
                             logical_start_byte: 0,
                             source_node_id: Some(dom_id),
@@ -8660,6 +8668,13 @@ pub fn split_text_for_whitespace(
                     .join(" ");
 
                 if !collapsed.is_empty() {
+                    // [az-diag REVERT] mech-B build-vs-store @ push site 2 (collapsed).
+                    #[cfg(feature = "web_lift")]
+                    unsafe {
+                        crate::az_mark(0x60C50, 2);
+                        crate::az_mark(0x60C54, collapsed.len() as u32);
+                        crate::az_mark(0x60C58, collapsed.as_ptr() as usize as u32);
+                    }
                     result.push(InlineContent::Text(StyledRun {
                         text: collapsed,
                         style: Arc::clone(&style),
@@ -8707,6 +8722,15 @@ pub fn split_text_for_whitespace(
                     .collect::<Vec<_>>()
                     .join(" ");
 
+                // [az-diag REVERT] mech-B: is `collapsed` (= X.join(" ")) already
+                // corrupt before final_text is built? 0x60C5C=collapsed.len,
+                // 0x60C60=ptr. garbage ⇒ the join() mis-lifts; sane (1) ⇒ the
+                // String::new()+push_str(&collapsed) below corrupts.
+                #[cfg(feature = "web_lift")]
+                unsafe {
+                    crate::az_mark(0x60C5C, collapsed.len() as u32);
+                    crate::az_mark(0x60C60, collapsed.as_ptr() as usize as u32);
+                }
                 let final_text = if collapsed.is_empty() && !segment.is_empty() {
                     " ".to_string()
                 } else if !collapsed.is_empty() {
@@ -8726,6 +8750,13 @@ pub fn split_text_for_whitespace(
                 };
 
                 if !final_text.is_empty() {
+                    // [az-diag REVERT] mech-B build-vs-store @ push site 3 (final_text).
+                    #[cfg(feature = "web_lift")]
+                    unsafe {
+                        crate::az_mark(0x60C50, 3);
+                        crate::az_mark(0x60C54, final_text.len() as u32);
+                        crate::az_mark(0x60C58, final_text.as_ptr() as usize as u32);
+                    }
                     result.push(InlineContent::Text(StyledRun {
                         text: final_text,
                         style: Arc::clone(&style),
