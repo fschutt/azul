@@ -1153,17 +1153,18 @@ impl RemillTranspiler {
                 fn_name: fn_name.to_string(),
                 reason: "opt not found — set $LLVM_OPT or install LLVM 21".into(),
             })?;
-            run_tool(
-                opt,
-                &[
-                    opt_flag_for(fn_name),
-                    "-S",
-                    linked_ir_path.to_str().expect("scratch path is utf-8"),
-                    "-o",
-                    opt_ir_path.to_str().expect("scratch path is utf-8"),
-                ],
-                fn_name,
-            )?;
+            {
+                let mut opt_args: Vec<String> = vec![opt_flag_for(fn_name).to_string()];
+                if let Some(bisect) = opt_bisect_arg(fn_name) {
+                    opt_args.push(bisect);
+                }
+                opt_args.push("-S".to_string());
+                opt_args.push(linked_ir_path.to_str().expect("scratch path is utf-8").to_string());
+                opt_args.push("-o".to_string());
+                opt_args.push(opt_ir_path.to_str().expect("scratch path is utf-8").to_string());
+                let arg_refs: Vec<&str> = opt_args.iter().map(|s| s.as_str()).collect();
+                run_tool(opt, &arg_refs, fn_name)?;
+            }
 
             // M12.6 FIX (now DEFAULT; set AZ_NO_FIX_SP=1 to disable): enforce
             // SP + callee-saved (X19-X29) preservation across every lifted
@@ -5245,6 +5246,11 @@ fn obj_cache_path(
     h = fold(h, patched_ir.as_bytes());
     h = fold(h, helper_ir.as_bytes());
     h = fold(h, opt_flag_for(fn_name).as_bytes());
+    // [az-diag] per-fn opt-bisect: the bisect limit changes this fn's opt output
+    // → key it so each AZ_BISECT_LIMIT re-lifts the matched fn (others stay cached).
+    if let Some(b) = opt_bisect_arg(fn_name) {
+        h = fold(h, b.as_bytes());
+    }
     h = fold(
         h,
         &[
@@ -5329,6 +5335,23 @@ fn opt_flag_for(fn_name: &str) -> &'static str {
     } else {
         llvm_opt_flag()
     }
+}
+
+/// [az-diag 2026-06-11] Per-function opt-bisect harness for heisenbug-class
+/// mis-transforms (e.g. class-B mechanism B). When `AZ_BISECT_FN=<substr>`
+/// matches `fn_name`, return `Some("-opt-bisect-limit=<N>")` where N is
+/// `AZ_BISECT_LIMIT` (default huge = all passes). The opt pass for ONLY that
+/// function is then bisected, so a binary search over N — relift (only the
+/// matched fn re-lifts; obj cache keys on the limit) + CDP-peek a correctness
+/// marker — pinpoints the exact corrupting pass, like opt-bisect cracked
+/// mechanism A. Returns None (no extra arg) when the fn doesn't match.
+fn opt_bisect_arg(fn_name: &str) -> Option<String> {
+    let pat = std::env::var("AZ_BISECT_FN").ok()?;
+    if pat.is_empty() || !fn_name.contains(&pat) {
+        return None;
+    }
+    let n = std::env::var("AZ_BISECT_LIMIT").ok()?;
+    Some(format!("-opt-bisect-limit={}", n.trim()))
 }
 
 fn sanitize_filename(name: &str) -> String {
