@@ -20,6 +20,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
+use super::dmabuf::{self, EglBackend, Plane};
+
 /// `AZ_SCREENCAP_DEBUG=1` traces the portal/PipeWire handshake to stderr,
 /// independent of the dll's `logging` feature (the demos build without it).
 macro_rules! scd {
@@ -42,6 +44,10 @@ struct FrameSlot {
     height: u32,
     /// Negotiated spa_video_format (RGBx/BGRx/RGBA/BGRA).
     spa_format: u32,
+    /// `data` is already tightly-packed RGBA (the dmabuf import path read it
+    /// back via GL), so read() skips the spa_format byte-swap. The CPU mmap
+    /// path leaves this false and stores bytes in `spa_format` order.
+    data_is_rgba: bool,
     /// Bumped on every new frame; read() waits for a change.
     seq: u64,
     /// Stream hit an error / EOS.
@@ -231,11 +237,15 @@ fn portal_open_stream() -> Option<(OwnedFd, u32, zbus::blocking::Connection, Str
     let token = portal.next_token();
     let mut opts: HashMap<&'static str, Value> = HashMap::new();
     opts.insert("handle_token", Value::from(token.clone()));
+    let start_secs = std::env::var("AZ_SCREENCAP_START_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(300);
     let results = portal.request(
         "Start",
         &token,
         &(session_path.clone(), "", opts),
-        Duration::from_secs(120),
+        Duration::from_secs(start_secs),
     )?;
 
     // streams: a(ua{sv}) — take the first node id.
@@ -428,6 +438,17 @@ const SPA_PARAM_BUFFERS_BUFFERS: u32 = 1;
 const SPA_PARAM_BUFFERS_DATATYPE: u32 = 6;
 // spa_data types bitmask: MemPtr=1<<1, MemFd=1<<2
 const DATA_TYPE_MASK_PTR_FD: u32 = (1 << 1) | (1 << 2);
+// dmabuf negotiation
+const SPA_TYPE_LONG: u32 = 5;
+const SPA_FORMAT_VIDEO_MODIFIER: u32 = 0x0002_0002;
+/// `enum spa_data_type` value for a DMA-BUF fd (SPA_DATA_DmaBuf).
+const SPA_DATA_DMABUF: u32 = 3;
+/// `1 << SPA_DATA_DmaBuf` — the dataType mask advertised once a modifier was
+/// negotiated.
+const DATA_TYPE_DMABUF: u32 = 1 << 3;
+// spa_pod prop flags
+const SPA_POD_PROP_FLAG_MANDATORY: u32 = 1 << 3;
+const SPA_POD_PROP_FLAG_DONT_FIXATE: u32 = 1 << 4;
 
 /// Little-endian pod writer. Every pod is `(u32 size, u32 type, body…)` padded
 /// to 8 bytes; object properties are `(u32 key, u32 flags, pod)`.
@@ -474,6 +495,20 @@ impl PodWriter {
     fn prop(&mut self, key: u32) {
         self.u32(key);
         self.u32(0); // flags
+    }
+    fn prop_flags(&mut self, key: u32, flags: u32) {
+        self.u32(key);
+        self.u32(flags);
+    }
+    /// `Choice` of 64-bit `Long` values (used for DRM format modifiers): each
+    /// child is 8 bytes, so split every u64 into a little-endian (lo, hi) pair.
+    fn choice_long(&mut self, kind: u32, values: &[u64]) {
+        let mut flat = Vec::with_capacity(values.len() * 2);
+        for v in values {
+            flat.push((*v & 0xffff_ffff) as u32);
+            flat.push((*v >> 32) as u32);
+        }
+        self.choice(kind, SPA_TYPE_LONG, 2, &flat);
     }
     /// Wrap everything written so far as an object pod.
     fn into_object(self, obj_type: u32, obj_id: u32) -> Vec<u8> {
@@ -535,9 +570,85 @@ fn build_buffers_pod() -> Vec<u8> {
     w.into_object(SPA_TYPE_OBJECT_PARAM_BUFFERS, SPA_PARAM_BUFFERS)
 }
 
-/// Minimal pod reader: extract `VIDEO_format` + `VIDEO_size` from the
-/// negotiated Format object the `param_changed` event hands us.
-fn parse_format_pod(pod: *const u8) -> Option<(u32, u32, u32)> {
+/// Buffers param for a dmabuf-negotiated stream: force `1 << SPA_DATA_DmaBuf`
+/// so the producer hands us fds we import on the GPU.
+fn build_buffers_pod_dmabuf() -> Vec<u8> {
+    let mut w = PodWriter::new();
+    w.prop(SPA_PARAM_BUFFERS_BUFFERS);
+    w.choice(SPA_CHOICE_RANGE, SPA_TYPE_INT, 1, &[4, 2, 16]);
+    w.prop(SPA_PARAM_BUFFERS_DATATYPE);
+    w.choice(SPA_CHOICE_NONE, SPA_TYPE_INT, 1, &[DATA_TYPE_DMABUF]);
+    w.into_object(SPA_TYPE_OBJECT_PARAM_BUFFERS, SPA_PARAM_BUFFERS)
+}
+
+/// SPA video format → DRM fourcc, matching memory byte order (the mapping every
+/// screencast consumer uses: SPA names list bytes in memory, DRM names a
+/// little-endian word, so they cross over).
+fn spa_to_drm_fourcc(spa: u32) -> u32 {
+    match spa {
+        SPA_VIDEO_FORMAT_BGRA => dmabuf::DRM_FORMAT_ARGB8888,
+        SPA_VIDEO_FORMAT_RGBA => dmabuf::DRM_FORMAT_ABGR8888,
+        SPA_VIDEO_FORMAT_BGRX => dmabuf::DRM_FORMAT_XRGB8888,
+        SPA_VIDEO_FORMAT_RGBX => dmabuf::DRM_FORMAT_XBGR8888,
+        _ => 0,
+    }
+}
+
+/// One EnumFormat object fixing a single video format, advertising the EGL-
+/// importable modifiers for it. `MANDATORY | DONT_FIXATE` tells the producer
+/// "the modifier must be present and you pick which of these" — the canonical
+/// consumer-side dmabuf handshake.
+fn build_dmabuf_format_pod(spa_fmt: u32, mods: &[u64]) -> Vec<u8> {
+    let mut w = PodWriter::new();
+    w.prop(SPA_FORMAT_MEDIA_TYPE);
+    w.pod(SPA_TYPE_ID, &[SPA_MEDIA_TYPE_VIDEO]);
+    w.prop(SPA_FORMAT_MEDIA_SUBTYPE);
+    w.pod(SPA_TYPE_ID, &[SPA_MEDIA_SUBTYPE_RAW]);
+    w.prop(SPA_FORMAT_VIDEO_FORMAT);
+    w.pod(SPA_TYPE_ID, &[spa_fmt]);
+    w.prop_flags(
+        SPA_FORMAT_VIDEO_MODIFIER,
+        SPA_POD_PROP_FLAG_MANDATORY | SPA_POD_PROP_FLAG_DONT_FIXATE,
+    );
+    let mut vals = Vec::with_capacity(mods.len() + 1);
+    vals.push(*mods.first().unwrap_or(&dmabuf::DRM_FORMAT_MOD_INVALID)); // preferred
+    vals.extend_from_slice(mods);
+    w.choice_long(SPA_CHOICE_ENUM, &vals);
+    w.prop(SPA_FORMAT_VIDEO_SIZE);
+    w.choice(SPA_CHOICE_RANGE, SPA_TYPE_RECTANGLE, 2, &[1920, 1080, 1, 1, 16384, 16384]);
+    w.prop(SPA_FORMAT_VIDEO_FRAMERATE);
+    w.choice(SPA_CHOICE_RANGE, SPA_TYPE_FRACTION, 2, &[30, 1, 0, 1, 240, 1]);
+    w.into_object(SPA_TYPE_OBJECT_FORMAT, SPA_PARAM_ENUM_FORMAT)
+}
+
+/// The full EnumFormat list offered at connect: the dmabuf variants first (one
+/// per format, each carrying its EGL-queried modifiers) so a GPU producer
+/// prefers them, then the shared-memory fallback last. With no EGL backend we
+/// offer shmem only.
+fn build_format_pods(egl: Option<&EglBackend>) -> Vec<Vec<u8>> {
+    let mut pods = Vec::new();
+    if let Some(egl) = egl {
+        for &(spa_fmt, fourcc) in &[
+            (SPA_VIDEO_FORMAT_BGRX, dmabuf::DRM_FORMAT_XRGB8888),
+            (SPA_VIDEO_FORMAT_RGBX, dmabuf::DRM_FORMAT_XBGR8888),
+            (SPA_VIDEO_FORMAT_BGRA, dmabuf::DRM_FORMAT_ARGB8888),
+            (SPA_VIDEO_FORMAT_RGBA, dmabuf::DRM_FORMAT_ABGR8888),
+        ] {
+            let mods = egl.query_modifiers(fourcc);
+            if !mods.is_empty() {
+                pods.push(build_dmabuf_format_pod(spa_fmt, &mods));
+            }
+        }
+    }
+    pods.push(build_enum_format_pod());
+    pods
+}
+
+/// Minimal pod reader: extract `VIDEO_format` + `VIDEO_size` (and the DRM
+/// `VIDEO_modifier`, if the producer fixated a dmabuf one) from the negotiated
+/// Format object the `param_changed` event hands us. A present modifier is the
+/// signal that buffers will arrive as dmabuf fds.
+fn parse_format_pod(pod: *const u8) -> Option<(u32, u32, u32, Option<u64>)> {
     if pod.is_null() {
         return None;
     }
@@ -552,6 +663,12 @@ fn parse_format_pod(pod: *const u8) -> Option<(u32, u32, u32)> {
         let mut format = 0u32;
         let mut wdt = 0u32;
         let mut hgt = 0u32;
+        let mut modifier: Option<u64> = None;
+        let read_u64 = |at: usize| -> u64 {
+            let lo = *(pod.add(at) as *const u32) as u64;
+            let hi = *(pod.add(at + 4) as *const u32) as u64;
+            lo | (hi << 32)
+        };
         while off + 16 <= end {
             let key = *(pod.add(off) as *const u32);
             // flags at off+4
@@ -566,6 +683,16 @@ fn parse_format_pod(pod: *const u8) -> Option<(u32, u32, u32)> {
                     wdt = *(pod.add(vbody) as *const u32);
                     hgt = *(pod.add(vbody + 4) as *const u32);
                 }
+                (SPA_FORMAT_VIDEO_MODIFIER, SPA_TYPE_LONG) => {
+                    modifier = Some(read_u64(vbody));
+                }
+                (SPA_FORMAT_VIDEO_MODIFIER, SPA_TYPE_CHOICE) => {
+                    // Defensive: an un-fixated choice — take its first value
+                    // (after kind,flags,child_size,child_type = 16 bytes).
+                    if vsize >= 24 {
+                        modifier = Some(read_u64(vbody + 16));
+                    }
+                }
                 _ => {}
             }
             // advance: prop header (8) + pod header (8) + padded body
@@ -573,7 +700,7 @@ fn parse_format_pod(pod: *const u8) -> Option<(u32, u32, u32)> {
             off = vbody + padded;
         }
         if format != 0 && wdt != 0 {
-            Some((format, wdt, hgt))
+            Some((format, wdt, hgt, modifier))
         } else {
             None
         }
@@ -590,9 +717,20 @@ extern "C" fn on_param_changed(data: *mut c_void, id: u32, param: *const u8) {
     if id != SPA_PARAM_FORMAT || param.is_null() {
         return;
     }
-    if let Some((fmt, w, h)) = parse_format_pod(param) {
-        crate::plog_info!("[screencap] negotiated format {} {}x{}", fmt, w, h);
-        scd!("negotiated format {} {}x{}", fmt, w, h);
+    if let Some((fmt, w, h, modifier)) = parse_format_pod(param) {
+        // A fixated modifier means the producer chose a dmabuf format — request
+        // dmabuf buffers and import them on the GPU. Otherwise it's CPU memory.
+        let dmabuf = modifier.is_some();
+        crate::plog_info!(
+            "[screencap] negotiated format {} {}x{}{}",
+            fmt,
+            w,
+            h,
+            if dmabuf { " (dmabuf)" } else { "" }
+        );
+        scd!("negotiated format {} {}x{} modifier={:?}", fmt, w, h, modifier);
+        ctx.modifier
+            .store(modifier.unwrap_or(dmabuf::DRM_FORMAT_MOD_INVALID), Ordering::Relaxed);
         {
             let mut slot = ctx.shared.slot.lock().unwrap();
             slot.spa_format = fmt;
@@ -602,12 +740,12 @@ extern "C" fn on_param_changed(data: *mut c_void, id: u32, param: *const u8) {
         // Respond with the buffer params — this is what drives the stream from
         // "paused" (format fixed) into "streaming" (buffers allocated, process
         // fires). Without it the stream connects but never produces frames.
-        let buffers = build_buffers_pod();
+        let buffers = if dmabuf { build_buffers_pod_dmabuf() } else { build_buffers_pod() };
         let mut params: [*const u8; 1] = [buffers.as_ptr()];
         unsafe {
             (ctx.pw.pw_stream_update_params)(ctx.stream, params.as_mut_ptr(), 1);
         }
-        scd!("update_params(buffers) sent");
+        scd!("update_params(buffers, dmabuf={}) sent", dmabuf);
     } else {
         scd!("param_changed: format pod did not parse");
     }
@@ -632,6 +770,7 @@ extern "C" fn on_state_changed(data: *mut c_void, _old: c_int, state: c_int, err
             unsafe { std::ffi::CStr::from_ptr(err) }.to_string_lossy().into_owned()
         };
         crate::plog_warn!("[screencap] stream error: {}", msg);
+        scd!("STREAM ERROR: {}", msg);
         let mut slot = ctx.shared.slot.lock().unwrap();
         slot.dead = true;
         ctx.shared.cond.notify_all();
@@ -652,7 +791,44 @@ extern "C" fn on_process(data: *mut c_void) {
         let spa_buf = (*buf).buffer;
         if !spa_buf.is_null() && (*spa_buf).n_datas > 0 {
             let d = &*(*spa_buf).datas;
-            if !d.data.is_null() && !d.chunk.is_null() {
+            if d.type_ == SPA_DATA_DMABUF {
+                // GPU buffer: import the fd(s) as an EGLImage and read back RGBA.
+                if let Some(egl) = &ctx.egl {
+                    let (w, h, fmt) = {
+                        let slot = ctx.shared.slot.lock().unwrap();
+                        (slot.width, slot.height, slot.spa_format)
+                    };
+                    let fourcc = spa_to_drm_fourcc(fmt);
+                    let modifier = ctx.modifier.load(Ordering::Relaxed);
+                    let n = (*spa_buf).n_datas as usize;
+                    let mut planes = Vec::with_capacity(n.min(4));
+                    for i in 0..n.min(4) {
+                        let di = &*(*spa_buf).datas.add(i);
+                        if di.chunk.is_null() {
+                            continue;
+                        }
+                        let ch = &*di.chunk;
+                        planes.push(Plane {
+                            fd: di.fd as i32,
+                            offset: ch.offset,
+                            stride: ch.stride.unsigned_abs(),
+                        });
+                    }
+                    if w > 0 && h > 0 && fourcc != 0 && !planes.is_empty() {
+                        // Readback happens WITHOUT the slot lock held.
+                        if let Some(rgba) = egl.import_to_rgba(&planes, w, h, fourcc, modifier) {
+                            let mut slot = ctx.shared.slot.lock().unwrap();
+                            slot.data = rgba;
+                            slot.data_is_rgba = true;
+                            if slot.seq == 0 {
+                                scd!("first dmabuf frame imported ({}x{})", w, h);
+                            }
+                            slot.seq = slot.seq.wrapping_add(1);
+                            ctx.shared.cond.notify_all();
+                        }
+                    }
+                }
+            } else if !d.data.is_null() && !d.chunk.is_null() {
                 let chunk = &*d.chunk;
                 let stride = chunk.stride.unsigned_abs() as usize;
                 let size = chunk.size as usize;
@@ -666,6 +842,7 @@ extern "C" fn on_process(data: *mut c_void) {
                         let s = std::slice::from_raw_parts(src.add(row * stride), w * 4);
                         slot.data[row * w * 4..(row + 1) * w * 4].copy_from_slice(s);
                     }
+                    slot.data_is_rgba = false;
                     if slot.seq == 0 {
                         scd!("first frame received ({}x{}, fmt {})", w, h, slot.spa_format);
                     }
@@ -685,6 +862,12 @@ struct StreamCtx {
     pw: Arc<PwLib>,
     stream: *mut c_void,
     shared: Arc<Shared>,
+    /// Surfaceless EGL importer for dmabuf frames (None → shared-memory only).
+    egl: Option<EglBackend>,
+    /// DRM modifier of the last negotiated dmabuf format (written in
+    /// param_changed, read in process). Meaningless unless the current buffer
+    /// is itself a dmabuf.
+    modifier: AtomicU64,
 }
 unsafe impl Send for StreamCtx {}
 unsafe impl Sync for StreamCtx {}
@@ -709,6 +892,17 @@ pub fn open(_index: u32, _width: u32, _height: u32) -> u64 {
         slot: Mutex::new(FrameSlot::default()),
         cond: Condvar::new(),
     });
+
+    // Surfaceless EGL importer for GPU (dmabuf) frames. Most compositors only
+    // hand out dmabuf, so this is the path that actually works on a real
+    // desktop; if it can't initialize we offer shared-memory formats only.
+    let egl = EglBackend::init();
+    scd!(
+        "egl backend: {}",
+        if egl.is_some() { "ready" } else { "unavailable (shmem only)" }
+    );
+    let format_pods = build_format_pods(egl.as_ref());
+    scd!("offering {} EnumFormat params", format_pods.len());
 
     unsafe {
         let name = CString::new("azul-screencap").unwrap();
@@ -776,6 +970,8 @@ pub fn open(_index: u32, _width: u32, _height: u32) -> u64 {
             pw: pw.clone(),
             stream,
             shared: shared.clone(),
+            egl,
+            modifier: AtomicU64::new(dmabuf::DRM_FORMAT_MOD_INVALID),
         }));
         let events = Box::new(PwStreamEvents {
             version: 2,
@@ -799,10 +995,12 @@ pub fn open(_index: u32, _width: u32, _height: u32) -> u64 {
             ctx_ptr as *mut c_void,
         );
 
-        // Connect: input stream to the portal's node, autoconnect + mmap.
-        let format_pod = build_enum_format_pod();
-        let buffers_pod = build_buffers_pod();
-        let mut params: [*const u8; 2] = [format_pod.as_ptr(), buffers_pod.as_ptr()];
+        // Connect: input stream to the portal's node, autoconnect + map.
+        // We offer every EnumFormat at once (dmabuf variants first, shmem last);
+        // the Buffers param is sent later in response to the negotiated Format
+        // (param_changed), which is the canonical pw_stream flow — offering
+        // Buffers at connect errors the stream before it pauses.
+        let mut param_ptrs: Vec<*const u8> = format_pods.iter().map(|p| p.as_ptr()).collect();
         const PW_DIRECTION_INPUT: c_int = 0;
         const FLAGS_AUTOCONNECT_MAP: c_int = (1 << 0) | (1 << 2);
         let rc = (pw.pw_stream_connect)(
@@ -810,8 +1008,8 @@ pub fn open(_index: u32, _width: u32, _height: u32) -> u64 {
             PW_DIRECTION_INPUT,
             node_id,
             FLAGS_AUTOCONNECT_MAP,
-            params.as_mut_ptr(),
-            2,
+            param_ptrs.as_mut_ptr(),
+            param_ptrs.len() as u32,
         );
         (pw.pw_thread_loop_unlock)(thread_loop);
         scd!("pw_stream_connect rc={}", rc);
@@ -888,6 +1086,16 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
 
     let (w, h) = (slot.width as usize, slot.height as usize);
     out.resize(w * h * 4, 0);
+    if slot.data_is_rgba {
+        // dmabuf import already read back RGBA; just force opaque alpha (X
+        // formats leave it undefined).
+        let n = out.len().min(slot.data.len());
+        out[..n].copy_from_slice(&slot.data[..n]);
+        for px in out.chunks_exact_mut(4) {
+            px[3] = 255;
+        }
+        return (slot.width, slot.height);
+    }
     match slot.spa_format {
         SPA_VIDEO_FORMAT_RGBA => out.copy_from_slice(&slot.data),
         SPA_VIDEO_FORMAT_RGBX => {
@@ -979,8 +1187,45 @@ mod tests {
         w.pod(SPA_TYPE_RECTANGLE, &[2560, 1440]);
         let pod = w.into_object(SPA_TYPE_OBJECT_FORMAT, SPA_PARAM_FORMAT);
 
-        let (fmt, wdt, hgt) = parse_format_pod(pod.as_ptr()).expect("must parse");
+        let (fmt, wdt, hgt, modifier) = parse_format_pod(pod.as_ptr()).expect("must parse");
         assert_eq!(fmt, SPA_VIDEO_FORMAT_BGRX);
         assert_eq!((wdt, hgt), (2560, 1440));
+        assert_eq!(modifier, None, "no modifier prop -> shmem path");
+    }
+
+    /// A negotiated dmabuf Format carries a fixated `VIDEO_modifier` Long; the
+    /// parser must surface it (that's the dmabuf-vs-shmem signal).
+    #[test]
+    fn negotiated_format_with_modifier_parses() {
+        let mut w = PodWriter::new();
+        w.prop(SPA_FORMAT_MEDIA_TYPE);
+        w.pod(SPA_TYPE_ID, &[SPA_MEDIA_TYPE_VIDEO]);
+        w.prop(SPA_FORMAT_MEDIA_SUBTYPE);
+        w.pod(SPA_TYPE_ID, &[SPA_MEDIA_SUBTYPE_RAW]);
+        w.prop(SPA_FORMAT_VIDEO_FORMAT);
+        w.pod(SPA_TYPE_ID, &[SPA_VIDEO_FORMAT_BGRX]);
+        w.prop(SPA_FORMAT_VIDEO_MODIFIER);
+        // A single Long pod (8-byte body), as a fixated modifier would arrive.
+        let modifier: u64 = 0x0100_0000_0000_0002; // arbitrary explicit modifier
+        w.pod(SPA_TYPE_LONG, &[(modifier & 0xffff_ffff) as u32, (modifier >> 32) as u32]);
+        w.prop(SPA_FORMAT_VIDEO_SIZE);
+        w.pod(SPA_TYPE_RECTANGLE, &[2560, 1440]);
+        let pod = w.into_object(SPA_TYPE_OBJECT_FORMAT, SPA_PARAM_FORMAT);
+
+        let (fmt, wdt, hgt, parsed_mod) = parse_format_pod(pod.as_ptr()).expect("must parse");
+        assert_eq!(fmt, SPA_VIDEO_FORMAT_BGRX);
+        assert_eq!((wdt, hgt), (2560, 1440));
+        assert_eq!(parsed_mod, Some(modifier));
+    }
+
+    /// The SPA→DRM fourcc mapping must match memory byte order (the cross-over
+    /// every screencast consumer relies on).
+    #[test]
+    fn spa_drm_fourcc_mapping() {
+        assert_eq!(spa_to_drm_fourcc(SPA_VIDEO_FORMAT_BGRA), dmabuf::DRM_FORMAT_ARGB8888);
+        assert_eq!(spa_to_drm_fourcc(SPA_VIDEO_FORMAT_RGBA), dmabuf::DRM_FORMAT_ABGR8888);
+        assert_eq!(spa_to_drm_fourcc(SPA_VIDEO_FORMAT_BGRX), dmabuf::DRM_FORMAT_XRGB8888);
+        assert_eq!(spa_to_drm_fourcc(SPA_VIDEO_FORMAT_RGBX), dmabuf::DRM_FORMAT_XBGR8888);
     }
 }
+
