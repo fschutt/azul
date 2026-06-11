@@ -135,6 +135,12 @@ pub mod event_kind {
     pub const FOCUSOUT:   u32 = 9;
     pub const RESIZE:     u32 = 10;
     pub const SCROLL:     u32 = 11;
+    // S1 (2026-06-11) — non-bubbling pointer events routed by DOM target,
+    // plus right-click. Mirrors azul HoverEventFilter::MouseEnter /
+    // MouseLeave / RightMouseUp.
+    pub const MOUSEENTER:  u32 = 12;
+    pub const MOUSELEAVE:  u32 = 13;
+    pub const CONTEXTMENU: u32 = 14;
 }
 
 /// Common event-bytes layout offsets. JS writes these with
@@ -298,6 +304,18 @@ pub struct EventloopState {
     /// `VirtualViewCallback` wasm, or `0` if none. Sprint 5+ uses
     /// this to invoke the cb on layout + scroll-edge events.
     pub virtual_view_provider_table_idx: u32,
+
+    // S1 input-event fields (2026-06-11) ──────────────────────────
+
+    /// node_idx of the currently focused node (`u32::MAX` = none).
+    /// Updated by FOCUSIN/FOCUSOUT dispatches; KEYDOWN/KEYUP route
+    /// here when set, else broadcast to kind-registered nodes.
+    pub focused_node_idx: u32,
+    /// Most recent viewport dimensions from a RESIZE dispatch
+    /// (CSS pixels). 0 until the first resize. Later slices expose
+    /// these through CallbackInfo's window state.
+    pub viewport_w: u32,
+    pub viewport_h: u32,
 }
 
 // =====================================================================
@@ -469,6 +487,9 @@ pub unsafe extern "C" fn AzStartup_init(_json_ptr: u32, _json_len: u32) -> u32 {
         positioned_rects_len: 0,
         auto_virtualize_threshold: AZ_AUTO_VIRTUALIZE_THRESHOLD,
         virtual_view_provider_table_idx: 0,
+        focused_node_idx: u32::MAX,
+        viewport_w: 0,
+        viewport_h: 0,
     });
     Box::into_raw(state) as usize as u32
 }
@@ -2056,6 +2077,27 @@ pub unsafe extern "C" fn AzStartup_relayout(state: u32) -> u32 {
 const FAKE_REFANY_LO: u64 = 0x101;
 const FAKE_REFANY_HI: u64 = 0;
 
+/// Resolve `node_idx`'s callback to a table index and invoke it with the
+/// hydrated refany. The info pointer is still the raw event bytes (S1) —
+/// S2 replaces it with a real wasm-side `CallbackInfo`. Returns the cb's
+/// `Update`, or 0 when the node has no resolvable callback.
+unsafe fn invoke_node_cb(
+    s: &mut EventloopState,
+    node_idx: u32,
+    event_bytes_ptr: u32,
+) -> u32 {
+    let table_idx = __az_resolve_callback(node_idx as u64);
+    if table_idx == u32::MAX {
+        return 0;
+    }
+    let refany_lo = if s.refany_ptr != 0 {
+        s.refany_ptr as u64
+    } else {
+        FAKE_REFANY_LO
+    };
+    __az_call_indirect(table_idx, refany_lo, FAKE_REFANY_HI, event_bytes_ptr)
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn AzStartup_dispatchEvent(
     state: u32,
@@ -2075,55 +2117,82 @@ pub unsafe extern "C" fn AzStartup_dispatchEvent(
 
     // M9-4/M9-6: if JS encoded SENTINEL (0xFFFFFFFF) as node_idx,
     // hit-test wasm-side via AzStartup_hitTest. Otherwise honour
-    // the JS-supplied node_idx (legacy back-compat path).
+    // the JS-supplied node_idx (DOM-target events — focusin/out,
+    // mouseenter/leave — pass the real target; mouseleave coords lie
+    // OUTSIDE the node so hit-testing them would be wrong).
     let event_node_idx_ptr =
         (event_bytes_ptr as usize + event_offset::NODE_IDX as usize) as *const u32;
     let event_node_idx = core::ptr::read(event_node_idx_ptr);
     let x_bits_ptr = (event_bytes_ptr as usize + event_offset::X as usize) as *const u32;
     let y_bits_ptr = (event_bytes_ptr as usize + event_offset::Y as usize) as *const u32;
-    let node_idx = if event_node_idx == u32::MAX {
+
+    // S1 (2026-06-11): RESIZE carries (w, h) in the x/y slots — record the
+    // viewport so later slices can surface it through CallbackInfo. Window
+    // kinds are never hit-tested.
+    if _kind == event_kind::RESIZE {
+        s.viewport_w = *x_bits_ptr;
+        s.viewport_h = *y_bits_ptr;
+    }
+
+    // S1 routing:
+    //   * RESIZE/SCROLL/KEYDOWN/KEYUP broadcast to every node whose
+    //     registered kind matches (azul Window-filter semantics: fires
+    //     regardless of pointer position). Focus-filter keyboard
+    //     precedence arrives with S2's real CallbackInfo.
+    //   * everything else: JS-supplied target (focus/enter/leave events
+    //     pass the DOM target) or bbox hit-test on SENTINEL.
+    let is_broadcast_kind = _kind == event_kind::RESIZE
+        || _kind == event_kind::SCROLL
+        || _kind == event_kind::KEYDOWN
+        || _kind == event_kind::KEYUP;
+    let node_idx = if is_broadcast_kind {
+        u32::MAX
+    } else if event_node_idx == u32::MAX {
         AzStartup_hitTest(state, *x_bits_ptr, *y_bits_ptr)
     } else {
         event_node_idx
     };
-    if node_idx == u32::MAX {
-        core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
-        return 0;
+
+    // Focus tracking — drives the keyboard routing above.
+    if _kind == event_kind::FOCUSIN {
+        s.focused_node_idx = node_idx;
+    } else if _kind == event_kind::FOCUSOUT && s.focused_node_idx == node_idx {
+        s.focused_node_idx = u32::MAX;
     }
 
-    // 2026-06-10 (per-EventFilter dispatch): when the hit node registered a
-    // specific event kind, only that kind invokes its callback. Unregistered
-    // nodes (0xFF) keep the legacy invoke-on-any-kind behavior.
-    if (node_idx as usize) < s.cb_node_kinds.len() {
-        let reg = s.cb_node_kinds[node_idx as usize];
-        if reg != 0xFF && reg as u32 != _kind {
-            core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
-            return 0;
+    let mut update = 0u32;
+    if node_idx != u32::MAX {
+        // Single-target path. Per-EventFilter kind check (2026-06-10):
+        // a node registered for a specific kind only fires on that kind;
+        // unregistered nodes (0xFF) keep legacy invoke-on-any-kind.
+        let mut kind_ok = true;
+        if (node_idx as usize) < s.cb_node_kinds.len() {
+            let reg = s.cb_node_kinds[node_idx as usize];
+            if reg != 0xFF && reg as u32 != _kind {
+                kind_ok = false;
+            }
         }
-    }
-
-    // Resolve cb fn-addr → table_idx. M9-3b will replace
-    // `cb_fn_addr = node_idx` with a real per-node fn-addr from
-    // the wasm-resident StyledDom; for now the JS-side
-    // azFnAddrToTableIdx maps identity (node_idx → table_idx).
-    let cb_fn_addr = node_idx as u64;
-    let table_idx = __az_resolve_callback(cb_fn_addr);
-    if table_idx == u32::MAX {
+        if kind_ok {
+            update = invoke_node_cb(s, node_idx, event_bytes_ptr);
+        }
+    } else if is_broadcast_kind {
+        // Broadcast path: every node registered for exactly this kind.
+        // Pointer kinds never broadcast — a bbox miss stays a miss.
+        let mut i = 0usize;
+        while i < s.cb_node_kinds.len() {
+            if s.cb_node_kinds[i] as u32 == _kind {
+                let u = invoke_node_cb(s, i as u32, event_bytes_ptr);
+                if u > update {
+                    update = u;
+                }
+            }
+            i += 1;
+        }
+    } else {
+        // True pointer miss — nothing to invoke, no patches.
         core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
         return 0;
     }
-
-    // M9-6: invoke the cb with the HYDRATED refany (no more
-    // FAKE_REFANY_LO). The cb's `data: AzRefAny` arg sees a real
-    // wasm-offset pointer to the user data; mutations land in
-    // state.model_ptr's region, observable to JS + to the patch
-    // emit step below.
-    let refany_lo = if s.refany_ptr != 0 {
-        s.refany_ptr as u64
-    } else {
-        FAKE_REFANY_LO
-    };
-    let update = __az_call_indirect(table_idx, refany_lo, FAKE_REFANY_HI, event_bytes_ptr);
 
     // M9-5/M9-6: on RefreshDom, encode a SetText TLV patch for the
     // counter display node and return its buffer. The cb has

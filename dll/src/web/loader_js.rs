@@ -57,6 +57,10 @@ var EVT_FOCUSIN   = 8;
 var EVT_FOCUSOUT  = 9;
 var EVT_RESIZE    = 10;
 var EVT_SCROLL    = 11;
+// S1 (2026-06-11): non-bubbling target events + right-click.
+var EVT_MOUSEENTER  = 12;
+var EVT_MOUSELEAVE  = 13;
+var EVT_CONTEXTMENU = 14;
 
 var EVENT_BUFFER_SIZE = 256;
 var OUT_LEN_SIZE = 4;
@@ -541,19 +545,31 @@ function azHydrate() {
     var typeIdHi = Number((typeIdBigInt >> 32n) & 0xFFFFFFFFn);
     var counter = (typeof payload.json === 'number') ? payload.json : 0;
 
-    // Allocate user-data slot + write counter (hello-world's
-    // MyDataModel = { counter: u32 }).
-    azModelPtr = azMini.AzStartup_alloc(4);
+    // S1 (2026-06-11) generic hydration: the server embeds the model's
+    // exact byte image ("size" + "bytes" hex). Allocate the REAL model
+    // size and restore every byte — any plain-old-data model now
+    // round-trips (the legacy path alloc'd 4 bytes and only restored
+    // hello-world's int; bigger models corrupted the bump heap).
+    var modelSize = (typeof payload.size === 'number' && payload.size > 0) ? payload.size : 4;
+    azModelPtr = azMini.AzStartup_alloc(modelSize);
     if (!azModelPtr) {
-        console.error('[azul-web] hydrate alloc(4) failed');
+        console.error('[azul-web] hydrate alloc(' + modelSize + ') failed');
         return;
     }
-    new DataView(azMemory.buffer).setUint32(azModelPtr, counter >>> 0, true);
+    if (typeof payload.bytes === 'string' && payload.bytes.length === modelSize * 2) {
+        var mem = new Uint8Array(azMemory.buffer, azModelPtr, modelSize);
+        for (var bi = 0; bi < modelSize; bi++) {
+            mem[bi] = parseInt(payload.bytes.substr(bi * 2, 2), 16);
+        }
+    } else {
+        // Legacy fallback: a single int in "json" (hello-world's counter).
+        new DataView(azMemory.buffer).setUint32(azModelPtr, counter >>> 0, true);
+    }
 
     // Hand to AzStartup_hydrate — the mini-side fn does the
     // RefCountInner + RefAny construction in lifted Rust code, no
     // hand-laid-out JS bytes.
-    azRefAnyPtr = azMini.AzStartup_hydrate(typeIdLo, typeIdHi, azModelPtr, 4);
+    azRefAnyPtr = azMini.AzStartup_hydrate(typeIdLo, typeIdHi, azModelPtr, modelSize);
     if (!azRefAnyPtr) {
         console.error('[azul-web] AzStartup_hydrate returned 0');
         return;
@@ -600,21 +616,52 @@ function azModifierBits(e) {
 // AzStartup_registerCbNodeKind. Unknown names register as EVT_CLICK.
 function azEvNameToKind(name) {
     switch (name) {
-        case 'click':     return EVT_CLICK;
-        case 'mousedown': return EVT_MOUSEDOWN;
-        case 'mouseup':   return EVT_MOUSEUP;
-        case 'dblclick':  return EVT_DBLCLICK;
-        case 'wheel':     return EVT_WHEEL;
-        case 'keydown':   return EVT_KEYDOWN;
-        case 'keyup':     return EVT_KEYUP;
-        case 'focus':     return EVT_FOCUSIN;
-        case 'blur':      return EVT_FOCUSOUT;
-        case 'scroll':    return EVT_SCROLL;
-        default:          return EVT_CLICK;
+        case 'click':       return EVT_CLICK;
+        case 'mousedown':   return EVT_MOUSEDOWN;
+        case 'mouseup':     return EVT_MOUSEUP;
+        case 'dblclick':    return EVT_DBLCLICK;
+        case 'wheel':       return EVT_WHEEL;
+        case 'keydown':     return EVT_KEYDOWN;
+        case 'keyup':       return EVT_KEYUP;
+        case 'focus':       return EVT_FOCUSIN;
+        case 'blur':        return EVT_FOCUSOUT;
+        case 'scroll':      return EVT_SCROLL;
+        // S1 (2026-06-11): the rest of the html_render.rs vocabulary.
+        case 'mousemove':   return EVT_MOUSEMOVE;
+        case 'mouseover':   return EVT_MOUSEMOVE;   // azul Hover(MouseOver) = pointer moving over the node
+        case 'mouseenter':  return EVT_MOUSEENTER;
+        case 'mouseleave':  return EVT_MOUSELEAVE;
+        case 'contextmenu': return EVT_CONTEXTMENU;
+        case 'input':       return EVT_KEYDOWN;     // text input dispatches via azDispatchWithText(EVT_KEYDOWN)
+        case 'resize':      return EVT_RESIZE;
+        default:            return EVT_CLICK;
     }
 }
 
-function azDispatch(kind, domEvent) {
+// S1 (2026-06-11): derive the az_N node_idx from a DOM event's target.
+// Needed for events whose semantics are target-based, not position-based:
+// focusin/out, mouseenter, and especially mouseleave (whose coordinates lie
+// OUTSIDE the node — bbox hit-testing them would resolve the wrong node).
+function azNodeIdxFromTarget(domEvent) {
+    var el = domEvent && domEvent.target;
+    while (el && el.getAttribute) {
+        var id = el.id || '';
+        if (id.indexOf('az_') === 0) {
+            var n = parseInt(id.slice(3), 10);
+            if (!isNaN(n)) return n;
+        }
+        el = el.parentElement;
+    }
+    return SENTINEL_NO_NODE;
+}
+
+// Dispatch with the node_idx taken from the DOM target instead of the
+// wasm-side bbox hit-test.
+function azDispatchTargeted(kind, domEvent) {
+    azDispatch(kind, domEvent, azNodeIdxFromTarget(domEvent));
+}
+
+function azDispatch(kind, domEvent, nodeIdxOverride) {
     var evtPtr = azMini.AzStartup_alloc(EVENT_BUFFER_SIZE);
     var outLenPtr = azMini.AzStartup_alloc(OUT_LEN_SIZE);
     if (!evtPtr || !outLenPtr) {
@@ -631,7 +678,8 @@ function azDispatch(kind, domEvent) {
     // positioned-rect cache (also stored as u32 pixels).
     // f32::from_bits proved unreliable through the remill lift —
     // integer coords sidestep that conversion entirely.
-    view.setUint32(evtPtr + 0,  SENTINEL_NO_NODE, true);
+    var nodeIdx = (nodeIdxOverride === undefined) ? SENTINEL_NO_NODE : nodeIdxOverride;
+    view.setUint32(evtPtr + 0,  nodeIdx, true);
     view.setUint32(evtPtr + 4, Math.max(0, Math.floor(domEvent.clientX || 0)), true);
     view.setUint32(evtPtr + 8, Math.max(0, Math.floor(domEvent.clientY || 0)), true);
     view.setUint32(evtPtr + 12, domEvent.button || domEvent.keyCode || 0, true);
@@ -786,12 +834,53 @@ function azWireListeners() {
     document.body.addEventListener('mousedown', function(e) { azDispatch(EVT_MOUSEDOWN, e); });
     document.body.addEventListener('mouseup',   function(e) { azDispatch(EVT_MOUSEUP,   e); });
     document.body.addEventListener('dblclick',  function(e) { azDispatch(EVT_DBLCLICK,  e); });
-    document.body.addEventListener('keydown',   function(e) { azDispatch(EVT_KEYDOWN,   e); });
-    document.body.addEventListener('keyup',     function(e) { azDispatch(EVT_KEYUP,     e); });
+    // S1 (2026-06-11): keyboard routes wasm-side to the focused node (or
+    // broadcasts to kind-registered nodes); pass the DOM target as a hint
+    // when the browser knows it (input fields).
+    document.body.addEventListener('keydown',   function(e) { azDispatchTargeted(EVT_KEYDOWN,   e); });
+    document.body.addEventListener('keyup',     function(e) { azDispatchTargeted(EVT_KEYUP,     e); });
     // Focus events bubble via `focusin`/`focusout` (the bubbling
-    // variants — `focus`/`blur` don't bubble to body).
-    document.body.addEventListener('focusin',   function(e) { azDispatch(EVT_FOCUSIN,   e); });
-    document.body.addEventListener('focusout',  function(e) { azDispatch(EVT_FOCUSOUT,  e); });
+    // variants — `focus`/`blur` don't bubble to body). Target-routed:
+    // focus semantics are about the element, not the pointer position.
+    document.body.addEventListener('focusin',   function(e) { azDispatchTargeted(EVT_FOCUSIN,   e); });
+    document.body.addEventListener('focusout',  function(e) { azDispatchTargeted(EVT_FOCUSOUT,  e); });
+    // S1: pointer-move, rAF-throttled — at most one dispatch per frame,
+    // always the most recent position.
+    var azPendingMove = null;
+    document.body.addEventListener('mousemove', function(e) {
+        var first = azPendingMove === null;
+        azPendingMove = e;
+        if (first) {
+            requestAnimationFrame(function() {
+                var ev = azPendingMove;
+                azPendingMove = null;
+                if (ev && azState) azDispatch(EVT_MOUSEMOVE, ev);
+            });
+        }
+    });
+    // S1: wheel = azul's Scroll event at the pointer position (desktop
+    // parity: the wheel scrolls whatever node is under the cursor).
+    // `passive` keeps native scrolling smooth.
+    document.body.addEventListener('wheel', function(e) {
+        azDispatch(EVT_SCROLL, e);
+    }, { passive: true });
+    // S1: mouseenter/mouseleave don't bubble — capture-phase listeners on
+    // body still see descendants' events. Routed by DOM TARGET (leave
+    // coordinates are outside the node; never bbox-hit-test these).
+    document.body.addEventListener('mouseenter', function(e) {
+        azDispatchTargeted(EVT_MOUSEENTER, e);
+    }, true);
+    document.body.addEventListener('mouseleave', function(e) {
+        azDispatchTargeted(EVT_MOUSELEAVE, e);
+    }, true);
+    // S1: right-click → azul Hover(RightMouseUp). Suppress the browser
+    // menu only when the target registered a contextmenu cb (data-az-ev
+    // mirrors the callback's EventFilter).
+    document.body.addEventListener('contextmenu', function(e) {
+        var el = e.target && e.target.closest && e.target.closest('[data-az-ev="contextmenu"]');
+        if (el) e.preventDefault();
+        azDispatch(EVT_CONTEXTMENU, e);
+    });
     // `input` fires on every <input>/<textarea>/[contenteditable]
     // mutation — bench's row-edit cells need this.
     document.body.addEventListener('input', function(e) {

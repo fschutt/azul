@@ -96,6 +96,24 @@ pub fn render_initial_page(
         azul_core::json::OptionJson::Some(j) => format!("{}", j),
         azul_core::json::OptionJson::None => String::from("null"),
     };
+    // S1 (2026-06-11) generic hydration: embed the model's exact byte image
+    // so the JS bootstrap can rebuild ANY plain-old-data model (the legacy
+    // "json" int only covered hello-world's 4-byte counter — a larger model
+    // got a 4-byte allocation and every field past offset 4 corrupted the
+    // bump heap). Models holding native pointers (AzString etc.) still need
+    // the user's fromJson path; raw bytes are correct for POD state.
+    let (hydrate_size, hydrate_bytes_hex) = {
+        let len = app_data.get_data_len();
+        let ptr = app_data.get_data_ptr() as *const u8;
+        let mut hex = String::with_capacity(len * 2);
+        if !ptr.is_null() {
+            for i in 0..len {
+                let b = unsafe { core::ptr::read(ptr.add(i)) };
+                hex.push_str(&format!("{:02x}", b));
+            }
+        }
+        (len, hex)
+    };
     // 1. Run layout callback → Dom (recursive tree with CSS attached)
     let dom = call_layout(app_data, layout_callback, window_state, fc_cache, active_route);
 
@@ -186,8 +204,8 @@ pub fn render_initial_page(
     // and the user's toJson serialization. For hello-world.c the
     // serialization is just the integer counter.
     let hydrate_block = format!(
-        r#"<script id="az-hydrate" type="application/json">{{"type_id":"{}","json":{}}}</script>"#,
-        hydrate_type_id, hydrate_json,
+        r#"<script id="az-hydrate" type="application/json">{{"type_id":"{}","json":{},"size":{},"bytes":"{}"}}</script>"#,
+        hydrate_type_id, hydrate_json, hydrate_size, hydrate_bytes_hex,
     );
 
     let html = format!(
@@ -697,7 +715,7 @@ fn is_void_element(tag: &str) -> bool {
 }
 
 fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static str {
-    use azul_core::events::{EventFilter, HoverEventFilter, FocusEventFilter};
+    use azul_core::events::{EventFilter, FocusEventFilter, HoverEventFilter, WindowEventFilter};
     match event {
         EventFilter::Hover(h) => match h {
             HoverEventFilter::MouseUp => "click",
@@ -705,6 +723,7 @@ fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static s
             HoverEventFilter::MouseOver => "mouseover",
             HoverEventFilter::MouseLeave => "mouseleave",
             HoverEventFilter::MouseEnter => "mouseenter",
+            HoverEventFilter::RightMouseUp => "contextmenu",
             HoverEventFilter::Scroll => "scroll",
             HoverEventFilter::TextInput => "input",
             HoverEventFilter::VirtualKeyDown => "keydown",
@@ -717,6 +736,26 @@ fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static s
             FocusEventFilter::TextInput => "input",
             FocusEventFilter::VirtualKeyDown => "keydown",
             FocusEventFilter::VirtualKeyUp => "keyup",
+            _ => "click",
+        },
+        // S1 (2026-06-11): Window-filter callbacks previously fell through
+        // to "click" — a resize cb registered as a click handler. Window
+        // kinds dispatch by BROADCAST in AzStartup_dispatchEvent (no bbox
+        // target), keyed off these names.
+        EventFilter::Window(w) => match w {
+            WindowEventFilter::Resized => "resize",
+            WindowEventFilter::Scroll => "scroll",
+            WindowEventFilter::MouseOver => "mousemove",
+            WindowEventFilter::MouseDown | WindowEventFilter::LeftMouseDown => "mousedown",
+            WindowEventFilter::MouseUp | WindowEventFilter::LeftMouseUp => "mouseup",
+            WindowEventFilter::RightMouseUp => "contextmenu",
+            WindowEventFilter::MouseEnter => "mouseenter",
+            WindowEventFilter::MouseLeave => "mouseleave",
+            WindowEventFilter::TextInput => "input",
+            WindowEventFilter::VirtualKeyDown => "keydown",
+            WindowEventFilter::VirtualKeyUp => "keyup",
+            WindowEventFilter::FocusReceived => "focus",
+            WindowEventFilter::FocusLost => "blur",
             _ => "click",
         },
         _ => "click",
