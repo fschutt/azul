@@ -1592,6 +1592,39 @@ impl ListView {
         self.rows = rows;
     }
 
+    /// The half-open range `[first, last)` of row indices visible in a
+    /// vertically-scrolled, fixed-row-height list — the windowing core for
+    /// virtualizing a long `ListView` (render only these rows instead of all of
+    /// them, the way the MapWidget's VirtualView renders only visible tiles).
+    /// `scroll_y` is pixels scrolled past the top, `viewport_height` the visible
+    /// height; one extra row is included so a row straddling the bottom edge
+    /// still renders. Returns `(0, 0)` for degenerate input (no rows, a
+    /// non-positive/non-finite height, or non-finite scroll), and an empty range
+    /// `(total, total)` once scrolled past the end.
+    pub fn visible_row_range(
+        scroll_y: f32,
+        viewport_height: f32,
+        row_height: f32,
+        total_rows: usize,
+    ) -> (usize, usize) {
+        if total_rows == 0
+            || !row_height.is_finite()
+            || row_height <= 0.0
+            || !viewport_height.is_finite()
+            || viewport_height <= 0.0
+            || !scroll_y.is_finite()
+        {
+            return (0, 0);
+        }
+        let first = (scroll_y.max(0.0) / row_height).floor() as usize;
+        if first >= total_rows {
+            return (total_rows, total_rows);
+        }
+        let visible = (viewport_height / row_height).ceil() as usize + 1;
+        let last = (first + visible).min(total_rows);
+        (first, last)
+    }
+
     pub fn with_sorted_by(mut self, sorted_by: OptionUsize) -> Self {
         self.set_sorted_by(sorted_by);
         self
@@ -1826,6 +1859,25 @@ extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) 
 #[cfg(test)]
 mod list_view_click_tests {
     use super::*;
+
+    /// The windowing core for ListView virtualization: only the visible rows
+    /// (+1 straddling the bottom) are in range, the range tracks scroll, clamps
+    /// to the row count, and degenerate input yields an empty range.
+    #[test]
+    fn visible_row_range_windows_correctly() {
+        // 100 rows × 20px, 200px viewport → 10 full rows + 1 partial.
+        assert_eq!(ListView::visible_row_range(0.0, 200.0, 20.0, 100), (0, 11));
+        // Scrolled 50px → first row = floor(50/20) = 2.
+        assert_eq!(ListView::visible_row_range(50.0, 200.0, 20.0, 100), (2, 13));
+        // Near the end → clamped to the row count.
+        assert_eq!(ListView::visible_row_range(1900.0, 200.0, 20.0, 100), (95, 100));
+        // Scrolled past the end → empty range at the tail.
+        assert_eq!(ListView::visible_row_range(5000.0, 200.0, 20.0, 100), (100, 100));
+        // Degenerate inputs → empty.
+        assert_eq!(ListView::visible_row_range(0.0, 200.0, 20.0, 0), (0, 0));
+        assert_eq!(ListView::visible_row_range(0.0, 200.0, 0.0, 100), (0, 0));
+        assert_eq!(ListView::visible_row_range(f32::NAN, 200.0, 20.0, 100), (0, 0));
+    }
 
     extern "C" fn noop_row(_: RefAny, _: CallbackInfo, _: ListViewState, _: usize) -> Update {
         Update::DoNothing
