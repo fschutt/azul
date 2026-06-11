@@ -20,7 +20,20 @@ use core::marker::PhantomData;
 // `AZ_PROFILE=cpu` then prints "(probe unavailable on this target)"
 // rather than crashing.
 
-#[cfg(all(feature = "probe", not(target_family = "wasm")))]
+// [WEB-LIFT 2026-06-11] `web_lift` also forces the no-op imp: the real
+// module is Instant::now (mach-time syscall, out-of-image when lifted) +
+// thread-local pushes + first-access dtor registration (`_tlv_atexit`).
+// With the TLV emulation in place TLS "works", which flips these from
+// harmlessly-failing (`try_with` Err) to actually-running — and the
+// mach/atexit extern calls inside are unliftable. Profiling is
+// meaningless in lifted wasm; the dylib built with `web-transpiler*`
+// (which enables `web_lift`) is the web-server build, so desktop
+// release builds keep real probes.
+#[cfg(all(
+    feature = "probe",
+    not(target_family = "wasm"),
+    not(feature = "web_lift")
+))]
 mod imp {
     use std::cell::RefCell;
     use std::time::Instant;
@@ -84,7 +97,11 @@ mod imp {
     }
 }
 
-#[cfg(any(not(feature = "probe"), target_family = "wasm"))]
+#[cfg(any(
+    not(feature = "probe"),
+    target_family = "wasm",
+    feature = "web_lift"
+))]
 mod imp {
     pub struct Span;
 
@@ -300,13 +317,16 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
 /// checkpoint labels; semantically it is "sample current".
 #[inline]
 pub fn sample_peak_rss(label: &'static str) {
-    #[cfg(feature = "probe")]
+    // [WEB-LIFT 2026-06-11] also no-op under web_lift: current_rss_bytes/
+    // peak_rss_bytes_self are mach syscalls (task_info/getrusage) —
+    // out-of-image and unliftable. See the `imp` cfg note above.
+    #[cfg(all(feature = "probe", not(feature = "web_lift")))]
     {
         let (current, _virt) = current_rss_bytes();
         let bytes = if current != 0 { current } else { peak_rss_bytes_self() };
         Probe::sample_rss(label, bytes);
     }
-    #[cfg(not(feature = "probe"))]
+    #[cfg(any(not(feature = "probe"), feature = "web_lift"))]
     let _ = label;
 }
 

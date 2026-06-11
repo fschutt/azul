@@ -308,6 +308,32 @@ pub struct SymbolTable {
     /// the table grows extension points.
     #[allow(dead_code)]
     image_bytes: Vec<Vec<u8>>,
+    /// macOS thread-local-variable geometry per image (live addresses).
+    /// Drives the wasm TLS emulation: the data mirror rewrites every
+    /// descriptor's thunk pointer to `AZ_TLV_MAGIC_PC` and the indirect
+    /// dispatcher resolves that PC to `tls_base + descriptor.offset`
+    /// (single-threaded wasm ⇒ TLS is just statics). See
+    /// `transpiler_remill.rs` `AZ_TLV_MAGIC_PC`.
+    tlv_regions: Vec<TlvRegion>,
+}
+
+/// One image's `__DATA.__thread_vars` + TLS-image geometry (live, slid
+/// addresses). `tls_base` is the start of `__thread_data` — dyld assigns
+/// each descriptor's `offset` field relative to it (`__thread_bss`
+/// follows contiguously; its zero-init maps to wasm's zero default, so
+/// only `__thread_data` bytes need mirroring).
+#[derive(Debug, Clone, Copy)]
+pub struct TlvRegion {
+    /// Live start of `__thread_vars` (array of 24-byte descriptors
+    /// `{thunk, key, offset}`).
+    pub vars_start: usize,
+    /// Byte size of `__thread_vars`.
+    pub vars_size: usize,
+    /// Live start of `__thread_data` (the TLS initial image; descriptor
+    /// offsets are relative to this).
+    pub tls_base: usize,
+    /// Byte size of `__thread_data` (initialized TLS bytes to mirror).
+    pub tls_data_size: usize,
 }
 
 /// Per-image rebasing record. Tracks the native↔synthetic mapping
@@ -509,6 +535,7 @@ impl SymbolTable {
         let mut by_name: HashMap<String, usize> = HashMap::new();
         let mut chain: HashMap<usize, usize> = HashMap::new();
         let mut image_bytes: Vec<Vec<u8>> = Vec::with_capacity(images.len());
+        let mut tlv_regions: Vec<TlvRegion> = Vec::new();
 
         for LoadedImage { path, slide, bytes } in images {
             // Defensive: bytes empty (file unreadable) → skip silently.
@@ -539,6 +566,7 @@ impl SymbolTable {
                         &mut by_name,
                         &mut chain,
                     )?;
+                    tlv_regions.extend(collect_macho_tlv_regions(&macho, &bytes, slide, &path));
                 }
                 goblin::Object::Mach(goblin::mach::Mach::Fat(fat)) => {
                     // Fat archive: pick the slice matching the host
@@ -556,6 +584,7 @@ impl SymbolTable {
                             &mut by_name,
                             &mut chain,
                         )?;
+                        tlv_regions.extend(collect_macho_tlv_regions(&macho, &bytes, slide, &path));
                     }
                 }
                 goblin::Object::Elf(elf) => {
@@ -591,6 +620,7 @@ impl SymbolTable {
             image_rebases: Vec::new(),
             synth_chain: HashMap::new(),
             image_bytes,
+            tlv_regions,
         };
 
         // M9-review: assign per-image synthetic bases so lifted code
@@ -889,6 +919,39 @@ impl SymbolTable {
             }
         }
         false
+    }
+
+    /// [WEB-LIFT 2026-06-11] TLV geometry of every loaded image that has
+    /// thread-locals (see [`TlvRegion`]). Live addresses.
+    pub fn tlv_regions(&self) -> &[TlvRegion] {
+        &self.tlv_regions
+    }
+
+    /// True when `live_addr` is the THUNK field (offset 0 of a 24-byte
+    /// descriptor) inside some image's `__thread_vars`. The data mirror
+    /// rewrites exactly these 8-byte slots to `AZ_TLV_MAGIC_PC`.
+    pub fn is_tlv_thunk_slot(&self, live_addr: usize) -> bool {
+        for r in &self.tlv_regions {
+            if live_addr >= r.vars_start
+                && live_addr < r.vars_start + r.vars_size
+                && (live_addr - r.vars_start) % 24 == 0
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// The wasm-side TLS base the dispatcher's TLV case adds each
+    /// descriptor's `offset` to. This is the SYNTH address of
+    /// `__thread_data` — the data mirror places section bytes at synth
+    /// offsets and lifted `adrp` pages are synth-rebased, so the whole
+    /// TLV access stays in synth space (NOT the truncated live address).
+    /// One TLS area is supported (libazul's — the only image whose code
+    /// gets lifted); `None` when the process has no thread-locals.
+    pub fn tlv_tls_base_synth(&self) -> Option<u32> {
+        let r = self.tlv_regions.first()?;
+        self.native_to_synth(r.tls_base).map(|s| s as u32)
     }
 }
 
@@ -2307,6 +2370,89 @@ pub(crate) fn collect_macho_low32_sections(
         }
     }
     out
+}
+
+/// [WEB-LIFT FIX 2026-06-11] macOS thread-local geometry of one image:
+/// `__DATA.__thread_vars` (the 24-byte `{thunk, key, offset}` descriptor
+/// array) + `__DATA.__thread_data` (the TLS initial image; descriptor
+/// offsets are relative to its start, with `__thread_bss` contiguous
+/// after it — bss needs no mirror bytes, wasm memory zero-default IS its
+/// init). Lifted code reaches a thread-local via `adrp x0,<descriptor>;
+/// ldr x8,[x0]; blr x8` — the thunk is `__tlv_bootstrap`/`tlv_get_addr`
+/// (out-of-image libdyld), so the lifted `blr` used to fall into the
+/// dispatcher's unknown-target drop, leaving X0 = the DESCRIPTOR address;
+/// std then read the descriptor bytes as the TLS variable → garbage
+/// `LocalKey` state byte → `panic_access_error` traps (first seen:
+/// `RandomState::new`'s KEYS thread_local inside `HashSet::new()` in
+/// `get_loaded_font_ids`, post-rebase). The fix consumes this geometry in
+/// `transpiler_remill.rs`: mirror vars+data, rewrite each mirrored thunk
+/// to `AZ_TLV_MAGIC_PC`, dispatcher-resolve that PC to
+/// `tls_base + descriptor.offset` (single-threaded wasm ⇒ TLS = statics).
+fn collect_macho_tlv_regions(
+    macho: &goblin::mach::MachO<'_>,
+    file_bytes: &[u8],
+    slide: usize,
+    path: &std::path::Path,
+) -> Vec<TlvRegion> {
+    use goblin::mach::load_command::{
+        CommandVariant, SIZEOF_SECTION_64, SIZEOF_SEGMENT_COMMAND_64,
+    };
+    // Only the image whose code gets LIFTED matters — its descriptors are
+    // what lifted `adrp+ldr+blr` reaches. Collecting every loaded image's
+    // TLS would make `tlv_regions.first()` (the dispatcher's TLS base)
+    // ambiguous — first seen as another dylib's region shadowing libazul's.
+    if !path
+        .file_name()
+        .and_then(|f| f.to_str())
+        .map(|f| f.contains("libazul"))
+        .unwrap_or(false)
+    {
+        return Vec::new();
+    }
+    let mut vars: Option<(usize, usize)> = None;
+    let mut data: Option<(usize, usize)> = None;
+    for lc in &macho.load_commands {
+        let CommandVariant::Segment64(seg64) = &lc.command else { continue };
+        if trim_macho_name(&seg64.segname) != "__DATA" {
+            continue;
+        }
+        let sections_off = lc.offset + SIZEOF_SEGMENT_COMMAND_64;
+        for i in 0..seg64.nsects as usize {
+            let off = sections_off + i * SIZEOF_SECTION_64;
+            if off + SIZEOF_SECTION_64 > file_bytes.len() {
+                break;
+            }
+            let Some(s) = parse_section64(&file_bytes[off..off + SIZEOF_SECTION_64]) else {
+                continue;
+            };
+            let live = (s.addr as usize).wrapping_add(slide);
+            match trim_macho_name(&s.sectname) {
+                "__thread_vars" => vars = Some((live, s.size as usize)),
+                "__thread_data" => data = Some((live, s.size as usize)),
+                _ => {}
+            }
+        }
+    }
+    match (vars, data) {
+        (Some((vs, vsz)), Some((ds, dsz))) if vsz > 0 => {
+            eprintln!(
+                "[azul-web] TLV: {} __thread_vars live=0x{:x}+0x{:x} __thread_data live=0x{:x}+0x{:x}",
+                path.file_name().and_then(|f| f.to_str()).unwrap_or("?"),
+                vs, vsz, ds, dsz,
+            );
+            vec![TlvRegion {
+                vars_start: vs,
+                vars_size: vsz,
+                tls_base: ds,
+                tls_data_size: dsz,
+            }]
+        }
+        // Descriptors with no __thread_data (all-bss TLS): offsets are
+        // still relative to where __thread_data WOULD start = the bss
+        // start; without a data section there is nothing to anchor, so
+        // skip (no such image in practice — libazul has both).
+        _ => Vec::new(),
+    }
 }
 
 /// [WEB-LIFT FIX 2026-06-06] Find hashbrown's `EMPTY_GROUP` static(s) in the

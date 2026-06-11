@@ -2161,6 +2161,14 @@ impl RemillTranspiler {
         ir.push_str("%struct.State = type opaque\n");
         ir.push_str("declare ptr @__remill_write_memory_32(ptr, i64, i32)\n");
         ir.push_str("declare i32 @__remill_read_memory_32(ptr, i64)\n");
+        ir.push_str("declare i64 @__remill_read_memory_64(ptr, i64)\n");
+        // [WEB-LIFT FIX 2026-06-11] wasm-side TLS base for the TLV case
+        // below: the SYNTH address of __thread_data (descriptor offsets
+        // are relative to it; mirror + lifted adrp both live in synth
+        // space). None ⇒ the image has no thread-locals and no TLV case
+        // is emitted.
+        let tlv_tls_base: Option<u32> =
+            symbol_table::get().and_then(|t| t.tlv_tls_base_synth());
         // WEB-LIFT FIX (2026-06-03, DEFINITIVE): the dispatcher must call the remill-ABI BODY
         // `@sub_<csynth>(ptr state, i64 pc, ptr memory)` — NOT the `@__az_dep_<addr>` export, which
         // is the EXTERNAL callback-ABI wrapper with a DIFFERENT signature `(i64 lo, i64 hi, i32)`
@@ -2188,7 +2196,28 @@ impl RemillTranspiler {
         for (label, _c) in cases {
             ir.push_str(&format!("    i64 {}, label %c{:x}\n", label, label));
         }
+        if tlv_tls_base.is_some() {
+            ir.push_str(&format!("    i64 {}, label %tlv\n", AZ_TLV_MAGIC_PC));
+        }
         ir.push_str("  ]\n");
+        // TLV getter (macOS thread-locals, see AZ_TLV_MAGIC_PC): the
+        // caller did `adrp x0,<descriptor>; ldr x8,[x0]; blr x8` with
+        // the mirrored thunk rewritten to the magic PC. Emulate
+        // `tlv_get_addr`: X0 = tls_base + descriptor.offset (offset is
+        // the third 8-byte field of the 24-byte descriptor X0 points
+        // at). X0 lives at State offset 544.
+        if let Some(base) = tlv_tls_base {
+            ir.push_str(&format!(
+                "tlv:\n  %x0p = getelementptr inbounds i8, ptr %state, i64 544\n  \
+                 %desc = load i64, ptr %x0p, align 8\n  \
+                 %offp = add i64 %desc, 16\n  \
+                 %off = call i64 @__remill_read_memory_64(ptr %memory, i64 %offp)\n  \
+                 %res = add i64 %off, {}\n  \
+                 store i64 %res, ptr %x0p, align 8\n  \
+                 ret ptr %memory\n",
+                base
+            ));
+        }
         for (label, c) in cases {
             ir.push_str(&format!(
                 "c{label:x}:\n  %r{label:x} = call ptr @sub_{c:x}(ptr %state, i64 %pcm, ptr %memory)\n  ret ptr %r{label:x}\n",
@@ -2952,7 +2981,14 @@ fn inject_user_binary_data_segments(
             eprintln!("[azul-web] AZ_FORCE_MIRROR: no libazul image rebase found");
         }
     }
-    let mut segments = collect_synth_data_pages(table, &accessed_pages_owned, accessed_ranges);
+    // [WEB-LIFT FIX 2026-06-11] Seed TLV ranges at THE mirror chokepoint
+    // (every module's data mirror flows through here, and `table` is in
+    // hand — the earlier per-lift seeding could silently no-op when the
+    // global symbol table wasn't initialized yet).
+    let mut accessed_ranges_owned = accessed_ranges.clone();
+    seed_tlv_mirror_ranges(table, &mut accessed_pages_owned, &mut accessed_ranges_owned);
+    let mut segments =
+        collect_synth_data_pages(table, &accessed_pages_owned, &accessed_ranges_owned);
     // [WEB-LIFT FIX 2026-06-06] Permanently mirror hashbrown's EMPTY_GROUP
     // static(s) as PRECISE all-0xFF segments appended LAST (active data segments
     // are applied in order; last write wins, so this is idempotent over any
@@ -3033,6 +3069,60 @@ fn inject_user_binary_data_segments(
 /// caused mini.wasm to balloon to 27 MiB even for hello-world.
 /// Per-page is bounded by what the cb actually touches — typically
 /// a few dozen pages = a few hundred KiB.
+/// [WEB-LIFT FIX 2026-06-11] The synthetic PC every mirrored macOS TLV
+/// descriptor's `thunk` field is rewritten to. The lifted thread-local
+/// access (`adrp x0,<desc>; ldr x8,[x0]; blr x8`) then reaches the
+/// indirect dispatcher with this PC; its dedicated case computes
+/// `X0 = tls_base_low32 + descriptor.offset` (single-threaded wasm ⇒
+/// TLS is just statics; `__thread_bss` zero-init = wasm zero default).
+/// Chosen far above both the synth band (image-sized, < ~0x10000000)
+/// and any truncated in-image native (guarded by
+/// `is_synth_in_image_span` in `dispatcher_csynths`), and below 2^32 so
+/// the dispatcher's `and pc, 0xFFFFFFFF` keeps it intact. Before this
+/// fix the thunk (out-of-image `__tlv_bootstrap`) fell into the
+/// dispatcher's unknown-target drop: X0 stayed = the DESCRIPTOR address,
+/// std read descriptor bytes as the `LocalKey` state byte → garbage →
+/// `std::thread::local::panic_access_error` trap (first hit:
+/// `RandomState`'s KEYS in `HashSet::new()` post-rebase).
+#[cfg(feature = "web-transpiler")]
+const AZ_TLV_MAGIC_PC: u64 = 0xA271_C0DE;
+
+/// Seed the data mirror with every image's full `__thread_vars`
+/// (descriptors — the translation pass rewrites their thunk slots to
+/// [`AZ_TLV_MAGIC_PC`]) and `__thread_data` (TLS initial image) ranges.
+/// Without this only the adrp'd descriptor bytes would mirror and the
+/// `offset` field at descriptor+16 would read back zero.
+#[cfg(feature = "web-transpiler")]
+fn seed_tlv_mirror_ranges(
+    table: &super::symbol_table::SymbolTable,
+    accessed_pages: &mut std::collections::HashSet<usize>,
+    accessed_ranges: &mut std::collections::HashSet<(usize, usize)>,
+) {
+    let mut seeded = 0usize;
+    for r in table.tlv_regions() {
+        for (start, size) in [(r.vars_start, r.vars_size), (r.tls_base, r.tls_data_size)] {
+            if size == 0 {
+                continue;
+            }
+            accessed_ranges.insert((start, size));
+            let mut p = start & !0xFFF;
+            while p < start + size {
+                accessed_pages.insert(p);
+                p += 0x1000;
+            }
+            seeded += 1;
+        }
+    }
+    if seeded > 0 {
+        eprintln!(
+            "[azul-web] TLV: seeded {} thread-local section range(s) into the mirror \
+             (tls_base_synth={:?})",
+            seeded,
+            table.tlv_tls_base_synth(),
+        );
+    }
+}
+
 #[cfg(feature = "web-transpiler")]
 fn collect_synth_data_pages(
     table: &super::symbol_table::SymbolTable,
@@ -3169,6 +3259,13 @@ fn collect_synth_data_pages(
                         run[chunk_start + 6],
                         run[chunk_start + 7],
                     ]);
+                    // TLV thunk slot → magic PC (see AZ_TLV_MAGIC_PC).
+                    if table.is_tlv_thunk_slot(native_page + run_off_in_page + chunk_start) {
+                        run[chunk_start..chunk_start + 8]
+                            .copy_from_slice(&AZ_TLV_MAGIC_PC.to_le_bytes());
+                        translated_in_run += 1;
+                        continue;
+                    }
                     if let Some(synth) = table.native_to_synth(value as usize) {
                         let synth_bytes = (synth as u64).to_le_bytes();
                         run[chunk_start..chunk_start + 8].copy_from_slice(&synth_bytes);
@@ -3238,6 +3335,13 @@ fn collect_synth_data_pages(
                 bytes[chunk_start + 6],
                 bytes[chunk_start + 7],
             ]);
+            // TLV thunk slot → magic PC (see AZ_TLV_MAGIC_PC).
+            if table.is_tlv_thunk_slot(native_page + chunk_start) {
+                bytes[chunk_start..chunk_start + 8]
+                    .copy_from_slice(&AZ_TLV_MAGIC_PC.to_le_bytes());
+                translated_in_page += 1;
+                continue;
+            }
             if let Some(synth) = table.native_to_synth(value as usize) {
                 let synth_bytes = (synth as u64).to_le_bytes();
                 bytes[chunk_start..chunk_start + 8].copy_from_slice(&synth_bytes);
@@ -3280,6 +3384,11 @@ fn collect_synth_data_pages(
             unsafe { core::slice::from_raw_parts(tp as *const u8, PAGE_SIZE).to_vec() };
         for cs in (0..PAGE_SIZE).step_by(8) {
             let v = u64::from_le_bytes(bytes[cs..cs + 8].try_into().unwrap());
+            // TLV thunk slot → magic PC (see AZ_TLV_MAGIC_PC).
+            if table.is_tlv_thunk_slot(tp + cs) {
+                bytes[cs..cs + 8].copy_from_slice(&AZ_TLV_MAGIC_PC.to_le_bytes());
+                continue;
+            }
             if let Some(synth) = table.native_to_synth(v as usize) {
                 bytes[cs..cs + 8].copy_from_slice(&(synth as u64).to_le_bytes());
                 pending_targets.push(v as usize & !0xFFF);
@@ -3419,10 +3528,11 @@ fn collect_synth_data_segments_legacy(
     // Per-section size cap (skip pathologically large sections;
     // mini.wasm bloat scales linearly with mirrored bytes).
     const PER_SECTION_LIMIT: usize = 32 * 1024 * 1024;
-    // Synth-offset upper bound: just below the bump-heap base in
-    // `emit_helper_ir`'s @__az_bump_ptr init (96 MiB). Sections
+    // Synth-offset upper bound: just below the bump-heap base the
+    // loader passes to AzStartup_resetBumpHeap (160 MiB as of
+    // 2026-06-11 — keep in lockstep with loader_js.rs). Sections
     // landing past this would overlap with the heap.
-    const SYNTH_OFFSET_LIMIT: u64 = 96 * 1024 * 1024;
+    const SYNTH_OFFSET_LIMIT: u64 = 160 * 1024 * 1024;
     for rebase in table.image_rebases() {
         // Re-derive each image's data sections by re-parsing its
         // bytes. The on-disk Vec<u8> stays alive in SymbolTable's

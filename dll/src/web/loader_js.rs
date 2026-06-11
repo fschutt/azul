@@ -408,7 +408,15 @@ async function azBootstrap() {
     //      segments can clobber @__az_bump_ptr's linear-memory copy), build the state,
     //      hydrate the RefAny/model, and only then run the layout pipeline.
     if (typeof azMini.AzStartup_resetBumpHeap === 'function') {
-        azMini.AzStartup_resetBumpHeap(96 * 1024 * 1024);
+        // [2026-06-11] 96 MiB → 160 MiB: libazul's synth band GREW past
+        // 96 MiB (the rebased dylib's __DATA tail — incl. the TLV
+        // descriptor mirror at ~0x6043xxxx — now ends ~101 MiB), so a
+        // 96 MiB bump base let allocations STOMP the mirrored data
+        // (descriptors read as heap garbage → thread-local accesses
+        // panicked). 160 MiB clears the band with ~60 MiB of headroom
+        // for future dylib growth; linear memory is 512 MiB, so the
+        // heap keeps ~352 MiB.
+        azMini.AzStartup_resetBumpHeap(160 * 1024 * 1024);
     }
     azState = azMini.AzStartup_init(0, 0);
     if (!azState) {
@@ -476,13 +484,21 @@ async function azBootstrap() {
                 // fall back to the legacy partial solve.
                 var solveFn = azMini.AzStartup_solveLayoutReal || azMini.AzStartup_solveLayout;
                 if (hydrateRc === 0 && typeof solveFn === 'function') {
-                    var solveRc = solveFn(azState, viewportW, viewportH);
-                    var solved = (typeof azMini.AzStartup_isLayoutSolved === 'function')
-                        ? azMini.AzStartup_isLayoutSolved(azState) : 0;
-                    var rectsLen = (typeof azMini.AzStartup_getPositionedRectsLen === 'function')
-                        ? azMini.AzStartup_getPositionedRectsLen(azState) : 0;
-                    console.info('[azul-web] solveLayout rc=' + solveRc +
-                                 ' solved=' + solved + ' rects_len=' + rectsLen);
+                    // A wasm trap here must not abort bootstrap (the stated
+                    // policy above): listeners + the __azProbe diagnostics
+                    // hook below still need to install so the failure can be
+                    // probed (peekU32 markers) instead of leaving a dead page.
+                    try {
+                        var solveRc = solveFn(azState, viewportW, viewportH);
+                        var solved = (typeof azMini.AzStartup_isLayoutSolved === 'function')
+                            ? azMini.AzStartup_isLayoutSolved(azState) : 0;
+                        var rectsLen = (typeof azMini.AzStartup_getPositionedRectsLen === 'function')
+                            ? azMini.AzStartup_getPositionedRectsLen(azState) : 0;
+                        console.info('[azul-web] solveLayout rc=' + solveRc +
+                                     ' solved=' + solved + ' rects_len=' + rectsLen);
+                    } catch (e) {
+                        console.error('[azul-web] solveLayout TRAPPED:', e && e.message);
+                    }
                 }
             }
         }
