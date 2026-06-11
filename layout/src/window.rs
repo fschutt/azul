@@ -911,6 +911,13 @@ impl LayoutWindow {
                 .unwrap_or(1); // if no compact cache, treat as dirty
 
             let font_stacks_sig = compact_cache_ref.map(|cc| {
+                // [az-diag REVERT] class-B probe: prev_font_hashes Vec header
+                // (len @0x60794, ptr @0x60798) before the first read; 0xA3
+                // @0x6079C = hash loop survived.
+                unsafe {
+                    crate::az_mark(0x60794, cc.prev_font_hashes.len() as u32);
+                    crate::az_mark(0x60798, cc.prev_font_hashes.as_ptr() as usize as u32);
+                }
                 // Fast polynomial rolling hash over the `prev_font_hashes`
                 // slice. Mixes each u64 with a multiplier + bit-rotation,
                 // which is collision-resistant enough for our one-at-a-time
@@ -921,6 +928,7 @@ impl LayoutWindow {
                     h = h.rotate_left(13) ^ fh;
                     h = h.wrapping_mul(0x100000001b3);
                 }
+                unsafe { crate::az_mark(0x6079C, 0xA3) };
                 h
             });
 
@@ -949,11 +957,19 @@ impl LayoutWindow {
 
                 // Merge font hash→families from compact cache into FontManager
                 // so the reverse map accumulates across DOMs.
+                // [az-diag REVERT] 0xA4 @0x607A0 = entering merge; per-iter
+                // count @0x607A4; 0xA5 @0x607A8 = merge done.
+                unsafe { crate::az_mark(0x607A0, 0xA4) };
                 if let Some(cc) = styled_dom.css_property_cache.ptr.compact_cache.as_ref() {
                     for (k, v) in cc.font_hash_to_families.iter() {
+                        unsafe {
+                            let n = crate::az_mark_read(0x607A4);
+                            crate::az_mark(0x607A4, n.wrapping_add(1));
+                        }
                         self.font_manager.font_hash_to_families.insert(*k, v.clone());
                     }
                 }
+                unsafe { crate::az_mark(0x607A8, 0xA5) };
 
                 // Resolve chains (including the coverage-based prune
                 // and the per-document scripts_hint), then delegate

@@ -901,7 +901,14 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// This is useful for computing which fonts need to be loaded
     /// (diff with required fonts).
     pub fn get_loaded_font_ids(&self) -> std::collections::HashSet<FontId> {
+        // [az-diag REVERT] post-rebase trap localization @0x60780: call#, len,
+        // 0xA1=entered iteration, 0xA2=survived collect.
+        unsafe {
+            let n = crate::az_mark_read(0x60780);
+            crate::az_mark(0x60780, n.wrapping_add(1));
+        }
         let parsed = self.parsed_fonts.lock().unwrap();
+        unsafe { crate::az_mark(0x60784, parsed.len() as u32) };
         // M12.7: skip hashbrown's RawIterRange on an empty map — its NEON
         // control-byte group-scan mis-lifts to wasm and iterates forever
         // (the headless web layout uses an empty font cache → parsed is
@@ -909,7 +916,10 @@ impl<T: ParsedFontTrait> FontManager<T> {
         if parsed.is_empty() {
             return std::collections::HashSet::new();
         }
-        parsed.keys().cloned().collect()
+        unsafe { crate::az_mark(0x60788, 0xA1) };
+        let out = parsed.keys().cloned().collect();
+        unsafe { crate::az_mark(0x6078C, 0xA2) };
+        out
     }
 
     /// Insert a loaded font into the cache
