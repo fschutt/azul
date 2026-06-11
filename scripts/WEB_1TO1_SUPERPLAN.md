@@ -11,6 +11,73 @@ this file, CronList → CronDelete.
 **Read first each session:** this file → `scripts/SESSION_PROMPT_web_1to1.md` (hard rules, CDP
 loop, build commands) → `scripts/WEB_BACKEND_1TO1_PLAN.md` (architecture reference).
 
+---
+## ✅ FINAL STATUS (2026-06-11 ~08:10) — CONSOLIDATED, cron `f1b4a997` DELETED, decision point for user
+**Shipped + green (all committed):** S0 (preflight + lift/obj cache), remill NZCV decoder
+(fork 70050e0), S1 (every JS input event → wasm cb, CDP-proven), generic byte-image hydration,
+shared bump heap + cache-v3. hello-world (counter 5→6) and web-events-min (click/keydown/resize)
+are CDP-green. The web backend runs real lifted azul for small apps.
+
+**The one gate for S2–S7 (and any app >~6 nodes): class-B = lifted multi-word value loses its
+2nd word.** Two faithful-standalone-but-broken-in-pipeline witnesses: `getHitNode` (16-byte
+DomNodeId returned in x0:x1 → node/x1 half drops → S2's `set_css_property` panics on node=0) and
+`build_compact_cache_with_inheritance_debug` (176-byte CompactLayoutCache via X8/sret → tier2b
+Vec header arrives {ptr=garbage, len=0, cap=19✓} → 19-node web-events traps in collect_font_stacks).
+The CSS-output API *intrinsically* passes DomNodeId by value, so class-B is NOT bypassable by a
+web-only shim if real apps are to work unchanged.
+
+**🔑 NEW THIS WAKE — why every prior IR-dump failed + the artifact is finally captured:**
+- The real compile pipeline is the **SUBPROCESS** `llvm-link → opt → llc` (LLVM-21 tools), NOT
+  the in-proc `compile_inner` in `dll/src/web/cpp/azul_remill.cpp`. In-proc is gated by
+  `AZ_NATIVE_REMILL` (default OFF, "subprocess is the default", transpiler_remill.rs:663-666).
+  So the `AZ_DUMP_OPT_IR` dump added to azul_remill.cpp **never ran for the real path** — it only
+  ever caught the in-proc dispatcher. That dead scaffolding is now REVERTED (azul_remill.cpp ==
+  HEAD again).
+- The real per-fn post-opt IR is written by the subprocess as `{stem}.opt.ll` (and `.linked.ll`
+  = pre-opt) in the transpiler scratch dir, normally cleaned on Drop. **`AZ_REMILL_KEEP_SCRATCH=1`
+  retains it** (transpiler_remill.rs:634-639, 2771).
+- **CAPTURE RECIPE (one relift, ~250s, no code change):**
+  `AZ_NO_LIFT_CACHE=1 AZ_REMILL_KEEP_SCRATCH=1 bash scripts/web_relift.sh examples/c/web-events.bin /tmp/x.log`
+  → kept scratch path is logged ("keeping scratch dir …azul-web-transpiler-<pid>"). build_compact's
+  per-run lifted name is `__az_dep_<hex>` where hex = its native addr from the log line
+  `lifting …build_compact_cache_with_inheritance_debug… export_as=__az_dep_XXX`. It compiles as its
+  OWN bundle: `__az_dep_XXX.opt.ll` (1.6 MB, defines it) + `.linked.ll` (pre-opt).
+- **ARTIFACT PRESERVED** (this run, build_compact = `__az_dep_10b631d64`):
+  `scripts/classB_artifacts/build_compact.opt.ll` (post-opt) + `build_compact.linked.ll` (pre-opt).
+  ⚠ run-specific SSA names/addrs — a future session should regenerate fresh via the recipe; these
+  are for the immediate next pass. (Untracked; not committed — 4 MB of run-specific IR.)
+
+**Where the deep fix work resumes (focused session, NOT 30-min cron wakes):** in
+`build_compact.opt.ll`, build_compact's body = lines ~14473–27928 (returns `i32 %ret_w`), 672
+`store volatile i64`. The 176-byte sret return-copy writes the struct to the X8 dest (X8 =
+`getelementptr i8, ptr %state, i32 672`; its loaded value is the dest base). tier2b lands at struct
++0x48(cap=72)/+0x50(ptr=80)/+0x58(len=88). Candidate +72/+80/+88 store clusters: 19784, 20579,
+21332, 22274, 23149, 24018, 25025, 25627, 27778 — but most use loop-phi/local bases (e.g. 25627's
+base %3055 is a loop phi, NOT the sret dest). **Next step is mechanical, not manual-read:** isolate
+the cluster whose store-base traces to the X8-loaded value, then diff that block pre-opt
+(`.linked.ll`, the faithful lift) vs post-opt (`.opt.ll`) — if the tier2b ptr/len stores are
+present+correct in pre-opt and dropped/mis-sourced post-opt ⇒ opt pass (pin/disable/barrier in the
+subprocess `opt` flags, `opt_flag_for`/`buildPerModuleDefaultPipeline`); if present+correct in BOTH
+⇒ llc wasm codegen / FIX_SP textual pass (enforce_sp_preservation runs on `.opt.ll` after opt).
+RULED OUT across this+prior sessions: instruction decoders (str q / ldur q / getHitNode all
+faithful standalone), opt level (-O0 on the fn), alias scopes (AZ_NO_HOST_SCOPE), FIX_SP-off (breaks
+earlier), from_elem construction, AZ_FUEL barriers, isolated full-pipeline on LLVM-21 (preserves x1).
+
+**DECISION POINT (why the loop stopped here, per this file's pre-registered STOP CONDITION):**
+class-B is the prior session's known-hard bug; many wakes have characterized it exhaustively but the
+remaining fix is a sustained focused-session effort (now unblocked by the captured artifact), not
+fragmented 30-min autonomous wakes. **User chooses:**
+ 1. **Invest in the deep class-B fix** — resume from `scripts/classB_artifacts/` + the recipe above;
+    one engineer-session of opt-pass bisection on the captured IR. Cracking it unblocks S2–S7 +
+    all large apps at once (and likely many "layout mismatches" that are really this mis-lift).
+ 2. **Ship the green baseline as-is** — S0/S1 + shared-bump are a usable web backend for small
+    apps; accept that multi-word-struct callbacks (CSS-out, etc.) wait on the class-B fix.
+ 3. **Redirect** — e.g. pursue ua_css Chrome-parity (S7, independent of class-B) or a different
+    slice while class-B is parked.
+To resume the loop, just say which; the superplan + artifact make pickup immediate.
+
+---
+
 ## Slices (user's order, increasing complexity)
 
 - **S0 — infra (in flight)**
@@ -154,6 +221,14 @@ loop, build commands) → `scripts/WEB_BACKEND_1TO1_PLAN.md` (architecture refer
   cdp_rects.js. Disk: `df -h /`, purge `/var/folders/*/T/azul-web-transpiler-*`.
 
 ## Session log
+- **2026-06-11 ~08:10 (consolidation, cron deleted):** Found the root cause of every failed
+  class-B IR-dump: real pipeline = subprocess LLVM-21, not in-proc `compile_inner` (AZ_NATIVE_REMILL
+  default-OFF). Reverted the dead in-proc `AZ_DUMP_OPT_IR` scaffolding (azul_remill.cpp == HEAD).
+  Captured build_compact's real post-opt + pre-opt IR for the FIRST time via
+  `AZ_REMILL_KEEP_SCRATCH=1 AZ_NO_LIFT_CACHE=1` relift → preserved to `scripts/classB_artifacts/`.
+  Per the pre-registered STOP CONDITION (body captured, but the exact fix is a focused-session task
+  not a cron wake): consolidated + surfaced the decision point (see FINAL STATUS at top). Cron
+  `f1b4a997` deleted.
 - **2026-06-11 (overnight, autonomous):**
   - S0: preflight+cache shipped+committed; NZCV decoder fixed in remill 70050e0 (the only real
     decode gap of 22 flagged; rest = benign noreturn-tail artifacts; triage script saved).
@@ -596,7 +671,97 @@ before commit 2d535469e). When re-approaching:
   -O0 keeps x1, it's an opt transform → bisect passes; if -O0 also drops it, it's the link /
   ABI lowering / llc). Then fix in azul_remill.cpp's pipeline or the helper IR.
 
-## Next action (next wake — class-B via the getHitNode minimal reproducer)
+## CLASS-B BARRIER HYPOTHESIS — testing (2026-06-11 ~06:50)
+- strip_noalias_from_sub_args IS applied (strips noalias from sub_ defines). The g188/g189
+  comment in tag_state_accesses records the prior session's key finding: the class-B-family bug
+  is a BARRIER-DEFEATABLE optimizer mis-transform (load-forward / DSE / reorder of mem ops); a
+  volatile barrier makes it vanish, but a lean barrier pass was NEVER implemented.
+- getHitNode's State-register stores (`store i64 …, ptr %X1`) are NON-volatile → opt can
+  forward/DCE them across calls (the caller reads a stale X1/node). The guest MEMORY ops are
+  volatile, but the STATE REGISTER writes are not.
+- DECISIVE CHEAP TEST (no code change): AZ_FUEL=ALL injects per-terminator volatile barriers
+  (traps only after 200M iters, far above layout loops). Relifting web-events.bin (the 19-node
+  class-B trap in collect_font_stacks) with AZ_FUEL=ALL — if it LAYS OUT, barriers fix class-B →
+  implement a lean barrier (a `call void asm sideeffect "", "~{memory}"()` after sub_ calls, or
+  make State stores volatile) and re-test. (events-fuel relift in flight; fuel ALL is slow.)
+- ⚠ CORRECTION: the S2 infra was UNCOMMITTED and discarded by `git checkout` — it is NOT in
+  reflog. Re-implement from the S2 recipe in this file when class-B is fixed.
+
+## CLASS-B: barrier DISPROVEN + standalone repro FAILED (2026-06-11 ~07:05) — context-dependent
+- AZ_FUEL=ALL relift of web-events.bin: STILL TRAPS in collect_font_stacks (same chain
+  sub_aab2b4←aae018←b5b738). ⇒ AZ_FUEL's volatile barriers do NOT fix class-B (confirms g189's
+  caveat that the "barrier vanishes it" observation was confounded). Barrier hypothesis DEAD.
+- Standalone pipeline test (/tmp/ghn_test.ll: getHitNode sub_52eb0 + synthetic caller that
+  stores info→X0, calls it, loads X1/node) through `opt -O2` (homebrew LLVM-21): the X1 load
+  AFTER the call is PRESERVED + correct (sub_52eb0 not inlined, tail call, no forward/DCE). Even
+  with the `initializes` attr (LLVM-19+, the handoff's red herring), opt does NOT drop X1.
+  ⇒ class-B does NOT reproduce on an isolated caller+callee. It is CONTEXT-DEPENDENT: needs the
+  real failing cb + the FULL linked module (hundreds of fns) + the real LLVM-17 in-proc pipeline.
+- ⇒ EXHAUSTIVELY RULED OUT: instruction decoders, opt level (-O0), alias scopes (NO_HOST_SCOPE),
+  FIX_SP, from_elem construction, AZ_FUEL barriers, isolated-opt (LLVM-21). The bug is a
+  full-module / LLVM-17-specific optimization mis-transform.
+
+## ⛔ CLASS-B IS HARD-BLOCKED via every approach executable in this loop. It is the prior
+## session's known-hard bug (25+ iters there). It gates S2-S6.
+ONLY remaining diagnostic (deliberate, deep — for a focused session / user direction):
+- Add a post-opt IR DUMP to dll/src/web/cpp/azul_remill.cpp (the in-proc LLVM-17 pipeline) for a
+  named function (build_compact_cache_with_inheritance_debug or the cb's set_css_property) — dump
+  the module IR right after `buildPerModuleDefaultPipeline(Oz)` runs over the LINKED module.
+  Then inspect whether LLVM-17 drops the tier2b q-store / the X1-node store in the FULL-module
+  context. That pinpoints opt-vs-llc and the offending transform → fix in azul_remill.cpp
+  (e.g. pin the pipeline, disable the offending pass, or add a real barrier the right way).
+- ALTERNATIVELY (if not chasing the deep fix): accept the green baseline as the deliverable for
+  cbs that don't return multi-word structs, and ask the user whether to invest in the class-B
+  LLVM-17 dive or ship S0/S1 + bump as-is.
+
+## GREEN BASELINE (shippable checkpoint, all committed)
+S0 (preflight+cache) · remill NZCV decoder (70050e0) · S1 input routing (3438d602e) · generic
+hydration (43b2a455f) · obj-cache+store-log (4091af06d) · shared bump heap + cache-v3 (2d535469e)
+· test apps (bfab10060) · plan (081c85f0c). hello-world (5→6 display) + web-events-min (S1
+click/keydown/resize) CDP-green. Tree clean (untracked: web-setcss S2 scaffolding).
+
+## IR DUMP partial (2026-06-11 ~07:30): captured the DISPATCHER, not build_compact's body
+- AZ_DUMP_OPT_IR (text-search) in azul_remill.cpp compile_inner produced /tmp/az_optdump_0.ll
+  (868KB) = the MERGED MINI DISPATCHER (one giant fn = switch over all sub addrs, each case
+  `tail call @sub_<x>`; it only DECLAREs sub_e69d64/build_compact). 0 volatile stores there
+  (expected — it's pure tail calls). build_compact's actual body did NOT dump.
+- ROOT of the dump miss: build_compact's per-fn object does NOT go through compile_inner (the
+  only buildPerModuleDefaultPipeline call, line ~754). There is ANOTHER compile path for per-fn
+  objects (or build_compact is in a batch the dump filter missed). NEXT: find it — grep
+  azul_remill.cpp for every opt/codegen entry, OR add a one-line stderr `fprintf(stderr,
+  "[dump] compile_inner module fns=%zu first=%s\n", …)` to see which modules reach compile_inner
+  and what build_compact's per-fn module is named, then dump THAT.
+- ⚠ The dump scaffolding is UNCOMMITTED in azul_remill.cpp (revert before any commit). The
+  dylib on disk has it (next wake can re-relift WITHOUT rebuild if the dump code is reused).
+
+## ⏱ STOP CONDITION (this loop has spent many wakes on class-B — the prior session's known-hard
+## bug — without cracking it; the green S0/S1/bump baseline IS shippable):
+If the next 1-2 wakes do NOT capture build_compact's body + find an actionable opt/llc fix:
+CONSOLIDATE — revert the dump scaffolding, write a final "class-B = deep remill/LLVM-17 gate,
+green baseline shipped" status, and surface to the user as a decision point (invest in the deep
+class-B fix, or ship S0/S1/bump and accept per-API verification on non-multi-word-struct cbs).
+The minimal reproducer (getHitNode) + the exhaustive ruled-out list are the handoff artifacts.
+
+## (historical) IR DUMP IN FLIGHT (2026-06-11 ~07:10): azul_remill.cpp post-opt dump added
+- Added AZ_DUMP_OPT_IR=<fn-substr> to azul_remill.cpp (after buildPerModuleDefaultPipeline.run):
+  dumps the REAL LLVM-17 post-opt module IR for the bundle containing a matching fn → /tmp/
+  az_optdump_N.ll. events-dump relift (bnm1i341f) running with
+  AZ_DUMP_OPT_IR=build_compact_cache_with_inheritance_debug.
+- ON WAKE: grep /tmp/az_optdump_*.ll for the build_compact return-copy stores to the sret dest
+  (tier2b ptr@+0x50 / len@+0x58 — the q1 store). If they're DROPPED/forwarded in the LLVM-17
+  post-opt IR → opt is the culprit (find/disable the pass, or pin the pipeline). If PRESENT in
+  post-opt IR but the runtime still corrupts → llc (the wasm codegen / multi-value lowering)
+  drops it. That's the opt-vs-llc split. Then fix in azul_remill.cpp.
+
+## (historical) Next action
+1. (deep, deliberate) azul_remill.cpp post-opt IR dump of build_compact in the full LINKED module
+   → find the LLVM-17 transform that drops the multi-word store → fix → relift web-events →
+   cdp_laidout green ⇒ class-B fixed ⇒ unblocks S2 (re-implement infra from recipe + fix the
+   EventloopState re-pack) and all large apps.
+2. If class-B proves intractable again: this is a user-decision point — keep grinding the LLVM-17
+   dive, or accept the green S0/S1/bump baseline. The cron stays until the user decides.
+
+## (historical) next wake — class-B via the getHitNode minimal reproducer
 1. Build the standalone getHitNode → full-pipeline harness (or AZ_LOG_STORES / AZ_LOWOPT_FNS on a
    relift of web-setcss-min with the S2 infra restored) to pin WHERE x1/node is dropped. Fix it.
 2. When class-B is fixed: restore the S2 infra (recipe above; recoverable from git reflog of

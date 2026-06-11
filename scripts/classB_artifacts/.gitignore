@@ -1,0 +1,4 @@
+# Run-specific lifted IR (large, SSA names/addrs vary per relift) — never commit.
+# Regenerate via the CAPTURE RECIPE in scripts/WEB_1TO1_SUPERPLAN.md (FINAL STATUS).
+*.ll
+*.bc
