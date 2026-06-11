@@ -855,6 +855,7 @@ pub fn regenerate_layout(
     // Register the platform camera-capture backend once (v4l2 via rscam on
     // Linux) so CameraWidget shows the real camera where available; guarded.
     crate::desktop::extra::camera::ensure_camera_backend();
+    crate::desktop::extra::screencap::ensure_screen_backend();
 
     // 7h. Drain motion-sensor readings the platform backend parked since the
     // last pass (CoreMotion / Android SensorManager fire on arbitrary
