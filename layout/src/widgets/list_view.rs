@@ -3,11 +3,14 @@
 use alloc::vec::Vec;
 
 use azul_core::{
-    callbacks::{CoreCallbackData, Update},
-    dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
+    callbacks::{CoreCallback, CoreCallbackData, Update},
+    dom::{
+        Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
+        TabIndex,
+    },
     geom::{LogicalPosition, LogicalSize},
     menu::{Menu, OptionMenu},
-    refany::RefAny,
+    refany::{OptionRefAny, RefAny},
 };
 use azul_css::{
     corety::OptionUsize,
@@ -1668,6 +1671,20 @@ impl ListView {
     }
 
     pub fn dom(self) -> Dom {
+        // Snapshot the state handed to row/column click callbacks. Runtime-only
+        // fields (scroll position / content height) aren't known at build time,
+        // so they default to zero; columns/sorted_by/row-count/scroll-offset are.
+        let state = ListViewState {
+            columns: self.columns.clone(),
+            sorted_by: self.sorted_by,
+            current_row_count: self.rows.as_ref().len(),
+            scroll_offset: self.scroll_offset,
+            current_scroll_position: LogicalPosition::zero(),
+            current_content_height: LogicalSize::zero(),
+        };
+        let on_column_click = self.on_column_click.clone();
+        let on_row_click = self.on_row_click.clone();
+
         Dom::create_div()
             .with_css_props(CSS_MATCH_17553577885456905601)
             .with_ids_and_classes(LIST_VIEW_CONTAINER_CLASS)
@@ -1679,14 +1696,34 @@ impl ListView {
                     .with_children(
                         self.columns
                             .iter()
-                            .map(|col| {
-                                Dom::create_div()
+                            .enumerate()
+                            .map(|(col_index, col)| {
+                                let col_dom = Dom::create_div()
                                     .with_css_props(CSS_MATCH_12498280255863106397)
                                     .with_ids_and_classes(COLUMN_NAME_CLASS)
                                     .with_child({
                                         Dom::create_text(col.clone())
                                             .with_css_props(CSS_MATCH_15673486787900743642)
-                                    })
+                                    });
+                                // Wire the click only when the app set a handler.
+                                match &on_column_click {
+                                    OptionListViewOnColumnClick::Some(_) => col_dom.with_callbacks(
+                                        vec![CoreCallbackData {
+                                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                                            refany: RefAny::new(ColumnClickData {
+                                                col_index,
+                                                state: state.clone(),
+                                                on_column_click: on_column_click.clone(),
+                                            }),
+                                            callback: CoreCallback {
+                                                cb: on_list_view_column_click as usize,
+                                                ctx: OptionRefAny::None,
+                                            },
+                                        }]
+                                        .into(),
+                                    ),
+                                    OptionListViewOnColumnClick::None => col_dom,
+                                }
                             })
                             .collect::<Vec<_>>()
                             .into(),
@@ -1698,8 +1735,9 @@ impl ListView {
                     .with_children(
                         self.rows
                             .into_iter()
-                            .map(|row| {
-                                Dom::create_div()
+                            .enumerate()
+                            .map(|(row_index, row)| {
+                                let row_dom = Dom::create_div()
                                     .with_css_props(CSS_MATCH_7894335449545988724)
                                     .with_ids_and_classes(ROW_CLASS.clone())
                                     .with_tab_index(TabIndex::Auto)
@@ -1715,11 +1753,119 @@ impl ListView {
                                             })
                                             .collect::<Vec<_>>()
                                             .into(),
-                                    )
+                                    );
+                                match &on_row_click {
+                                    OptionListViewOnRowClick::Some(_) => row_dom.with_callbacks(
+                                        vec![CoreCallbackData {
+                                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                                            refany: RefAny::new(RowClickData {
+                                                row_index,
+                                                state: state.clone(),
+                                                on_row_click: on_row_click.clone(),
+                                            }),
+                                            callback: CoreCallback {
+                                                cb: on_list_view_row_click as usize,
+                                                ctx: OptionRefAny::None,
+                                            },
+                                        }]
+                                        .into(),
+                                    ),
+                                    OptionListViewOnRowClick::None => row_dom,
+                                }
                             })
                             .collect::<Vec<_>>()
                             .into(),
                     ),
             ]))
+    }
+}
+
+/// Per-row data carried to the internal MouseUp handler (the row index plus a
+/// snapshot of the list state and the app's `on_row_click` hook).
+struct RowClickData {
+    row_index: usize,
+    state: ListViewState,
+    on_row_click: OptionListViewOnRowClick,
+}
+
+/// Per-column equivalent of [`RowClickData`].
+struct ColumnClickData {
+    col_index: usize,
+    state: ListViewState,
+    on_column_click: OptionListViewOnColumnClick,
+}
+
+/// MouseUp on a row → invoke the app's `on_row_click(state, row_index)`.
+extern "C" fn on_list_view_row_click(mut refany: RefAny, info: CallbackInfo) -> Update {
+    let data = match refany.downcast_ref::<RowClickData>() {
+        Some(d) => d,
+        None => return Update::DoNothing,
+    };
+    match data.on_row_click.as_ref() {
+        Some(ListViewOnRowClick { refany: user_data, callback }) => {
+            (callback.cb)(user_data.clone(), info.clone(), data.state.clone(), data.row_index)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// MouseUp on a column header → invoke the app's `on_column_click(state, col_index)`.
+extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) -> Update {
+    let data = match refany.downcast_ref::<ColumnClickData>() {
+        Some(d) => d,
+        None => return Update::DoNothing,
+    };
+    match data.on_column_click.as_ref() {
+        Some(ListViewOnColumnClick { refany: user_data, callback }) => {
+            (callback.cb)(user_data.clone(), info.clone(), data.state.clone(), data.col_index)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+#[cfg(test)]
+mod list_view_click_tests {
+    use super::*;
+
+    extern "C" fn noop_row(_: RefAny, _: CallbackInfo, _: ListViewState, _: usize) -> Update {
+        Update::DoNothing
+    }
+
+    fn empty_row() -> ListViewRow {
+        ListViewRow {
+            cells: DomVec::from_const_slice(&[]),
+            height: None.into(),
+        }
+    }
+
+    /// Rows must carry a click callback exactly when `on_row_click` is set —
+    /// previously `dom()` wired nothing, so the hook was dead.
+    #[test]
+    fn rows_get_a_click_callback_only_when_on_row_click_is_set() {
+        let mut lv = ListView::default();
+        lv.rows = ListViewRowVec::from_vec(vec![empty_row(), empty_row()]);
+        lv.set_on_row_click(RefAny::new(()), noop_row as ListViewOnRowClickCallbackType);
+        let dom = lv.dom();
+        // children = [header, rows]; each row div carries the MouseUp callback.
+        let rows = dom.children.as_ref()[1].children.as_ref();
+        assert_eq!(rows.len(), 2);
+        for row in rows {
+            assert_eq!(
+                row.root.callbacks.as_ref().len(),
+                1,
+                "row must carry the click callback when on_row_click is set"
+            );
+        }
+
+        // Without the hook → no callbacks (opt-in, no wasted dispatch).
+        let mut bare = ListView::default();
+        bare.rows = ListViewRowVec::from_vec(vec![empty_row()]);
+        let dom2 = bare.dom();
+        let rows2 = dom2.children.as_ref()[1].children.as_ref();
+        assert_eq!(rows2.len(), 1);
+        assert!(
+            rows2[0].root.callbacks.as_ref().is_empty(),
+            "no callback when on_row_click is unset"
+        );
     }
 }
