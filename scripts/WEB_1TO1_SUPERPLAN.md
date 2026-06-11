@@ -78,7 +78,34 @@ ptr@0x40060 bump@0x40020.
   (the 16-byte LOAD) → then opt-bisect THAT fn's IR the same way (dup-store OR a dropped 2nd load).
 - Artifacts: scripts/classB_artifacts/{build_compact,create_logical,reorder}.{opt,linked}.ll
   (gitignored). Re-capture per-fn via the KEEP_SCRATCH recipe (FINAL STATUS above).
-## ⛔ MECHANISM-B = join_generic_copy faithful-lift value-flow swap — relift/probe method EXHAUSTED, needs executable reproducer (2026-06-11 ~19:10, Fable, cron wake)
+## ⛔⛔ MECHANISM-B = join_generic_copy bytes-Vec BUILD loop reads element ptr-not-len — ALL q/pair instrs verified correct; HARD-BLOCKED for autonomous loop (2026-06-11 ~19:45, Fable, cron wake)
+**This wake refined it further.** Traced join h9c9d (now @0xb3dd90) → it ends by moving the built
+bytes-Vec into a String via `String::from_utf8` (b3e110): success path does
+`ldr q0,[x20]; ldr q1,[sp..]; stp q0,q1,[x19]` — and `collapsed.len` (word2) = `[x20+0x10]` =
+the SOURCE Vec's word2, observed = 0xa294828. So from_utf8 moves the Vec FAITHFULLY; the Vec it
+receives is ALREADY corrupt (len word = 0xa294828 = s1's buffer ptr). ⇒ the corruption is in
+join's BYTES-VEC BUILD (the length-precompute / copy loop BEFORE from_utf8), where the total-length
+computation evidently picks up each element's PTR (0xa294828) instead of its LEN (1) — for the
+single element "5", total "length" = the element's ptr.
+**VERIFIED CORRECT (isolated lifts, this + prior wake) — the swap is in NONE of these:** GPR `ldp`,
+GPR `stp`, NEON `ldp q` (incl. post-index), NEON `stp q` (incl. post-index), single `ldr q`
+(low=[base], high=[base+8], correct). Plus: not opt, not llc, not callee-saved clobber, not
+EarlyCSE/alias-scope. ⇒ The mis-lift is a subtle VALUE-FLOW issue in join's build loop (which
+register/SSA value feeds the length sum) that manifests only AT RUNTIME and lives in alloc::str
+(uninstrumentable via az_mark).
+**⇒ HARD-BLOCKED for the autonomous relift+probe+isolated-lift loop.** ~12 hypotheses ruled out
+over 3+ wakes. The fix needs a DEDICATED SESSION with an executable reproducer: lift
+join_generic_copy + remill runtime (third_party/remill-install — NO ready aarch64 runner, needs a
+custom C harness) + mock State (X0:X1 = &[&str] of one "5", X8 = sret dest) + mock memory →
+EXECUTE → inspect output {ptr,cap,len}; bisect the build-loop instructions to find the one whose
+lifted semantics route the element ptr into the length. Then fix in the remill fork.
+Alternative: differential test (lift vs native) of the build loop with known inputs.
+**DECISION (this wake): mechanism B is hard-blocked for 30-min wakes; loop redirected to ua_css (S7)
+source-alignment** (independent of the lift; desktop-verifiable; web-verify deferred until mech-B).
+Probes live (azul-source, [az-diag REVERT], in fc.rs split_text): chain stages 0x60C64/68/6C/70/74,
+collapsed 0x60C5C/60, push-site 0x60C50/54/58. Standalone join IR: /tmp/join.ll.
+
+## ⛔ (superseded) MECHANISM-B value-flow swap — relift/probe EXHAUSTED (2026-06-11 ~19:10, Fable, cron wake)
 **PROVEN culprit (commit bec0d1b45): `<[&str]>::join` (alloc::str::join_generic_copy).** Chain-split
 of `collapsed = chars().map().collect::<String>().split(' ').filter().collect::<Vec<&str>>().join(" ")`
 in split_text (fc.rs ~8716) with per-stage probes (0x60C64..74):
