@@ -6007,6 +6007,23 @@ pub fn create_logical_items(
     let mut items: Vec<LogicalItem> = Vec::new();
     let mut style_cache: HashMap<u64, Arc<StyleProperties>> = HashMap::new();
 
+    // [az-diag REVERT] class-B mech-B bisect: read content[0]'s StyledRun.text
+    // len via a STANDALONE single-discriminant if-let (the known-good pattern)
+    // at ENTRY, before the loop's OR-pattern `Text(run)|Marker{run,..}`.
+    // 0x60C28=content.len, 0x60C20=entry text.len (standalone), 0x60C2C=text ptr.
+    // If this reads 1 (sane) while the loop's text_slice (0x607C8) is garbage
+    // ⇒ the OR-pattern discriminant mis-lifts (bind `run` from wrong variant);
+    // if this is ALREADY garbage ⇒ corruption is upstream of create_logical.
+    #[cfg(feature = "web_lift")]
+    unsafe {
+        crate::az_mark(0x60C28, content.len() as u32);
+        if let Some(InlineContent::Text(run)) = content.first() {
+            crate::az_mark(0x60C20, run.text.len() as u32);
+            crate::az_mark(0x60C24, (run.text.len() >> 32) as u32);
+            crate::az_mark(0x60C2C, run.text.as_ptr() as usize as u32);
+        }
+    }
+
     // 1. Organize overrides for fast lookup per run.
     let mut run_overrides: HashMap<u32, HashMap<u32, &PartialStyleProperties>> = HashMap::new();
     for override_item in style_overrides {

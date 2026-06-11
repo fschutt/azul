@@ -6680,6 +6680,24 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     dom_id,
                     text_content.as_str()
                 );
+                // [az-diag REVERT] class-B mechanism-B split (site 1 = anon
+                // wrapper). Raw AzString struct words vs as_str() result.
+                // 0x60C00=ptr-lo, C04=len-lo(word[1]@+8), C08=len-hi, C0C=cap-lo
+                // (word[2]), C10=as_str().len(), C14=site-id. If word[1] is
+                // already 0xa294828 ⇒ corrupt-at-BUILD (AzString built wrong
+                // upstream); if word[1] is sane (e.g. 1) but as_str().len() is
+                // garbage ⇒ as_ref()'s &[u8] 16-byte RETURN mis-lifts (mech-B).
+                #[cfg(feature = "web_lift")]
+                unsafe {
+                    let s: &azul_css::AzString = text_content; // BoxOrStatic<AzString>: Deref
+                    let raw = s as *const azul_css::AzString as *const u64;
+                    crate::az_mark(0x60C00, (*raw) as u32);
+                    crate::az_mark(0x60C04, (*raw.add(1)) as u32);
+                    crate::az_mark(0x60C08, ((*raw.add(1)) >> 32) as u32);
+                    crate::az_mark(0x60C0C, (*raw.add(2)) as u32);
+                    crate::az_mark(0x60C10, s.as_str().len() as u32);
+                    crate::az_mark(0x60C14, 1);
+                }
                 // Get style from the TEXT NODE itself (dom_id), not the IFC root
                 // This ensures inline styles like color: #666666 are applied to the text
                 let style = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
@@ -7013,6 +7031,18 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     // SPECIAL CASE: If the IFC root itself is a text node (leaf node),
     // add its text content directly instead of iterating over children
     if let NodeType::Text(ref text_content) = ifc_root_node_data.get_node_type() {
+        // [az-diag REVERT] class-B mech-B split (site 2 = IFC root IS text).
+        #[cfg(feature = "web_lift")]
+        unsafe {
+            let s: &azul_css::AzString = text_content;
+            let raw = s as *const azul_css::AzString as *const u64;
+            crate::az_mark(0x60C00, (*raw) as u32);
+            crate::az_mark(0x60C04, (*raw.add(1)) as u32);
+            crate::az_mark(0x60C08, ((*raw.add(1)) >> 32) as u32);
+            crate::az_mark(0x60C0C, (*raw.add(2)) as u32);
+            crate::az_mark(0x60C10, s.as_str().len() as u32);
+            crate::az_mark(0x60C14, 2);
+        }
         let style = Arc::new(get_style_properties(ctx.styled_dom, ifc_root_dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
         let text_items = split_text_for_whitespace(
             ctx.styled_dom,
@@ -7082,13 +7112,25 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
         // Check if this is a text node
         if let NodeType::Text(ref text_content) = node_data.get_node_type() {
+            // [az-diag REVERT] class-B mech-B split (site 3 = IFC root's DOM child).
+            #[cfg(feature = "web_lift")]
+            unsafe {
+                let s: &azul_css::AzString = text_content;
+                let raw = s as *const azul_css::AzString as *const u64;
+                crate::az_mark(0x60C00, (*raw) as u32);
+                crate::az_mark(0x60C04, (*raw.add(1)) as u32);
+                crate::az_mark(0x60C08, ((*raw.add(1)) >> 32) as u32);
+                crate::az_mark(0x60C0C, (*raw.add(2)) as u32);
+                crate::az_mark(0x60C10, s.as_str().len() as u32);
+                crate::az_mark(0x60C14, 3);
+            }
             debug_info!(
                 ctx,
                 "[collect_and_measure_inline_content] OK: Found text node (DOM child {:?}): '{}'",
                 dom_child_id,
                 text_content.as_str()
             );
-            
+
             // Get style from the TEXT NODE itself (dom_child_id), not the IFC root
             // This ensures inline styles like color: #666666 are applied to the text
             // Uses split_text_for_whitespace to correctly handle white-space: pre with \n
