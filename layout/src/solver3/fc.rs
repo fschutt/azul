@@ -8713,14 +8713,32 @@ pub fn split_text_for_whitespace(
                 let after_segment_breaks = apply_segment_break_transform(&segment);
 
                 // Collapse document white space within this segment (normal/nowrap rules)
-                let collapsed: String = after_segment_breaks
+                // [az-diag REVERT] chain split into stages to pinpoint which sub-op
+                // mis-lifts the String/Vec. s1=collect::<String> @0x60C64/68;
+                // v=split.filter.collect::<Vec> @0x60C6C(len)/70(v[0].len);
+                // collapsed=join @0x60C5C(reused below).
+                let __az_s1: String = after_segment_breaks
                     .chars()
                     .map(|c| if is_css_document_whitespace(c) { ' ' } else { c })
-                    .collect::<String>()
+                    .collect::<String>();
+                #[cfg(feature = "web_lift")]
+                unsafe {
+                    crate::az_mark(0x60C64, __az_s1.len() as u32);
+                    crate::az_mark(0x60C68, __az_s1.as_ptr() as usize as u32);
+                }
+                let __az_v: Vec<&str> = __az_s1
                     .split(' ')
                     .filter(|s| !s.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" ");
+                    .collect::<Vec<_>>();
+                #[cfg(feature = "web_lift")]
+                unsafe {
+                    crate::az_mark(0x60C6C, __az_v.len() as u32);
+                    if let Some(first) = __az_v.first() {
+                        crate::az_mark(0x60C70, first.len() as u32);
+                        crate::az_mark(0x60C74, first.as_ptr() as usize as u32);
+                    }
+                }
+                let collapsed: String = __az_v.join(" ");
 
                 // [az-diag REVERT] mech-B: is `collapsed` (= X.join(" ")) already
                 // corrupt before final_text is built? 0x60C5C=collapsed.len,
