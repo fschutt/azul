@@ -75,7 +75,22 @@ re-verified green (see below).
    exactly as theorized.
 3. ✅ DONE (this wake): `compiler_builtins` audit — ZERO compiler_builtins deps in the entire
    relift walk (aarch64 inlines i128 ops; nothing to stub). No action needed.
-4. ua_css (S7) Chrome-parity web-verify — UNBLOCKED now that the renderer is green.
+4. ✅ DONE (wake 2026-06-12 ~07:4x): **ua_css (S7) VERIFIED PIXEL-IDENTICAL to Chrome standards
+   mode** for the representative set. Vehicle: examples/c/web-uacss.c (XHTML→DOM path, h1/h2/p/p/
+   div; needs AZ_REFLECT_JSON — the web backend rejects unreflected root RefAny). Compare driver:
+   scripts/cdp_uacss.js (azul page vs `data:` URL side-by-side; ⚠ reference MUST include
+   <!DOCTYPE html> — quirks mode swallows the first child's top margin, a 13.4px red herring).
+   Result: ALL values identical to the decimal — body margin 8/784w, h1 32px/700/37h @y=21.4
+   (parent-child collapse max(8,21.44) ✓), h2 24px/700 (sibling collapse 21.4 ✓), p 16px + 16px
+   gaps ✓, div display ✓. NOT yet covered: h3-h6, ul/ol/li, tables — extend web-uacss.c's markup
+   when those NodeTypes matter (same driver works).
+
+## 🏁 FOLLOW-UP QUEUE COMPLETE (2026-06-12 ~07:5x) — hourly cron deleted
+All four items closed (1 ✅ sweep, 2a ❌ filed as its own hunt, 2b ✅ deleted, 3 ✅ clean,
+4 ✅ pixel-parity). **The ONE carried-forward item: the g147 FC-assignment mis-lift hunt**
+(classifier-independent; full evidence + experiment design in item 2a above; the
+scripts/mechb_harness/ native method is the recommended attack). Web backend state: hello-world
+full cycle green, real gsub/gpos shaping, ua_css Chrome-parity, probe-free tree.
 
 ## 🔄 POST-REBASE STATE (2026-06-11 ~13:45) — rebased onto mobile-ios-android 82171735d; THREE new engine fixes landed; class-B deep fix IN PROGRESS
 User decided: rebase → backup → **class-B deep fix** → ua_css (S7). Rebase done (27 commits
