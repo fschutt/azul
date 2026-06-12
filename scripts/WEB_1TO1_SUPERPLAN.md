@@ -47,14 +47,18 @@ solves), click dispatch `kind=0 → patches_len=10`. **MECHANISM B CLOSED.** fc.
 probes reverted (9 sites incl. the chain-split restored to the original single expression) +
 re-verified green (see below).
 **FOLLOW-UPS (small, ordered):**
-1. ~39 remaining `[az-diag REVERT]` sites in window.rs(10)/text3 cache+default(12)/solver3
-   mod+sizing(11)/dll-web eventloop(5)+transpiler(1) — mechanical removal + one verify cycle.
-2. **g147 IFC-recompute bypass in fc.rs (~line 390, untagged)**: its underlying
-   "FC-assignment mis-lift" (node.formatting_context garbage) smells like the SAME classifier
-   gap — re-test without the bypass now that alloc/core lift; remove if the stored FC reads
-   clean. Same for other "class-B family" workarounds catalogued in HANDOFF_FABLE_web_lift.
-3. `compiler_builtins` still Leaf-default — audit a relift log for called-but-stubbed i128
-   helpers (__multi3 etc.).
+1. ✅ DONE (wake 2026-06-12 ~04:1x): ALL `[az-diag REVERT]` sites removed repo-wide — 8 files,
+   −256 lines (fc.rs was done in the fix commit; this wake: window.rs, text3 cache+default,
+   solver3 mod+sizing, dll-web eventloop+transpiler g108 keep-section, css AZ_WASM_CB_ACTIVE
+   static + its whole dead chain). Untagged [g7x]/[g80]-generation markers + az_mark infra left
+   in place (out of scope). CDP-verified 5→6 after the sweep.
+2. **g147 IFC-recompute bypass in fc.rs (~line 376, untagged)** + **AZ_SKIP_GSUB_GPOS=true in
+   text3/default.rs (~line 775, retagged with a RETEST note)**: both bypass symptoms that were
+   plausibly THIS classifier gap (FC-assignment garbage; allsorts gsub/gpos hang = a Leaf-stubbed
+   core/alloc helper never advancing a lookup loop). Re-test each WITHOUT the bypass now that
+   alloc/core lift; remove if clean. One bypass per verify cycle for attribution.
+3. ✅ DONE (this wake): `compiler_builtins` audit — ZERO compiler_builtins deps in the entire
+   relift walk (aarch64 inlines i128 ops; nothing to stub). No action needed.
 4. ua_css (S7) Chrome-parity web-verify — UNBLOCKED now that the renderer is green.
 
 ## 🔄 POST-REBASE STATE (2026-06-11 ~13:45) — rebased onto mobile-ios-android 82171735d; THREE new engine fixes landed; class-B deep fix IN PROGRESS

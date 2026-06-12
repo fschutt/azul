@@ -795,8 +795,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let _p = crate::probe::Probe::span("calc_intrinsic_sizes");
             // [az-diag g70 RELIABLE free-band] 0x60788 = nodes.len AFTER the calc_intrinsic_sizes Span.
             unsafe { crate::az_mark((0x60788) as u32, (new_tree.nodes.len() as u32) as u32); }
-            // [az-diag REVERT] 0x90 = about to call calculate_intrinsic_sizes (the SIMD/text intrinsic pass).
-            unsafe { crate::az_mark((0x60704) as u32, (0x90u32) as u32); }
             // [az-diag g72 FIX] REMOVED the g48 `#[cfg(feature="web_lift")] panic!(...)` that lived
             // here. web-transpiler => azul-layout?/web_lift IS enabled (dll/Cargo.toml:651), so this
             // panic WAS compiled in, and with `-Z build-std-features=panic_immediate_abort` it lowered
@@ -818,8 +816,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 text_cache,
                 &recon_result.intrinsic_dirty,
             )?;
-            // [az-diag REVERT] 0x91 = calculate_intrinsic_sizes done.
-            unsafe { crate::az_mark((0x60704) as u32, (0x91u32) as u32); }
         }
         crate::probe::sample_peak_rss("rss:after_calc_intrinsic");
         crate::probe::sample_phase_peak("rss:peak_during_intrinsic");

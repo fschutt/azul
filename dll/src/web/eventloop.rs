@@ -731,20 +731,6 @@ pub unsafe extern "C" fn AzStartup_initLayoutCache(
     }
     let info_ptr = AzStartup_alloc(512);
     let out_ptr = AzStartup_alloc(4096);
-    // [az-diag REVERT] mark the cb as running in the WASM path so copy_from_bytes' gated
-    // markers fire here (but stay off in native render_initial_page).
-    azul_css::AZ_WASM_CB_ACTIVE.store(true, core::sync::atomic::Ordering::Relaxed);
-    // [az-diag REVERT] AzStartup_initLayoutCache is WASM-ONLY (render_initial_page uses
-    // call_layout, not this) so ungated markers are safe. Read the static BACK here: if
-    // 0x4074C==1 the store+load work WITHIN this fn (→ copy_from_bytes' load uses a DIFFERENT
-    // address = cross-fn synth mismatch); if 0==0 the store itself doesn't persist. 0x40750 =
-    // this fn's view of &AZ_WASM_CB_ACTIVE (compare vs a dep's view).
-    unsafe {
-        let rb = azul_css::AZ_WASM_CB_ACTIVE.load(core::sync::atomic::Ordering::Relaxed);
-        core::ptr::write_volatile(0x4074C as *mut u32, rb as u32);
-        core::ptr::write_volatile(0x40750 as *mut u32,
-            &azul_css::AZ_WASM_CB_ACTIVE as *const _ as usize as u32);
-    }
     let cb_status = __az_call_indirect_layout4(
         table_idx,
         refany_ptr as u64,
@@ -752,7 +738,6 @@ pub unsafe extern "C" fn AzStartup_initLayoutCache(
         info_ptr,
         out_ptr,
     );
-    azul_css::AZ_WASM_CB_ACTIVE.store(false, core::sync::atomic::Ordering::Relaxed);
     s.last_layout_status = cb_status;
     if cb_status != 0 {
         return 100 + cb_status;
@@ -1688,14 +1673,10 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
             core::ptr::write_volatile(0x406AC as *mut u32, name_ok as u32);
         }
     }
-    // [az-diag REVERT] 0x40710 = solveLayoutReal step: 0x50=DIAG-probe done (next call = LayoutWindow::new).
-    unsafe { core::ptr::write_volatile(0x40710 as *mut u32, 0x50u32); }
     let mut lw = match LayoutWindow::new(fc_cache) {
         Ok(lw) => lw,
         Err(_) => return 4,
     };
-    // [az-diag REVERT] 0x60 = LayoutWindow::new done.
-    unsafe { core::ptr::write_volatile(0x40710 as *mut u32, 0x60u32); }
     // Web/headless: skip the GPU transform/opacity sync in layout_dom_recursive
     // (display-list-only, no GPU here, and GpuValueCache::synchronize mis-lifts
     // to wasm → OOB). Heap field, not the SKIP_DISPLAY_LIST static (whose
@@ -1719,8 +1700,6 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // `layout_and_generate_display_list`, whose tail does virtual-view
     // scanning + scrollbar GPU registration we don't need on web).
     // Positions land in `layout_cache.calculated_positions`.
-    // [az-diag REVERT] 0x70 = about to call layout_dom_recursive.
-    unsafe { core::ptr::write_volatile(0x40710 as *mut u32, 0x70u32); }
     if let Err(_e) = lw.layout_dom_recursive(styled, &ws, &rr, &sc, &mut dbg) {
         // The layout error is EARLY (before block geometry — rects come back
         // all-zero when we fall through), so there's no partial geometry to

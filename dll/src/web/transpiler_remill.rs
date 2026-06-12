@@ -1561,12 +1561,7 @@ impl RemillTranspiler {
             "--gc-sections".to_string(),
         ];
         if !debug_link {
-            // [az-diag REVERT g108] --strip-all + --keep-section=name: strip everything EXCEPT the
-            // wasm `name` custom section (func index → sub_<addr>), keeping --lto-O3 (production
-            // indices/behavior unchanged). Pure metadata, no heisenbug → the trap stack indices map
-            // to sub_<native> names via wasm-objdump → identify the garbage-alloc fn. REVERT both.
             args.push("--strip-all".to_string());
-            args.push("--keep-section=name".to_string());
             // M10-F2: --lto-O3 enables LTO with size-aware codegen.
             // wasm-ld passes the LTO opt level to LLVM; -O3 (not -Oz)
             // gives the best size in our measurements because LTO

@@ -901,14 +901,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// This is useful for computing which fonts need to be loaded
     /// (diff with required fonts).
     pub fn get_loaded_font_ids(&self) -> std::collections::HashSet<FontId> {
-        // [az-diag REVERT] post-rebase trap localization @0x60780: call#, len,
-        // 0xA1=entered iteration, 0xA2=survived collect.
-        unsafe {
-            let n = crate::az_mark_read(0x60780);
-            crate::az_mark(0x60780, n.wrapping_add(1));
-        }
         let parsed = self.parsed_fonts.lock().unwrap();
-        unsafe { crate::az_mark(0x60784, parsed.len() as u32) };
         // M12.7: skip hashbrown's RawIterRange on an empty map — its NEON
         // control-byte group-scan mis-lifts to wasm and iterates forever
         // (the headless web layout uses an empty font cache → parsed is
@@ -6007,23 +6000,6 @@ pub fn create_logical_items(
     let mut items: Vec<LogicalItem> = Vec::new();
     let mut style_cache: HashMap<u64, Arc<StyleProperties>> = HashMap::new();
 
-    // [az-diag REVERT] class-B mech-B bisect: read content[0]'s StyledRun.text
-    // len via a STANDALONE single-discriminant if-let (the known-good pattern)
-    // at ENTRY, before the loop's OR-pattern `Text(run)|Marker{run,..}`.
-    // 0x60C28=content.len, 0x60C20=entry text.len (standalone), 0x60C2C=text ptr.
-    // If this reads 1 (sane) while the loop's text_slice (0x607C8) is garbage
-    // ⇒ the OR-pattern discriminant mis-lifts (bind `run` from wrong variant);
-    // if this is ALREADY garbage ⇒ corruption is upstream of create_logical.
-    #[cfg(feature = "web_lift")]
-    unsafe {
-        crate::az_mark(0x60C28, content.len() as u32);
-        if let Some(InlineContent::Text(run)) = content.first() {
-            crate::az_mark(0x60C20, run.text.len() as u32);
-            crate::az_mark(0x60C24, (run.text.len() >> 32) as u32);
-            crate::az_mark(0x60C2C, run.text.as_ptr() as usize as u32);
-        }
-    }
-
     // 1. Organize overrides for fast lookup per run.
     let mut run_overrides: HashMap<u32, HashMap<u32, &PartialStyleProperties>> = HashMap::new();
     for override_item in style_overrides {
@@ -6085,16 +6061,7 @@ pub fn create_logical_items(
                 let needs_scan = current_run_overrides.is_some()
                     || run.style.text_combine_upright.is_some();
                 let mut scan_cursor = 0;
-                let mut __az_fuel = 0usize; // [az-diag REVERT] web-lift infinite-loop cap
                 while needs_scan && scan_cursor < text.len() {
-                    __az_fuel += 1;
-                    if __az_fuel > 100_000 {
-                        // [az-diag REVERT] scan_cursor never advanced (mis-lifted len_utf8 → 0?).
-                        // Cap the loop + flag 0x40790 so the layout COMPLETES (no hang) + the marker
-                        // is readable. Native never trips this (the loop terminates natively).
-                        unsafe { crate::az_mark((0x60790) as u32, (0x5CA90001u32) as u32); }
-                        break;
-                    }
                     let style_at_cursor = if let Some(partial) =
                         current_run_overrides.and_then(|o| o.get(&(scan_cursor as u32)))
                     {
@@ -6226,11 +6193,6 @@ pub fn create_logical_items(
                             style: style_to_use,
                         });
                     } else {
-                        // [az-diag REVERT] class-B push probe: source slice len
-                        // @0x607C8; just-pushed element len/hi/ptr @0x607D0..D8;
-                        // push counter @0x607DC. Splits corrupt-at-push from
-                        // corrupt-upstream from corrupt-after-return.
-                        unsafe { crate::az_mark(0x607C8, text_slice.len() as u32) };
                         items.push(LogicalItem::Text {
                             source: ContentIndex {
                                 run_index: run_idx as u32,
@@ -6241,15 +6203,6 @@ pub fn create_logical_items(
                             marker_position_outside,
                             source_node_id: run.source_node_id,
                         });
-                        unsafe {
-                            if let Some(LogicalItem::Text { text, .. }) = items.last() {
-                                crate::az_mark(0x607D0, text.len() as u32);
-                                crate::az_mark(0x607D4, ((text.len() as u64) >> 32) as u32);
-                                crate::az_mark(0x607D8, text.as_ptr() as usize as u32);
-                            }
-                            let n = crate::az_mark_read(0x607DC);
-                            crate::az_mark(0x607DC, n.wrapping_add(1));
-                        }
                     }
                 }
         } else {
@@ -6389,21 +6342,8 @@ pub fn reorder_logical_items(
             LogicalItem::CombinedText { text, .. } => text.as_str(),
             _ => "\u{FFFC}",
         };
-        // [az-diag REVERT] class-B garbage-len probe @0x607B0..C4: which
-        // item feeds a corrupt length into the byte loop (the 681MB bump
-        // blowout). High words at +4 are the smoking gun if nonzero.
-        unsafe {
-            crate::az_mark(0x607B0, logical_items.len() as u32);
-            crate::az_mark(0x607B4, idx as u32);
-            crate::az_mark(0x607B8, text.len() as u32);
-            crate::az_mark(0x607BC, ((text.len() as u64) >> 32) as u32);
-        }
         let start_byte = bidi_str.len();
         bidi_str.push_str(text);
-        unsafe {
-            crate::az_mark(0x607C0, bidi_str.len() as u32);
-            crate::az_mark(0x607C4, ((bidi_str.len() as u64) >> 32) as u32);
-        }
         for _ in start_byte..bidi_str.len() {
             item_map.push(idx);
         }

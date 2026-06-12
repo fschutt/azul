@@ -857,8 +857,6 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<(), solver3::LayoutError> {
-        // [az-diag REVERT] layout_dom_recursive phase markers @0x40704: 0x80=entry.
-        unsafe { crate::az_mark((0x60704) as u32, (0x80u32) as u32); }
         let dom_id = if styled_dom.dom_id.inner == 0 {
             DomId::ROOT_ID
         } else {
@@ -911,13 +909,6 @@ impl LayoutWindow {
                 .unwrap_or(1); // if no compact cache, treat as dirty
 
             let font_stacks_sig = compact_cache_ref.map(|cc| {
-                // [az-diag REVERT] class-B probe: prev_font_hashes Vec header
-                // (len @0x60794, ptr @0x60798) before the first read; 0xA3
-                // @0x6079C = hash loop survived.
-                unsafe {
-                    crate::az_mark(0x60794, cc.prev_font_hashes.len() as u32);
-                    crate::az_mark(0x60798, cc.prev_font_hashes.as_ptr() as usize as u32);
-                }
                 // Fast polynomial rolling hash over the `prev_font_hashes`
                 // slice. Mixes each u64 with a multiplier + bit-rotation,
                 // which is collision-resistant enough for our one-at-a-time
@@ -928,7 +919,6 @@ impl LayoutWindow {
                     h = h.rotate_left(13) ^ fh;
                     h = h.wrapping_mul(0x100000001b3);
                 }
-                unsafe { crate::az_mark(0x6079C, 0xA3) };
                 h
             });
 
@@ -957,19 +947,11 @@ impl LayoutWindow {
 
                 // Merge font hash→families from compact cache into FontManager
                 // so the reverse map accumulates across DOMs.
-                // [az-diag REVERT] 0xA4 @0x607A0 = entering merge; per-iter
-                // count @0x607A4; 0xA5 @0x607A8 = merge done.
-                unsafe { crate::az_mark(0x607A0, 0xA4) };
                 if let Some(cc) = styled_dom.css_property_cache.ptr.compact_cache.as_ref() {
                     for (k, v) in cc.font_hash_to_families.iter() {
-                        unsafe {
-                            let n = crate::az_mark_read(0x607A4);
-                            crate::az_mark(0x607A4, n.wrapping_add(1));
-                        }
                         self.font_manager.font_hash_to_families.insert(*k, v.clone());
                     }
                 }
-                unsafe { crate::az_mark(0x607A8, 0xA5) };
 
                 // Resolve chains (including the coverage-based prune
                 // and the per-document scripts_hint), then delegate
@@ -979,16 +961,12 @@ impl LayoutWindow {
                 // rasterizer's preview pre-fill — one implementation,
                 // three callers.
                 crate::probe::sample_peak_rss("rss:before_font_chain");
-                // [az-diag REVERT] 0x81 = about to call collect_and_resolve_font_chains_with_registration.
-                unsafe { crate::az_mark((0x60704) as u32, (0x81u32) as u32); }
                 let mut chains = {
                     let _p = crate::probe::Probe::span("font_chain_resolve");
                     collect_and_resolve_font_chains_with_registration(
                         &styled_dom, &self.font_manager.fc_cache, &self.font_manager, &platform,
                     )
                 };
-                // [az-diag REVERT] 0x82 = collect_and_resolve done.
-                unsafe { crate::az_mark((0x60704) as u32, (0x82u32) as u32); }
                 // [g80] localize where font_chain_cache drops to 0: chains right after collect_and_resolve.
                 unsafe { crate::az_mark((0x60770) as u32, (chains.chains.len() as u32) as u32); }
                 // WEB-LIFT last resort (the DEFINITIVE spot — the layout's own `chains` that
@@ -998,28 +976,19 @@ impl LayoutWindow {
                 // empty chain so load_missing loads it + text shapes instead of measuring 0.
                 // Done here (azul-layout), NOT rust-fontconfig (which re-codegens the fragile
                 // with_memory_fonts into a trapping shape).
-                // [az-diag REVERT] last-resort loop localization @0x406C0 (wasm-only; native
-                // render never runs the layout so these are native-safe like the 0x40704 set).
-                unsafe { crate::az_mark((0x606C0) as u32, (0xC0DE0001u32) as u32); }
                 for chain in chains.chains.values_mut() {
-                    unsafe { crate::az_mark((0x606C0) as u32, (0xC0DE0002u32) as u32); }
                     let total = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>()
                         + chain.unicode_fallbacks.len();
-                    unsafe { crate::az_mark((0x606C0) as u32, (0xC0DE0003u32) as u32); }
                     if total == 0 {
-                        unsafe { crate::az_mark((0x606C0) as u32, (0xC0DE0004u32) as u32); }
                         if let Some((pattern, id)) = self.font_manager.fc_cache.list().first() {
-                            unsafe { crate::az_mark((0x606C0) as u32, (0xC0DE0005u32) as u32); }
                             chain.unicode_fallbacks.push(rust_fontconfig::FontMatch {
                                 id: *id,
                                 unicode_ranges: pattern.unicode_ranges.clone(),
                                 fallbacks: Vec::new(),
                             });
-                            unsafe { crate::az_mark((0x606C0) as u32, (0xC0DE0006u32) as u32); }
                         }
                     }
                 }
-                unsafe { crate::az_mark((0x606C0) as u32, (0xC0DE0007u32) as u32); }
                 // [g80] chains after the window.rs last-resort loop (values_mut path).
                 unsafe { crate::az_mark((0x60774) as u32, (chains.chains.len() as u32) as u32); }
                 // [az-web-lift 2026-06-05] REMOVED a WASM-ONLY diagnostic probe that computed
@@ -1050,8 +1019,6 @@ impl LayoutWindow {
 
                 let loader = PathLoader::new();
                 crate::probe::sample_peak_rss("rss:before_font_load");
-                // [az-diag REVERT] 0x83 = about to call load_missing_for_chains.
-                unsafe { crate::az_mark((0x60704) as u32, (0x83u32) as u32); }
                 let failed = {
                     let _p = crate::probe::Probe::span("font_load_missing");
                     self.font_manager.load_missing_for_chains(
@@ -1059,8 +1026,6 @@ impl LayoutWindow {
                         |bytes, index| loader.load_font_shared(bytes, index),
                     )
                 };
-                // [az-diag REVERT] 0x84 = load_missing_for_chains done.
-                unsafe { crate::az_mark((0x60704) as u32, (0x84u32) as u32); }
                 crate::probe::sample_peak_rss("rss:after_font_load");
                 if let Some(msgs) = debug_messages.as_mut() {
                     for (font_id, error) in &failed {
@@ -1085,9 +1050,6 @@ impl LayoutWindow {
                 unsafe { crate::az_mark((0x6077C) as u32, (self.font_manager.font_chain_cache.len() as u32) as u32); }
             }
         }
-        // [az-diag REVERT] 0x85 = font-resolution block done (next = the actual layout).
-        unsafe { crate::az_mark((0x60704) as u32, (0x85u32) as u32); }
-
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
 
         // Synchronize CSS transform / opacity keys with the current StyledDom
@@ -5647,22 +5609,6 @@ impl LayoutWindow {
             NodeType::Text(text) => {
                 // Simple text node - create a single StyledRun
                 let style = self.get_text_style_for_node(dom_id, node_id);
-
-                // [az-diag REVERT] class-B mechanism-B probe: raw AzString
-                // words BEFORE as_str(). 0x607E0=ptr-lo, E4=ptr-hi, E8=len-lo,
-                // EC=len-hi, F0=as_str().len(). If the struct's len word is
-                // already a heap ptr ⇒ corrupt-at-build (the 16-byte store);
-                // if struct is sane but as_str().len() is garbage ⇒ as_str's
-                // 16-byte read mis-lifts (the getHitNode class).
-                unsafe {
-                    let s: &AzString = text; // BoxOrStatic<AzString>: Deref
-                    let raw = s as *const AzString as *const u64;
-                    crate::az_mark(0x607E0, (*raw) as u32);
-                    crate::az_mark(0x607E4, ((*raw) >> 32) as u32);
-                    crate::az_mark(0x607E8, (*raw.add(1)) as u32);
-                    crate::az_mark(0x607EC, ((*raw.add(1)) >> 32) as u32);
-                    crate::az_mark(0x607F0, s.as_str().len() as u32);
-                }
 
                 vec![InlineContent::Text(StyledRun {
                     text: text.as_str().to_string(),

@@ -603,10 +603,8 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         tree: &LayoutTree,
         node_index: usize,
     ) -> Result<IntrinsicSizes> {
-        // [az-diag REVERT] 0xA0 = calculate_ifc_root_intrinsic_sizes entry.
         // [g75] 0x60758 = how many times this IFC sizer is entered; 0x6075C = node_index of THIS call.
         unsafe {
-            crate::az_mark((0x60704) as u32, (0xA0u32) as u32);
             let c = crate::az_mark_read(0x60758).wrapping_add(1);
             crate::az_mark((0x60758) as u32, (c) as u32);
             crate::az_mark((0x6075C) as u32, (node_index as u32) as u32);
@@ -631,8 +629,6 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         #[cfg(feature = "web_lift")]
         unsafe { crate::az_mark((0x60760) as u32, (if collect_result.is_ok() { 0x00000001u32 } else { 0x000000EEu32 }) as u32); }
         let inline_content: Vec<InlineContent> = collect_result?;
-        // [az-diag REVERT] 0xA1 = collect_inline_content done (next = measure_intrinsic_widths).
-        unsafe { crate::az_mark((0x60704) as u32, (0xA1u32) as u32); }
 
         if inline_content.is_empty() {
             return Ok(IntrinsicSizes::default());
@@ -701,8 +697,6 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             }
         };
 
-        // [az-diag REVERT] 0xA2 = measure_intrinsic_widths done (text measured, no OOB here).
-        unsafe { crate::az_mark((0x60704) as u32, (0xA2u32) as u32); }
         let min_width = intrinsic_text.min_content_width;
         let max_width = intrinsic_text.max_content_width;
 
@@ -1063,23 +1057,6 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait>(
     collect_inline_content_recursive(ctx, tree, ifc_root_index, out)?;
     // [g73] B8 = top-level recursion returned Ok (collect_inline_content complete).
     unsafe { crate::az_mark((0x6071C) as u32, (0xB8u32) as u32); }
-    // [az-diag REVERT g111] Is the built InlineContent's discriminant correct in MEMORY?
-    // out[0].disc should be 0 (Text). If garbage → split_text_for_whitespace mis-built the tag
-    // (construction mis-lift). If 0 (correct) → the lift mis-READS it in create_logical_items's
-    // match (deeper). Also capture out.len/ptr + size_of::<InlineContent> (stride) to check the
-    // slice/iteration. Upstream of the trap, lifted-only path (native-safe).
-    unsafe {
-        crate::az_mark((0x607A0) as u32, (out.len() as u32) as u32);
-        crate::az_mark((0x607A4) as u32, (out.as_ptr() as usize as u32) as u32);
-        crate::az_mark((0x607AC) as u32, (core::mem::size_of::<InlineContent>() as u32) as u32);
-        if !out.is_empty() {
-            let disc = *(out.as_ptr() as *const u64);
-            crate::az_mark((0x607A8) as u32, (disc as u32) as u32);
-            crate::az_mark((0x607B8) as u32, ((disc >> 32) as u32) as u32);
-        }
-        crate::az_mark((0x607BC) as u32, (0xC0DE0111u32) as u32);
-    }
-
     ctx.debug_log(&format!(
         "Collected {} inline content items from node {}",
         out.len(),
@@ -1125,16 +1102,8 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         return process_layout_children(ctx, tree, node_index, content);
     };
 
-    // [az-diag REVERT] 0x4071C=0xB1 = about to extract_text_from_node (THIS node).
-    unsafe { crate::az_mark((0x6071C) as u32, (0xB1u32) as u32); }
     // First check if THIS node is a text node
     if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
-        // [az-diag REVERT] extract_text_from_node returned: 0x40714=text.len() (must be 5 for
-        // "Hello"; garbage = the Text-variant AzString len mis-lifts), 0x4071C=0xB2 reached.
-        unsafe {
-            crate::az_mark((0x60714) as u32, (text.len() as u32) as u32);
-            crate::az_mark((0x6071C) as u32, (0xB2u32) as u32);
-        }
         let style_props = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
         ctx.debug_log(&format!("Found text in node {}: '{}'", node_index, text));
         // Use split_text_for_whitespace to correctly handle white-space: pre with \n
@@ -1144,11 +1113,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
             &text,
             style_props,
         );
-        // [az-diag REVERT] 0x4071C=0xB3 = split_text_for_whitespace done.
-        unsafe { crate::az_mark((0x6071C) as u32, (0xB3u32) as u32); }
         content.extend(text_items);
-        // [g73] B4 = content.extend done (past B3).
-        unsafe { crate::az_mark((0x6071C) as u32, (0xB4u32) as u32); }
     }
 
     // CRITICAL: Also check DOM children for text nodes!
@@ -1167,14 +1132,6 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         // Check if this DOM child is a text node
         let child_dom_node = &ctx.styled_dom.node_data.as_container()[child_id];
         if let NodeType::Text(text_data) = child_dom_node.get_node_type() {
-            // [az-diag REVERT] probe the AzString len BEFORE to_string (the OOB site). For
-            // "Hello" this must be 5; a garbage/huge value = the Text-variant AzString len
-            // mis-lifts → as_str().to_string() copies a garbage range → memory.fill OOB.
-            unsafe {
-                crate::az_mark((0x60714) as u32, (text_data.as_str().len() as u32) as u32);
-                crate::az_mark((0x60718) as u32, (text_data.as_str().as_ptr() as usize as u32) as u32);
-                crate::az_mark((0x6071C) as u32, (0xA3u32) as u32);
-            }
             let text = text_data.as_str().to_string();
             let style_props = Arc::new(get_style_properties(ctx.styled_dom, child_id, ctx.system_style.as_ref(), azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
             ctx.debug_log(&format!(
@@ -2401,21 +2358,6 @@ fn apply_height_constraints(
 pub fn extract_text_from_node(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
     match &styled_dom.node_data.as_container()[node_id].get_node_type() {
         NodeType::Text(text_data) => {
-            // [az-diag REVERT] read the AzString's RAW (ptr,len) fields directly — NO deref/
-            // validation (as_str() validates UTF-8 → derefs the garbage-len bytes → OOB before
-            // any probe). AzString = repr(C) U8Vec { ptr@0, len@8, cap@16 }. For "Hello" len=5
-            // ptr in the bump heap (0x6xxxxxx); garbage = the Text-variant payload mis-lifts.
-            unsafe {
-                let raw = text_data as *const _ as *const usize;
-                let ptr_field = core::ptr::read_volatile(raw);
-                let len_field = core::ptr::read_volatile(raw.add(1));
-                let cap_field = core::ptr::read_volatile(raw.add(2));
-                crate::az_mark((0x60714) as u32, (len_field as u32) as u32);
-                crate::az_mark((0x60718) as u32, (ptr_field as u32) as u32);
-                crate::az_mark((0x6071C) as u32, (0xB5u32) as u32);
-                crate::az_mark((0x60720) as u32, (cap_field as u32) as u32);
-                crate::az_mark((0x60724) as u32, ((len_field >> 32) as u32) as u32);
-            }
             Some(text_data.as_str().to_string())
         }
         _ => None,

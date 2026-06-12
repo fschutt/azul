@@ -768,28 +768,15 @@ fn shape_text_internal(
     direction: BidiDirection,
     style: &StyleProperties,
 ) -> Result<Vec<Glyph>, LayoutError> {
-    // [az-diag REVERT] wasm-only probe: shaping ENTERED → sentinel 0xE0000000 at
-    // 0x40700 (overwritten with the glyph count at the Ok(..) return). After a
-    // trap: 0xE0000000=shaping panicked inside; <0x1000=completed w/ that count; 0=not reached.
-    unsafe { crate::az_mark((0x60700) as u32, (0xE0000000u32) as u32); }
-    // [az-diag REVERT] web-lift hang localization: server.log shows the lift pulls in
+    // [az-web-lift] hang localization (pre-classifier-fix): server.log showed the lift pulls in
     // allsorts gsub::apply_subst_context + Ligature::apply, and solveLayoutReal hangs with
     // NO trap (so it's NOT in my capped char-walk/for-info loops) → the infinite loop is
     // inside allsorts gsub/gpos lookup machinery. Skip both (optional for basic Latin width;
     // advances come from hmtx via get_horizontal_advance) to confirm + get a measurement.
+    // RETEST after the mechB classifier fix (alloc/core now lift): the hang was
+    // plausibly a Leaf-stubbed core/alloc helper inside the lookup loop never
+    // advancing. Flip to false + relift + CDP-verify; remove entirely if green.
     const AZ_SKIP_GSUB_GPOS: bool = true;
-    // [az-diag REVERT] HANG BISECT (no marker-read needed; works through a hang):
-    // 1 = return EMPTY at entry → if solveLayoutReal then RETURNS, the loop was a single
-    //     shaping call's internals (init_from_glyphs — the only uncapped loop left here);
-    //     if it STILL HANGS, the loop is an OUTER loop in the cache.rs measure path
-    //     (calls shaping repeatedly, or loops independently) — NOT shaping internals.
-    // 2 = return EMPTY after init_from_glyphs (isolates init_from_glyphs specifically).
-    // 0 = normal.
-    const AZ_SHAPE_BISECT: u32 = 0;
-    if AZ_SHAPE_BISECT == 1 {
-        unsafe { crate::az_mark((0x607A0) as u32, (0x9001u32) as u32); }
-        return Ok(Vec::new());
-    }
     let script_tag = to_opentype_script_tag(script);
     #[cfg(feature = "text_layout_hyphenation")]
     let lang_tag = to_opentype_lang_tag(language);
@@ -815,24 +802,10 @@ fn shape_text_internal(
 
     let opt_gdef = parsed_font.opt_gdef_table.as_ref().map(|v| &**v);
 
-    // [az-diag REVERT] phase-progress @0x40704: 1=raw-walk-start 2=raw-done 3=gsub-done
-    // 4=gpos-done 5=forinfo-done. After a trap, 0x40704 = last completed phase. Fuel-cap
-    // flag @0x40708: 0x5CA90002=raw-walk loop stalled, 0x5CA90003=for-info loop stalled.
-    // Rewrites text.char_indices().filter_map().collect() as an explicit fuel-capped+PANIC
-    // walk: char_indices' UTF-8 byte advance is the same mechanism the web lift may mis-advance
-    // to 0 (→ infinite collect → slow OOM = "hang"). The panic converts that hang into a TRAP
-    // the harness catch can read. Semantically identical to the original.
-    unsafe { crate::az_mark((0x607A0) as u32, (1u32) as u32); }
     let mut raw_glyphs: Vec<allsorts::gsub::RawGlyph<()>> = Vec::new();
     {
         let mut ci = 0usize;
-        let mut fuel = 0usize;
         while ci < text.len() {
-            fuel += 1;
-            if fuel > 50_000 {
-                unsafe { crate::az_mark((0x607A4) as u32, (0x5CA90002u32) as u32); }
-                panic!("az-diag raw_glyphs char-walk fuel cap");
-            }
             let ch = match text[ci..].chars().next() {
                 Some(c) => c,
                 None => break,
@@ -853,7 +826,6 @@ fn shape_text_internal(
             ci += ch.len_utf8();
         }
     }
-    unsafe { crate::az_mark((0x607A0) as u32, (2u32) as u32); }
 
     if let Some(gsub) = parsed_font.gsub().filter(|_| !AZ_SKIP_GSUB_GPOS) {
         let features = if user_features.is_empty() {
@@ -878,7 +850,6 @@ fn shape_text_internal(
         )
         .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
     }
-    unsafe { crate::az_mark((0x607A0) as u32, (3u32) as u32); } // [az-diag] gsub done
 
     let mut infos = gpos::Info::init_from_glyphs(opt_gdef, raw_glyphs);
 
@@ -901,7 +872,6 @@ fn shape_text_internal(
         )
         .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
     }
-    unsafe { crate::az_mark((0x607A0) as u32, (4u32) as u32); } // [az-diag] gpos done
 
     let font_size = style.font_size_px;
     let scale_factor = if parsed_font.font_metrics.units_per_em > 0 {
@@ -923,13 +893,7 @@ fn shape_text_internal(
     let bidi_level = BidiLevel::new(if direction.is_rtl() { 1 } else { 0 });
 
     let mut shaped_glyphs = Vec::new();
-    let mut __fi_fuel = 0usize; // [az-diag REVERT] for-info fuel cap
     for info in infos.iter() {
-        __fi_fuel += 1;
-        if __fi_fuel > 50_000 {
-            unsafe { crate::az_mark((0x607A4) as u32, (0x5CA90003u32) as u32); }
-            panic!("az-diag for-info fuel cap");
-        }
         let cluster = info.glyph.liga_component_pos as u32;
         let source_char = text
             .get(cluster as usize..)
@@ -983,12 +947,6 @@ fn shape_text_internal(
         shaped_glyphs.push(glyph);
     }
 
-    unsafe { crate::az_mark((0x607A0) as u32, (5u32) as u32); } // [az-diag] for-info done
-    // [az-diag REVERT] wasm-only probe: shaping COMPLETED → overwrite the entry
-    // sentinel at 0x40700 with the produced glyph count. Tests the "0 glyphs"
-    // theory for the solver unwrap-None panic. Safe: shape_text_internal only
-    // runs in the wasm solveLayoutReal path (render_initial_page is cascade-only).
-    unsafe { crate::az_mark((0x60700) as u32, (shaped_glyphs.len() as u32) as u32); }
     Ok(shaped_glyphs)
 }
 
