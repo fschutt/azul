@@ -2076,6 +2076,35 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         {
                             return FnClass::NeverLift;
                         }
+                        // MECH-B ROOT-CAUSE FIX (2026-06-12): `alloc` + `core` default to
+                        // RECURSABLE, not Leaf. Both are no-syscall crates by construction
+                        // (no_std): their only external edges are the allocator shims
+                        // (matched to BumpAlloc/BumpRealloc/BumpDealloc by name above) and
+                        // the diverging panic/error helpers (NeverLift above). Every other
+                        // fn in them is pure compute that MUST run for correctness. The old
+                        // Leaf default no-op'd whichever out-of-line monomorphization the
+                        // compiler didn't inline, silently corrupting the caller — the
+                        // exemption blocks below (raw_vec, btree, from_iter, spec_extend,
+                        // resize, sort, binary_search, utf8, FnOnce, …) were each a
+                        // separately-diagnosed incident of THIS one gap. Terminal case:
+                        // `<[&str]>::join` → alloc::str::join_generic_copy was Leaf'd, so
+                        // split_text_for_whitespace's whitespace-collapse "returned" stale
+                        // stack garbage {ptr=1, len=<heap ptr>} → 170 MB phantom &str →
+                        // finish_grow OOB ("mechanism B", which gated the whole web
+                        // backend). A native-aarch64 harness run of the actually-lifted fn
+                        // (scripts/mechb_harness/) proved the lift itself was always
+                        // correct — the fn simply never ran. The blocks below are shadowed
+                        // for alloc/core but kept as incident history.
+                        if crate_name == "core" && name.contains("8function5impls") {
+                            // Known landmine, tried + reverted before (see NOTE below):
+                            // the fn-ptr blanket impls (`impl Fn for &F` etc.) lift to an
+                            // `unreachable` trap that poisons the cascade. Keep the no-op
+                            // stub until that trap is root-caused.
+                            return FnClass::Leaf;
+                        }
+                        if crate_name == "alloc" || crate_name == "core" {
+                            return FnClass::Recursable;
+                        }
                         // COLLECT-CHAIN ROOT-CAUSE (2026-06-10): `Vec::from_iter`/`collect()` lowers
                         // to `alloc::vec::spec_from_iter*::from_iter`, `alloc::vec::in_place_collect::
                         // from_iter_in_place`, and `spec_extend`/`extend_trusted`/`extend_desugared` —
@@ -2721,11 +2750,33 @@ mod tests {
     }
 
     #[test]
-    fn classify_runtime_crates_as_leaf() {
+    fn classify_runtime_crates() {
         let api: HashMap<String, ApiFnClass> = HashMap::new();
-        // _ZN4core9panicking5panicE
+        // Diverging panic helpers must TRAP, not return (M12.5y).
         assert_eq!(
             classify_for_name("_ZN4core9panicking5panicE", &api),
+            FnClass::NeverLift
+        );
+        // MECH-B regression: out-of-line alloc/core monomorphizations are
+        // real compute and must be lifted, never no-op stubbed (2026-06-12).
+        assert_eq!(
+            classify_for_name(
+                "_ZN5alloc3str17join_generic_copy17h9c9d2f7abfe94f50E",
+                &api
+            ),
+            FnClass::Recursable
+        );
+        // std stays Leaf-by-default (syscall surface).
+        assert_eq!(
+            classify_for_name("_ZN3std2io5stdio6_printE", &api),
+            FnClass::Leaf
+        );
+        // Known landmine stays stubbed: core fn-ptr blanket impls.
+        assert_eq!(
+            classify_for_name(
+                "_ZN4core3ops8function5impls5whatever17h00E",
+                &api
+            ),
             FnClass::Leaf
         );
     }

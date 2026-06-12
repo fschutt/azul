@@ -12,6 +12,35 @@ this file, CronList → CronDelete.
 loop, build commands) → `scripts/WEB_BACKEND_1TO1_PLAN.md` (architecture reference).
 
 ---
+## ✅ MECHANISM B ROOT-CAUSED + FIXED (2026-06-12, Fable dedicated session) — it was NEVER a mis-lift
+**Root cause: `classify_for_name` (dll/src/web/symbol_table.rs) defaulted crate `alloc`/`core`
+to `FnClass::Leaf` → `alloc::str::join_generic_copy h9c9d` was NEVER LIFTED — its call became a
+no-op env-import stub, so split_text's whitespace-collapse read 24 B of stale caller-stack
+garbage as the result String: `{ptr=1, len=0xa294828}` = leftovers, not a 2-word transposition.**
+Proof (three independent legs):
+1. **Native harness** (`scripts/mechb_harness/`): join's exact bytes (0xb3dd90, 896 B) lifted by
+   the fork's remill-lift-17 + executed natively on the M-series host with mock State/memory/
+   callee stubs → `{cap=1, ptr=heap, len=1}` CORRECT, full mem-op trace clean. The lift itself
+   was always right.
+2. **Relift log**: `dep: sub_c4dd90 → resolved=…join_generic_copy17h9c9d…class=Leaf (pulled in
+   by …split_text_for_whitespace…)` — explicit. (Also Leaf: the h209 join via rust_fontconfig +
+   h55ac via hyphenation — same silent corruption in those callers.)
+3. **Paradox dissolved**: AZ_BISECT_FN/AZ_LOWOPT_FNS match stems of fns BEING lifted — join was
+   never in that set, so "corrupt at opt-bisect-0 / llc -O0" was VACUOUS. Isolated-instruction
+   lifts were correct because the code was always correct. az_mark couldn't instrument it
+   because it never ran. ~25 relifts of probing couldn't see a fn that didn't exist.
+**FIX (same commit): `alloc` + `core` now default `Recursable`** (after the NeverLift diverging-
+panic list; `core::ops::function::impls` keeps its known-landmine Leaf carve-out; BumpAlloc/
+LibcMemcpy/etc name-matches still run first; `std`+other runtime crates unchanged = Leaf). This
+subsumes + retires the whack-a-mole exemption list (raw_vec, btree, from_iter, spec_extend,
+resize, sort, binary_search, utf8, FnOnce, OnceLock — every one was this same gap).
+Stale test `classify_runtime_crates_as_leaf` updated → `classify_runtime_crates` (panic →
+NeverLift since M12.5y; + mechB regression assert).
+**Follow-up audit (cheap, next wake): `compiler_builtins` is still Leaf-default** — out-of-line
+`__multi3`/`__udivti3`-style i128 helpers would no-op the same way if any lifted code calls them.
+grep a relift log for `compiler_builtins.*class=Leaf` with real callers.
+**VERIFICATION: (pending below — relift + CDP after the classifier rebuild)**
+
 ## 🔄 POST-REBASE STATE (2026-06-11 ~13:45) — rebased onto mobile-ios-android 82171735d; THREE new engine fixes landed; class-B deep fix IN PROGRESS
 User decided: rebase → backup → **class-B deep fix** → ua_css (S7). Rebase done (27 commits
 replayed, zero contribution drift, dll/src/web byte-identical; Cargo.lock fixup 84bac13bb;
