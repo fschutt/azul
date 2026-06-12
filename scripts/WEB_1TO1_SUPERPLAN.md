@@ -54,13 +54,18 @@ re-verified green (see below).
    in place (out of scope). CDP-verified 5→6 after the sweep.
 2. **Behavioral-bypass retests** (each plausibly the same classifier gap; one cycle each,
    `git checkout` restores green on red):
-   (2a) **FC/IFC bypasses — there are TWO layers**: the g147 dispatch-time recompute in fc.rs
-   (~line 388) AND an assignment-time `has_only_inline_children` fix in layout_tree.rs (~2980-2999,
-   "has_only_inline_children mis-lifted to false"). The fc.rs one is redundant armor if the
-   layout_tree one holds, so the clean experiment = remove BOTH + all g147* markers (g147e/i/b/g/c,
-   the 0x609A0/C0/E0 + 0x60B80/A0 slots, fc.rs lines ~377-498 + ~1090) in ONE cycle → green means
-   stock FC code works post-classifier-fix (delete it all); red means a real non-classifier
-   mis-lift remains (restore, document, file as its own hunt).
+   (2a) ❌ RETESTED RED (wake 2026-06-12 ~05:3x) — **g147 bypass STAYS; NOT the classifier gap.**
+   Correction first: layout_tree.rs ~2999 is NOT a second bypass (spec-cited real code; only its
+   g147h markers are web_lift-gated). Experiment = removed ONLY the fc.rs dispatch-time recompute
+   → page RENDERS correctly (new since the classifier fix — the `_` arm survives) but the CLICK
+   dies: dispatch kind=0 → patches_len=0 (was 10), wasm hit-test misses. Marker peek (slots kept
+   live for exactly this): node0 FC=Block(1)+Block arm ✓; nodes 1,2 FC discriminant = 0 (GARBAGE)
+   → `_` arm (0xC0DE0009); assignment-side 0x60B60+slot markers for nodes 1,2 NEVER FIRED. Same
+   signature as the 2026-06-10 retest ⇒ a still-live, classifier-independent mis-lift in the
+   FC-ASSIGNMENT path (LayoutTreeBuilder: determine_* never runs for child nodes / the stored
+   repr(C,u8) enum field reads invalid). FILED as its own dedicated hunt — the
+   scripts/mechb_harness/ native method applies (lift the builder's assignment fn, execute with a
+   mock 5-node StyledDom, watch the FC field store). Bypass restored, tree back green.
    (2b) **AZ_SKIP_GSUB_GPOS=true** in text3/default.rs (~line 775, RETEST note in place): flip to
    false → relift → gate; green = delete the const + .filter() guards; red = restore + the hang
    is its own hunt (capture which allsorts loop via the harness method). Do 2a and 2b in SEPARATE
