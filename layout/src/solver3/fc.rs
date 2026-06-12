@@ -953,8 +953,6 @@ fn layout_bfc<T: ParsedFontTrait>(
     constraints: &LayoutConstraints,
     float_cache: &mut HashMap<usize, FloatingContext>,
 ) -> Result<BfcLayoutResult> {
-    // [az-diag REVERT] wasm-only localization: 0x40704 = last layout fn entered.
-    unsafe { crate::az_mark((0x60704) as u32, (0x10u32) as u32); }
     let node = tree
         .get(node_index)
         .ok_or(LayoutError::InvalidTree)?
@@ -6680,24 +6678,6 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     dom_id,
                     text_content.as_str()
                 );
-                // [az-diag REVERT] class-B mechanism-B split (site 1 = anon
-                // wrapper). Raw AzString struct words vs as_str() result.
-                // 0x60C00=ptr-lo, C04=len-lo(word[1]@+8), C08=len-hi, C0C=cap-lo
-                // (word[2]), C10=as_str().len(), C14=site-id. If word[1] is
-                // already 0xa294828 ⇒ corrupt-at-BUILD (AzString built wrong
-                // upstream); if word[1] is sane (e.g. 1) but as_str().len() is
-                // garbage ⇒ as_ref()'s &[u8] 16-byte RETURN mis-lifts (mech-B).
-                #[cfg(feature = "web_lift")]
-                unsafe {
-                    let s: &azul_css::AzString = text_content; // BoxOrStatic<AzString>: Deref
-                    let raw = s as *const azul_css::AzString as *const u64;
-                    crate::az_mark(0x60C00, (*raw) as u32);
-                    crate::az_mark(0x60C04, (*raw.add(1)) as u32);
-                    crate::az_mark(0x60C08, ((*raw.add(1)) >> 32) as u32);
-                    crate::az_mark(0x60C0C, (*raw.add(2)) as u32);
-                    crate::az_mark(0x60C10, s.as_str().len() as u32);
-                    crate::az_mark(0x60C14, 1);
-                }
                 // Get style from the TEXT NODE itself (dom_id), not the IFC root
                 // This ensures inline styles like color: #666666 are applied to the text
                 let style = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
@@ -7031,18 +7011,6 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     // SPECIAL CASE: If the IFC root itself is a text node (leaf node),
     // add its text content directly instead of iterating over children
     if let NodeType::Text(ref text_content) = ifc_root_node_data.get_node_type() {
-        // [az-diag REVERT] class-B mech-B split (site 2 = IFC root IS text).
-        #[cfg(feature = "web_lift")]
-        unsafe {
-            let s: &azul_css::AzString = text_content;
-            let raw = s as *const azul_css::AzString as *const u64;
-            crate::az_mark(0x60C00, (*raw) as u32);
-            crate::az_mark(0x60C04, (*raw.add(1)) as u32);
-            crate::az_mark(0x60C08, ((*raw.add(1)) >> 32) as u32);
-            crate::az_mark(0x60C0C, (*raw.add(2)) as u32);
-            crate::az_mark(0x60C10, s.as_str().len() as u32);
-            crate::az_mark(0x60C14, 2);
-        }
         let style = Arc::new(get_style_properties(ctx.styled_dom, ifc_root_dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
         let text_items = split_text_for_whitespace(
             ctx.styled_dom,
@@ -7112,18 +7080,6 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
         // Check if this is a text node
         if let NodeType::Text(ref text_content) = node_data.get_node_type() {
-            // [az-diag REVERT] class-B mech-B split (site 3 = IFC root's DOM child).
-            #[cfg(feature = "web_lift")]
-            unsafe {
-                let s: &azul_css::AzString = text_content;
-                let raw = s as *const azul_css::AzString as *const u64;
-                crate::az_mark(0x60C00, (*raw) as u32);
-                crate::az_mark(0x60C04, (*raw.add(1)) as u32);
-                crate::az_mark(0x60C08, ((*raw.add(1)) >> 32) as u32);
-                crate::az_mark(0x60C0C, (*raw.add(2)) as u32);
-                crate::az_mark(0x60C10, s.as_str().len() as u32);
-                crate::az_mark(0x60C14, 3);
-            }
             debug_info!(
                 ctx,
                 "[collect_and_measure_inline_content] OK: Found text node (DOM child {:?}): '{}'",
@@ -8622,16 +8578,8 @@ pub fn split_text_for_whitespace(
                 let mut tab_parts = segment.split('\t').peekable();
                 while let Some(part) = tab_parts.next() {
                     if !part.is_empty() {
-                        // [az-diag REVERT] mech-B build-vs-store @ push site 1 (part.to_string()).
-                        let __az_part_s = part.to_string();
-                        #[cfg(feature = "web_lift")]
-                        unsafe {
-                            crate::az_mark(0x60C50, 1);
-                            crate::az_mark(0x60C54, __az_part_s.len() as u32);
-                            crate::az_mark(0x60C58, __az_part_s.as_ptr() as usize as u32);
-                        }
                         result.push(InlineContent::Text(StyledRun {
-                            text: __az_part_s,
+                            text: part.to_string(),
                             style: Arc::clone(&style),
                             logical_start_byte: 0,
                             source_node_id: Some(dom_id),
@@ -8668,13 +8616,6 @@ pub fn split_text_for_whitespace(
                     .join(" ");
 
                 if !collapsed.is_empty() {
-                    // [az-diag REVERT] mech-B build-vs-store @ push site 2 (collapsed).
-                    #[cfg(feature = "web_lift")]
-                    unsafe {
-                        crate::az_mark(0x60C50, 2);
-                        crate::az_mark(0x60C54, collapsed.len() as u32);
-                        crate::az_mark(0x60C58, collapsed.as_ptr() as usize as u32);
-                    }
                     result.push(InlineContent::Text(StyledRun {
                         text: collapsed,
                         style: Arc::clone(&style),
@@ -8713,42 +8654,15 @@ pub fn split_text_for_whitespace(
                 let after_segment_breaks = apply_segment_break_transform(&segment);
 
                 // Collapse document white space within this segment (normal/nowrap rules)
-                // [az-diag REVERT] chain split into stages to pinpoint which sub-op
-                // mis-lifts the String/Vec. s1=collect::<String> @0x60C64/68;
-                // v=split.filter.collect::<Vec> @0x60C6C(len)/70(v[0].len);
-                // collapsed=join @0x60C5C(reused below).
-                let __az_s1: String = after_segment_breaks
+                let collapsed: String = after_segment_breaks
                     .chars()
                     .map(|c| if is_css_document_whitespace(c) { ' ' } else { c })
-                    .collect::<String>();
-                #[cfg(feature = "web_lift")]
-                unsafe {
-                    crate::az_mark(0x60C64, __az_s1.len() as u32);
-                    crate::az_mark(0x60C68, __az_s1.as_ptr() as usize as u32);
-                }
-                let __az_v: Vec<&str> = __az_s1
+                    .collect::<String>()
                     .split(' ')
                     .filter(|s| !s.is_empty())
-                    .collect::<Vec<_>>();
-                #[cfg(feature = "web_lift")]
-                unsafe {
-                    crate::az_mark(0x60C6C, __az_v.len() as u32);
-                    if let Some(first) = __az_v.first() {
-                        crate::az_mark(0x60C70, first.len() as u32);
-                        crate::az_mark(0x60C74, first.as_ptr() as usize as u32);
-                    }
-                }
-                let collapsed: String = __az_v.join(" ");
+                    .collect::<Vec<_>>()
+                    .join(" ");
 
-                // [az-diag REVERT] mech-B: is `collapsed` (= X.join(" ")) already
-                // corrupt before final_text is built? 0x60C5C=collapsed.len,
-                // 0x60C60=ptr. garbage ⇒ the join() mis-lifts; sane (1) ⇒ the
-                // String::new()+push_str(&collapsed) below corrupts.
-                #[cfg(feature = "web_lift")]
-                unsafe {
-                    crate::az_mark(0x60C5C, collapsed.len() as u32);
-                    crate::az_mark(0x60C60, collapsed.as_ptr() as usize as u32);
-                }
                 let final_text = if collapsed.is_empty() && !segment.is_empty() {
                     " ".to_string()
                 } else if !collapsed.is_empty() {
@@ -8768,13 +8682,6 @@ pub fn split_text_for_whitespace(
                 };
 
                 if !final_text.is_empty() {
-                    // [az-diag REVERT] mech-B build-vs-store @ push site 3 (final_text).
-                    #[cfg(feature = "web_lift")]
-                    unsafe {
-                        crate::az_mark(0x60C50, 3);
-                        crate::az_mark(0x60C54, final_text.len() as u32);
-                        crate::az_mark(0x60C58, final_text.as_ptr() as usize as u32);
-                    }
                     result.push(InlineContent::Text(StyledRun {
                         text: final_text,
                         style: Arc::clone(&style),
@@ -8804,24 +8711,6 @@ pub fn split_text_for_whitespace(
         for item in result.iter_mut() {
             if let InlineContent::Text(run) = item {
                 run.text = apply_text_transform(&run.text, text_transform);
-            }
-        }
-    }
-
-    // [az-diag REVERT] class-B mech-B build-vs-store split: read split_text's
-    // OWN output's first Text run.text.len() right before returning. 0x60C40=
-    // result.len, 0x60C44=first Text run.text.len, 0x60C48=ptr. If sane (1)
-    // here but create_logical reads garbage (0x60C20) ⇒ corruption is in the
-    // RETURN (sret move of Vec<InlineContent>) or the caller's content.extend/
-    // pass; if garbage HERE ⇒ split built the StyledRun.text String corrupt.
-    #[cfg(feature = "web_lift")]
-    unsafe {
-        crate::az_mark(0x60C40, result.len() as u32);
-        for item in result.iter() {
-            if let InlineContent::Text(run) = item {
-                crate::az_mark(0x60C44, run.text.len() as u32);
-                crate::az_mark(0x60C48, run.text.as_ptr() as usize as u32);
-                break;
             }
         }
     }

@@ -39,7 +39,23 @@ NeverLift since M12.5y; + mechB regression assert).
 **Follow-up audit (cheap, next wake): `compiler_builtins` is still Leaf-default** — out-of-line
 `__multi3`/`__udivti3`-style i128 helpers would no-op the same way if any lifted code calls them.
 grep a relift log for `compiler_builtins.*class=Leaf` with real callers.
-**VERIFICATION: (pending below — relift + CDP after the classifier rebuild)**
+**VERIFICATION ✅ GREEN (2026-06-12 ~03:3x): full cycle.** Relift with the fix: join classified
+`Recursable`, walk grew ~1928→~2100 fns, zero `__remill_error`. CDP gate: `BEFORE: 5 Increase
+counter` → Input.dispatchMouseEvent click → `AFTER: 6 Increase counter`. Console: `hydrateStyledDom
+rc=0 node_count=5`, `solveLayout rc=0 solved=1 rects_len=5` (the always-trapping text layout now
+solves), click dispatch `kind=0 → patches_len=10`. **MECHANISM B CLOSED.** fc.rs [az-diag REVERT]
+probes reverted (9 sites incl. the chain-split restored to the original single expression) +
+re-verified green (see below).
+**FOLLOW-UPS (small, ordered):**
+1. ~39 remaining `[az-diag REVERT]` sites in window.rs(10)/text3 cache+default(12)/solver3
+   mod+sizing(11)/dll-web eventloop(5)+transpiler(1) — mechanical removal + one verify cycle.
+2. **g147 IFC-recompute bypass in fc.rs (~line 390, untagged)**: its underlying
+   "FC-assignment mis-lift" (node.formatting_context garbage) smells like the SAME classifier
+   gap — re-test without the bypass now that alloc/core lift; remove if the stored FC reads
+   clean. Same for other "class-B family" workarounds catalogued in HANDOFF_FABLE_web_lift.
+3. `compiler_builtins` still Leaf-default — audit a relift log for called-but-stubbed i128
+   helpers (__multi3 etc.).
+4. ua_css (S7) Chrome-parity web-verify — UNBLOCKED now that the renderer is green.
 
 ## 🔄 POST-REBASE STATE (2026-06-11 ~13:45) — rebased onto mobile-ios-android 82171735d; THREE new engine fixes landed; class-B deep fix IN PROGRESS
 User decided: rebase → backup → **class-B deep fix** → ua_css (S7). Rebase done (27 commits
