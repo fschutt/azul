@@ -58,10 +58,15 @@ arch-specific code. The x86 lift inherits every one. **This is most of the icebe
   copying**. `memset` same story → hashbrown's `0xFF` control-byte init never happens.
 - **Fix:** dedicated `FnClass::LibcMemcpy`/`LibcMemset`/`LibcSnprintf` matched by name; helper IR
   emits a real `@llvm.memmove`/`@llvm.memset`/minimal `%d` formatter body.
-- **[INHERIT]** Name-matched, body is LLVM intrinsics. **x86 caveat:** confirm the same names
-  appear (`memcpy`/`memmove`/`memset`/`__memcpy_chk`/`_platform_*`); Windows may spell them
-  `memcpy`/`memset` from the CRT, and MSVC sometimes emits `__chkstk` / `memset` inlined — grep a
-  Windows relift log for the actual import names and extend the matcher's spelling list.
+- **[INHERIT]** Name-matched, body is LLVM intrinsics. **x86/Windows caveat:** confirm the same
+  names appear (`memcpy`/`memmove`/`memset`/`__memcpy_chk`/`_platform_*`). **Windows adds two new
+  spellings the matcher must learn:** (a) **IAT import thunks** — `jmp qword ptr [rip+disp]` →
+  `__imp_memcpy` entry → import name (the PE analog of the aarch64 PLT/branch-island chase that
+  caused the M12 `Box::new` zero-fill); (b) **`__chkstk`** — MSVC/rust9x emits a stack-probe call
+  at the prologue of *every* function with a frame > 4 KB, so it appears all over big lifted fns
+  and needs its own no-op-with-correct-SP-semantics class (a plain `Leaf` that returns is wrong —
+  it must leave SP as if the probe ran). Grep a Windows relift log for the actual import names and
+  extend the matcher.
 
 ### A3. `HashmapRandomKeys` — degenerate SipHash seed *(M12.7)*
 - **Symptom:** every lifted `std::HashMap` reads back empty (the `dom_to_layout` symptom,
@@ -129,6 +134,15 @@ arch-specific code. The x86 lift inherits every one. **This is most of the icebe
   the access instruction pattern, and the thunk name all change. Expect this to be a chunk of the
   Windows port.
 
+### A10. Heap base vs synthetic-address band collision *(standing class)*
+- **Symptom:** after the dylib grew, the bump allocator's base overlapped the image's mirrored
+  synthetic-address band → allocations stomped mirrored data ("TLV descriptors read as heap
+  garbage"). Patched by moving the bump base 96 MiB → 160 MiB.
+- **[INHERIT] but it's a LANDMINE, not a fix:** any future image growth past the band re-collides.
+  **Port lesson — do this right on x86:** derive the bump base at startup from the symbol table's
+  **max synthetic address + a guard margin**, never hardcode it. Watch the `TLV: seeded` / band
+  logs on every relift. (x86 images are bigger; this *will* bite if hardcoded.)
+
 ### A9. `display_list` / `probe` / GRID-monster boundaries → `Leaf`/`NeverLift`
 - Painters (`generate_display_list` and ~300 `paint_*`) are dead on web (TLV patches, not a
   display list) → `Leaf` boundary. `probe` (timing spans, reads TLS) → `Leaf`.
@@ -149,6 +163,17 @@ SSE/AVX and some Rust-emitted forms will still surface. **The method is the asse
   the undecoded bytes → add the decoder/semantics to the fork → re-lift to 0 errors.
 - **[ISA]** x86 analog: SSE/AVX move/convert ops (`movaps`, `cvt*`, `sqrtss`, `pcmpgt*`). XED
   decodes these, but remill's *semantics* functions may be incomplete for some — same triage.
+- **Run the method PROACTIVELY on x86 day one:** lift the *whole* set, `histogram` the
+  `__remill_error` stubs by frequency, fix decoders top-down — don't wait for a downstream
+  garbage symptom (an undecoded instruction looks exactly like data corruption later).
+- **x86 sibling instructions to pre-empt** (the prebuilt `remill-lift-17` already advertises
+  `-arch amd64`/`x86` via XED, so decode coverage starts high — these are the semantics/rewrite
+  watch-list): **`rep movsb`/`rep stosb`** (inlined memcpy/memset — a *semantics loop*, must lift
+  or rewrite or it silently no-ops like the libc stub did), **`cmpxchg16b`** (16-byte CAS, the
+  fat-pointer atomic), **SSE 16-byte `movups`/`movdqu` pairs** (the x86 sibling of the aarch64
+  Q-register ldp/stp class — B3), **`cpuid`/`rdtsc`** (classify `NeverLift` or fixed-value
+  helpers), and **`lock`-prefixed RMW** (the LDAPR sibling — consider a `lock`-prefix-strip
+  pre-lift rewrite for single-threaded targets, exactly as LDAPR→LDAR in B4).
 
 ### B2. NZCV flag save/restore — `mrs/msr NZCV`
 - The only decode gap across 22 text fns: Rust's overflow-checked arithmetic reads/writes the
@@ -288,6 +313,19 @@ The bug list ages; the methods don't. Port these to x86 first.
 - **§M5. The classifier is the control panel.** Most "mis-lift" bugs were actually
   classification bugs (stub vs lift vs trap). `dll/src/web/symbol_table.rs::classify_for_name` +
   its unit tests are the first place to look and the cheapest place to fix. **[INHERIT] wholesale.**
+- **§M7. "Hang" and "garbage value" are the SAME bug class.** A Leaf-stubbed helper either
+  corrupts a value *or* fails to advance a loop → infinite loop (BTreeMap `dying_next`, iterator
+  `scan_cursor += len_utf8()`, search loops are the canonical victims; the gsub/gpos "hang" was
+  this). So a hang gets the same first move as garbage: §M3 (grep the producer's `class=`).
+- **§M8. When a probe changes the result, STOP probing.** Runtime address-observation (marker
+  reads, `build_get`) repeatedly shifted or hid the corruption (the M12.5x heisenbug). Switch to
+  **marker-free constant-injection bisection**, transpiler-side logging, or the native harness
+  (§M2) — never keep stacking in-guest probes.
+- **§M9. Test the PRODUCTION artifact, not just the isolated lift.** "Every instruction lifts
+  correctly in isolation" proves nothing: the isolated `remill-lift` exercises only the decode
+  step. Real bugs lived in the byte-rewrites, sub-name canonicalization, alias-metadata strip,
+  jump-table devirt, classification, and the JS import env. Use the isolated lift only as a
+  *control* against the full pipeline output.
 - **§M6. CDP gate.** `node scripts/cdp_click.js` (counter 5→click→6) and
   `scripts/cdp_uacss.js` (geometry parity vs a `data:` URL — reference **must** carry
   `<!DOCTYPE html>`). End-to-end truth, target-agnostic.
