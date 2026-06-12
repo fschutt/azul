@@ -768,15 +768,6 @@ fn shape_text_internal(
     direction: BidiDirection,
     style: &StyleProperties,
 ) -> Result<Vec<Glyph>, LayoutError> {
-    // [az-web-lift] hang localization (pre-classifier-fix): server.log showed the lift pulls in
-    // allsorts gsub::apply_subst_context + Ligature::apply, and solveLayoutReal hangs with
-    // NO trap (so it's NOT in my capped char-walk/for-info loops) → the infinite loop is
-    // inside allsorts gsub/gpos lookup machinery. Skip both (optional for basic Latin width;
-    // advances come from hmtx via get_horizontal_advance) to confirm + get a measurement.
-    // RETEST after the mechB classifier fix (alloc/core now lift): the hang was
-    // plausibly a Leaf-stubbed core/alloc helper inside the lookup loop never
-    // advancing. Flip to false + relift + CDP-verify; remove entirely if green.
-    const AZ_SKIP_GSUB_GPOS: bool = true;
     let script_tag = to_opentype_script_tag(script);
     #[cfg(feature = "text_layout_hyphenation")]
     let lang_tag = to_opentype_lang_tag(language);
@@ -827,7 +818,7 @@ fn shape_text_internal(
         }
     }
 
-    if let Some(gsub) = parsed_font.gsub().filter(|_| !AZ_SKIP_GSUB_GPOS) {
+    if let Some(gsub) = parsed_font.gsub() {
         let features = if user_features.is_empty() {
             Features::Mask(build_feature_mask_for_script(script))
         } else {
@@ -853,7 +844,7 @@ fn shape_text_internal(
 
     let mut infos = gpos::Info::init_from_glyphs(opt_gdef, raw_glyphs);
 
-    if let Some(gpos) = parsed_font.gpos().filter(|_| !AZ_SKIP_GSUB_GPOS) {
+    if let Some(gpos) = parsed_font.gpos() {
         let kern_table = parsed_font
             .opt_kern_table
             .as_ref()

@@ -66,10 +66,13 @@ re-verified green (see below).
    repr(C,u8) enum field reads invalid). FILED as its own dedicated hunt — the
    scripts/mechb_harness/ native method applies (lift the builder's assignment fn, execute with a
    mock 5-node StyledDom, watch the FC field store). Bypass restored, tree back green.
-   (2b) **AZ_SKIP_GSUB_GPOS=true** in text3/default.rs (~line 775, RETEST note in place): flip to
-   false → relift → gate; green = delete the const + .filter() guards; red = restore + the hang
-   is its own hunt (capture which allsorts loop via the harness method). Do 2a and 2b in SEPARATE
-   cycles for attribution.
+   (2b) ✅ RETESTED GREEN (wake 2026-06-12 ~06:3x) — **AZ_SKIP_GSUB_GPOS DELETED; the allsorts
+   gsub/gpos hang WAS the classifier gap.** Flip-to-false cycle: full 5→6 cycle green, mini
+   exports 2053→2313 (the whole gsub/gpos lookup machinery + deps lift and RUN — no hang). Real
+   OpenType shaping (ligatures via gsub::apply, kerning via gpos::apply) now executes in the
+   lifted wasm. The const + both .filter() guards removed; deletion re-verified green (see
+   commit). The pre-fix hang = a Leaf-stubbed core/alloc helper never advancing a lookup loop,
+   exactly as theorized.
 3. ✅ DONE (this wake): `compiler_builtins` audit — ZERO compiler_builtins deps in the entire
    relift walk (aarch64 inlines i128 ops; nothing to stub). No action needed.
 4. ua_css (S7) Chrome-parity web-verify — UNBLOCKED now that the renderer is green.
