@@ -652,58 +652,66 @@ fn parse_format_pod(pod: *const u8) -> Option<(u32, u32, u32, Option<u64>)> {
     if pod.is_null() {
         return None;
     }
-    unsafe {
-        let size = *(pod as *const u32);
-        let type_ = *(pod.add(4) as *const u32);
-        if type_ != SPA_TYPE_OBJECT || size < 8 {
-            return None;
-        }
-        let mut off = 16usize; // skip object header (size,type,objtype,objid)
-        let end = 8 + size as usize;
-        let mut format = 0u32;
-        let mut wdt = 0u32;
-        let mut hgt = 0u32;
-        let mut modifier: Option<u64> = None;
-        let read_u64 = |at: usize| -> u64 {
-            let lo = *(pod.add(at) as *const u32) as u64;
-            let hi = *(pod.add(at + 4) as *const u32) as u64;
-            lo | (hi << 32)
-        };
-        while off + 16 <= end {
-            let key = *(pod.add(off) as *const u32);
-            // flags at off+4
-            let vsize = *(pod.add(off + 8) as *const u32) as usize;
-            let vtype = *(pod.add(off + 12) as *const u32);
-            let vbody = off + 16;
-            match (key, vtype) {
-                (SPA_FORMAT_VIDEO_FORMAT, SPA_TYPE_ID) => {
-                    format = *(pod.add(vbody) as *const u32);
-                }
-                (SPA_FORMAT_VIDEO_SIZE, SPA_TYPE_RECTANGLE) => {
-                    wdt = *(pod.add(vbody) as *const u32);
-                    hgt = *(pod.add(vbody + 4) as *const u32);
-                }
-                (SPA_FORMAT_VIDEO_MODIFIER, SPA_TYPE_LONG) => {
-                    modifier = Some(read_u64(vbody));
-                }
-                (SPA_FORMAT_VIDEO_MODIFIER, SPA_TYPE_CHOICE) => {
-                    // Defensive: an un-fixated choice — take its first value
-                    // (after kind,flags,child_size,child_type = 16 bytes).
-                    if vsize >= 24 {
-                        modifier = Some(read_u64(vbody + 16));
-                    }
-                }
-                _ => {}
+    // The ONLY unsafe here is turning the C pointer into a slice; the SPA POD's
+    // first u32 is its body size, so `8 + size` bytes are valid. Everything below
+    // is safe, bounds-checked slice access via `from_ne_bytes` — no raw
+    // (mis-)aligned derefs (the old `*(p as *const u32)` was UB on the 1-aligned
+    // test buffer) and no chance of reading past the object on a malformed pod.
+    let head = unsafe { core::slice::from_raw_parts(pod, 8) };
+    let size = u32::from_ne_bytes(head[0..4].try_into().ok()?);
+    let type_ = u32::from_ne_bytes(head[4..8].try_into().ok()?);
+    if type_ != SPA_TYPE_OBJECT || size < 8 {
+        return None;
+    }
+    let total = 8 + size as usize;
+    let buf = unsafe { core::slice::from_raw_parts(pod, total) };
+    // Read a little-/native-endian u32 at `at`, or 0 if it would run off the end.
+    let rd = |at: usize| -> u32 {
+        buf.get(at..at + 4)
+            .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
+            .unwrap_or(0)
+    };
+    let rd64 = |at: usize| -> u64 { (rd(at) as u64) | ((rd(at + 4) as u64) << 32) };
+
+    let mut off = 16usize; // skip object header (size,type,objtype,objid)
+    let mut format = 0u32;
+    let mut wdt = 0u32;
+    let mut hgt = 0u32;
+    let mut modifier: Option<u64> = None;
+    while off + 16 <= total {
+        let key = rd(off);
+        // flags at off+4
+        let vsize = rd(off + 8) as usize;
+        let vtype = rd(off + 12);
+        let vbody = off + 16;
+        match (key, vtype) {
+            (SPA_FORMAT_VIDEO_FORMAT, SPA_TYPE_ID) => {
+                format = rd(vbody);
             }
-            // advance: prop header (8) + pod header (8) + padded body
-            let padded = (vsize + 7) & !7;
-            off = vbody + padded;
+            (SPA_FORMAT_VIDEO_SIZE, SPA_TYPE_RECTANGLE) => {
+                wdt = rd(vbody);
+                hgt = rd(vbody + 4);
+            }
+            (SPA_FORMAT_VIDEO_MODIFIER, SPA_TYPE_LONG) => {
+                modifier = Some(rd64(vbody));
+            }
+            (SPA_FORMAT_VIDEO_MODIFIER, SPA_TYPE_CHOICE) => {
+                // Defensive: an un-fixated choice - take its first value
+                // (after kind,flags,child_size,child_type = 16 bytes).
+                if vsize >= 24 {
+                    modifier = Some(rd64(vbody + 16));
+                }
+            }
+            _ => {}
         }
-        if format != 0 && wdt != 0 {
-            Some((format, wdt, hgt, modifier))
-        } else {
-            None
-        }
+        // advance: prop header (8) + pod header (8) + padded body
+        let padded = (vsize + 7) & !7;
+        off = vbody + padded;
+    }
+    if format != 0 && wdt != 0 {
+        Some((format, wdt, hgt, modifier))
+    } else {
+        None
     }
 }
 
