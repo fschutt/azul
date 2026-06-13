@@ -733,7 +733,9 @@ impl X11Window {
                 unsafe { (self.xlib.XNextEvent)(self.display, &mut event) };
 
                 let target = unsafe { event.any.window } as u64;
-                if target == self.window {
+                // self.window is an XID (c_ulong) = u32 on 32-bit targets, so
+                // widen it to match `target: u64` (no-op on 64-bit).
+                if target == self.window as u64 {
                     self.handle_event(&mut event);
                 } else if let Some(wptr) = unsafe { super::registry::get_window(target) } {
                     // Dispatch to the child window that owns this X window.
