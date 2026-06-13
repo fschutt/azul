@@ -808,6 +808,28 @@ const BINDING_FILES: &[BindingFile] = &[
     // --- zig ---
     BindingFile { dst: "azul.zig", src: "azul.zig", source: BindingSource::Codegen },
     BindingFile { dst: "build.zig", src: "build.zig", source: BindingSource::Codegen },
+    // --- csharp (the main-page FFI tabs below ship the generated binding so the
+    //     install steps `curl` it from azul.rs instead of cloning + codegen) ---
+    BindingFile { dst: "Azul.cs", src: "Azul.cs", source: BindingSource::Codegen },
+    BindingFile { dst: "Azul.csproj", src: "Azul.csproj", source: BindingSource::Codegen },
+    // --- ruby ---
+    BindingFile { dst: "azul.rb", src: "azul.rb", source: BindingSource::Codegen },
+    BindingFile { dst: "azul.gemspec", src: "azul.gemspec", source: BindingSource::Codegen },
+    // --- lua ---
+    BindingFile { dst: "azul.lua", src: "azul.lua", source: BindingSource::Codegen },
+    BindingFile { dst: "azul-1-1.rockspec", src: "azul-1-1.rockspec", source: BindingSource::Codegen },
+    // --- node ---
+    BindingFile { dst: "azul.js", src: "node/azul.js", source: BindingSource::Codegen },
+    BindingFile { dst: "package.json", src: "node/package.json", source: BindingSource::Codegen },
+    // --- ocaml ---
+    BindingFile { dst: "azul.ml", src: "azul.ml", source: BindingSource::Codegen },
+    BindingFile { dst: "azul.mli", src: "azul.mli", source: BindingSource::Codegen },
+    BindingFile { dst: "dune", src: "dune", source: BindingSource::Codegen },
+    BindingFile { dst: "dune-project", src: "dune-project", source: BindingSource::Codegen },
+    // --- kotlin ---
+    BindingFile { dst: "Azul.kt", src: "kotlin/Azul.kt", source: BindingSource::Codegen },
+    BindingFile { dst: "build.gradle.kts", src: "kotlin/build.gradle.kts", source: BindingSource::Codegen },
+    BindingFile { dst: "settings.gradle.kts", src: "kotlin/settings.gradle.kts", source: BindingSource::Codegen },
 ];
 
 /// Copy every non-whitelist per-language binding + scaffolding file that the
@@ -957,6 +979,22 @@ pub fn create_examples(
                 }
             }
         }
+
+        // Every other language (ada, csharp, java, kotlin, lua, node, ocaml,
+        // ruby, go, haskell, ...) is flattened into `extra`. Bundle them all so
+        // examples.zip is the one-stop "all languages" source drop, not just
+        // C/Rust/Python/C++.
+        for path in example.code.extra.values() {
+            if !added_files.contains(path) {
+                let full_path = examples_dir.join(path);
+                if full_path.exists() {
+                    let content = fs::read(&full_path)?;
+                    source_zip.start_file(path, options)?;
+                    source_zip.write_all(&content)?;
+                    added_files.insert(path.clone());
+                }
+            }
+        }
     }
 
     // C header
@@ -981,8 +1019,15 @@ pub fn create_examples(
     source_zip.start_file("README.md", options)?;
     source_zip.write_all(
         format!(
-            "# Azul GUI Framework v{}\n\nCross-platform GUI framework for Rust, C, C++ and Python",
-            version
+            "# Azul GUI Framework v{version}\n\n\
+             Cross-platform GUI framework with bindings for Rust, C, C++, Python and \
+             20+ other languages (all per-language `hello-world` / `widgets` sources are \
+             bundled here, one directory per language).\n\n\
+             This archive demonstrates the \"one dll, many small binaries\" model: a single \
+             shared library (`libazul.so` / `libazul.dylib` / `azul.dll`) plus the compiled \
+             demo apps under `demos/` (added by CI) — every app links the same one library \
+             instead of bundling its own runtime. Build any example against the bundled lib; \
+             headers are in `include/`.\n",
         )
         .as_bytes(),
     )?;
@@ -995,6 +1040,52 @@ pub fn create_examples(
         added_files.len()
     );
 
+    Ok(())
+}
+
+/// Ship the generated Java (JNA) bindings as a single `azul-java.zip` in the
+/// release dir. Java codegen emits ~6.4k per-type `.java` files plus a
+/// `pom.xml`; that is far too many to expose (or `curl`) as individual URLs
+/// like the other languages, so the Java install step downloads this one zip,
+/// unzips it, and `mvn package`s. Sourced from `codegen_dir/java/` (the
+/// `azul-doc codegen all` output). A missing source dir is a warning, not an
+/// error (mirrors `copy_language_bindings`): the deploy must never abort.
+pub fn create_java_bindings_zip(version_dir: &Path, codegen_dir: &Path) -> Result<()> {
+    let java_dir = codegen_dir.join("java");
+    if !java_dir.is_dir() {
+        eprintln!(
+            "  [WARN] Java bindings dir {} missing — skipping azul-java.zip (run `azul-doc codegen all`?)",
+            java_dir.display()
+        );
+        return Ok(());
+    }
+
+    let zip_path = version_dir.join("azul-java.zip");
+    let zip_file = File::create(&zip_path)?;
+    let mut zip = zip::ZipWriter::new(zip_file);
+    let options = zip::write::SimpleFileOptions::default();
+
+    let mut count = 0usize;
+    let mut stack = vec![java_dir.clone()];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            // Store paths relative to java/ (so the zip unpacks to a flat
+            // project the bundled pom.xml expects).
+            let rel = path.strip_prefix(&java_dir).unwrap();
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            zip.start_file(rel_str, options)?;
+            zip.write_all(&fs::read(&path)?)?;
+            count += 1;
+        }
+    }
+    zip.finish()?;
+    println!("  - Created azul-java.zip ({} files)", count);
     Ok(())
 }
 

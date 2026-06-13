@@ -1716,6 +1716,12 @@ fn generate_release_pages(
             eprintln!("  [WARN] Failed to copy per-language bindings: {}", e);
         }
 
+        // Java (JNA) bindings are ~6.4k per-type files — too many to expose as
+        // individual URLs like the other languages, so ship them as one zip.
+        if let Err(e) = dllgen::deploy::create_java_bindings_zip(&version_dir, codegen_dir) {
+            eprintln!("  [WARN] Failed to create azul-java.zip: {}", e);
+        }
+
         // Generate api.json for this version
         if let Some(version_data) = api_data.get_version(version) {
             let api_json = to_json_pretty_4space(&version_data)?;
