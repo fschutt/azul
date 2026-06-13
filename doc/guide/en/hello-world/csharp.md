@@ -65,7 +65,7 @@ dotnet add package Azul
    ```
 
 2. Add the generated `Azul.cs` bindings to your project (ships in the
-   [examples archive](/release/0.2.0/examples.zip) under `csharp/`).
+   [examples archive](/ui/release/0.2.0/examples.zip) under `csharp/`).
 
 The native library must be discoverable at runtime via `DYLD_LIBRARY_PATH` (macOS),
 `LD_LIBRARY_PATH` (Linux), or `PATH` (Windows).

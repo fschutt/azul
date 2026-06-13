@@ -15,7 +15,7 @@ using the Mozilla WebRender rendering engine. It focuses on:
 
 ## Getting Started
 
-Check out our [installation guide](/guide/installation.html) to get started with Azul.
+Check out our [getting-started guide](/ui/guide/hello-world) to get started with Azul.
 
 ## Stay Tuned
 

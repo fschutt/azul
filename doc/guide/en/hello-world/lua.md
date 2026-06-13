@@ -47,7 +47,7 @@ luarocks install azul --server=https://azul.rs/luarocks
 1. Download the native library from the [/releases](/releases) page (`libazul.dylib`
    / `libazul.so` / `azul.dll`).
 2. Put the generated `azul.lua` next to `hello-world.lua` (it ships in the
-   [examples archive](/release/0.2.0/examples.zip) under `lua/`, and is produced by
+   [examples archive](/ui/release/0.2.0/examples.zip) under `lua/`, and is produced by
    `cargo run --bin azul-doc -- codegen all` into `target/codegen/azul.lua`), or point
    `LUA_PATH` at it.
 

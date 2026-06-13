@@ -137,7 +137,7 @@ of the requested size. The renderer treats it as transparent and reserves space 
 A render-image callback runs:
 
 1. Once on first display of the DOM node, after layout has assigned the node a size.
-2. On every frame the DOM is re-built, if the node is still in the tree. To drive animation without rebuilding, return `Update::RefreshDom` from a [timer](timers.md) callback so the framework reissues the render.
+2. On every frame the DOM is re-built, if the node is still in the tree. To drive animation without rebuilding, return `Update::RefreshDom` from a [timer](../timers.md) callback so the framework reissues the render.
 3. Never if the node never enters the tree, or if the render-image feature is disabled (e.g. headless mode without a GL context).
 
 The renderer doesn't memoize results. The callback is responsible for caching its own state in the `RefAny` it received.

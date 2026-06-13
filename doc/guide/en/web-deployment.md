@@ -34,7 +34,7 @@ default-search-keys:
 
 ## Introduction
 
-*WIP — M8.7c.* Server-side rendering, the HTTP server, and a minimal client-side WASM dispatch path all work today. The hello-world `on_click` callback runs as remill-lifted WebAssembly in the browser and increments a counter that lives in shared wasm linear memory. More complex apps still fall back to server-side execution; the production roadmap is in [`scripts/HACKS_REVIEW_2026_05_16.md`](../../scripts/HACKS_REVIEW_2026_05_16.md).
+*WIP — M8.7c.* Server-side rendering, the HTTP server, and a minimal client-side WASM dispatch path all work today. The hello-world `on_click` callback runs as remill-lifted WebAssembly in the browser and increments a counter that lives in shared wasm linear memory. More complex apps still fall back to server-side execution; the production roadmap is tracked in the repo's `scripts/` planning docs.
 
 The same binary that opens a desktop window can run as an HTTP server. Set the environment variable and azul replaces the platform shell with a TCP listener:
 

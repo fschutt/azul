@@ -54,7 +54,7 @@ wget -O libazul.dylib https://azul.rs/release/0.2.0/libazul.dylib   # macOS
 ```
 
 Add the generated `azul.ml` / `azul.mli` (from the
-[examples archive](/release/0.2.0/examples.zip) under `ocaml/`) to your dune project.
+[examples archive](/ui/release/0.2.0/examples.zip) under `ocaml/`) to your dune project.
 
 ## Simple "Counter" Example
 

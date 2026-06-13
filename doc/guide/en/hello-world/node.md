@@ -58,7 +58,7 @@ wget -O libazul.dylib https://azul.rs/release/0.2.0/libazul.dylib   # macOS
 ```
 
 Drop the generated `azul.js` next to your script (it ships in the
-[examples archive](/release/0.2.0/examples.zip) under `node/`).
+[examples archive](/ui/release/0.2.0/examples.zip) under `node/`).
 
 ## Simple "Counter" Example
 

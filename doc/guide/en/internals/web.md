@@ -39,7 +39,7 @@ default-search-keys:
 # Web Backend Internals
 
 > **📋 Architectural retrospective:** see
-> [`scripts/M9_REVIEW_AND_OPTION_A.md`](../../../../scripts/M9_REVIEW_AND_OPTION_A.md)
+> `scripts/M9_REVIEW_AND_OPTION_A.md`
 > for the post-M9 review that drove the synthetic-address lift
 > fix described under "Synthetic-address lift" below.
 
@@ -578,7 +578,7 @@ remill bails on bare `b imm26` by lifting it as
 appears empty and the wrapper looks like an identity function.
 
 Workaround (arm64-only,
-[hack #6](../../../../scripts/HACKS_REVIEW_2026_05_16.md#6-tail-call-wrapper-byte-rewrite-is-arm64-only)):
+hack #6):
 detect the encoding `bits 30..26 == 0b000101` (B unconditional)
 and rewrite the 4 input bytes to `BL imm26` + `RET` (8 bytes
 total) before feeding to remill. The lift then produces a normal
@@ -611,7 +611,7 @@ chain unraveled silently.
 dladdr on a `__TEXT.__stubs` trampoline returns the
 `cb_<hex>` placeholder because the stub has no symbol of its own.
 Workaround (macOS arm64 only,
-[hack #5](../../../../scripts/HACKS_REVIEW_2026_05_16.md#5-plt-stub-resolver-is-macos-arm64-only)):
+hack #5):
 parse the canonical Apple Silicon stub pattern
 
 ```text
@@ -639,12 +639,12 @@ Per-fn `.helper.ll` contains:
 1. A **wrapper** that exposes the lifted body to a JS-callable
    signature (currently the canonical
    `callback(i64 refany_lo, i64 refany_hi, i32 info_ptr) → i32`,
-   [hack #9](../../../../scripts/HACKS_REVIEW_2026_05_16.md#9-per-cb-wrapper-signature-is-hardcoded-to-i64-i64-i32--i32)
+   hack #9
    for the generalization plan). The wrapper:
    - Allocates a 1088-byte `state_buf` on the wasm shadow stack
      to hold the lifted body's `%struct.State`.
    - Allocates a 4096-byte `stack_buf` for SP-relative spills
-     ([hack #13](../../../../scripts/HACKS_REVIEW_2026_05_16.md#13-the-4-kib-stack-inside-each-wrapper-is-hardcoded)).
+     (hack #13).
    - `memset state_buf` to 0.
    - Stores incoming args into `State.X<n>` slots at the AArch64
      PCS offsets baked into `signature_for_callback_kind`.
@@ -688,7 +688,7 @@ Per-fn `.helper.ll` contains:
      it) or leaves it as an `env.sub_<hex>` import that JS's
      Proxy fallback satisfies with shape-guessed noops at
      runtime
-     ([hack #8](../../../../scripts/HACKS_REVIEW_2026_05_16.md#8-helper-ir-no-longer-emits-noop-bodies-for-noop-kind)).
+     (hack #8).
 
    The earlier design — emit `alwaysinline` noop bodies for every
    extern — was the load-bearing bug. opt -O2 was inlining
@@ -762,7 +762,7 @@ The recursable-dep filter (`is_recursable_dep`):
   unless they're `Az`-prefixed.
 
 This filter
-([hack #7](../../../../scripts/HACKS_REVIEW_2026_05_16.md#7-recursion-filter-has-a-hand-curated-allowlist))
+(hack #7)
 is hand-curated; the "pre-compile every api.json fn" architecture
 in the M8.7 plan would replace it with a positive whitelist
 driven by the classification.
@@ -848,7 +848,7 @@ arm64 const pools that don't lift cleanly,
 4. `sharing_info.ptr = data_alloc`,
    `sharing_info.run_destructor = false` (hydrated RefAny lives
    for the lifetime of the wasm instance,
-   [hack #11](../../../../scripts/HACKS_REVIEW_2026_05_16.md#11-azstartup_hydrate-is-a-hand-rolled-refany-builder)).
+   hack #11).
 5. `RefCountInner.type_id = (type_id_hi << 32) | type_id_lo`.
 6. `RefCountInner._internal_ptr = data_ptr` (caller-allocated
    user data buffer).
@@ -863,7 +863,7 @@ The longer-term plan is to drop `AzStartup_hydrate`'s hand-rolled
 approach in favor of calling the user's lifted `_fromJson`
 deserializer via `__az_call_indirect` (the path
 `AzStartup_registerStateDeserializer` exists for) — see
-[M8.8 Step 3](../../../../scripts/M8.8_NEW_SESSION_PROMPT.md#step-3--lifted-user-_fromjson-hydration-path).
+M8.8 Step 3.
 
 ### AzStartup_dispatchEvent (M9-6)
 
@@ -1107,11 +1107,11 @@ Updated for M9 close-out. ✓ = wired by M9, ✗ = still bypassed,
 
 The full catalog of remaining hacks (19 items grouped into 5
 categories) is in
-[`scripts/HACKS_REVIEW_2026_05_16.md`](../../../../scripts/HACKS_REVIEW_2026_05_16.md);
+`scripts/HACKS_REVIEW_2026_05_16.md`;
 the M8.9-era status snapshot is in
-[`scripts/STATUS_REPORT_2026_05_18.md`](../../../../scripts/STATUS_REPORT_2026_05_18.md);
+`scripts/STATUS_REPORT_2026_05_18.md`;
 the prioritized fix order is in
-[`scripts/M8.8_NEW_SESSION_PROMPT.md`](../../../../scripts/M8.8_NEW_SESSION_PROMPT.md).
+`scripts/M8.8_NEW_SESSION_PROMPT.md`.
 
 ## What's principled and worth keeping
 
@@ -1158,9 +1158,9 @@ Hello-world total wasm payload (post wasm-opt -Oz): 295 KB.
   property cache the renderer reads.
 - [Events](events.md) — the `EventFilter` enum mapped to JS event
   names.
-- [`scripts/HACKS_REVIEW_2026_05_16.md`](../../../../scripts/HACKS_REVIEW_2026_05_16.md)
+- `scripts/HACKS_REVIEW_2026_05_16.md`
   — catalog of remaining hacks.
-- [`scripts/M8.8_NEW_SESSION_PROMPT.md`](../../../../scripts/M8.8_NEW_SESSION_PROMPT.md)
+- `scripts/M8.8_NEW_SESSION_PROMPT.md`
   — prioritized fix order for the next session.
 
 ## Coming Up Next

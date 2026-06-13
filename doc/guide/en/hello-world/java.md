@@ -65,7 +65,7 @@ You need **JDK 17+**, **Maven**, **JNA 5.14+**, and the native `libazul` library
    / `libazul.so` / `azul.dll`) and keep it in your working directory or pass
    `-Djna.library.path=.`.
 2. Add the generated `com/azul/*.java` wrappers (from the
-   [examples archive](/release/0.2.0/examples.zip) under `java/`) to your project.
+   [examples archive](/ui/release/0.2.0/examples.zip) under `java/`) to your project.
 
 ## Simple "Counter" Example
 

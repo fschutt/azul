@@ -52,7 +52,7 @@ dependencies {
 
 1. Download the native library from the [/releases](/releases) page.
 2. Add the generated `Azul.kt` bindings (from the
-   [examples archive](/release/0.2.0/examples.zip) under `kotlin/`) to your sources.
+   [examples archive](/ui/release/0.2.0/examples.zip) under `kotlin/`) to your sources.
 
 The native library must be discoverable via `-Djna.library.path` /
 `DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH` / `PATH`.
