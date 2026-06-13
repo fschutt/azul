@@ -3,9 +3,9 @@
 //! Builds the `flexbox-simple` reftest (`doc/working/flexbox-simple.xht`) as a
 //! `Dom` with INLINE CSS — the *exact same* construction the web example
 //! (`examples/c/web-flexbox-simple.c`) uses via `AzDom_withCss` — and runs it
-//! through the SAME native solver entry the web backend's
-//! `AzStartup_solveLayoutReal` calls:
-//!   `StyledDom::create(dom, Css::empty())`
+//! through the SAME native solver entry the web backend's render path
+//! (`render_initial_page`) uses:
+//!   `StyledDom::create_from_dom(dom)`  (collects inline `with_css` rules)
 //!     → `LayoutWindow::layout_dom_recursive`
 //!     → `get_node_position` / `get_node_size`.
 //!
@@ -24,7 +24,6 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
-use azul_css::css::Css;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, solver3, window::LayoutWindow,
     window_state::FullWindowState,
@@ -64,9 +63,14 @@ fn build_flexbox_simple_dom() -> Dom {
 
 #[test]
 fn web_flexbox_simple_reference() {
-    // ---- mirror AzStartup_solveLayoutReal exactly ----
-    let mut dom = build_flexbox_simple_dom();
-    let styled = StyledDom::create(&mut dom, Css::empty());
+    // ---- mirror the real render path (render_initial_page) exactly ----
+    // Use `create_from_dom`, NOT `create(dom, Css::empty())`: the latter is the
+    // low-level primitive that takes the cascade CSS explicitly and so DROPS the
+    // per-node inline `with_css` rules. `create_from_dom` first collects every
+    // node's inline rules (collect_css_from_dom) and feeds them to the cascade —
+    // exactly what the server's render_initial_page + desktop App.run do.
+    let dom = build_flexbox_simple_dom();
+    let styled = StyledDom::create_from_dom(dom);
     let node_count = styled.node_data.as_ref().len();
     assert_eq!(
         node_count, 5,
