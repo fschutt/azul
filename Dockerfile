@@ -2,7 +2,9 @@
 #
 # ghcr.io/fschutt/azul — base image for running ANY azul app as a web app.
 # =================================================================
-# STATUS: DRAFT concept (see docker/web-base/README.md for the caveats).
+# NOTE: this image uses the IN-PROCESS static lifter (web-transpiler-static).
+# That path is heavier and not yet the default; docker/README.md documents the
+# validated SUBPROCESS path (docker/Dockerfile) and the caveats for both.
 #
 # Ships **libazulwithremill.so** = libazul built with the `web-transpiler-static`
 # feature, i.e. remill + LLVM + LLD linked IN-PROCESS. So an azul desktop binary

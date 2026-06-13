@@ -1,16 +1,15 @@
-# .github/workflows/docker-web-base.yml
+# .github/workflows/dockery.yml
 #
 # Build + publish the pre-lifted WASM base image for azul web apps to the
 # GitHub Container Registry (ghcr.io/fschutt/azul-web-base).
 #
 # The image bakes a warm remill lift cache so apps under AZ_BACKEND=web only
 # lift their own callbacks on first request instead of the whole azul library.
-# See docker/web-base/README.md for the feasibility analysis and the library
-# changes this depends on.
+# See docker/README.md for the design and the library changes it depends on.
 #
-# STATUS: DRAFT (2026-05-27). Builds remill from source, which is slow + heavy
-# — gate it behind tags/manual dispatch only (NOT every push). Consider
-# splitting the remill toolchain into a separately-cached image once stable.
+# NOTE: builds remill from source, which is slow + heavy — so it is gated
+# behind tags/manual dispatch only (NOT every push). Consider splitting the
+# remill toolchain into a separately-cached image as build volume grows.
 #
 # This is a SEPARATE workflow from rust.yml on purpose (rust.yml is owned by
 # another change). It does not touch the Pages deploy.
@@ -20,7 +19,7 @@ name: docker-web-base
 on:
   # Ship the image AS-IS to GHCR for now (still experimental: hello-world.c is
   # not yet stable on web and the lift-cache key is not version-pinned — see
-  # docker/web-base/README.md). Auto-publish :<version> + :latest on a release
+  # docker/README.md). Auto-publish :<version> + :latest on a release
   # tag; a manual dispatch defaults to pushing too.
   push:
     tags:
@@ -92,7 +91,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/web-base/Dockerfile
+          file: docker/Dockerfile
           target: runtime
           push: ${{ github.event_name == 'push' || github.event.inputs.push_image == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}

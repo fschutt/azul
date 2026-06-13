@@ -13,7 +13,7 @@ tracked_files:
   - dll/src/web/transpiler_remill.rs
   - dll/src/web/symbol_table.rs
   - dll/src/web/mod.rs
-  - docker/web-base/Dockerfile
+  - docker/Dockerfile
 last_generated_rev: null
 generated_at: 2026-05-27T00:00:00Z
 default-search-keys:
@@ -23,10 +23,12 @@ default-search-keys:
 
 # Deploying azul web apps with the pre-lifted base image
 
-> **WIP / DRAFT.** This page documents a Docker base image
-> (`ghcr.io/fschutt/azul-web-base`) that is not yet published. It also
-> depends on two small library changes tracked in
-> `docker/web-base/README.md`. Treat the speedup numbers as targets.
+> **Note.** The web lift pipeline this builds on is validated end-to-end
+> (aarch64/macOS + x86_64/Windows). The Docker base image
+> (`ghcr.io/fschutt/azul-web-base`) is built by `.github/workflows/dockery.yml`
+> on release tags. Build-time cache warming still depends on the prelift
+> harness landing — see `docker/README.md`; until then the cache warms on the
+> first request. Treat the speedup numbers as targets.
 
 ## Why cold starts are slow
 
@@ -52,7 +54,7 @@ and every app reuses it.
 
 (Today the cache stores the lifted *LLVM IR*, so a hit skips the single
 slowest step — the lift itself — but the app still runs the cheaper
-optimize + WASM-link passes. See `docker/web-base/README.md` for the full
+optimize + WASM-link passes. See `docker/README.md` for the full
 mechanics and the planned change that would persist the final WASM too.)
 
 ## Using the base image
@@ -108,7 +110,7 @@ consistent between the build-time warm-up and runtime.
 - The first lift of your own callbacks still happens on the first request.
   For latency-sensitive deployments, send one warm-up request at container
   start (a readiness probe works well).
-- See `docker/web-base/README.md` for the load-order / cache-key caveat that
+- See `docker/README.md` for the load-order / cache-key caveat that
   must be addressed in the library before the cache hits reliably across
   arbitrary apps.
 

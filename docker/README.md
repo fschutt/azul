@@ -1,13 +1,17 @@
-# azul-web-base — pre-lifted WASM Docker base image (DRAFT)
+# azul web base image — pre-lifted WASM Docker base
 
-This directory drafts a Docker base image that ships a **warm lift cache**
+This directory holds the Docker base image that ships a **warm lift cache**
 so azul web apps (`AZ_BACKEND=web`) start fast instead of spending minutes
 lifting the azul library to WASM on the first request.
 
-> **Status: DRAFT / partially feasible.** The core idea works, but two
-> small library changes are needed before it is robust, and one design
-> assumption in the original proposal does not match the code. Read the
-> "Feasibility verdict" below before wiring this into a release.
+> **Status: working, with one robustness item open.** The web lift pipeline
+> itself is validated end-to-end on both aarch64/macOS and x86_64/Windows.
+> The `AZ_LIFT_CACHE_DIR` override that this image needs (formerly "change
+> #1") is now implemented (`lift_cache_root` in `transpiler_remill.rs`). The
+> remaining items are the headless prelift harness (change #2) and the
+> ASLR-stable cache key (change #1b) — until those land the cache warms on
+> first request rather than at build time. Read the "Feasibility verdict"
+> below before wiring this into a release.
 
 ---
 
@@ -137,21 +141,24 @@ to apply in `dll/src/web/`.
 
 ### Change #1 — stable, overridable cache location + ASLR-independent key
 
-Two-line change in `dll/src/web/transpiler_remill.rs::lift_cache_path`:
-
-1. Honour an `AZ_LIFT_CACHE_DIR` env var instead of hardcoding
-   `std::env::temp_dir().join("az-lift-cache")`. This lets the image bake the
-   cache at `/opt/azul/lift-cache` and point apps at it directly, without
-   hijacking `TMPDIR`. Today the Dockerfile is forced to set `TMPDIR`
-   (a global with side effects).
+1. **DONE.** `lift_cache_root()` in
+   `dll/src/web/transpiler_remill.rs` now honours an `AZ_LIFT_CACHE_DIR` env
+   var instead of hardcoding `std::env::temp_dir().join("az-lift-cache")`,
+   and both `lift_cache_path` (raw IR) and `obj_cache_path` (lifted objects)
+   route through it. The image bakes the cache at `/opt/azul/lift-cache` and
+   points apps at it directly via `AZ_LIFT_CACHE_DIR`, without hijacking the
+   global `TMPDIR`.
 
    ```rust
-   let dir = std::env::var_os("AZ_LIFT_CACHE_DIR")
-       .map(PathBuf::from)
-       .unwrap_or_else(|| std::env::temp_dir().join("az-lift-cache"));
+   fn lift_cache_root() -> PathBuf {
+       match std::env::var_os("AZ_LIFT_CACHE_DIR") {
+           Some(p) if !p.is_empty() => PathBuf::from(p),
+           _ => std::env::temp_dir().join("az-lift-cache"),
+       }
+   }
    ```
 
-2. **Drop `lift_addr` from the cache key, or anchor it to a per-image
+2. **(1b — still open) Drop `lift_addr` from the cache key, or anchor it to a per-image
    base-relative offset.** Because `synth_base` is ASLR-order-dependent
    (see caveat above), including the absolute `lift_addr` makes the key
    non-portable across runs/apps. The lifted IR is already named
@@ -191,9 +198,9 @@ per-pid (`:597-601`). This is the difference between "lift step skipped" and
 
 ## How CI publishes this image
 
-See `.github/workflows/docker-web-base.yml` (new file). It builds this
-Dockerfile and pushes to `ghcr.io/fschutt/azul-web-base` on tag/release with
-`packages: write` + `GITHUB_TOKEN`, tagging by version and `latest`.
+See `.github/workflows/dockery.yml`. It builds `docker/Dockerfile` and pushes
+to `ghcr.io/fschutt/azul-web-base` on tag/release with `packages: write` +
+`GITHUB_TOKEN`, tagging by version and `latest`.
 
 ## How a user extends it
 
@@ -204,5 +211,6 @@ ENV AZ_BACKEND="web://0.0.0.0:8080?allow_public=1"
 CMD ["/usr/local/bin/my-app"]
 ```
 
-The first request still lifts the app's own callbacks, but azul-library
-functions are served from the baked cache (once change #1 lands).
+The first request still lifts the app's own callbacks; azul-library functions
+are served from the baked cache when its key matches (reliably once the
+ASLR-stable key, change #1b, lands).
