@@ -108,3 +108,52 @@ impl VideoDecoder {
     }
     pub fn close(&mut self) {}
 }
+
+/// wasm stubs of the desktop `provision` startup-check types (no GPU driver /
+/// kernel provisioning on wasm). `#[repr(C)]` layout MUST match the desktop
+/// `video_codec::provision::{VideoStartupCheck, VideoProvisionOutcome}` because
+/// the C-ABI bindings `transmute` between these and the `Az*` structs.
+#[cfg(target_arch = "wasm32")]
+pub mod provision {
+    use azul_css::AzString;
+
+    #[repr(C)]
+    #[derive(Debug, Clone)]
+    pub struct VideoProvisionOutcome {
+        pub ok: bool,
+        pub reboot_required: bool,
+        pub message: AzString,
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone)]
+    pub struct VideoStartupCheck {
+        pub hw_decode_ready: bool,
+        pub boot_safe: bool,
+        pub can_remediate: bool,
+        pub needs_reboot: bool,
+        pub summary: AzString,
+        pub detail: AzString,
+    }
+
+    impl VideoStartupCheck {
+        /// No hardware-decode provisioning on wasm: reports "unavailable", nothing to do.
+        pub fn run() -> VideoStartupCheck {
+            VideoStartupCheck {
+                hw_decode_ready: false,
+                boot_safe: true,
+                can_remediate: false,
+                needs_reboot: false,
+                summary: AzString::from_const_str("Hardware video decode is unavailable on wasm."),
+                detail: AzString::from_const_str("video provisioning has no wasm backend"),
+            }
+        }
+        pub fn remediate() -> VideoProvisionOutcome {
+            VideoProvisionOutcome {
+                ok: false,
+                reboot_required: false,
+                message: AzString::from_const_str("video provisioning has no wasm backend"),
+            }
+        }
+    }
+}
