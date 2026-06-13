@@ -2475,7 +2475,7 @@ jobs:
 
       - name: Merge real artifacts into website
         run: |
-          RELEASE_DIR="website/release/0.2.0"
+          RELEASE_DIR="website/ui/release/0.2.0"
           mkdir -p "$RELEASE_DIR"
 
           # Guide + API reference PDF (rendered by the docs_pdf job). The release
@@ -2743,7 +2743,7 @@ jobs:
                 echo "  $filename: $size"
                 # Find and update the size in release HTML files
                 # Match pattern: "filename - XXXB)" or "filename - X.XKB)" etc.
-                for html in website/release/*.html; do
+                for html in website/ui/release/*.html; do
                   if [ -f "$html" ]; then
                     # Use sed to replace any size pattern for this filename
                     sed -i "s|${filename} - [0-9.]*[BKMG]B*)|${filename} - ${size})|g" "$html" 2>/dev/null || \
@@ -2760,6 +2760,25 @@ jobs:
           echo "=== Final release artifacts ==="
           ls -la "$RELEASE_DIR/"
 
+      # Fold the real shared libraries + the compiled demo binaries into
+      # examples.zip so the one download demonstrates the "one dll, many small
+      # binaries" model: a single libazul + a fistful of tiny app executables +
+      # every language's source. Runs AFTER the merge (libs/demos present) and
+      # BEFORE the large-asset trim (which moves demos to the GitHub Release).
+      # Best-effort + non-fatal: a missing lib/demo just isn't bundled.
+      - name: Bundle dll + demos into examples.zip
+        run: |
+          set -u
+          REL="website/ui/release/0.2.0"
+          ZIP="$REL/examples.zip"
+          if [ ! -f "$ZIP" ]; then echo "no $ZIP — skipping"; exit 0; fi
+          ( cd "$REL" && \
+            for lib in libazul.so libazul.dylib azul.dll; do
+              [ -s "$lib" ] && zip -gj examples.zip "$lib" || true
+            done
+            if [ -d demos ]; then zip -gr examples.zip demos || true; fi )
+          echo "examples.zip after bundling:"; du -h "$ZIP" || true
+
       - name: Debug - Final website tree
         run: tree website/ 2>/dev/null | head -100 || ls -laR website/ | head -100
 
@@ -2771,7 +2790,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          REL="website/release/${AZUL_VERSION}"
+          REL="website/ui/release/${AZUL_VERSION}"
           [ -d "$REL" ] || { echo "no $REL — skipping"; exit 0; }
           echo "release dir before:"; du -sh "$REL" || true
 
