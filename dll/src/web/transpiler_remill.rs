@@ -15,18 +15,18 @@
 //! event-loop, or window types — the caller decides when in the web.md
 //! flow lifting happens.
 //!
-//! Toolchain discovery (in order):
-//!   - `$REMILL_LIFT_BIN`, `$LLC`, `$WASM_LD` env vars, then
-//!   - `third_party/remill-install/build/remill/bin/lift/remill-lift-17`
-//!     and homebrew defaults `/opt/homebrew/opt/{llvm@21,lld@21}/bin/...`
-//!     (matches `experiments/transpile-blueprint`'s wiring so artifacts
-//!     remain reproducible).
+//! Toolchain discovery (in order; see the `discover_*` fns below):
+//!   - `$REMILL_LIFT_BIN`, `$LLC`, `$LLVM_OPT`, `$LLVM_LINK`, `$WASM_LD`,
+//!     `$WASM_OPT` env vars, then
+//!   - workspace-relative `third_party/remill-install/...` +
+//!     `third_party/remill/dependencies/install/bin/...` (Windows), then
+//!   - system defaults (homebrew `/opt/homebrew/opt/{llvm@21,lld@21}/bin/...`,
+//!     `/usr/local`, `/usr/bin`).
 //!
-//! Build the remill binary by running `bash scripts/build_remill.sh`
-//! (one-time, ~30 min via the bundled cxx-common toolchain). When the
-//! binaries are missing, `is_available()` returns `false` and lift
-//! methods short-circuit to a structured error so callers fall back to
-//! server-side dispatch.
+//! Build/install the toolchain per `third_party/WEB_LIFTER_INSTALL.md`
+//! (one-time). When the binaries are missing, `is_available()` returns
+//! `false` and lift methods short-circuit to a structured error so callers
+//! fall back to server-side dispatch.
 
 use super::transpiler::{TranspileError, Transpiler, WasmModule};
 use super::symbol_table::{self, FnClass as SymFnClass};
@@ -5420,22 +5420,21 @@ fn discover_remill_lift() -> Option<PathBuf> {
             return Some(pb);
         }
     }
-    // Windows: the from-scratch build installs to third_party/remill-install
-    // (cmake --install), and the short-path build tree is C:\rb\remill.
+    // Windows: probe the documented third_party install locations
+    // (see third_party/WEB_LIFTER_INSTALL.md). Set REMILL_LIFT_BIN to
+    // override. No machine-local absolute paths — those break CI / other
+    // checkouts; use a workspace-relative install or the env var.
     #[cfg(target_os = "windows")]
     {
         for c in [
             "third_party/remill-install/bin/remill-lift-17.exe",
             "third_party/remill-install/build/remill/bin/lift/remill-lift-17.exe",
+            "third_party/remill/dependencies/install/bin/remill-lift-17.exe",
         ] {
             let ws = workspace_root().join(c);
             if ws.is_file() {
                 return Some(ws);
             }
-        }
-        let rb = PathBuf::from("C:/rb/remill/bin/lift/remill-lift-17.exe");
-        if rb.is_file() {
-            return Some(rb);
         }
     }
     let ws = workspace_root().join(
@@ -5738,12 +5737,11 @@ fn engine_fingerprint() -> u64 {
 
 /// Best-effort resolution of the default `remill-lift-17` path when
 /// `REMILL_LIFT_BIN` is unset — only used for the cache fingerprint, so a miss
-/// (→ 0 fingerprint) is harmless. Kept tiny + dependency-free.
+/// (→ 0 fingerprint) is harmless. Delegates to `discover_remill_lift` so it
+/// shares the same env-var + workspace-relative `third_party/` probe (no
+/// machine-local absolute paths).
 fn which_remill_lift() -> Option<PathBuf> {
-    let candidates = [
-        "/Users/fschutt/Development/azul/third_party/remill-install/build/remill/bin/lift/remill-lift-17",
-    ];
-    candidates.iter().map(PathBuf::from).find(|p| p.exists())
+    discover_remill_lift()
 }
 
 // =====================================================================
@@ -5899,7 +5897,7 @@ fn obj_cache_path(
             std::env::var_os("AZ_FULL_CS_RESTORE").is_some() as u8,
         ],
     );
-    let dir = std::env::temp_dir().join("az-lift-cache");
+    let dir = lift_cache_root();
     let _ = std::fs::create_dir_all(&dir);
     Some(dir.join(format!(
         "{:016x}_v{}_e{:x}.o",
@@ -5909,17 +5907,30 @@ fn obj_cache_path(
     )))
 }
 
+/// Root directory for the on-disk lift caches (raw IR + lifted objects).
+/// Defaults to `$TMPDIR/az-lift-cache`, but `AZ_LIFT_CACHE_DIR` overrides it
+/// with an absolute path. The override is what lets the Docker base image ship
+/// a *warm* cache at a fixed, image-baked location (the container's $TMPDIR is
+/// ephemeral and per-run) — see `docker/README.md`.
+fn lift_cache_root() -> PathBuf {
+    match std::env::var_os("AZ_LIFT_CACHE_DIR") {
+        Some(p) if !p.is_empty() => PathBuf::from(p),
+        _ => std::env::temp_dir().join("az-lift-cache"),
+    }
+}
+
 /// On-disk cache for `lift_fn`'s raw remill IR. The IR is synth-addressed
 /// (stable across process restarts + dll relinks that don't change a
 /// function's machine bytes), so caching it skips the expensive
 /// `remill-lift-17` subprocess on re-lifts. Keyed by the (post-rewrite)
 /// function bytes + the synth lift address + the cache version + the ENGINE
 /// fingerprint (so an engine change auto-invalidates). Lives in
-/// `$TMPDIR/az-lift-cache` (persists across server restarts; clear with
+/// `$TMPDIR/az-lift-cache` by default (override the root with
+/// `AZ_LIFT_CACHE_DIR=<abs path>`; persists across server restarts; clear with
 /// `rm -rf` or `AZ_LIFT_CACHE_CLEAR=1`). Disable entirely with
 /// `AZ_NO_LIFT_CACHE=1`.
 fn lift_cache_path(rewritten_bytes: &[u8], lift_addr: u64) -> PathBuf {
-    let dir = std::env::temp_dir().join("az-lift-cache");
+    let dir = lift_cache_root();
     let key = format!(
         "{}_{:x}_v{}_e{:x}",
         super::fnv1a64_hex(rewritten_bytes),

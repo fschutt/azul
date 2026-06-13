@@ -98,6 +98,20 @@ brotli-decompressor = { version = "5", default-features = false, features = ["st
 # wanted, so defaults are the path of least friction.)
 goblin = { version = "0.10", optional = true }
 
+# Web-transpiler x86/Windows lift deps. Declared platform-agnostically
+# (both are pure-Rust and build on every host) so the `web-transpiler`
+# feature can reference `dep:pdb`/`dep:iced-x86` on ALL targets without a
+# manifest error — a target-only optional dep cannot be named by a
+# cross-platform feature. The CODE that uses them is `cfg(target_os =
+# "windows")`-gated, so non-Windows builds compile them but never call in.
+#   pdb     — PE images carry no symbol table; read the module's .pdb
+#             (publics = mangled `_ZN…` link names classify_for_name keys on;
+#             procs give exact sizes).
+#   iced-x86 — x86 instruction LENGTH decoder; the byte scanners are rebuilt
+#             on it because x86 is variable-length (compendium B8).
+pdb = { version = "0.8", optional = true }
+iced-x86 = { version = "1.21", optional = true, default-features = false, features = ["std", "decoder", "instr_info"] }
+
 # Custom allocators — use these to aggressively return freed pages to the OS.
 # Thanks to the C API boundary, the azul library can use a different allocator
 # than the binary linking against it, so enabling these only affects azul's
@@ -306,14 +320,6 @@ clipboard-win = { version = "5.4", optional = true }
 # cross-compiles; flip `camera-native` on for a real build with a C toolchain.
 nokhwa = { version = "0.10", features = ["input-native"], optional = true }
 accesskit_windows = { version = "0.32", optional = true }
-# Web-transpiler (x86/Windows lift): PE images carry no symbol table, so the
-# SymbolTable reads the module's .pdb — publics (S_PUB32) carry the mangled
-# `_ZN…` link names classify_for_name keys on, procs supply exact sizes.
-pdb = { version = "0.8", optional = true }
-# x86 instruction LENGTH decoder. Every aarch64 byte scanner strides 4 bytes;
-# x86 is variable-length (1–15 bytes), so the scanners are rebuilt on iced
-# (WEB_LIFT_BUG_COMPENDIUM.md B8: "the single biggest structural difference").
-iced-x86 = { version = "1.21", optional = true, default-features = false, features = ["std", "decoder", "instr_info"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cgl = { version = "0.3.2", optional = true }
@@ -673,8 +679,11 @@ web = [
 # `web` build stays dependency-free and the transpile step's position in
 # the web.md flow (build-time, first-request, lazy-per-callback) stays a
 # caller decision rather than a hard-wired pipeline stage.
-# dep:pdb / dep:iced-x86 are declared under [target.'cfg(windows)'] — cargo
-# activates them only when the target matches, so mac/linux builds are unchanged.
+# dep:pdb / dep:iced-x86 are declared in the platform-agnostic [dependencies]
+# (both are pure-Rust and build on every host), so this feature can reference
+# them on ALL targets — a feature can't reference a target-only optional dep,
+# which previously broke `cargo metadata` / CI on non-Windows. Their *use* in
+# the source stays `#[cfg(windows)]`-gated, so mac/linux codegen is unchanged.
 web-transpiler = ["web", "dep:goblin", "dep:pdb", "dep:iced-x86", "azul-layout?/web_lift"]
 
 # Statically link remill + LLVM + LLD into libazul.dylib so the
