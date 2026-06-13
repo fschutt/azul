@@ -2382,23 +2382,26 @@ impl RemillTranspiler {
             );
         }
 
-        // M12.7: indirect-call dispatcher (sequential/subprocess path — the e2e
-        // default, since use_native_remill() is off unless AZ_NATIVE_REMILL is set).
-        // Every dep is a per-fn .o so its @sub_<csynth> is externally callable.
-        // Routes blr (→ __remill_function_call) + br tail-calls
-        // (→ __remill_missing_block) to the matching lifted dep, overriding
-        // emit_helper_ir's weak no-op default. AZ_NO_INDIRECT_DISPATCH=1 disables.
-        #[cfg(feature = "web-transpiler-static")]
-        {
-            if std::env::var_os("AZ_NO_INDIRECT_DISPATCH").is_none() {
-                let cs = self.dispatcher_csynths(visited.iter().copied());
-                if let Some(o) = self.emit_indirect_dispatcher_obj(&cs) {
-                    object_paths.push(o);
-                    // Export so the strong def is kept (not gc-stripped) and
-                    // wins over emit_helper_ir's per-.o weak no-op default.
-                    if !exports.iter().any(|e| e == "__az_indirect_dispatch") {
-                        exports.push("__az_indirect_dispatch".to_string());
-                    }
+        // M12.7: indirect-call dispatcher. Routes register-indirect calls
+        // (remill `__remill_function_call`) + br tail-calls
+        // (`__remill_missing_block`) to the matching lifted dep's
+        // `@sub_<csynth>` body, overriding emit_helper_ir's weak no-op
+        // default. Without it, a register-indirect call (vtable / fn-ptr /
+        // Drop glue) returns garbage; on x86 the lifted layout cb threads
+        // that garbage as a State pointer down the call chain and the next
+        // State access derefs OOB. (Comment always said "subprocess path —
+        // the e2e default", but the block was mis-gated to
+        // web-transpiler-static; the dispatcher .o is plain wasm-linkable
+        // and `visited` is populated on the sequential path, so it belongs
+        // here too.) AZ_NO_INDIRECT_DISPATCH=1 disables.
+        if std::env::var_os("AZ_NO_INDIRECT_DISPATCH").is_none() {
+            let cs = self.dispatcher_csynths(visited.iter().copied());
+            if let Some(o) = self.emit_indirect_dispatcher_obj(&cs) {
+                object_paths.push(o);
+                // Export so the strong def is kept (not gc-stripped) and
+                // wins over emit_helper_ir's per-.o weak no-op default.
+                if !exports.iter().any(|e| e == "__az_indirect_dispatch") {
+                    exports.push("__az_indirect_dispatch".to_string());
                 }
             }
         }
@@ -2438,7 +2441,6 @@ impl RemillTranspiler {
     /// compile fails (caller then keeps the no-op fallback). Self-contained:
     /// `compile_to_wasm32_obj` self-inits LLVM via call_once, so it's safe from
     /// either the native (batched) or subprocess (sequential) lift path.
-    #[cfg(feature = "web-transpiler-static")]
     fn emit_indirect_dispatcher_obj(&self, cases: &[(u64, u64)]) -> Option<PathBuf> {
         if cases.is_empty() {
             return None;
@@ -2514,20 +2516,56 @@ impl RemillTranspiler {
             ));
         }
         ir.push_str("unk:\n  %uc = call i32 @__remill_read_memory_32(ptr %memory, i64 262488)\n  %uc1 = add i32 %uc, 1\n  %um = call ptr @__remill_write_memory_32(ptr %memory, i64 262488, i32 %uc1)\n  ret ptr %um\n}\n");
-        let obj_bytes = match super::native_remill::compile_to_wasm32_obj(&[ir.as_str()]) {
-            Ok(b) => b,
-            Err(e) => {
-                eprintln!(
-                    "[azul-web] M12.7: dispatcher compile FAILED ({}): indirect calls stay no-op",
-                    e.message
-                );
+        let disp_o = self.scratch_dir.join("az_indirect_dispatch.o");
+        if self.use_native_remill() {
+            #[cfg(feature = "web-transpiler-static")]
+            {
+                let obj_bytes = match super::native_remill::compile_to_wasm32_obj(&[ir.as_str()]) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        eprintln!(
+                            "[azul-web] M12.7: dispatcher compile FAILED ({}): indirect calls stay no-op",
+                            e.message
+                        );
+                        return None;
+                    }
+                };
+                if let Err(e) = std::fs::write(&disp_o, &obj_bytes) {
+                    eprintln!("[azul-web] M12.7: dispatcher .o write failed: {}", e);
+                    return None;
+                }
+            }
+            #[cfg(not(feature = "web-transpiler-static"))]
+            return None;
+        } else {
+            // Subprocess path (the e2e default): retarget the dispatcher
+            // IR to wasm32, then opt + llc → .o (same pipeline as
+            // `emit_bump_helpers_object`).
+            let ir = retarget_to_wasm32(&ir);
+            let ll = self.scratch_dir.join("az_indirect_dispatch.ll");
+            let opt_ll = self.scratch_dir.join("az_indirect_dispatch.opt.ll");
+            if std::fs::write(&ll, &ir).is_err() {
                 return None;
             }
-        };
-        let disp_o = self.scratch_dir.join("az_indirect_dispatch.o");
-        if let Err(e) = std::fs::write(&disp_o, &obj_bytes) {
-            eprintln!("[azul-web] M12.7: dispatcher .o write failed: {}", e);
-            return None;
+            let (opt, llc) = match (self.opt.as_deref(), self.llc.as_deref()) {
+                (Some(o), Some(l)) => (o, l),
+                _ => {
+                    eprintln!("[azul-web] M12.7: opt/llc not found — indirect dispatcher skipped");
+                    return None;
+                }
+            };
+            if run_tool(opt, &["-O2", "-S", ll.to_str()?, "-o", opt_ll.to_str()?], "az_indirect_dispatch").is_err() {
+                return None;
+            }
+            if run_tool(
+                llc,
+                &["-mtriple=wasm32-unknown-unknown", "-filetype=obj", "-O2", "-o", disp_o.to_str()?, opt_ll.to_str()?],
+                "az_indirect_dispatch",
+            )
+            .is_err()
+            {
+                return None;
+            }
         }
         eprintln!(
             "[azul-web] M12.7: indirect-call dispatcher emitted ({} dep cases → @__az_dep_)",
@@ -2538,7 +2576,6 @@ impl RemillTranspiler {
 
     /// Collect the deduped canonical-synth addresses of the lifted deps named by
     /// `addrs` (canonical native addrs), for [`Self::emit_indirect_dispatcher_obj`].
-    #[cfg(feature = "web-transpiler-static")]
     fn dispatcher_csynths(&self, addrs: impl Iterator<Item = usize>) -> Vec<(u64, u64)> {
         let Some(tbl) = symbol_table::get() else {
             return Vec::new();
@@ -7284,9 +7321,16 @@ fn emit_helper_ir(
             //   Two SSA loops: count digits (udiv by 10), then write them MSD→LSD
             //   at buf[cdn-1..0]. Both terminate (udiv reaches 0; <=10 digits).
             Some(SymFnClass::LibcSnprintf) => {
-                #[cfg(target_arch = "aarch64")]
+                // Arch-neutral "%d" formatter. buf = first arg
+                // (X0 / RCX = pcs::ARG[0] via x0_off); fmt + first vararg
+                // come from pcs::SNPRINTF_FMT / SNPRINTF_VA0 — X4/X5 for
+                // aarch64 __snprintf_chk, R8/R9 for the Windows-x64
+                // `snprintf(buf, count, fmt, …)` symbol (the resolved
+                // callee is plain `snprintf`, NOT the ucrt
+                // __stdio_common_vsprintf inner fn — so the first vararg
+                // rides R9 directly, no va_list deref).
                 branch_stubs.push_str(&format!(
-                    "; libc snprintf \"%d\" body for {sym} (X0=buf, X4=fmt, X5=arg)\n\
+                    "; libc snprintf \"%d\" body for {sym} (buf=ARG0, fmt=SNPRINTF_FMT, arg=SNPRINTF_VA0)\n\
                      define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) {{\n  \
                        %buf_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
                        %sret_p_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
@@ -7363,96 +7407,6 @@ fn emit_helper_ir(
                     // snprintf's R8/R9 on Windows x64 (see pcs).
                     x4_off = pcs::SNPRINTF_FMT,
                     x5_off = pcs::SNPRINTF_VA0,
-                ));
-                // Windows ucrt shape (the only snprintf spelling MSVC
-                // emits): `__stdio_common_vsprintf(options RCX, buf RDX,
-                // len R8, fmt R9, locale [SP+40], va_list [SP+48])`,
-                // returns the written length in RAX. The va_list is a
-                // pointer to the caller's spilled varargs; the "%d"
-                // vararg is the first i32 it points at. Any non-"%d"
-                // format takes the stub path (RAX=0, buffer untouched).
-                #[cfg(target_arch = "x86_64")]
-                branch_stubs.push_str(&format!(
-                    "; ucrt __stdio_common_vsprintf \"%d\" body for {sym} (RDX=buf, R9=fmt, [SP+48]=va_list)\n\
-                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) {{\n  \
-                       %buf_p_{n} = getelementptr inbounds i8, ptr %state, i64 {buf_off}\n  \
-                       %sret_p_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
-                       %buf_i64_{n} = load i64, ptr %buf_p_{n}, align 8\n  \
-                       %buf_i32_{n} = trunc i64 %buf_i64_{n} to i32\n  \
-                       %fmt_p_{n} = getelementptr inbounds i8, ptr %state, i64 {fmt_off}\n  \
-                       %fmt_i64_{n} = load i64, ptr %fmt_p_{n}, align 8\n  \
-                       %fmt_i32_{n} = trunc i64 %fmt_i64_{n} to i32\n  \
-                       %f0a_{n} = inttoptr i32 %fmt_i32_{n} to ptr\n  \
-                       %f0_{n} = load i8, ptr %f0a_{n}, align 1\n  \
-                       %f1i_{n} = add i32 %fmt_i32_{n}, 1\n  \
-                       %f1a_{n} = inttoptr i32 %f1i_{n} to ptr\n  \
-                       %f1_{n} = load i8, ptr %f1a_{n}, align 1\n  \
-                       %f2i_{n} = add i32 %fmt_i32_{n}, 2\n  \
-                       %f2a_{n} = inttoptr i32 %f2i_{n} to ptr\n  \
-                       %f2_{n} = load i8, ptr %f2a_{n}, align 1\n  \
-                       %c0_{n} = icmp eq i8 %f0_{n}, 37\n  \
-                       %c1_{n} = icmp eq i8 %f1_{n}, 100\n  \
-                       %c2_{n} = icmp eq i8 %f2_{n}, 0\n  \
-                       %c01_{n} = and i1 %c0_{n}, %c1_{n}\n  \
-                       %cok_{n} = and i1 %c01_{n}, %c2_{n}\n  \
-                       br i1 %cok_{n}, label %fmtok_{n}, label %stub_{n}\n\
-                     stub_{n}:\n  \
-                       store i64 0, ptr %sret_p_{n}, align 8\n  \
-                       ret ptr %memory\n\
-                     fmtok_{n}:\n  \
-                       %sp_p_{n} = getelementptr inbounds i8, ptr %state, i64 {sp_off}\n  \
-                       %sp64_{n} = load i64, ptr %sp_p_{n}, align 8\n  \
-                       %sp32_{n} = trunc i64 %sp64_{n} to i32\n  \
-                       %vlpa_{n} = add i32 %sp32_{n}, 48\n  \
-                       %vlpp_{n} = inttoptr i32 %vlpa_{n} to ptr\n  \
-                       %vl64_{n} = load i64, ptr %vlpp_{n}, align 8\n  \
-                       %vl32_{n} = trunc i64 %vl64_{n} to i32\n  \
-                       %vap_{n} = inttoptr i32 %vl32_{n} to ptr\n  \
-                       %arg_{n} = load i32, ptr %vap_{n}, align 4\n  \
-                       %isz_{n} = icmp eq i32 %arg_{n}, 0\n  \
-                       br i1 %isz_{n}, label %zero_{n}, label %count_{n}\n\
-                     zero_{n}:\n  \
-                       %zbuf_{n} = inttoptr i32 %buf_i32_{n} to ptr\n  \
-                       store i8 48, ptr %zbuf_{n}, align 1\n  \
-                       %znti_{n} = add i32 %buf_i32_{n}, 1\n  \
-                       %znta_{n} = inttoptr i32 %znti_{n} to ptr\n  \
-                       store i8 0, ptr %znta_{n}, align 1\n  \
-                       store i64 1, ptr %sret_p_{n}, align 8\n  \
-                       ret ptr %memory\n\
-                     count_{n}:\n  \
-                       %cv_{n} = phi i32 [ %arg_{n}, %fmtok_{n} ], [ %cvn_{n}, %count_{n} ]\n  \
-                       %cd_{n} = phi i32 [ 0, %fmtok_{n} ], [ %cdn_{n}, %count_{n} ]\n  \
-                       %cvn_{n} = udiv i32 %cv_{n}, 10\n  \
-                       %cdn_{n} = add i32 %cd_{n}, 1\n  \
-                       %cdone_{n} = icmp eq i32 %cvn_{n}, 0\n  \
-                       br i1 %cdone_{n}, label %wr_{n}, label %count_{n}\n\
-                     wr_{n}:\n  \
-                       %wv_{n} = phi i32 [ %arg_{n}, %count_{n} ], [ %wvn_{n}, %wr_{n} ]\n  \
-                       %wi_{n} = phi i32 [ %cdn_{n}, %count_{n} ], [ %win_{n}, %wr_{n} ]\n  \
-                       %wvn_{n} = udiv i32 %wv_{n}, 10\n  \
-                       %wrem_{n} = urem i32 %wv_{n}, 10\n  \
-                       %wdig_{n} = add i32 %wrem_{n}, 48\n  \
-                       %wdig8_{n} = trunc i32 %wdig_{n} to i8\n  \
-                       %win_{n} = sub i32 %wi_{n}, 1\n  \
-                       %wai_{n} = add i32 %buf_i32_{n}, %win_{n}\n  \
-                       %wa_{n} = inttoptr i32 %wai_{n} to ptr\n  \
-                       store i8 %wdig8_{n}, ptr %wa_{n}, align 1\n  \
-                       %wdone_{n} = icmp eq i32 %win_{n}, 0\n  \
-                       br i1 %wdone_{n}, label %fin_{n}, label %wr_{n}\n\
-                     fin_{n}:\n  \
-                       %nti_{n} = add i32 %buf_i32_{n}, %cdn_{n}\n  \
-                       %nta_{n} = inttoptr i32 %nti_{n} to ptr\n  \
-                       store i8 0, ptr %nta_{n}, align 1\n  \
-                       %len64_{n} = zext i32 %cdn_{n} to i64\n  \
-                       store i64 %len64_{n}, ptr %sret_p_{n}, align 8\n  \
-                       ret ptr %memory\n\
-                     }}\n",
-                    sym = ext.sym_name,
-                    n = n_suffix,
-                    buf_off = arg1_off,        // RDX
-                    fmt_off = arg3_off,        // R9
-                    sp_off = pcs::SP,          // RSP → [SP+48] = va_list
-                    ret_off = ret_off,         // RAX
                 ));
             }
             // BumpDealloc: __rust_dealloc(ptr, size, align). Bump-only
