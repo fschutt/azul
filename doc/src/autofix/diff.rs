@@ -451,18 +451,21 @@ fn paths_are_equivalent(path1: &str, path2: &str) -> bool {
     if path1 == path2 {
         return true;
     }
-    // `azul_dll::unified::*` is a pure re-export façade: it exists only so the
-    // desktop-backed public types (App, and the `extra::*` feature handles —
-    // audio, sqlite, …) have a target-stable path that also resolves on wasm,
-    // where `desktop` is `#[cfg(not(wasm32))]`. Off-wasm every `unified::…::T`
-    // is a plain `pub use` of the real `T`, so it denotes the same type the
-    // indexer found at its canonical def site. The indexer resolves types by
-    // their (unique) name, so matching crate-root + leaf type name is exact —
-    // autofix must not "fix" an api.json `unified::` path back to its source.
-    if path1.contains("::unified::") || path2.contains("::unified::") {
-        return crate_root_and_leaf(path1) == crate_root_and_leaf(path2);
-    }
-    false
+    // Type names are UNIQUE workspace-wide — the indexer resolves types by
+    // (unique) name, so two paths sharing the same crate root AND the same leaf
+    // type name denote the SAME type, regardless of how many module segments sit
+    // between them. Treat them as equivalent. This covers two cases:
+    //  1. the `azul_dll::unified::*` re-export façade (a `pub use` of the real
+    //     type, so `unified::…::T` == the canonical def-site path), and
+    //  2. the resolver occasionally returning a MODULE-SHORTENED path
+    //     (e.g. `azul_css::AlignContentParseErrorOwned` vs the real
+    //     `azul_css::props::layout::flex::AlignContentParseErrorOwned`). The
+    //     fully-qualified form in api.json is correct; autofix must NOT "fix" it
+    //     down to the shallower one (doing so oscillated run-to-run and broke
+    //     codegen, since the short path isn't a real module path).
+    // A genuinely wrong path (different crate root, or a typo'd leaf) still
+    // differs in root/leaf and is corrected as before.
+    crate_root_and_leaf(path1) == crate_root_and_leaf(path2)
 }
 
 /// `(first path segment, last path segment)` — the crate root and leaf type

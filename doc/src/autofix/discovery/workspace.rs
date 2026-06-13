@@ -45,11 +45,26 @@ impl WorkspaceIndex {
         Self::default()
     }
 
-    /// Get the best location for a type (highest priority)
+    /// Get the best location for a type.
+    ///
+    /// Ordering (total, so the choice is deterministic — a non-total
+    /// `min_by_key(priority)` previously let the parallel scan order decide
+    /// ties, which made path correction oscillate run-to-run and sometimes
+    /// pick a shallow path):
+    ///   1. highest-priority crate (lowest `priority`),
+    ///   2. then the LONGEST fully-qualified path — i.e. the real definition
+    ///      module (`azul_core::window::WindowSize`), never a shallow
+    ///      re-export/alias (`azul_core::WindowSize`),
+    ///   3. then the path string itself as a final stable tiebreak.
     pub fn get_best_location(&self, type_name: &str) -> Option<&TypeLocation> {
-        self.types
-            .get(type_name)
-            .and_then(|locs| locs.iter().min_by_key(|l| l.priority))
+        self.types.get(type_name).and_then(|locs| {
+            locs.iter().min_by(|a, b| {
+                a.priority
+                    .cmp(&b.priority)
+                    .then_with(|| b.full_path.len().cmp(&a.full_path.len()))
+                    .then_with(|| a.full_path.cmp(&b.full_path))
+            })
+        })
     }
 
     /// Get the canonical path for a type (from best location)
