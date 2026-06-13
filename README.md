@@ -12,14 +12,7 @@
 built using the WebRender rendering engine and a CSS / HTML-like document
 object model for rapid development of beautiful, native desktop applications
 
-###### [Website](https://azul.rs/) | [Releases](https://azul.rs/releases) | [User guide](https://azul.rs/guide) | [API documentation](https://azul.rs/api) | [Discord](https://discord.gg/nxUmsCG)
-
-## Screenshots 
-
-![image](https://user-images.githubusercontent.com/12084016/129535820-ca2b56a6-fdb5-4d0d-b043-a7f5394339e9.png)
-![image](https://user-images.githubusercontent.com/12084016/129535780-69b9365b-ad87-439f-9d10-d416991de8fc.png)
-![image](https://user-images.githubusercontent.com/12084016/128639991-e98c0b92-66df-4ad8-973b-c9d45c68d5b3.png)
-![image](https://user-images.githubusercontent.com/12084016/126752996-1ec1f221-2b01-4f01-99c6-794640228d59.png)
+###### [Website](https://azul.rs/) | [Releases](https://azul.rs/ui/releases) | [User guide](https://azul.rs/ui/guide) | [API documentation](https://azul.rs/ui/api)
 
 ## Current Status
 
@@ -37,30 +30,18 @@ object model for rapid development of beautiful, native desktop applications
 
 ## Building
 
-### Quick Start (macOS Native)
-
 ```bash
-cd dll
-cargo build --release
+cargo build -r -p azul-doc
+./target/release/azul-doc codegen all # generates public API from api.json
 ```
 
-### Cross-Compilation (macOS → Linux/Windows)
+azul-doc is a multitool that generates all the code *necessary* for having a stable public API that works across multiple languages. 
 
-Azul supports cross-compilation from macOS to Linux and Windows targets. See **[CROSS_COMPILATION.md](CROSS_COMPILATION.md)** for detailed instructions.
-
-**Quick setup:**
+Then you can link it as a "regular" Rust code (not recommended):
 
 ```bash
-# Install toolchains
-brew tap messense/macos-cross-toolchains
-brew install x86_64-unknown-linux-gnu mingw-w64
 
-# Add Rust targets
-rustup target add x86_64-unknown-linux-gnu x86_64-pc-windows-gnu
-
-# Build for all platforms
-cd dll
-cargo build --release --target x86_64-unknown-linux-gnu  # Linux
-cargo build --release --target x86_64-pc-windows-gnu     # Windows
-cargo build --release                                     # macOS (native)
+export AZ_LINK_PATH=/path/to/azul/target/release
+cargo add azul --features link_dynamic
+cargo run --release my-project
 ```
