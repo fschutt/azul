@@ -19,7 +19,11 @@ pub const SITE_ROOT: &str = "https://azul.rs";
 /// Sub-path the docs/UI site is served under. The marketing landing lives at the
 /// domain root; the whole generated docs site lives under SITE_ROOT + UI_PATH.
 pub const UI_PATH: &str = "/ui";
-const HTML_ROOT: &str = "https://azul.rs/ui";
+/// Fully-qualified root of the generated docs/UI site (`SITE_ROOT` + `UI_PATH`).
+/// Every docs page, release-asset link and search source must build its URLs
+/// from this so the /ui move (and any future relocation) can't silently
+/// re-break cross-page links — see deploy.rs / regression.rs which import it.
+pub const HTML_ROOT: &str = "https://azul.rs/ui";
 
 #[test]
 fn html_root_matches_site_and_ui() {
@@ -823,7 +827,7 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
       <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
       <meta name='keywords' content='gui, rust, user interface'>
 
-      <link rel='preload' as='font' href='{base_url}/fonts/Rubik-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='{base_url}/fonts/RedHatDisplay-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
       <link rel='preload' as='font' href='{base_url}/fonts/InstrumentSerif-Regular.ttf' type='font/ttf' crossorigin='anonymous'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>

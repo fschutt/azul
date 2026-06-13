@@ -1605,6 +1605,14 @@ fn main() -> anyhow::Result<()> {
             fs::write(root_dir.join("index.html"), azlin_landing)?;
             println!("  [OK] Generated root marketing landing + ws/os stubs + azlin.css");
 
+            // Mirror the /ui page tree with root-level redirect stubs so links
+            // from before the /ui move (and bare .html URLs) don't 404. Runs
+            // AFTER the marketing landing so real root files are never clobbered.
+            match dllgen::deploy::generate_redirect_stubs(&root_dir, &output_dir) {
+                Ok(n) => println!("  [OK] Generated {} legacy-URL redirect stub(s)", n),
+                Err(e) => eprintln!("  [WARN] Redirect-stub generation failed: {}", e),
+            }
+
             println!(
                 "\nWebsite generated successfully in: {}",
                 root_dir.display()

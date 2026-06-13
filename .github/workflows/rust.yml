@@ -2808,7 +2808,7 @@ jobs:
             # of the same version just reuses it), then upload/clobber the assets.
             gh release create "${AZUL_VERSION}" \
               --title "Azul ${AZUL_VERSION}" \
-              --notes "Azul ${AZUL_VERSION} release. Binaries attached; docs + small assets at https://azul.rs/release/${AZUL_VERSION}/." \
+              --notes "Azul ${AZUL_VERSION} release. Binaries attached; docs + small assets at https://azul.rs/ui/release/${AZUL_VERSION}/." \
               2>/dev/null || true
             # tar.gz the uncompressed big binaries (.a static libs + demo
             # executables) before upload — they compress ~2-3x. Already-compressed

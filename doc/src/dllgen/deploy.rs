@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::Result;
 
-use crate::{api::ApiData, dllgen::license::License};
+use crate::{api::ApiData, dllgen::license::License, docgen::HTML_ROOT};
 
 /// Verifies that all example files referenced in api.json exist on the filesystem.
 ///
@@ -1100,7 +1100,7 @@ pub fn create_git_repository(version: &str, output_dir: &Path, lib_rs: &str) -> 
 }
 
 /// Render an unconditional `<li>` link into the per-release artifact dir
-/// (`https://azul.rs/release/{version}/{filename}`).
+/// (`https://azul.rs/ui/release/{version}/{filename}`).
 ///
 /// Unlike [`generate_asset_li`], this does NOT probe the filesystem: it always
 /// emits a live link. The release page is built by the website-skeleton job
@@ -1144,7 +1144,7 @@ fn is_tarred(filename: &str) -> bool {
 ///
 /// LARGE (see [`is_large`]) → `https://github.com/fschutt/azul/releases/download/{version}/{basename}`
 /// (GitHub flattens the path: a demo at `demos/azul-maps-linux` uploads as the
-/// bare `azul-maps-linux` asset). SMALL → `https://azul.rs/release/{version}/{filename}`.
+/// bare `azul-maps-linux` asset). SMALL → `https://azul.rs/ui/release/{version}/{filename}`.
 fn asset_url(version: &str, filename: &str) -> String {
     if is_large(filename) {
         // GitHub Release assets are flat — strip any `demos/` path prefix so the
@@ -1154,7 +1154,7 @@ fn asset_url(version: &str, filename: &str) -> String {
         let suffix = if is_tarred(filename) { ".tar.gz" } else { "" };
         format!("https://github.com/fschutt/azul/releases/download/{version}/{basename}{suffix}")
     } else {
-        format!("https://azul.rs/release/{version}/{filename}")
+        format!("{HTML_ROOT}/release/{version}/{filename}")
     }
 }
 
@@ -1243,7 +1243,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         .map(|a| {
             if a.is_present {
                 format!(
-                    "<li><a href='https://azul.rs/release/{version}/{filename}'>{description} \
+                    "<li><a href='{HTML_ROOT}/release/{version}/{filename}'>{description} \
                      ({filename})</a></li>",
                     version = version,
                     filename = a.filename,
@@ -1433,7 +1433,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         .iter()
         .map(|(lang, label)| {
             external_link_li(
-                &format!("https://azul.rs/guide/hello-world/{lang}"),
+                &format!("{HTML_ROOT}/guide/hello-world/{lang}"),
                 label,
             )
         })
@@ -1635,16 +1635,16 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
 
               <br/>
               <h2 id='debug-libraries'>Debug libraries</h2>
-              <p style='color:grey;font-size:15px;max-width:700px;'>For debugging desktop applications, see the <a href='https://azul.rs/guide/debugging'>Debugging guide</a>.</p>
+              <p style='color:grey;font-size:15px;max-width:700px;'>For debugging desktop applications, see the <a href='{HTML_ROOT}/guide/debugging'>Debugging guide</a>.</p>
               <ul>
-                <li><a href='https://azul.rs/release/{version}/libazuldbg.so'>libazuldbg.so (Linux)</a></li>
-                <li><a href='https://azul.rs/release/{version}/libazuldbg.dylib'>libazuldbg.dylib (macOS)</a></li>
-                <li><a href='https://azul.rs/release/{version}/azuldbg.dll'>azuldbg.dll (Windows)</a></li>
+                <li><a href='{HTML_ROOT}/release/{version}/libazuldbg.so'>libazuldbg.so (Linux)</a></li>
+                <li><a href='{HTML_ROOT}/release/{version}/libazuldbg.dylib'>libazuldbg.dylib (macOS)</a></li>
+                <li><a href='{HTML_ROOT}/release/{version}/azuldbg.dll'>azuldbg.dll (Windows)</a></li>
               </ul>
 
               <br/>
               <strong>Mobile (iOS &amp; Android): drop-in libraries:</strong>
-              <p style='color:grey;font-size:15px;max-width:700px;'>For shipping on mobile, see the <a href='https://azul.rs/guide/mobile'>mobile deploy guide</a>.</p>
+              <p style='color:grey;font-size:15px;max-width:700px;'>For shipping on mobile, see the <a href='{HTML_ROOT}/guide/mobile'>mobile deploy guide</a>.</p>
               <ul>
                 <li><a href='https://github.com/fschutt/azul/releases/download/{version}/libazul-android-arm64.a.tar.gz'>Android arm64-v8a</a></li>
                 <li><a href='https://github.com/fschutt/azul/releases/download/{version}/libazul-android-x64.a.tar.gz'>Android x86_64 (emulator)</a></li>
@@ -1677,8 +1677,8 @@ sudo apt update &amp;&amp; sudo apt install azul</code></pre>
               <ul id='demo-list'>
                 {demo_links}
               </ul>
-              <p style='color:grey;font-size:15px;max-width:700px;'><strong>macOS note:</strong> if macOS complains it cannot verify the developer, run <code>sh unquarantine.sh &lt;binary-name&gt;</code> (<a href='https://azul.rs/release/{version}/unquarantine.sh'>unquarantine.sh</a>).</p>
-              <p style='font-size:15px;'>Building, installing and debugging these &mdash; and going from Rust to a final .apk / .ipa cross-platform &mdash; is covered in the <a href='https://azul.rs/guide/mobile'>Mobile guide</a>.</p>
+              <p style='color:grey;font-size:15px;max-width:700px;'><strong>macOS note:</strong> if macOS complains it cannot verify the developer, run <code>sh unquarantine.sh &lt;binary-name&gt;</code> (<a href='{HTML_ROOT}/release/{version}/unquarantine.sh'>unquarantine.sh</a>).</p>
+              <p style='font-size:15px;'>Building, installing and debugging these &mdash; and going from Rust to a final .apk / .ipa cross-platform &mdash; is covered in the <a href='{HTML_ROOT}/guide/mobile'>Mobile guide</a>.</p>
 
               <br/>
               <h2 id='language-bindings'>Installation instructions</h2>
@@ -1687,7 +1687,7 @@ sudo apt update &amp;&amp; sudo apt install azul</code></pre>
               </ul>
               <p style='color:grey;font-size:15px;max-width:700px;margin-top:10px;'>Want a single binding file without the whole examples archive, or to install without the official package registries? Everything is mirrored on azul.rs:</p>
               <pre class='codeblock'><code class='language-bash'># grab one binding file directly (no examples.zip needed):
-curl -O https://azul.rs/release/{version}/Azul.hs
+curl -O {HTML_ROOT}/release/{version}/Azul.hs
 # Python: install from the azul.rs index instead of PyPI:
 pip install azul --index-url https://azul.rs/pypi/simple/
 # Java / Maven: add azul.rs as a repository, or grab the jar directly:
@@ -1707,8 +1707,8 @@ version = \"{version}\"
               <br/>
               <h2 id='docs-guide'>Docs &amp; guide</h2>
               <ul>
-                <li><a href='https://azul.rs/api/{version}'>API documentation for this release</a></li>
-                <li><a href='https://azul.rs/guide'>Online guide</a></li>
+                <li><a href='{HTML_ROOT}/api/{version}'>API documentation for this release</a></li>
+                <li><a href='{HTML_ROOT}/guide'>Online guide</a></li>
                 {pdf_link}
                 {api_json_link}
                 {examples_zip_link}
@@ -1717,15 +1717,15 @@ version = \"{version}\"
               <br/>
               <h2 id='agentic'>Agentic</h2>
               <ul>
-                <li><a href='https://azul.rs/skill.md'>AI agent skill (skill.md)</a>: install once to prime a coding agent</li>
-                <li><a href='https://azul.rs/llms.txt'>llms.txt</a>: compact API + guide index for LLMs</li>
-                <li><a href='https://azul.rs/llms-full.txt'>llms-full.txt</a>: full machine-readable index</li>
+                <li><a href='{HTML_ROOT}/skill.md'>AI agent skill (skill.md)</a>: install once to prime a coding agent</li>
+                <li><a href='{HTML_ROOT}/llms.txt'>llms.txt</a>: compact API + guide index for LLMs</li>
+                <li><a href='{HTML_ROOT}/llms-full.txt'>llms-full.txt</a>: full machine-readable index</li>
               </ul>
 
               <br/>
               <strong>Deploy a web app (pre-lifted WASM base image: experimental preview):</strong>
               <br/>
-              <a href='https://azul.rs/guide/deploying-web'>Guide: deploying azul web apps</a>
+              <a href='{HTML_ROOT}/guide/deploying-web'>Guide: deploying azul web apps</a>
               <pre class='codeblock'><code class='language-bash'># prebuilt web base image (experimental; the web backend is not yet stable)
 docker pull ghcr.io/fschutt/azul:{version}</code></pre>
 
@@ -1765,8 +1765,7 @@ pub fn generate_releases_index(versions: &[String]) -> String {
     let mut version_items = String::new();
     for version in versions {
         version_items.push_str(&format!(
-            "<li><a href=\"https://azul.rs/release/{}\">{}</a></li>\n",
-            version, version
+            "<li><a href=\"{HTML_ROOT}/release/{version}\">{version}</a></li>\n",
         ));
     }
 
@@ -1808,6 +1807,81 @@ pub fn generate_releases_index(versions: &[String]) -> String {
 </html>"#,
         version_items = version_items,
     )
+}
+
+/// HTML body for a redirect stub: meta-refresh + JS replace + `rel=canonical`,
+/// preserving any query string / hash. `target` is a site-absolute clean URL
+/// (e.g. `/ui/guide/dom`).
+fn redirect_stub_html(target: &str) -> String {
+    format!(
+        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
+         <title>Redirecting\u{2026}</title>\n\
+         <link rel=\"canonical\" href=\"{target}\">\n\
+         <meta name=\"robots\" content=\"noindex\">\n\
+         <meta http-equiv=\"refresh\" content=\"0; url={target}\">\n\
+         <script>location.replace(\"{target}\" + location.search + location.hash);</script>\n\
+         </head><body>\n\
+         <p>This page has moved to <a href=\"{target}\">{target}</a>.</p>\n\
+         </body></html>\n"
+    )
+}
+
+/// Mirror the generated `/ui` page tree with root-level redirect stubs so that
+/// links from before the "move docs under /ui" change (May 2026) — and bare
+/// `.html` URLs — keep working instead of 404ing.
+///
+/// For every `ui/<p>.html` we write `<root>/<p>.html` (creating parent dirs)
+/// that redirects to the canonical clean URL `/ui/<p>`. A static host (GitHub
+/// Pages) serves `<root>/<p>.html` for BOTH `/<p>` and `/<p>.html`, so a single
+/// stub covers the old-root path in both its clean and `.html` forms. Stubs are
+/// never written over a real root file (the marketing landing's `index.html`,
+/// `ws.html`, `os.html`), and the top-level `index.html` is always skipped so
+/// the landing page is preserved. Returns the number of stubs written.
+///
+/// Non-HTML assets (release binaries, CSS, images) are NOT mirrored — a stray
+/// legacy link to `/release/...` can't be HTML-redirected sensibly; those are
+/// fixed at the source by routing asset URLs through `HTML_ROOT`.
+pub fn generate_redirect_stubs(root_dir: &Path, ui_dir: &Path) -> Result<usize> {
+    let mut count = 0usize;
+    let mut stack = vec![ui_dir.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("html") {
+                continue;
+            }
+            let rel = match path.strip_prefix(ui_dir) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            // Canonical clean target: drop `.html`; an `index.html` maps to its
+            // directory URL.
+            let target = if rel_str == "index.html" {
+                "/ui/".to_string()
+            } else if let Some(stem) = rel_str.strip_suffix("/index.html") {
+                format!("/ui/{stem}/")
+            } else {
+                format!("/ui/{}", &rel_str[..rel_str.len() - ".html".len()])
+            };
+            let dest = root_dir.join(rel);
+            // Never clobber a real root file (marketing landing etc.).
+            if dest.exists() {
+                continue;
+            }
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&dest, redirect_stub_html(&target))?;
+            count += 1;
+        }
+    }
+    Ok(count)
 }
 
 pub fn copy_static_assets(output_dir: &Path) -> Result<()> {

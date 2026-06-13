@@ -272,8 +272,10 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         &processed_content,
         &screenshot_prefix,
     );
-    // Rewrite cross-page markdown links: `[text](other.md)` → `[text](other.html)`.
-    // Agents write `.md` per markdown convention; deploy serves `.html`.
+    // Rewrite cross-page markdown links: `[text](other.md)` → `[text](other)`.
+    // Agents write `.md` per markdown convention; the deployed site uses clean
+    // (extensionless) URLs — the static host serves `other.html` for `other`,
+    // and the redirect mirror canonicalizes any stray `.html` hit.
     let processed_content = rewrite_md_links(&processed_content);
 
     let content = comrak::markdown_to_html_with_plugins(

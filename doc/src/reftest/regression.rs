@@ -1789,8 +1789,8 @@ fn generate_visual_html_report(
   <meta charset="UTF-8">
   <title>Azul Regression Visual Report</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="shortcut icon" type="image/x-icon" href="https://azul.rs/favicon.ico">
-  <link rel="stylesheet" type="text/css" href="https://azul.rs/main.css">
+  <link rel="shortcut icon" type="image/x-icon" href="https://azul.rs/ui/favicon.ico">
+  <link rel="stylesheet" type="text/css" href="https://azul.rs/ui/main.css">
   <style>
     :root {
       --color-pass: #2ecc71;
@@ -2039,14 +2039,14 @@ fn generate_visual_html_report(
       <nav>
         <ul class="nav-grid">
           <li><a href="https://azul.rs">overview</a></li>
-          <li><a href="https://azul.rs/releases.html">releases</a></li>
+          <li><a href="https://azul.rs/ui/releases">releases</a></li>
           <li><a href="https://github.com/fschutt/azul">code</a></li>
           <li><a href="https://discord.gg/V96ZGKqQvn">discord</a></li>
-          <li><a href="https://azul.rs/guide.html">guide</a></li>
-          <li><a href="https://azul.rs/api.html">api</a></li>
-          <li class="active"><a href="https://azul.rs/reftest.html">reftests</a></li>
-          <li><a href="https://azul.rs/blog.html">blog</a></li>
-          <li><a href="https://azul.rs/donate.html">donate</a></li>
+          <li><a href="https://azul.rs/ui/guide">guide</a></li>
+          <li><a href="https://azul.rs/ui/api">api</a></li>
+          <li class="active"><a href="https://azul.rs/ui/reftest">reftests</a></li>
+          <li><a href="https://azul.rs/ui/blog">blog</a></li>
+          <li><a href="https://azul.rs/ui/donate">donate</a></li>
         </ul>
       </nav>
     </aside>
