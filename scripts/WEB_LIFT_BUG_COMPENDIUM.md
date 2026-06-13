@@ -175,6 +175,38 @@ SSE/AVX and some Rust-emitted forms will still surface. **The method is the asse
   helpers), and **`lock`-prefixed RMW** (the LDAPR sibling — consider a `lock`-prefix-strip
   pre-lift rewrite for single-threaded targets, exactly as LDAPR→LDAR in B4).
 
+### B1-x86. CVTSI2SS-in-jump-table → remill `InstructionLifter` type confusion *(CONFIRMED on x86, 2026-06-12)*
+- **Symptom:** `remill-lift-17 --arch amd64` HARD-CRASHES (Windows exit `0xc0000409`,
+  STATUS_STACK_BUFFER_OVERRUN — really a glog `LOG(FATAL)`/`CHECK`) on
+  `azul_layout::solver3::getters::resolve_font_size_slow`:
+  `InstructionLifter.cpp:619 Check failed: val_type->isIntegerTy() Expected XMM0 to be an
+  integral type (val_type: [16 x i8], arg_type: i64)` at the `cvtsi2ss xmm0, rax`
+  (`F3 48 0F 2A C0`).
+- **What it is NOT:** not a decoder gap (XED decodes cvtsi2ss fine — it lifts clean in
+  isolation, in 2-instr sequences, and right after a bare indirect `jmp`); not a transpiler
+  devirt gap (crashes EVEN WITH the correct `--extra_data` jump table provided). The CVTSI2SS
+  semantic itself is structurally right (`DEF_SEM(CVTSI2SS, V128W dst, V128 src1, S2 src2)` —
+  reads xmm0 as src1 to preserve the upper lanes).
+- **Trigger:** `cvtsi2ss` reached as an arm of a ~13-way enum **jump table**
+  (`lea rdx,[rip+tbl]; movslq (rdx,rcx,4),rcx; add rdx,rcx; jmp rcx`) inside a function with
+  live cross-block XMM6/7/8 spills. remill's TraceLifter maps the xmm0 operand to the `i64`
+  src2 slot in that devirt-reached context → the `val_size>arg_size` integer branch CHECKs
+  `val_type->isIntegerTy()` on the `[16 x i8]` register and aborts. Minimal repro NOT isolable
+  (needs the full function's register flow).
+- **[ISA — OPEN, remill fork fix]** A proper fix lives in remill's `LiftRegisterOperand` /
+  the CVTSI2SS ISEL operand mapping. Deep + low-ROI for the first bring-up.
+- **WORKAROUND SHIPPED (transpiler, the allowed place):** `lift_with_transitive_deps_sequential`
+  now catches a per-function lift failure and substitutes a **Leaf stub `.o`**
+  (`produce_leaf_stub_object`) instead of aborting the whole closure — so one fn that defeats
+  remill degrades to a no-op (returns 0) rather than stubbing the ENTIRE mini wasm (which had
+  lost every `AzStartup_*` export → 8-byte stub). Loud per-fn warning + post-loop summary.
+  Safe here because `resolve_font_size_slow` is a slow-path getter reached only via the mini's
+  `solveLayoutReal`; the e2e click flow runs the client-side layout wasm instead.
+- **LESSON for x86:** the §M1 single-instruction `__remill_error` histogram (all-zero here)
+  does NOT catch this class — it's a multi-block CHECK-abort, invisible to per-instruction
+  lifts. Pair §M1 with a "lift every fn in the closure standalone, watch for non-zero exit
+  codes / FATAL" pass, and keep the lift pipeline resilient to a single fn's hard failure.
+
 ### B2. NZCV flag save/restore — `mrs/msr NZCV`
 - The only decode gap across 22 text fns: Rust's overflow-checked arithmetic reads/writes the
   condition flags via `mrs x,NZCV` / `msr NZCV,x`. Added to the fork (committed `70050e0`).

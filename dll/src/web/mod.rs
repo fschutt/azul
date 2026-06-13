@@ -309,9 +309,63 @@ pub(crate) fn resolve_fn_ptr(fn_ptr: usize) -> FnPtrSymbol {
                 size: if entry.size > 0 { entry.size } else { LIFT_READ_WINDOW },
             };
         }
+        // Windows incremental-link thunk (ILT) chase. MSVC's
+        // /INCREMENTAL linker (default with /DEBUG) routes every
+        // function reference through a 5-byte `E9 rel32` jump island in
+        // an early `.text` band; these islands carry NO symbol, so the
+        // captured callback fn-ptr lands on the island, not the real
+        // function. Lifting the island fails silently: its `jmp <far>`
+        // lifts to `__remill_missing_block` (a no-op) because the
+        // target is outside the per-fn read window, so the callback
+        // body NEVER runs. Chase the island to its target and resolve
+        // THAT (which IS a PDB symbol with an exact size). This is the
+        // PE analogue of the macOS `__TEXT.__stubs` PLT chase.
+        if let Some(target) = chase_ilt_thunk(fn_ptr) {
+            if let Some(entry) = table.resolve(target) {
+                return FnPtrSymbol {
+                    name: entry.canonical_name.clone(),
+                    addr: entry.canonical_addr,
+                    size: if entry.size > 0 { entry.size } else { LIFT_READ_WINDOW },
+                };
+            }
+        }
     }
     // Pre-M8.8 fallback path.
     resolve_fn_ptr_dladdr(fn_ptr)
+}
+
+/// If `addr` points at an MSVC incremental-link jump island
+/// (`E9 rel32` → near jump, or `FF 25 disp32` → indirect jump through
+/// the IAT), return the island's target address; otherwise `None`.
+/// Single-hop: one island never targets another. Only compiled on
+/// Windows, where these islands exist.
+#[cfg(all(feature = "web-transpiler", target_os = "windows"))]
+fn chase_ilt_thunk(addr: usize) -> Option<usize> {
+    if addr == 0 {
+        return None;
+    }
+    // SAFETY: addr came from a live function pointer captured during
+    // the route walk, so the 6 bytes at the island are mapped, readable
+    // .text. We only read.
+    let b = unsafe { core::slice::from_raw_parts(addr as *const u8, 6) };
+    if b[0] == 0xE9 {
+        let rel = i32::from_le_bytes([b[1], b[2], b[3], b[4]]);
+        return Some((addr as isize).wrapping_add(5).wrapping_add(rel as isize) as usize);
+    }
+    if b[0] == 0xFF && b[1] == 0x25 {
+        let disp = i32::from_le_bytes([b[2], b[3], b[4], b[5]]);
+        let slot = (addr as isize).wrapping_add(6).wrapping_add(disp as isize) as usize;
+        let target = unsafe { core::ptr::read_unaligned(slot as *const u64) } as usize;
+        if target >= 0x1_0000 {
+            return Some(target);
+        }
+    }
+    None
+}
+
+#[cfg(all(feature = "web-transpiler", not(target_os = "windows")))]
+fn chase_ilt_thunk(_addr: usize) -> Option<usize> {
+    None
 }
 
 /// dladdr-only resolver used as the fallback when the SymbolTable
@@ -406,7 +460,73 @@ pub(crate) fn dlsym_self(name: &str) -> Option<usize> {
             Some(ptr as usize)
         }
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android")))]
+    #[cfg(target_os = "windows")]
+    unsafe {
+        // RTLD_DEFAULT equivalent: GetProcAddress over every loaded
+        // non-system module. The AzStartup_* eventloop symbols are
+        // plain C exports of azul.dll, and user callbacks may live in
+        // the host exe, so both are probed. System DLLs are skipped
+        // for parity with the dyld shared-cache filter (and to avoid
+        // accidentally resolving a same-named ucrt export).
+        type Hmodule = *mut core::ffi::c_void;
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetCurrentProcess() -> *mut core::ffi::c_void;
+            fn K32EnumProcessModules(
+                process: *mut core::ffi::c_void,
+                modules: *mut Hmodule,
+                cb: u32,
+                needed: *mut u32,
+            ) -> i32;
+            fn GetModuleFileNameW(module: Hmodule, filename: *mut u16, size: u32) -> u32;
+            fn GetProcAddress(
+                module: Hmodule,
+                name: *const core::ffi::c_char,
+            ) -> *mut core::ffi::c_void;
+        }
+        let c_name = std::ffi::CString::new(name).ok()?;
+        let mut modules: Vec<Hmodule> = vec![core::ptr::null_mut(); 1024];
+        let mut needed: u32 = 0;
+        if K32EnumProcessModules(
+            GetCurrentProcess(),
+            modules.as_mut_ptr(),
+            (modules.len() * core::mem::size_of::<Hmodule>()) as u32,
+            &mut needed,
+        ) == 0
+        {
+            return None;
+        }
+        let count = (needed as usize / core::mem::size_of::<Hmodule>()).min(modules.len());
+        for &module in &modules[..count] {
+            if module.is_null() {
+                continue;
+            }
+            let mut buf = [0u16; 1024];
+            let len = GetModuleFileNameW(module, buf.as_mut_ptr(), buf.len() as u32);
+            if len > 0 {
+                let path = std::path::PathBuf::from({
+                    use std::os::windows::ffi::OsStringExt;
+                    std::ffi::OsString::from_wide(&buf[..len as usize])
+                });
+                let lower = path.to_string_lossy().to_ascii_lowercase();
+                if lower.contains(":\\windows\\") || lower.contains(":/windows/") {
+                    continue;
+                }
+            }
+            let ptr = GetProcAddress(module, c_name.as_ptr());
+            if !ptr.is_null() {
+                return Some(ptr as usize);
+            }
+        }
+        None
+    }
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows"
+    )))]
     {
         let _ = name;
         None

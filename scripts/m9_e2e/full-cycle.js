@@ -90,6 +90,14 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
     const layoutTableIdx = table.length - 1;
     table.set(layoutTableIdx, layoutI.exports.callback);
 
+    // Seed the bump heap above the synth-address mirror band BEFORE the
+    // first allocation — exactly what loader.js does at bootstrap. Without
+    // it the bump pointer starts at 0, so AzStartup_init's internal
+    // Box::new(EventloopState) returns offset 0 and reads back as a null
+    // state. (Harness parity fix; production loader has always done this.)
+    if (typeof mini.AzStartup_resetBumpHeap === 'function') {
+        mini.AzStartup_resetBumpHeap(160 * 1024 * 1024);
+    }
     const state = mini.AzStartup_init(0, 0);
     const modelPtr = mini.AzStartup_alloc(4);
     new DataView(memory.buffer).setUint32(modelPtr, initialCounter, true);

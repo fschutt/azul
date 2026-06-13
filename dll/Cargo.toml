@@ -306,6 +306,14 @@ clipboard-win = { version = "5.4", optional = true }
 # cross-compiles; flip `camera-native` on for a real build with a C toolchain.
 nokhwa = { version = "0.10", features = ["input-native"], optional = true }
 accesskit_windows = { version = "0.32", optional = true }
+# Web-transpiler (x86/Windows lift): PE images carry no symbol table, so the
+# SymbolTable reads the module's .pdb — publics (S_PUB32) carry the mangled
+# `_ZN…` link names classify_for_name keys on, procs supply exact sizes.
+pdb = { version = "0.8", optional = true }
+# x86 instruction LENGTH decoder. Every aarch64 byte scanner strides 4 bytes;
+# x86 is variable-length (1–15 bytes), so the scanners are rebuilt on iced
+# (WEB_LIFT_BUG_COMPENDIUM.md B8: "the single biggest structural difference").
+iced-x86 = { version = "1.21", optional = true, default-features = false, features = ["std", "decoder", "instr_info"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cgl = { version = "0.3.2", optional = true }
@@ -665,7 +673,9 @@ web = [
 # `web` build stays dependency-free and the transpile step's position in
 # the web.md flow (build-time, first-request, lazy-per-callback) stays a
 # caller decision rather than a hard-wired pipeline stage.
-web-transpiler = ["web", "dep:goblin", "azul-layout?/web_lift"]
+# dep:pdb / dep:iced-x86 are declared under [target.'cfg(windows)'] — cargo
+# activates them only when the target matches, so mac/linux builds are unchanged.
+web-transpiler = ["web", "dep:goblin", "dep:pdb", "dep:iced-x86", "azul-layout?/web_lift"]
 
 # Statically link remill + LLVM + LLD into libazul.dylib so the
 # transpiler doesn't need external CLI tools. ~120 MB of static

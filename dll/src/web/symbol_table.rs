@@ -598,10 +598,25 @@ impl SymbolTable {
                         &mut chain,
                     )?;
                 }
+                #[cfg(target_os = "windows")]
+                goblin::Object::PE(pe) => {
+                    ingest_pe(
+                        &pe,
+                        &bytes,
+                        slide,
+                        &path,
+                        &api_class_by_name,
+                        &mut by_addr,
+                        &mut by_name,
+                        &mut chain,
+                    )?;
+                    // No TLV regions on Windows yet: Rust-std TLS uses
+                    // TlsGetValue imports / _tls_index here, not the
+                    // Mach-O __thread_vars descriptor walk. Revisit when
+                    // a relift log shows TLS traffic (compendium A8).
+                }
                 _ => {
-                    // PE / unknown — fall through. The web backend is
-                    // macOS / Linux only today; Windows host support
-                    // would add an `ingest_pe` here.
+                    // Unknown / foreign-OS object — fall through.
                 }
             }
             image_bytes.push(bytes);
@@ -680,6 +695,7 @@ impl SymbolTable {
                 goblin::Object::Elf(elf) => {
                     elf_image_text_data_range(&elf, &img.bytes)
                 }
+                goblin::Object::PE(pe) => pe_image_text_data_range(&pe),
                 _ => (0, 0),
             };
             if native_min_off == 0 && native_max_off == 0 {
@@ -1076,7 +1092,86 @@ fn enumerate_loaded_images() -> Result<Vec<LoadedImage>, BuildError> {
     Ok(images)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+/// Windows: walk the process module list via `K32EnumProcessModules`.
+/// The PE analog of the Mach-O `vmaddr + slide` convention: every
+/// ingest fn computes `live_addr = file_pref_va + slide` where
+/// `file_pref_va = OptionalHeader.ImageBase + RVA` (the address the
+/// file *asks* to be loaded at) and `slide = actual_module_base -
+/// preferred ImageBase` (the relocation delta; 0 when the loader
+/// honored the preference, which never happens under default ASLR).
+#[cfg(target_os = "windows")]
+fn enumerate_loaded_images() -> Result<Vec<LoadedImage>, BuildError> {
+    use std::os::windows::ffi::OsStringExt;
+    type Hmodule = *mut core::ffi::c_void;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentProcess() -> *mut core::ffi::c_void;
+        fn K32EnumProcessModules(
+            process: *mut core::ffi::c_void,
+            modules: *mut Hmodule,
+            cb: u32,
+            needed: *mut u32,
+        ) -> i32;
+        fn GetModuleFileNameW(module: Hmodule, filename: *mut u16, size: u32) -> u32;
+    }
+
+    let mut modules: Vec<Hmodule> = vec![core::ptr::null_mut(); 1024];
+    let mut needed: u32 = 0;
+    let ok = unsafe {
+        K32EnumProcessModules(
+            GetCurrentProcess(),
+            modules.as_mut_ptr(),
+            (modules.len() * core::mem::size_of::<Hmodule>()) as u32,
+            &mut needed,
+        )
+    };
+    if ok == 0 {
+        return Err(BuildError {
+            stage: "EnumProcessModules",
+            message: "K32EnumProcessModules failed".into(),
+        });
+    }
+    let count = (needed as usize / core::mem::size_of::<Hmodule>()).min(modules.len());
+    let mut out = Vec::new();
+    for &module in &modules[..count] {
+        if module.is_null() {
+            continue;
+        }
+        let mut buf = [0u16; 1024];
+        let len = unsafe { GetModuleFileNameW(module, buf.as_mut_ptr(), buf.len() as u32) };
+        if len == 0 {
+            continue;
+        }
+        let path = PathBuf::from(std::ffi::OsString::from_wide(&buf[..len as usize]));
+        if is_system_image(&path) {
+            continue;
+        }
+        let bytes = match fs::read(&path) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!(
+                    "[symbol_table] skipping {}: read error: {}",
+                    path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+        // slide = actual base − preferred ImageBase, so that
+        // `pref_va + slide == live_va` matches the shared convention.
+        let preferred = match goblin::pe::PE::parse(&bytes) {
+            Ok(pe) => pe.image_base as usize,
+            Err(_) => {
+                continue;
+            }
+        };
+        let slide = (module as usize).wrapping_sub(preferred);
+        out.push(LoadedImage { path, slide, bytes });
+    }
+    Ok(out)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 fn enumerate_loaded_images() -> Result<Vec<LoadedImage>, BuildError> {
     Err(BuildError {
         stage: "platform",
@@ -1090,6 +1185,18 @@ fn enumerate_loaded_images() -> Result<Vec<LoadedImage>, BuildError> {
 /// drops table-build time from seconds to <100 ms.
 fn is_system_image(path: &std::path::Path) -> bool {
     let s = path.to_string_lossy();
+    // Windows: everything under %SystemRoot% (ntdll, kernel32, ucrtbase,
+    // the api-ms-win-* api sets, …). Imports INTO these are still named
+    // via the importing image's import directory (see `ingest_pe`), so
+    // skipping the images themselves loses nothing the lift needs —
+    // exactly like skipping libSystem on macOS.
+    #[cfg(target_os = "windows")]
+    {
+        let lower = s.to_ascii_lowercase();
+        if lower.contains(":\\windows\\") || lower.contains(":/windows/") {
+            return true;
+        }
+    }
     s.starts_with("/usr/lib/")
         || s.starts_with("/System/Library/")
         || s.starts_with("/Library/Apple/")
@@ -1103,6 +1210,361 @@ fn is_system_image(path: &std::path::Path) -> bool {
         || s.starts_with("/lib64/")
         || s.contains("linux-vdso")
         || s.contains("ld-linux")
+}
+
+// ── PE / PDB ingestion (Windows) ────────────────────────────────────
+//
+// PE linked images carry no symbol table — internal symbol names live
+// in the .pdb next to the image (or at the absolute path embedded in
+// the PE debug directory). Names are LOAD-BEARING for the classifier:
+// an unnamed internal fn falls to the default classification and the
+// whole A1 "Leaf-stub garbage" class comes back (see
+// scripts/WEB_LIFT_BUG_COMPENDIUM.md). So a missing PDB degrades to
+// exports-only ingestion with a LOUD warning.
+//
+// Import calls on Windows go through the IAT: either a direct
+// `call qword ptr [rip+disp]` (no stub function at all — the lift's
+// extern resolution sees the IAT slot address) or a `jmp [rip+disp]`
+// thunk (the PE analog of the macOS `__TEXT.__stubs` trampoline,
+// compendium A2). Both are wired here: every import gets a synthetic
+// SymbolEntry at its RESOLVED live address (read out of our own IAT,
+// which the loader bound at startup), named by the import name so
+// `classify_for_name` matches `memcpy`/`memset`/… exactly like the
+// macOS PLT-chase produced libSystem names.
+
+/// Per-image record of one IAT slot: `slot_live` (the address the
+/// `[rip+disp]` operand resolves to) → the import's name + the live
+/// resolved target the loader wrote into the slot.
+#[cfg(target_os = "windows")]
+struct PeIatSlot {
+    slot_live: usize,
+    target_live: usize,
+    name: String,
+}
+
+#[cfg(target_os = "windows")]
+fn ingest_pe(
+    pe: &goblin::pe::PE<'_>,
+    file_bytes: &[u8],
+    slide: usize,
+    path: &std::path::Path,
+    api: &HashMap<String, ApiFnClass>,
+    by_addr: &mut BTreeMap<usize, SymbolEntry>,
+    by_name: &mut HashMap<String, usize>,
+    chain: &mut HashMap<usize, usize>,
+) -> Result<(), BuildError> {
+    const IMAGE_SCN_CNT_CODE: u32 = 0x0000_0020;
+    let image_base = pe.image_base as usize;
+    let live_base = image_base.wrapping_add(slide);
+
+    // 1) .text range in file-preferred-VA space (so the next-addr size
+    //    trick mirrors ingest_macho exactly).
+    let mut text_section: Option<(usize, usize)> = None;
+    for s in &pe.sections {
+        let name = s.name().unwrap_or("");
+        if name == ".text" || (text_section.is_none() && (s.characteristics & IMAGE_SCN_CNT_CODE) != 0) {
+            let start = image_base + s.virtual_address as usize;
+            let size = s.virtual_size as usize;
+            if name == ".text" {
+                text_section = Some((start, size));
+                break;
+            }
+            text_section = Some((start, size));
+        }
+    }
+    let Some((text_start, text_size)) = text_section else {
+        return Ok(()); // resource-only image — skip
+    };
+    let text_end = text_start + text_size;
+
+    // 2) Defined symbols: PDB publics (mangled `_ZN…` link names — the
+    //    names classify_for_name keys on) + module-stream procs (cover
+    //    LTO-internalized locals; display-style names). Fallback:
+    //    export table only.
+    let mut defined: Vec<(String, usize)> = Vec::new();
+    let pdb_result = read_pdb_function_symbols(pe, path, image_base, &mut defined);
+    if let Err(msg) = pdb_result {
+        eprintln!(
+            "[symbol_table] WARNING: no PDB symbols for {} ({}) — falling back to \
+             EXPORTS ONLY. Internal fns will classify by default rules and the \
+             lift WILL mis-stub them (compendium A1). Build with debuginfo to fix.",
+            path.display(),
+            msg
+        );
+    }
+    for e in &pe.exports {
+        if let (Some(name), rva) = (e.name, e.rva) {
+            if rva != 0 {
+                defined.push((name.to_string(), image_base + rva));
+            }
+        }
+    }
+
+    // Sort + dedup by addr, preferring public C names over mangled
+    // internal aliases at the same address (same as ingest_macho).
+    defined.sort_by(|(a_name, a_addr), (b_name, b_addr)| {
+        a_addr
+            .cmp(b_addr)
+            .then_with(|| public_name_score(b_name).cmp(&public_name_score(a_name)))
+    });
+    let mut seen_addr: HashSet<usize> = HashSet::new();
+    defined.retain(|(_, addr)| seen_addr.insert(*addr));
+
+    // 3) Text symbols → SymbolEntry with live bytes + next-addr sizes.
+    let text_syms: Vec<(String, usize)> = defined
+        .iter()
+        .filter(|(_, a)| (text_start..text_end).contains(a))
+        .cloned()
+        .collect();
+    for (i, (raw_name, file_addr)) in text_syms.iter().enumerate() {
+        let live_addr = file_addr.wrapping_add(slide);
+        let next_addr = if i + 1 < text_syms.len() {
+            text_syms[i + 1].1
+        } else {
+            text_end
+        };
+        let size = next_addr.saturating_sub(*file_addr);
+        if size == 0 {
+            continue;
+        }
+        // NOTE: no strip_leading_underscore here — x64 PE link names
+        // have no `_` prefix, and stripping would corrupt `_ZN…`
+        // mangled names into `ZN…` (breaking the crate-name parse in
+        // classify_for_name).
+        let canonical_name = raw_name.clone();
+        let bytes: Option<&'static [u8]> = unsafe {
+            if live_addr != 0 && size > 0 {
+                Some(core::slice::from_raw_parts(live_addr as *const u8, size))
+            } else {
+                None
+            }
+        };
+        let classification = classify_for_name(&canonical_name, api);
+        let entry = SymbolEntry {
+            canonical_name: canonical_name.clone(),
+            canonical_addr: live_addr,
+            synthetic_addr: live_addr, // assigned in pass 2
+            size,
+            bytes,
+            kind: SymKind::Function,
+            classification,
+        };
+        upsert_entry(by_addr, live_addr, entry);
+        by_name.entry(canonical_name).or_insert(live_addr);
+    }
+
+    // 4) Imports: synthesize a named entry at every import's RESOLVED
+    //    live address (loader-bound IAT slot content). This is what
+    //    the macOS PLT-chase produced for libSystem callees — the name
+    //    is enough for LibcMemcpy/LibcMemset/HashmapRandomKeys/… and
+    //    the entry terminates resolve() chains from thunks.
+    let mut iat_slots: Vec<PeIatSlot> = Vec::new();
+    for imp in &pe.imports {
+        let slot_live = live_base.wrapping_add(imp.rva);
+        let target_live = unsafe { core::ptr::read_unaligned(slot_live as *const u64) } as usize;
+        if target_live < 0x1_0000 {
+            continue; // unbound/garbage slot — skip defensively
+        }
+        let name = imp.name.to_string();
+        let entry = SymbolEntry {
+            canonical_name: name.clone(),
+            canonical_addr: target_live,
+            synthetic_addr: target_live,
+            size: 0,
+            bytes: None,
+            kind: SymKind::Function,
+            classification: classify_for_name(&name, api),
+        };
+        // or-insert semantics: don't clobber a real in-image symbol.
+        if !by_addr.contains_key(&target_live) {
+            upsert_entry(by_addr, target_live, entry);
+        }
+        by_name.entry(name.clone()).or_insert(target_live);
+        chain.entry(target_live).or_insert(target_live);
+        iat_slots.push(PeIatSlot { slot_live, target_live, name });
+    }
+
+    // 5) Tail-call shims, x86 spelling (compendium B7/A2):
+    //      E9 rel32              jmp rel32      (intra-image tail shim,
+    //                                            e.g. __rust_alloc → __rdl_alloc)
+    //      FF 25 disp32          jmp [rip+disp] (IAT import thunk)
+    //    Both are FIRST-INSTRUCTION-anchored, so no length decode is
+    //    needed here (the transpiler-side scanners use iced-x86).
+    detect_pe_tail_shims(by_addr, chain, &iat_slots);
+
+    Ok(())
+}
+
+/// Read function symbols out of the image's PDB into `defined` as
+/// `(link_name, file_preferred_va)` pairs. Errors return a message
+/// string (caller logs + degrades to exports-only).
+#[cfg(target_os = "windows")]
+fn read_pdb_function_symbols(
+    pe: &goblin::pe::PE<'_>,
+    image_path: &std::path::Path,
+    image_base: usize,
+    defined: &mut Vec<(String, usize)>,
+) -> Result<(), String> {
+    // SymbolIter / ModuleIter are fallible iterators, not std ones.
+    use pdb::FallibleIterator;
+    // PDB path candidates, in order: the embedded codeview path as-is
+    // (absolute when the linker recorded one), the embedded FILENAME
+    // resolved against the image's own directory (rustc/link often
+    // record just "azul.pdb"), and `<image>.pdb` as a final fallback.
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(cv) = pe.debug_data.as_ref().and_then(|d| d.codeview_pdb70_debug_info.as_ref()) {
+        let raw = cv.filename;
+        let trimmed: &[u8] = raw.split(|b| *b == 0).next().unwrap_or(raw);
+        if let Ok(s) = core::str::from_utf8(trimmed) {
+            if !s.is_empty() {
+                let embedded = PathBuf::from(s);
+                if let (Some(fname), Some(dir)) = (embedded.file_name(), image_path.parent()) {
+                    candidates.push(dir.join(fname));
+                }
+                candidates.push(embedded);
+            }
+        }
+    }
+    candidates.push(image_path.with_extension("pdb"));
+
+    let pdb_path = candidates
+        .iter()
+        .find(|p| p.exists())
+        .ok_or_else(|| format!("no .pdb found (tried {:?})", candidates))?;
+    let file = fs::File::open(pdb_path).map_err(|e| format!("open {}: {}", pdb_path.display(), e))?;
+    let mut pdb = pdb::PDB::open(file).map_err(|e| format!("parse {}: {}", pdb_path.display(), e))?;
+    let address_map = pdb.address_map().map_err(|e| format!("address_map: {}", e))?;
+
+    let mut n_publics = 0usize;
+    let mut n_procs = 0usize;
+
+    // Publics: linker-level symbols with the mangled LINK name.
+    if let Ok(globals) = pdb.global_symbols() {
+        let mut iter = globals.iter();
+        while let Ok(Some(symbol)) = iter.next() {
+            let Ok(data) = symbol.parse() else { continue };
+            if let pdb::SymbolData::Public(p) = data {
+                if !(p.code || p.function) {
+                    continue;
+                }
+                let Some(rva) = p.offset.to_rva(&address_map) else { continue };
+                if rva.0 == 0 {
+                    continue;
+                }
+                defined.push((p.name.to_string().into_owned(), image_base + rva.0 as usize));
+                n_publics += 1;
+            }
+        }
+    }
+
+    // Module procs: cover internal (LTO-internalized / non-public)
+    // fns the publics stream misses. Names here are display-style
+    // (`azul_core::refany::…`) — classify_for_name has a path-style
+    // fallback for these.
+    if let Ok(di) = pdb.debug_information() {
+        if let Ok(mut modules) = di.modules() {
+            while let Ok(Some(module)) = modules.next() {
+                let Ok(Some(mi)) = pdb.module_info(&module) else { continue };
+                let Ok(mut syms) = mi.symbols() else { continue };
+                while let Ok(Some(symbol)) = syms.next() {
+                    let Ok(data) = symbol.parse() else { continue };
+                    if let pdb::SymbolData::Procedure(p) = data {
+                        let Some(rva) = p.offset.to_rva(&address_map) else { continue };
+                        if rva.0 == 0 {
+                            continue;
+                        }
+                        defined.push((p.name.to_string().into_owned(), image_base + rva.0 as usize));
+                        n_procs += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if n_publics == 0 && n_procs == 0 {
+        return Err(format!("{}: parsed but contained 0 function symbols", pdb_path.display()));
+    }
+    eprintln!(
+        "[symbol_table] {}: {} publics + {} procs from {}",
+        image_path.display(),
+        n_publics,
+        n_procs,
+        pdb_path.display()
+    );
+    Ok(())
+}
+
+/// Walk every Function entry whose first instruction is an x86 tail
+/// jump and reclassify it as a Stub, mirroring `detect_arm64_tail_shims`:
+///   `E9 rel32`     → intra-image tail shim, target = addr + 5 + rel32.
+///   `FF 25 disp32` → IAT thunk; the [rip+disp] slot must match a known
+///                    IAT slot, target = the loader-resolved address.
+#[cfg(target_os = "windows")]
+fn detect_pe_tail_shims(
+    by_addr: &mut BTreeMap<usize, SymbolEntry>,
+    chain: &mut HashMap<usize, usize>,
+    iat_slots: &[PeIatSlot],
+) {
+    use std::collections::HashMap as Map;
+    let slot_to_target: Map<usize, (usize, &str)> = iat_slots
+        .iter()
+        .map(|s| (s.slot_live, (s.target_live, s.name.as_str())))
+        .collect();
+    let candidates: Vec<(usize, usize)> = by_addr
+        .iter()
+        .filter_map(|(addr, e)| {
+            if !matches!(e.kind, SymKind::Function) {
+                return None;
+            }
+            let bytes = e.bytes?;
+            if bytes.len() >= 5 && bytes[0] == 0xE9 {
+                let rel = i32::from_le_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]);
+                let target = (*addr as isize).wrapping_add(5).wrapping_add(rel as isize) as usize;
+                return Some((*addr, target));
+            }
+            if bytes.len() >= 6 && bytes[0] == 0xFF && bytes[1] == 0x25 {
+                let disp = i32::from_le_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]);
+                let slot = (*addr as isize).wrapping_add(6).wrapping_add(disp as isize) as usize;
+                if let Some((target, _name)) = slot_to_target.get(&slot) {
+                    return Some((*addr, *target));
+                }
+                return None;
+            }
+            None
+        })
+        .collect();
+    for (addr, target) in candidates {
+        if let Some(e) = by_addr.get_mut(&addr) {
+            e.kind = SymKind::Stub { target };
+            e.canonical_addr = target;
+        }
+        chain.insert(addr, target);
+    }
+}
+
+/// PE: min/max FILE-preferred-VA across all mapped sections (text +
+/// data + rdata), mirroring `macho_image_text_data_range` semantics so
+/// `assign_synthetic_addresses` covers the data sections the mirror
+/// will copy.
+fn pe_image_text_data_range(pe: &goblin::pe::PE<'_>) -> (usize, usize) {
+    const IMAGE_SCN_MEM_DISCARDABLE: u32 = 0x0200_0000;
+    let image_base = pe.image_base as usize;
+    let mut min_va = usize::MAX;
+    let mut max_va = 0usize;
+    for s in &pe.sections {
+        if s.virtual_size == 0 || (s.characteristics & IMAGE_SCN_MEM_DISCARDABLE) != 0 {
+            continue;
+        }
+        let start = image_base + s.virtual_address as usize;
+        let end = start + s.virtual_size as usize;
+        min_va = min_va.min(start);
+        max_va = max_va.max(end);
+    }
+    if min_va == usize::MAX {
+        (0, 0)
+    } else {
+        (min_va, max_va)
+    }
 }
 
 // ── Mach-O ingestion ────────────────────────────────────────────────
@@ -1837,6 +2299,16 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     //    macOS-style `___rust_alloc`, Linux-style `__rust_alloc`,
     //    and v0-mangled wrappers.
     let stripped = name.trim_start_matches('_');
+    // Windows x64 stack probe (compendium A2): MSVC emits a `__chkstk`
+    // call in the prologue of every fn with a frame > 4 KiB. On x64
+    // the probe does NOT adjust RSP (RAX carries the size; only guard
+    // pages get touched) — wasm linear memory needs no guard probing,
+    // so a plain no-op Leaf IS "SP as if the probe ran". (The x86-32
+    // `_chkstk` variant DOES move ESP and must never be Leaf'd; this
+    // port targets x64 only.)
+    if stripped == "chkstk" {
+        return FnClass::Leaf;
+    }
     // Order matters: `rust_alloc_zeroed` must match BEFORE `rust_alloc`
     // (which is a prefix). Similarly `rust_realloc` is a separate
     // family from `rust_alloc` — keep it ahead of the alloc check so
@@ -1886,6 +2358,13 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
         // caller's buffer empty (e.g. hello-world's counter label → height-0).
         // Emit a minimal "%d" formatter body.
         if core.starts_with("snprintf") || core.starts_with("vsnprintf") {
+            return FnClass::LibcSnprintf;
+        }
+        // Windows ucrt spelling (compendium A2): MSVC's <stdio.h> makes
+        // snprintf a static-inline wrapper over the IMPORTED
+        // `__stdio_common_vsprintf(options, buf, len, fmt, locale, va_list)`.
+        // The helper-IR body for x86_64 is emitted in that shape.
+        if core.starts_with("stdio_common_vsprintf") {
             return FnClass::LibcSnprintf;
         }
     }
@@ -1990,6 +2469,59 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // raise the remill timeout.)
     if name.contains("resolve_intrinsic_track_sizes") {
         return FnClass::NeverLift;
+    }
+    // Windows/PDB: module-stream procs report DISPLAY-style paths
+    // (`azul_core::refany::RefCount::can_be_shared_mut`) instead of
+    // mangled link names. Publics (mangled) win dedup ties, so this
+    // branch only decides LTO-internalized locals with no public.
+    // Mirrors the headline _ZN rules: A7 panic family → NeverLift;
+    // A1 keystone: `alloc`/`core` are RECURSABLE by default (no_std,
+    // no syscalls — a Leaf stub here re-opens the silent-garbage
+    // class); noisy runtime crates → Leaf; everything else (azul_*,
+    // webrender_*, user crates) → Recursable.
+    if !name.starts_with("_ZN") && !name.starts_with("_R") && name.contains("::") {
+        let lead = name.trim_start_matches('_');
+        let crate_name: String = lead
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        let is_panic_path = name.contains("panicking::")
+            || name.contains("handle_alloc_error")
+            || name.contains("capacity_overflow")
+            || name.contains("begin_panic")
+            || name.contains("rust_begin_unwind")
+            || name.contains("panic_access_error")
+            || name.contains("already_borrowed")
+            || name.contains("unwrap_failed")
+            || name.contains("expect_failed")
+            || name.contains("slice_start_index_len_fail")
+            || name.contains("slice_end_index_len_fail")
+            || name.contains("slice_index_order_fail")
+            || name.contains("panic_nounwind")
+            || name.contains("panic_bounds_check")
+            || name.contains("panic_fmt");
+        if is_panic_path {
+            return FnClass::NeverLift;
+        }
+        match crate_name.as_str() {
+            "alloc" | "core" => {
+                // Known-trap carve-out kept from the mangled branch:
+                // core::ops::function::impls (FnOnce shims).
+                if name.contains("ops::function::impls") {
+                    return FnClass::Leaf;
+                }
+                return FnClass::Recursable;
+            }
+            "std" | "compiler_builtins" | "panic_abort" | "panic_unwind"
+            | "rustc_demangle" | "backtrace" | "addr2line" | "gimli" | "object"
+            | "miniz_oxide" => {
+                if name.contains("hashmap_random_keys") {
+                    return FnClass::HashmapRandomKeys;
+                }
+                return FnClass::Leaf;
+            }
+            _ => return FnClass::Recursable,
+        }
     }
     // Itanium-mangled Rust internals: `_ZN<len><crate>...`.
     if let Some(rest) = name.strip_prefix("_ZN") {

@@ -64,6 +64,113 @@ use std::process::Command;
 // sites (set_on_toggle, layout_callback, etc.) carry their own
 // kind through to the lift.
 
+/// Guest-ABI register geometry: byte offsets of the State-struct
+/// slots the wrapper synthesis + helper bodies seed/read.
+///
+/// aarch64 (AAPCS64): args X0..X7, ret X0(+X1), sret X8, SP at 1040,
+/// `%struct.State` ≈ 1088 B. Verified by the macOS lift (M6–M12).
+///
+/// x86_64 (Windows x64): args RCX,RDX,R8,R9 — only FOUR in registers;
+/// arg i≥4 lives on the guest stack at `[RSP_entry + 40 + 8·(i−4)]`
+/// (8 = pushed return address, 32 = caller-reserved shadow space).
+/// Scalar ret RAX (+RDX for Rust-internal ScalarPair). sret = hidden
+/// FIRST arg in RCX (shifts real args right — encoded explicitly in
+/// the per-kind tables). Offsets derive from remill's
+/// `include/remill/Arch/X86/Runtime/State.h`: ArchState 16 + vec 2048
+/// + aflag 16 + rflag 8 + seg 24 + addr 96 = GPR block at 2208; each
+/// reg is 8B pad + 8B value, so RAX=2216, RCX=2248, RDX=2264,
+/// RSI=2280, RDI=2296, RSP=2312, RBP=2328, R8=2344, R9=2360,
+/// RIP=2472; sizeof(X86State)=3504 (→3520 16-aligned alloca).
+/// (Empirically confirmed against the remill-lift-17 amd64 smoke
+/// lift — see task #5 / scripts notes.)
+pub(crate) mod pcs {
+    #[cfg(target_arch = "aarch64")]
+    pub const ARG: [u64; 8] = [544, 560, 576, 592, 608, 624, 640, 656]; // X0..X7
+    #[cfg(target_arch = "aarch64")]
+    pub const RET: u64 = 544; // X0
+    #[cfg(target_arch = "aarch64")]
+    pub const RET_HI: u64 = 560; // X1 (second word of a pair return)
+    #[cfg(target_arch = "aarch64")]
+    pub const SRET: u64 = 672; // X8 — AAPCS64 Indirect Result Location
+    #[cfg(target_arch = "aarch64")]
+    pub const SP: u64 = 1040;
+    #[cfg(target_arch = "aarch64")]
+    pub const STATE_SIZE: u64 = 1088;
+    /// Bytes ABOVE the initial SP reserved inside %stack_buf. aarch64
+    /// args/locals all live BELOW SP — no headroom needed.
+    #[cfg(target_arch = "aarch64")]
+    pub const SP_HEADROOM: u64 = 0;
+    #[cfg(target_arch = "aarch64")]
+    pub const N_REG_ARGS: usize = 8;
+    /// snprintf-family fmt/vararg arg slots. aarch64 matches the
+    /// __snprintf_chk(buf,maxlen,flag,slen,fmt,…) shape: fmt=X4, va0=X5.
+    #[cfg(target_arch = "aarch64")]
+    pub const SNPRINTF_FMT: u64 = 608; // X4
+    #[cfg(target_arch = "aarch64")]
+    pub const SNPRINTF_VA0: u64 = 624; // X5
+
+    #[cfg(target_arch = "x86_64")]
+    pub const ARG: [u64; 4] = [2248, 2264, 2344, 2360]; // RCX, RDX, R8, R9
+    #[cfg(target_arch = "x86_64")]
+    pub const RET: u64 = 2216; // RAX
+    #[cfg(target_arch = "x86_64")]
+    pub const RET_HI: u64 = 2264; // RDX (Rust-internal ScalarPair second word)
+    #[cfg(target_arch = "x86_64")]
+    pub const SRET: u64 = 2248; // RCX — hidden first arg carries the dest ptr
+    #[cfg(target_arch = "x86_64")]
+    pub const SP: u64 = 2312; // RSP
+    #[cfg(target_arch = "x86_64")]
+    pub const STATE_SIZE: u64 = 3520; // sizeof(X86State)=3504, 16-aligned
+    /// Bytes ABOVE the initial SP: 8 (fake return address, zeroed) +
+    /// 32 (shadow space the callee may spill its reg args into) +
+    /// up to 7 stack args (56) + by-value aggregate copies at 96+.
+    #[cfg(target_arch = "x86_64")]
+    pub const SP_HEADROOM: u64 = 256;
+    #[cfg(target_arch = "x86_64")]
+    pub const N_REG_ARGS: usize = 4;
+    /// Direct snprintf(buf,len,fmt,…) shape on Win x64: fmt=R8, va0=R9.
+    /// (MSVC's inline-snprintf → __stdio_common_vsprintf path has a
+    /// different signature and classifies Leaf until wired; grep the
+    /// first Windows relift log per compendium A2.)
+    #[cfg(target_arch = "x86_64")]
+    pub const SNPRINTF_FMT: u64 = 2344; // R8
+    #[cfg(target_arch = "x86_64")]
+    pub const SNPRINTF_VA0: u64 = 2360; // R9
+
+    /// Wrapper guest-stack scratch buffer size. See the history note
+    /// in `emit_helper_ir` (4 KiB underflowed; 512 KiB overflowed the
+    /// 128 KiB shadow-stack slot; 128 KiB is the verified value).
+    /// Shared by the prologue emitter (StackArg/ByValCopyPtr offsets
+    /// are relative to `STACK_BUF_SIZE − SP_HEADROOM`).
+    pub const STACK_BUF_SIZE: u64 = 128 * 1024;
+
+    /// Guest-stack displacement (from SP at callee entry) of integer
+    /// arg i ≥ N_REG_ARGS under Windows x64.
+    pub fn stack_arg_disp(i: usize) -> u64 {
+        8 + 32 + 8 * ((i as u64).saturating_sub(N_REG_ARGS as u64))
+    }
+
+    /// PCS placement for a u32 scalar arg at position `i` of an
+    /// extern "C" fn: register slot when available, guest stack
+    /// otherwise (Windows x64 5th+ arg).
+    pub fn wreg_arg(i: usize) -> super::Pcs {
+        if i < N_REG_ARGS {
+            super::Pcs::Wreg { state_byte_offset: ARG[i] }
+        } else {
+            super::Pcs::StackArg { sp_disp: stack_arg_disp(i), wide: false }
+        }
+    }
+
+    /// PCS placement for a u64 scalar arg at position `i`.
+    pub fn garg64(i: usize) -> super::Pcs {
+        if i < N_REG_ARGS {
+            super::Pcs::GprI64 { state_byte_offset: ARG[i] }
+        } else {
+            super::Pcs::StackArg { sp_disp: stack_arg_disp(i), wide: true }
+        }
+    }
+}
+
 /// PCS placement of a single wrapper arg or return slot.
 #[derive(Debug, Clone)]
 pub enum Pcs {
@@ -83,15 +190,47 @@ pub enum Pcs {
     /// 32 bits of a register slot (W<n>).
     Wreg { state_byte_offset: u64 },
     /// Caller-allocated destination buffer for large struct returns
-    /// (>16 bytes via AAPCS64 hidden X8). Only valid as the `ret`
-    /// slot of a [`CallbackSignature`] — the wrapper appends one
+    /// (>16 bytes via AAPCS64 hidden X8; ANY aggregate >8 bytes via
+    /// the hidden RCX first arg on Windows x64). Only valid as the
+    /// `ret` slot of a [`CallbackSignature`] — the wrapper appends one
     /// extra `i32` arg (the wasm-side pointer of the destination
-    /// slot), zero-extends it to i64, stores into State.X<8>, and
-    /// then returns `i32 0` after the lifted body completes. The
-    /// body's `str xN, [x8, #M]` instructions write directly into
-    /// the caller's slot. `x8_offset` is the byte offset of the
-    /// X<8> slot inside `%struct.State`.
+    /// slot), zero-extends it to i64, stores into the sret State slot,
+    /// and then returns `i32 0` after the lifted body completes. The
+    /// body's stores through that register write directly into the
+    /// caller's slot. `x8_offset` is the byte offset of the sret slot
+    /// inside `%struct.State` (X8=672 on aarch64, RCX=2248 on x86-64).
     HiddenPtrReturn { x8_offset: u64 },
+    /// Windows x64: integer arg i ≥ 4 lives on the GUEST STACK at
+    /// `[SP_entry + sp_disp]`. The wrapper stores the wasm-side param
+    /// into `%stack_buf` at `(stack_size − SP_HEADROOM) + sp_disp`
+    /// (which IS SP_entry-relative — the SP seed points there).
+    /// `wide` selects an i64 wrapper param (vs i32 zext'd).
+    /// Never constructed on aarch64 (all current shapes fit X0–X7).
+    StackArg { sp_disp: u64, wide: bool },
+    /// Windows x64: an aggregate >8 B passed BY VALUE in the C
+    /// signature is ABI-lowered to a HIDDEN POINTER to a caller-made
+    /// copy (compendium C3 — "fat pointers become a pointer to
+    /// {ptr,len}"). The wrapper keeps the SAME wasm-side params as the
+    /// aarch64 pair shape (`i64 lo, i64 hi` — loader compatibility),
+    /// spills them into the stack-headroom slot at `SP_entry +
+    /// headroom_disp`, and passes that guest address in the register
+    /// at `state_byte_offset`. Never constructed on aarch64.
+    ByValCopyPtr { state_byte_offset: u64, headroom_disp: u64 },
+    /// Windows x64: the dispatcher already passes an ALREADY-INDIRECT
+    /// aggregate — `AzStartup_dispatchEvent` calls the cb with the
+    /// hydrated `refany_ptr` (a pointer to a 24-byte `AzRefAny`) split
+    /// into the JS pair `(lo = refany_ptr, hi = 0)`. The Windows x64
+    /// ABI for a >16 B by-value arg ALSO wants a pointer to the struct
+    /// in the arg register — so the correct lowering is to pass `lo`
+    /// (the pointer) DIRECTLY into the register, NOT to spill `{lo,hi}`
+    /// and pass a pointer to the spill (that's `ByValCopyPtr`, which
+    /// would add a bogus extra indirection — the cb would read
+    /// `refany_ptr` as `sharing_info.ptr` and the type_id compare would
+    /// fail). Consumes the SAME two `i64` JS params as `GprI64Pair`
+    /// (loader compatibility); stores `lo` into `state_byte_offset` and
+    /// discards `hi`. Never constructed on aarch64 (there the pair
+    /// genuinely rides X0:X1).
+    PtrFromPairLo { state_byte_offset: u64 },
 }
 
 /// A callback typedef's full wrapper synthesis info.
@@ -131,172 +270,122 @@ pub struct CallbackSignature {
 /// the lifted body stores it via i64 ops, and the wrapper exposes a
 /// 64-bit JS-side parameter.
 pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
-    // X<n> slot byte offsets inside %struct.State per the lift's GEPs.
-    const X0: u64 = 544;
-    const X1: u64 = 560;
-    const X2: u64 = 576;
-    const X3: u64 = 592;
-    const X4: u64 = 608;
+    // Arch-neutral arg placement: `wreg_arg(i)`/`garg64(i)` pick the
+    // i-th integer-arg slot for the host guest-ABI (X<i> on aarch64;
+    // RCX/RDX/R8/R9 then guest-stack on Windows x64 — see `pcs`).
+    // Scalar returns read `pcs::RET` (X0 / RAX).
+    use pcs::{garg64, wreg_arg};
+    let ret_w = || Some(Pcs::Wreg { state_byte_offset: pcs::RET });
     match name {
         "AzStartup_alloc" => Some(CallbackSignature {
             kind: "AzStartup_alloc".to_string(),
-            args: vec![Pcs::Wreg { state_byte_offset: X0 }],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            args: vec![wreg_arg(0)],
+            ret: ret_w(),
         }),
         "AzStartup_free" => Some(CallbackSignature {
             kind: "AzStartup_free".to_string(),
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-            ],
+            args: vec![wreg_arg(0), wreg_arg(1)],
             ret: None,
         }),
         // WEB-FONT-VIA-JS: AzStartup_setFallbackFont(ptr: u32, len: u32) -> ()
         "AzStartup_setFallbackFont" => Some(CallbackSignature {
             kind: "AzStartup_setFallbackFont".to_string(),
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-            ],
+            args: vec![wreg_arg(0), wreg_arg(1)],
             ret: None,
         }),
         "AzStartup_init" => Some(CallbackSignature {
             kind: "AzStartup_init".to_string(),
             // (json_ptr: u32, json_len: u32) -> state_ptr: u32
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-            ],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            args: vec![wreg_arg(0), wreg_arg(1)],
+            ret: ret_w(),
         }),
         "AzStartup_hydrate" => Some(CallbackSignature {
             kind: "AzStartup_hydrate".to_string(),
             // (type_id_lo: u32, type_id_hi: u32, data_ptr: u32,
             //  data_size: u32) -> refany_ptr: u32
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-                Pcs::Wreg { state_byte_offset: X2 },
-                Pcs::Wreg { state_byte_offset: X3 },
-            ],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            args: vec![wreg_arg(0), wreg_arg(1), wreg_arg(2), wreg_arg(3)],
+            ret: ret_w(),
         }),
         "AzStartup_dispatchEvent" => Some(CallbackSignature {
             kind: "AzStartup_dispatchEvent".to_string(),
             // (state, kind, evt_ptr, evt_len, out_len_ptr) -> patches_ptr
+            // NOTE: 5 args — on Windows x64 the 5th is a guest-stack arg.
             args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-                Pcs::Wreg { state_byte_offset: X2 },
-                Pcs::Wreg { state_byte_offset: X3 },
-                Pcs::Wreg { state_byte_offset: X4 },
+                wreg_arg(0),
+                wreg_arg(1),
+                wreg_arg(2),
+                wreg_arg(3),
+                wreg_arg(4),
             ],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            ret: ret_w(),
         }),
         "AzStartup_registerStateDeserializer" => Some(CallbackSignature {
             kind: "AzStartup_registerStateDeserializer".to_string(),
             // (state: u32, fn_addr: u64) -> ()
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::GprI64 { state_byte_offset: X1 },
-            ],
+            args: vec![wreg_arg(0), garg64(1)],
             ret: None,
         }),
         "AzStartup_buildLayoutInfo" => Some(CallbackSignature {
             kind: "AzStartup_buildLayoutInfo".to_string(),
             // (viewport_w: u32, viewport_h: u32, theme: u32) -> info_ptr: u32
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-                Pcs::Wreg { state_byte_offset: X2 },
-            ],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            args: vec![wreg_arg(0), wreg_arg(1), wreg_arg(2)],
+            ret: ret_w(),
         }),
         "AzStartup_setLayoutCbTableIdx" => Some(CallbackSignature {
             kind: "AzStartup_setLayoutCbTableIdx".to_string(),
             // (state: u32, idx: u32) -> ()
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-            ],
+            args: vec![wreg_arg(0), wreg_arg(1)],
             ret: None,
         }),
         "AzStartup_setRefAny" => Some(CallbackSignature {
             kind: "AzStartup_setRefAny".to_string(),
             // (state: u32, refany_ptr: u32) -> ()
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-            ],
+            args: vec![wreg_arg(0), wreg_arg(1)],
             ret: None,
         }),
         "AzStartup_initLayoutCache" => Some(CallbackSignature {
             kind: "AzStartup_initLayoutCache".to_string(),
             // (state: u32, viewport_w: u32, viewport_h: u32, theme: u32)
             // -> status: u32
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-                Pcs::Wreg { state_byte_offset: X2 },
-                Pcs::Wreg { state_byte_offset: X3 },
-            ],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            args: vec![wreg_arg(0), wreg_arg(1), wreg_arg(2), wreg_arg(3)],
+            ret: ret_w(),
         }),
         "AzStartup_getCurrentDomPtr" | "AzStartup_getLastLayoutStatus" => Some(CallbackSignature {
             kind: name.to_string(),
             // (state: u32) -> u32
-            args: vec![Pcs::Wreg { state_byte_offset: X0 }],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            args: vec![wreg_arg(0)],
+            ret: ret_w(),
         }),
         "AzStartup_registerCbNode" => Some(CallbackSignature {
             kind: "AzStartup_registerCbNode".to_string(),
             // (state: u32, node_idx: u32) -> ()
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-            ],
+            args: vec![wreg_arg(0), wreg_arg(1)],
             ret: None,
         }),
         // 2026-06-10 per-EventFilter dispatch: registerCbNode + the EVT_* kind.
         "AzStartup_registerCbNodeKind" => Some(CallbackSignature {
             kind: "AzStartup_registerCbNodeKind".to_string(),
             // (state: u32, node_idx: u32, kind: u32) -> ()
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-                Pcs::Wreg { state_byte_offset: X2 },
-            ],
+            args: vec![wreg_arg(0), wreg_arg(1), wreg_arg(2)],
             ret: None,
         }),
         "AzStartup_hitTest" => Some(CallbackSignature {
             kind: "AzStartup_hitTest".to_string(),
             // (state: u32, x_bits: u32, y_bits: u32) -> node_idx: u32
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-                Pcs::Wreg { state_byte_offset: X2 },
-            ],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            args: vec![wreg_arg(0), wreg_arg(1), wreg_arg(2)],
+            ret: ret_w(),
         }),
         "AzStartup_buildCounterPatch" => Some(CallbackSignature {
             kind: "AzStartup_buildCounterPatch".to_string(),
             // (out_buf: u32, out_buf_cap: u32, node_idx: u32,
             //  counter_value: u32) -> used_bytes: u32
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-                Pcs::Wreg { state_byte_offset: X2 },
-                Pcs::Wreg { state_byte_offset: X3 },
-            ],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            args: vec![wreg_arg(0), wreg_arg(1), wreg_arg(2), wreg_arg(3)],
+            ret: ret_w(),
         }),
         "AzStartup_setModelPtr" | "AzStartup_setDisplayNode" => Some(CallbackSignature {
             kind: name.to_string(),
             // (state: u32, value: u32) -> ()
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-            ],
+            args: vec![wreg_arg(0), wreg_arg(1)],
             ret: None,
         }),
         // M11 Sprint 1 — hydrate + getters (cascade + diff cross-check).
@@ -312,50 +401,44 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
         | "AzStartup_peekU32" => Some(CallbackSignature {
             kind: name.to_string(),
             // (state_or_addr: u32) -> u32
-            args: vec![Pcs::Wreg { state_byte_offset: X0 }],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            args: vec![wreg_arg(0)],
+            ret: ret_w(),
         }),
         "AzStartup_solveLayout" | "AzStartup_solveLayoutReal" => Some(CallbackSignature {
             kind: name.to_string(),
             // (state: u32, viewport_w: u32, viewport_h: u32) -> u32
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-                Pcs::Wreg { state_byte_offset: X2 },
-            ],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            args: vec![wreg_arg(0), wreg_arg(1), wreg_arg(2)],
+            ret: ret_w(),
         }),
         // M11 Sprint 3 — relayout (state-only) + buildPatch (6 args).
         "AzStartup_relayout" | "AzStartup_getAutoVirtualizeThreshold"
         | "AzStartup_getCascadeProbe" => Some(CallbackSignature {
             kind: name.to_string(),
-            args: vec![Pcs::Wreg { state_byte_offset: X0 }],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            args: vec![wreg_arg(0)],
+            ret: ret_w(),
         }),
         // M11 Sprint 5 — VirtualView setters (state, u32) -> ().
         "AzStartup_setAutoVirtualizeThreshold"
         | "AzStartup_setVirtualViewProvider"
         | "AzStartup_pokeLastLayout" => Some(CallbackSignature {
             kind: name.to_string(),
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-            ],
+            args: vec![wreg_arg(0), wreg_arg(1)],
             ret: None,
         }),
         "AzStartup_buildPatch" => Some(CallbackSignature {
             kind: name.to_string(),
             // (out_buf, out_buf_cap, kind, node_idx, payload_ptr,
             //  payload_len) -> total_bytes
+            // NOTE: 6 args — on Windows x64 args 4+5 are guest-stack args.
             args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
-                Pcs::Wreg { state_byte_offset: X2 },
-                Pcs::Wreg { state_byte_offset: X3 },
-                Pcs::Wreg { state_byte_offset: X4 },
-                Pcs::Wreg { state_byte_offset: 624 }, // X5
+                wreg_arg(0),
+                wreg_arg(1),
+                wreg_arg(2),
+                wreg_arg(3),
+                wreg_arg(4),
+                wreg_arg(5),
             ],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            ret: ret_w(),
         }),
         _ => None,
     }
@@ -369,33 +452,40 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
 /// up — at the cost of mis-placed args for kinds with extra
 /// params (CheckBoxOnToggle's bool, NumberInput's i32, etc.).
 pub fn signature_for_callback_kind(kind: &str) -> CallbackSignature {
-    // aarch64 State layout (per the GEPs the lift emits for
-    // `%struct.State`'s GPR substruct). The struct alternates
-    // i64 padding + Reg unions; X<n> ends up at offset
-    // `544 + n * 16` for the registers we care about. SP is at
-    // +1040, X29/X30 at +1008/+1024.
-    const X0: u64 = 544;
-    const X1: u64 = 560;
-    const X2: u64 = 576;
-    const X3: u64 = 592;
-    // X8 is the Indirect Result Location Register per AAPCS64 —
-    // the caller writes the destination-buffer pointer into X8
-    // before the call, and the callee's `str xN, [x8, #M]`
-    // instructions write the (large) struct return through it.
-    // Used by [`HiddenPtrReturn`] for LayoutCallback (which
-    // returns `AzDom`, > 16 bytes).
-    const X8: u64 = 672;
+    // The callback typedefs cross the extern "C" boundary, so the
+    // shapes are STRUCTURALLY arch-dependent (compendium C1/C3):
+    //
+    // aarch64 (AAPCS64): AzRefAny (16B) rides in the X0:X1 pair;
+    //   info structs >16B pass as a pointer in the next X reg; AzDom
+    //   (large) returns through the hidden X8 destination pointer.
+    //
+    // Windows x64: ANY aggregate >8B passes as a hidden POINTER to a
+    //   caller-made copy — so AzRefAny becomes ByValCopyPtr (the
+    //   wrapper keeps the same JS-side `(i64 lo, i64 hi)` params,
+    //   spills them to stack headroom, passes the slot's guest addr
+    //   in the arg register). The sret destination consumes RCX and
+    //   SHIFTS every real arg one register right.
+    //
+    // The JS/loader-side wrapper signatures are IDENTICAL across
+    // arches — only the State seeding differs.
     let canonical_callback = || CallbackSignature {
         kind: "Callback".to_string(),
         // `extern "C" fn(AzRefAny, AzCallbackInfo) -> AzUpdate`
-        // AzRefAny: 16B aggregate → X0+X1 pair.
-        // AzCallbackInfo: >16B → *const passed in X2.
-        // AzUpdate: 4B enum → W0 (low 32 bits of X0).
+        // JS side: (refany_lo: i64, refany_hi: i64, info_ptr: i32) -> i32
+        #[cfg(target_arch = "aarch64")]
         args: vec![
-            Pcs::GprI64Pair { lo_offset: X0, hi_offset: X1 },
-            Pcs::GprPtr32 { state_byte_offset: X2 },
+            Pcs::GprI64Pair { lo_offset: pcs::ARG[0], hi_offset: pcs::ARG[1] },
+            Pcs::GprPtr32 { state_byte_offset: pcs::ARG[2] },
         ],
-        ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        #[cfg(target_arch = "x86_64")]
+        args: vec![
+            // RCX = refany_ptr (dispatcher already passes the AzRefAny
+            // pointer as `lo`; Win x64 wants that pointer in the reg).
+            Pcs::PtrFromPairLo { state_byte_offset: pcs::ARG[0] },
+            // RDX = info pointer (the cb's 2nd indirect arg).
+            Pcs::GprPtr32 { state_byte_offset: pcs::ARG[1] },
+        ],
+        ret: Some(Pcs::Wreg { state_byte_offset: pcs::RET }),
     };
     match kind {
         "Callback"
@@ -406,32 +496,48 @@ pub fn signature_for_callback_kind(kind: &str) -> CallbackSignature {
         | "RibbonOnTabClickCallback" => canonical_callback(),
         "CheckBoxOnToggleCallback" => CallbackSignature {
             kind: "CheckBoxOnToggleCallback".to_string(),
-            // ...same as Callback, plus a trailing `bool` arg in X3.
+            // ...same as Callback, plus a trailing `bool` arg.
+            #[cfg(target_arch = "aarch64")]
             args: vec![
-                Pcs::GprI64Pair { lo_offset: X0, hi_offset: X1 },
-                Pcs::GprPtr32 { state_byte_offset: X2 },
-                Pcs::Wreg { state_byte_offset: X3 },
+                Pcs::GprI64Pair { lo_offset: pcs::ARG[0], hi_offset: pcs::ARG[1] },
+                Pcs::GprPtr32 { state_byte_offset: pcs::ARG[2] },
+                Pcs::Wreg { state_byte_offset: pcs::ARG[3] },
             ],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            #[cfg(target_arch = "x86_64")]
+            args: vec![
+                Pcs::PtrFromPairLo { state_byte_offset: pcs::ARG[0] },
+                Pcs::GprPtr32 { state_byte_offset: pcs::ARG[1] },
+                Pcs::Wreg { state_byte_offset: pcs::ARG[2] },
+            ],
+            ret: Some(Pcs::Wreg { state_byte_offset: pcs::RET }),
         },
         "LayoutCallback" => CallbackSignature {
             kind: "LayoutCallback".to_string(),
             // `extern "C" fn(AzRefAny, AzLayoutCallbackInfo) -> AzDom`
-            // AzRefAny: 16B aggregate → X0+X1 pair.
-            // AzLayoutCallbackInfo: >16B → *const passed in X2.
-            // AzDom: large aggregate return → hidden X8 destination
+            // AzDom: large aggregate return → hidden destination
             // pointer (caller-allocated).
             //
-            // The wrapper appends a 4th `i32 out_ptr` arg, writes
-            // State.X8 from it, and returns `i32 0` after the body
-            // populates the caller's buffer. JS-side signature is
+            // The wrapper appends a trailing `i32 out_ptr` arg, seeds
+            // the sret slot from it, and returns `i32 0` after the
+            // body populates the caller's buffer. JS-side signature is
             // `(refany_lo: i64, refany_hi: i64, info_ptr: i32,
             //   out_ptr: i32) -> i32`.
+            //
+            // Windows x64: sret takes RCX, so refany shifts to RDX
+            // and info to R8.
+            #[cfg(target_arch = "aarch64")]
             args: vec![
-                Pcs::GprI64Pair { lo_offset: X0, hi_offset: X1 },
-                Pcs::GprPtr32 { state_byte_offset: X2 },
+                Pcs::GprI64Pair { lo_offset: pcs::ARG[0], hi_offset: pcs::ARG[1] },
+                Pcs::GprPtr32 { state_byte_offset: pcs::ARG[2] },
             ],
-            ret: Some(Pcs::HiddenPtrReturn { x8_offset: X8 }),
+            #[cfg(target_arch = "x86_64")]
+            args: vec![
+                // sret takes RCX (ARG[0]) via HiddenPtrReturn below;
+                // data → RDX (ARG[1]), info → R8 (ARG[2]).
+                Pcs::PtrFromPairLo { state_byte_offset: pcs::ARG[1] },
+                Pcs::GprPtr32 { state_byte_offset: pcs::ARG[2] },
+            ],
+            ret: Some(Pcs::HiddenPtrReturn { x8_offset: pcs::SRET }),
         },
         _ => {
             eprintln!(
@@ -503,6 +609,70 @@ fn emit_wrapper_args_and_prologue(sig: &CallbackSignature) -> (String, String) {
                     off = state_byte_offset
                 ));
             }
+            // Windows x64: guest-stack arg (5th+). SP_entry points at
+            // `%stack_buf + (STACK_BUF_SIZE − SP_HEADROOM)`, so the slot
+            // at SP_entry+sp_disp is a compile-time stack_buf offset.
+            Pcs::StackArg { sp_disp, wide } => {
+                let buf_off = pcs::STACK_BUF_SIZE - pcs::SP_HEADROOM + sp_disp;
+                if *wide {
+                    params.push(format!("i64 %arg{}", i));
+                    prologue.push_str(&format!(
+                        "  %arg{i}_sp = getelementptr inbounds i8, ptr %stack_buf, i64 {off}\n  \
+                           store i64 %arg{i}, ptr %arg{i}_sp, align 8\n",
+                        i = i,
+                        off = buf_off
+                    ));
+                } else {
+                    params.push(format!("i32 %arg{}", i));
+                    prologue.push_str(&format!(
+                        "  %arg{i}_sp = getelementptr inbounds i8, ptr %stack_buf, i64 {off}\n  \
+                           %arg{i}_sp64 = zext i32 %arg{i} to i64\n  \
+                           store i64 %arg{i}_sp64, ptr %arg{i}_sp, align 8\n",
+                        i = i,
+                        off = buf_off
+                    ));
+                }
+            }
+            // Windows x64: already-indirect aggregate. The JS pair
+            // (lo = refany_ptr, hi = 0) — store `lo` straight into the
+            // arg register as the struct pointer, discard `hi`. Same
+            // two i64 params as GprI64Pair (loader compat).
+            Pcs::PtrFromPairLo { state_byte_offset } => {
+                params.push(format!("i64 %arg{}_lo", i));
+                params.push(format!("i64 %arg{}_hi", i));
+                prologue.push_str(&format!(
+                    "  ; PtrFromPairLo: lo is the AzRefAny pointer; pass it straight in\n  \
+                       %arg{i}_pl_p = getelementptr inbounds i8, ptr %state_buf, i64 {off}\n  \
+                       store i64 %arg{i}_lo, ptr %arg{i}_pl_p, align 8\n",
+                    i = i,
+                    off = state_byte_offset
+                ));
+            }
+            // Windows x64: by-value aggregate → hidden pointer to a
+            // copy. Keep the aarch64 JS-side `(i64 lo, i64 hi)` params,
+            // spill into the stack headroom, pass the slot's GUEST
+            // address (SP_entry + headroom_disp) in the arg register.
+            // %sp_int is defined before the prologue in the template.
+            Pcs::ByValCopyPtr { state_byte_offset, headroom_disp } => {
+                let buf_off = pcs::STACK_BUF_SIZE - pcs::SP_HEADROOM + headroom_disp;
+                params.push(format!("i64 %arg{}_lo", i));
+                params.push(format!("i64 %arg{}_hi", i));
+                prologue.push_str(&format!(
+                    "  ; ByValCopyPtr: spill {{lo,hi}} into headroom, pass guest addr in reg\n  \
+                       %arg{i}_bv_lo = getelementptr inbounds i8, ptr %stack_buf, i64 {lo}\n  \
+                       %arg{i}_bv_hi = getelementptr inbounds i8, ptr %stack_buf, i64 {hi}\n  \
+                       store i64 %arg{i}_lo, ptr %arg{i}_bv_lo, align 8\n  \
+                       store i64 %arg{i}_hi, ptr %arg{i}_bv_hi, align 8\n  \
+                       %arg{i}_bv_addr = add i64 %sp_int, {disp}\n  \
+                       %arg{i}_bv_reg = getelementptr inbounds i8, ptr %state_buf, i64 {reg}\n  \
+                       store i64 %arg{i}_bv_addr, ptr %arg{i}_bv_reg, align 8\n",
+                    i = i,
+                    lo = buf_off,
+                    hi = buf_off + 8,
+                    disp = headroom_disp,
+                    reg = state_byte_offset
+                ));
+            }
             // HiddenPtrReturn is only valid as `sig.ret`, not an arg —
             // ignore here; the trailing-arg emission below handles it.
             Pcs::HiddenPtrReturn { .. } => {
@@ -567,15 +737,17 @@ fn emit_wrapper_return(sig: &CallbackSignature) -> (String, String) {
         // Callback shape never hits this.
         Some(other) => {
             eprintln!(
-                "[azul-web] callback return PCS {:?} not yet wired — defaulting to i32 X0",
+                "[azul-web] callback return PCS {:?} not yet wired — defaulting to i32 scalar-ret slot",
                 other
             );
             (
                 "i32".to_string(),
-                "  %ret_p = getelementptr inbounds i8, ptr %state_buf, i64 544\n  \
-                   %ret_w = load i32, ptr %ret_p, align 4\n  \
-                   ret i32 %ret_w\n"
-                    .to_string(),
+                format!(
+                    "  %ret_p = getelementptr inbounds i8, ptr %state_buf, i64 {}\n  \
+                       %ret_w = load i32, ptr %ret_p, align 4\n  \
+                       ret i32 %ret_w\n",
+                    pcs::RET
+                ),
             )
         }
     }
@@ -716,6 +888,53 @@ impl RemillTranspiler {
         )
     }
 
+    /// Synthesize a Leaf-stub `.o` for a function whose real lift could
+    /// not be produced (e.g. `remill-lift` hard-crashed on a decoder/
+    /// lifter bug — observed on x86 with `cvtsi2ss` reached through a
+    /// jump-table arm, a remill InstructionLifter type-confusion). The
+    /// stub emits a `sub_<lift_addr>` body that zeroes the return
+    /// register and returns memory unchanged — byte-identical to what
+    /// `classify_for_name` → `FnClass::Leaf` would emit — so callers'
+    /// `call sub_<canonical>` link cleanly. No externs are emitted, so
+    /// the transitive walk pulls in no further deps from this node.
+    ///
+    /// This is the eventloop-lift analogue of the per-cb path already
+    /// tolerating unliftable deps: one function that defeats remill
+    /// degrades to a no-op instead of nuking the WHOLE mini wasm (which
+    /// would lose every `AzStartup_*` export). The caller logs loudly
+    /// so a genuinely hot stubbed function is visible, not silent.
+    fn produce_leaf_stub_object(
+        &self,
+        fn_name: &str,
+        fn_addr: usize,
+        sig: &CallbackSignature,
+        export_as: &str,
+        lift_addr: u64,
+    ) -> Result<PathBuf, TranspileError> {
+        // `rewrite_sub_names_to_canonical` (inside produce_object_from_lifted_ir)
+        // converts this `sub_<lift_addr_hex>` define to the canonical
+        // synth name exactly as it would a real lift — so the stub
+        // body lands under the same symbol every caller references.
+        // The two target lines are placeholders retarget_to_wasm32
+        // overwrites with the wasm32 datalayout/triple.
+        let stub_ir = format!(
+            "; azul-web Leaf stub for {fn_name} (real lift unavailable — remill crashed)\n\
+             target datalayout = \"e-m:w-i64:64-f80:128-n8:16:32:64-S128\"\n\
+             target triple = \"x86_64-unknown-windows-msvc-coff\"\n\
+             define ptr @sub_{lift_hex}(ptr noalias %state, i64 %pc, ptr noalias %memory) {{\n  \
+               %rp = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
+               store i64 0, ptr %rp, align 8\n  \
+               ret ptr %memory\n\
+             }}\n",
+            fn_name = fn_name,
+            lift_hex = format!("{:x}", lift_addr),
+            ret_off = pcs::RET,
+        );
+        self.produce_object_from_lifted_ir(
+            fn_name, fn_addr, lift_addr, sig, export_as, &stub_ir,
+        )
+    }
+
     /// Lift a single function to its raw remill IR (one `define ptr
     /// @sub_<lift_addr_hex>(...)` plus extern declarations for bl
     /// targets). Used by `produce_object_for` for the per-fn path;
@@ -739,8 +958,13 @@ impl RemillTranspiler {
         let mut bytes: Vec<u8> = unsafe {
             std::slice::from_raw_parts(fn_addr as *const u8, fn_size).to_vec()
         };
-        rewrite_ldapr_to_ldar(&mut bytes);
-        rewrite_recursive_bl(&mut bytes);
+        rewrite_guest_pre_lift(&mut bytes);
+        // x86/Windows: resolve IAT indirect calls to direct calls BEFORE
+        // lifting so cross-image callees (cb → azul.dll) get enqueued +
+        // lifted (the PE analog of the macOS PLT chase). Needs the live
+        // fn_addr (to read the bound IAT slots) + the synth lift_addr.
+        #[cfg(target_arch = "x86_64")]
+        x86_scan::rewrite_iat_calls(&mut bytes, fn_addr, lift_addr);
         let arch_tag = host_arch_tag().ok_or_else(|| TranspileError {
             fn_name: fn_name.to_string(),
             reason: "unsupported host architecture for remill (need aarch64 or x86_64)".into(),
@@ -1711,6 +1935,10 @@ impl RemillTranspiler {
         let mut queue: VecDeque<TransitiveLiftTarget> = VecDeque::new();
         let mut object_paths: Vec<PathBuf> = Vec::new();
         let mut exports: Vec<String> = Vec::new();
+        // Functions that defeated remill and were Leaf-stubbed (see the
+        // resilience branch below). Summarized after the loop so the
+        // stub count is visible in one line, not buried per-fn.
+        let mut stubbed_fns: Vec<String> = Vec::new();
         // M9-after-review: collect ARM64 `adrp` page targets across
         // every lifted function so the data mirror only ships the
         // pages this wasm actually reads — not the entire 19 MiB
@@ -1884,13 +2112,13 @@ impl RemillTranspiler {
             let fn_bytes_slice = unsafe {
                 std::slice::from_raw_parts(addr as *const u8, size)
             };
-            for page in scan_arm64_adrp_pages(fn_bytes_slice, addr) {
+            for page in scan_guest_page_targets(fn_bytes_slice, addr) {
                 accessed_pages.insert(page);
             }
             // M10-E1: also harvest exact (addr, len) byte ranges
             // from adrp+ldr pairs so the mirror can ship only the
             // bytes the lifted code actually reads.
-            for r in scan_arm64_adrp_accesses(fn_bytes_slice, addr) {
+            for r in scan_guest_data_accesses(fn_bytes_slice, addr) {
                 accessed_ranges.insert(r);
             }
 
@@ -1991,9 +2219,40 @@ impl RemillTranspiler {
                          size={} export_as={}",
                         lifted_count, name, addr, size, export_as
                     );
-                    let produced = self.produce_object_for(
+                    // Resilience: a single function that hard-crashes
+                    // remill (decoder/lifter bug) must not nuke the
+                    // whole transitive closure — for the eventloop that
+                    // would lose every AzStartup_* export and stub the
+                    // entire mini wasm. On failure, substitute a Leaf
+                    // stub `.o` and continue; a genuinely hot stubbed fn
+                    // surfaces downstream, not silently.
+                    let produced = match self.produce_object_for(
                         &name, addr, size, &sig, &export_as, lift_addr,
-                    )?;
+                    ) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            eprintln!(
+                                "[azul-web]   ⚠ transitive[{}]: {} FAILED to lift ({}) \
+                                 — substituting a Leaf stub (returns 0). If this fn is on \
+                                 a hot path the wasm will misbehave; classify it or fix the \
+                                 lifter. (compendium B1: x86 SSE/jump-table lifter gap)",
+                                lifted_count, name, e.reason
+                            );
+                            stubbed_fns.push(name.clone());
+                            let stub = self.produce_leaf_stub_object(
+                                &name, addr, &sig, &export_as, lift_addr,
+                            )?;
+                            self.object_cache
+                                .lock()
+                                .unwrap()
+                                .insert(cache_key, stub.clone());
+                            object_paths.push(stub);
+                            exports.push(export_as);
+                            // Stub has no lifted IR → no externs → no
+                            // deps to enqueue. Skip the dep-walk.
+                            continue;
+                        }
+                    };
                     self.object_cache
                         .lock()
                         .unwrap()
@@ -2115,6 +2374,13 @@ impl RemillTranspiler {
             visited.len(),
             exports.len()
         );
+        if !stubbed_fns.is_empty() {
+            eprintln!(
+                "[azul-web] ⚠ {} function(s) Leaf-stubbed (remill could not lift them): {}",
+                stubbed_fns.len(),
+                stubbed_fns.join(", ")
+            );
+        }
 
         // M12.7: indirect-call dispatcher (sequential/subprocess path — the e2e
         // default, since use_native_remill() is off unless AZ_NATIVE_REMILL is set).
@@ -2230,14 +2496,15 @@ impl RemillTranspiler {
         // at). X0 lives at State offset 544.
         if let Some(base) = tlv_tls_base {
             ir.push_str(&format!(
-                "tlv:\n  %x0p = getelementptr inbounds i8, ptr %state, i64 544\n  \
+                "tlv:\n  %x0p = getelementptr inbounds i8, ptr %state, i64 {arg0}\n  \
                  %desc = load i64, ptr %x0p, align 8\n  \
                  %offp = add i64 %desc, 16\n  \
                  %off = call i64 @__remill_read_memory_64(ptr %memory, i64 %offp)\n  \
                  %res = add i64 %off, {}\n  \
                  store i64 %res, ptr %x0p, align 8\n  \
                  ret ptr %memory\n",
-                base
+                base,
+                arg0 = pcs::ARG[0]
             ));
         }
         for (label, c) in cases {
@@ -2426,7 +2693,7 @@ impl RemillTranspiler {
             }
             // Scan this fn's bytes for BL/B targets.
             let bytes_slice = unsafe { std::slice::from_raw_parts(addr as *const u8, size) };
-            let mut bl_targets = scan_arm64_bl_b_targets(bytes_slice, addr);
+            let mut bl_targets = scan_guest_branch_targets(bytes_slice, addr);
             // 2026-06-10: ALSO scan `adrp+add` code-address materializations (function
             // POINTERS taken for vtables / callback structs, e.g. azul_core::task::
             // Instant::now stored in GetSystemTimeCallback). Those targets are reached
@@ -2434,7 +2701,7 @@ impl RemillTranspiler {
             // unlifted, and the indirect dispatcher silently unk-drops the call. The
             // resolve() filter below keeps only addresses that are REAL function
             // entries, so stray data adrp+adds are discarded.
-            bl_targets.extend(scan_arm64_adrp_add_code_targets(bytes_slice, addr));
+            bl_targets.extend(scan_guest_code_addr_targets(bytes_slice, addr));
             targets.push(Target {
                 name: name.clone(),
                 addr,
@@ -2509,11 +2776,11 @@ impl RemillTranspiler {
             let bytes_slice = unsafe {
                 std::slice::from_raw_parts(t.addr as *const u8, t.size)
             };
-            for page in scan_arm64_adrp_pages(bytes_slice, t.addr) {
+            for page in scan_guest_page_targets(bytes_slice, t.addr) {
                 accessed_pages.insert(page);
             }
             // M10-E1: precise byte-range scan for adrp+ldr pairs.
-            for r in scan_arm64_adrp_accesses(bytes_slice, t.addr) {
+            for r in scan_guest_data_accesses(bytes_slice, t.addr) {
                 accessed_ranges.insert(r);
             }
         }
@@ -2552,8 +2819,16 @@ impl RemillTranspiler {
                     let mut v = unsafe {
                         std::slice::from_raw_parts(t.addr as *const u8, t.size).to_vec()
                     };
-                    rewrite_ldapr_to_ldar(&mut v);
-                    rewrite_recursive_bl(&mut v);
+                    rewrite_guest_pre_lift(&mut v);
+                    // x86/Windows IAT→direct-call resolution (see lift_fn).
+                    #[cfg(target_arch = "x86_64")]
+                    {
+                        let la = symbol_table::get()
+                            .and_then(|tab| tab.lookup(t.addr))
+                            .map(|e| e.synthetic_addr as u64)
+                            .unwrap_or(t.addr as u64);
+                        x86_scan::rewrite_iat_calls(&mut v, t.addr, la);
+                    }
                     v
                 })
                 .collect();
@@ -4048,7 +4323,8 @@ pub struct BoundaryShard {
 /// rewritten so the offset is biased by 0x1000000 words (16 MiB).
 /// That puts the target far outside the buffer, triggering the
 /// "missing bytes" path in remill cleanly.
-#[cfg(feature = "web-transpiler")]
+#[cfg(all(feature = "web-transpiler", target_arch = "aarch64"))]
+#[cfg(target_arch = "aarch64")]
 fn rewrite_recursive_bl(bytes: &mut [u8]) {
     if bytes.len() < 4 { return; }
     let buf_len = bytes.len() as i64;
@@ -4108,7 +4384,8 @@ fn rewrite_recursive_bl(bytes: &mut [u8]) {
 /// has `bytes & 0xFFFFFC00 == 0xB8BFC000 | (size << 30)` and the
 /// rewrite is `bytes |= 0x10001C00 ^ 0x10001C00 = ...`. Simpler
 /// to do per width:
-#[cfg(feature = "web-transpiler")]
+#[cfg(all(feature = "web-transpiler", target_arch = "aarch64"))]
+#[cfg(target_arch = "aarch64")]
 fn rewrite_ldapr_to_ldar(bytes: &mut [u8]) {
     // AArch64 instructions are 4-byte aligned (little-endian on Apple).
     if bytes.len() < 4 { return; }
@@ -4138,6 +4415,280 @@ fn rewrite_ldapr_to_ldar(bytes: &mut [u8]) {
             bytes[off+2] = le[2];
             bytes[off+3] = le[3];
         }
+    }
+}
+
+// ── x86-64 byte scanners (Windows port) ─────────────────────────────
+//
+// Every aarch64 scanner above strides 4 bytes and masks fixed-width
+// opcodes. x86 is variable-length (1–15 bytes), so ALL x86 scanning
+// decodes with iced-x86 first (WEB_LIFT_BUG_COMPENDIUM.md B8 calls
+// this "the single biggest structural difference for the x86 port").
+// Lift-space convention matches the arm64 scanners: the decoder's IP
+// is seeded with `fn_addr` (the SYNTHETIC lift address), so returned
+// targets are lift-space too.
+#[cfg(all(feature = "web-transpiler", target_arch = "x86_64"))]
+mod x86_scan {
+    use iced_x86::{Decoder, DecoderOptions, FlowControl, Instruction, Mnemonic, OpKind};
+
+    fn decode_all(fn_bytes: &[u8], fn_addr: usize) -> Vec<Instruction> {
+        let mut dec = Decoder::with_ip(64, fn_bytes, fn_addr as u64, DecoderOptions::NONE);
+        let mut out = Vec::new();
+        let mut insn = Instruction::default();
+        while dec.can_decode() {
+            dec.decode_out(&mut insn);
+            out.push(insn);
+        }
+        out
+    }
+
+    /// 4-KiB page targets of RIP-relative operands — the x86 sibling
+    /// of `scan_arm64_adrp_pages` (B6: one instruction instead of an
+    /// adrp+ldr pair).
+    pub fn riprel_pages(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+        let mut pages: Vec<usize> = decode_all(fn_bytes, fn_addr)
+            .iter()
+            .filter(|i| i.is_ip_rel_memory_operand())
+            .map(|i| (i.ip_rel_memory_address() as usize) & !0xFFF)
+            .collect();
+        pages.sort_unstable();
+        pages.dedup();
+        pages
+    }
+
+    /// Exact `(addr, len)` data accesses through RIP-relative
+    /// operands — sibling of `scan_arm64_adrp_accesses`. `lea`
+    /// (address-of; access size 0) records a conservative 8 so the
+    /// mirror covers at least the first quadword of the target.
+    pub fn riprel_accesses(fn_bytes: &[u8], fn_addr: usize) -> Vec<(usize, usize)> {
+        decode_all(fn_bytes, fn_addr)
+            .iter()
+            .filter(|i| i.is_ip_rel_memory_operand())
+            .map(|i| {
+                let sz = i.memory_size().size();
+                (
+                    i.ip_rel_memory_address() as usize,
+                    if sz == 0 { 8 } else { sz },
+                )
+            })
+            .collect()
+    }
+
+    /// Direct near `call rel32` / tail-`jmp rel32` targets — sibling
+    /// of `scan_arm64_bl_b_targets` (B7). Calls always count; jmps
+    /// only when the target leaves the function (tail shims) —
+    /// intra-fn jumps are plain control flow.
+    pub fn call_jmp_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+        let lo = fn_addr;
+        let hi = fn_addr + fn_bytes.len();
+        let mut out = Vec::new();
+        for insn in decode_all(fn_bytes, fn_addr) {
+            let near = matches!(
+                insn.op0_kind(),
+                OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64
+            );
+            if !near {
+                continue;
+            }
+            match insn.flow_control() {
+                FlowControl::Call => out.push(insn.near_branch_target() as usize),
+                FlowControl::UnconditionalBranch => {
+                    let t = insn.near_branch_target() as usize;
+                    if t < lo || t >= hi {
+                        out.push(t);
+                    }
+                }
+                _ => {}
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Code addresses materialized by `lea reg, [rip+disp]` — the x86
+    /// sibling of `scan_arm64_adrp_add_code_targets` (fn-ptr / vtable
+    /// materialization later consumed by an indirect call). Returns
+    /// every RIP-relative lea target; the caller filters through the
+    /// SymbolTable exactly like the arm64 path.
+    pub fn lea_code_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+        let mut out: Vec<usize> = decode_all(fn_bytes, fn_addr)
+            .iter()
+            .filter(|i| i.mnemonic() == Mnemonic::Lea && i.is_ip_rel_memory_operand())
+            .map(|i| i.ip_rel_memory_address() as usize)
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Resolve Windows IAT indirect calls/jumps to DIRECT calls so the
+    /// dep walk lifts the cross-image callee — the PE analog of the
+    /// macOS PLT-stub chase (compendium A2). MSVC lowers every call to
+    /// another image (the cb → `AzRefAny_isType` in azul.dll, etc.) to
+    /// `FF 15 disp32` = `call qword ptr [rip+disp]` through the import
+    /// address table; remill lifts that as an INDIRECT call
+    /// (`__remill_function_call`), which is a no-op in the subprocess
+    /// path — so the callee never runs and never gets enqueued (the
+    /// lifted IR carries no `sub_<target>` extern). Result: the cb's
+    /// downcast/borrow checks silently return 0 → DoNothing.
+    ///
+    /// Rewrite each 6-byte `FF 15 disp32` (call) / `FF 25 disp32` (jmp)
+    /// IAT slot reference to `E8/E9 rel32` + `NOP` (same 6 bytes), where
+    /// `rel32 = synth(import) − synth(call) − 5`. Both ends are synth
+    /// addresses (≤ a few hundred MiB apart), so rel32 always fits.
+    /// remill then lifts a DIRECT call → emits `sub_<synth(import)>` →
+    /// the IR-extern dep walk enqueues + lifts it. Imports outside any
+    /// tracked image (ucrt/kernel32 — memcpy/memset/…) have no synth
+    /// address: left as indirect here and caught by the name-matched
+    /// libc classes once their own thunk path is wired.
+    ///
+    /// `fn_addr` is the LIVE (post-ASLR) address the IAT slots are read
+    /// from; `lift_addr` is the synth `--address` remill lifts at.
+    pub fn rewrite_iat_calls(bytes: &mut [u8], fn_addr: usize, lift_addr: u64) {
+        let table = match crate::web::symbol_table::get() {
+            Some(t) => t,
+            None => return,
+        };
+        let mut patches: Vec<(usize, u8, i32)> = Vec::new();
+        for insn in decode_all(bytes, fn_addr) {
+            let is_call = insn.flow_control() == FlowControl::IndirectCall;
+            let is_jmp = insn.flow_control() == FlowControl::IndirectBranch;
+            if !(is_call || is_jmp) || !insn.is_ip_rel_memory_operand() || insn.len() != 6 {
+                continue;
+            }
+            let slot = insn.ip_rel_memory_address() as usize;
+            if slot < 0x1_0000 {
+                continue;
+            }
+            // SAFETY: the IAT slot lives in the loaded image's .idata,
+            // mapped + loader-bound for the process lifetime. Read-only.
+            let target = unsafe { core::ptr::read_unaligned(slot as *const u64) } as usize;
+            let Some(synth_target) = table.native_to_synth(target) else {
+                continue; // system import (no synth) — leave indirect
+            };
+            let buf_off = (insn.ip() - fn_addr as u64) as usize;
+            if buf_off + 6 > bytes.len() {
+                continue;
+            }
+            let synth_call = lift_addr.wrapping_add(buf_off as u64);
+            let rel = (synth_target as i64) - (synth_call as i64) - 5;
+            if rel < i32::MIN as i64 || rel > i32::MAX as i64 {
+                continue;
+            }
+            patches.push((buf_off, if is_call { 0xE8 } else { 0xE9 }, rel as i32));
+        }
+        for (off, opcode, rel) in patches {
+            bytes[off] = opcode;
+            bytes[off + 1..off + 5].copy_from_slice(&rel.to_le_bytes());
+            bytes[off + 5] = 0x90; // NOP — pad the freed 6th byte
+        }
+    }
+
+    /// Neutralize in-buffer near-call targets — the x86 sibling of
+    /// `rewrite_recursive_bl` (same remill TraceLifter re-entry
+    /// hazard). Detection is buffer-relative (IP seeded 0), so the
+    /// caller doesn't need to thread the lift address through.
+    /// `call rel32` (E8, 5 bytes) targeting [0, len) gets its rel32
+    /// biased to +0x1000_0000 — far outside the readable buffer, so
+    /// remill takes the missing-block path and the wasm link resolves
+    /// the recursion by symbol name.
+    pub fn rewrite_recursive_call(bytes: &mut [u8]) {
+        let insns = decode_all(bytes, 0);
+        let len = bytes.len() as u64;
+        let mut patch_offs: Vec<usize> = Vec::new();
+        for insn in &insns {
+            if insn.flow_control() == FlowControl::Call
+                && matches!(insn.op0_kind(), OpKind::NearBranch64)
+            {
+                let t = insn.near_branch_target();
+                if t < len {
+                    let ip_off = insn.ip() as usize;
+                    if ip_off < bytes.len() && bytes[ip_off] == 0xE8 && insn.len() == 5 {
+                        patch_offs.push(ip_off + 1);
+                    }
+                }
+            }
+        }
+        for p in patch_offs {
+            let new_rel: i32 = 0x1000_0000;
+            bytes[p..p + 4].copy_from_slice(&new_rel.to_le_bytes());
+        }
+    }
+}
+
+// ── Arch-neutral scanner dispatch ───────────────────────────────────
+// Call sites use these; the per-ISA implementations live above.
+
+/// Pre-lift byte rewrites: aarch64 = LDAPR→LDAR + recursive-bl
+/// escape; x86-64 = recursive `call rel32` escape (LDAPR has no x86
+/// analog — TSO ordering is implicit, compendium B4).
+#[cfg(feature = "web-transpiler")]
+fn rewrite_guest_pre_lift(bytes: &mut [u8]) {
+    #[cfg(target_arch = "aarch64")]
+    {
+        rewrite_ldapr_to_ldar(bytes);
+        rewrite_recursive_bl(bytes);
+    }
+    #[cfg(target_arch = "x86_64")]
+    x86_scan::rewrite_recursive_call(bytes);
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    let _ = bytes;
+}
+
+/// Page targets of PC-relative data addressing (adrp / RIP-relative).
+#[cfg(feature = "web-transpiler")]
+fn scan_guest_page_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+    #[cfg(target_arch = "aarch64")]
+    return scan_arm64_adrp_pages(fn_bytes, fn_addr);
+    #[cfg(target_arch = "x86_64")]
+    return x86_scan::riprel_pages(fn_bytes, fn_addr);
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    {
+        let _ = (fn_bytes, fn_addr);
+        Vec::new()
+    }
+}
+
+/// Exact (addr, len) PC-relative data accesses.
+#[cfg(feature = "web-transpiler")]
+fn scan_guest_data_accesses(fn_bytes: &[u8], fn_addr: usize) -> Vec<(usize, usize)> {
+    #[cfg(target_arch = "aarch64")]
+    return scan_arm64_adrp_accesses(fn_bytes, fn_addr);
+    #[cfg(target_arch = "x86_64")]
+    return x86_scan::riprel_accesses(fn_bytes, fn_addr);
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    {
+        let _ = (fn_bytes, fn_addr);
+        Vec::new()
+    }
+}
+
+/// Direct call + tail-jump targets (bl/b ↔ call/jmp rel32).
+#[cfg(feature = "web-transpiler")]
+fn scan_guest_branch_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+    #[cfg(target_arch = "aarch64")]
+    return scan_arm64_bl_b_targets(fn_bytes, fn_addr);
+    #[cfg(target_arch = "x86_64")]
+    return x86_scan::call_jmp_targets(fn_bytes, fn_addr);
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    {
+        let _ = (fn_bytes, fn_addr);
+        Vec::new()
+    }
+}
+
+/// PC-relative CODE-address materializations (adrp+add ↔ riprel lea).
+#[cfg(feature = "web-transpiler")]
+fn scan_guest_code_addr_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+    #[cfg(target_arch = "aarch64")]
+    return scan_arm64_adrp_add_code_targets(fn_bytes, fn_addr);
+    #[cfg(target_arch = "x86_64")]
+    return x86_scan::lea_code_targets(fn_bytes, fn_addr);
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    {
+        let _ = (fn_bytes, fn_addr);
+        Vec::new()
     }
 }
 
@@ -4832,6 +5383,24 @@ fn discover_remill_lift() -> Option<PathBuf> {
             return Some(pb);
         }
     }
+    // Windows: the from-scratch build installs to third_party/remill-install
+    // (cmake --install), and the short-path build tree is C:\rb\remill.
+    #[cfg(target_os = "windows")]
+    {
+        for c in [
+            "third_party/remill-install/bin/remill-lift-17.exe",
+            "third_party/remill-install/build/remill/bin/lift/remill-lift-17.exe",
+        ] {
+            let ws = workspace_root().join(c);
+            if ws.is_file() {
+                return Some(ws);
+            }
+        }
+        let rb = PathBuf::from("C:/rb/remill/bin/lift/remill-lift-17.exe");
+        if rb.is_file() {
+            return Some(rb);
+        }
+    }
     let ws = workspace_root().join(
         "third_party/remill-install/build/remill/bin/lift/remill-lift-17",
     );
@@ -4862,6 +5431,14 @@ fn discover_llc() -> Option<PathBuf> {
             return Some(pb);
         }
     }
+    // Windows: LLVM 17 built from source by the remill superbuild.
+    #[cfg(target_os = "windows")]
+    {
+        let ws = workspace_root().join("third_party/remill/dependencies/install/bin/llc.exe");
+        if ws.is_file() {
+            return Some(ws);
+        }
+    }
     let candidates = [
         "/opt/homebrew/opt/llvm@21/bin/llc",
         "/opt/homebrew/opt/llvm/bin/llc",
@@ -4883,6 +5460,13 @@ fn discover_opt() -> Option<PathBuf> {
         let pb = PathBuf::from(p);
         if pb.is_file() {
             return Some(pb);
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let ws = workspace_root().join("third_party/remill/dependencies/install/bin/opt.exe");
+        if ws.is_file() {
+            return Some(ws);
         }
     }
     let candidates = [
@@ -4908,6 +5492,14 @@ fn discover_llvm_link() -> Option<PathBuf> {
             return Some(pb);
         }
     }
+    #[cfg(target_os = "windows")]
+    {
+        let ws =
+            workspace_root().join("third_party/remill/dependencies/install/bin/llvm-link.exe");
+        if ws.is_file() {
+            return Some(ws);
+        }
+    }
     let candidates = [
         "/opt/homebrew/opt/llvm@21/bin/llvm-link",
         "/opt/homebrew/opt/llvm/bin/llvm-link",
@@ -4929,6 +5521,14 @@ fn discover_wasm_ld() -> Option<PathBuf> {
         let pb = PathBuf::from(p);
         if pb.is_file() {
             return Some(pb);
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let ws =
+            workspace_root().join("third_party/remill/dependencies/install/bin/wasm-ld.exe");
+        if ws.is_file() {
+            return Some(ws);
         }
     }
     let candidates = [
@@ -5025,6 +5625,8 @@ fn host_arch_tag() -> Option<&'static str> {
 fn host_os_tag() -> &'static str {
     if cfg!(target_os = "macos") {
         "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
     } else if cfg!(target_os = "linux") {
         "linux"
     } else {
@@ -5845,11 +6447,26 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
     // (survived -O0) and invisible to single-fn markers (no intervening call).
     // Saving the low 64 bits (i64) matches the D-register callee-save width;
     // the upper 64 bits of V8-V15 are caller-saved, so leaving them is correct.
+    // Index semantics relied on below: 0..=9 GPRs, 10 = FP, 11 = SP,
+    // 12.. = callee-saved SIMD low-64s. Keep BOTH arch arrays in that
+    // exact shape.
+    #[cfg(target_arch = "aarch64")]
     const CS_OFFSETS: [u32; 20] = [
         // GPRs: X19..X28, X29/FP, SP
         848, 864, 880, 896, 912, 928, 944, 960, 976, 992, 1008, 1040,
         // SIMD: D8..D15 (low 64 bits of callee-saved V8..V15)
         144, 160, 176, 192, 208, 224, 240, 256,
+    ];
+    // Windows x64 callee-saved set (compendium C5): RBX, RSI, RDI,
+    // R12–R15 (7 GPRs — indices 7..=9 pad with RBX duplicates so the
+    // FP/SP index contract holds; duplicate snapshot/restore of the
+    // same slot is harmless), RBP as FP, RSP as SP, then XMM6–XMM13
+    // low-64s (vec[] base 16, 64 B stride → 16+6·64=400 …).
+    #[cfg(target_arch = "x86_64")]
+    const CS_OFFSETS: [u32; 20] = [
+        2232, 2280, 2296, 2408, 2424, 2440, 2456, 2232, 2232, 2232, // RBX,RSI,RDI,R12..R15,+pad
+        2328, 2312, // RBP (FP), RSP (SP)
+        400, 464, 528, 592, 656, 720, 784, 848, // XMM6..XMM13 low 64
     ];
     let mut out = String::with_capacity(opt_ir.len() + (1 << 16));
     // [g170 az-web-lift TRACE] AZ_SP_TRACE=1 logs each wrapped call's guest SP + arg X1 (content
@@ -6344,13 +6961,24 @@ fn emit_helper_ir(
     branch_externs: &[ResolvedBranchExtern],
     export_as: &str,
 ) -> String {
-    // SP register slot in the State struct (aarch64-specific).
-    let sp_off: u64 = 1040;
-    // X0 slot (where args are read + return is written).
-    let x0_off: u64 = 544;
-    // State alloca size — covers fields up to the SR/PC region at
-    // offset ~1080. Rounded up to a multiple of 16 for alignment.
-    let state_size: u64 = 1088;
+    // Guest-ABI State geometry — see the `pcs` module (aarch64 AAPCS64
+    // vs x86-64 Windows-x64 values).
+    let sp_off: u64 = pcs::SP;
+    // Positional arg slots the helper bodies read (X<n> on aarch64;
+    // RCX/RDX/R8/R9 on x86-64 — NON-contiguous in the State struct,
+    // so `x0_off + 16·n` arithmetic is no longer valid).
+    let x0_off: u64 = pcs::ARG[0];
+    let arg1_off: u64 = pcs::ARG[1];
+    let arg2_off: u64 = pcs::ARG[2];
+    let arg3_off: u64 = pcs::ARG[3];
+    // Scalar return slot(s): X0 (== arg0) on aarch64; RAX (≠ RCX!) on
+    // x86-64. Bodies STORE results here and LOAD args from ARG[n] —
+    // on aarch64 the two coincide, preserving the verified IR.
+    let ret_off: u64 = pcs::RET;
+    let ret_hi_off: u64 = pcs::RET_HI;
+    // State alloca size — covers the full State struct, rounded up to
+    // a multiple of 16 for alignment (1088 on aarch64, 3520 on x86-64).
+    let state_size: u64 = pcs::STATE_SIZE;
     // Separate stack-scratch buffer for the lifted body's
     // SP-relative spills. The body's prologue decrements SP and
     // stores callee-saves at SP-relative addresses. Each lifted
@@ -6371,7 +6999,13 @@ fn emit_helper_ir(
     // the wasm instance's own stack budget isn't affected.
     // [g67 reverted] 512 KiB OOB'd AzStartup_init — the stack_buf alloca overflows the 128 KiB
     // wasm shadow-stack SLOT (STACK_BASE_STRIDE). Back to 128 KiB (the verified-good value).
-    let stack_size: u64 = 128 * 1024;
+    let stack_size: u64 = pcs::STACK_BUF_SIZE;
+    // Initial guest SP: top of %stack_buf on aarch64; on Windows x64,
+    // SP_HEADROOM bytes BELOW the top so the fake return-address slot
+    // ([SP]), the 32-byte shadow space, guest-stack args ([SP+40+…])
+    // and ByValCopyPtr aggregate copies ([SP+96+…]) all stay inside
+    // the buffer.
+    let sp_init_off: u64 = stack_size - pcs::SP_HEADROOM;
     let (params, prologue) = emit_wrapper_args_and_prologue(sig);
     let (ret_ty, ret_code) = emit_wrapper_return(sig);
     // M7: emit a body for every branch-destination extern the lift
@@ -6457,7 +7091,8 @@ fn emit_helper_ir(
                        %new_i64_{n} = add i64 %old_i64_{n}, %size_aligned_{n}\n  \
                        %new_{n} = trunc i64 %new_i64_{n} to i32\n  \
                        store i32 %new_{n}, ptr inttoptr (i64 262176 to ptr), align 4\n  \
-                       store i64 %old_i64_{n}, ptr %x0_p_{n}, align 8\n  \
+                       %ret_p_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
+                       store i64 %old_i64_{n}, ptr %ret_p_{n}, align 8\n  \
                        store volatile i64 %old_i64_{n}, ptr inttoptr (i64 262208 to ptr), align 8\n  \
                        %dest_p_{n} = inttoptr i32 %old_{n} to ptr\n  \
                        call void @llvm.memset.p0.i64(ptr %dest_p_{n}, i8 0, i64 %size_aligned_{n}, i1 false)\n  \
@@ -6466,6 +7101,7 @@ fn emit_helper_ir(
                     sym = ext.sym_name,
                     n = n_suffix,
                     x0_off = x0_off,
+                    ret_off = ret_off,
                 ));
             }
             // std HashMap entropy: `hashmap_random_keys() -> (u64, u64)` returns
@@ -6487,8 +7123,10 @@ fn emit_helper_ir(
                      }}\n",
                     sym = ext.sym_name,
                     n = n_suffix,
-                    x0_off = x0_off,
-                    x1_off = x0_off + 16,
+                    // Pair RETURN slots (Rust-internal ScalarPair):
+                    // X0:X1 on aarch64, RAX:RDX on x86-64.
+                    x0_off = ret_off,
+                    x1_off = ret_hi_off,
                 ));
             }
             // BumpRealloc: __rust_realloc(old_ptr, old_size, align, new_size).
@@ -6526,14 +7164,16 @@ fn emit_helper_ir(
                        %cmp_{n} = icmp ult i64 %old_size_{n}, %new_size_{n}\n  \
                        %copy_size_{n} = select i1 %cmp_{n}, i64 %old_size_{n}, i64 %new_size_{n}\n  \
                        call void @llvm.memcpy.p0.p0.i64(ptr %new_ptr_p_{n}, ptr %old_ptr_p_{n}, i64 %copy_size_{n}, i1 false)\n  \
-                       store i64 %old_bump_i64_{n}, ptr %x0_p_{n}, align 8\n  \
+                       %ret_p_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
+                       store i64 %old_bump_i64_{n}, ptr %ret_p_{n}, align 8\n  \
                        ret ptr %memory\n\
                      }}\n",
                     sym = ext.sym_name,
                     n = n_suffix,
                     x0_off = x0_off,
-                    x1_off = x0_off + 16,
-                    x3_off = x0_off + 48,
+                    x1_off = arg1_off,
+                    x3_off = arg3_off,
+                    ret_off = ret_off,
                 ));
             }
             // LibcMemcpy: libc memcpy / memmove.
@@ -6567,13 +7207,16 @@ fn emit_helper_ir(
                        %nbytes_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x2_off}\n  \
                        %nbytes_{n} = load i64, ptr %nbytes_p_{n}, align 8\n  \
                        call void @llvm.memmove.p0.p0.i64(ptr %dst_{n}, ptr %src_{n}, i64 %nbytes_{n}, i1 false)\n  \
+                       %ret_p_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
+                       store i64 %dst_i64_{n}, ptr %ret_p_{n}, align 8\n  \
                        ret ptr %memory\n\
                      }}\n",
                     sym = ext.sym_name,
                     n = n_suffix,
                     x0_off = x0_off,
-                    x1_off = x0_off + 16,
-                    x2_off = x0_off + 32,
+                    x1_off = arg1_off,
+                    x2_off = arg2_off,
+                    ret_off = ret_off,
                 ));
             }
             // LibcMemset: libc memset.
@@ -6615,13 +7258,16 @@ fn emit_helper_ir(
                        %nbytes_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x2_off}\n  \
                        %nbytes_{n} = load i64, ptr %nbytes_p_{n}, align 8\n  \
                        call void @llvm.memset.p0.i64(ptr %dst_{n}, i8 %byte_i8_{n}, i64 %nbytes_{n}, i1 true)\n  \
+                       %ret_p_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
+                       store i64 %dst_i64_{n}, ptr %ret_p_{n}, align 8\n  \
                        ret ptr %memory\n\
                      }}\n",
                     sym = ext.sym_name,
                     n = n_suffix,
                     x0_off = x0_off,
-                    x1_off = x0_off + 16,
-                    x2_off = x0_off + 32,
+                    x1_off = arg1_off,
+                    x2_off = arg2_off,
+                    ret_off = ret_off,
                 ));
             }
             // LibcSnprintf: minimal libc snprintf/vsnprintf for the "%d" format.
@@ -6638,10 +7284,12 @@ fn emit_helper_ir(
             //   Two SSA loops: count digits (udiv by 10), then write them MSD→LSD
             //   at buf[cdn-1..0]. Both terminate (udiv reaches 0; <=10 digits).
             Some(SymFnClass::LibcSnprintf) => {
+                #[cfg(target_arch = "aarch64")]
                 branch_stubs.push_str(&format!(
                     "; libc snprintf \"%d\" body for {sym} (X0=buf, X4=fmt, X5=arg)\n\
                      define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) {{\n  \
                        %buf_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
+                       %sret_p_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
                        %buf_i64_{n} = load i64, ptr %buf_p_{n}, align 8\n  \
                        %buf_i32_{n} = trunc i64 %buf_i64_{n} to i32\n  \
                        %fmt_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x4_off}\n  \
@@ -6662,7 +7310,7 @@ fn emit_helper_ir(
                        %cok_{n} = and i1 %c01_{n}, %c2_{n}\n  \
                        br i1 %cok_{n}, label %fmtok_{n}, label %stub_{n}\n\
                      stub_{n}:\n  \
-                       store i64 0, ptr %buf_p_{n}, align 8\n  \
+                       store i64 0, ptr %sret_p_{n}, align 8\n  \
                        ret ptr %memory\n\
                      fmtok_{n}:\n  \
                        %arg_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x5_off}\n  \
@@ -6676,7 +7324,7 @@ fn emit_helper_ir(
                        %znti_{n} = add i32 %buf_i32_{n}, 1\n  \
                        %znta_{n} = inttoptr i32 %znti_{n} to ptr\n  \
                        store i8 0, ptr %znta_{n}, align 1\n  \
-                       store i64 1, ptr %buf_p_{n}, align 8\n  \
+                       store i64 1, ptr %sret_p_{n}, align 8\n  \
                        ret ptr %memory\n\
                      count_{n}:\n  \
                        %cv_{n} = phi i32 [ %arg_{n}, %fmtok_{n} ], [ %cvn_{n}, %count_{n} ]\n  \
@@ -6703,14 +7351,108 @@ fn emit_helper_ir(
                        %nta_{n} = inttoptr i32 %nti_{n} to ptr\n  \
                        store i8 0, ptr %nta_{n}, align 1\n  \
                        %len64_{n} = zext i32 %cdn_{n} to i64\n  \
-                       store i64 %len64_{n}, ptr %buf_p_{n}, align 8\n  \
+                       store i64 %len64_{n}, ptr %sret_p_{n}, align 8\n  \
                        ret ptr %memory\n\
                      }}\n",
                     sym = ext.sym_name,
                     n = n_suffix,
                     x0_off = x0_off,
-                    x4_off = x0_off + 64,
-                    x5_off = x0_off + 80,
+                    ret_off = ret_off,
+                    // fmt/vararg slots are shape-specific per arch —
+                    // __snprintf_chk's X4/X5 on aarch64, direct
+                    // snprintf's R8/R9 on Windows x64 (see pcs).
+                    x4_off = pcs::SNPRINTF_FMT,
+                    x5_off = pcs::SNPRINTF_VA0,
+                ));
+                // Windows ucrt shape (the only snprintf spelling MSVC
+                // emits): `__stdio_common_vsprintf(options RCX, buf RDX,
+                // len R8, fmt R9, locale [SP+40], va_list [SP+48])`,
+                // returns the written length in RAX. The va_list is a
+                // pointer to the caller's spilled varargs; the "%d"
+                // vararg is the first i32 it points at. Any non-"%d"
+                // format takes the stub path (RAX=0, buffer untouched).
+                #[cfg(target_arch = "x86_64")]
+                branch_stubs.push_str(&format!(
+                    "; ucrt __stdio_common_vsprintf \"%d\" body for {sym} (RDX=buf, R9=fmt, [SP+48]=va_list)\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) {{\n  \
+                       %buf_p_{n} = getelementptr inbounds i8, ptr %state, i64 {buf_off}\n  \
+                       %sret_p_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
+                       %buf_i64_{n} = load i64, ptr %buf_p_{n}, align 8\n  \
+                       %buf_i32_{n} = trunc i64 %buf_i64_{n} to i32\n  \
+                       %fmt_p_{n} = getelementptr inbounds i8, ptr %state, i64 {fmt_off}\n  \
+                       %fmt_i64_{n} = load i64, ptr %fmt_p_{n}, align 8\n  \
+                       %fmt_i32_{n} = trunc i64 %fmt_i64_{n} to i32\n  \
+                       %f0a_{n} = inttoptr i32 %fmt_i32_{n} to ptr\n  \
+                       %f0_{n} = load i8, ptr %f0a_{n}, align 1\n  \
+                       %f1i_{n} = add i32 %fmt_i32_{n}, 1\n  \
+                       %f1a_{n} = inttoptr i32 %f1i_{n} to ptr\n  \
+                       %f1_{n} = load i8, ptr %f1a_{n}, align 1\n  \
+                       %f2i_{n} = add i32 %fmt_i32_{n}, 2\n  \
+                       %f2a_{n} = inttoptr i32 %f2i_{n} to ptr\n  \
+                       %f2_{n} = load i8, ptr %f2a_{n}, align 1\n  \
+                       %c0_{n} = icmp eq i8 %f0_{n}, 37\n  \
+                       %c1_{n} = icmp eq i8 %f1_{n}, 100\n  \
+                       %c2_{n} = icmp eq i8 %f2_{n}, 0\n  \
+                       %c01_{n} = and i1 %c0_{n}, %c1_{n}\n  \
+                       %cok_{n} = and i1 %c01_{n}, %c2_{n}\n  \
+                       br i1 %cok_{n}, label %fmtok_{n}, label %stub_{n}\n\
+                     stub_{n}:\n  \
+                       store i64 0, ptr %sret_p_{n}, align 8\n  \
+                       ret ptr %memory\n\
+                     fmtok_{n}:\n  \
+                       %sp_p_{n} = getelementptr inbounds i8, ptr %state, i64 {sp_off}\n  \
+                       %sp64_{n} = load i64, ptr %sp_p_{n}, align 8\n  \
+                       %sp32_{n} = trunc i64 %sp64_{n} to i32\n  \
+                       %vlpa_{n} = add i32 %sp32_{n}, 48\n  \
+                       %vlpp_{n} = inttoptr i32 %vlpa_{n} to ptr\n  \
+                       %vl64_{n} = load i64, ptr %vlpp_{n}, align 8\n  \
+                       %vl32_{n} = trunc i64 %vl64_{n} to i32\n  \
+                       %vap_{n} = inttoptr i32 %vl32_{n} to ptr\n  \
+                       %arg_{n} = load i32, ptr %vap_{n}, align 4\n  \
+                       %isz_{n} = icmp eq i32 %arg_{n}, 0\n  \
+                       br i1 %isz_{n}, label %zero_{n}, label %count_{n}\n\
+                     zero_{n}:\n  \
+                       %zbuf_{n} = inttoptr i32 %buf_i32_{n} to ptr\n  \
+                       store i8 48, ptr %zbuf_{n}, align 1\n  \
+                       %znti_{n} = add i32 %buf_i32_{n}, 1\n  \
+                       %znta_{n} = inttoptr i32 %znti_{n} to ptr\n  \
+                       store i8 0, ptr %znta_{n}, align 1\n  \
+                       store i64 1, ptr %sret_p_{n}, align 8\n  \
+                       ret ptr %memory\n\
+                     count_{n}:\n  \
+                       %cv_{n} = phi i32 [ %arg_{n}, %fmtok_{n} ], [ %cvn_{n}, %count_{n} ]\n  \
+                       %cd_{n} = phi i32 [ 0, %fmtok_{n} ], [ %cdn_{n}, %count_{n} ]\n  \
+                       %cvn_{n} = udiv i32 %cv_{n}, 10\n  \
+                       %cdn_{n} = add i32 %cd_{n}, 1\n  \
+                       %cdone_{n} = icmp eq i32 %cvn_{n}, 0\n  \
+                       br i1 %cdone_{n}, label %wr_{n}, label %count_{n}\n\
+                     wr_{n}:\n  \
+                       %wv_{n} = phi i32 [ %arg_{n}, %count_{n} ], [ %wvn_{n}, %wr_{n} ]\n  \
+                       %wi_{n} = phi i32 [ %cdn_{n}, %count_{n} ], [ %win_{n}, %wr_{n} ]\n  \
+                       %wvn_{n} = udiv i32 %wv_{n}, 10\n  \
+                       %wrem_{n} = urem i32 %wv_{n}, 10\n  \
+                       %wdig_{n} = add i32 %wrem_{n}, 48\n  \
+                       %wdig8_{n} = trunc i32 %wdig_{n} to i8\n  \
+                       %win_{n} = sub i32 %wi_{n}, 1\n  \
+                       %wai_{n} = add i32 %buf_i32_{n}, %win_{n}\n  \
+                       %wa_{n} = inttoptr i32 %wai_{n} to ptr\n  \
+                       store i8 %wdig8_{n}, ptr %wa_{n}, align 1\n  \
+                       %wdone_{n} = icmp eq i32 %win_{n}, 0\n  \
+                       br i1 %wdone_{n}, label %fin_{n}, label %wr_{n}\n\
+                     fin_{n}:\n  \
+                       %nti_{n} = add i32 %buf_i32_{n}, %cdn_{n}\n  \
+                       %nta_{n} = inttoptr i32 %nti_{n} to ptr\n  \
+                       store i8 0, ptr %nta_{n}, align 1\n  \
+                       %len64_{n} = zext i32 %cdn_{n} to i64\n  \
+                       store i64 %len64_{n}, ptr %sret_p_{n}, align 8\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                    n = n_suffix,
+                    buf_off = arg1_off,        // RDX
+                    fmt_off = arg3_off,        // R9
+                    sp_off = pcs::SP,          // RSP → [SP+48] = va_list
+                    ret_off = ret_off,         // RAX
                 ));
             }
             // BumpDealloc: __rust_dealloc(ptr, size, align). Bump-only
@@ -6754,15 +7496,17 @@ fn emit_helper_ir(
                        %r_{n} = call i32 %fn_{n}(i64 %lo_{n}, i64 %hi_{n}, i32 %info_{n})\n  \
                        store volatile i32 %r_{n}, ptr @__az_call_observer, align 4\n  \
                        %r_64_{n} = zext i32 %r_{n} to i64\n  \
-                       store i64 %r_64_{n}, ptr %tidx_p_{n}, align 8\n  \
+                       %ret_p_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
+                       store i64 %r_64_{n}, ptr %ret_p_{n}, align 8\n  \
                        ret ptr %memory\n\
                      }}\n",
                     sym = ext.sym_name,
                     n = n_suffix,
                     x0_off = x0_off,
-                    x1_off = x0_off + 16,
-                    x2_off = x0_off + 32,
-                    x3_off = x0_off + 48,
+                    x1_off = arg1_off,
+                    x2_off = arg2_off,
+                    x3_off = arg3_off,
+                    ret_off = ret_off,
                 ));
             }
             Some(SymFnClass::CallIndirectLayout4) => {
@@ -6790,23 +7534,46 @@ fn emit_helper_ir(
                        %info_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x3_off}\n  \
                        %info_64_{n} = load i64, ptr %info_p_{n}, align 8\n  \
                        %info_{n} = trunc i64 %info_64_{n} to i32\n  \
-                       %out_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x4_off}\n  \
-                       %out_64_{n} = load i64, ptr %out_p_{n}, align 8\n  \
-                       %out_{n} = trunc i64 %out_64_{n} to i32\n  \
-                       %fn_{n} = inttoptr i32 %tidx_{n} to ptr\n  \
+{out_load}                       %fn_{n} = inttoptr i32 %tidx_{n} to ptr\n  \
                        %r_{n} = call i32 %fn_{n}(i64 %lo_{n}, i64 %hi_{n}, i32 %info_{n}, i32 %out_{n})\n  \
                        store volatile i32 %r_{n}, ptr @__az_call_observer, align 4\n  \
                        %r_64_{n} = zext i32 %r_{n} to i64\n  \
-                       store i64 %r_64_{n}, ptr %tidx_p_{n}, align 8\n  \
+                       %ret_p_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
+                       store i64 %r_64_{n}, ptr %ret_p_{n}, align 8\n  \
                        ret ptr %memory\n\
                      }}\n",
                     sym = ext.sym_name,
                     n = n_suffix,
                     x0_off = x0_off,
-                    x1_off = x0_off + 16,
-                    x2_off = x0_off + 32,
-                    x3_off = x0_off + 48,
-                    x4_off = x0_off + 64,
+                    x1_off = arg1_off,
+                    x2_off = arg2_off,
+                    x3_off = arg3_off,
+                    ret_off = ret_off,
+                    // 5th arg (out_ptr): X4 register slot on aarch64;
+                    // GUEST-STACK slot [SP_entry+40] on Windows x64
+                    // (the caller's lifted `mov [rsp+0x20]` pre-call
+                    // store + remill's modeled return-address push).
+                    out_load = if cfg!(target_arch = "x86_64") {
+                        format!(
+                            "                       %sp_p_{n} = getelementptr inbounds i8, ptr %state, i64 {sp}\n  \
+                             %sp_64_{n} = load i64, ptr %sp_p_{n}, align 8\n  \
+                             %sp_32_{n} = trunc i64 %sp_64_{n} to i32\n  \
+                             %outaddr_{n} = add i32 %sp_32_{n}, 40\n  \
+                             %outpp_{n} = inttoptr i32 %outaddr_{n} to ptr\n  \
+                             %out_64_{n} = load i64, ptr %outpp_{n}, align 8\n  \
+                             %out_{n} = trunc i64 %out_64_{n} to i32\n  ",
+                            n = n_suffix,
+                            sp = pcs::SP,
+                        )
+                    } else {
+                        format!(
+                            "                       %out_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x4}\n  \
+                             %out_64_{n} = load i64, ptr %out_p_{n}, align 8\n  \
+                             %out_{n} = trunc i64 %out_64_{n} to i32\n  ",
+                            n = n_suffix,
+                            x4 = 608u64, // X4
+                        )
+                    },
                 ));
             }
             Some(SymFnClass::ResolveCallback) => {
@@ -6835,12 +7602,14 @@ fn emit_helper_ir(
                        %r_{n} = call i32 @__az_resolve_callback(i64 %addr_{n})\n  \
                        store volatile i32 %r_{n}, ptr @__az_call_observer, align 4\n  \
                        %r_64_{n} = zext i32 %r_{n} to i64\n  \
-                       store i64 %r_64_{n}, ptr %addr_p_{n}, align 8\n  \
+                       %ret_p_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
+                       store i64 %r_64_{n}, ptr %ret_p_{n}, align 8\n  \
                        ret ptr %memory\n\
                      }}\n",
                     sym = ext.sym_name,
                     n = n_suffix,
                     x0_off = x0_off,
+                    ret_off = ret_off,
                 ));
             }
             // Leaf: known-not-recursable (system libs, mangled Rust
@@ -6868,7 +7637,7 @@ fn emit_helper_ir(
             // CallIndirect / etc.) or to add a dedicated stub kind.
             Some(SymFnClass::Leaf) => {
                 branch_stubs.push_str(&format!(
-                    "; Leaf body for {sym} — noop with X0 zeroed (avoids garbage-return traps)\n\
+                    "; Leaf body for {sym} — noop with the scalar-return slot zeroed (avoids garbage-return traps)\n\
                      define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
                        %leaf_x0_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
                        store i64 0, ptr %leaf_x0_p_{n}, align 8\n  \
@@ -6876,7 +7645,9 @@ fn emit_helper_ir(
                      }}\n",
                     sym = ext.sym_name,
                     n = n_suffix,
-                    x0_off = x0_off,
+                    // Zero the RETURN slot (X0 / RAX) — the caller
+                    // reads its result from there, not from arg0.
+                    x0_off = ret_off,
                 ));
             }
             // NeverLift: AzApp_run + other server-entry-points. Should
@@ -7260,17 +8031,21 @@ define {ret_ty} @{export_as}({params}) {{
 
   call void @llvm.memset.p0.i64(ptr %state_buf, i8 0, i64 {state_size}, i1 false)
 
-{prologue}
-  ; SP register holds the address of the top of %stack_buf as an
-  ; i64. The lifted body decrements toward lower addresses within
-  ; the stack buffer; loads/stores via inttoptr land in-bounds.
-  ; This is the ONLY ptrtoint in the wrapper — and it's of
-  ; %stack_buf, not %state_buf, so %state_buf stays SROA-eligible.
-  %sp_top = getelementptr inbounds i8, ptr %stack_buf, i64 {stack_size}
+  ; SP register holds the initial guest stack pointer as an i64: the
+  ; top of %stack_buf on aarch64, SP_HEADROOM below the top on
+  ; Windows x64 (the fake return-address slot, the 32-byte shadow
+  ; space, guest-stack args and ByValCopyPtr aggregate copies live
+  ; ABOVE SP there). The lifted body decrements toward lower
+  ; addresses within the stack buffer; loads/stores via inttoptr
+  ; land in-bounds. This is the ONLY ptrtoint in the wrapper — and
+  ; it's of %stack_buf, not %state_buf, so %state_buf stays
+  ; SROA-eligible. Defined BEFORE the arg prologue so StackArg /
+  ; ByValCopyPtr stores can reference %sp_int.
+  %sp_top = getelementptr inbounds i8, ptr %stack_buf, i64 {sp_init_off}
   %sp_int = ptrtoint ptr %sp_top to i64
   %sp_slot = getelementptr inbounds i8, ptr %state_buf, i64 {sp_off}
   store i64 %sp_int, ptr %sp_slot, align 8
-
+{retaddr_zero}{prologue}
   ; Memory token is null — every memory op was lowered to a real
   ; load/store above, so the token is dead inside the body.
   %_ret_mem = call ptr @sub_{lift_addr_hex}(ptr %state_buf, i64 {lift_addr_dec}, ptr null)
@@ -7300,6 +8075,14 @@ define {ret_ty} @{export_as}({params}) {{
         sp_off = sp_off,
         state_size = state_size,
         stack_size = stack_size,
+        sp_init_off = sp_init_off,
+        retaddr_zero = if cfg!(target_arch = "x86_64") {
+            "  ; x86: zero the fake return-address slot at [SP] so the lifted\n  \
+               ; body's final `ret` pops 0 (mirrors aarch64's zeroed X30/LR).\n  \
+               store i64 0, ptr %sp_top, align 8\n"
+        } else {
+            ""
+        },
         branch_stubs = branch_stubs.trim_end(),
         bump_global = bump_global.trim_end(),
         import_attrs = import_attrs.trim_end(),
@@ -7710,6 +8493,7 @@ fn tag_state_accesses(ir: &str) -> String {
 ///     `immhi[20:2]` (bits 23..5), shifted left by 12 → page offset
 ///
 /// Target page = `(pc & ~0xFFF) + sign_extend(imm21, 33) << 12`.
+#[cfg(target_arch = "aarch64")]
 fn scan_arm64_adrp_pages(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
     let mut out = Vec::new();
     let mut offset = 0;
@@ -7791,7 +8575,7 @@ fn build_extra_data(bytes: &[u8], fn_addr: usize, lift_addr: u64) -> String {
     let synth_off = (lift_addr as i128) - (fn_addr as i128);
     let mut regions: Vec<String> = Vec::new();
     let mut total = 0usize;
-    for (raddr, len) in scan_arm64_adrp_accesses(bytes, fn_addr) {
+    for (raddr, len) in scan_guest_data_accesses(bytes, fn_addr) {
         if len == 0 || len > 65536 {
             continue;
         }
@@ -7808,6 +8592,7 @@ fn build_extra_data(bytes: &[u8], fn_addr: usize, lift_addr: u64) -> String {
     regions.join(";")
 }
 
+#[cfg(target_arch = "aarch64")]
 fn scan_arm64_adrp_accesses(
     fn_bytes: &[u8],
     fn_addr: usize,
@@ -8150,6 +8935,7 @@ fn scan_arm64_adrp_accesses(
 /// absolute targets. Callers must filter through `SymbolTable::resolve` (exact
 /// entry match) — data/string adrp+adds produce addresses that resolve to
 /// nothing and are discarded.
+#[cfg(target_arch = "aarch64")]
 fn scan_arm64_adrp_add_code_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
     let mut out = Vec::new();
     // reg -> page value materialized by the most recent adrp
@@ -8200,6 +8986,7 @@ fn scan_arm64_adrp_add_code_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usiz
     out
 }
 
+#[cfg(target_arch = "aarch64")]
 fn scan_arm64_bl_b_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
     let mut out = Vec::new();
     let mut offset = 0;
@@ -8374,7 +9161,161 @@ pub struct ResolvedBranchExtern {
     pub classification: Option<SymFnClass>,
 }
 
+/// Run a lift-pipeline tool, retrying a small number of times on
+/// TRANSIENT Windows process-init failures. Under the heavy subprocess
+/// churn of a full closure lift (hundreds of remill/opt/llc/llvm-link/
+/// wasm-ld spawns back-to-back), a child occasionally fails to start
+/// with `0xC0000142` (STATUS_DLL_INIT_FAILED) or `0xC0000017`
+/// (STATUS_NO_MEMORY) — a momentary resource race, NOT a real tool
+/// error (the same tool runs fine on the next attempt). Without the
+/// retry, the eventloop-lift resilience would Leaf-stub the affected
+/// function — fine for a cold getter, but catastrophic if it lands on
+/// the load-bearing `on_click` cb (the whole click flow goes dead).
 fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileError> {
+    #[cfg(target_os = "windows")]
+    {
+        const TRANSIENT: &[i64] = &[0xC000_0142u32 as i32 as i64, 0xC000_0017u32 as i32 as i64];
+        let mut last_err = None;
+        for attempt in 0..4 {
+            match run_tool_once(prog, args, fn_name) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    let transient = TRANSIENT.iter().any(|c| {
+                        let hex = format!("{:x}", *c as u32);
+                        e.reason.contains(&hex) || e.reason.contains(&format!("{}", c))
+                    });
+                    if transient && attempt < 3 {
+                        eprintln!(
+                            "[azul-web]   run_tool({}) transient failure (attempt {}): {} — retrying",
+                            prog.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
+                            attempt + 1,
+                            e.reason.lines().next().unwrap_or("")
+                        );
+                        // brief backoff lets the spawn-storm drain
+                        std::thread::sleep(std::time::Duration::from_millis(150 * (attempt as u64 + 1)));
+                        last_err = Some(e);
+                        continue;
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        return Err(last_err.unwrap());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        run_tool_once(prog, args, fn_name)
+    }
+}
+
+fn run_tool_once(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileError> {
+    // Windows: CreateProcess caps the command line at 32,767 chars,
+    // but `--bytes <hex>` for a 64 KiB fn is ~128 K chars (macOS
+    // ARG_MAX ~1 MiB never hit this). remill-lift uses gflags, whose
+    // built-in `--flagfile=<path>` reads `--flag=value` lines with no
+    // length limit — spill long arg sets there. Only remill-lift gets
+    // long args (llc/opt/wasm-ld take file paths), and its args are
+    // strict `--flag value` pairs, which is what the spill encodes.
+    #[cfg(target_os = "windows")]
+    {
+        let total: usize = args.iter().map(|a| a.len() + 3).sum::<usize>()
+            + prog.as_os_str().len();
+        let pairwise = args.len() % 2 == 0
+            && args.chunks(2).all(|c| c[0].starts_with("--") && !c[1].starts_with("--"));
+        // Non-pairwise long arg sets (wasm-ld with hundreds of .o
+        // paths, llc/opt) use LLVM's @response-file expansion instead
+        // of gflags' --flagfile.
+        if total > 30_000 && !pairwise {
+            let mut content = String::with_capacity(total + args.len() * 2);
+            for a in args {
+                // LLVM response files: whitespace separates args. The
+                // Windows tokenizer treats backslashes as literal (only
+                // a backslash run directly before a quote escapes), so
+                // plain paths need no escaping — quote only on spaces.
+                if a.contains(' ') {
+                    content.push('"');
+                    content.push_str(a);
+                    content.push('"');
+                } else {
+                    content.push_str(a);
+                }
+                content.push('\n');
+            }
+            let dir = std::env::temp_dir().join("azul-flagfiles");
+            let _ = std::fs::create_dir_all(&dir);
+            let path = dir.join(format!(
+                "{}-{}.rsp",
+                sanitize_filename(fn_name),
+                std::process::id()
+            ));
+            std::fs::write(&path, content).map_err(|e| TranspileError {
+                fn_name: fn_name.to_string(),
+                reason: format!("rsp write {}: {e}", path.display()),
+            })?;
+            let rsp_arg = format!("@{}", path.display());
+            let out = Command::new(prog)
+                .arg(&rsp_arg)
+                .output()
+                .map_err(|e| TranspileError {
+                    fn_name: fn_name.to_string(),
+                    reason: format!("spawn {}: {e}", prog.display()),
+                })?;
+            let _ = std::fs::remove_file(&path);
+            if !out.status.success() {
+                return Err(TranspileError {
+                    fn_name: fn_name.to_string(),
+                    reason: format!(
+                        "{} failed (rsp): {}\nstderr: {}",
+                        prog.display(),
+                        out.status,
+                        String::from_utf8_lossy(&out.stderr).trim()
+                    ),
+                });
+            }
+            return Ok(());
+        }
+        if total > 30_000 && pairwise {
+            let mut content = String::with_capacity(total + args.len());
+            for c in args.chunks(2) {
+                content.push_str(c[0]);
+                content.push('=');
+                content.push_str(c[1]);
+                content.push('\n');
+            }
+            let dir = std::env::temp_dir().join("azul-flagfiles");
+            let _ = std::fs::create_dir_all(&dir);
+            let path = dir.join(format!(
+                "{}-{}.flags",
+                sanitize_filename(fn_name),
+                std::process::id()
+            ));
+            std::fs::write(&path, content).map_err(|e| TranspileError {
+                fn_name: fn_name.to_string(),
+                reason: format!("flagfile write {}: {e}", path.display()),
+            })?;
+            let flagfile_arg = format!("--flagfile={}", path.display());
+            let out = Command::new(prog)
+                .arg(&flagfile_arg)
+                .output()
+                .map_err(|e| TranspileError {
+                    fn_name: fn_name.to_string(),
+                    reason: format!("spawn {}: {e}", prog.display()),
+                })?;
+            let _ = std::fs::remove_file(&path);
+            if !out.status.success() {
+                return Err(TranspileError {
+                    fn_name: fn_name.to_string(),
+                    reason: format!(
+                        "{} failed (flagfile): {}\nstderr: {}",
+                        prog.display(),
+                        out.status,
+                        String::from_utf8_lossy(&out.stderr).trim()
+                    ),
+                });
+            }
+            return Ok(());
+        }
+    }
     let out = Command::new(prog).args(args).output().map_err(|e| TranspileError {
         fn_name: fn_name.to_string(),
         reason: format!("spawn {}: {e}", prog.display()),
