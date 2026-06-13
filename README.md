@@ -32,15 +32,13 @@ object model for rapid development of beautiful, native desktop applications
 
 ```bash
 cargo build -r -p azul-doc
-./target/release/azul-doc codegen all # generates public API from api.json
+./target/release/azul-doc codegen all
 ```
 
 azul-doc is a multitool that generates all the code *necessary* for having a stable public API that works across multiple languages. 
 
-Then you can link it as a "regular" Rust code (not recommended):
-
 ```bash
-
+# link dynamic (fast Rust rebuilds)
 export AZ_LINK_PATH=/path/to/azul/target/release
 cargo add azul --features link_dynamic
 cargo run --release my-project
