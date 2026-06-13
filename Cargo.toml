@@ -24,6 +24,10 @@ exclude = [
     "tests",
     "experiments",
     "third_party",
+    # Standalone Wayland GUI-test injector (own [workspace] — keeps
+    # wayland-client/scanner out of the azul lockfile). Lives under doc/
+    # (the azul-doc tool's home) rather than as its own root folder.
+    "doc/aztest",
 ]
 
 [workspace.dependencies]
