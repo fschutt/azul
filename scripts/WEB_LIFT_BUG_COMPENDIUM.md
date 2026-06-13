@@ -275,6 +275,18 @@ that differ from AAPCS64 **and from each other**. This is the second-biggest x86
   first pointer in **`RCX`**, shifting all other args right. **Every `X8`/sret assumption must be
   re-derived per ABI.** Expect this to touch `CallIndirectLayout4`, the dispatcher, and the
   hidden-ptr-return plumbing.
+- **[ABI — CONFIRMED OPEN on x86/Windows, 2026-06-13]** The top-level `Pcs::HiddenPtrReturn`
+  was re-derived (sret = `pcs::SRET` = RCX on Win-x64) and the LayoutCallback runs. BUT the
+  full hello-world layout still traps with a memory OOB in the layout-cb closure: an INTERNAL
+  struct/Vec-by-value return (AzString / Vec<NodeData> / AzDom) is mis-lifted on x86 → the
+  caller reads a garbage pointer → deref OOB (surfaces in `enforce_sp_preservation`'s
+  CS-snapshot derefing the garbage-as-State). This is the **x86 analog of the macOS class-B
+  bug** (`m12-q-reg-x8-sret`). Ruled out: snprintf, the Leaf-stubs, no-op'd indirect calls
+  (the subprocess `__az_indirect_dispatch` is now ON and didn't move it). Minimal layout
+  (`AzDom_createBody`) → rc=0, so it's the complex-Dom return sites only. **Next session:**
+  `scripts/HANDOFF_FABLE_web_lift_x86_windows_2026_06_13.md` §3 — localize the site (un-strip
+  wasm names or AZ_REG_TRACE), confirm with `scripts/mechb_harness/` compiled to the x86 host,
+  fix the amd64 return-value lowering in the remill fork or the wrapper's internal-sret plumbing.
 
 ### C2. Argument registers
 - AAPCS64: `X0–X7`. The lift reads args from those State slots.
