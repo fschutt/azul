@@ -1,7 +1,4 @@
-// examples/node/hello-world.js — Node port of examples/c/hello-world.c.
 // Run: node hello-world.js   (after `npm install`)
-//      bun  run hello-world.js
-//      deno run --allow-ffi --unstable-ffi hello-world.js
 
 'use strict';
 
@@ -40,8 +37,7 @@ function layout(dataPtr, _info) {
         .with_child(button.dom());
 }
 
-// Catch uncaught exceptions from inside koffi-registered callbacks
-// before they SIGABRT the process via the libffi trampoline.
+// Catch callback exceptions before they SIGABRT via the libffi trampoline.
 process.on('uncaughtException', (e) => {
     console.error('[azul] uncaught:', e && e.stack ? e.stack : e);
 });

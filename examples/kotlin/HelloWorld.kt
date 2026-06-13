@@ -1,14 +1,5 @@
-// examples/kotlin/HelloWorld.kt — Python-quality Kotlin port.
-//
-// Uses the typed `LayoutCallback` SAM that returns a `Dom` directly
-// (CC-2) and the wrapper-class `App` API (CC-5): no JNA byte splice,
-// no Marshal/AllocHGlobal-style pointer dance.
-//
-// Build:  kotlinc -J-Xmx4g -cp $JNA_JAR Azul.kt HelloWorld.kt -include-runtime -d hello-world.jar
-// Run:    DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \
-//             -cp hello-world.jar:$JNA_JAR com.azul.HelloWorldKt
-//
-// macOS requires `-XstartOnFirstThread` (Cocoa main-thread rule).
+// macOS needs `java -XstartOnFirstThread -Djna.library.path=.` (Cocoa
+// main-thread rule).
 
 package com.azul
 
@@ -24,9 +15,6 @@ private val onClick = AzulNativeManaged.CallbackInvokerCallback { _, dataPtr, _,
     outPtr!!.setInt(0, result)
 }
 
-// Typed layout callback: returns Dom directly. The bridge in
-// AzulHostInvoker.registerLayoutCallback(LayoutCallback) does the
-// AzDom-byte splice into outPtr internally.
 private val layout = AzulHostInvoker.LayoutCallback { _, dataPtr, _ ->
     val m = AzulHostInvoker.refanyGet(dataPtr)
     if (m !is MyDataModel) {

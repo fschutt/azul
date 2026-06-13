@@ -1,10 +1,8 @@
 from azul import *
 
-
 class DataModel:
     def __init__(self, counter):
         self.counter = counter
-
 
 def layout(data, info):
     label = (Dom.create_text(str(data.counter))
@@ -24,14 +22,11 @@ def layout(data, info):
 
     return body.style(Css.empty())
 
-
 def on_click(data, info):
     data.counter += 1
     return Update.RefreshDom()
 
-
 model = DataModel(5)
 window = WindowCreateOptions.create(layout)
-
 app = App.create(model, AppConfig.create())
 app.run(window)

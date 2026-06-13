@@ -4,8 +4,6 @@
 
 #define AZ_STR(s) AzString_copyFromBytes((const uint8_t*)(s), 0, strlen(s))
 
-// ── Data model ──────────────────────────────────────────────────────────
-
 typedef struct { uint32_t counter; } MyDataModel;
 void MyDataModel_destructor(void* m) { }
 
@@ -32,8 +30,6 @@ AzResultRefAnyString MyDataModel_fromJson(AzJson json) {
     return AzResultRefAnyString_ok(MyDataModel_upcast(model));
 }
 
-// ── Callback ────────────────────────────────────────────────────────────
-
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     MyDataModelRefMut d = MyDataModelRefMut_create(&data);
     if (!MyDataModel_downcastMut(&data, &d)) {
@@ -43,8 +39,6 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     MyDataModelRefMut_delete(&d);
     return AzUpdate_RefreshDom;
 }
-
-// ── Layout ──────────────────────────────────────────────────────────────
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     MyDataModelRef d = MyDataModelRef_create(&data);
@@ -56,7 +50,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     int written = snprintf(buffer, 20, "%d", d.ptr->counter);
     MyDataModelRef_delete(&d);
 
-    // Counter label (wrapped in a div to make it block-level)
     AzString label_text = AzString_copyFromBytes((const uint8_t*)buffer, 0, written);
     AzDom label = AzDom_createText(label_text);
     AzDom label_wrapper = AzDom_createDiv();
@@ -65,24 +58,18 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ));
     AzDom_addChild(&label_wrapper, label);
 
-    // Button
     AzButton button = AzButton_create(AZ_STR("Increase counter"));
     AzButton_setButtonType(&button, AzButtonType_Primary);
     AzRefAny data_clone = AzRefAny_clone(&data);
     AzButton_setOnClick(&button, data_clone, on_click);
     AzDom button_dom = AzButton_dom(button);
 
-    // Body
     AzDom body = AzDom_createBody();
     AzDom_addChild(&body, label_wrapper);
     AzDom_addChild(&body, button_dom);
 
-    // No external stylesheet; inline CSS via AzDom_addCssProperty
-    // above (line 63) covers everything this hello-world needs.
     return body;
 }
-
-// ── Main ────────────────────────────────────────────────────────────────
 
 int main() {
     MyDataModel model = { .counter = 5 };
@@ -92,9 +79,6 @@ int main() {
     window.window_state.title = AZ_STR("Hello World");
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;
-
-    // NoTitleAutoInject: OS draws close/min/max buttons,
-    // framework auto-injects a Titlebar with drag support.
     window.window_state.flags.decorations = AzWindowDecorations_NoTitleAutoInject;
     window.window_state.flags.background_material = AzWindowBackgroundMaterial_Sidebar;
 

@@ -1,12 +1,3 @@
-// examples/csharp/hello-world.cs — Python-quality C# port.
-//
-// Uses the wrapper-class `App.Create(...).Run(wco)` path (CC-5) and
-// a typed layout delegate returning a wrapper `Dom` (CC-2). No
-// Marshal.AllocHGlobal, no .Raw extraction, no IntPtr ceremony.
-//
-// Build + run (macOS):
-//     DYLD_LIBRARY_PATH=. dotnet run
-
 using System;
 using Azul;
 
