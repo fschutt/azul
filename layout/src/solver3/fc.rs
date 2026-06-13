@@ -2743,7 +2743,10 @@ fn layout_ifc<T: ParsedFontTrait>(
             #[cfg(feature = "web_lift")]
             unsafe {
                 crate::az_mark((0x60688) as u32, (0x000000EEu32) as u32);
-                crate::az_mark((0x6068C) as u32, (*(&e as *const _ as *const u32)) as u32);
+                // Read the error's first byte (discriminant) for the marker — a
+                // `*const u8` read is always aligned + in-bounds; the old
+                // `*const u32` read was UB on a 1-aligned / <4-byte enum.
+                crate::az_mark((0x6068C) as u32, (*(&e as *const _ as *const u8)) as u32);
             }
             // Font errors should not stop layout of other elements.
             // Log the error and return a zero-sized layout.
