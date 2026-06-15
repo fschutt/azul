@@ -1359,6 +1359,9 @@ mod provision_tests {
     /// have stopped the incident: the new kernel lacked the root-disk driver.
     #[cfg(target_os = "linux")]
     #[test]
+    #[ignore = "needs a real Linux desktop: inspects /lib/modules + /boot for the \
+                running and a synthetic kernel; minimal CI runners lack that baseline \
+                so reboot_safety_check can't distinguish a bare kernel. Run explicitly."]
     fn reboot_safety_passes_running_kernel_fails_a_bare_one() {
         if let Some(kver) = capture("uname", &["-r"]) {
             let r = reboot_safety_check(&kver);
@@ -1394,6 +1397,9 @@ mod provision_tests {
     /// modules-extra and rebuilds the initramfs; a healthy one yields nothing.
     #[cfg(target_os = "linux")]
     #[test]
+    #[ignore = "needs a real Linux desktop: depends on apt package metadata + kernel \
+                module trees to build a repair plan; minimal CI runners lack them. \
+                Run explicitly."]
     fn repair_plan_targets_modules_extra() {
         if let Some(kver) = capture("uname", &["-r"]) {
             assert!(
