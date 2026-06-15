@@ -1256,6 +1256,23 @@ run_one() {  # backgrounded per-lang worker: re-exec --single under a timeout.
   # bogus "driver error rc=0". With `&&`, the failed command's status survives.
   _timeout "$LANG_TIMEOUT" bash "$SELF" --single "$lang" && return 0
   local rc=$?
+  # Retry a SHIPPED binding once before accepting a FAILS. The headless e2e is
+  # occasionally flaky on loaded CI runners: both csharp (.NET) and the native
+  # pascal example have flipped FAILS<->WORKS run-to-run with no code change,
+  # from timeout/resource starvation when several GUI binaries share a 2-core
+  # runner. Shipped bindings GATE the deploy (deploy_pages needs e2e_native), so
+  # one retry damps that environmental noise; a real, repeatable failure still
+  # fails BOTH attempts and gates. A passing retry overwrites the .status/.log
+  # sidecars. BETA/ALPHA never gate, so we don't spend a retry on them.
+  if [ "$(tier_of "$lang")" = "shipped" ]; then
+    local st1=""
+    [ -f "$WORKDIR/$lang.status" ] && IFS=$'\t' read -r _ st1 _ < "$WORKDIR/$lang.status" || true
+    if [ "$st1" = "FAILS" ]; then
+      echo ">>> [$lang] FAILS on attempt 1 — retrying once (shipped binding gates the deploy)" >&2
+      _timeout "$LANG_TIMEOUT" bash "$SELF" --single "$lang" && return 0
+      rc=$?
+    fi
+  fi
   # Ensure a row exists even if the child was killed before it could record().
   # 124 = GNU timeout fired; 137 = SIGKILL (kill-after / OOM).
   if [ ! -f "$WORKDIR/$lang.status" ]; then

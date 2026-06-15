@@ -2092,7 +2092,12 @@ jobs:
     name: Deploy to GitHub Pages
     # Runs on BOTH 'website' (site-only) and 'deploy' (site + registry publishes).
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android]
+    # GATING: e2e_native is in `needs` so a SHIPPED-binding AZ_E2E failure on
+    # any OS (the matrix runs `--gate-shipped`) BLOCKS the deploy — we do not
+    # publish a release whose shipped language bindings are red. SKIP (missing
+    # toolchain / unrunnable-on-this-OS) never trips the gate, so per-OS gaps
+    # don't block; only a real FAILS does.
+    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native]
     runs-on: ubuntu-22.04
     # The top-level workflow permissions are `contents: read`; the GitHub Release
     # step (`gh release create`/`upload`) needs `contents: write` or it 403s.
