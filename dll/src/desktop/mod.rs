@@ -67,7 +67,17 @@ pub mod display;
 /// whole test run — so this returns `None`, and each optional backend falls
 /// back to its existing "library unavailable" path. On a real target it tries
 /// every name and returns the first that loads.
+///
+/// Gated to the targets where `libloading` is actually a dependency (linux,
+/// android, windows, macOS) — iOS/wasm don't pull it, and all callers are
+/// themselves gated to these platforms.
 #[allow(dead_code)]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos"
+))]
 pub(crate) fn open_first_lib(names: &[&str]) -> Option<libloading::Library> {
     #[cfg(miri)]
     {

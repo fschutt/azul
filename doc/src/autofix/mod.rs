@@ -1742,6 +1742,15 @@ pub fn check_ffi_safety(
         }
         for typedef in defs {
             let file_path = typedef.file_path.display().to_string();
+            // The `dll/src/unified/` façade re-declares types under
+            // `cfg(target_arch = "wasm32")` that already exist (gated to
+            // `cfg(not(wasm32))`) in their real desktop module — e.g.
+            // `unified::video_codec::provision::VideoStartupCheck` mirrors the
+            // `desktop::extra::…` one. The two are mutually exclusive per target,
+            // so it is never a real C-API name collision; skip the façade copy.
+            if file_path.replace('\\', "/").contains("/unified/") {
+                continue;
+            }
             let is_generic = match &typedef.kind {
                 type_index::TypeDefKind::Struct { generic_params, .. } => {
                     !generic_params.is_empty()
