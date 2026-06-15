@@ -37,6 +37,56 @@ pub fn generate_native_methods(
     builder.line(&format!("public const string DllName = \"{}\";", DLL_NAME));
     builder.blank();
 
+    // Robust native-library resolution. A bare `[DllImport(\"azul\")]` relies on
+    // the OS loader: Windows/macOS will find the lib next to the app or in the
+    // working directory, but Linux `dlopen` does NOT search the current
+    // directory — so the common "drop libazul.so beside the app" layout fails
+    // there with DllNotFoundException. Register a resolver (once, at module
+    // load) that probes the assembly directory + the working directory for the
+    // platform-specific filename, then falls back to the default search
+    // (system dirs + the NuGet `runtimes/<rid>/native/` payload).
+    builder.line("[System.Runtime.CompilerServices.ModuleInitializer]");
+    builder.line("internal static void _RegisterAzulResolver()");
+    builder.line("{");
+    builder.indent();
+    builder.line(
+        "System.Runtime.InteropServices.NativeLibrary.SetDllImportResolver(typeof(NativeMethods).Assembly, _ResolveAzul);",
+    );
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+    builder.line(
+        "private static System.IntPtr _ResolveAzul(string name, System.Reflection.Assembly assembly, System.Runtime.InteropServices.DllImportSearchPath? searchPath)",
+    );
+    builder.line("{");
+    builder.indent();
+    builder.line("if (name != DllName) return System.IntPtr.Zero;");
+    builder.line(
+        "string file = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) ? \"azul.dll\"",
+    );
+    builder.line(
+        "    : System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX) ? \"libazul.dylib\"",
+    );
+    builder.line("    : \"libazul.so\";");
+    builder.line(
+        "foreach (var dir in new[] { System.AppContext.BaseDirectory, System.IO.Directory.GetCurrentDirectory() })",
+    );
+    builder.line("{");
+    builder.indent();
+    builder.line("if (string.IsNullOrEmpty(dir)) continue;");
+    builder.line("var candidate = System.IO.Path.Combine(dir, file);");
+    builder.line(
+        "if (System.IO.File.Exists(candidate) && System.Runtime.InteropServices.NativeLibrary.TryLoad(candidate, out var handle)) return handle;",
+    );
+    builder.dedent();
+    builder.line("}");
+    builder.line(
+        "return System.Runtime.InteropServices.NativeLibrary.TryLoad(DllName, assembly, searchPath, out var def) ? def : System.IntPtr.Zero;",
+    );
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
     for func in &ir.functions {
         if !should_emit_function(func, ir, config) {
             continue;
