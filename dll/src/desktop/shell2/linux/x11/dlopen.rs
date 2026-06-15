@@ -23,6 +23,16 @@ pub struct Library {
 
 impl DynamicLibraryTrait for Library {
     fn load(name: &str) -> Result<Self, DlError> {
+        // Miri cannot execute `dlopen`; report the library as unavailable so
+        // X11-backed code degrades gracefully instead of aborting the test run.
+        #[cfg(miri)]
+        return Err(DlError::LibraryNotFound {
+            name: name.to_string(),
+            tried: vec![name.to_string()],
+            suggestion: "dlopen unavailable under Miri".to_string(),
+        });
+        #[cfg(not(miri))]
+        {
         let c_name = CString::new(name).unwrap();
         let handle = unsafe { libc::dlopen(c_name.as_ptr(), libc::RTLD_LAZY) };
         if handle.is_null() {
@@ -37,6 +47,7 @@ impl DynamicLibraryTrait for Library {
                 handle,
                 name: name.to_string(),
             })
+        }
         }
     }
 

@@ -43,7 +43,7 @@ static AAUDIO: OnceLock<Option<(libloading::Library, AAudioFns)>> = OnceLock::ne
 fn aaudio() -> Option<&'static AAudioFns> {
     AAUDIO
         .get_or_init(|| unsafe {
-            let lib = libloading::Library::new("libaaudio.so").ok()?;
+            let lib = crate::desktop::open_first_lib(&["libaaudio.so"])?;
             let fns = AAudioFns {
                 create_builder: *lib.get(b"AAudio_createStreamBuilder\0").ok()?,
                 set_direction: *lib.get(b"AAudioStreamBuilder_setDirection\0").ok()?,

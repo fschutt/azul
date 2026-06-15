@@ -53,6 +53,10 @@ impl GlFunctions {
 
         // RTLD_NOW means "resolve all symbols immediately".
         // RTLD_GLOBAL or RTLD_LOCAL depends on your use-case.
+        // Miri can't call `dlopen`; report unavailable (null) so the guard bails.
+        #[cfg(miri)]
+        let handle: *mut c_void = core::ptr::null_mut();
+        #[cfg(not(miri))]
         let handle = unsafe { dlopen(framework_path.as_ptr(), RTLD_NOW | RTLD_GLOBAL) };
         if handle.is_null() {
             return Err("Could not dlopen OpenGL.framework/OpenGL".to_string());

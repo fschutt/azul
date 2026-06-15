@@ -199,7 +199,7 @@ fn vulkan_has_h264_decode() -> Option<bool> {
     // is checked; all handles come straight from the driver. Worst case on a
     // broken loader is an Err/non-success code we turn into None/false.
     unsafe {
-        let lib = libloading::Library::new(LIBVULKAN).ok()?;
+        let lib = crate::desktop::open_first_lib(&[LIBVULKAN])?;
         let create_instance: libloading::Symbol<PfnCreateInstance> =
             lib.get(b"vkCreateInstance\0").ok()?;
         let enum_devices: libloading::Symbol<PfnEnumeratePhysicalDevices> =

@@ -27,10 +27,10 @@ impl CoreGraphicsFunctions {
     pub fn load() -> Result<Arc<Self>, String> {
         unsafe {
             // Load ApplicationServices framework (which includes CoreGraphics)
-            let lib = libloading::Library::new(
+            let lib = crate::desktop::open_first_lib(&[
                 "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices",
-            )
-            .map_err(|e| format!("Failed to load ApplicationServices framework: {}", e))?;
+            ])
+            .ok_or_else(|| "Failed to load ApplicationServices framework".to_string())?;
 
             // Load display functions
             let cg_main_display_id = *lib

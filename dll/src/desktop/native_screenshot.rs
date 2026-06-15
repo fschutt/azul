@@ -517,7 +517,11 @@ fn take_native_screenshot_xlib_bytes(
         unsafe extern "C" fn(*mut Display, Window, i32, i32, u32, u32, u64, i32) -> *mut XImage;
     type XDestroyImageFn = unsafe extern "C" fn(*mut XImage) -> i32;
 
-    // Load libX11 dynamically
+    // Load libX11 dynamically. Miri can't call `dlopen`, so treat the library
+    // as unavailable (null) under it and let the is_null() guard below bail.
+    #[cfg(miri)]
+    let lib: *mut core::ffi::c_void = core::ptr::null_mut();
+    #[cfg(not(miri))]
     let lib = unsafe {
         let lib_name = CString::new("libX11.so.6").unwrap();
         let lib = libc::dlopen(lib_name.as_ptr(), libc::RTLD_LAZY);

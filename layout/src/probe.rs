@@ -390,7 +390,7 @@ pub fn hint_purge_allocator() {
         }
         return;
     }
-    #[cfg(all(target_os = "macos", not(any(feature = "allocator_mimalloc", feature = "allocator_jemalloc"))))]
+    #[cfg(all(target_os = "macos", not(miri), not(any(feature = "allocator_mimalloc", feature = "allocator_jemalloc"))))]
     {
         extern "C" {
             fn malloc_zone_pressure_relief(zone: *mut core::ffi::c_void, goal: usize) -> usize;
@@ -412,7 +412,11 @@ pub fn hint_purge_allocator() {
 /// More useful than `getrusage.ru_maxrss` which only moves upward.
 #[cfg(feature = "probe")]
 pub fn current_rss_bytes() -> (u64, u64) {
-    #[cfg(target_os = "macos")]
+    // Miri cannot call the mach `task_info` foreign function; memory profiling
+    // is meaningless under Miri anyway, so report zero.
+    #[cfg(miri)]
+    return (0, 0);
+    #[cfg(all(target_os = "macos", not(miri)))]
     {
         // Prefer phys_footprint (TASK_VM_INFO). Fall back to
         // resident_size (MACH_TASK_BASIC_INFO) if the bigger struct
@@ -499,7 +503,10 @@ pub fn malloc_heap_bytes() -> u64 {
 /// across calls in application code if you need it.
 #[cfg(feature = "probe")]
 pub fn phys_footprint_bytes() -> u64 {
-    #[cfg(target_os = "macos")]
+    // Miri cannot call the mach `task_info` foreign function.
+    #[cfg(miri)]
+    return 0;
+    #[cfg(all(target_os = "macos", not(miri)))]
     {
         // TASK_VM_INFO = 22; the struct is large (~88 u32 counts ≈ 352 B)
         // and phys_footprint lives near the end, so we have to read the

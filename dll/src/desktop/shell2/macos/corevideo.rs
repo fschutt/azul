@@ -88,10 +88,10 @@ impl CoreVideoFunctions {
     pub fn load() -> Result<Arc<Self>, String> {
         unsafe {
             // Try to load CoreVideo framework
-            let lib = libloading::Library::new(
+            let lib = crate::desktop::open_first_lib(&[
                 "/System/Library/Frameworks/CoreVideo.framework/CoreVideo",
-            )
-            .map_err(|e| format!("Failed to load CoreVideo framework: {}", e))?;
+            ])
+            .ok_or_else(|| "Failed to load CoreVideo framework".to_string())?;
 
             // Load CVDisplayLink functions
             let cv_display_link_create_with_cg_displays = *lib

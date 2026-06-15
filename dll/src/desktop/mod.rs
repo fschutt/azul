@@ -58,6 +58,30 @@ pub mod dialogs {
 }
 /// Display/Monitor management for menu positioning
 pub mod display;
+
+/// Open the first available shared library from `names` (tries each in order).
+///
+/// Centralizes every optional-backend `dlopen` (ALSA, v4l2, EGL/GLES, PipeWire,
+/// Vulkan, CoreVideo, …) behind one Miri-aware entry point. Under Miri there is
+/// no real loader — `dlopen` is an unsupported foreign function that aborts the
+/// whole test run — so this returns `None`, and each optional backend falls
+/// back to its existing "library unavailable" path. On a real target it tries
+/// every name and returns the first that loads.
+#[allow(dead_code)]
+pub(crate) fn open_first_lib(names: &[&str]) -> Option<libloading::Library> {
+    #[cfg(miri)]
+    {
+        let _ = names;
+        None
+    }
+    #[cfg(not(miri))]
+    {
+        names
+            .iter()
+            .find_map(|n| unsafe { libloading::Library::new(n).ok() })
+    }
+}
+
 /// Platform-specific integrations for features outside the layout core
 /// (camera, screen-share, biometric, sensors, permission prompts, etc.).
 /// See `SUPER_PLAN_2.md` §0.5 — these live behind `extra/` rather than in

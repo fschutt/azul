@@ -57,6 +57,10 @@ struct ObjcLib {
 impl ObjcLib {
     /// Load libobjc + AppKit.  Returns `None` if either library cannot be loaded.
     fn load() -> Option<Self> {
+        // Miri can't call `dlopen`; report unavailable.
+        #[cfg(miri)]
+        return None;
+        #[cfg(not(miri))]
         unsafe {
             let h_objc = dlopen(b"/usr/lib/libobjc.A.dylib\0".as_ptr(), RTLD_LAZY);
             if h_objc.is_null() { return None; }

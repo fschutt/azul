@@ -31,9 +31,7 @@ static ALSA: OnceLock<Option<(libloading::Library, AlsaFns)>> = OnceLock::new();
 
 fn alsa() -> Option<&'static AlsaFns> {
     ALSA.get_or_init(|| unsafe {
-        let lib = libloading::Library::new("libasound.so.2")
-            .or_else(|_| libloading::Library::new("libasound.so"))
-            .ok()?;
+        let lib = crate::desktop::open_first_lib(&["libasound.so.2", "libasound.so"])?;
         let fns = AlsaFns {
             open: *lib.get(b"snd_pcm_open\0").ok()?,
             set_params: *lib.get(b"snd_pcm_set_params\0").ok()?,

@@ -360,7 +360,7 @@ impl PwLib {
         static CACHE: OnceLock<Option<Arc<PwLib>>> = OnceLock::new();
         CACHE
             .get_or_init(|| unsafe {
-                let lib = libloading::Library::new("libpipewire-0.3.so.0").ok()?;
+                let lib = crate::desktop::open_first_lib(&["libpipewire-0.3.so.0"])?;
                 macro_rules! sym {
                     ($name:literal) => {
                         *lib.get($name).ok()?

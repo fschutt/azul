@@ -236,8 +236,8 @@ impl EglBackend {
     /// that happens on the PipeWire data thread in `import_to_rgba`.
     pub fn init() -> Option<EglBackend> {
         unsafe {
-            let libegl = libloading::Library::new("libEGL.so.1").ok()?;
-            let libgles = libloading::Library::new("libGLESv2.so.2").ok()?;
+            let libegl = crate::desktop::open_first_lib(&["libEGL.so.1"])?;
+            let libgles = crate::desktop::open_first_lib(&["libGLESv2.so.2"])?;
 
             macro_rules! egl_core {
                 ($t:ty, $n:literal) => {{

@@ -39,9 +39,7 @@ static V4L2: OnceLock<Option<(libloading::Library, V4l2Fns)>> = OnceLock::new();
 
 fn v4l2() -> Option<&'static V4l2Fns> {
     V4L2.get_or_init(|| unsafe {
-        let lib = libloading::Library::new("libv4l2.so.0")
-            .or_else(|_| libloading::Library::new("libv4l2.so"))
-            .ok()?;
+        let lib = crate::desktop::open_first_lib(&["libv4l2.so.0", "libv4l2.so"])?;
         let fns = V4l2Fns {
             open: *lib.get(b"v4l2_open\0").ok()?,
             close: *lib.get(b"v4l2_close\0").ok()?,
