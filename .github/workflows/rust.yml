@@ -660,7 +660,19 @@ jobs:
         # Disable isolation so the UB checks still run against real I/O paths.
         env:
           MIRIFLAGS: -Zmiri-disable-isolation
-        run: cargo +nightly miri test --lib -p azul-dll -- --nocapture
+        # Scope Miri to the C-ABI + pure-logic tests — the point of this job is
+        # to catch UB in the generated C-ABI transmutes (dll_api_internal). The
+        # desktop::{extra,shell2,display,native_screenshot} integration tests
+        # call platform FFI (dlopen via libloading, mach task_info, posix_spawn,
+        # EGL/GL, …) which Miri fundamentally cannot execute ("unsupported
+        # operation: can't call foreign function"); they run under regular
+        # `cargo test`, not Miri.
+        run: |
+          cargo +nightly miri test --lib -p azul-dll -- --nocapture \
+            --skip desktop::extra \
+            --skip desktop::shell2 \
+            --skip desktop::display \
+            --skip desktop::native_screenshot
 
   # Cheap "does azul.h compile + link" check across every C compiler that
   # matters, WITHOUT rebuilding the DLL per compiler. The ABI rule is: a C
