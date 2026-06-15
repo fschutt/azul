@@ -644,7 +644,36 @@ lang_csharp() {
     # Native lib must be loadable; copy next to the build output too.
     cp "$LIB_PATH" "$REPO_ROOT/examples/csharp/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/csharp" || exit 1
+    # Crash diagnostics. On Linux .NET the headless click→OnClick callback
+    # dies WITHOUT printing a managed stack or a SIGSEGV banner (the combined
+    # log just stops), so the failure is unactionable from the log alone.
+    # 1) DOTNET_* crash-report + minidump: makes createdump emit a faulting-
+    #    thread report to stderr instead of dying silently.
+    # 2) capture the exit code: a clean rc=0 means an *early exit* (e.g. the
+    #    callback's Update writeback closed the window) — a *different* bug
+    #    class than a signal crash (rc>=128). This one fact narrows it hugely.
+    # 3) on a signal death, re-run the built apphost (AssemblyName=HelloWorld)
+    #    under gdb/lldb for a native+managed backtrace that pins the frame.
+    # None of this affects the platforms that already pass — they exit 0 and
+    # skip the debugger branch.
+    export DOTNET_DbgEnableMiniDump="${DOTNET_DbgEnableMiniDump:-1}"
+    export DOTNET_DbgMiniDumpType="${DOTNET_DbgMiniDumpType:-2}"
+    export DOTNET_EnableCrashReport="${DOTNET_EnableCrashReport:-1}"
     dotnet run -c Release
+    rc=$?
+    echo "[e2e] csharp: dotnet run exited rc=$rc"
+    if [ "$rc" -ge 128 ]; then
+      echo "[e2e] csharp died from signal $((rc - 128)) — re-running the apphost under a debugger:"
+      apphost="$(find bin -type f -name HelloWorld 2>/dev/null | head -1)"
+      if [ -n "$apphost" ] && command -v gdb >/dev/null 2>&1; then
+        gdb -batch -ex run -ex "thread apply all bt full" -ex "info registers" \
+          -ex "x/8i \$pc" -ex quit --args "$apphost" 2>&1 || true
+      elif [ -n "$apphost" ] && command -v lldb >/dev/null 2>&1; then
+        lldb --batch -o run -o "thread backtrace all" -o "register read" -o quit -- "$apphost" 2>&1 || true
+      else
+        echo "[e2e] no apphost ($apphost) or no gdb/lldb available for a backtrace"
+      fi
+    fi
   ) >"$f" 2>&1
   finish csharp "csharp build/run failed (.NET P/Invoke)"
 }
