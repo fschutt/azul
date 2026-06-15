@@ -813,8 +813,9 @@ impl From<ProvisionRunResult> for VideoProvisionOutcome {
 pub struct VideoStartupCheck {
     /// Hardware video decode is usable right now.
     pub hw_decode_ready: bool,
-    /// The kernel GRUB will boot can actually reach root (won't drop to an
-    /// initramfs shell) — the safeguard against the kernel-provisioning footgun.
+    /// A fresh boot reaches a *usable desktop*: the default kernel can reach root
+    /// (no initramfs shell) AND the display will light (no black-screen handoff on
+    /// proprietary NVIDIA + UEFI). The combined "safe to reboot" signal.
     pub boot_safe: bool,
     /// An automatic remediation exists (driver install and/or kernel repair).
     pub can_remediate: bool,
@@ -830,18 +831,39 @@ pub struct VideoStartupCheck {
 /// (boot_safe, human detail, a kernel repair is available)
 #[cfg(target_os = "linux")]
 fn startup_boot_check() -> (bool, String, bool) {
-    match newest_installed_kernel() {
+    let (root_safe, root_detail, repairable) = match newest_installed_kernel() {
         Some(k) => {
             let s = reboot_safety_check(&k);
-            let repairable = !s.safe && repair_kernel_plan(&k).possible;
-            (s.safe, format!("kernel {k}: {}", s.detail), repairable)
+            (
+                s.safe,
+                format!("kernel {k}: {}", s.detail),
+                !s.safe && repair_kernel_plan(&k).possible,
+            )
         }
         None => (true, String::from("no installed-kernel info available"), false),
-    }
+    };
+    // "Safe to reboot" must also mean "won't boot to a black screen".
+    let (disp_safe, disp_detail) = display_boot_safe();
+    (
+        root_safe && disp_safe,
+        format!("{root_detail}; display: {disp_detail}"),
+        repairable,
+    )
 }
 #[cfg(not(target_os = "linux"))]
 fn startup_boot_check() -> (bool, String, bool) {
     (true, String::from("boot-safety check is Linux-only"), false)
+}
+
+/// Cross-platform display-safety bool — Linux folds in the nvidia/UEFI
+/// black-screen check; elsewhere always true.
+#[cfg(target_os = "linux")]
+fn display_ok() -> bool {
+    display_boot_safe().0
+}
+#[cfg(not(target_os = "linux"))]
+fn display_ok() -> bool {
+    true
 }
 
 impl VideoStartupCheck {
@@ -849,18 +871,30 @@ impl VideoStartupCheck {
     pub fn run() -> VideoStartupCheck {
         let probe = probe_hw_decode();
         let (boot_safe, boot_detail, kernel_repairable) = startup_boot_check();
+        // `boot_safe` folds in two failure modes; split them so we message + fix
+        // correctly: an unbootable *kernel* (repair plan) vs a *display* that would
+        // boot black (driver plan = fbdev driver + X11 net).
+        let display_safe = display_ok();
+
         let driver_plan = ProvisionPlan::detect();
-        let driver_installable = !probe.available && driver_plan.possible;
+        // Offer the driver plan when decode is missing OR the display would boot
+        // black — the plan installs the fbdev driver and stages the X11 net.
+        let driver_installable = driver_plan.possible && (!probe.available || !display_safe);
 
         let can_remediate = kernel_repairable || driver_installable;
         let needs_reboot = !boot_safe || (driver_installable && driver_plan.needs_reboot);
 
         let summary = if probe.available && boot_safe {
             String::from("Hardware video decode is ready.")
-        } else if !boot_safe {
+        } else if kernel_repairable {
             String::from(
                 "A kernel update left the default kernel unbootable — a one-click repair is \
                  available.",
+            )
+        } else if !display_safe {
+            String::from(
+                "Your display would boot to a black screen — a one-click fix (fbdev driver + a \
+                 safe fallback session) is available.",
             )
         } else if driver_installable {
             String::from("Hardware video decode is off, but the drivers can be installed.")
@@ -873,11 +907,11 @@ impl VideoStartupCheck {
             probe.available,
             probe.backend,
             probe.detail,
-            if boot_safe { "OK —" } else { "UNBOOTABLE —" },
+            if boot_safe { "OK —" } else { "NOT SAFE —" },
             boot_detail,
         );
         if driver_installable {
-            detail.push_str(&format!("\ndriver install: {}", driver_plan.summary));
+            detail.push_str(&format!("\nremediation: {}", driver_plan.summary));
             for c in &driver_plan.commands {
                 detail.push_str("\n  ");
                 detail.push_str(&c.display);
@@ -909,8 +943,11 @@ impl VideoStartupCheck {
                 }
             }
         }
+        // Run the driver plan only when something needs it: decode missing, or the
+        // display would boot black (the plan fixes both — fbdev driver + X11 net).
+        let need_driver = !probe_hw_decode().available || !display_ok();
         let dp = ProvisionPlan::detect();
-        if dp.possible {
+        if need_driver && dp.possible {
             return VideoProvisionOutcome::from(dp.run());
         }
         VideoProvisionOutcome {
@@ -998,78 +1035,370 @@ fn elevator() -> Option<&'static str> {
     }
 }
 
+// ───────── NVIDIA driver selection + "never boot black" net (the 3-day saga) ─────────
+//
+// The proprietary NVIDIA driver gives Vulkan Video decode, but on a UEFI machine
+// the kernel first brings up an EFI simple-framebuffer (`simpledrm`). A driver
+// whose `nvidia-drm` lacks `fbdev` console takeover (e.g. the 535 branch) never
+// evicts it, so a Wayland desktop composites but never lights the panel — it
+// "boots black" until a VT switch. The fixes, encoded here:
+//   1. pick a driver branch that HAS fbdev (>= 545) and ships signed modules for
+//      the running kernel (no DKMS, no new kernel pulled), so Wayland boots lit;
+//   2. belt-and-suspenders, stage a reversible X11-session fallback for the
+//      display manager so a fresh boot can NEVER land on black, even if the GPU
+//      path misbehaves (the nvidia Xorg driver lights the panel regardless).
+
+/// Firmware booted via UEFI — the kernel then sets up an EFI simple-framebuffer
+/// the proprietary NVIDIA driver must take over, or the desktop boots black.
+/// (BIOS/CSM has no such handoff.)
+#[cfg(target_os = "linux")]
+fn is_uefi() -> bool {
+    std::path::Path::new("/sys/firmware/efi").exists()
+}
+
+/// A chosen NVIDIA driver branch: the apt metapackage, its signed precompiled
+/// kernel-module package for the *running* kernel (so no DKMS build and no new
+/// kernel is pulled — which also dodges the modules-extra footgun), and whether
+/// it has `nvidia-drm` `fbdev` console takeover (>= 545), the property that makes
+/// a Wayland desktop boot lit instead of black on UEFI.
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone)]
+struct NvidiaDriverChoice {
+    branch: u32,
+    driver_pkg: String,
+    modules_pkg: Option<String>,
+    has_fbdev: bool,
+}
+
+/// Pick the best NVIDIA driver for this GPU + kernel from `ubuntu-drivers list`
+/// (whose entries are already filtered to branches that support the detected
+/// GPU's PCI id). Among the plain `nvidia-driver-<branch>` metapackages, prefer
+/// one with `fbdev` (>= 545) console takeover, then the highest branch — the
+/// encoded form of the 535 -> 580 reasoning. `None` when `ubuntu-drivers` is
+/// absent or lists nothing usable (caller falls back + still stages the net).
+#[cfg(target_os = "linux")]
+fn pick_nvidia_driver() -> Option<NvidiaDriverChoice> {
+    let listing = capture("ubuntu-drivers", &["list"])?;
+    parse_nvidia_listing(&listing)
+}
+
+/// Pure parser for `ubuntu-drivers list` output, split out so it is unit-testable
+/// without the binary present.
+#[cfg(target_os = "linux")]
+fn parse_nvidia_listing(listing: &str) -> Option<NvidiaDriverChoice> {
+    let mut best: Option<NvidiaDriverChoice> = None;
+    for line in listing.lines() {
+        let pkg = line.split(',').next().unwrap_or("").trim();
+        // Plain desktop branch only: `nvidia-driver-<N>` parses; `-open`/`-server`
+        // suffixes make the parse fail and are skipped.
+        let branch = match pkg.strip_prefix("nvidia-driver-").and_then(|s| s.parse::<u32>().ok()) {
+            Some(b) => b,
+            None => continue,
+        };
+        let modules_pkg = line
+            .split("provided by")
+            .nth(1)
+            .map(|s| s.trim().trim_end_matches(')').trim().to_string())
+            .filter(|s| !s.is_empty());
+        let choice = NvidiaDriverChoice {
+            branch,
+            driver_pkg: pkg.to_string(),
+            modules_pkg,
+            has_fbdev: branch >= 545,
+        };
+        // Prefer fbdev console takeover, then the higher branch.
+        let key = |c: &NvidiaDriverChoice| (c.has_fbdev, c.branch);
+        best = Some(match best {
+            Some(cur) if key(&cur) >= key(&choice) => cur,
+            _ => choice,
+        });
+    }
+    best
+}
+
+/// Apt commands to install a chosen driver + its signed modules for this kernel.
+#[cfg(target_os = "linux")]
+fn nvidia_install_commands(choice: &NvidiaDriverChoice) -> Vec<ProvisionCommand> {
+    let mut install: Vec<String> = vec!["install".into(), "-y".into(), choice.driver_pkg.clone()];
+    if let Some(m) = &choice.modules_pkg {
+        install.push(m.clone());
+    }
+    let install_ref: Vec<&str> = install.iter().map(|s| s.as_str()).collect();
+    vec![
+        ProvisionCommand::new("apt-get", &["update"], true),
+        ProvisionCommand::new("apt-get", &install_ref, true),
+    ]
+}
+
+/// The active display manager, from the systemd alias, for staging a fallback.
+#[cfg(target_os = "linux")]
+fn detect_display_manager() -> Option<&'static str> {
+    let link = std::fs::read_link("/etc/systemd/system/display-manager.service").ok()?;
+    let name = link.file_name()?.to_str()?.to_string();
+    if name.contains("lightdm") {
+        Some("lightdm")
+    } else if name.contains("sddm") {
+        Some("sddm")
+    } else if name.contains("gdm") {
+        Some("gdm")
+    } else {
+        None
+    }
+}
+
+/// Name of an installed X11 session (e.g. `plasma`, `cinnamon`, `xfce`) to fall
+/// back to, preferring the current desktop. The nvidia Xorg driver lights the
+/// panel for any of them. `None` if no `/usr/share/xsessions` entries exist.
+#[cfg(target_os = "linux")]
+fn x11_fallback_session() -> Option<String> {
+    let sessions: Vec<String> = std::fs::read_dir("/usr/share/xsessions")
+        .ok()?
+        .flatten()
+        .filter_map(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .strip_suffix(".desktop")
+                .map(|s| s.to_string())
+        })
+        .collect();
+    if sessions.is_empty() {
+        return None;
+    }
+    if let Ok(cur) = std::env::var("XDG_CURRENT_DESKTOP") {
+        let cur = cur.to_lowercase();
+        if let Some(m) = sessions
+            .iter()
+            .find(|s| cur.contains(&s.to_lowercase()) || s.to_lowercase().contains(&cur))
+        {
+            return Some(m.clone());
+        }
+    }
+    for pref in ["plasmax11", "plasma", "cinnamon", "xfce", "gnome-xorg", "mate", "lxqt"] {
+        if let Some(m) = sessions.iter().find(|s| s.as_str() == pref) {
+            return Some(m.clone());
+        }
+    }
+    let mut sessions = sessions;
+    sessions.sort();
+    sessions.into_iter().next()
+}
+
+/// Stage a guaranteed-visible X11 login (belt-and-suspenders) so a fresh boot can
+/// never land on a black screen even if the GPU/Wayland path misbehaves. Writes a
+/// reversible drop-in for the detected DM that makes an X11 session the default;
+/// Wayland stays installed and selectable. Empty when not UEFI / no known DM. Used
+/// only on the proprietary NVIDIA path.
+#[cfg(target_os = "linux")]
+fn visible_login_net_commands() -> Vec<ProvisionCommand> {
+    if !is_uefi() {
+        return Vec::new();
+    }
+    let dm = match detect_display_manager() {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+    let script = match dm {
+        "lightdm" => {
+            let sess = match x11_fallback_session() {
+                Some(s) => s,
+                None => return Vec::new(),
+            };
+            format!(
+                "install -d /etc/lightdm/lightdm.conf.d && printf '%s\\n' \
+                 '# azul: guaranteed-visible X11 fallback so nvidia+Wayland cannot boot black. Delete to restore.' \
+                 '[Seat:*]' 'user-session={sess}' 'autologin-session={sess}' \
+                 > /etc/lightdm/lightdm.conf.d/99-azul-x11-fallback.conf"
+            )
+        }
+        "sddm" => {
+            let sess = match x11_fallback_session() {
+                Some(s) => s,
+                None => return Vec::new(),
+            };
+            format!(
+                "install -d /etc/sddm.conf.d && printf '%s\\n' \
+                 '# azul: guaranteed-visible X11 fallback. Delete to restore.' \
+                 '[Autologin]' 'Session={sess}.desktop' \
+                 > /etc/sddm.conf.d/99-azul-x11-fallback.conf"
+            )
+        }
+        "gdm" => String::from(
+            "install -d /etc/gdm3 && (grep -qs '^WaylandEnable=false' /etc/gdm3/custom.conf || \
+             printf '%s\\n' '[daemon]' 'WaylandEnable=false' >> /etc/gdm3/custom.conf)",
+        ),
+        _ => return Vec::new(),
+    };
+    vec![ProvisionCommand::new("sh", &["-c", script.as_str()], true)]
+}
+
+/// Is the proprietary NVIDIA driver bound right now (so the simpledrm handoff and
+/// the black-screen risk apply)?
+#[cfg(target_os = "linux")]
+fn nvidia_proprietary_active() -> bool {
+    std::path::Path::new("/proc/driver/nvidia/version").exists()
+}
+
+/// Does the installed `nvidia-drm` expose the `fbdev` parameter (console
+/// takeover, >= 545)? Reads the loaded module if present, else `modinfo`.
+#[cfg(target_os = "linux")]
+fn nvidia_drm_has_fbdev() -> bool {
+    if std::path::Path::new("/sys/module/nvidia_drm/parameters/fbdev").exists() {
+        return true;
+    }
+    match capture("uname", &["-r"]).and_then(|k| capture("modinfo", &["-k", &k, "nvidia-drm"])) {
+        Some(info) => info
+            .lines()
+            .any(|l| l.starts_with("parm:") && l.contains("fbdev")),
+        None => false,
+    }
+}
+
+/// Is our X11 fallback net already staged (so a boot is guaranteed visible)?
+#[cfg(target_os = "linux")]
+fn x11_net_present() -> bool {
+    [
+        "/etc/lightdm/lightdm.conf.d/99-azul-x11-fallback.conf",
+        "/etc/sddm.conf.d/99-azul-x11-fallback.conf",
+    ]
+    .iter()
+    .any(|p| std::path::Path::new(p).exists())
+        || std::fs::read_to_string("/etc/gdm3/custom.conf")
+            .map(|s| s.contains("WaylandEnable=false"))
+            .unwrap_or(false)
+}
+
+/// Will a fresh boot light the panel, or risk the UEFI nvidia "compositor runs
+/// but the screen is black until a VT switch" state? Safe when not on proprietary
+/// nvidia, or not UEFI, or `nvidia-drm` has fbdev console takeover, or our X11
+/// fallback is staged. The unsafe case is exactly the 3-day-saga configuration.
+#[cfg(target_os = "linux")]
+fn display_boot_safe() -> (bool, String) {
+    if !nvidia_proprietary_active() {
+        return (true, String::from("not on the proprietary NVIDIA driver"));
+    }
+    if !is_uefi() {
+        return (true, String::from("BIOS/CSM boot — no simple-framebuffer handoff"));
+    }
+    if nvidia_drm_has_fbdev() {
+        return (
+            true,
+            String::from("nvidia-drm fbdev console takeover present (Wayland boots lit)"),
+        );
+    }
+    if x11_net_present() {
+        return (
+            true,
+            String::from("X11 fallback session staged (nvidia Xorg lights the panel)"),
+        );
+    }
+    (
+        false,
+        String::from(
+            "proprietary NVIDIA on UEFI without nvidia-drm fbdev and no X11 fallback — the \
+             desktop boots to a black screen until a VT switch",
+        ),
+    )
+}
+
+/// The NVIDIA provisioning plan: install an fbdev-capable driver (so a Wayland
+/// desktop boots lit) and, belt-and-suspenders, stage a reversible X11-session
+/// fallback so a fresh boot can never land on a black screen.
+#[cfg(target_os = "linux")]
+fn nvidia_plan() -> ProvisionPlan {
+    let net_note = " A reversible X11-session fallback is also staged as a belt-and-suspenders \
+                    guarantee against a black screen (Wayland stays selectable).";
+
+    // Preferred path: ubuntu-drivers tells us which branches fit this GPU.
+    if let Some(choice) = pick_nvidia_driver() {
+        let mut commands = nvidia_install_commands(&choice);
+        let net = visible_login_net_commands();
+        let fbdev_note = if choice.has_fbdev {
+            "It enables nvidia-drm fbdev console takeover, so the desktop boots lit on UEFI."
+        } else {
+            "This branch lacks fbdev console takeover, so an X11 fallback is staged to keep it \
+             from booting black."
+        };
+        let net_suffix = if net.is_empty() { "" } else { net_note };
+        commands.extend(net);
+        return ProvisionPlan::from_commands(
+            format!(
+                "Install {} plus its signed modules for the running kernel (no DKMS build, no new \
+                 kernel pulled), for Vulkan Video H.264/H.265 hardware decode. {} Replaces nouveau; \
+                 needs a reboot (MOK enrolment under Secure Boot).{}",
+                choice.driver_pkg, fbdev_note, net_suffix
+            ),
+            true,
+            commands,
+        );
+    }
+
+    // Fallbacks: no ubuntu-drivers listing — use the package manager default but
+    // still stage the X11 net where we can (we can't guarantee fbdev).
+    let base = String::from(
+        "Install the proprietary NVIDIA driver for Vulkan Video H.264/H.265 hardware decode (the \
+         open NVK driver does not expose it on this GPU). Replaces nouveau; needs a reboot (MOK \
+         enrolment under Secure Boot).",
+    );
+    if which("ubuntu-drivers") {
+        let mut commands = vec![ProvisionCommand::new("ubuntu-drivers", &["install"], true)];
+        let net = visible_login_net_commands();
+        let s = if net.is_empty() { base.clone() } else { format!("{base}{net_note}") };
+        commands.extend(net);
+        return ProvisionPlan::from_commands(s, true, commands);
+    }
+    if which("apt-get") || which("apt") {
+        let mut commands = vec![
+            ProvisionCommand::new("apt-get", &["update"], true),
+            ProvisionCommand::new("apt-get", &["install", "-y", "nvidia-driver"], true),
+        ];
+        let net = visible_login_net_commands();
+        let s = if net.is_empty() { base.clone() } else { format!("{base}{net_note}") };
+        commands.extend(net);
+        return ProvisionPlan::from_commands(s, true, commands);
+    }
+    if which("dnf") {
+        return ProvisionPlan::from_commands(
+            format!("{base} (Fedora: requires the RPM Fusion nonfree repo.)"),
+            true,
+            vec![ProvisionCommand::new("dnf", &["install", "-y", "akmod-nvidia"], true)],
+        );
+    }
+    if which("pacman") {
+        return ProvisionPlan::from_commands(
+            base,
+            true,
+            vec![ProvisionCommand::new(
+                "pacman",
+                &["-S", "--needed", "--noconfirm", "nvidia"],
+                true,
+            )],
+        );
+    }
+    if which("zypper") {
+        return ProvisionPlan::from_commands(
+            format!("{base} (openSUSE: requires the NVIDIA repo.)"),
+            true,
+            vec![ProvisionCommand::new(
+                "zypper",
+                &["install", "-y", "nvidia-video-G06"],
+                true,
+            )],
+        );
+    }
+    ProvisionPlan::none(
+        "NVIDIA GPU detected but no supported package manager found to install the driver",
+    )
+}
+
 #[cfg(target_os = "linux")]
 fn linux_plan() -> ProvisionPlan {
     let vendors = detect_gpu_vendors();
     let has_apt = which("apt-get") || which("apt");
     let has_dnf = which("dnf");
     let has_pacman = which("pacman");
-    let has_zypper = which("zypper");
-    let has_ubuntu_drivers = which("ubuntu-drivers");
 
     if vendors.contains(&GpuVendor::Nvidia) {
-        // The proprietary NVIDIA driver provides mature Vulkan Video decode;
-        // NVK (open) does not on older GPUs. Installing it swaps out nouveau and
-        // needs a reboot (and MOK enrolment under Secure Boot).
-        let summary = String::from(
-            "Install the proprietary NVIDIA driver, which provides Vulkan Video H.264/H.265 \
-             hardware decode (the open NVK driver does not expose it on this GPU). This replaces \
-             the nouveau driver and requires a reboot; under Secure Boot you'll be prompted to \
-             enrol a signing key (MOK).",
-        );
-        if has_ubuntu_drivers {
-            return ProvisionPlan::from_commands(
-                summary,
-                true,
-                vec![ProvisionCommand::new("ubuntu-drivers", &["install"], true)],
-            );
-        }
-        if has_apt {
-            return ProvisionPlan::from_commands(
-                summary,
-                true,
-                vec![
-                    ProvisionCommand::new("apt-get", &["update"], true),
-                    ProvisionCommand::new("apt-get", &["install", "-y", "nvidia-driver"], true),
-                ],
-            );
-        }
-        if has_dnf {
-            return ProvisionPlan::from_commands(
-                format!("{summary} (Fedora: requires the RPM Fusion nonfree repo.)"),
-                true,
-                vec![ProvisionCommand::new(
-                    "dnf",
-                    &["install", "-y", "akmod-nvidia"],
-                    true,
-                )],
-            );
-        }
-        if has_pacman {
-            return ProvisionPlan::from_commands(
-                summary,
-                true,
-                vec![ProvisionCommand::new(
-                    "pacman",
-                    &["-S", "--needed", "--noconfirm", "nvidia"],
-                    true,
-                )],
-            );
-        }
-        if has_zypper {
-            return ProvisionPlan::from_commands(
-                format!("{summary} (openSUSE: requires the NVIDIA repo.)"),
-                true,
-                vec![ProvisionCommand::new(
-                    "zypper",
-                    &["install", "-y", "nvidia-video-G06"],
-                    true,
-                )],
-            );
-        }
-        return ProvisionPlan::none(
-            "NVIDIA GPU detected but no supported package manager found to install the driver",
-        );
+        return nvidia_plan();
     }
 
     if vendors.contains(&GpuVendor::Amd) || vendors.contains(&GpuVendor::Intel) {
@@ -1419,5 +1748,70 @@ mod provision_tests {
             assert!(joined.contains("update-initramfs"), "got: {joined}");
             assert!(plan.needs_elevation && plan.needs_reboot);
         }
+    }
+
+    /// The NVIDIA picker prefers an fbdev-capable branch (>= 545), then the
+    /// highest branch — the encoded 535 -> 580 reasoning that fixed the black
+    /// screen. Pure parser; needs no `ubuntu-drivers` binary. `-open`/`-server`
+    /// variants are never chosen as the plain desktop branch.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn nvidia_picker_prefers_fbdev_then_highest() {
+        let listing = "\
+nvidia-driver-535, (kernel modules provided by linux-modules-nvidia-535-generic-hwe-24.04)
+nvidia-driver-580, (kernel modules provided by linux-modules-nvidia-580-generic-hwe-24.04)
+nvidia-driver-535-server, (kernel modules provided by linux-modules-nvidia-535-server-generic-hwe-24.04)
+nvidia-driver-580-open, (kernel modules provided by linux-modules-nvidia-580-open-generic-hwe-24.04)";
+        let choice = parse_nvidia_listing(listing).expect("a branch is chosen");
+        assert_eq!(choice.driver_pkg, "nvidia-driver-580", "the fbdev branch wins");
+        assert!(choice.has_fbdev);
+        assert_eq!(
+            choice.modules_pkg.as_deref(),
+            Some("linux-modules-nvidia-580-generic-hwe-24.04"),
+            "the signed-modules package is parsed"
+        );
+
+        // A 535-only box still gets a plan (535), but flagged no-fbdev so the net
+        // is the thing that keeps it from booting black.
+        let only535 =
+            "nvidia-driver-535, (kernel modules provided by linux-modules-nvidia-535-generic-hwe-24.04)";
+        let c = parse_nvidia_listing(only535).unwrap();
+        assert_eq!(c.branch, 535);
+        assert!(!c.has_fbdev);
+
+        // No nvidia lines -> nothing chosen.
+        assert!(parse_nvidia_listing("intel-microcode, (x)\n").is_none());
+    }
+
+    /// The install commands for a chosen driver carry both the driver metapackage
+    /// and the signed-modules package, all elevated.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn nvidia_install_commands_include_driver_and_modules() {
+        let choice = NvidiaDriverChoice {
+            branch: 580,
+            driver_pkg: "nvidia-driver-580".into(),
+            modules_pkg: Some("linux-modules-nvidia-580-generic-hwe-24.04".into()),
+            has_fbdev: true,
+        };
+        let joined = nvidia_install_commands(&choice)
+            .iter()
+            .map(|c| c.display.clone())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(joined.contains("nvidia-driver-580"), "{joined}");
+        assert!(
+            joined.contains("linux-modules-nvidia-580-generic-hwe-24.04"),
+            "{joined}"
+        );
+    }
+
+    /// Display-safety is self-consistent and always reports a non-empty reason.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn display_boot_safety_is_self_consistent() {
+        let (safe, detail) = display_boot_safe();
+        assert!(!detail.is_empty());
+        eprintln!("[display] safe={safe} — {detail}");
     }
 }
