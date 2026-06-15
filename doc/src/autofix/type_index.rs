@@ -1158,6 +1158,12 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
             }
 
             Item::Mod(m) => {
+                // Skip wasm32-only stub modules: their contents mirror the real
+                // (non-wasm) types (e.g. `unified::video_codec::provision`) and
+                // must not clobber the canonical defs in the index.
+                if is_wasm32_only(&m.attrs) {
+                    continue;
+                }
                 // Recursively extract types from inline modules (e.g., `mod decode { ... }`)
                 if let Some((_, items)) = &m.content {
                     let mod_name = m.ident.to_string();
@@ -1325,6 +1331,10 @@ fn extract_types_from_items(
             }
 
             Item::Mod(m) => {
+                // Skip wasm32-only stub modules (see the sibling handler above).
+                if is_wasm32_only(&m.attrs) {
+                    continue;
+                }
                 // Recursively handle nested modules
                 if let Some((_, nested_items)) = &m.content {
                     let mod_name = m.ident.to_string();

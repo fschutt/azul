@@ -117,6 +117,12 @@ impl VideoDecoder {
 pub mod provision {
     use azul_css::AzString;
 
+    // The `#[cfg(target_arch = "wasm32")]` on each item (redundant with the
+    // module cfg above) is what the autofix type-indexer's `is_wasm32_only`
+    // check looks for — it inspects per-item attrs, so without this it would
+    // index these stubs as real types and clobber the canonical desktop
+    // `video_codec::provision::*` definitions (which DO have the From impl).
+    #[cfg(target_arch = "wasm32")]
     #[repr(C)]
     #[derive(Debug, Clone)]
     pub struct VideoProvisionOutcome {
@@ -125,6 +131,7 @@ pub mod provision {
         pub message: AzString,
     }
 
+    #[cfg(target_arch = "wasm32")]
     #[repr(C)]
     #[derive(Debug, Clone)]
     pub struct VideoStartupCheck {
