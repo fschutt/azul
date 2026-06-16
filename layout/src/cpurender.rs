@@ -3812,9 +3812,24 @@ fn render_single_item(
             clip_stack.push(merged);
         }
         DisplayListItem::PopClip => {
-            clip_stack.pop();
-            if clip_stack.is_empty() {
-                return Err("Clip stack underflow".to_string());
+            // Never pop the base clip (the window rect pushed at init). An
+            // unbalanced PopClip — e.g. a display-list bookkeeping mismatch in
+            // the titlebar/stacking-context emit path — must NOT abort the whole
+            // layer render. Previously this returned Err, the caller logged
+            // "render_layers error: Clip stack underflow" and DROPPED THE ENTIRE
+            // FRAME, leaving a blank window with no body/button. Clamp to the base
+            // instead so the frame still presents; the only effect of an over-pop
+            // is that trailing items fall back to the base (window) clip, which is
+            // harmless for well-formed DOMs.
+            if clip_stack.len() > 1 {
+                clip_stack.pop();
+            } else {
+                #[cfg(feature = "std")]
+                if std::env::var("AZ_CLIP_DEBUG").is_ok() {
+                    eprintln!(
+                        "[CpuBackend] PopClip with no matching PushClip — clamping to base clip"
+                    );
+                }
             }
         }
         DisplayListItem::PushScrollFrame { scroll_id, .. } => {
