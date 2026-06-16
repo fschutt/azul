@@ -878,10 +878,23 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     let _probe_outer = crate::probe::Probe::span("reconcile_and_invalidate");
     let mut new_tree_builder = LayoutTreeBuilder::new(ctx.viewport_size);
     let mut recon_result = ReconciliationResult::default();
-    let old_tree = cache.tree.as_ref();
+    // A viewport SIZE change invalidates every computed size: percentage, flex,
+    // and absolute insets (top/right/bottom/left) all resolve against the
+    // viewport / containing block. Incrementally reusing the cached layout tree
+    // left out-of-flow and VirtualView nodes sized against the OLD viewport — e.g.
+    // the map's absolutely-positioned container kept its old size, so a maximized
+    // window showed tiles only in the original rect and grey everywhere else
+    // (#9 "grey on resize"). On a size change, drop the cached tree so the whole
+    // tree is laid out fresh against the new viewport. (Position-only moves keep
+    // the incremental path.)
+    let viewport_resized = cache.viewport.map_or(true, |v| v.size != viewport.size);
+    let old_tree = if viewport_resized {
+        None
+    } else {
+        cache.tree.as_ref()
+    };
 
-    // Check for viewport resize, which dirties the root for a top-down pass.
-    if cache.viewport.map_or(true, |v| v.size != viewport.size) {
+    if viewport_resized {
         recon_result.layout_roots.insert(0); // Root is always index 0
     }
 
