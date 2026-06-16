@@ -285,17 +285,23 @@ pub fn regenerate_layout(
         )
     } else if current_window_state.flags.decorations
         == azul_core::window::WindowDecorations::NoTitleAutoInject
-        && !cfg!(target_os = "windows")
+        && !cfg!(any(target_os = "windows", target_os = "linux"))
     {
         // Auto-inject a Titlebar at the top of the user's DOM.
         // The titlebar is a regular layout widget with DragStart/Drag/DoubleClick
         // callbacks — no special event-system hooks required.
         //
-        // NOT on Windows: `NoTitleAutoInject` there keeps the *native* caption
-        // (see windows/wcreate.rs — it maps to full WS_CAPTION decorations), so
-        // injecting a software titlebar produces a duplicate "fake" titlebar
-        // below the real one. The native caption already renders the title and
-        // handles dragging, so we leave the user DOM untouched on Windows.
+        // `NoTitleAutoInject` means "native controls visible, native title hidden,
+        // app draws its own title". That requires a frame that shows window
+        // controls WITHOUT a title bar — which only macOS provides (traffic
+        // lights over a title-less bar). Windows (WS_CAPTION) and Linux (KWin/
+        // Mutter server-side decorations, or X11 WM decorations) ALWAYS draw a
+        // full titlebar including the title text, so a software titlebar here is
+        // a duplicate "fake" bar below the real one (the double-titlebar bug).
+        // On those platforms the native caption already renders the title and
+        // handles dragging, so we leave the user DOM untouched and inject only on
+        // macOS. (Apps wanting fully custom chrome should use
+        // `WindowDecorations::None` + `has_decorations` → full CSD with buttons.)
         log_debug!(
             LogCategory::Layout,
             "[regenerate_layout] Auto-injecting Titlebar (NoTitleAutoInject)"
