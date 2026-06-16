@@ -17,7 +17,7 @@ description = """
 publish = false
 
 [dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static"] }
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "video-native", "http"] }
 
 [[bin]]
 name = "azul-video-app"
