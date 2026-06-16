@@ -1146,6 +1146,15 @@ impl GestureAndDragManager {
         let session1 = &self.input_sessions[self.input_sessions.len() - 2];
         let session2 = &self.input_sessions[self.input_sessions.len() - 1];
 
+        // A pinch is a TWO-finger gesture: both contacts must be concurrently
+        // active. A desktop mouse produces *sequential* sessions (the previous one
+        // is `ended` on button-up before the next begins), so without this guard a
+        // stale ended session (e.g. a prior click on a button) pairs with the
+        // current drag and is misread as a pinch — the map zooms on a plain click.
+        if session1.ended || session2.ended {
+            return None;
+        }
+
         // Both must have samples
         let first1 = session1.first_sample()?;
         let first2 = session2.first_sample()?;
@@ -1211,6 +1220,13 @@ impl GestureAndDragManager {
         // Get last two sessions
         let session1 = &self.input_sessions[self.input_sessions.len() - 2];
         let session2 = &self.input_sessions[self.input_sessions.len() - 1];
+
+        // Two-finger rotation requires both contacts concurrently active; a desktop
+        // mouse yields sequential sessions, so a stale ended session must not pair
+        // with the current one (see detect_pinch).
+        if session1.ended || session2.ended {
+            return None;
+        }
 
         // Both must have samples
         let first1 = session1.first_sample()?;
