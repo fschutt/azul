@@ -3029,8 +3029,22 @@ where
         };
 
         let styled_node_state = self.get_styled_node_state(dom_id);
-        let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
-        let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
+        // Mirror push_node_clips EXACTLY: resolve visible/clip → auto/hidden per
+        // CSS Overflow 3 §3.1 (an axis computes to auto/hidden when the *other*
+        // axis is a scroll container). push_node_clips decides whether to emit a
+        // scroll frame from the RESOLVED values; popping from the RAW values can
+        // disagree. Concretely: the auto-injected titlebar title has
+        // overflow-x:hidden, overflow-y:visible → push resolves y→auto (a scroll
+        // container, since is_scroll() counts Auto) and emits PushClip +
+        // PushScrollFrame, but pop saw raw y=visible (is_scroll=false) and emitted
+        // only PopClip → an unbalanced PushScrollFrame. The layer allocator then
+        // extends the titlebar's scroll layer to the end of the list, swallowing
+        // the document body into the titlebar's clip rect (blank window) and
+        // underflowing the clip stack. Resolving here keeps push/pop symmetric.
+        let raw_overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
+        let raw_overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
+        let overflow_x = raw_overflow_x.resolve_computed(&raw_overflow_y);
+        let overflow_y = raw_overflow_y.resolve_computed(&raw_overflow_x);
 
         let paint_rect = self
             .get_paint_rect(
