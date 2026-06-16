@@ -3551,11 +3551,21 @@ impl WaylandWindow {
 /// Wayland frame callback - called when compositor is ready for next frame
 extern "C" fn frame_done_callback(
     data: *mut std::ffi::c_void,
-    _callback: *mut defines::wl_callback,
+    callback: *mut defines::wl_callback,
     _callback_data: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.frame_callback_pending = false;
+
+    // The frame callback is one-shot: once the compositor delivers `done`, this
+    // wl_callback proxy is dead. Destroy it here — otherwise EVERY frame leaks one
+    // proxy. That is the "wl_callback@NNN still attached" flood seen on close (IDs
+    // climbing into the hundreds), which culminates in libwayland's
+    // "malloc(): mismatching next->prev_size" heap-corruption abort when the event
+    // queue is torn down with all those dangling proxies still attached.
+    if !callback.is_null() {
+        unsafe { (window.wayland.wl_proxy_destroy)(callback as _); }
+    }
 
     // If there are more changes pending, request another frame
     if window.common.frame_needs_regeneration || window.needs_redraw {
