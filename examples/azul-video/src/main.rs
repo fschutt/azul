@@ -35,8 +35,15 @@ struct VideoAppState {
     status: Vec<String>,
     /// Decoded frames as ready-to-render images. Empty => no HW decoder.
     frames: Vec<ImageRef>,
-    /// Currently displayed frame index (advanced by the Timer, wraps to loop).
+    /// Currently displayed frame index, chosen by WALL-CLOCK each tick (see
+    /// `advance_frame`): `idx = elapsed * fps`, so playback runs at real time and
+    /// DROPS frames when rendering can't keep up — playback speed is independent
+    /// of decode/render speed.
     idx: usize,
+    /// Nominal frame rate of the clip (from the demuxer); drives the playback clock.
+    fps: f32,
+    /// Wall-clock start of playback, set on the first tick. `None` until then.
+    start: Option<std::time::Instant>,
     /// Coded video size (for the display box).
     vw: u32,
     vh: u32,
@@ -57,10 +64,11 @@ fn rgba_image(bytes: Vec<u8>, w: u32, h: u32) -> Option<ImageRef> {
 }
 
 /// Probe + fetch + demux + decode the clip; returns status lines + decoded frames.
-fn run_pipeline() -> (Vec<String>, Vec<ImageRef>, u32, u32) {
+fn run_pipeline() -> (Vec<String>, Vec<ImageRef>, u32, u32, f32) {
     let mut out = Vec::new();
     let mut frames: Vec<ImageRef> = Vec::new();
     let (mut vw, mut vh) = (0u32, 0u32);
+    let mut fps = 0.0f32;
 
     // 1. Hardware-decode capability probe.
     let check = VideoStartupCheck::run();
@@ -88,7 +96,7 @@ fn run_pipeline() -> (Vec<String>, Vec<ImageRef>, u32, u32) {
             }
             Err(e) => {
                 out.push(format!("HTTP fetch failed: {:?}", e));
-                return (out, frames, vw, vh);
+                return (out, frames, vw, vh, fps);
             }
         },
     };
@@ -98,6 +106,7 @@ fn run_pipeline() -> (Vec<String>, Vec<ImageRef>, u32, u32) {
         Ok(decoded) => {
             vw = decoded.width;
             vh = decoded.height;
+            fps = decoded.fps;
             out.push(format!(
                 "Demuxed H.264: {}x{} @ {:.1} fps · {} access units fed",
                 decoded.width, decoded.height, decoded.fps, decoded.access_units_fed,
@@ -127,16 +136,35 @@ fn run_pipeline() -> (Vec<String>, Vec<ImageRef>, u32, u32) {
         Err(e) => out.push(format!("Decode failed: {}", e)),
     }
 
-    (out, frames, vw, vh)
+    (out, frames, vw, vh, fps)
 }
 
-/// Per-frame Timer: advance to the next decoded frame (wrap to loop) + relayout.
+/// Playback clock tick: choose the frame for the current WALL-CLOCK time and
+/// relayout only if it changed. Frame index is `elapsed * fps` (not `idx + 1`),
+/// so when a tick is late — slow render or decode — we jump straight to the
+/// correct frame and the intervening frames are DROPPED. Playback therefore runs
+/// at real-time `fps` regardless of how fast we can actually decode/render, which
+/// is the whole point of frame dropping.
 extern "C" fn advance_frame(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
     let mut should_update = Update::DoNothing;
     if let Some(mut s) = data.downcast_mut::<VideoAppState>() {
-        if !s.frames.is_empty() {
-            s.idx = (s.idx + 1) % s.frames.len();
-            should_update = Update::RefreshDom;
+        let len = s.frames.len();
+        if len > 0 {
+            let start = *s.start.get_or_insert_with(std::time::Instant::now);
+            let fps = if s.fps > 0.0 { s.fps } else { 30.0 };
+            let elapsed = start.elapsed().as_secs_f32();
+            let new_idx = (elapsed * fps) as usize % len;
+            if new_idx != s.idx {
+                // AZ_VIDEO_FRAMELOG=1 prints the playback clock so frame dropping
+                // is observable: `dropped` counts frames skipped this tick (>0 when
+                // rendering/decoding fell behind real time).
+                if std::env::var("AZ_VIDEO_FRAMELOG").is_ok() {
+                    let dropped = new_idx.wrapping_sub(s.idx).min(len).saturating_sub(1);
+                    eprintln!("[fd] t={:.2}s frame={}/{} dropped={}", elapsed, new_idx, len, dropped);
+                }
+                s.idx = new_idx;
+                should_update = Update::RefreshDom;
+            }
         }
     }
     TimerCallbackReturn {
@@ -232,7 +260,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 
 fn main() {
     eprintln!("[azvideo] decoding (this can take a few seconds)…");
-    let (status, frames, vw, vh) = run_pipeline();
+    let (status, frames, vw, vh, fps) = run_pipeline();
     for line in &status {
         eprintln!("[azvideo] {}", line);
     }
@@ -241,6 +269,8 @@ fn main() {
         status,
         frames,
         idx: 0,
+        fps,
+        start: None,
         vw,
         vh,
     });
