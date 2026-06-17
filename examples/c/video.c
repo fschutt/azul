@@ -324,11 +324,14 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         // Clone the stored frame: createImage consumes the ImageRef.
         AzImageRef img = AzImageRef_clone(&d.ptr->frames[idx]);
         AzDom img_dom = AzDom_createImage(img);
-        char css[160];
-        // No border-radius / overflow:hidden here (clips the image blank in cpurender).
+        char css[240];
+        // Fill the width + rounded corners + drop shadow: exercises compositing /
+        // clipping of a scaled frame through the C ABI (mirrors the Rust example).
+        (void)boxw;
         snprintf(css, sizeof(css),
-                 "width: %upx; height: %upx; flex-shrink: 0; border: 2px solid #2a2a3a;",
-                 boxw, boxh);
+                 "width: 100%%; height: %upx; flex-shrink: 0; border-radius: 16px; "
+                 "overflow: hidden; box-shadow: 0px 0px 40px #000000;",
+                 boxh);
         AzDom_setCss(&img_dom, AZ_STR(css));
         AzDom_addChild(&body, img_dom);
     } else {
