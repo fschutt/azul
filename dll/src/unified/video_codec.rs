@@ -3,6 +3,47 @@
 #[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
 pub use crate::desktop::extra::video_codec::*;
 
+/// Always-present `pipeline` surface for the C-ABI bindings.
+///
+/// The real batch decoder lives in `desktop::extra::video_codec::pipeline`
+/// behind the `video-native` feature (Linux/Windows), and api.json exposes
+/// `DecodedVideo` / `decode_mp4_h264` through this target-stable `unified` path.
+/// Codegen has no per-entry feature gating, so the path MUST resolve in every
+/// `cabi_internal` build — but `link-static` (the default) enables `cabi_internal`
+/// without `video-native`, and wasm has no desktop module at all. When the real
+/// module isn't compiled this repr-C-identical stub stands in and reports "no
+/// frames" — the same "handle always present, engine opt-in" convention as the
+/// `Db` / `Pdf` handles. Mutually exclusive with the glob re-export above (which
+/// supplies the real `pipeline` only under `cabi_internal + !wasm + video-native`).
+#[cfg(all(
+    feature = "cabi_internal",
+    any(target_arch = "wasm32", not(feature = "video-native"))
+))]
+pub mod pipeline {
+    use azul_core::video::VideoFrameVec;
+    use azul_css::{impl_option, impl_option_inner};
+
+    /// A decoded clip: stream geometry plus the decoded frames. Layout MUST
+    /// match `desktop::extra::video_codec::pipeline::DecodedVideo` (the C-ABI
+    /// bindings `transmute` between this and `AzDecodedVideo`).
+    #[repr(C)]
+    #[derive(Debug, Clone)]
+    pub struct DecodedVideo {
+        pub width: u32,
+        pub height: u32,
+        pub fps: f32,
+        pub frames: VideoFrameVec,
+        pub access_units_fed: usize,
+    }
+
+    impl_option!(DecodedVideo, OptionDecodedVideo, copy = false, [Clone, Debug]);
+
+    /// No video-decode backend in this build: always returns `None`.
+    pub fn decode_mp4_h264(_bytes: &[u8]) -> OptionDecodedVideo {
+        OptionDecodedVideo::None
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 use core::ffi::c_void;
 

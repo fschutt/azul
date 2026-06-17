@@ -79,3 +79,12 @@ impl VideoFrame {
 
 // FFI Option wrapper for a frame-pull hook / accessor. `copy = false` (U8Vec).
 impl_option!(VideoFrame, OptionVideoFrame, copy = false, [Clone, Debug]);
+
+// FFI `Vec<VideoFrame>` wrapper — the list a batch decode (`DecodedVideo`,
+// `dll::desktop::extra::video_codec::pipeline`) hands back across the C ABI.
+// `VideoFrame` derives Debug + Clone + PartialEq, so mirror exactly those Vec
+// trait impls (no PartialOrd: `VideoFrame` isn't `PartialOrd`).
+impl_vec!(VideoFrame, VideoFrameVec, VideoFrameVecDestructor, VideoFrameVecDestructorType, VideoFrameVecSlice, OptionVideoFrame);
+impl_vec_debug!(VideoFrame, VideoFrameVec);
+impl_vec_clone!(VideoFrame, VideoFrameVec, VideoFrameVecDestructor);
+impl_vec_partialeq!(VideoFrame, VideoFrameVec);

@@ -12,14 +12,18 @@
 //! (`azul_layout::widgets::video`) is the streaming counterpart; this is the
 //! batch/eager form used for tests and simple "load a clip" cases.
 
-use azul_core::video::{OptionVideoFrame, VideoFrame};
-use azul_css::U8Vec;
+use azul_core::video::{OptionVideoFrame, VideoFrameVec};
+use azul_css::{impl_option, impl_option_inner, U8Vec};
 
 use super::demux::demux_mp4_h264;
 use super::VideoDecoder;
 
 /// A decoded clip: stream geometry plus whatever frames the backend produced.
-#[derive(Debug)]
+///
+/// `#[repr(C)]` + a `VideoFrameVec` (not `Vec`) so it crosses the C ABI: the
+/// FFI surface (`decode_mp4_h264`) returns this as `OptionDecodedVideo`.
+#[repr(C)]
+#[derive(Debug, Clone)]
 pub struct DecodedVideo {
     /// Coded width in pixels (from the H.264 SPS / avcC).
     pub width: u32,
@@ -29,10 +33,24 @@ pub struct DecodedVideo {
     pub fps: f32,
     /// Decoded RGBA frames, in order. Empty when no hardware decoder is present
     /// (the demux + feed still ran — see module docs).
-    pub frames: Vec<VideoFrame>,
+    pub frames: VideoFrameVec,
     /// Access units fed to the decoder (== demuxed chunk count). Lets a caller /
     /// test confirm the whole stream was pushed even when `frames` is empty.
     pub access_units_fed: usize,
+}
+
+// FFI Option wrapper — the C ABI has no `Result`, so `decode_mp4_h264` reports
+// failure as `None`. `copy = false` (carries a `VideoFrameVec`).
+impl_option!(DecodedVideo, OptionDecodedVideo, copy = false, [Clone, Debug]);
+
+/// Demux + decode an in-memory MP4, returning the clip or `None` on any error —
+/// the C-ABI-friendly entry point (mirrors [`decode_mp4_h264_bytes`], which
+/// returns a `Result` for Rust callers).
+pub fn decode_mp4_h264(bytes: &[u8]) -> OptionDecodedVideo {
+    match decode_mp4_h264_bytes(bytes) {
+        Ok(d) => OptionDecodedVideo::Some(d),
+        Err(_) => OptionDecodedVideo::None,
+    }
 }
 
 /// Demux + decode an MP4 file at `path`.
@@ -68,7 +86,7 @@ pub fn decode_mp4_h264_bytes(mp4: &[u8]) -> Result<DecodedVideo, String> {
         width: demuxed.width,
         height: demuxed.height,
         fps: demuxed.fps,
-        frames,
+        frames: VideoFrameVec::from_vec(frames),
         access_units_fed,
     })
 }
@@ -115,7 +133,7 @@ mod pipeline_tests {
         );
         // Whenever frames were decoded, each must be a full RGBA8 frame at the
         // coded resolution (catches stride / conversion / geometry bugs).
-        for fr in &d.frames {
+        for fr in d.frames.as_slice() {
             assert_eq!(fr.width, d.width, "frame width matches stream");
             assert_eq!(fr.height, d.height, "frame height matches stream");
             assert_eq!(

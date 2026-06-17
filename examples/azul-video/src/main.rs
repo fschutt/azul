@@ -102,7 +102,7 @@ fn run_pipeline() -> (Vec<String>, Vec<ImageRef>, u32, u32) {
                 "Demuxed H.264: {}x{} @ {:.1} fps · {} access units fed",
                 decoded.width, decoded.height, decoded.fps, decoded.access_units_fed,
             ));
-            for vf in decoded.frames.iter().take(MAX_FRAMES) {
+            for vf in decoded.frames.as_slice().iter().take(MAX_FRAMES) {
                 if let Some(img) = rgba_image(vf.bytes.as_slice().to_vec(), vf.width, vf.height) {
                     frames.push(img);
                 }
