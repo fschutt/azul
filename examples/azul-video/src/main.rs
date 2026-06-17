@@ -5,10 +5,11 @@
 //!   2. local sample (or `http_get`) — obtain the Big Buck Bunny H.264 MP4.
 //!   3. `decode_mp4_h264_bytes` — demux + Vulkan Video decode the whole clip to
 //!      RGBA frames (GPU decode on the video-decode queue, copied back to CPU).
-//!   4. the decoded frames are shown as an animating `<img>` driven by a
-//!      per-frame Timer, so Big Buck Bunny actually *plays*. Where no Vulkan
-//!      Video decoder exists the decode yields no frames and the test-pattern
-//!      `VideoWidget` stands in.
+//!   4. the decoded frames are handed to a `VideoWidget` via `with_frames`. Its
+//!      background worker cycles them through the shared GL `present_frame` path
+//!      (the same proven GL-texture route the camera/screencap widgets use), so
+//!      Big Buck Bunny actually *plays*. Where no Vulkan Video decoder exists the
+//!      decode yields no frames and the widget's built-in test pattern stands in.
 //!
 //! The C `azul-video` player drives the same FFI calls and adds the
 //! driver-provision msgbox/autofix on top.
@@ -16,8 +17,6 @@
 use azul::prelude::*;
 use azul::widgets::VideoWidget;
 use azul::misc::VideoConfig;
-use azul::image::{ImageRef, RawImage, RawImageData, RawImageFormat};
-use azul::task::TerminateTimer;
 use azul::desktop::http::http_get;
 use azul::desktop::extra::video_codec::VideoStartupCheck;
 use azul::desktop::extra::video_codec::pipeline::decode_mp4_h264_bytes;
@@ -26,44 +25,24 @@ use azul::desktop::extra::video_codec::pipeline::decode_mp4_h264_bytes;
 const BBB_URL: &str =
     "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_2MB.mp4";
 const LOCAL_SAMPLE: &str = "/tmp/video-media-samples/big-buck-bunny-360p.mp4";
-/// Cap decoded frames shown (360p RGBA ≈ 0.9 MB each). Plays + loops.
+/// Cap decoded frames replayed (360p RGBA ≈ 0.9 MB each). The widget loops them.
 const MAX_FRAMES: usize = 150;
 
 struct VideoAppState {
     /// Pipeline status lines for the side panel.
     status: Vec<String>,
-    /// Decoded frames as ready-to-render images. Empty => no HW decoder.
-    frames: Vec<ImageRef>,
-    /// Currently displayed frame index (advanced by the Timer, wraps to loop).
-    idx: usize,
+    /// Decoded frames as a `RefAny` holding a `Vec<VideoFrame>`, handed to the
+    /// `VideoWidget`; `None` when no HW decoder produced any (→ test pattern).
+    frames: OptionRefAny,
     /// Coded video size (for the display box).
     vw: u32,
     vh: u32,
 }
 
-/// Wrap a decoded RGBA8 frame as a renderable image. azul's renderers expect
-/// **BGRA8** (cpurender's blit path handles BGRA8/R8 but renders RGBA8 as a gray
-/// placeholder; webrender treats the bytes as BGRA), so swap R<->B in place and
-/// tag the image BGRA8.
-fn rgba_image(mut bytes: Vec<u8>, w: u32, h: u32) -> Option<ImageRef> {
-    for px in bytes.chunks_exact_mut(4) {
-        px.swap(0, 2); // RGBA -> BGRA
-    }
-    ImageRef::new_rawimage(RawImage {
-        pixels: RawImageData::U8(bytes.into()),
-        width: w as usize,
-        height: h as usize,
-        premultiplied_alpha: false,
-        data_format: RawImageFormat::BGRA8,
-        tag: b"bbb-frame".to_vec().into(),
-    })
-    .into_option()
-}
-
-/// Probe + fetch + demux + decode the clip; returns status lines + decoded frames.
-fn run_pipeline() -> (Vec<String>, Vec<ImageRef>, u32, u32) {
+/// Probe + fetch + demux + decode the clip; returns status lines, the decoded
+/// frames wrapped as a `RefAny<Vec<VideoFrame>>` (or `None`), and the coded size.
+fn run_pipeline() -> (Vec<String>, OptionRefAny, u32, u32) {
     let mut out = Vec::new();
-    let mut frames: Vec<ImageRef> = Vec::new();
     let (mut vw, mut vh) = (0u32, 0u32);
 
     // 1. Hardware-decode capability probe.
@@ -92,7 +71,7 @@ fn run_pipeline() -> (Vec<String>, Vec<ImageRef>, u32, u32) {
             }
             Err(e) => {
                 out.push(format!("HTTP fetch failed: {:?}", e));
-                return (out, frames, vw, vh);
+                return (out, OptionRefAny::None, vw, vh);
             }
         },
     };
@@ -102,18 +81,24 @@ fn run_pipeline() -> (Vec<String>, Vec<ImageRef>, u32, u32) {
         Ok(decoded) => {
             vw = decoded.width;
             vh = decoded.height;
+            let total = decoded.frames.len();
             out.push(format!(
                 "Demuxed H.264: {}x{} @ {:.1} fps · {} access units fed",
                 decoded.width, decoded.height, decoded.fps, decoded.access_units_fed,
             ));
-            for vf in decoded.frames.iter().take(MAX_FRAMES) {
-                if let Some(img) = rgba_image(vf.bytes.as_slice().to_vec(), vf.width, vf.height) {
-                    frames.push(img);
-                }
-            }
+
+            // Cap the replayed set (each 360p RGBA frame ≈ 0.9 MB). Keep `clip`
+            // as the *inferred* `Vec<VideoFrame>` type from `decoded.frames`
+            // (the real `azul_core::video::VideoFrame`) — never name it as the
+            // FFI-mirror `azul::widgets::VideoFrame`, or the widget worker's
+            // `downcast_ref::<Vec<VideoFrame>>` would fail the TypeId check.
+            let mut clip = decoded.frames;
+            clip.truncate(MAX_FRAMES);
+            let produced = !clip.is_empty();
+
             out.push(format!(
                 "Decoded {} frames ({}x{}) via {} — {}",
-                decoded.frames.len(),
+                total,
                 vw,
                 vh,
                 if check.hw_decode_ready {
@@ -121,67 +106,29 @@ fn run_pipeline() -> (Vec<String>, Vec<ImageRef>, u32, u32) {
                 } else {
                     "no HW decoder"
                 },
-                if frames.is_empty() {
-                    "showing test pattern"
-                } else {
-                    "playing"
-                },
+                if produced { "playing" } else { "showing test pattern" },
             ));
+
+            let frames = if produced {
+                // RefAny::new here delegates to azul_core's RefAny::new, storing
+                // TypeId::of::<Vec<VideoFrame>>() — matches the worker downcast.
+                OptionRefAny::Some(RefAny::new(clip))
+            } else {
+                OptionRefAny::None
+            };
+            (out, frames, vw, vh)
         }
-        Err(e) => out.push(format!("Decode failed: {}", e)),
-    }
-
-    (out, frames, vw, vh)
-}
-
-/// Per-frame Timer: advance to the next decoded frame (wrap to loop) + relayout.
-extern "C" fn advance_frame(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
-    let mut should_update = Update::DoNothing;
-    if let Some(mut s) = data.downcast_mut::<VideoAppState>() {
-        if !s.frames.is_empty() {
-            s.idx = (s.idx + 1) % s.frames.len();
-            should_update = Update::RefreshDom;
+        Err(e) => {
+            out.push(format!("Decode failed: {}", e));
+            (out, OptionRefAny::None, vw, vh)
         }
     }
-    TimerCallbackReturn {
-        should_terminate: TerminateTimer::Continue,
-        should_update,
-    }
-}
-
-/// Window-create: install the playback Timer (only if we have frames to show).
-extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let has_frames = data
-        .downcast_ref::<VideoAppState>()
-        .map(|s| !s.frames.is_empty())
-        .unwrap_or(false);
-    if has_frames {
-        info.add_timer(
-            TimerId::unique(),
-            Timer::create(
-                data.clone(),
-                TimerCallback {
-                    cb: advance_frame,
-                    ctx: OptionRefAny::None,
-                },
-                info.get_system_time_fn(),
-            ),
-        );
-    }
-    Update::DoNothing
 }
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let (lines, frame, vw, vh, nframes, idx) = match data.downcast_ref::<VideoAppState>() {
-        Some(s) => (
-            s.status.clone(),
-            s.frames.get(s.idx).cloned(),
-            s.vw,
-            s.vh,
-            s.frames.len(),
-            s.idx,
-        ),
-        None => (Vec::new(), None, 0, 0, 0, 0),
+    let (lines, frames, vw, vh) = match data.downcast_ref::<VideoAppState>() {
+        Some(s) => (s.status.clone(), s.frames.clone(), s.vw, s.vh),
+        None => (Vec::new(), OptionRefAny::None, 0, 0),
     };
 
     let mut root = Dom::create_body().with_css(
@@ -206,28 +153,39 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     } else {
         (480, 270)
     };
+    let box_css = format!(
+        "width: {}px; height: {}px; border: 2px solid #2a2a3a; border-radius: 8px; \
+         overflow: hidden;",
+        boxw, boxh
+    );
 
-    if let Some(img) = frame {
-        let playing = format!("playing — frame {}/{}", idx + 1, nframes);
-        let img_css = format!(
-            "width: {}px; height: {}px; border: 2px solid #2a2a3a; border-radius: 8px; \
-             overflow: hidden;",
-            boxw, boxh
-        );
-        root = root.with_child(
-            Dom::create_text(playing.as_str())
-                .with_css("font-size: 12px; color: #7ad17a; margin: 10px 0 5px 0;"),
-        );
-        root = root.with_child(Dom::create_image(img).with_css(img_css.as_str()));
-    } else {
-        root = root.with_child(
-            Dom::create_text("no decoded frames — test pattern (no Vulkan Video decode here):")
-                .with_css("font-size: 12px; color: #6a7080; margin: 10px 0 5px 0;"),
-        );
-        root = root.with_child(VideoWidget::create(VideoConfig::default()).dom().with_css(
-            "width: 480px; height: 270px; border: 2px solid #2a2a3a; border-radius: 8px; \
-             overflow: hidden;",
-        ));
+    // Decoded frames → VideoWidget (GL present_frame path); none → test pattern.
+    // Match by reference + clone the inner RefAny (OptionRefAny is Drop, so we
+    // can't move the inner value out of it).
+    match &frames {
+        OptionRefAny::Some(frames) => {
+            root = root.with_child(
+                Dom::create_text("playing decoded frames via VideoWidget (GL present_frame)")
+                    .with_css("font-size: 12px; color: #7ad17a; margin: 10px 0 5px 0;"),
+            );
+            root = root.with_child(
+                VideoWidget::create(VideoConfig::default())
+                    .with_frames(frames.clone())
+                    .dom()
+                    .with_css(box_css.as_str()),
+            );
+        }
+        OptionRefAny::None => {
+            root = root.with_child(
+                Dom::create_text("no decoded frames — test pattern (no Vulkan Video decode here):")
+                    .with_css("font-size: 12px; color: #6a7080; margin: 10px 0 5px 0;"),
+            );
+            root = root.with_child(
+                VideoWidget::create(VideoConfig::default())
+                    .dom()
+                    .with_css(box_css.as_str()),
+            );
+        }
     }
 
     root
@@ -243,13 +201,11 @@ fn main() {
     let data = RefAny::new(VideoAppState {
         status,
         frames,
-        idx: 0,
         vw,
         vh,
     });
     let config = AppConfig::create();
     let app = App::create(data, config);
-    let mut window = WindowCreateOptions::create(layout);
-    window.create_callback = Some(Callback::create(startup)).into();
+    let window = WindowCreateOptions::create(layout);
     app.run(window);
 }

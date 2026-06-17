@@ -43,6 +43,10 @@ pub struct VideoWidgetState {
     /// Optional user hook invoked with each decoded frame (effects / save /
     /// send). Re-set on every fresh build (see [`merge_video_state`]).
     pub on_frame: OptionOnVideoFrame,
+    /// Optional pre-decoded frames to replay (a `RefAny` holding a
+    /// `Vec<VideoFrame>`); when set, the replay worker cycles these instead of
+    /// the built-in test pattern. Carried forward by [`merge_video_state`].
+    pub frames: OptionRefAny,
 }
 
 /// A video-playback widget. `create(config).dom()` yields an `<img>` the
@@ -53,6 +57,10 @@ pub struct VideoWidget {
     pub config: VideoConfig,
     /// Optional per-frame user hook (effects / save / send - azul-meet).
     pub on_frame: OptionOnVideoFrame,
+    /// Optional pre-decoded frames to replay (a `RefAny` holding a
+    /// `Vec<VideoFrame>`); set via [`with_frames`](Self::with_frames). When
+    /// present the widget cycles these instead of the test pattern.
+    pub frames: OptionRefAny,
 }
 
 impl VideoWidget {
@@ -61,6 +69,7 @@ impl VideoWidget {
         Self {
             config,
             on_frame: OptionOnVideoFrame::None,
+            frames: OptionRefAny::None,
         }
     }
 
@@ -85,6 +94,18 @@ impl VideoWidget {
         self
     }
 
+    /// Replay a list of already-decoded frames instead of the built-in test
+    /// pattern: `frames` is a [`RefAny`] holding a `Vec<VideoFrame>`. The
+    /// background worker cycles them through the shared GL presenter (the same
+    /// `present_frame` path the camera/screencap widgets use), so callers that
+    /// decode a clip up front (e.g. `decode_mp4_h264_bytes`) get real pixels on
+    /// screen. The `RefAny` must carry a `Vec<VideoFrame>`, else playback is
+    /// skipped and the test pattern shows instead.
+    pub fn with_frames(mut self, frames: RefAny) -> Self {
+        self.frames = Some(frames).into();
+        self
+    }
+
     /// Build the widget's DOM: a single `<img>` node, fed by a background
     /// decode thread started on mount.
     pub fn dom(self) -> Dom {
@@ -93,6 +114,7 @@ impl VideoWidget {
             started: false,
             gl_texture_id: None,
             on_frame: self.on_frame,
+            frames: self.frames,
         };
         let dataset = RefAny::new(state);
 
@@ -116,7 +138,8 @@ impl VideoWidget {
 
 /// AfterMount: start the background decode thread exactly once.
 extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    {
+    // Mark started exactly once, and pull out the optional replay frames.
+    let frames = {
         let mut s = match data.downcast_mut::<VideoWidgetState>() {
             Some(s) => s,
             None => return Update::DoNothing,
@@ -125,15 +148,31 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
             return Update::DoNothing;
         }
         s.started = true;
-    }
-    info.add_thread(
-        ThreadId::unique(),
-        Thread::create(
-            RefAny::new(()),
-            data.clone(),
-            ThreadCallback::new(video_test_worker),
+        match &s.frames {
+            OptionRefAny::Some(f) => Some(f.clone()),
+            OptionRefAny::None => None,
+        }
+    };
+    // Replay pre-decoded frames if given, else fall back to the test pattern -
+    // both feed the same WriteBack -> video_writeback -> present_frame path.
+    match frames {
+        Some(frames) => info.add_thread(
+            ThreadId::unique(),
+            Thread::create(
+                frames,
+                data.clone(),
+                ThreadCallback::new(video_replay_worker),
+            ),
         ),
-    );
+        None => info.add_thread(
+            ThreadId::unique(),
+            Thread::create(
+                RefAny::new(()),
+                data.clone(),
+                ThreadCallback::new(video_test_worker),
+            ),
+        ),
+    }
     Update::DoNothing
 }
 
@@ -177,6 +216,36 @@ extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: 
     }
 }
 
+/// Background worker (replay): cycle a caller-supplied `Vec<VideoFrame>` (e.g. a
+/// clip decoded up front via `decode_mp4_h264_bytes`) ~30x/s through the same
+/// WriteBack -> [`video_writeback`] -> [`super::capture_common::present_frame`]
+/// path as the test pattern, so real decoded pixels land in the shared GL
+/// texture. `init` is the `RefAny` handed to
+/// [`VideoWidget::with_frames`](VideoWidget::with_frames); if it doesn't hold a
+/// non-empty `Vec<VideoFrame>` the worker just returns.
+extern "C" fn video_replay_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
+    let frames: Vec<VideoFrame> = match init.downcast_ref::<Vec<VideoFrame>>() {
+        Some(f) => f.clone(),
+        None => return,
+    };
+    if frames.is_empty() {
+        return;
+    }
+    let mut idx: usize = 0;
+    loop {
+        let frame = frames[idx % frames.len()].clone();
+        let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
+            WriteBackCallback::new(video_writeback),
+            RefAny::new(frame),
+        )));
+        if !sent {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(33));
+        idx = idx.wrapping_add(1);
+    }
+}
+
 /// Writeback (main thread): hand the decoded frame to the shared GL presenter
 /// and store the (stable) texture id.
 extern "C" fn video_writeback(
@@ -211,6 +280,7 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
         if let (Some(mut new_g), Some(old_g)) = (new_guard, old_guard) {
             new_g.started = old_g.started;
             new_g.gl_texture_id = old_g.gl_texture_id;
+            new_g.frames = old_g.frames.clone();
         }
     }
     new_data
