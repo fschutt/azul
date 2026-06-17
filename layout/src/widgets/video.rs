@@ -11,15 +11,16 @@
 
 use alloc::vec::Vec;
 
-use azul_core::callbacks::Update;
-use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter};
+use azul_core::callbacks::{Update, VirtualViewCallbackInfo, VirtualViewReturn};
+use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter, OptionDom};
+use azul_core::geom::LogicalPosition;
 use azul_core::refany::{OptionRefAny, RefAny};
-use azul_core::resources::{ImageRef, RawImageFormat};
+use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
 use azul_core::task::{ThreadId, ThreadReceiver};
 use azul_core::video::{VideoConfig, VideoFrame};
 
 use super::capture_common::{
-    invoke_on_frame, present_frame, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
+    invoke_on_frame, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
 };
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{
@@ -56,6 +57,13 @@ pub struct VideoWidgetState {
     /// AfterMount spawns it on a background `Thread` instead of the replay /
     /// test-pattern workers, so the VK decode runs off the main thread.
     pub decode_callback: Option<ThreadCallback>,
+    /// The latest decoded frame to display, as a CPU `ImageRef` (RGBA8). The
+    /// VirtualView render callback ([`video_widget_render`]) reads this on each
+    /// re-render; [`video_writeback`] stores it and triggers an in-place
+    /// VirtualView re-render — so the frame renders on cpurender AND webrender,
+    /// exactly like the map widget's tile cache. (Replaces the GL `present_frame`
+    /// path for video; camera/screencap still use present_frame.)
+    pub current_frame: Option<ImageRef>,
 }
 
 /// A video-playback widget. `create(config).dom()` yields an `<img>` the
@@ -138,23 +146,32 @@ impl VideoWidget {
             frames: self.frames,
             source: self.source,
             decode_callback: decode_cb,
+            current_frame: None,
         };
         let dataset = RefAny::new(state);
+        let vv_data = dataset.clone();
 
-        let placeholder = ImageRef::null_image(
-            DEFAULT_W as usize,
-            DEFAULT_H as usize,
-            RawImageFormat::BGRA8,
-            b"azul-video-placeholder".to_vec(),
-        );
-
-        Dom::create_image(placeholder)
+        // The body is a VirtualView (exactly like the map widget): its render
+        // callback re-reads `current_frame` from the dataset each re-render and
+        // builds the `<img>`, so streamed frames render on BOTH cpurender and
+        // webrender. The background decode worker is started on AfterMount and
+        // `WriteBack`s frames into `current_frame` + triggers a VirtualView
+        // re-render in place (no DOM rebuild) — see `video_writeback`. The caller
+        // sizes the outer node via `.with_css(...)` on the returned Dom.
+        Dom::create_div()
             .with_dataset(OptionRefAny::Some(dataset.clone()))
             .with_merge_callback(merge_video_state as DatasetMergeCallbackType)
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset,
                 Callback::from(video_on_after_mount as CallbackType),
+            )
+            .with_child(
+                Dom::create_virtual_view(
+                    vv_data,
+                    video_widget_render as azul_core::callbacks::VirtualViewCallbackType,
+                )
+                .with_css("width: 100%; height: 100%; overflow: hidden;"),
             )
     }
 
@@ -175,6 +192,34 @@ impl VideoWidget {
     /// it in a `ThreadCallback` to pass it here.
     pub fn dom_with_decoder(self, cb: ThreadCallback) -> Dom {
         self.build_dom(Some(cb))
+    }
+}
+
+/// VirtualView render callback (mirrors `map_widget_render`): build the `<img>`
+/// for the latest decoded frame, re-read from the widget's dataset on every
+/// re-render. The decode worker stores frames into `current_frame` and triggers
+/// the re-render in place (see [`video_writeback`]), so this renders on both the
+/// CPU and GPU renderers with no DOM rebuild.
+extern "C" fn video_widget_render(
+    mut data: RefAny,
+    info: VirtualViewCallbackInfo,
+) -> VirtualViewReturn {
+    let bounds = info.get_bounds().get_logical_size();
+    let dom = match data.downcast_ref::<VideoWidgetState>() {
+        Some(s) => match &s.current_frame {
+            Some(img) => {
+                OptionDom::Some(Dom::create_image(img.clone()).with_css("width: 100%; height: 100%;"))
+            }
+            None => OptionDom::None,
+        },
+        None => OptionDom::None,
+    };
+    VirtualViewReturn {
+        dom,
+        scroll_size: bounds,
+        scroll_offset: LogicalPosition::zero(),
+        virtual_scroll_size: bounds,
+        virtual_scroll_offset: LogicalPosition::zero(),
     }
 }
 
@@ -295,29 +340,42 @@ extern "C" fn video_replay_worker(mut init: RefAny, mut sender: ThreadSender, _r
     }
 }
 
-/// Writeback (main thread): hand the decoded frame to the shared GL presenter
-/// and store the (stable) texture id.
+/// Writeback (main thread): store the decoded frame as the widget's
+/// `current_frame` (a CPU `ImageRef`) and re-render the VirtualView in place so it
+/// re-reads it — exactly like `map_tile_writeback`. Renders on cpurender AND
+/// webrender (no GL `present_frame`, no DOM rebuild).
 pub extern "C" fn video_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let (current, hook) = match writeback_data.downcast_ref::<VideoWidgetState>() {
-        Some(s) => (s.gl_texture_id, s.on_frame.clone()),
-        None => (None, OptionOnVideoFrame::None),
+    let hook = match writeback_data.downcast_ref::<VideoWidgetState>() {
+        Some(s) => s.on_frame.clone(),
+        None => OptionOnVideoFrame::None,
     };
     let mut user_update = Update::DoNothing;
-    let new_id = match frame_data.downcast_ref::<VideoFrame>() {
+    match frame_data.downcast_ref::<VideoFrame>() {
         Some(frame) => {
-            let id = present_frame(&mut info, writeback_data.clone(), current, &frame);
+            if let Some(img) = ImageRef::new_rawimage(RawImage {
+                pixels: RawImageData::U8(frame.bytes.clone()),
+                width: frame.width as usize,
+                height: frame.height as usize,
+                premultiplied_alpha: false,
+                data_format: RawImageFormat::RGBA8,
+                tag: b"azul-video-frame".to_vec().into(),
+            }) {
+                if let Some(mut s) = writeback_data.downcast_mut::<VideoWidgetState>() {
+                    s.current_frame = Some(img);
+                }
+            }
             user_update = invoke_on_frame(&hook, &mut info, &frame);
-            id
         }
         None => return Update::DoNothing,
-    };
-    if let Some(mut s) = writeback_data.downcast_mut::<VideoWidgetState>() {
-        s.gl_texture_id = new_id;
     }
+    // Re-render the VirtualView(s) in place so the content callback re-reads the
+    // freshly-stored `current_frame` (NOT RefreshDom — that would rebuild the DOM
+    // and orphan the worker's dataset clone). Same trick as `map_tile_writeback`.
+    info.trigger_all_virtual_view_rerender();
     user_update
 }
 
@@ -332,6 +390,7 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
             new_g.frames = old_g.frames.clone();
             new_g.source = old_g.source.clone();
             new_g.decode_callback = old_g.decode_callback.clone();
+            new_g.current_frame = old_g.current_frame.clone();
         }
     }
     new_data
