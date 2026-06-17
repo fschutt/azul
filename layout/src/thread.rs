@@ -607,6 +607,19 @@ impl Thread {
     pub fn send_message(&self, _msg: ThreadSendMsg) -> bool {
         false
     }
+
+    /// Clone the main→worker `Sender` so a holder without a `CallbackInfo` (e.g. a
+    /// dataset-merge callback) can message the running worker later — used for the
+    /// scrub/seek path, where the merge callback compares the old/new `VideoConfig`
+    /// and pushes a seek to the worker. `None` on no_std.
+    #[cfg(feature = "std")]
+    pub fn clone_sender(&self) -> Option<Sender<ThreadSendMsg>> {
+        self.ptr.lock().ok().map(|inner| (*inner.sender).clone())
+    }
+    #[cfg(not(feature = "std"))]
+    pub fn clone_sender(&self) -> Option<Sender<ThreadSendMsg>> {
+        None
+    }
 }
 
 /// A `Thread` is a separate thread that is owned by the framework.

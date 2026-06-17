@@ -65,6 +65,10 @@ pub struct VideoWidgetState {
     /// re-target the decoder to the new physical-pixel size — a cheap image swap, no
     /// relayout. Carried across relayout by [`merge_video_state`].
     pub thread_id: Option<ThreadId>,
+    /// Clone of the worker's main→worker `Sender` (set by AfterMount, carried by
+    /// merge). Lets [`merge_video_state`] — which has no `CallbackInfo` — push a
+    /// seek to the running worker when `config.timestamp` changes (scrubbing).
+    pub seek_sender: Option<std::sync::mpsc::Sender<ThreadSendMsg>>,
 }
 
 /// A video-playback widget. `create(config).dom()` yields an `<img>` the
@@ -134,6 +138,7 @@ impl VideoWidget {
             decode_callback: decode_cb,
             current_frame: None,
             thread_id: None,
+            seek_sender: None,
         };
         let dataset = RefAny::new(state);
         let vv_data = dataset.clone();
@@ -257,10 +262,15 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
         // `config.source` (typed — no RefAny downcast) and reads `config.timestamp`.
         let init = RefAny::new(config);
         let tid = ThreadId::unique();
-        info.add_thread(tid, Thread::create(init, data.clone(), cb));
-        // Remember the worker's id so `video_on_resize` can message it.
+        let thread = Thread::create(init, data.clone(), cb);
+        // Grab the main→worker sender BEFORE add_thread moves the Thread, so the
+        // merge callback can push seeks to the worker (scrubbing).
+        let seek_sender = thread.clone_sender();
+        info.add_thread(tid, thread);
+        // Remember the worker's id (resize messaging) + sender (seek messaging).
         if let Some(mut s) = data.downcast_mut::<VideoWidgetState>() {
             s.thread_id = Some(tid);
+            s.seek_sender = seek_sender;
         }
     } else if let Some(frames) = frames {
         info.add_thread(
@@ -426,6 +436,15 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
             new_g.decode_callback = old_g.decode_callback.clone();
             new_g.current_frame = old_g.current_frame.clone();
             new_g.thread_id = old_g.thread_id;
+            new_g.seek_sender = old_g.seek_sender.clone();
+            // Scrubbing: a changed `config.timestamp` across this relayout → tell the
+            // worker to seek. Cheap wall-clock reposition (the worker already has the
+            // decoded frames), result comes back as an image swap — no re-decode here.
+            if old_g.config.timestamp != new_g.config.timestamp {
+                if let Some(snd) = new_g.seek_sender.as_ref() {
+                    let _ = snd.send(ThreadSendMsg::Custom(RefAny::new(new_g.config.timestamp)));
+                }
+            }
         }
     }
     new_data

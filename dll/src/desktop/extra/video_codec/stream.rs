@@ -152,7 +152,10 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
     let mut decoded: Vec<VideoFrame> = Vec::new();
     let mut chunk_idx = 0usize;
     let mut last_idx = usize::MAX;
-    let start = Instant::now();
+    // Wall-clock origin for paced presentation. Seeking just moves this origin:
+    // `start = now - ts` ⇒ elapsed = ts ⇒ present idx jumps to ts*fps (the frames
+    // are already decoded, so no re-decode is needed).
+    let mut start = Instant::now();
 
     loop {
         // Drain control messages from the main thread (non-blocking): a NodeResized
@@ -169,6 +172,17 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
                             if log {
                                 eprintln!("[vstream] resize → target {}x{}", sz.0, sz.1);
                             }
+                        }
+                    } else if let Some(ts) = r.downcast_ref::<f32>().map(|t| *t) {
+                        // Seek: reposition the wall-clock origin so the next present
+                        // jumps to ts*fps.
+                        let ts = ts.max(0.0);
+                        start = Instant::now()
+                            .checked_sub(Duration::from_secs_f32(ts))
+                            .unwrap_or_else(Instant::now);
+                        last_idx = usize::MAX;
+                        if log {
+                            eprintln!("[vstream] seek → {:.2}s", ts);
                         }
                     }
                 }
