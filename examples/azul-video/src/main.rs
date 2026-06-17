@@ -1,11 +1,10 @@
-//! AzVideo — streaming H.264 video player (P6).
+//! AzVideo — streaming H.264 player.
 //!
-//! The `VideoWidget` decodes Big Buck Bunny on a BACKGROUND thread (off the main
-//! thread, via Vulkan Video), streaming frames to its `<img>` — there is NO
-//! up-front decode, so the window opens immediately and playback is wall-clock
-//! paced (late frames dropped). The clip is loaded from a URL via an HTTP range
-//! request. Architecturally identical to the slippy-map widget: `dom()` wires a
-//! background worker (here the VK decode) that `WriteBack`s results to the widget.
+//! The `VideoWidget` decodes Big Buck Bunny on a background thread (off-main, via
+//! Vulkan Video), streaming frames to a VirtualView `<img>`. The video fills the
+//! window via flex (no hardcoded size) with rounded corners + a drop shadow +
+//! padding, to validate that the CPU and GPU renderers composite + clip the scaled
+//! frame like an image.
 
 use azul::prelude::*;
 use azul::widgets::VideoWidget;
@@ -16,67 +15,41 @@ use azul::desktop::extra::video_codec::VideoStartupCheck;
 const BBB_URL: &str =
     "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_2MB.mp4";
 
-struct VideoAppState {
-    /// Status lines for the side panel (the decode itself runs on the worker thread).
-    status: Vec<String>,
-}
-
-extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let lines = match data.downcast_ref::<VideoAppState>() {
-        Some(s) => s.status.clone(),
-        None => Vec::new(),
-    };
-
-    let mut root = Dom::create_body().with_css(
-        "display: flex; flex-direction: column; height: 100%; box-sizing: border-box; \
-         padding: 16px; background: #0e0e14; font-family: sans-serif; color: #e6e6f0;",
-    );
-    root = root.with_child(
-        Dom::create_text("AzVideo — streaming H.264 (Big Buck Bunny)")
-            .with_css("font-size: 22px; margin-bottom: 10px;"),
-    );
-    for line in &lines {
-        root = root.with_child(
-            Dom::create_text(line.as_str())
-                .with_css("font-size: 13px; color: #b8c0d0; margin-bottom: 5px;"),
-        );
-    }
-    root = root.with_child(
-        Dom::create_text("streaming from URL — decoded on a background thread (range request)")
-            .with_css("font-size: 12px; color: #7ad17a; margin: 10px 0 5px 0;"),
-    );
-
-    // The VideoWidget streams: the typed `VideoSource::Url` in the config + `dom()`
-    // wires the off-main VK decode worker. Flex-fill the window (no hardcoded size)
-    // so the CPU renderer must interpolate/scale the decoded frame (GPU does it
-    // natively) — and no border-radius/overflow (those clip the `<img>` in cpurender).
+extern "C" fn layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let mut config = VideoConfig::default();
     config.source = VideoSource::Url(BBB_URL.into());
-    root = root.with_child(
-        VideoWidget::create(config)
-            .dom()
-            .with_css("flex-grow: 1; width: 100%; border: 2px solid #2a2a3a;"),
-    );
 
-    root
+    // Parent fills the window: `display: flex` + `height: 100%` (resolves against
+    // the viewport) + padding. The video is a flex child that grows to fill the
+    // box, clipped to a rounded rect (overflow: hidden) with a drop shadow — so we
+    // can verify the CPU and GPU renderers scale + composite + clip it like an image.
+    // Fill the window: body is height:100% (resolves against the viewport) + padding;
+    // the video is width:100%/height:100% of the body's content box (flex-grow is
+    // avoided — it currently blows the main axis up to inf, a separate solver bug).
+    // border-radius + overflow:hidden + box-shadow exercise compositing/clipping.
+    Dom::create_body()
+        .with_css(
+            "height: 100%; margin: 0; box-sizing: border-box; padding: 20px; \
+             background: #0e0e14;",
+        )
+        .with_child(
+            VideoWidget::create(config).dom().with_css(
+                "width: 100%; height: 100%; border-radius: 16px; overflow: hidden; \
+                 box-shadow: 0px 0px 40px #000000;",
+            ),
+        )
 }
 
 fn main() {
-    // Probe HW-decode readiness for the status panel; the actual demux+decode
-    // happens on the widget's background thread (see VideoWidget::dom()).
     let check = VideoStartupCheck::run();
-    let mut status = Vec::new();
-    status.push(format!(
-        "VK hardware H.264 decode: {} — {}",
+    eprintln!(
+        "[azvideo] VK hardware H.264 decode: {} — {}",
         if check.hw_decode_ready { "READY" } else { "not available" },
         check.summary.as_str(),
-    ));
-    status.push(format!("Source (range request): {}", BBB_URL));
-    for line in &status {
-        eprintln!("[azvideo] {}", line);
-    }
+    );
+    eprintln!("[azvideo] streaming (range request): {}", BBB_URL);
 
-    let data = RefAny::new(VideoAppState { status });
+    let data = RefAny::new(());
     let config = AppConfig::create();
     let app = App::create(data, config);
     let window = WindowCreateOptions::create(layout);
