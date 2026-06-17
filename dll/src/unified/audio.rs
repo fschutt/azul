@@ -14,6 +14,8 @@ use core::ffi::c_void;
 
 #[cfg(target_arch = "wasm32")]
 use azul_core::audio::{AudioConfig, AudioFrame};
+#[cfg(target_arch = "wasm32")]
+use azul_css::StringVec;
 
 /// wasm stub of the desktop `AudioSink` handle (no audio backend on wasm).
 #[cfg(target_arch = "wasm32")]
@@ -62,4 +64,24 @@ impl AudioSink {
         0
     }
     pub fn close(&mut self) {}
+}
+
+/// wasm stub of `AudioDeviceList` (no enumeration backend on wasm). `#[repr(C)]`
+/// layout MUST match the desktop `audio::AudioDeviceList`.
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct AudioDeviceList {
+    pub outputs: StringVec,
+    pub inputs: StringVec,
+}
+#[cfg(target_arch = "wasm32")]
+impl AudioDeviceList {
+    /// No audio enumeration on wasm: empty lists.
+    pub fn enumerate() -> AudioDeviceList {
+        AudioDeviceList {
+            outputs: StringVec::from_const_slice(&[]),
+            inputs: StringVec::from_const_slice(&[]),
+        }
+    }
 }
