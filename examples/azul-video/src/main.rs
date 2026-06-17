@@ -41,14 +41,20 @@ struct VideoAppState {
     vh: u32,
 }
 
-/// Wrap tightly-packed RGBA8 bytes as a renderable image.
-fn rgba_image(bytes: Vec<u8>, w: u32, h: u32) -> Option<ImageRef> {
+/// Wrap a decoded RGBA8 frame as a renderable image. azul's renderers expect
+/// **BGRA8** (cpurender's blit path handles BGRA8/R8 but renders RGBA8 as a gray
+/// placeholder; webrender treats the bytes as BGRA), so swap R<->B in place and
+/// tag the image BGRA8.
+fn rgba_image(mut bytes: Vec<u8>, w: u32, h: u32) -> Option<ImageRef> {
+    for px in bytes.chunks_exact_mut(4) {
+        px.swap(0, 2); // RGBA -> BGRA
+    }
     ImageRef::new_rawimage(RawImage {
         pixels: RawImageData::U8(bytes.into()),
         width: w as usize,
         height: h as usize,
         premultiplied_alpha: false,
-        data_format: RawImageFormat::RGBA8,
+        data_format: RawImageFormat::BGRA8,
         tag: b"bbb-frame".to_vec().into(),
     })
     .into_option()
