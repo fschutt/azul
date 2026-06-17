@@ -39,6 +39,11 @@ use azul_css::AzString;
 /// requires on a physical device.
 const VK_EXT_VIDEO_DECODE_H264: &[u8] = b"VK_KHR_video_decode_h264";
 
+/// The extension a Vulkan Video **encoder** requires — absent on decode-only GPUs
+/// (e.g. NVIDIA Maxwell / GTX 9xx), which is exactly what [`VideoEncodeCheck`]
+/// warns about.
+const VK_EXT_VIDEO_ENCODE_H264: &[u8] = b"VK_KHR_video_encode_h264";
+
 /// Outcome of a hardware-decode probe.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HwDecodeProbe {
@@ -77,7 +82,7 @@ pub fn probe_hw_decode() -> HwDecodeProbe {
     }
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
-        return match vulkan_has_h264_decode() {
+        return match vulkan_has_ext(VK_EXT_VIDEO_DECODE_H264) {
             Some(true) => HwDecodeProbe {
                 available: true,
                 backend: "Vulkan Video",
@@ -181,11 +186,12 @@ mod vk {
     pub type PfnDestroyInstance = extern "system" fn(VkInstance, *const c_void);
 }
 
-/// Returns `Some(true)` if any physical device advertises
-/// `VK_KHR_video_decode_h264`, `Some(false)` if Vulkan works but none do, and
-/// `None` if Vulkan couldn't be loaded/initialised at all. Never panics.
+/// Returns `Some(true)` if any physical device advertises the extension `want`
+/// (e.g. `VK_KHR_video_decode_h264` / `VK_KHR_video_encode_h264`), `Some(false)`
+/// if Vulkan works but none do, and `None` if Vulkan couldn't be
+/// loaded/initialised at all. Never panics.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
-fn vulkan_has_h264_decode() -> Option<bool> {
+fn vulkan_has_ext(want: &[u8]) -> Option<bool> {
     use core::ptr;
 
     use vk::*;
@@ -265,7 +271,7 @@ fn vulkan_has_h264_decode() -> Option<bool> {
                     continue;
                 }
                 for p in props.iter().take(ext_count as usize) {
-                    if ext_name_matches(&p.extension_name, VK_EXT_VIDEO_DECODE_H264) {
+                    if ext_name_matches(&p.extension_name, want) {
                         return Some(true);
                     }
                 }
@@ -918,6 +924,136 @@ impl VideoStartupCheck {
             reboot_required: false,
             message: AzString::from_const_str("nothing to remediate"),
         }
+    }
+}
+
+/// Hardware **encode** capability + software fallback, so an app can warn the user
+/// when only software (x264) encoding is available on this machine. The encode-side
+/// mirror of [`VideoStartupCheck`]. Inspection only — changes nothing.
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct VideoEncodeCheck {
+    /// Hardware H.264 encode is usable right now.
+    pub hw_encode_ready: bool,
+    /// A software encoder (gstreamer `x264enc`) is available as a fallback.
+    pub software_fallback: bool,
+    /// Backend providing (or that would provide) hardware encode: "Vulkan Video",
+    /// "VideoToolbox", "MediaCodec", or "none".
+    pub backend: AzString,
+    /// One-line capability summary for a banner / warning.
+    pub summary: AzString,
+    /// Full multi-line report (hardware + software fallback).
+    pub detail: AzString,
+}
+
+impl VideoEncodeCheck {
+    /// Probe hardware + software H.264 encode (call once at startup). Inspection only.
+    pub fn run() -> VideoEncodeCheck {
+        let (hw, backend, hw_detail) = probe_hw_encode();
+        let software_fallback = software_x264_available();
+        let summary = if hw {
+            format!("Hardware H.264 encode is ready ({backend}).")
+        } else if software_fallback {
+            String::from(
+                "Hardware H.264 encode is NOT available on this GPU — using software (x264) \
+                 encoding (slower, CPU-bound).",
+            )
+        } else {
+            String::from(
+                "No H.264 encoder available: no hardware encode and no software x264 \
+                 (install gstreamer1.0-plugins-ugly).",
+            )
+        };
+        let detail = format!(
+            "hardware encode: available={hw} backend={backend} — {hw_detail}\n\
+             software fallback (gstreamer x264enc): {}",
+            if software_fallback {
+                "available"
+            } else {
+                "NOT found (install gstreamer1.0-plugins-ugly / x264)"
+            },
+        );
+        VideoEncodeCheck {
+            hw_encode_ready: hw,
+            software_fallback,
+            backend: AzString::from_const_str(backend),
+            summary: summary.into(),
+            detail: detail.into(),
+        }
+    }
+}
+
+/// Probe hardware H.264 **encode** capability: `(available, backend, detail)`.
+fn probe_hw_encode() -> (bool, &'static str, String) {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        return (
+            true,
+            "VideoToolbox",
+            String::from("Apple VideoToolbox (built into the OS)"),
+        );
+    }
+    #[cfg(target_os = "android")]
+    {
+        return (
+            true,
+            "MediaCodec",
+            String::from("Android MediaCodec (built into the OS)"),
+        );
+    }
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    {
+        return match vulkan_has_ext(VK_EXT_VIDEO_ENCODE_H264) {
+            Some(true) => (
+                true,
+                "Vulkan Video",
+                String::from("VK_KHR_video_encode_h264 present"),
+            ),
+            Some(false) => (
+                false,
+                "Vulkan Video",
+                String::from(
+                    "Vulkan present but no VK_KHR_video_encode_h264 (GPU/driver lacks hardware \
+                     H.264 encode — e.g. NVIDIA Maxwell / GTX 9xx are decode-only)",
+                ),
+            ),
+            None => (
+                false,
+                "none",
+                String::from("Vulkan loader not found / no usable GPU"),
+            ),
+        };
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "linux",
+        target_os = "windows"
+    )))]
+    {
+        (
+            false,
+            "none",
+            String::from("no hardware-encode backend for this platform"),
+        )
+    }
+}
+
+/// Whether gstreamer's software x264 encoder (`x264enc`) is installed + usable.
+fn software_x264_available() -> bool {
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    {
+        // `gst-inspect-1.0 x264enc` exits 0 iff the element is registered.
+        return std::process::Command::new("gst-inspect-1.0")
+            .arg("x264enc")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        false
     }
 }
 

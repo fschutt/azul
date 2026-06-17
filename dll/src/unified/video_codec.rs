@@ -214,4 +214,31 @@ pub mod provision {
             }
         }
     }
+
+    /// wasm stub of the desktop `VideoEncodeCheck`. `#[repr(C)]` layout MUST match
+    /// `video_codec::provision::VideoEncodeCheck` (the C-ABI bindings `transmute`).
+    #[cfg(target_arch = "wasm32")]
+    #[repr(C)]
+    #[derive(Debug, Clone)]
+    pub struct VideoEncodeCheck {
+        pub hw_encode_ready: bool,
+        pub software_fallback: bool,
+        pub backend: AzString,
+        pub summary: AzString,
+        pub detail: AzString,
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    impl VideoEncodeCheck {
+        /// No codec backend on wasm: reports "no encoder available".
+        pub fn run() -> VideoEncodeCheck {
+            VideoEncodeCheck {
+                hw_encode_ready: false,
+                software_fallback: false,
+                backend: AzString::from_const_str("none"),
+                summary: AzString::from_const_str("Hardware video encode is unavailable on wasm."),
+                detail: AzString::from_const_str("video encode has no wasm backend"),
+            }
+        }
+    }
 }
