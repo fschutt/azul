@@ -197,6 +197,169 @@ impl Drop for VideoEncoder {
     }
 }
 
+/// Engine-side recorder state: the gstreamer subprocess + its stdin (raw RGBA in).
+struct RecorderInner {
+    child: Option<std::process::Child>,
+    stdin: Option<std::process::ChildStdin>,
+    width: u32,
+    height: u32,
+    frames: u64,
+}
+
+/// A **software** screen/frame recorder: feed it RGBA [`VideoFrame`]s and it muxes
+/// them into an MP4 via a gstreamer `x264enc` subprocess (`fdsrc ! rawvideoparse !
+/// videoconvert ! video/x-raw,format=I420 ! x264enc ! mp4mux ! filesink`). This is
+/// the fallback when there's no hardware encode (see [`provision::VideoEncodeCheck`]
+/// — true on this GTX 960). A C-ABI handle like [`VideoEncoder`].
+#[repr(C)]
+pub struct ScreenRecorder {
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+
+impl Clone for ScreenRecorder {
+    fn clone(&self) -> Self {
+        ScreenRecorder {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+impl Default for ScreenRecorder {
+    fn default() -> Self {
+        ScreenRecorder {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+
+impl ScreenRecorder {
+    /// Start recording RGBA frames of `width`x`height` at `fps` to the MP4 at
+    /// `path` (software x264). Returns an invalid handle (`is_recording()` false)
+    /// if gstreamer (`gst-launch-1.0`) isn't installed.
+    pub fn start(path: AzString, width: u32, height: u32, fps: u32) -> ScreenRecorder {
+        use std::process::{Command, Stdio};
+        let fps = fps.max(1);
+        let child = Command::new("gst-launch-1.0")
+            .args([
+                "-q",
+                "fdsrc",
+                "fd=0",
+                "!",
+                "rawvideoparse",
+                &format!("width={}", width),
+                &format!("height={}", height),
+                "format=rgba",
+                &format!("framerate={}/1", fps),
+                "!",
+                "videoconvert",
+                "!",
+                "video/x-raw,format=I420",
+                "!",
+                "x264enc",
+                "!",
+                "mp4mux",
+                "!",
+                "filesink",
+                &format!("location={}", path.as_str()),
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        let mut child = match child {
+            Ok(c) => c,
+            Err(_) => return ScreenRecorder::default(),
+        };
+        let stdin = child.stdin.take();
+        let inner = Box::new(RecorderInner {
+            child: Some(child),
+            stdin,
+            width,
+            height,
+            frames: 0,
+        });
+        ScreenRecorder {
+            ptr: Box::into_raw(inner) as *mut c_void,
+            run_destructor: true,
+        }
+    }
+
+    /// Whether recording is active (the gstreamer subprocess started).
+    pub fn is_recording(&self) -> bool {
+        !self.ptr.is_null()
+    }
+
+    /// Feed one RGBA `VideoFrame` (its `width`x`height` must match `start`). Returns
+    /// false if not recording, the frame is too small, or the encoder has exited.
+    pub fn write_frame(&self, frame: VideoFrame) -> bool {
+        use std::io::Write;
+        if let Some(inner) = unsafe { (self.ptr as *mut RecorderInner).as_mut() } {
+            let need = (inner.width as usize) * (inner.height as usize) * 4;
+            let bytes = frame.bytes.as_ref();
+            if bytes.len() < need {
+                return false;
+            }
+            if let Some(si) = inner.stdin.as_mut() {
+                if si.write_all(&bytes[..need]).is_ok() {
+                    inner.frames = inner.frames.wrapping_add(1);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Frames written so far.
+    pub fn frames_written(&self) -> u64 {
+        unsafe { (self.ptr as *const RecorderInner).as_ref() }
+            .map(|i| i.frames)
+            .unwrap_or(0)
+    }
+
+    /// Finish: close the encoder's input so it finalizes the MP4, wait for it, and
+    /// release the handle. Returns true if gstreamer exited cleanly. (Drop does a
+    /// best-effort finalize too, if you don't call this.)
+    pub fn finish(&mut self) -> bool {
+        let ok = if let Some(inner) = unsafe { (self.ptr as *mut RecorderInner).as_mut() } {
+            drop(inner.stdin.take()); // EOF → gst writes the moov atom + exits
+            match inner.child.take() {
+                Some(mut c) => c.wait().map(|s| s.success()).unwrap_or(false),
+                None => false,
+            }
+        } else {
+            false
+        };
+        self.drop_inner();
+        ok
+    }
+
+    fn drop_inner(&mut self) {
+        if self.run_destructor && !self.ptr.is_null() {
+            unsafe {
+                drop(Box::from_raw(self.ptr as *mut RecorderInner));
+            }
+        }
+        self.ptr = core::ptr::null_mut();
+        self.run_destructor = false;
+    }
+}
+
+impl Drop for ScreenRecorder {
+    fn drop(&mut self) {
+        if self.run_destructor && !self.ptr.is_null() {
+            if let Some(inner) = unsafe { (self.ptr as *mut RecorderInner).as_mut() } {
+                drop(inner.stdin.take());
+                if let Some(mut c) = inner.child.take() {
+                    let _ = c.wait();
+                }
+            }
+        }
+        self.drop_inner();
+    }
+}
+
 /// A hardware video decoder handle. Feed it encoded chunks with `decode`; it
 /// returns decoded `VideoFrame`s as they become available.
 #[repr(C)]
@@ -330,5 +493,44 @@ impl VideoDecoder {
 impl Drop for VideoDecoder {
     fn drop(&mut self) {
         self.drop_inner();
+    }
+}
+
+#[cfg(test)]
+mod screenrec_tests {
+    use super::{ScreenRecorder, VideoFrame};
+    use azul_css::{AzString, U8Vec};
+
+    // End-to-end: record synthetic RGBA frames → a real MP4 via the gst x264 sink.
+    // Skips cleanly if gstreamer isn't installed (e.g. minimal CI).
+    #[test]
+    fn screen_recorder_smoke() {
+        let path = "/tmp/azul_screenrec_test.mp4";
+        let _ = std::fs::remove_file(path);
+        let mut r = ScreenRecorder::start(AzString::from(path), 64, 48, 30);
+        if !r.is_recording() {
+            eprintln!("gstreamer unavailable — skipping ScreenRecorder smoke test");
+            return;
+        }
+        for f in 0..24u32 {
+            let mut buf = vec![0u8; 64 * 48 * 4];
+            for px in buf.chunks_exact_mut(4) {
+                px[0] = (f * 10) as u8;
+                px[1] = 120;
+                px[2] = 64;
+                px[3] = 255;
+            }
+            let frame = VideoFrame {
+                width: 64,
+                height: 48,
+                bytes: U8Vec::from_vec(buf),
+            };
+            assert!(r.write_frame(frame), "write_frame {}", f);
+        }
+        assert_eq!(r.frames_written(), 24);
+        assert!(r.finish(), "finish (gst exit)");
+        let sz = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        assert!(sz > 0, "mp4 should be non-empty (got {} bytes)", sz);
+        eprintln!("ScreenRecorder smoke: wrote {}-byte mp4", sz);
     }
 }
