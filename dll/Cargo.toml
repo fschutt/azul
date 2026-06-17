@@ -169,6 +169,15 @@ libloading = "0.8"
 # `libloading` dep above — NO static link, so it cross-compiles to every target
 # and only fails (gracefully) at runtime if libv4l2 is absent.
 
+# Hardware video decode (Vulkan Video, H.264/H.265) for the native VideoDecoder
+# (video_codec/decode_vulkan.rs). Linux + Windows only — gpu-video can't build on
+# Apple (no MoltenVK video) and isn't used on Android (MediaCodec). Behind
+# `video-native`; `default-features = false` drops the heavy wgpu dep — we use the
+# raw Vulkan BytesDecoder path (decode -> NV12 bytes -> CPU RGBA convert), which
+# also gives the "headless VK decode, copy back to CPU" CPU-mode fallback.
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+gpu-video = { version = "0.4.0", default-features = false, optional = true }
+
 [target.'cfg(any(target_os = "ios"))'.dependencies]
 objc = { version = "0.2", optional = true }
 objc-foundation = { version = "0.1", optional = true }
@@ -496,6 +505,10 @@ build-dll = [
     "map-tiles",
     "db-sqlite",
     "pdf",
+    # Real MP4/H.264 demux + Vulkan Video decode (video_codec/*). Pulls `mp4` +
+    # (linux/windows) `gpu-video`, so libazul.so gives the C video player real
+    # frames instead of the stub. No-op decoder on platforms without a backend.
+    "video-native",
 ]
 
 # SQLite-backed `Db` API (P4.3). Pulls the bundled-SQLite `rusqlite`
@@ -739,10 +752,11 @@ cpurender = ["azul-layout", "azul-layout/cpurender"]
 # non-Windows targets (nokhwa is windows-only).
 camera-native = ["dep:nokhwa"]
 # Real video decode backend. The MP4->H.264 Annex-B demuxer (pure Rust, `mp4`
-# crate) is unit-testable anywhere; the gpu-video (Vulkan Video) decoder is
-# added on top in a later step. OFF by default so the stub (video_codec/mod.rs)
-# keeps default + cross-compile builds lean. Turn ON for a real video build.
-video-native = ["dep:mp4"]
+# crate) is unit-testable anywhere; the gpu-video (Vulkan Video) decoder rides on
+# top on Linux/Windows (`dep:gpu-video` is a target-specific optional dep, so it's
+# a no-op on Apple/Android — those use VideoToolbox/MediaCodec or the stub). OFF
+# by default so the stub (video_codec/mod.rs) keeps cross-compile builds lean.
+video-native = ["dep:mp4", "dep:gpu-video"]
 font_loading = ["azul-layout", "azul-layout/font_loading"]
 font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithreaded"]
 font_async_registry = ["font_loading", "azul-layout/font_async_registry"]

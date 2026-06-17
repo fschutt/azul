@@ -33,6 +33,12 @@ pub mod demux;
 #[cfg(feature = "video-native")]
 pub mod pipeline;
 
+// Real Vulkan Video H.264 decoder (Linux + Windows). Behind `video-native`; the
+// gpu-video wiring + NV12->RGBA CPU conversion live here. Other platforms keep
+// the stub (Apple: VideoToolbox / Android: MediaCodec land later).
+#[cfg(all(feature = "video-native", any(target_os = "linux", target_os = "windows")))]
+mod decode_vulkan;
+
 // Hardware-decode capability probe + driver-provisioning planner (always built;
 // no extra crate deps). Drives `capability::video_codec()` and the "install the
 // drivers for me?" flow.
@@ -73,6 +79,15 @@ struct DecoderInner {
     #[allow(dead_code)]
     h265: bool,
     frames_decoded: u64,
+    /// Real Vulkan Video decoder, when one could be opened (H.264, Linux/Windows,
+    /// `video-native`). `None` => behaves like the stub (no frames produced).
+    #[cfg(all(feature = "video-native", any(target_os = "linux", target_os = "windows")))]
+    backend: Option<decode_vulkan::VulkanVideoDecoder>,
+    /// Frames decoded but not yet pulled. Decode is pipelined + B-frame-reordered,
+    /// so one fed chunk can yield several frames; we hand them out one per
+    /// `decode` / `next_frame` call.
+    #[cfg(all(feature = "video-native", any(target_os = "linux", target_os = "windows")))]
+    pending: std::collections::VecDeque<VideoFrame>,
 }
 
 /// A hardware video encoder handle. `open(...)` selects the native backend for
@@ -208,6 +223,16 @@ impl VideoDecoder {
         let inner = Box::new(DecoderInner {
             h265,
             frames_decoded: 0,
+            #[cfg(all(feature = "video-native", any(target_os = "linux", target_os = "windows")))]
+            backend: if h265 {
+                // H.265 decode isn't wired into the bytes-decoder path yet; the
+                // demos are H.264. Leaving this None keeps the stub behaviour.
+                None
+            } else {
+                decode_vulkan::VulkanVideoDecoder::open_h264()
+            },
+            #[cfg(all(feature = "video-native", any(target_os = "linux", target_os = "windows")))]
+            pending: std::collections::VecDeque::new(),
         });
         VideoDecoder {
             ptr: Box::into_raw(inner) as *mut c_void,
@@ -220,13 +245,59 @@ impl VideoDecoder {
         !self.ptr.is_null()
     }
 
-    /// Decode one encoded chunk, returning the next decoded `VideoFrame` if one
-    /// is ready (`None` while buffering / not open). (Stub: counts + returns
-    /// None; the on-device backend produces frames.)
+    /// Decode one encoded chunk (Annex-B H.264), returning the next decoded
+    /// `VideoFrame` if one is ready. Extra frames produced by this chunk (decode
+    /// is pipelined / reordered) are buffered — pull them with
+    /// [`next_frame`](Self::next_frame). Returns `None` while buffering, when not
+    /// open, or where no real backend exists (the stub).
     pub fn decode(&self, data: U8Vec) -> OptionVideoFrame {
+        let inner = match unsafe { (self.ptr as *mut DecoderInner).as_mut() } {
+            Some(i) => i,
+            None => return OptionVideoFrame::None,
+        };
+        inner.frames_decoded = inner.frames_decoded.wrapping_add(1);
+        #[cfg(all(feature = "video-native", any(target_os = "linux", target_os = "windows")))]
+        {
+            if let Some(backend) = inner.backend.as_mut() {
+                for f in backend.decode(data.as_slice()) {
+                    inner.pending.push_back(f);
+                }
+                if let Some(f) = inner.pending.pop_front() {
+                    return OptionVideoFrame::Some(f);
+                }
+            }
+        }
+        let _ = data;
+        OptionVideoFrame::None
+    }
+
+    /// Pull the next already-decoded frame without feeding more input. After a
+    /// `decode` / `flush` there may be several frames buffered (pipelining +
+    /// B-frame reordering); loop `next_frame` until it returns `None`.
+    pub fn next_frame(&self) -> OptionVideoFrame {
+        #[cfg(all(feature = "video-native", any(target_os = "linux", target_os = "windows")))]
         if let Some(inner) = unsafe { (self.ptr as *mut DecoderInner).as_mut() } {
-            inner.frames_decoded = inner.frames_decoded.wrapping_add(1);
-            let _ = data;
+            if let Some(f) = inner.pending.pop_front() {
+                return OptionVideoFrame::Some(f);
+            }
+        }
+        OptionVideoFrame::None
+    }
+
+    /// Flush the decoder at end-of-stream, returning the first trailing frame
+    /// (drain the rest with [`next_frame`](Self::next_frame)). Frames held back
+    /// for B-frame reordering only come out after a flush.
+    pub fn flush(&self) -> OptionVideoFrame {
+        #[cfg(all(feature = "video-native", any(target_os = "linux", target_os = "windows")))]
+        if let Some(inner) = unsafe { (self.ptr as *mut DecoderInner).as_mut() } {
+            if let Some(backend) = inner.backend.as_mut() {
+                for f in backend.flush() {
+                    inner.pending.push_back(f);
+                }
+            }
+            if let Some(f) = inner.pending.pop_front() {
+                return OptionVideoFrame::Some(f);
+            }
         }
         OptionVideoFrame::None
     }

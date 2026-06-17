@@ -1,0 +1,76 @@
+[package]
+name = "gpu-video"
+version = "0.4.0"
+edition = "2024"
+authors = ["Software Mansion <contact@swmansion.com>"]
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/software-mansion/smelter"
+rust-version = "1.85"
+description = "A library for hardware video coding using Vulkan Video, with wgpu integration."
+categories = [
+  "multimedia::video",
+  "multimedia::encoding",
+  "hardware-support",
+  "encoding",
+  "graphics",
+]
+keywords = ["vulkan", "video", "wgpu", "decoding", "encoding"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+expose-parsers = []
+vk-api-dump = []
+vk-validation = []
+wgpu = ["dep:wgpu"]
+transcoder = ["dep:naga"]
+default = ["wgpu"]
+
+[dependencies]
+bytemuck = { version = "1.19.0", features = ["derive"] }
+bytes = "1"
+derivative = "2.2.0"
+h264-reader = { workspace = true }
+memchr = "2.7.4"
+rustc-hash = "2.1.1"
+thiserror = "1.0.59"
+tracing = "0.1.40"
+wgpu = { version = "29.0.0", optional = true }
+
+# Platforms that support vulkan are: windows and all non-apple unixes. emscripten is a web-based platform, where vulkan is not available either
+[target.'cfg(any(windows, all(unix, not(target_os = "emscripten"), not(target_os = "ios"), not(target_os = "macos"))))'.dependencies]
+ash = "0.38.0"
+vk-mem = "0.4.0"
+
+[dev-dependencies]
+clap = { version = "4.5.20", features = ["derive"] }
+tracing-subscriber = "0.3.20"
+wgpu = { version = "29.0.0", features = ["noop"] }
+winit = "0.29"
+
+[build-dependencies]
+cfg_aliases = "0.2.1"
+naga = { version = "29.0.0", features = [
+  "spv-out",
+  "wgsl-in",
+], optional = true }
+
+[lints]
+workspace = true
+
+[[example]]
+name = "decode_wgpu"
+required-features = ["wgpu"]
+
+[[example]]
+name = "encode_wgpu"
+required-features = ["wgpu"]
+
+[[example]]
+name = "player"
+required-features = ["wgpu"]
+
+[[example]]
+name = "transcode"
+required-features = ["transcoder"]

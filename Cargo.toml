@@ -44,6 +44,14 @@ gleam = "0.15.1"
 # as the `libudev-azul` package (https://crates.io/crates/libudev-azul) for
 # discoverability. tag 0.1.4 pins the exact tree.
 libudev-sys = { git = "https://github.com/fschutt/libudev-azul", tag = "0.1.4" }
+# Vendored + patched gpu-video (Vulkan Video H.264/H.265 decode). Upstream 0.4.0
+# rejects any GPU lacking a dedicated async-compute queue (COMPUTE && !GRAPHICS) —
+# which NVIDIA Maxwell / GTX 9xx do not expose — even though the bytes-decode path
+# never submits to a compute queue (only the optional `transcoder` feature does).
+# third_party/gpu-video relaxes that single check (see its src/adapter.rs "azul
+# patch"). Relative path so CI / `cargo metadata` resolve it (third_party is
+# workspace-excluded). Drop this patch once upstream relaxes the requirement.
+gpu-video = { path = "third_party/gpu-video" }
 # Single azul-layout in the dll: point printpdf's azul-* at OUR local workspace
 # crates, and pull printpdf from its GitHub branch (whose font.rs targets our
 # current `ParsedFont` API: get_or_decode_glyph + original_bytes: Option<Arc<FontBytes>>).

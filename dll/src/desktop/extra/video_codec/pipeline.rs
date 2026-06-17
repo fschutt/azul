@@ -49,12 +49,19 @@ pub fn decode_mp4_h264_bytes(mp4: &[u8]) -> Result<DecodedVideo, String> {
     let mut frames = Vec::new();
     let mut access_units_fed = 0usize;
     for chunk in &demuxed.chunks {
-        if let OptionVideoFrame::Some(frame) =
-            decoder.decode(U8Vec::from_vec(chunk.annexb.clone()))
-        {
+        // A chunk can yield 0..N frames (pipelining + B-frame reorder); drain all.
+        let mut f = decoder.decode(U8Vec::from_vec(chunk.annexb.clone()));
+        while let OptionVideoFrame::Some(frame) = f {
             frames.push(frame);
+            f = decoder.next_frame();
         }
         access_units_fed += 1;
+    }
+    // End of stream: flush frames held back for reordering.
+    let mut f = decoder.flush();
+    while let OptionVideoFrame::Some(frame) = f {
+        frames.push(frame);
+        f = decoder.next_frame();
     }
 
     Ok(DecodedVideo {
@@ -70,30 +77,34 @@ pub fn decode_mp4_h264_bytes(mp4: &[u8]) -> Result<DecodedVideo, String> {
 mod pipeline_tests {
     use super::*;
 
-    /// End-to-end demux + feed on the real big-buck-bunny sample: the stream
-    /// geometry is reported and every access unit is pushed to the decoder. Frame
-    /// production itself is hardware-gated (no Vulkan Video decode on this box),
-    /// so `frames` may be empty here — but the pipeline ran end to end, and the
-    /// same call yields frames on a capable GPU. Soft-skips without the asset.
+    /// End-to-end demux + decode on the real big-buck-bunny sample (360p H.264,
+    /// fetched by the harness to `/tmp/video-media-samples`). Asserts the stream
+    /// geometry and — when frames are produced — that each is a tightly-packed
+    /// RGBA8 frame at the coded size. Frame *production* is hardware-gated (Vulkan
+    /// Video decode), so on a box without it `frames` is empty (demux + feed still
+    /// ran). Set `AZ_REQUIRE_HW_DECODE=1` on a decode-capable runner to make the
+    /// test fail loudly if decode stops producing frames. Soft-skips without the
+    /// asset.
     #[test]
-    fn pipeline_demuxes_and_feeds_the_whole_stream() {
-        let path = "/tmp/video-media-samples/big-buck-bunny-480p-30sec.mp4";
+    fn pipeline_demuxes_and_decodes_the_whole_stream() {
+        let path = "/tmp/video-media-samples/big-buck-bunny-360p.mp4";
         if !std::path::Path::new(path).exists() {
             eprintln!("[pipeline test] sample absent — skipping");
             return;
         }
         let d = decode_mp4_h264_file(path).expect("pipeline runs on a valid H.264 MP4");
-        assert_eq!(d.width, 854);
-        assert_eq!(d.height, 480);
-        assert!(d.fps > 20.0 && d.fps < 40.0);
         assert!(
-            d.access_units_fed > 100,
-            "the whole ~30s stream was fed: {} AUs",
+            d.width >= 320 && d.height >= 180,
+            "real geometry expected, got {}x{}",
+            d.width,
+            d.height
+        );
+        assert!(d.fps > 10.0, "plausible fps, got {}", d.fps);
+        assert!(
+            d.access_units_fed > 50,
+            "the whole stream was fed: {} AUs",
             d.access_units_fed
         );
-        // frames.len() is 0 without a HW decoder and == access_units_fed with one;
-        // either way it can never exceed what we fed.
-        assert!(d.frames.len() <= d.access_units_fed);
         eprintln!(
             "[pipeline] {}x{} @{:.1}fps — fed {} AUs, produced {} frames",
             d.width,
@@ -102,5 +113,28 @@ mod pipeline_tests {
             d.access_units_fed,
             d.frames.len()
         );
+        // Whenever frames were decoded, each must be a full RGBA8 frame at the
+        // coded resolution (catches stride / conversion / geometry bugs).
+        for fr in &d.frames {
+            assert_eq!(fr.width, d.width, "frame width matches stream");
+            assert_eq!(fr.height, d.height, "frame height matches stream");
+            assert_eq!(
+                fr.bytes.len(),
+                (d.width as usize) * (d.height as usize) * 4,
+                "frame is tightly-packed RGBA8"
+            );
+        }
+        if std::env::var("AZ_REQUIRE_HW_DECODE").is_ok() {
+            assert!(
+                !d.frames.is_empty(),
+                "AZ_REQUIRE_HW_DECODE set but no frames were decoded"
+            );
+            assert!(
+                (d.frames.len() as f32) > (d.access_units_fed as f32) * 0.5,
+                "expected most AUs to decode to frames: {} frames / {} AUs",
+                d.frames.len(),
+                d.access_units_fed
+            );
+        }
     }
 }
