@@ -23,9 +23,7 @@ use azul_layout::widgets::video::video_writeback;
 /// plumbing. The decode itself is `video-native`-gated inside the worker; this
 /// wrapper (and the worker fn) are always present so the `unified` path resolves
 /// in every `cabi_internal` build.
-pub fn video_widget_dom(
-    widget: azul_layout::widgets::video::VideoWidget,
-) -> azul_core::dom::Dom {
+pub fn video_widget_dom(widget: azul_layout::widgets::video::VideoWidget) -> azul_core::dom::Dom {
     widget.dom_with_decoder(ThreadCallback {
         cb: video_decode_worker,
         ctx: azul_core::refany::OptionRefAny::None,
@@ -90,167 +88,182 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
             return;
         }
     };
-    let bytes: Vec<u8> = match &config.source {
-        VideoSource::Url(u) => {
-            if log {
-                eprintln!("[vstream] fetching (Range: bytes=0-) {}", u.as_str());
-            }
-            match fetch_ranged(u.as_str()) {
-                Some(b) => b,
-                None => {
-                    if log {
-                        eprintln!("[vstream] fetch FAILED");
+    // The widget can swap the source live (merge → ThreadSendMsg::Custom(VideoSource));
+    // re-init the decode for the new source. `target_size` persists across sources.
+    let mut current_source = config.source.clone();
+    'session: loop {
+        let bytes: Vec<u8> = match &current_source {
+            VideoSource::Url(u) => {
+                if log {
+                    eprintln!("[vstream] fetching (Range: bytes=0-) {}", u.as_str());
+                }
+                match fetch_ranged(u.as_str()) {
+                    Some(b) => b,
+                    None => {
+                        if log {
+                            eprintln!("[vstream] fetch FAILED");
+                        }
+                        return;
                     }
-                    return;
                 }
             }
-        }
-        VideoSource::File(p) => {
-            if log {
-                eprintln!("[vstream] reading file {}", p.as_str());
-            }
-            match std::fs::read(p.as_str()) {
-                Ok(b) => b,
-                Err(e) => {
-                    if log {
-                        eprintln!("[vstream] file read FAILED: {}", e);
+            VideoSource::File(p) => {
+                if log {
+                    eprintln!("[vstream] reading file {}", p.as_str());
+                }
+                match std::fs::read(p.as_str()) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        if log {
+                            eprintln!("[vstream] file read FAILED: {}", e);
+                        }
+                        return;
                     }
-                    return;
                 }
             }
+            VideoSource::Bytes(b) => b.as_ref().to_vec(),
+        };
+        if log {
+            eprintln!("[vstream] got {} bytes", bytes.len());
         }
-        VideoSource::Bytes(b) => b.as_ref().to_vec(),
-    };
-    if log {
-        eprintln!("[vstream] got {} bytes", bytes.len());
-    }
 
-    // 2. Demux to H.264 Annex-B access units.
-    let demuxed = match super::demux::demux_mp4_h264(&bytes) {
-        Ok(d) => d,
-        Err(e) => {
+        // 2. Demux to H.264 Annex-B access units.
+        let demuxed = match super::demux::demux_mp4_h264(&bytes) {
+            Ok(d) => d,
+            Err(e) => {
+                if log {
+                    eprintln!("[vstream] demux FAILED: {}", e);
+                }
+                return;
+            }
+        };
+        let total = demuxed.chunks.len();
+        if total == 0 {
             if log {
-                eprintln!("[vstream] demux FAILED: {}", e);
+                eprintln!("[vstream] demux produced 0 chunks");
             }
             return;
         }
-    };
-    let total = demuxed.chunks.len();
-    if total == 0 {
+        let fps = if demuxed.fps > 0.0 { demuxed.fps } else { 30.0 };
         if log {
-            eprintln!("[vstream] demux produced 0 chunks");
+            eprintln!("[vstream] demuxed {} chunks @ {:.1} fps", total, fps);
         }
-        return;
-    }
-    let fps = if demuxed.fps > 0.0 { demuxed.fps } else { 30.0 };
-    if log {
-        eprintln!("[vstream] demuxed {} chunks @ {:.1} fps", total, fps);
-    }
 
-    // 3. Open the VK decoder and stream-decode, presenting by wall-clock.
-    let decoder = super::VideoDecoder::open(false /* h264 */);
-    let mut decoded: Vec<VideoFrame> = Vec::new();
-    let mut chunk_idx = 0usize;
-    let mut last_idx = usize::MAX;
-    // Wall-clock origin for paced presentation. Seeking just moves this origin:
-    // `start = now - ts` ⇒ elapsed = ts ⇒ present idx jumps to ts*fps (the frames
-    // are already decoded, so no re-decode is needed).
-    let mut start = Instant::now();
+        // 3. Open the VK decoder and stream-decode, presenting by wall-clock.
+        let decoder = super::VideoDecoder::open(false /* h264 */);
+        let mut decoded: Vec<VideoFrame> = Vec::new();
+        let mut chunk_idx = 0usize;
+        let mut last_idx = usize::MAX;
+        // Wall-clock origin for paced presentation. Seeking just moves this origin:
+        // `start = now - ts` ⇒ elapsed = ts ⇒ present idx jumps to ts*fps (the frames
+        // are already decoded, so no re-decode is needed).
+        let mut start = Instant::now();
 
-    loop {
-        // Drain control messages from the main thread (non-blocking): a NodeResized
-        // gives us a new target size (re-present the current frame scaled to it); a
-        // terminate stops the worker.
         loop {
-            match recv.recv() {
-                OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) => return,
-                OptionThreadSendMsg::Some(ThreadSendMsg::Custom(mut r)) => {
-                    if let Some(sz) = r.downcast_ref::<(u32, u32)>().map(|t| *t) {
-                        if sz.0 > 0 && sz.1 > 0 && target_size != Some(sz) {
-                            target_size = Some(sz);
-                            last_idx = usize::MAX; // force a re-present at the new size
-                            if log {
-                                eprintln!("[vstream] resize → target {}x{}", sz.0, sz.1);
+            // Drain control messages from the main thread (non-blocking): a NodeResized
+            // gives us a new target size (re-present the current frame scaled to it); a
+            // terminate stops the worker.
+            loop {
+                match recv.recv() {
+                    OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) => return,
+                    OptionThreadSendMsg::Some(ThreadSendMsg::Custom(mut r)) => {
+                        if let Some(sz) = r.downcast_ref::<(u32, u32)>().map(|t| *t) {
+                            if sz.0 > 0 && sz.1 > 0 && target_size != Some(sz) {
+                                target_size = Some(sz);
+                                last_idx = usize::MAX; // force a re-present at the new size
+                                if log {
+                                    eprintln!("[vstream] resize → target {}x{}", sz.0, sz.1);
+                                }
                             }
-                        }
-                    } else if let Some(ts) = r.downcast_ref::<f32>().map(|t| *t) {
-                        // Seek: reposition the wall-clock origin so the next present
-                        // jumps to ts*fps.
-                        let ts = ts.max(0.0);
-                        start = Instant::now()
-                            .checked_sub(Duration::from_secs_f32(ts))
-                            .unwrap_or_else(Instant::now);
-                        last_idx = usize::MAX;
-                        if log {
-                            eprintln!("[vstream] seek → {:.2}s", ts);
+                        } else if let Some(ts) = r.downcast_ref::<f32>().map(|t| *t) {
+                            // Seek: reposition the wall-clock origin so the next present
+                            // jumps to ts*fps.
+                            let ts = ts.max(0.0);
+                            start = Instant::now()
+                                .checked_sub(Duration::from_secs_f32(ts))
+                                .unwrap_or_else(Instant::now);
+                            last_idx = usize::MAX;
+                            if log {
+                                eprintln!("[vstream] seek → {:.2}s", ts);
+                            }
+                        } else if let Some(src) = r.downcast_ref::<VideoSource>().map(|s| s.clone())
+                        {
+                            // Input-source change: restart the decode session with the new
+                            // source (re-fetch/demux/decode). The `'session` loop re-resolves.
+                            if log {
+                                eprintln!("[vstream] source change → re-init");
+                            }
+                            current_source = src;
+                            continue 'session;
                         }
                     }
+                    OptionThreadSendMsg::Some(_) => {}
+                    OptionThreadSendMsg::None => break,
                 }
-                OptionThreadSendMsg::Some(_) => {}
-                OptionThreadSendMsg::None => break,
             }
-        }
 
-        // Decode one access unit per iteration (drain every frame it yields),
-        // flushing the reorder buffer after the final chunk.
-        if chunk_idx < total {
-            let mut f = decoder.decode(U8Vec::from_vec(demuxed.chunks[chunk_idx].annexb.clone()));
-            while let OptionVideoFrame::Some(frame) = f {
-                decoded.push(frame);
-                f = decoder.next_frame();
-            }
-            chunk_idx += 1;
-            if chunk_idx == total {
-                let mut f = decoder.flush();
+            // Decode one access unit per iteration (drain every frame it yields),
+            // flushing the reorder buffer after the final chunk.
+            if chunk_idx < total {
+                let mut f =
+                    decoder.decode(U8Vec::from_vec(demuxed.chunks[chunk_idx].annexb.clone()));
                 while let OptionVideoFrame::Some(frame) = f {
                     decoded.push(frame);
                     f = decoder.next_frame();
                 }
-            }
-        }
-
-        if !decoded.is_empty() {
-            let target = (start.elapsed().as_secs_f32() * fps) as usize;
-            // Still decoding → clamp to the newest decoded frame (decode-bound).
-            // Fully decoded → loop the clip by wall-clock, dropping late frames.
-            let idx = if chunk_idx < total {
-                target.min(decoded.len() - 1)
-            } else {
-                target % decoded.len()
-            };
-            if idx != last_idx {
-                if log && idx % 30 == 0 {
-                    eprintln!(
-                        "[vstream] t={:.2}s decoded={}/{} present_frame={}",
-                        start.elapsed().as_secs_f32(),
-                        decoded.len(),
-                        total,
-                        idx
-                    );
-                }
-                last_idx = idx;
-                // Scale to the widget's requested size OFF this thread so the UI does
-                // no interpolation (the `<img>` shows it 1:1).
-                let frame = match target_size {
-                    Some((tw, th)) if (tw, th) != (decoded[idx].width, decoded[idx].height) => {
-                        scale_frame_bilinear(&decoded[idx], tw, th)
+                chunk_idx += 1;
+                if chunk_idx == total {
+                    let mut f = decoder.flush();
+                    while let OptionVideoFrame::Some(frame) = f {
+                        decoded.push(frame);
+                        f = decoder.next_frame();
                     }
-                    _ => decoded[idx].clone(),
-                };
-                let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
-                    WriteBackCallback::new(video_writeback),
-                    RefAny::new(frame),
-                )));
-                if !sent {
-                    break; // widget gone → stop the thread
                 }
             }
-        }
 
-        // Once fully decoded, pace so we don't busy-spin; while still decoding,
-        // loop fast (the decode itself is the work) to catch up to real time.
-        if chunk_idx >= total {
-            std::thread::sleep(Duration::from_millis(8));
+            if !decoded.is_empty() {
+                let target = (start.elapsed().as_secs_f32() * fps) as usize;
+                // Still decoding → clamp to the newest decoded frame (decode-bound).
+                // Fully decoded → loop the clip by wall-clock, dropping late frames.
+                let idx = if chunk_idx < total {
+                    target.min(decoded.len() - 1)
+                } else {
+                    target % decoded.len()
+                };
+                if idx != last_idx {
+                    if log && idx % 30 == 0 {
+                        eprintln!(
+                            "[vstream] t={:.2}s decoded={}/{} present_frame={}",
+                            start.elapsed().as_secs_f32(),
+                            decoded.len(),
+                            total,
+                            idx
+                        );
+                    }
+                    last_idx = idx;
+                    // Scale to the widget's requested size OFF this thread so the UI does
+                    // no interpolation (the `<img>` shows it 1:1).
+                    let frame = match target_size {
+                        Some((tw, th)) if (tw, th) != (decoded[idx].width, decoded[idx].height) => {
+                            scale_frame_bilinear(&decoded[idx], tw, th)
+                        }
+                        _ => decoded[idx].clone(),
+                    };
+                    let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
+                        WriteBackCallback::new(video_writeback),
+                        RefAny::new(frame),
+                    )));
+                    if !sent {
+                        return; // widget gone → stop the worker entirely
+                    }
+                }
+            }
+
+            // Once fully decoded, pace so we don't busy-spin; while still decoding,
+            // loop fast (the decode itself is the work) to catch up to real time.
+            if chunk_idx >= total {
+                std::thread::sleep(Duration::from_millis(8));
+            }
         }
     }
 }

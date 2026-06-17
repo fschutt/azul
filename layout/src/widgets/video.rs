@@ -445,6 +445,14 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
                     let _ = snd.send(ThreadSendMsg::Custom(RefAny::new(new_g.config.timestamp)));
                 }
             }
+            // Input-source change → tell the worker to re-init the decode (it
+            // re-resolves/demuxes/decodes the new source); the frame swaps in when ready.
+            if old_g.config.source != new_g.config.source {
+                if let Some(snd) = new_g.seek_sender.as_ref() {
+                    let _ =
+                        snd.send(ThreadSendMsg::Custom(RefAny::new(new_g.config.source.clone())));
+                }
+            }
         }
     }
     new_data
