@@ -28,6 +28,15 @@ use azul_css::{AzString, U8Vec};
 #[cfg(feature = "video-native")]
 pub mod demux;
 
+// Streaming decode worker for the VideoWidget: runs the VK decode on a background
+// framework Thread (off-main), exactly like the map's tile_fetch_worker. The
+// hardware decode inside is video-native-gated; the worker fn is always present.
+pub mod stream;
+// `video_widget_dom` is the FFI `VideoWidget::dom()` entry point (wires the
+// streaming worker), surfaced at the module level so `unified::video_codec`'s
+// glob re-export exposes `azul_dll::unified::video_codec::video_widget_dom`.
+pub use stream::video_widget_dom;
+
 // File -> frames pipeline (demux + feed through VideoDecoder). Behind
 // `video-native`; the decode step is the only hardware-gated part.
 #[cfg(feature = "video-native")]

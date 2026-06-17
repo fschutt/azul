@@ -47,6 +47,15 @@ pub struct VideoWidgetState {
     /// `Vec<VideoFrame>`); when set, the replay worker cycles these instead of
     /// the built-in test pattern. Carried forward by [`merge_video_state`].
     pub frames: OptionRefAny,
+    /// Streaming source — a `RefAny` holding a `String` (URL, fetched via an HTTP
+    /// range request) or a `Vec<u8>` (raw MP4 bytes) — handed to the decode worker
+    /// as its thread init. Set via [`VideoWidget::with_source`].
+    pub source: OptionRefAny,
+    /// The off-main-thread streaming decode worker (mirrors the map widget's
+    /// `fetch_callback`). Set via [`VideoWidget::dom_with_decoder`]. When present,
+    /// AfterMount spawns it on a background `Thread` instead of the replay /
+    /// test-pattern workers, so the VK decode runs off the main thread.
+    pub decode_callback: Option<ThreadCallback>,
 }
 
 /// A video-playback widget. `create(config).dom()` yields an `<img>` the
@@ -61,6 +70,10 @@ pub struct VideoWidget {
     /// `Vec<VideoFrame>`); set via [`with_frames`](Self::with_frames). When
     /// present the widget cycles these instead of the test pattern.
     pub frames: OptionRefAny,
+    /// Streaming source for [`dom_with_decoder`](Self::dom_with_decoder) — a
+    /// `RefAny` holding a `String` (URL) or `Vec<u8>` (MP4 bytes). Set via
+    /// [`with_source`](Self::with_source).
+    pub source: OptionRefAny,
 }
 
 impl VideoWidget {
@@ -70,6 +83,7 @@ impl VideoWidget {
             config,
             on_frame: OptionOnVideoFrame::None,
             frames: OptionRefAny::None,
+            source: OptionRefAny::None,
         }
     }
 
@@ -106,15 +120,24 @@ impl VideoWidget {
         self
     }
 
-    /// Build the widget's DOM: a single `<img>` node, fed by a background
-    /// decode thread started on mount.
-    pub fn dom(self) -> Dom {
+    /// Set the streaming source for [`dom_with_decoder`](Self::dom_with_decoder):
+    /// a [`RefAny`] holding a `String` (a URL, fetched via an HTTP range request)
+    /// or a `Vec<u8>` (raw MP4 bytes). The decode worker reads this as its thread
+    /// init.
+    pub fn with_source(mut self, source: RefAny) -> Self {
+        self.source = Some(source).into();
+        self
+    }
+
+    fn build_dom(self, decode_cb: Option<ThreadCallback>) -> Dom {
         let state = VideoWidgetState {
             config: self.config,
             started: false,
             gl_texture_id: None,
             on_frame: self.on_frame,
             frames: self.frames,
+            source: self.source,
+            decode_callback: decode_cb,
         };
         let dataset = RefAny::new(state);
 
@@ -134,12 +157,32 @@ impl VideoWidget {
                 Callback::from(video_on_after_mount as CallbackType),
             )
     }
+
+    /// Build the widget's DOM: a single `<img>` node a background thread keeps
+    /// fed. Replays pre-decoded [`with_frames`](Self::with_frames) if given, else
+    /// shows the built-in test pattern.
+    pub fn dom(self) -> Dom {
+        self.build_dom(None)
+    }
+
+    /// Build the widget's DOM and wire a background **streaming** decode worker —
+    /// mirrors `MapWidget::dom_with_fetch`. `cb` runs on a framework `Thread` OFF
+    /// the main thread: it reads the [`with_source`](Self::with_source) `RefAny`
+    /// (URL or MP4 bytes), runs the VK decode incrementally (no up-front decode),
+    /// and `WriteBack`s frames to the `<img>` paced by wall-clock (dropping late
+    /// frames). The standard worker is
+    /// `azul_dll::desktop::extra::video_codec::stream::video_decode_worker`; wrap
+    /// it in a `ThreadCallback` to pass it here.
+    pub fn dom_with_decoder(self, cb: ThreadCallback) -> Dom {
+        self.build_dom(Some(cb))
+    }
 }
 
 /// AfterMount: start the background decode thread exactly once.
 extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    // Mark started exactly once, and pull out the optional replay frames.
-    let frames = {
+    // Mark started exactly once; pull out the streaming decode worker (if any),
+    // its source, and any pre-decoded replay frames.
+    let (decode_cb, source, frames) = {
         let mut s = match data.downcast_mut::<VideoWidgetState>() {
             Some(s) => s,
             None => return Update::DoNothing,
@@ -148,30 +191,36 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
             return Update::DoNothing;
         }
         s.started = true;
-        match &s.frames {
+        let source = match &s.source {
+            OptionRefAny::Some(src) => Some(src.clone()),
+            OptionRefAny::None => None,
+        };
+        let frames = match &s.frames {
             OptionRefAny::Some(f) => Some(f.clone()),
             OptionRefAny::None => None,
-        }
+        };
+        (s.decode_callback.clone(), source, frames)
     };
-    // Replay pre-decoded frames if given, else fall back to the test pattern -
-    // both feed the same WriteBack -> video_writeback -> present_frame path.
-    match frames {
-        Some(frames) => info.add_thread(
+    // Priority: off-main streaming decode worker > replay pre-decoded frames >
+    // built-in test pattern. All feed the same
+    // WriteBack -> video_writeback -> present_frame path.
+    if let Some(cb) = decode_cb {
+        let init = source.unwrap_or_else(|| RefAny::new(()));
+        info.add_thread(ThreadId::unique(), Thread::create(init, data.clone(), cb));
+    } else if let Some(frames) = frames {
+        info.add_thread(
             ThreadId::unique(),
-            Thread::create(
-                frames,
-                data.clone(),
-                ThreadCallback::new(video_replay_worker),
-            ),
-        ),
-        None => info.add_thread(
+            Thread::create(frames, data.clone(), ThreadCallback::new(video_replay_worker)),
+        );
+    } else {
+        info.add_thread(
             ThreadId::unique(),
             Thread::create(
                 RefAny::new(()),
                 data.clone(),
                 ThreadCallback::new(video_test_worker),
             ),
-        ),
+        );
     }
     Update::DoNothing
 }
@@ -248,7 +297,7 @@ extern "C" fn video_replay_worker(mut init: RefAny, mut sender: ThreadSender, _r
 
 /// Writeback (main thread): hand the decoded frame to the shared GL presenter
 /// and store the (stable) texture id.
-extern "C" fn video_writeback(
+pub extern "C" fn video_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,
     mut info: CallbackInfo,
@@ -281,6 +330,8 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
             new_g.started = old_g.started;
             new_g.gl_texture_id = old_g.gl_texture_id;
             new_g.frames = old_g.frames.clone();
+            new_g.source = old_g.source.clone();
+            new_g.decode_callback = old_g.decode_callback.clone();
         }
     }
     new_data

@@ -3,6 +3,16 @@
 #[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
 pub use crate::desktop::extra::video_codec::*;
 
+/// wasm fallback for the `VideoWidget::dom()` shim: no decode worker on wasm, so
+/// render the placeholder DOM directly (the desktop `video_widget_dom`, which
+/// wires the streaming worker, is glob-re-exported above on non-wasm targets).
+#[cfg(target_arch = "wasm32")]
+pub fn video_widget_dom(
+    widget: azul_layout::widgets::video::VideoWidget,
+) -> azul_core::dom::Dom {
+    widget.dom()
+}
+
 /// Always-present `pipeline` surface for the C-ABI bindings.
 ///
 /// The real batch decoder lives in `desktop::extra::video_codec::pipeline`
