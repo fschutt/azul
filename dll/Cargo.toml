@@ -170,12 +170,14 @@ libloading = "0.8"
 # and only fails (gracefully) at runtime if libv4l2 is absent.
 
 # Hardware video decode (Vulkan Video, H.264/H.265) for the native VideoDecoder
-# (video_codec/decode_vulkan.rs). Linux + Windows only — gpu-video can't build on
-# Apple (no MoltenVK video) and isn't used on Android (MediaCodec). Behind
-# `video-native`; `default-features = false` drops the heavy wgpu dep — we use the
-# raw Vulkan BytesDecoder path (decode -> NV12 bytes -> CPU RGBA convert), which
+# (video_codec/decode_vulkan.rs). x86_64 Linux + Windows only: gpu-video can't
+# build on Apple (no MoltenVK video) or Android (MediaCodec), and its `vk-mem`
+# (C++/VMA) dep needs a C++ toolchain that the ARM/RISC-V cross-compile checks
+# lack — so restrict to x86_64 desktop (other arches keep the stub decoder).
+# Behind `video-native`; `default-features = false` drops the heavy wgpu dep — we
+# use the raw Vulkan BytesDecoder path (decode -> NV12 -> CPU RGBA convert), which
 # also gives the "headless VK decode, copy back to CPU" CPU-mode fallback.
-[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+[target.'cfg(all(target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))'.dependencies]
 gpu-video = { version = "0.4.0", default-features = false, optional = true }
 
 [target.'cfg(any(target_os = "ios"))'.dependencies]
