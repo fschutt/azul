@@ -6777,9 +6777,16 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
                 let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
 
+                // Replaced elements (image / VirtualView) have no flow content, so the
+                // measured content_height is 0 — treat their auto height like an
+                // explicit height (CSS/intrinsic-resolved tentative_size).
+                let is_replaced_atomic = {
+                    let nd = &ctx.styled_dom.node_data.as_container()[dom_id];
+                    matches!(nd.get_node_type(), NodeType::Image(_)) || nd.is_virtual_view_node()
+                };
                 // Determine final border-box height
                 let final_height = match css_height.unwrap_or_default() {
-                    LayoutHeight::Auto => {
+                    LayoutHeight::Auto if !is_replaced_atomic => {
                         let content_height = layout_result.output.overflow_size.height;
                         content_height
                             + box_props.padding.main_sum(writing_mode)
@@ -7232,16 +7239,25 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
             let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
 
+            // Replaced elements (image / VirtualView) have no flow content, so the
+            // measured content_height is 0 — treat their auto height like an explicit
+            // height (use the CSS/intrinsic-resolved tentative_size). Fixes 0-height
+            // images / VirtualViews laid out as atomic inline-blocks.
+            let is_replaced_atomic = {
+                let nd = &ctx.styled_dom.node_data.as_container()[dom_id];
+                matches!(nd.get_node_type(), NodeType::Image(_)) || nd.is_virtual_view_node()
+            };
             // Determine final border-box height
             let final_height = match css_height.clone().unwrap_or_default() {
-                LayoutHeight::Auto => {
+                LayoutHeight::Auto if !is_replaced_atomic => {
                     // For auto height, add padding and border to the content height
                     let content_height = layout_result.output.overflow_size.height;
                     content_height
                         + box_props.padding.main_sum(writing_mode)
                         + box_props.border.main_sum(writing_mode)
                 }
-                // For explicit height, calculate_used_size_for_node already gave us the correct border-box height
+                // Explicit height (calculate_used_size_for_node gave the border-box
+                // height), OR a replaced element's auto height (intrinsic/CSS-resolved).
                 _ => tentative_size.height,
             };
 

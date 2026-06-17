@@ -1813,6 +1813,42 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     }
                 };
 
+                // Replaced elements (image / VirtualView) have NO flow content, so the
+                // BFC content_height above is 0 (and shrink-to-fit width may be wrong).
+                // Their content size is the CSS/intrinsic-resolved size from
+                // calculate_used_size_for_node (border-box) — strip padding+border back
+                // to content-box. Fixes blank / 0-height images as flex/grid items.
+                let (effective_content_width, content_height) = {
+                    let dom_id = self.tree.get(node_idx).and_then(|n| n.dom_node_id);
+                    let is_replaced = dom_id
+                        .map(|id| {
+                            let nd = &self.ctx.styled_dom.node_data.as_container()[id];
+                            matches!(nd.get_node_type(), azul_core::dom::NodeType::Image(_))
+                                || nd.is_virtual_view_node()
+                        })
+                        .unwrap_or(false);
+                    match (is_replaced, dom_id) {
+                        (true, Some(id)) => {
+                            let bp = self.tree.get(node_idx).unwrap().box_props.unpack();
+                            match crate::solver3::sizing::calculate_used_size_for_node(
+                                self.ctx.styled_dom,
+                                Some(id),
+                                &constraints.containing_block_size,
+                                intrinsic.clone(),
+                                &bp,
+                                &self.ctx.viewport_size,
+                            ) {
+                                Ok(sz) => (
+                                    (sz.width - padding_width - border_width).max(0.0),
+                                    (sz.height - padding_height - border_height).max(0.0),
+                                ),
+                                Err(_) => (effective_content_width, content_height),
+                            }
+                        }
+                        _ => (effective_content_width, content_height),
+                    }
+                };
+
                 // Convert content-box size to border-box size (for when we compute our own size)
                 let border_box_width = effective_content_width + padding_width + border_width;
                 let border_box_height = content_height + padding_height + border_height;

@@ -1703,6 +1703,11 @@ pub fn calculate_used_size_for_node(
             };
             match abs_stretch_fit {
                 Some(h) => h,
+                // §10.6.2: auto height for a replaced element (image / VirtualView)
+                // uses its intrinsic height — mirrors the auto-WIDTH replaced branch
+                // above. Without this, replaced nodes (no flow content) get 0 height
+                // (the blank-image / "300x0" bug).
+                None if is_replaced => intrinsic.max_content_height,
                 None => match display.unwrap_or_default() {
                     LayoutDisplay::Block
                     | LayoutDisplay::FlowRoot
