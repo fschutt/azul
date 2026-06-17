@@ -19,6 +19,7 @@
 use core::ffi::c_void;
 
 use azul_core::audio::{AudioConfig, AudioFrame};
+use azul_css::{AzString, StringVec};
 
 #[cfg(target_os = "linux")]
 mod alsa;
@@ -241,5 +242,75 @@ pub fn ensure_mic_backend() {
                 },
             );
         });
+    }
+}
+
+/// The audio output (sink) + input (source) devices on this machine, by name —
+/// enumerate them so the app can pick where to play audio or which mic to capture.
+/// (A device can be both, e.g. a duplex interface — it then appears in both lists.)
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct AudioDeviceList {
+    /// Output device names (speakers / headphones / HDMI / monitors).
+    pub outputs: StringVec,
+    /// Input device names (microphones / line-in / loopback).
+    pub inputs: StringVec,
+}
+
+impl AudioDeviceList {
+    /// Enumerate the machine's audio devices. Linux: PipeWire/PulseAudio via
+    /// `pactl list short sinks/sources`; empty on platforms without an enumeration
+    /// backend yet (and if `pactl` isn't installed).
+    pub fn enumerate() -> AudioDeviceList {
+        #[cfg(target_os = "linux")]
+        {
+            AudioDeviceList {
+                outputs: pactl_device_names("sinks"),
+                inputs: pactl_device_names("sources"),
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            AudioDeviceList {
+                outputs: StringVec::from_vec(Vec::new()),
+                inputs: StringVec::from_vec(Vec::new()),
+            }
+        }
+    }
+}
+
+/// Names from `pactl list short <kind>` (kind = "sinks" | "sources"): the 2nd
+/// tab-separated column of each line.
+#[cfg(target_os = "linux")]
+fn pactl_device_names(kind: &str) -> StringVec {
+    let stdout = match std::process::Command::new("pactl")
+        .args(["list", "short", kind])
+        .output()
+    {
+        Ok(o) if o.status.success() => o.stdout,
+        _ => return StringVec::from_vec(Vec::new()),
+    };
+    let text = String::from_utf8_lossy(&stdout);
+    let names: Vec<AzString> = text
+        .lines()
+        .filter_map(|l| l.split('\t').nth(1))
+        .filter(|n| !n.is_empty())
+        .map(AzString::from)
+        .collect();
+    StringVec::from_vec(names)
+}
+
+#[cfg(test)]
+mod audio_device_tests {
+    use super::AudioDeviceList;
+
+    #[test]
+    fn audio_device_enumerate() {
+        let list = AudioDeviceList::enumerate();
+        let outs: Vec<&str> = list.outputs.as_ref().iter().map(|s| s.as_str()).collect();
+        let ins: Vec<&str> = list.inputs.as_ref().iter().map(|s| s.as_str()).collect();
+        eprintln!("audio outputs ({}): {:?}", outs.len(), outs);
+        eprintln!("audio inputs  ({}): {:?}", ins.len(), ins);
+        // Must not panic; on a box with PipeWire/Pulse it lists the sinks/sources.
     }
 }
