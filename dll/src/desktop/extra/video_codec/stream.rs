@@ -70,27 +70,49 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender) {
 
     let log = std::env::var("AZ_VIDEO_FRAMELOG").is_ok();
 
-    // 1. Resolve the source → MP4 bytes (URL via range request, or raw bytes).
-    let bytes: Vec<u8> = if let Some(url) = init.downcast_ref::<String>().map(|s| s.clone()) {
-        if log {
-            eprintln!("[vstream] fetching (Range: bytes=0-) {}", url);
+    // 1. The thread-init is the `VideoConfig`; match its typed source → MP4 bytes
+    //    (URL via range request / local file / in-memory bytes). No RefAny downcast
+    //    ambiguity — the source is strongly typed.
+    use azul_core::video::VideoSource;
+    let config = match init.downcast_ref::<azul_core::video::VideoConfig>() {
+        Some(c) => c.clone(),
+        None => {
+            if log {
+                eprintln!("[vstream] init is not a VideoConfig");
+            }
+            return;
         }
-        match fetch_ranged(&url) {
-            Some(b) => b,
-            None => {
-                if log {
-                    eprintln!("[vstream] fetch FAILED");
+    };
+    let bytes: Vec<u8> = match &config.source {
+        VideoSource::Url(u) => {
+            if log {
+                eprintln!("[vstream] fetching (Range: bytes=0-) {}", u.as_str());
+            }
+            match fetch_ranged(u.as_str()) {
+                Some(b) => b,
+                None => {
+                    if log {
+                        eprintln!("[vstream] fetch FAILED");
+                    }
+                    return;
                 }
-                return;
             }
         }
-    } else if let Some(b) = init.downcast_ref::<Vec<u8>>().map(|v| v.clone()) {
-        b
-    } else {
-        if log {
-            eprintln!("[vstream] no source RefAny (not String/Vec<u8>)");
+        VideoSource::File(p) => {
+            if log {
+                eprintln!("[vstream] reading file {}", p.as_str());
+            }
+            match std::fs::read(p.as_str()) {
+                Ok(b) => b,
+                Err(e) => {
+                    if log {
+                        eprintln!("[vstream] file read FAILED: {}", e);
+                    }
+                    return;
+                }
+            }
         }
-        return;
+        VideoSource::Bytes(b) => b.as_ref().to_vec(),
     };
     if log {
         eprintln!("[vstream] got {} bytes", bytes.len());

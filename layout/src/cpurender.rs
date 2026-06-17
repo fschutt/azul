@@ -1485,8 +1485,10 @@ impl AzulPixmap {
         let ph = self.height as i32;
         let x0 = x.max(0).min(pw);
         let y0 = y.max(0).min(ph);
-        let x1 = (x + w).max(0).min(pw);
-        let y1 = (y + h).max(0).min(ph);
+        // saturating: a non-finite/huge layout size casts to i32::MAX, and `x + w`
+        // would then overflow (debug panic). Clamp instead.
+        let x1 = x.saturating_add(w).max(0).min(pw);
+        let y1 = y.saturating_add(h).max(0).min(ph);
         for row in y0..y1 {
             let start = (row * pw + x0) as usize * 4;
             let end = (row * pw + x1) as usize * 4;

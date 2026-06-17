@@ -9,7 +9,7 @@
 
 use azul::prelude::*;
 use azul::widgets::VideoWidget;
-use azul::misc::VideoConfig;
+use azul::misc::{VideoConfig, VideoSource};
 use azul::desktop::extra::video_codec::VideoStartupCheck;
 
 /// Big Buck Bunny H.264/MP4, 360p — fetched on the decode thread via a range request.
@@ -28,8 +28,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     };
 
     let mut root = Dom::create_body().with_css(
-        "display: flex; flex-direction: column; padding: 16px; background: #0e0e14; \
-         font-family: sans-serif; color: #e6e6f0;",
+        "display: flex; flex-direction: column; height: 100%; box-sizing: border-box; \
+         padding: 16px; background: #0e0e14; font-family: sans-serif; color: #e6e6f0;",
     );
     root = root.with_child(
         Dom::create_text("AzVideo — streaming H.264 (Big Buck Bunny)")
@@ -46,14 +46,16 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             .with_css("font-size: 12px; color: #7ad17a; margin: 10px 0 5px 0;"),
     );
 
-    // The VideoWidget streams: `with_source(URL)` + `dom()` wires the off-main VK
-    // decode worker (no border-radius/overflow — those clip the `<img>` blank in
-    // the CPU renderer).
+    // The VideoWidget streams: the typed `VideoSource::Url` in the config + `dom()`
+    // wires the off-main VK decode worker. Flex-fill the window (no hardcoded size)
+    // so the CPU renderer must interpolate/scale the decoded frame (GPU does it
+    // natively) — and no border-radius/overflow (those clip the `<img>` in cpurender).
+    let mut config = VideoConfig::default();
+    config.source = VideoSource::Url(BBB_URL.into());
     root = root.with_child(
-        VideoWidget::create(VideoConfig::default())
-            .with_source(RefAny::new(String::from(BBB_URL)))
+        VideoWidget::create(config)
             .dom()
-            .with_css("width: 640px; height: 360px; flex-shrink: 0; border: 2px solid #2a2a3a;"),
+            .with_css("flex-grow: 1; width: 100%; border: 2px solid #2a2a3a;"),
     );
 
     root

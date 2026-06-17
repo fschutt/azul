@@ -48,10 +48,6 @@ pub struct VideoWidgetState {
     /// `Vec<VideoFrame>`); when set, the replay worker cycles these instead of
     /// the built-in test pattern. Carried forward by [`merge_video_state`].
     pub frames: OptionRefAny,
-    /// Streaming source — a `RefAny` holding a `String` (URL, fetched via an HTTP
-    /// range request) or a `Vec<u8>` (raw MP4 bytes) — handed to the decode worker
-    /// as its thread init. Set via [`VideoWidget::with_source`].
-    pub source: OptionRefAny,
     /// The off-main-thread streaming decode worker (mirrors the map widget's
     /// `fetch_callback`). Set via [`VideoWidget::dom_with_decoder`]. When present,
     /// AfterMount spawns it on a background `Thread` instead of the replay /
@@ -78,10 +74,6 @@ pub struct VideoWidget {
     /// `Vec<VideoFrame>`); set via [`with_frames`](Self::with_frames). When
     /// present the widget cycles these instead of the test pattern.
     pub frames: OptionRefAny,
-    /// Streaming source for [`dom_with_decoder`](Self::dom_with_decoder) — a
-    /// `RefAny` holding a `String` (URL) or `Vec<u8>` (MP4 bytes). Set via
-    /// [`with_source`](Self::with_source).
-    pub source: OptionRefAny,
 }
 
 impl VideoWidget {
@@ -91,7 +83,6 @@ impl VideoWidget {
             config,
             on_frame: OptionOnVideoFrame::None,
             frames: OptionRefAny::None,
-            source: OptionRefAny::None,
         }
     }
 
@@ -128,15 +119,6 @@ impl VideoWidget {
         self
     }
 
-    /// Set the streaming source for [`dom_with_decoder`](Self::dom_with_decoder):
-    /// a [`RefAny`] holding a `String` (a URL, fetched via an HTTP range request)
-    /// or a `Vec<u8>` (raw MP4 bytes). The decode worker reads this as its thread
-    /// init.
-    pub fn with_source(mut self, source: RefAny) -> Self {
-        self.source = Some(source).into();
-        self
-    }
-
     fn build_dom(self, decode_cb: Option<ThreadCallback>) -> Dom {
         let state = VideoWidgetState {
             config: self.config,
@@ -144,7 +126,6 @@ impl VideoWidget {
             gl_texture_id: None,
             on_frame: self.on_frame,
             frames: self.frames,
-            source: self.source,
             decode_callback: decode_cb,
             current_frame: None,
         };
@@ -184,8 +165,8 @@ impl VideoWidget {
 
     /// Build the widget's DOM and wire a background **streaming** decode worker —
     /// mirrors `MapWidget::dom_with_fetch`. `cb` runs on a framework `Thread` OFF
-    /// the main thread: it reads the [`with_source`](Self::with_source) `RefAny`
-    /// (URL or MP4 bytes), runs the VK decode incrementally (no up-front decode),
+    /// the main thread: it reads the `VideoConfig` (its typed `VideoSource` —
+    /// URL / file / bytes), runs the VK decode incrementally (no up-front decode),
     /// and `WriteBack`s frames to the `<img>` paced by wall-clock (dropping late
     /// frames). The standard worker is
     /// `azul_dll::desktop::extra::video_codec::stream::video_decode_worker`; wrap
@@ -205,14 +186,28 @@ extern "C" fn video_widget_render(
     info: VirtualViewCallbackInfo,
 ) -> VirtualViewReturn {
     let bounds = info.get_bounds().get_logical_size();
-    let dom = match data.downcast_ref::<VideoWidgetState>() {
-        Some(s) => match &s.current_frame {
-            Some(img) => {
-                OptionDom::Some(Dom::create_image(img.clone()).with_css("width: 100%; height: 100%;"))
-            }
+    if std::env::var("AZ_VIDEO_FRAMELOG").is_ok() {
+        eprintln!("[vrender] bounds {}x{}", bounds.width, bounds.height);
+    }
+    // Defensive (like map_widget_render): a non-finite / non-positive box (layout
+    // not yet settled, e.g. flex-grow before the parent height resolves) would
+    // produce a garbage `<img>` size — render nothing until it settles.
+    let dom = if !bounds.width.is_finite()
+        || !bounds.height.is_finite()
+        || bounds.width <= 0.0
+        || bounds.height <= 0.0
+    {
+        OptionDom::None
+    } else {
+        match data.downcast_ref::<VideoWidgetState>() {
+            Some(s) => match &s.current_frame {
+                Some(img) => OptionDom::Some(
+                    Dom::create_image(img.clone()).with_css("width: 100%; height: 100%;"),
+                ),
+                None => OptionDom::None,
+            },
             None => OptionDom::None,
-        },
-        None => OptionDom::None,
+        }
     };
     VirtualViewReturn {
         dom,
@@ -227,7 +222,7 @@ extern "C" fn video_widget_render(
 extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     // Mark started exactly once; pull out the streaming decode worker (if any),
     // its source, and any pre-decoded replay frames.
-    let (decode_cb, source, frames) = {
+    let (decode_cb, config, frames) = {
         let mut s = match data.downcast_mut::<VideoWidgetState>() {
             Some(s) => s,
             None => return Update::DoNothing,
@@ -236,21 +231,18 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
             return Update::DoNothing;
         }
         s.started = true;
-        let source = match &s.source {
-            OptionRefAny::Some(src) => Some(src.clone()),
-            OptionRefAny::None => None,
-        };
         let frames = match &s.frames {
             OptionRefAny::Some(f) => Some(f.clone()),
             OptionRefAny::None => None,
         };
-        (s.decode_callback.clone(), source, frames)
+        (s.decode_callback.clone(), s.config.clone(), frames)
     };
     // Priority: off-main streaming decode worker > replay pre-decoded frames >
-    // built-in test pattern. All feed the same
-    // WriteBack -> video_writeback -> present_frame path.
+    // built-in test pattern. All feed the same WriteBack -> video_writeback path.
     if let Some(cb) = decode_cb {
-        let init = source.unwrap_or_else(|| RefAny::new(()));
+        // The worker's thread-init is the `VideoConfig` itself: it matches on
+        // `config.source` (typed — no RefAny downcast) and reads `config.timestamp`.
+        let init = RefAny::new(config);
         info.add_thread(ThreadId::unique(), Thread::create(init, data.clone(), cb));
     } else if let Some(frames) = frames {
         info.add_thread(
@@ -388,7 +380,6 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
             new_g.started = old_g.started;
             new_g.gl_texture_id = old_g.gl_texture_id;
             new_g.frames = old_g.frames.clone();
-            new_g.source = old_g.source.clone();
             new_g.decode_callback = old_g.decode_callback.clone();
             new_g.current_frame = old_g.current_frame.clone();
         }

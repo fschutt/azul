@@ -14,12 +14,36 @@
 use crate::resources::RawImageFormat;
 use azul_css::{AzString, U8Vec};
 
+/// Where a video widget pulls its H.264/MP4 data from — strongly typed so the
+/// decode worker matches on it directly (no `RefAny` downcast). Mirrors
+/// [`crate::screencap::ScreenCaptureSource`].
+#[repr(C, u8)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum VideoSource {
+    /// An HTTP(S) URL, fetched on the decode thread via an HTTP range request.
+    Url(AzString),
+    /// A local filesystem path.
+    File(AzString),
+    /// Raw MP4 bytes already in memory.
+    Bytes(U8Vec),
+}
+
+impl Default for VideoSource {
+    fn default() -> Self {
+        VideoSource::Url(AzString::from_const_str(""))
+    }
+}
+
 /// Requested video-playback configuration.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct VideoConfig {
-    /// Source URL or file path (decoded via vk-video + HTTP-range fetch).
-    pub source: AzString,
+    /// Where to load the video from (URL / file path / in-memory bytes).
+    pub source: VideoSource,
+    /// Seek / scrub position in seconds. Changing it across a relayout makes the
+    /// widget's merge callback tell the decode worker to seek (scrubbing
+    /// timeline) — the decoder survives relayout like the map's tile cache.
+    pub timestamp: f32,
     /// Start playing automatically on mount.
     pub autoplay: bool,
     /// Restart from the beginning when the stream ends.
@@ -32,7 +56,8 @@ pub struct VideoConfig {
 impl Default for VideoConfig {
     fn default() -> Self {
         Self {
-            source: AzString::from_const_str(""),
+            source: VideoSource::default(),
+            timestamp: 0.0,
             autoplay: true,
             looping: false,
             output_format: RawImageFormat::BGRA8,
@@ -41,8 +66,8 @@ impl Default for VideoConfig {
 }
 
 impl VideoConfig {
-    /// A default config playing `source` (autoplay on, no loop, BGRA8).
-    pub fn new(source: AzString) -> Self {
+    /// A default config playing `source` (autoplay on, no loop, BGRA8, t=0).
+    pub fn new(source: VideoSource) -> Self {
         Self {
             source,
             ..Self::default()
