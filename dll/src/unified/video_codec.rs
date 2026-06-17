@@ -114,6 +114,56 @@ impl VideoEncoder {
     pub fn close(&mut self) {}
 }
 
+/// wasm stub of the desktop `ScreenRecorder` (no subprocess/gstreamer on wasm).
+/// `#[repr(C)]` layout MUST match `video_codec::ScreenRecorder`.
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+pub struct ScreenRecorder {
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+#[cfg(target_arch = "wasm32")]
+impl Clone for ScreenRecorder {
+    fn clone(&self) -> Self {
+        ScreenRecorder {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+#[cfg(target_arch = "wasm32")]
+impl Default for ScreenRecorder {
+    fn default() -> Self {
+        ScreenRecorder {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+#[cfg(target_arch = "wasm32")]
+impl Drop for ScreenRecorder {
+    fn drop(&mut self) {}
+}
+#[cfg(target_arch = "wasm32")]
+impl ScreenRecorder {
+    /// No gstreamer on wasm: always returns an invalid handle.
+    pub fn start(_path: AzString, _width: u32, _height: u32, _fps: u32) -> ScreenRecorder {
+        ScreenRecorder::default()
+    }
+    pub fn is_recording(&self) -> bool {
+        false
+    }
+    pub fn write_frame(&self, _frame: VideoFrame) -> bool {
+        false
+    }
+    pub fn frames_written(&self) -> u64 {
+        0
+    }
+    pub fn finish(&mut self) -> bool {
+        false
+    }
+}
+
 /// wasm stub of the desktop `VideoDecoder` handle (no codec backend on wasm).
 #[cfg(target_arch = "wasm32")]
 #[repr(C)]
