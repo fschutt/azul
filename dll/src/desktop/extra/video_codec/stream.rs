@@ -39,13 +39,13 @@ pub fn video_widget_dom(
 /// It decodes the clip incrementally on this thread and streams frames to the
 /// widget's `<img>` via `WriteBack` → `video_writeback` → `present_frame`,
 /// paced by wall-clock with frame dropping.
-pub extern "C" fn video_decode_worker(init: RefAny, sender: ThreadSender, _recv: ThreadReceiver) {
+pub extern "C" fn video_decode_worker(init: RefAny, sender: ThreadSender, recv: ThreadReceiver) {
     #[cfg(all(
         feature = "video-native",
         target_arch = "x86_64",
         any(target_os = "linux", target_os = "windows")
     ))]
-    decode_stream(init, sender);
+    decode_stream(init, sender, recv);
 
     #[cfg(not(all(
         feature = "video-native",
@@ -54,7 +54,7 @@ pub extern "C" fn video_decode_worker(init: RefAny, sender: ThreadSender, _recv:
     )))]
     {
         // No Vulkan-Video decoder on this target: the widget keeps its placeholder.
-        let _ = (init, sender);
+        let _ = (init, sender, recv);
     }
 }
 
@@ -63,10 +63,17 @@ pub extern "C" fn video_decode_worker(init: RefAny, sender: ThreadSender, _recv:
     target_arch = "x86_64",
     any(target_os = "linux", target_os = "windows")
 ))]
-fn decode_stream(mut init: RefAny, mut sender: ThreadSender) {
+fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadReceiver) {
+    use azul_core::task::{OptionThreadSendMsg, ThreadSendMsg};
     use azul_core::video::{OptionVideoFrame, VideoFrame};
     use azul_css::U8Vec;
     use std::time::{Duration, Instant};
+
+    // Target output size (physical px) the widget last asked for via NodeResized.
+    // While `None` the worker emits frames at the stream's native size; once set,
+    // each presented frame is scaled to it OFF this thread, so the UI does no
+    // interpolation and no relayout — just an image swap.
+    let mut target_size: Option<(u32, u32)> = None;
 
     let log = std::env::var("AZ_VIDEO_FRAMELOG").is_ok();
 
@@ -148,6 +155,28 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender) {
     let start = Instant::now();
 
     loop {
+        // Drain control messages from the main thread (non-blocking): a NodeResized
+        // gives us a new target size (re-present the current frame scaled to it); a
+        // terminate stops the worker.
+        loop {
+            match recv.recv() {
+                OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) => return,
+                OptionThreadSendMsg::Some(ThreadSendMsg::Custom(mut r)) => {
+                    if let Some(sz) = r.downcast_ref::<(u32, u32)>().map(|t| *t) {
+                        if sz.0 > 0 && sz.1 > 0 && target_size != Some(sz) {
+                            target_size = Some(sz);
+                            last_idx = usize::MAX; // force a re-present at the new size
+                            if log {
+                                eprintln!("[vstream] resize → target {}x{}", sz.0, sz.1);
+                            }
+                        }
+                    }
+                }
+                OptionThreadSendMsg::Some(_) => {}
+                OptionThreadSendMsg::None => break,
+            }
+        }
+
         // Decode one access unit per iteration (drain every frame it yields),
         // flushing the reorder buffer after the final chunk.
         if chunk_idx < total {
@@ -186,9 +215,17 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender) {
                     );
                 }
                 last_idx = idx;
+                // Scale to the widget's requested size OFF this thread so the UI does
+                // no interpolation (the `<img>` shows it 1:1).
+                let frame = match target_size {
+                    Some((tw, th)) if (tw, th) != (decoded[idx].width, decoded[idx].height) => {
+                        scale_frame_bilinear(&decoded[idx], tw, th)
+                    }
+                    _ => decoded[idx].clone(),
+                };
                 let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
                     WriteBackCallback::new(video_writeback),
-                    RefAny::new(decoded[idx].clone()),
+                    RefAny::new(frame),
                 )));
                 if !sent {
                     break; // widget gone → stop the thread
@@ -201,6 +238,56 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender) {
         if chunk_idx >= total {
             std::thread::sleep(Duration::from_millis(8));
         }
+    }
+}
+
+/// Bilinear-resize a tightly-packed RGBA8 `VideoFrame` to `tw`×`th`, on the decode
+/// thread, so the UI renderer doesn't have to interpolate (the `<img>` shows it 1:1).
+#[cfg(all(
+    feature = "video-native",
+    target_arch = "x86_64",
+    any(target_os = "linux", target_os = "windows")
+))]
+fn scale_frame_bilinear(
+    src: &azul_core::video::VideoFrame,
+    tw: u32,
+    th: u32,
+) -> azul_core::video::VideoFrame {
+    use azul_css::U8Vec;
+    let (sw, sh) = (src.width, src.height);
+    if sw == 0 || sh == 0 || tw == 0 || th == 0 {
+        return src.clone();
+    }
+    let s = src.bytes.as_ref();
+    if s.len() < (sw as usize) * (sh as usize) * 4 {
+        return src.clone();
+    }
+    let mut out = vec![0u8; (tw as usize) * (th as usize) * 4];
+    let rx = sw as f32 / tw as f32;
+    let ry = sh as f32 / th as f32;
+    for ty in 0..th {
+        let fy = ((ty as f32 + 0.5) * ry - 0.5).max(0.0);
+        let y0 = fy.floor() as u32;
+        let y1 = (y0 + 1).min(sh - 1);
+        let wy = fy - y0 as f32;
+        for tx in 0..tw {
+            let fx = ((tx as f32 + 0.5) * rx - 0.5).max(0.0);
+            let x0 = fx.floor() as u32;
+            let x1 = (x0 + 1).min(sw - 1);
+            let wx = fx - x0 as f32;
+            let o = ((ty * tw + tx) * 4) as usize;
+            for c in 0..4 {
+                let px = |x: u32, y: u32| s[(((y * sw + x) * 4) as usize) + c] as f32;
+                let top = px(x0, y0) * (1.0 - wx) + px(x1, y0) * wx;
+                let bot = px(x0, y1) * (1.0 - wx) + px(x1, y1) * wx;
+                out[o + c] = (top * (1.0 - wy) + bot * wy).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+    azul_core::video::VideoFrame {
+        width: tw,
+        height: th,
+        bytes: U8Vec::from_vec(out),
     }
 }
 

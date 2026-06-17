@@ -16,7 +16,7 @@ use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventF
 use azul_core::geom::LogicalPosition;
 use azul_core::refany::{OptionRefAny, RefAny};
 use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
-use azul_core::task::{ThreadId, ThreadReceiver};
+use azul_core::task::{ThreadId, ThreadReceiver, ThreadSendMsg};
 use azul_core::video::{VideoConfig, VideoFrame};
 
 use super::capture_common::{
@@ -60,6 +60,11 @@ pub struct VideoWidgetState {
     /// exactly like the map widget's tile cache. (Replaces the GL `present_frame`
     /// path for video; camera/screencap still use present_frame.)
     pub current_frame: Option<ImageRef>,
+    /// The decode worker's `ThreadId` (set by AfterMount). Lets the resize callback
+    /// message the running worker (`info.get_thread(id).sender.send(..)`) so it can
+    /// re-target the decoder to the new physical-pixel size — a cheap image swap, no
+    /// relayout. Carried across relayout by [`merge_video_state`].
+    pub thread_id: Option<ThreadId>,
 }
 
 /// A video-playback widget. `create(config).dom()` yields an `<img>` the
@@ -128,6 +133,7 @@ impl VideoWidget {
             frames: self.frames,
             decode_callback: decode_cb,
             current_frame: None,
+            thread_id: None,
         };
         let dataset = RefAny::new(state);
         let vv_data = dataset.clone();
@@ -144,8 +150,15 @@ impl VideoWidget {
             .with_merge_callback(merge_video_state as DatasetMergeCallbackType)
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
-                dataset,
+                dataset.clone(),
                 Callback::from(video_on_after_mount as CallbackType),
+            )
+            // Window/layout resize → re-target the decoder to the new physical size
+            // (a cheap image swap, no relayout). See `video_on_resize`.
+            .with_callback(
+                EventFilter::Component(ComponentEventFilter::NodeResized),
+                dataset,
+                Callback::from(video_on_resize as CallbackType),
             )
             .with_child(
                 Dom::create_virtual_view(
@@ -243,7 +256,12 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
         // The worker's thread-init is the `VideoConfig` itself: it matches on
         // `config.source` (typed — no RefAny downcast) and reads `config.timestamp`.
         let init = RefAny::new(config);
-        info.add_thread(ThreadId::unique(), Thread::create(init, data.clone(), cb));
+        let tid = ThreadId::unique();
+        info.add_thread(tid, Thread::create(init, data.clone(), cb));
+        // Remember the worker's id so `video_on_resize` can message it.
+        if let Some(mut s) = data.downcast_mut::<VideoWidgetState>() {
+            s.thread_id = Some(tid);
+        }
     } else if let Some(frames) = frames {
         info.add_thread(
             ThreadId::unique(),
@@ -258,6 +276,31 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
                 ThreadCallback::new(video_test_worker),
             ),
         );
+    }
+    Update::DoNothing
+}
+
+/// NodeResized: the video box changed physical size (window resize / relayout). Tell
+/// the running decode worker the new target size via its `ThreadSender` so it scales
+/// frames to fit OFF the main thread — the UI then does a cheap image swap with no
+/// interpolation. This is a message, NOT a relayout: returns `DoNothing`.
+extern "C" fn video_on_resize(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let tid = match data.downcast_ref::<VideoWidgetState>() {
+        Some(s) => s.thread_id,
+        None => return Update::DoNothing,
+    };
+    let tid = match tid {
+        Some(t) => t,
+        None => return Update::DoNothing,
+    };
+    let node = info.get_hit_node();
+    let size = match info.get_node_size(node) {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+    let target = (size.width.max(1.0) as u32, size.height.max(1.0) as u32);
+    if let Some(thread) = info.get_thread(&tid) {
+        thread.send_message(ThreadSendMsg::Custom(RefAny::new(target)));
     }
     Update::DoNothing
 }
@@ -382,6 +425,7 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
             new_g.frames = old_g.frames.clone();
             new_g.decode_callback = old_g.decode_callback.clone();
             new_g.current_frame = old_g.current_frame.clone();
+            new_g.thread_id = old_g.thread_id;
         }
     }
     new_data

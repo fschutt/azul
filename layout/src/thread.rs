@@ -590,6 +590,23 @@ impl Thread {
     ) -> Self {
         create_thread_libstd(thread_initialize_data, writeback_data, callback.into())
     }
+
+    /// Send a control message to the running worker. Interior-mutable (the worker
+    /// state is behind a `Mutex`), so this takes `&self` and is callable from a
+    /// callback that only holds `&Thread` via `CallbackInfo::get_thread`. Used to push
+    /// resize / seek / source-change messages to a persistent worker. Returns false
+    /// if the channel is closed (or always, on no_std).
+    #[cfg(feature = "std")]
+    pub fn send_message(&self, msg: ThreadSendMsg) -> bool {
+        match self.ptr.lock() {
+            Ok(inner) => inner.sender.send(msg).is_ok(),
+            Err(_) => false,
+        }
+    }
+    #[cfg(not(feature = "std"))]
+    pub fn send_message(&self, _msg: ThreadSendMsg) -> bool {
+        false
+    }
 }
 
 /// A `Thread` is a separate thread that is owned by the framework.
