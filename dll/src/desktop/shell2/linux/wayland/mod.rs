@@ -237,6 +237,13 @@ pub struct WaylandWindow {
     /// the seat for click-outside dismiss. Driven by `drive_active_popup()`.
     pub active_popup: Option<Box<WaylandPopup>>,
 
+    /// Whether the most recent `wl_pointer.enter` targeted the active popup's
+    /// surface (rather than this parent surface). The xdg_popup grab routes all
+    /// pointer events through this parent's seat listeners, so we use this flag
+    /// — set from the surface carried by `enter` — to forward subsequent
+    /// motion/button events (which carry no surface) to the popup's layout.
+    pub pointer_over_popup: bool,
+
     // GNOME native menu V2 with dlopen
     pub gnome_menu: Option<super::gnome_menu::GnomeMenuManager>,
 
@@ -318,6 +325,10 @@ pub struct WaylandPopup {
     /// path, same as the X11/Wayland CPU fallback — popups never use WebRender).
     #[cfg(feature = "cpurender")]
     cpu_backend: crate::desktop::shell2::headless::CpuBackend,
+    /// CPU hit-tester rebuilt from the popup's own layout (in `ensure_menu_layout`).
+    /// Resolves popup-surface-relative pointer coords to the menu-item node so a
+    /// click can fire its callback — the popup has no WebRender hit-tester.
+    cpu_hit_tester: azul_layout::headless::CpuHitTester,
 }
 
 // Event Handler Types
@@ -1182,6 +1193,7 @@ impl WaylandWindow {
             current_outputs: Vec::new(),
             pending_window_creates: Vec::new(),
             active_popup: None,
+            pointer_over_popup: false,
             gnome_menu: None, // Will be initialized if GNOME menus are enabled
             resources: resources.clone(),
             dynamic_selector_context: {
@@ -2017,6 +2029,32 @@ impl WaylandWindow {
             return;
         }
 
+        // While a menu popup is open, route all other keys to it (consumed — not
+        // forwarded to the app behind the menu). Return/Enter activates the item
+        // currently under the popup cursor; the menu then closes.
+        if self.active_popup.is_some() {
+            if is_pressed {
+                crate::plog_info!(
+                    "[wayland-popup] routing key to popup: {:?}",
+                    virtual_keycode
+                );
+                if virtual_keycode == azul_core::window::VirtualKeyCode::Return
+                    || virtual_keycode == azul_core::window::VirtualKeyCode::NumpadEnter
+                {
+                    let activated = self
+                        .active_popup
+                        .as_mut()
+                        .map_or(false, |p| p.activate_hovered());
+                    if activated {
+                        self.dismiss_active_popup();
+                        self.common.frame_needs_regeneration = true;
+                        self.request_redraw();
+                    }
+                }
+            }
+            return;
+        }
+
         self.common.current_window_state
             .keyboard_state
             .current_virtual_keycode = OptionVirtualKeyCode::Some(virtual_keycode);
@@ -2183,6 +2221,16 @@ impl WaylandWindow {
     pub fn handle_pointer_motion(&mut self, x: f64, y: f64) {
         let logical_pos = LogicalPosition::new(x as f32, y as f32);
 
+        // While the pointer is over an open menu popup, forward motion to the
+        // popup (just tracks the popup-relative cursor for a later click/Return)
+        // and don't touch the parent's hover/hit-test state.
+        if self.pointer_over_popup && self.active_popup.is_some() {
+            if let Some(popup) = self.active_popup.as_mut() {
+                popup.set_cursor_pos(logical_pos);
+            }
+            return;
+        }
+
         // Save previous state BEFORE making changes
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
@@ -2242,6 +2290,29 @@ impl WaylandWindow {
     /// Handle pointer button event
     pub fn handle_pointer_button(&mut self, serial: u32, button: u32, state: u32) {
         self.pointer_state.serial = serial;
+
+        // While the pointer is over an open menu popup, route the click to the
+        // popup's layout (the xdg_popup grab delivers it through this parent's
+        // seat). A left-press over a menu item fires its callback; the menu then
+        // closes (menus dismiss on selection).
+        if self.pointer_over_popup && self.active_popup.is_some() {
+            crate::plog_info!(
+                "[wayland-popup] pointer button (btn={:#x} state={}) -> routing to popup",
+                button, state
+            );
+            let activated = self
+                .active_popup
+                .as_mut()
+                .map_or(false, |p| p.dispatch_button(button, state));
+            if activated {
+                self.dismiss_active_popup();
+                // The menu callback likely mutated shared app state — regenerate
+                // and repaint the parent so the selection's effect is visible.
+                self.common.frame_needs_regeneration = true;
+                self.request_redraw();
+            }
+            return;
+        }
 
         let mouse_button = match button {
             0x110 => MouseButton::Left,   // BTN_LEFT
@@ -2403,10 +2474,33 @@ impl WaylandWindow {
         self.handle_process_event_result(result);
     }
 
-    /// Handle pointer enter event
-    pub fn handle_pointer_enter(&mut self, serial: u32, x: f64, y: f64) {
+    /// Handle pointer enter event.
+    ///
+    /// `over_popup` is `true` when the entered `wl_surface` (carried by
+    /// `wl_pointer.enter`, compared against the popup's surface in the listener)
+    /// is the active menu popup's surface. When a menu popup is open, the
+    /// xdg_popup grab routes pointer events through this parent's seat listeners
+    /// regardless of which surface they target; this flag tells us whether to
+    /// forward this (and subsequent, surface-less motion/button) events to the
+    /// popup's own layout instead of the parent's.
+    pub fn handle_pointer_enter(&mut self, serial: u32, x: f64, y: f64, over_popup: bool) {
         self.pointer_state.serial = serial;
         let logical_pos = LogicalPosition::new(x as f32, y as f32);
+
+        // Route to the active popup if the pointer entered ITS surface.
+        let over_popup = over_popup && self.active_popup.is_some();
+        self.pointer_over_popup = over_popup;
+        if over_popup {
+            crate::plog_info!(
+                "[wayland-popup] pointer entered popup surface at ({:.1},{:.1})",
+                x, y
+            );
+            if let Some(popup) = self.active_popup.as_mut() {
+                popup.set_cursor_pos(logical_pos);
+            }
+            return;
+        }
+
         self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(logical_pos);
         self.update_hit_test(logical_pos);
@@ -2423,6 +2517,13 @@ impl WaylandWindow {
 
     /// Handle pointer leave event
     pub fn handle_pointer_leave(&mut self, _serial: u32) {
+        // Pointer left the popup surface (e.g. moved back onto the parent):
+        // just clear the routing flag; don't mark the parent out-of-window.
+        if self.pointer_over_popup {
+            self.pointer_over_popup = false;
+            return;
+        }
+
         // Get last known position before leaving
         let last_pos = match self.common.current_window_state.mouse_state.cursor_position {
             CursorPosition::InWindow(pos) => pos,
@@ -4322,6 +4423,7 @@ impl WaylandPopup {
             rendered: false,
             #[cfg(feature = "cpurender")]
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
+            cpu_hit_tester: azul_layout::headless::CpuHitTester::new(),
         })
     }
 
@@ -4517,11 +4619,19 @@ impl WaylandPopup {
         );
 
         match result {
-            Ok(_) => self
-                .layout_window
-                .as_ref()
-                .map(|lw| lw.layout_results.contains_key(&DomId { inner: 0 }))
-                .unwrap_or(false),
+            Ok(_) => {
+                // Rebuild the popup's CPU hit-tester from the fresh layout so a
+                // pointer click can be resolved to a menu-item node + its
+                // callback (mirrors the parent window's post-regenerate_layout
+                // rebuild at the CPU path). The popup has no WebRender hit-tester.
+                if let Some(lw) = self.layout_window.as_ref() {
+                    self.cpu_hit_tester.rebuild_from_layout(&lw.layout_results);
+                }
+                self.layout_window
+                    .as_ref()
+                    .map(|lw| lw.layout_results.contains_key(&DomId { inner: 0 }))
+                    .unwrap_or(false)
+            }
             Err(e) => {
                 log_error!(
                     LogCategory::Layout,
@@ -4531,6 +4641,127 @@ impl WaylandPopup {
                 false
             }
         }
+    }
+
+    /// Update the popup-relative cursor position from a pointer enter/motion.
+    /// The xdg_popup grab delivers enter/motion coords already relative to the
+    /// popup surface, so no translation is needed — they map straight onto the
+    /// popup's logical layout. Stored so a later button/Return can hit-test here.
+    fn set_cursor_pos(&mut self, pos: LogicalPosition) {
+        self.current_window_state.mouse_state.cursor_position =
+            CursorPosition::InWindow(pos);
+    }
+
+    /// Handle a pointer button delivered to the popup. Menu items register their
+    /// activation callback on `Hover(MouseDown)`, so fire on a LEFT button press.
+    /// Returns `true` if a menu item was activated (caller then dismisses).
+    fn dispatch_button(&mut self, button: u32, state: u32) -> bool {
+        // 0x110 == BTN_LEFT; state 1 == pressed.
+        if state != 1 || button != 0x110 {
+            return false;
+        }
+        let pos = match self.current_window_state.mouse_state.cursor_position {
+            CursorPosition::InWindow(p) => p,
+            _ => return false,
+        };
+        self.activate_item_at(pos)
+    }
+
+    /// Activate the menu item currently under the popup cursor (used by Return).
+    fn activate_hovered(&mut self) -> bool {
+        let pos = match self.current_window_state.mouse_state.cursor_position {
+            CursorPosition::InWindow(p) => p,
+            _ => return false,
+        };
+        self.activate_item_at(pos)
+    }
+
+    /// Hit-test the popup's own layout at `pos` (popup-surface-relative logical
+    /// coords) and, if a menu-item node carries a `Hover(MouseDown)` callback,
+    /// invoke it — the same machinery the parent uses in
+    /// `dispatch_events_propagated` (find the node's `CoreCallbackData`, convert
+    /// via `Callback::from_core`, run `invoke_single_callback_at`). The CPU
+    /// hit-tester returns every node geometrically containing the point (incl.
+    /// ancestors), so a click on a child label still finds the item div's
+    /// callback. Returns `true` if a callback fired.
+    fn activate_item_at(&mut self, pos: LogicalPosition) -> bool {
+        use azul_core::dom::{DomNodeId, EventFilter, HoverEventFilter};
+        use azul_core::styled_dom::NodeHierarchyItemId;
+
+        // Phase 1 (read-only): find the topmost hit node with a MouseDown callback.
+        let target = {
+            let hits = self.cpu_hit_tester.hit_test(pos);
+            let lw = match self.layout_window.as_ref() {
+                Some(lw) => lw,
+                None => return false,
+            };
+            let mut found = None;
+            'outer: for (dom_id, node_id) in &hits {
+                if let Some(lr) = lw.layout_results.get(dom_id) {
+                    let ndc = lr.styled_dom.node_data.as_container();
+                    if let Some(nd) = ndc.get(*node_id) {
+                        for cb in nd.get_callbacks().as_ref().iter() {
+                            if cb.event == EventFilter::Hover(HoverEventFilter::MouseDown) {
+                                found = Some((*dom_id, *node_id, cb.clone()));
+                                break 'outer;
+                            }
+                        }
+                    }
+                }
+            }
+            found
+        };
+
+        let (dom_id, node_id, cb_data) = match target {
+            Some(t) => t,
+            None => {
+                crate::plog_info!(
+                    "[wayland-popup] pointer over popup at ({:.1},{:.1}) -> no actionable menu item",
+                    pos.x, pos.y
+                );
+                return false;
+            }
+        };
+
+        crate::plog_info!(
+            "[wayland-popup] pointer over popup at ({:.1},{:.1}) -> node {}",
+            pos.x, pos.y, node_id.index()
+        );
+
+        // Phase 2 (mutable): invoke the menu item's callback.
+        let mut callback = azul_layout::callbacks::Callback::from_core(cb_data.callback);
+        let mut refany = cb_data.refany.clone();
+        let hit_node = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        };
+        let raw_handle = RawWindowHandle::Wayland(WaylandHandle {
+            display: self.display as *mut _,
+            surface: self.surface as *mut _,
+        });
+        let system_style = self.resources.system_style.clone();
+        match self.layout_window.as_mut() {
+            Some(lw) => {
+                let _ = lw.invoke_single_callback_at(
+                    hit_node,
+                    &mut callback,
+                    &mut refany,
+                    &raw_handle,
+                    &self.gl_context_ptr,
+                    system_style,
+                    &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                    &self.previous_window_state,
+                    &self.current_window_state,
+                    &self.renderer_resources,
+                );
+            }
+            None => return false,
+        }
+        crate::plog_info!(
+            "[wayland-popup] menu item activated -> node {} callback fired",
+            node_id.index()
+        );
+        true
     }
 }
 

@@ -1021,14 +1021,22 @@ pub(super) extern "C" fn pointer_enter_handler(
     data: *mut c_void,
     _pointer: *mut wl_pointer,
     serial: u32,
-    _surface: *mut wl_surface,
+    surface: *mut wl_surface,
     surface_x: i32,
     surface_y: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     // wl_fixed_t (24.8 fixed-point) -> logical f64.
     let (x, y) = (surface_x as f64 / 256.0, surface_y as f64 / 256.0);
-    window.handle_pointer_enter(serial, x, y);
+    // Resolve whether the pointer entered an open menu popup's surface (vs. the
+    // parent) here — comparing the raw `wl_surface` — and pass a bool, so the
+    // public `handle_pointer_enter` signature stays free of FFI pointer types.
+    // (This child module can read the popup's private `surface` field.)
+    let over_popup = window
+        .active_popup
+        .as_ref()
+        .map_or(false, |p| !surface.is_null() && p.surface == surface);
+    window.handle_pointer_enter(serial, x, y, over_popup);
 }
 
 pub(super) extern "C" fn pointer_leave_handler(
