@@ -26,10 +26,9 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use azul::dom::OnAudioFrameCallback;
-use azul::misc::{AudioConfig, CameraConfig, SensorKind, Udp};
-use azul::option::{OptionRefAny, OptionU8Vec};
+use azul::misc::{AudioConfig, CameraConfig, SensorKind};
+use azul::option::OptionRefAny;
 use azul::prelude::*;
-use azul::str::String as AzString;
 use azul::task::TerminateTimer;
 use azul::vec::U8Vec;
 use azul::widgets::{AudioFrame, CameraWidget, MicrophoneWidget};
@@ -124,7 +123,6 @@ fn probe_capabilities() {
         ("camera", PlatformCapability::camera()),
         ("microphone", PlatformCapability::microphone()),
         ("audio-out", PlatformCapability::audio_output()),
-        ("udp", PlatformCapability::udp()),
         ("sensors", PlatformCapability::sensors()),
         ("gamepad", PlatformCapability::gamepad()),
         ("geolocation", PlatformCapability::geolocation()),
@@ -151,70 +149,6 @@ fn probe_capabilities() {
 
 // ─────────────────────── standalone probes ───────────────────────
 
-/// UDP loopback: bind two sockets on localhost, send a small datagram A→B and a
-/// larger chunked "video frame" A→B, and verify B receives them intact. This is
-/// a **required** probe — failure means the `AzUdp` transport is broken.
-fn probe_udp() {
-    log::info!("── probe: UDP loopback (AzUdp) ──");
-    let a = Udp::bind(AzString::from("127.0.0.1:0"));
-    let b = Udp::bind(AzString::from("127.0.0.1:0"));
-    if !a.is_open() || !b.is_open() {
-        log::error!("[udp] bind failed (a_open={}, b_open={})", a.is_open(), b.is_open());
-        fail(2);
-        return;
-    }
-    let b_addr = b.local_addr();
-    log::info!("[udp] a bound, b bound at {}", b_addr.as_str());
-
-    // 1) small datagram
-    let payload: &[u8] = b"azul-self-test-ping";
-    let sent = a.send_to(b_addr.clone(), u8vec(payload));
-    log::info!("[udp] sent {} bytes A->B", sent);
-    match recv_retry(&b) {
-        Some(got) => {
-            let ok = got.as_slice() == payload;
-            log::info!("[udp] B received {} bytes (intact={})", got.len(), ok);
-            if !ok {
-                fail(2);
-            }
-        }
-        None => {
-            log::error!("[udp] B received nothing — loopback datagram lost");
-            fail(2);
-        }
-    }
-
-    // 2) synthetic "video frame" via the chunked path (>1 datagram).
-    let frame: Vec<u8> = (0..4096u32).map(|i| (i & 0xff) as u8).collect();
-    let n = a.send_chunked(b_addr.clone(), u8vec(&frame));
-    log::info!("[udp] send_chunked {} datagrams for a {}-byte frame", n, frame.len());
-    let mut reassembled: Option<Vec<u8>> = None;
-    for _ in 0..50 {
-        if let OptionU8Vec::Some(ref got) = b.recv_chunked() {
-            reassembled = Some(got.as_ref().to_vec());
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    match reassembled {
-        Some(got) => {
-            let ok = got.as_slice() == frame.as_slice();
-            log::info!(
-                "[udp] B reassembled {} bytes (intact={})",
-                got.len(),
-                ok
-            );
-            if !ok {
-                fail(2);
-            }
-        }
-        None => {
-            // Not fatal if chunking is unsupported on a platform, but flag it.
-            log::warn!("[udp] chunked frame not reassembled (transport may not chunk here)");
-        }
-    }
-    log::info!("[udp] OK");
-}
 
 /// AudioSink open probe — opening the default output device. Unavailable (no
 /// device / CI box) is NOT a failure; we only report.
@@ -231,25 +165,6 @@ fn probe_audio_sink() {
     }
 }
 
-fn recv_retry(s: &Udp) -> Option<Vec<u8>> {
-    for _ in 0..50 {
-        // OptionU8Vec impls Drop, so match by ref and copy the bytes out.
-        if let OptionU8Vec::Some(ref got) = s.recv() {
-            return Some(got.as_ref().to_vec());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    None
-}
-
-/// Build an FFI `U8Vec` from a byte slice (copies; there is no `from_vec`).
-fn u8vec(v: &[u8]) -> U8Vec {
-    if v.is_empty() {
-        U8Vec::create()
-    } else {
-        U8Vec::copy_from_ptr(&v[0], v.len())
-    }
-}
 
 // ─────────────────────── event-loop probes ───────────────────────
 
@@ -484,7 +399,6 @@ pub fn start() {
     probe_capabilities();
 
     // 1) Standalone probes (no event loop) — the deterministic, exit-code ones.
-    probe_udp();
     probe_audio_sink();
 
     // 2) Headless escape hatch: skip the window (no display on this box).

@@ -169,3 +169,9 @@ codegen all`; FFI compile check = `cargo check -p azul-dll --features build-dll`
   critical), `normalize` no-op (canonical), `codegen all` OK (101 AzWebTransport/AzWt symbols, 0
   AzUdp), `cargo check -p azul-dll --features build-dll` green. Next: remove the dll `udp` module +
   `core::udp_framing` + `azul-self-test` Udp probe; CI memtest is the final FFI size/align gate.
+- (2026-06-18) **azul-self-test: removed the Udp probe** (step 2b): excised `probe_udp`/`recv_retry`/
+  `u8vec` + the `Udp`/`OptionU8Vec`/`AzString` imports + the "udp" capability entry. `cargo check -p
+  azul-self-test` green (CHECK_EXIT=0). DEFERRED (cosmetic, dead internal code): remove the
+  `dll/src/desktop/extra/udp` + `dll/src/unified/udp.rs` modules + `core::udp_framing` + the
+  `video_codec` doc comment; and the real `web-transport-quinn` engine (v1 is the loopback stub).
+  **Step 2 (WebTransport) is functionally DONE.** Next: step 3 (azul-video polish) / step 5 (bugs).
