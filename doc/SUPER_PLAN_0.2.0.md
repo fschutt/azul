@@ -148,3 +148,10 @@ codegen all`; FFI compile check = `cargo check -p azul-dll --features build-dll`
   fresh 0.2.0 release clears them, plus #1/#7 fixed parts). OPEN: #3 HiDPI (top), #6
   menu→xdg_popup (blocker), #10 maps-freeze + #9 paint-crash (need live Wayland), #8 Locate
   (easy), #1 over-damage (partial). Fix order in the doc.
+- (2026-06-18) **WebTransport research** → `doc/webtransport-plan.md` (step 2a DONE): decisive
+  recommendation = build `AzWebTransport` on **WebTransport** (HTTP/3/QUIC via `web-transport-quinn`
+  native + `web-transport-wasm`), NOT WebRTC (WebTransport hit Baseline Mar 2026; WebRTC's C++
+  libwebrtc + SDP/ICE state machine fight azul's C-ABI + existing media pipeline). Full api.json
+  shape (`WebTransport`/`WtEvent`/`WtReliability`/`WtStats`/`OptionWtEvent`), wire format, fan-out
+  server sketch, stub-loopback-first plan, + v1 checklist all in the doc. Next: step 2b/2c —
+  remove `Udp`, scaffold AzWebTransport (stub engine).
