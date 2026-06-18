@@ -5,13 +5,13 @@ edition = "2021"
 authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    azul-meet - the P8 goal app from SUPER_PLAN_2. Demonstrates the realtime
-    A/V stack end-to-end on desktop: MicrophoneWidget capture -> on_frame hook
-    -> Udp.send_to, and a recv Timer draining Udp.recv -> AudioSink.play. Wired
-    as a loopback (sends to its own bound port) so the full capture -> serialize
-    -> UDP -> deserialize -> playback round-trip runs on one machine. Real peer
-    connection + video + chunking land in follow-up ticks; this shows the
-    Udp / AudioSink / MicrophoneWidget public API working together today.
+    azul-meet - a Google-Meet-style demo on the public azul API. A meeting UI
+    whose toolbar toggles enable/disable microphone, camera and screen-share;
+    each toggle triggers a relayout so the DOM gains/loses a CameraWidget /
+    ScreenCaptureWidget / MicrophoneWidget (whose AfterMount starts the capture).
+    Remote participants are grey placeholders; the local user is a live tile.
+    Auto-joins a generated 'meeting link'. Sending media to remote peers over
+    the wire is the WebTransport follow-up.
 """
 publish = false
 

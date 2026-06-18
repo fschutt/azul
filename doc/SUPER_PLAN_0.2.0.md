@@ -132,3 +132,9 @@ codegen all`; FFI compile check = `cargo check -p azul-dll --features build-dll`
 
 ## PROGRESS LOG (append per commit)
 - (start 2026-06-18) plan created; cron set for tracking.
+- (2026-06-18) **azul-meet rewritten** as a Google-Meet-style app (step 4 core): toolbar
+  toggles mic/cam/screen → RefreshDom → DOM gains/loses CameraWidget/ScreenCaptureWidget/
+  MicrophoneWidget (AfterMount starts capture); grey-rect participants; generated
+  "meeting link" hash; **Udp removed** from the example. Builds static (REAL_BUILD_EXIT=0,
+  4m56s) + renders headless (AZ_HEADLESS_SNAPSHOT_PATH snapshot verified: header+grid+tiles).
+  Follow-ups: larger default window, device pickers (AudioDeviceList), WebTransport send.
