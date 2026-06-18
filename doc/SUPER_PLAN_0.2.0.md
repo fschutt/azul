@@ -198,3 +198,11 @@ codegen all`; FFI compile check = `cargo check -p azul-dll --features build-dll`
   the value is known (needs the user's live display). **Autonomous-safe queue now complete** — the
   rest of step 5 (#3 fix, #6 menu→popup, #9 paint-crash, #10 maps-freeze, #1 over-damage) needs the
   user's Wayland session to verify behaviorally; shipping those blind would risk renderer regressions.
+- (2026-06-18) **🎉 FINAL 0.2.0 RELEASE GREEN + DEPLOYED** — run `27733910502` (website, on
+  `712f5f940`): conclusion=success, **0 failed**, "Deploy to GitHub Pages" succeeded. The page now
+  carries AzVideo + AzMeet + AzWebTransport, the fixed #2/#4/#5 bugs, **plus #8 Locate-fix + the #3
+  DPI diagnostic**. (Note: the first re-release `27733466009` was auto-cancelled because the DPI push
+  superseded it via the concurrency group — lesson: don't push during a website run; the clean
+  re-trigger after all commits worked.) **OVERNIGHT AUTONOMOUS WORK COMPLETE.** Steps 1–4, 6 done +
+  the headless-safe part of 5; the remaining step-5 bugs are queued for a session with the user's
+  live Wayland display (see `doc/wayland-bugs-status.md` for the per-bug file:line fix plan).
