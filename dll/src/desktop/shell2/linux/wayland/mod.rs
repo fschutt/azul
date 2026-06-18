@@ -231,6 +231,12 @@ pub struct WaylandWindow {
     /// Processed in Phase 3 of the event loop
     pub pending_window_creates: Vec<WindowCreateOptions>,
 
+    /// Active menu popup, if any (xdg_popup nested under this parent surface).
+    /// Wayland clients cannot position their own toplevels, so menus are
+    /// anchored to the trigger rect on the parent via xdg_positioner and grab
+    /// the seat for click-outside dismiss. Driven by `drive_active_popup()`.
+    pub active_popup: Option<Box<WaylandPopup>>,
+
     // GNOME native menu V2 with dlopen
     pub gnome_menu: Option<super::gnome_menu::GnomeMenuManager>,
 
@@ -303,6 +309,15 @@ pub struct WaylandPopup {
     pub resources: Arc<super::AppResources>,
     fc_cache: Arc<FcFontCache>,
     app_data: Arc<RefCell<RefAny>>,
+
+    /// wl_shm handle (borrowed from the parent) for lazily creating the CPU buffer.
+    shm: *mut defines::wl_shm,
+    /// Whether the menu DOM has already been rendered into the buffer.
+    rendered: bool,
+    /// Shared CPU rendering backend (the menu is painted via the headless CPU
+    /// path, same as the X11/Wayland CPU fallback — popups never use WebRender).
+    #[cfg(feature = "cpurender")]
+    cpu_backend: crate::desktop::shell2::headless::CpuBackend,
 }
 
 // Event Handler Types
@@ -539,6 +554,10 @@ impl WaylandWindow {
 
             (self.wayland.wl_display_dispatch_queue_pending)(self.display, self.event_queue)
         };
+
+        // Service any open menu popup: dispatching above may have delivered its
+        // configure (so we can render+attach a buffer) or popup_done (dismiss).
+        self.drive_active_popup();
 
         if dispatched > 0 {
             Some(WaylandEvent::Redraw) // Events were processed, a redraw might be needed.
@@ -918,6 +937,84 @@ impl WaylandWindow {
         self.pending_window_creates.push(menu_options);
     }
 
+    /// Open a menu (`WindowType::Menu` create options) as a nested `xdg_popup`
+    /// anchored to its trigger rect on this parent surface, instead of a
+    /// mispositioned, event-capturing `xdg_toplevel`. Replaces any open menu.
+    ///
+    /// The trigger/anchor rect was stashed in the menu layout callback's RefAny
+    /// (`menu::MenuLayoutData::trigger_rect`), in parent-surface-relative
+    /// coordinates — Wayland clients cannot address absolute screen coordinates,
+    /// so the compositor positions the popup from this rect.
+    pub fn open_menu_popup(&mut self, options: WindowCreateOptions) -> Result<(), String> {
+        use azul_core::geom::{LogicalRect, LogicalSize};
+
+        // A new menu replaces any currently-open one.
+        self.dismiss_active_popup();
+
+        let mut anchor_rect = match &options.window_state.layout_callback.ctx {
+            azul_core::refany::OptionRefAny::Some(refany) => {
+                let mut refany = refany.clone();
+                refany
+                    .downcast_ref::<self::menu::MenuLayoutData>()
+                    .map(|d| d.trigger_rect)
+            }
+            azul_core::refany::OptionRefAny::None => None,
+        }
+        .unwrap_or_else(|| LogicalRect::new(azul_core::geom::LogicalPosition::zero(), LogicalSize::zero()));
+
+        // A zero-sized anchor rect is rejected by some compositors — clamp >= 1x1.
+        anchor_rect.size.width = anchor_rect.size.width.max(1.0);
+        anchor_rect.size.height = anchor_rect.size.height.max(1.0);
+
+        let mut popup_size = options.window_state.size.dimensions;
+        popup_size.width = popup_size.width.max(1.0);
+        popup_size.height = popup_size.height.max(1.0);
+
+        crate::plog_info!(
+            "[wayland-popup] open_menu_popup: anchor=({:.0},{:.0} {:.0}x{:.0}) size={:.0}x{:.0}",
+            anchor_rect.origin.x, anchor_rect.origin.y,
+            anchor_rect.size.width, anchor_rect.size.height,
+            popup_size.width, popup_size.height
+        );
+        let popup = WaylandPopup::new(self, anchor_rect, popup_size, options)?;
+        self.active_popup = Some(Box::new(popup));
+        crate::plog_info!("[wayland-popup] xdg_popup created + grab requested, awaiting configure");
+
+        // Flush the get_popup/grab/commit requests so the compositor configures
+        // the popup before the next loop iteration renders into it.
+        unsafe {
+            (self.wayland.wl_display_flush)(self.display);
+        }
+        Ok(())
+    }
+
+    /// Dismiss (close + drop) the active menu popup, if any. Dropping the popup
+    /// destroys its wl objects and releases the seat grab.
+    pub fn dismiss_active_popup(&mut self) {
+        if self.active_popup.take().is_some() {
+            unsafe {
+                (self.wayland.wl_display_flush)(self.display);
+            }
+        }
+    }
+
+    /// Service the active popup each loop iteration: drop it if the compositor
+    /// dismissed it (click-outside / popup_done), otherwise render it once the
+    /// compositor has configured it.
+    pub fn drive_active_popup(&mut self) {
+        let dismissed = match self.active_popup.as_ref() {
+            Some(p) => p.is_dismissed() || !p.is_open,
+            None => return,
+        };
+        if dismissed {
+            self.dismiss_active_popup();
+            return;
+        }
+        if let Some(popup) = self.active_popup.as_mut() {
+            popup.render_if_ready();
+        }
+    }
+
     pub fn new(
         mut options: WindowCreateOptions,
         resources: Arc<super::AppResources>,
@@ -1084,6 +1181,7 @@ impl WaylandWindow {
             known_outputs: Vec::new(),
             current_outputs: Vec::new(),
             pending_window_creates: Vec::new(),
+            active_popup: None,
             gnome_menu: None, // Will be initialized if GNOME menus are enabled
             resources: resources.clone(),
             dynamic_selector_context: {
@@ -1908,6 +2006,17 @@ impl WaylandWindow {
 
         // Translate keysym to VirtualKeyCode
         let virtual_keycode = translate_keysym_to_virtual_keycode(keysym);
+
+        // While a menu popup is open, Escape closes it (consumed, not forwarded
+        // to the app), matching the click-outside dismiss behaviour.
+        if is_pressed
+            && virtual_keycode == azul_core::window::VirtualKeyCode::Escape
+            && self.active_popup.is_some()
+        {
+            self.dismiss_active_popup();
+            return;
+        }
+
         self.common.current_window_state
             .keyboard_state
             .current_virtual_keycode = OptionVirtualKeyCode::Some(virtual_keycode);
@@ -4099,6 +4208,8 @@ impl WaylandPopup {
             wayland: wayland.clone(),
             xdg_surface,
             xdg_popup,
+            configured: std::cell::Cell::new(false),
+            dismissed: std::cell::Cell::new(false),
         });
         let listener_context_ptr = Box::into_raw(listener_context);
 
@@ -4206,6 +4317,11 @@ impl WaylandPopup {
             resources: parent.resources.clone(),
             fc_cache: parent.common.fc_cache.clone(),
             app_data: parent.common.app_data.clone(),
+
+            shm: parent.shm,
+            rendered: false,
+            #[cfg(feature = "cpurender")]
+            cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
         })
     }
 
@@ -4237,6 +4353,185 @@ impl WaylandPopup {
             self.is_open = false;
         }
     }
+
+    /// `true` once the compositor has sent the initial xdg_surface configure.
+    fn is_configured(&self) -> bool {
+        if self.listener_context.is_null() {
+            return false;
+        }
+        unsafe { (*self.listener_context).configured.get() }
+    }
+
+    /// `true` once the compositor dismissed the popup (click-outside / popup_done).
+    fn is_dismissed(&self) -> bool {
+        if self.listener_context.is_null() {
+            return false;
+        }
+        unsafe { (*self.listener_context).dismissed.get() }
+    }
+
+    /// Render the menu DOM into the popup's shm buffer and present it.
+    ///
+    /// Must run AFTER the compositor has configured the popup (`is_configured`),
+    /// per xdg-shell (a buffer may only be attached once the surface is
+    /// configured). Renders once; a popup menu's content is static.
+    fn render_if_ready(&mut self) {
+        if !self.is_open || self.rendered || !self.is_configured() {
+            return;
+        }
+        if self.surface.is_null() || self.shm.is_null() {
+            return;
+        }
+
+        let logical_w = self.current_window_state.size.dimensions.width.max(1.0);
+        let logical_h = self.current_window_state.size.dimensions.height.max(1.0);
+        let dpi_factor = {
+            let d = self.current_window_state.size.dpi as f32 / 96.0;
+            if d <= 0.0 { 1.0 } else { d }
+        };
+        let buf_w = (logical_w * dpi_factor).ceil() as i32;
+        let buf_h = (logical_h * dpi_factor).ceil() as i32;
+        crate::plog_info!(
+            "[wayland-popup] configured -> rendering menu: {:.0}x{:.0} logical, {}x{} px (dpi {:.2})",
+            logical_w, logical_h, buf_w, buf_h, dpi_factor
+        );
+
+        // Lazily create the CPU shm buffer (sized in physical pixels).
+        if matches!(self.render_mode, RenderMode::Cpu(None)) {
+            match CpuFallbackState::new(&self.wayland, self.shm, buf_w, buf_h) {
+                Ok(state) => self.render_mode = RenderMode::Cpu(Some(state)),
+                Err(e) => {
+                    log_error!(
+                        LogCategory::Rendering,
+                        "[Wayland popup] failed to create CPU buffer: {:?}",
+                        e
+                    );
+                    return;
+                }
+            }
+        }
+
+        // Build + lay out the menu DOM (CPU path only — popups never use WebRender).
+        #[cfg(feature = "cpurender")]
+        let laid_out = self.ensure_menu_layout();
+
+        if let RenderMode::Cpu(Some(cpu_state)) = &mut self.render_mode {
+            let mut painted = false;
+
+            #[cfg(feature = "cpurender")]
+            {
+                if laid_out {
+                    if let Some(ref layout_window) = self.layout_window {
+                        self.cpu_backend.render_frame(
+                            layout_window,
+                            &layout_window.renderer_resources,
+                            logical_w,
+                            logical_h,
+                            dpi_factor,
+                        );
+                        if let Some(ref pixmap) = self.cpu_backend.last_frame {
+                            let buf = cpu_state.pixel_buffer_mut();
+                            let src = pixmap.data();
+                            let copy_len = buf.len().min(src.len());
+                            // RGBA -> ARGB8888: swap R and B for Wayland.
+                            let mut i = 0;
+                            while i + 3 < copy_len {
+                                buf[i] = src[i + 2];     // B
+                                buf[i + 1] = src[i + 1]; // G
+                                buf[i + 2] = src[i];     // R
+                                buf[i + 3] = src[i + 3]; // A
+                                i += 4;
+                            }
+                            painted = true;
+                        }
+                    }
+                }
+            }
+
+            if !painted {
+                // Fallback so the popup still maps + grabs even if layout failed.
+                cpu_state.draw_blue();
+            }
+
+            unsafe {
+                (self.wayland.wl_surface_attach)(self.surface, cpu_state.buffer, 0, 0);
+                (self.wayland.wl_surface_damage)(
+                    self.surface,
+                    0,
+                    0,
+                    cpu_state.width,
+                    cpu_state.height,
+                );
+                (self.wayland.wl_surface_commit)(self.surface);
+                (self.wayland.wl_display_flush)(self.display);
+            }
+        }
+
+        self.rendered = true;
+    }
+
+    /// Build the LayoutWindow (lazily) and run a layout pass for the menu DOM.
+    /// Returns `true` if a layout result for the root DOM is available.
+    #[cfg(feature = "cpurender")]
+    fn ensure_menu_layout(&mut self) -> bool {
+        use azul_core::dom::DomId;
+
+        if self.layout_window.is_none() {
+            match LayoutWindow::new((*self.fc_cache).clone()) {
+                Ok(mut lw) => {
+                    lw.routes = self.resources.config.routes.clone();
+                    self.layout_window = Some(lw);
+                }
+                Err(e) => {
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Wayland popup] LayoutWindow::new failed: {:?}",
+                        e
+                    );
+                    return false;
+                }
+            }
+        }
+
+        let resources = self.resources.clone();
+        let mut debug_messages = None;
+
+        let layout_window = match self.layout_window.as_mut() {
+            Some(lw) => lw,
+            None => return false,
+        };
+
+        let result = crate::desktop::shell2::common::layout::regenerate_layout(
+            layout_window,
+            &resources.app_data,
+            &self.current_window_state,
+            &mut self.renderer_resources,
+            &self.image_cache,
+            &self.gl_context_ptr,
+            &self.fc_cache,
+            &resources.font_registry,
+            &resources.system_style,
+            &resources.icon_provider,
+            &mut debug_messages,
+            azul_core::callbacks::RelayoutReason::Initial,
+        );
+
+        match result {
+            Ok(_) => self
+                .layout_window
+                .as_ref()
+                .map(|lw| lw.layout_results.contains_key(&DomId { inner: 0 }))
+                .unwrap_or(false),
+            Err(e) => {
+                log_error!(
+                    LogCategory::Layout,
+                    "[Wayland popup] regenerate_layout failed: {}",
+                    e
+                );
+                false
+            }
+        }
+    }
 }
 
 impl Drop for WaylandPopup {
@@ -4260,6 +4555,12 @@ struct PopupListenerContext {
     wayland: Rc<Wayland>,
     xdg_surface: *mut defines::xdg_surface,
     xdg_popup: *mut defines::xdg_popup,
+    /// Set by the xdg_surface configure callback once the compositor has
+    /// configured the popup, so the parent knows it may attach a buffer.
+    configured: std::cell::Cell<bool>,
+    /// Set by the xdg_popup popup_done callback (click-outside / compositor
+    /// dismiss). The parent drops the popup on its next loop iteration.
+    dismissed: std::cell::Cell<bool>,
 }
 
 /// xdg_surface configure callback for popup
@@ -4280,6 +4581,8 @@ extern "C" fn popup_xdg_surface_configure(
         let ctx = &*(data as *const PopupListenerContext);
         // Acknowledge configure using the Wayland instance from context
         (ctx.wayland.xdg_surface_ack_configure)(xdg_surface, serial);
+        // Signal the parent that the popup may now attach its first buffer.
+        ctx.configured.set(true);
     }
 }
 
@@ -4870,7 +5173,7 @@ extern "C" fn popup_configure(
 }
 
 /// xdg_popup done callback - popup was dismissed by compositor
-extern "C" fn popup_done(data: *mut c_void, xdg_popup: *mut defines::xdg_popup) {
+extern "C" fn popup_done(data: *mut c_void, _xdg_popup: *mut defines::xdg_popup) {
     if data.is_null() {
         log_error!(
             LogCategory::Platform,
@@ -4886,11 +5189,9 @@ extern "C" fn popup_done(data: *mut c_void, xdg_popup: *mut defines::xdg_popup) 
 
     unsafe {
         let ctx = &*(data as *const PopupListenerContext);
-        // Destroy the popup when compositor dismisses it
-        (ctx.wayland.xdg_popup_destroy)(xdg_popup);
-        (ctx.wayland.wl_proxy_destroy)(ctx.xdg_surface as *mut _);
+        // Only SIGNAL dismissal. The parent WaylandWindow drops the popup on its
+        // next loop iteration, and WaylandPopup::close() owns proxy destruction —
+        // destroying the proxies here too would double-free them.
+        ctx.dismissed.set(true);
     }
-
-    // TODO: Signal to application that popup was dismissed
-    // This would require storing a callback or channel in PopupListenerContext
 }

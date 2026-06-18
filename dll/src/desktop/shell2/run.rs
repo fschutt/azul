@@ -1231,33 +1231,31 @@ pub fn run(
                                 pending_create.window_state.flags.window_type
                             );
 
-                            // TODO(wayland-popup): when
-                            // pending_create.window_state.flags.window_type ==
-                            // WindowType::Menu this creates a fresh xdg_toplevel,
-                            // which the compositor places + decorates itself — so
-                            // the menu is mispositioned (a Wayland client cannot
-                            // place its own surfaces) AND has no grab (no
-                            // click-outside dismiss). Wayland menus must instead
-                            // be xdg_popup surfaces via xdg_surface::get_popup
-                            // with an xdg_positioner anchored to the trigger rect
-                            // on the parent (stashed in the layout-callback RefAny
-                            // as `wayland::menu::MenuLayoutData::trigger_rect`).
-                            //
-                            // NOTE (verified 2026-06-10): the bindings already
-                            // exist — `xdg_positioner_*`, `xdg_surface_get_popup`,
-                            // `xdg_popup_grab` are loaded in wayland/dlopen.rs, and
-                            // `WaylandPopup::new()` (wayland/mod.rs) ALREADY builds
-                            // the positioner, calls get_popup, registers the
-                            // popup_done listener and grabs with the parent's
-                            // pointer serial. What is still missing is purely the
-                            // run-loop INTEGRATION: route Menu windows to
-                            // `WaylandPopup::new` instead of `WaylandWindow::new`,
-                            // add a `LinuxWindow::WaylandPopup` variant (or nest
-                            // the popup under its parent) so it gets its own
-                            // render/event/dismiss lifecycle, and drive
-                            // destroy-on-popup_done. Behaviour is untestable
-                            // headlessly (no Wayland input injection) → must be
-                            // verified interactively on native Wayland.
+                            // Wayland menus must be xdg_popup surfaces anchored to
+                            // the trigger rect on the parent (a client cannot place
+                            // its own toplevels), with a seat grab for click-outside
+                            // dismiss. Route Menu creates to a nested WaylandPopup
+                            // (WaylandWindow::open_menu_popup), which builds the
+                            // xdg_positioner, calls get_popup, grabs the seat and
+                            // renders the menu DOM; the parent drives its
+                            // render/dismiss lifecycle. Everything else (e.g. a
+                            // file/modal dialog) remains a real xdg_toplevel.
+                            if pending_create.window_state.flags.window_type
+                                == azul_core::window::WindowType::Menu
+                            {
+                                if let Err(e) = wayland_window.open_menu_popup(pending_create) {
+                                    log_error!(
+                                        debug_server::LogCategory::Window,
+                                        "[Linux] Failed to open Wayland menu popup: {}",
+                                        e
+                                    );
+                                }
+                                continue;
+                            }
+
+                            // A real toplevel (e.g. a modal/file dialog): dismiss any
+                            // open menu first so it can't capture over the new window.
+                            wayland_window.dismiss_active_popup();
 
                             match super::linux::wayland::WaylandWindow::new(
                                 pending_create,
