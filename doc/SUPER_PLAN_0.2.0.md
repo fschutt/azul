@@ -175,3 +175,11 @@ codegen all`; FFI compile check = `cargo check -p azul-dll --features build-dll`
   `dll/src/desktop/extra/udp` + `dll/src/unified/udp.rs` modules + `core::udp_framing` + the
   `video_codec` doc comment; and the real `web-transport-quinn` engine (v1 is the loopback stub).
   **Step 2 (WebTransport) is functionally DONE.** Next: step 3 (azul-video polish) / step 5 (bugs).
+- (2026-06-18) **🎉 0.2.0 RELEASE GREEN (step 6 DONE)** — `gh workflow run rust.yml -f
+  run_mode=website` → run `27730546440`: **conclusion=success, 0 failed** (62 jobs ok, 9 skipped:
+  iOS-bundle/rust9x-cache non-fatal), incl. FFI memtest, all Linux/macOS/Windows Demo-App +
+  Binary builds, cross-builds (ppc64/i686/riscv64/s390x/armv7), E2E, and **"Deploy to GitHub
+  Pages" success**. The 0.2.0 page now carries the working **AzVideo + AzMeet** demos + the
+  **AzWebTransport** API + the already-fixed #2/#4/#5 Wayland bugs. HEADLINE DELIVERED.
+  Remaining (mostly need the user's live Wayland display to verify): #3 HiDPI, #6 menu→xdg_popup,
+  #9 paint-crash, #10 maps-freeze, #1 over-damage; #8 Locate is the one fully-headless-fixable.
