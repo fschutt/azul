@@ -162,3 +162,10 @@ codegen all`; FFI compile check = `cargo check -p azul-dll --features build-dll`
   `cargo check -p azul-dll --features build-dll` green (CHECK_EXIT=0). Next: wire api.json (replace
   the `Udp` class block with `WebTransport`+Wt types, add `OptionWtEvent` to the `option` module),
   codegen all, build-dll + memtest, then remove the dll `udp` module + `azul-self-test` Udp usage.
+- (2026-06-18) **AzWebTransport wired into api.json** (step 2b/2c): removed the `Udp` class, added
+  `WebTransport` (→window), `WtEvent`/`WtEventKind` (→dom), `WtReliability`/`WtStats` (misc),
+  `OptionWtEvent` (option) — modules per `azul-doc autofix` (which also added the Default impl
+  declarations; fixed a U+2014 em-dash FFI-safety error in the doc). `autofix` clean (0 drift, 0
+  critical), `normalize` no-op (canonical), `codegen all` OK (101 AzWebTransport/AzWt symbols, 0
+  AzUdp), `cargo check -p azul-dll --features build-dll` green. Next: remove the dll `udp` module +
+  `core::udp_framing` + `azul-self-test` Udp probe; CI memtest is the final FFI size/align gate.
