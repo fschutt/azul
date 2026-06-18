@@ -57,6 +57,13 @@ struct MapState {
     mag_x: f32,
     mag_y: f32,
     has_mag: bool,
+    /// `true` after a Locate attempt timed out with no fix (geolocation
+    /// unavailable on this system) — surfaced in the button so "Locating…"
+    /// can't hang forever (bug #8). Cleared when Locate is re-enabled.
+    locate_failed: bool,
+    /// Frames elapsed since Locate was enabled without a fix yet; once it
+    /// passes `LOCATE_TIMEOUT_TICKS` the attempt fails. Reset on each toggle.
+    locate_ticks: u32,
 }
 
 impl MapState {
@@ -80,6 +87,8 @@ impl MapState {
             mag_x: 0.0,
             mag_y: 0.0,
             has_mag: false,
+            locate_failed: false,
+            locate_ticks: 0,
         }
     }
 
@@ -114,6 +123,11 @@ impl MapState {
 
     fn toggle_locate(&mut self) {
         self.locating = !self.locating;
+        // Fresh attempt: clear the failure flag + restart the timeout clock.
+        if self.locating {
+            self.locate_failed = false;
+            self.locate_ticks = 0;
+        }
     }
 
     /// Nudge the viewport ~half a tile in tile-space at the current
@@ -190,6 +204,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         Option<(f64, f64)>,
         Vec<(f64, f64)>,
         Option<(f32, f32)>,
+        bool,
     )> = data.downcast_ref::<MapState>().map(|s| {
         (
             s.viewport,
@@ -198,10 +213,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             s.last_fix,
             s.pins.clone(),
             s.view_px,
+            s.locate_failed,
         )
     });
 
-    let Some((viewport, layer, locating, last_fix, pins, view_px)) = snapshot else {
+    let Some((viewport, layer, locating, last_fix, pins, view_px, locate_failed)) = snapshot else {
         return Dom::create_body();
     };
 
@@ -300,6 +316,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                         .with_css(if locating { BTN_ON } else { BTN })
                         .with_child(Dom::create_text(if locating {
                             "Locating…"
+                        } else if locate_failed {
+                            "Location N/A"
                         } else {
                             "Locate"
                         }))
@@ -582,29 +600,55 @@ fn cardinal(deg: f32) -> &'static str {
 /// horizontal vector (the vector, not the angle, so smoothing survives the
 /// 0°/360° wrap), then relayout so the rose follows.
 extern "C" fn compass_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
-    let should_update = match info
+    /// ~frames a fix-less Locate attempt waits before it's declared failed (#8).
+    const LOCATE_TIMEOUT_TICKS: u32 = 200;
+    let mag = info
         .callback_info
         .get_sensor_reading(SensorKind::Magnetometer)
-        .into_option()
-    {
-        Some(r) => {
-            if let Some(mut s) = data.downcast_mut::<MapState>() {
-                if s.has_mag {
-                    s.mag_x = s.mag_x * 0.8 + r.x * 0.2;
-                    s.mag_y = s.mag_y * 0.8 + r.y * 0.2;
-                } else {
-                    s.mag_x = r.x;
-                    s.mag_y = r.y;
-                    s.has_mag = true;
+        .into_option();
+    let fix = info.callback_info.get_location_fix().into_option();
+    let mut changed = false;
+    if let Some(mut s) = data.downcast_mut::<MapState>() {
+        if let Some(r) = mag {
+            if s.has_mag {
+                s.mag_x = s.mag_x * 0.8 + r.x * 0.2;
+                s.mag_y = s.mag_y * 0.8 + r.y * 0.2;
+            } else {
+                s.mag_x = r.x;
+                s.mag_y = r.y;
+                s.has_mag = true;
+            }
+            changed = true;
+        }
+        // Locate: live-recentre on a fix, or time out with feedback so
+        // "Locating…" can't hang forever when geolocation is unavailable (#8).
+        if s.locating {
+            match fix {
+                Some(f) => {
+                    s.viewport.centre_lat_deg = f.latitude_deg;
+                    s.viewport.centre_lon_deg = f.longitude_deg;
+                    s.last_fix = Some((f.latitude_deg, f.longitude_deg));
+                    s.locate_ticks = 0;
+                    changed = true;
+                }
+                None => {
+                    s.locate_ticks = s.locate_ticks.saturating_add(1);
+                    if s.locate_ticks > LOCATE_TIMEOUT_TICKS {
+                        s.locating = false;
+                        s.locate_failed = true;
+                        changed = true;
+                    }
                 }
             }
-            Update::RefreshDom
         }
-        None => Update::DoNothing,
-    };
+    }
     TimerCallbackReturn {
         should_terminate: TerminateTimer::Continue,
-        should_update,
+        should_update: if changed {
+            Update::RefreshDom
+        } else {
+            Update::DoNothing
+        },
     }
 }
 

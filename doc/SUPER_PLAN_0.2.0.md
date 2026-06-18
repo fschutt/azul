@@ -183,3 +183,10 @@ codegen all`; FFI compile check = `cargo check -p azul-dll --features build-dll`
   **AzWebTransport** API + the already-fixed #2/#4/#5 Wayland bugs. HEADLINE DELIVERED.
   Remaining (mostly need the user's live Wayland display to verify): #3 HiDPI, #6 menu→xdg_popup,
   #9 paint-crash, #10 maps-freeze, #1 over-damage; #8 Locate is the one fully-headless-fixable.
+- (2026-06-18) **#8 Locate-hang FIXED** (azul-maps, step 5): `compass_tick` (the existing per-frame
+  Timer) now also polls `get_location_fix()` — it **live-recentres** on a fix (the noted follow-up),
+  or after ~200 fix-less frames sets `locate_failed` + stops locating, so the button shows
+  **"Location N/A"** instead of hanging on "Locating…" forever; the placeholder markers clear when
+  locating stops. `toggle_locate` resets the timeout on each enable. `cargo check -p azul-maps`
+  green. (The resize-relayout-thrash part of the original #8 report is separate — X11 ConfigureNotify
+  coalescing, still open with #1.) Next: re-trigger the release so the page picks up #8.
