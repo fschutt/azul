@@ -1,20 +1,4 @@
--- ===========================================================================
--- Azul Ada host-invoker smoke test.
---
--- Exercises the managed-FFI prelude emitted by lang_ada/managed.rs:
--- `Azul.Azul_RefAny_Create` round-trips a System.Address through libazul's
--- host-handle table, the per-kind invoker stubs + releaser were registered
--- at module load time via `Azul.Azul_Host_Invoker_Init`. Parallel to what
--- Node/Lua/Ruby/Lisp/C#/OCaml/Pascal/Fortran already do.
---
--- Build:
---     gnatmake -gnat2012 hello_world.adb -largs -L. -lazul \
---         -Wl,-rpath,@executable_path
--- Run (macOS):
---     DYLD_LIBRARY_PATH=. ./hello_world
--- Run (Linux):
---     LD_LIBRARY_PATH=. ./hello_world
--- ===========================================================================
+-- gnatmake -gnat2012 hello_world.adb -largs -L. -lazul && LD_LIBRARY_PATH=. ./hello_world
 
 with Ada.Text_IO;
 with System;

@@ -1,9 +1,4 @@
-# OpenGL Integration - Python
 # python opengl.py
-#
-# NOTE: Texture-creation callbacks (RenderImageCallback) and timer setup
-# both go through Py<PyAny> in the Python binding; the relevant glue is
-# still in flight. The example renders a static splash for now.
 
 from azul import *
 

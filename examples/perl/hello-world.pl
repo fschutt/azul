@@ -1,17 +1,4 @@
-#!/usr/bin/env perl
-#
-# Perl host-invoker smoke test for the Azul binding.
-#
-# Exercises the managed-FFI prelude that lang_perl/managed.rs emits
-# into Azul.pm: a Perl-side `%_handles` table, a pinned releaser
-# closure registered with libazul at module load, and the public
-# Azul::refany_create / Azul::refany_get helpers that round-trip an
-# opaque Perl value through libazul's host-handle id.
-#
-# Run with:
-#     /opt/homebrew/bin/perl hello-world.pl
-# (system Perl on macOS lacks write permission to its site_perl;
-#  install FFI::Platypus into Homebrew Perl instead.)
+# perl hello-world.pl   (requires the FFI::Platypus module)
 
 use strict;
 use warnings;

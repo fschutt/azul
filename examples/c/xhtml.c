@@ -1,4 +1,3 @@
-// XHTML file loading and rendering example
 // cc -o xhtml xhtml.c -lazul
 
 #include "azul.h"

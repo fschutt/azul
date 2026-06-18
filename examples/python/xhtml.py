@@ -1,5 +1,4 @@
-# XHTML file loading and rendering example
-# Xml::from_str(s) returns a Result wrapper - match on Ok / Err.
+# python xhtml.py
 
 from azul import *
 

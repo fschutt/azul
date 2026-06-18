@@ -1,23 +1,4 @@
-;;;; examples/lisp/hello-world.lisp
-;;;;
-;;;; Common Lisp port of examples/c/hello-world.c. Same data model (a
-;;;; counter), same behaviour (mouse click increments, layout rebuilds
-;;;; the DOM). Callbacks go through libazul's host-invoker plumbing
-;;;; (`%az-callback-create-from-host-handle`, `%az-app-set-callback-
-;;;; invoker`) so the CFFI/libffi closure cast stays legal (pointer
-;;;; args throughout).
-;;;;
-;;;; Run with:
-;;;;   sbcl --dynamic-space-size 8192 --noinform --non-interactive \
-;;;;        --load ~/quicklisp/setup.lisp \
-;;;;        --eval "(ql:quickload '(:cffi :cffi-libffi) :silent t)" \
-;;;;        --load hello-world.lisp
-;;;;
-;;;; Requires:
-;;;;   * SBCL (or other CFFI-supported Lisp).
-;;;;   * Quicklisp with `cffi` + `cffi-libffi` (struct-by-value calls).
-;;;;   * libazul.so / libazul.dylib / azul.dll on the search path or
-;;;;     next to this script.
+;;;; sbcl --dynamic-space-size 8192 --non-interactive --load ~/quicklisp/setup.lisp --eval "(ql:quickload '(:cffi :cffi-libffi) :silent t)" --load hello-world.lisp
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (require 'asdf)

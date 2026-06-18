@@ -1,5 +1,3 @@
-// Calculator with CSS Grid - C
-// Demonstrates CSS Grid layout and component composition
 // cc -o calc calc.c -lazul
 
 #include "azul.h"

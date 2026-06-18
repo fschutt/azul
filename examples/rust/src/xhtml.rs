@@ -1,3 +1,5 @@
+// cargo run --example xhtml
+
 use azul::prelude::*;
 use azul::error::ResultXmlXmlError;
 use azul::xml::Xml;

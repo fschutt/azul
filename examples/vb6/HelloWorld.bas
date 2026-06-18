@@ -1,28 +1,5 @@
 Attribute VB_Name = "HelloWorld"
-' ============================================================================
-' VB6 port of examples/c/hello-world.c.
-'
-' Same data model (a 32-bit unsigned counter), same callback semantics
-' (clicking the button increments the counter and asks for a redraw),
-' same visual output (a centred label + a primary button).
-'
-' === 32-BIT ONLY ===
-' This program will ONLY work against a 32-bit azul.dll. Building or
-' running it against a 64-bit azul.dll triggers "Bad DLL Calling
-' Convention" or "File not found" errors. The Rust target is
-' i686-pc-windows-msvc.
-'
-' Runtime: msvbvm60.dll (ships with every Windows since Win98).
-'
-' Build:
-'
-'     Open HelloWorld.vbp in the VB6 IDE and press F5 (run), or:
-'     vbc.exe /out:HelloWorld.exe HelloWorld.bas
-'
-' Required next to the .exe at runtime:
-'
-'     azul.dll  (32-bit i686-pc-windows-msvc build)
-' ============================================================================
+' vbc.exe /out:HelloWorld.exe HelloWorld.bas   (32-bit azul.dll required)
 
 Option Explicit
 

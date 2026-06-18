@@ -1,3 +1,5 @@
+// cargo run --example hello-world
+
 use azul::prelude::*;
 use azul::widgets::Button;
 

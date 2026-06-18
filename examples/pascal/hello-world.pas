@@ -1,40 +1,4 @@
-{ ============================================================================
-  Pascal (FPC) full-GUI hello-world. Mirrors examples/c/hello-world.c.
-
-  - Holds a TMyModel with a Counter.
-  - Subclasses TAzLayoutCallbackInvoker / TAzCallbackInvoker (one per
-    callback kind). The Invoke override is what libazul fires through
-    after the per-kind cdecl stub looks the handler up by id.
-  - Wires the layout callback into WindowCreateOptions, registers the
-    button click handler the same way, and runs the app loop.
-
-  Build:
-      fpc -Mobjfpc -Sh -Fl. -k-L. -k-lazul hello-world.pas
-
-  Run (macOS):
-      DYLD_LIBRARY_PATH=. ./hello-world
-  Run (Linux):
-      LD_LIBRARY_PATH=. ./hello-world
-
-  AZ_DEBUG smoke probe (run in another terminal):
-      curl -s -X POST localhost:8080/ -d '(op:get_html_string)'
-      for _ in 1 2 3; do
-        curl -s -X POST localhost:8080/ \
-          -d '(op:click,selector:.__azul-native-button)'
-      done
-      curl -s -X POST localhost:8080/ -d '(op:get_html_string)'
-      # the counter inside the <div> should read 5 then 8.
-
-  Status note (2026-05-13): build succeeds and the invoker plumbing is
-  fully wired, but `AzApp_run` currently crashes inside libazul's
-  webrender scene-building code (symbol
-  `webrender::scene_building::SceneBuilder::build_item`) before the
-  AZ_DEBUG probe is reachable. The crash reproduces with an empty
-  default WCO (no Pascal-supplied layout callback), so it's libazul-
-  side, not codegen-side. Pascal codegen struct-layout fixes that
-  landed alongside this file (cbool, repr(C, u8) tag width,
-  Destructor-field inclusion) are independent and remain valid.
-  ============================================================================ }
+{ fpc -Mobjfpc -Sh -Fl. -k-L. -k-lazul hello-world.pas && LD_LIBRARY_PATH=. ./hello-world }
 
 program HelloWorld;
 

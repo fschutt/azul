@@ -1,3 +1,5 @@
+# python hello-world.py
+
 from azul import *
 
 class DataModel:

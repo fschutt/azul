@@ -1,3 +1,5 @@
+// cargo run --example calc
+
 use azul::prelude::*;
 
 /// Calculator state

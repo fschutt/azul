@@ -1,5 +1,4 @@
--- LuaJIT port of examples/c/hello-world.c. Run:
---     LD_LIBRARY_PATH=path/to/libazul luajit hello-world.lua
+-- LD_LIBRARY_PATH=. luajit hello-world.lua
 
 local azul = require('azul')
 

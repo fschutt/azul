@@ -1,29 +1,5 @@
 <?php
-// examples/php/hello-world.php
-//
-// ──────────────────────────────────────────────────────────────────────
-// PHP CALLBACK LIMITATION
-// ──────────────────────────────────────────────────────────────────────
-// Azul callbacks (button.setOnClick, layout, etc.) require closure-to-
-// function-pointer casts, which standard php-ffi rejects by design for
-// memory-safety reasons. The planned `azul.so` PHP native extension
-// (built via the `php-extension` Cargo feature, loaded with
-// `php -d extension=azul.so`) lifts this limit; until that ships the
-// FFI path covers the non-callback API only (POD wrappers, RefAny
-// round-trip, raw libazul function calls).
-//
-// This smoke test exercises the part of the binding that DOES work
-// through standard php-ffi:
-//   * FFI library load + cdef parse
-//   * AzString_fromUtf8 / AzString_delete round-trip (struct-by-value
-//     return crossing the FFI boundary)
-//
-// For the full callback API, use one of the other host languages
-// listed in doc/guide/en/internals/host-invoker.md.
-//
-// Run with:
-//
-//     php -dffi.enable=true hello-world.php
+// php -dffi.enable=true hello-world.php
 
 declare(strict_types=1);
 

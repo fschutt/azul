@@ -1,3 +1,5 @@
+// cargo run --example async
+
 #![windows_subsystem = "windows"]
 
 use std::{

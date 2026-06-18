@@ -1,7 +1,4 @@
-//! Infinite scrolling gallery example using VirtualView callbacks
-//!
-//! Demonstrates how to efficiently render thousands of items by only rendering
-//! the visible portion using VirtualView.
+// cargo run --example infinity
 
 use azul::prelude::*;
 use azul::option::OptionDom;

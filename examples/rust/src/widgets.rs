@@ -1,3 +1,5 @@
+// cargo run --example widgets
+
 use azul::prelude::*;
 use azul::widgets::*;
 use azul::css::ColorU;

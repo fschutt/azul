@@ -1,24 +1,4 @@
-' ============================================================================
-' FreeBASIC port of examples/c/hello-world.c.
-'
-' Same data model (a 32-bit unsigned counter), same callback semantics
-' (clicking the button increments the counter and asks for a redraw),
-' same visual output (a centred label + a primary button).
-'
-' Build:
-'
-'     fbc hello-world.bas
-'
-' Run (Linux):
-'
-'     LD_LIBRARY_PATH=. ./hello-world
-'
-' Run (macOS):
-'
-'     DYLD_LIBRARY_PATH=. ./hello-world
-'
-' Run (Windows): make sure azul.dll is on PATH or in the program dir.
-' ============================================================================
+' fbc hello-world.bas && LD_LIBRARY_PATH=. ./hello-world
 
 #include "azul.bi"
 

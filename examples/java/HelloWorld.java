@@ -1,5 +1,4 @@
-// macOS needs `java -XstartOnFirstThread -Djna.library.path=.` so libazul's
-// NSApplication loop pumps on the JVM main thread.
+// mvn package && java -Djna.library.path=. -cp target/hello-world-1.0.0.jar:$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar com.azul.HelloWorld
 
 package com.azul;
 

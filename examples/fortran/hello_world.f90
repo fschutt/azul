@@ -1,19 +1,4 @@
-! ============================================================================
-! Fortran (F2003+) Azul host-invoker smoke test.
-!
-! Exercises the managed-FFI prelude emitted by lang_fortran/managed.rs:
-! `azul_refany_create` round-trips a Fortran-side payload through libazul's
-! host-handle table, the per-kind invoker stubs + releaser were registered
-! at module load time via `azul_host_invoker_init`. Parallel to what
-! Node/Lua/Ruby/Lisp/C#/OCaml/Pascal already do.
-!
-! Build:
-!     make
-! Run (macOS):
-!     DYLD_LIBRARY_PATH=. ./hello_world
-! Run (Linux):
-!     LD_LIBRARY_PATH=. ./hello_world
-! ============================================================================
+! make && LD_LIBRARY_PATH=. ./hello_world
 
 program hello_world
   use, intrinsic :: iso_c_binding

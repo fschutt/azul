@@ -1,30 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-{- |
-Module      : Main
-Description : Python-quality Haskell port of the Azul hello-world.
+-- cabal run hello-world
 
-After Phase H.1 / H.3 / H.4 / H.5 / H.6 / H.8 land, the codegen-driven
-wrapper layer hides all FFI ceremony:
-
-  * `registerLayoutCallbackTypeCallback` hides the inbound-trampoline
-    triplet — user writes `data -> info -> IO Dom`, gets a `FunPtr ()`
-    back to splice into a `WindowCreateOptions`.
-  * `<lower>VecToList`        — every AzVec → Haskell list.
-  * `azStringToString`        — AzString → Haskell String round-trip.
-  * `<lower>IsSome / IsNone`  — AzOption tag-byte discriminator.
-  * `<lower>IsOk   / IsErr`   — AzResult tag-byte discriminator.
-  * `instance Show <X>` routes through `<X>_toDbgString` automatically.
-  * `instance Eq   <X>` routes through `<X>_partialEq` automatically.
-
-The full App.run wiring is gated on splicing the trampoline FunPtr into
-the WCO's nested `window_state.layout_callback` field (H.2) — that
-needs platform-aware Storable-offset plumbing the codegen doesn't carry
-today, and is gated anyway on the libazul macOS webrender crash (C.1
-in the plan, same blocker as Pascal/Lisp).
-
-Build:  cabal build
-Run:    DYLD_LIBRARY_PATH=. cabal run hello-world
--}
 module Main where
 
 import Azul.Internal.FFI

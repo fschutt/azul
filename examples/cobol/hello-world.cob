@@ -1,26 +1,5 @@
 >>SOURCE FORMAT IS FREE
-*> ============================================================
-*> COBOL (GnuCOBOL >= 3.0) Azul host-invoker smoke test.
-*>
-*> COBOL has no closures and CALL ... RETURNING doesn't accept a
-*> TYPEDEF record, so the host-invoker pattern requires the user's
-*> PROCEDURE DIVISION to provide ENTRY paragraphs for the releaser
-*> + per-kind dispatchers (see the comment block above the FN-*
-*> host-invoker aliases in azul.cpy for the suggested scaffolding).
-*>
-*> This smoke test exercises what the codegen surface DOES provide:
-*>   - the generated azul.cpy COPY parses (including the new
-*>     managed-FFI level-78 aliases for the host-invoker C symbols),
-*>   - FN-AZ-APP-SET-HOST-HANDLE-9778 and FN-AZ-REF-ANY-NEW-HOST-HANDLE
-*>     resolve as level-78 constants ready to use in CALL statements.
-*>
-*> Build:
-*>   cobc -x -free hello-world.cob -L. -lazul -o hello-world
-*> Run (macOS):
-*>   DYLD_LIBRARY_PATH=. ./hello-world
-*> Run (Linux):
-*>   LD_LIBRARY_PATH=. ./hello-world
-*> ============================================================
+*> cobc -x -free hello-world.cob -L. -lazul -o hello-world && LD_LIBRARY_PATH=. ./hello-world
 
        IDENTIFICATION DIVISION.
        PROGRAM-ID. HELLO-WORLD.

@@ -1,26 +1,4 @@
-"=============================================================================
- examples/smalltalk/HelloWorld.st
- Pharo Azul C ABI smoke test.
-
- The codegen-emitted Azul.st is in Pharo Tonel format (one file with
- `Class { ... }` paragraphs and `Class >> selector [ ... ]` methods).
- Standard `'Azul.st' asFileReference fileIn` doesn't handle Tonel
- directly — it needs `TonelReader.loadPackage` which expects a Tonel
- package DIRECTORY layout, not a single file. Restructuring the
- codegen to emit a Tonel package tree is a separate phase.
-
- Until that lands, this smoke test does what the Haskell / Perl / PHP
- / Pascal / Fortran tests do: drive Pharo's UnifiedFFI manually to
- prove the binding loads and resolves libazul symbols.
-
- Build/run (from a Pharo install dir):
-     DYLD_LIBRARY_PATH=/path/to/dylib pharo Pharo.image \\
-         eval `cat /path/to/HelloWorld.st`
-
- Prerequisites:
-   - Pharo VM (any 9.0+; tested on 9.0.22).
-   - libazul.dylib / .so / .dll discoverable via the OS loader path.
-============================================================================="
+"Run: LD_LIBRARY_PATH=. pharo Pharo.image eval `cat HelloWorld.st`"
 
 | testResult |
 Transcript show: '[azul] Pharo FFI smoke test starting.'; cr.

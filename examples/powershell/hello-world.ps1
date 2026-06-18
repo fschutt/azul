@@ -1,19 +1,4 @@
-# examples/powershell/hello-world.ps1
-#
-# PowerShell port of examples/c/hello-world.c. The bindings work by
-# JIT-compiling the embedded C# source (the same `Azul.cs` content
-# from `lang_csharp/`) at module import time via `Add-Type`. That
-# gives us full access to the `[Azul.*]` wrapper classes — Dom,
-# Button, App, WindowCreateOptions — plus the `[Azul.HostInvoker]`
-# helpers for refany / callback registration.
-#
-# Run with:
-#   pwsh -File ./hello-world.ps1
-#
-# Requires:
-#   * PowerShell 7+ (Windows PowerShell 5.1 also works on .NET Framework).
-#   * `azul.dll` / `libazul.so` / `libazul.dylib` next to this file, or
-#     on the dynamic-loader search path (Set-AzulLibraryPath wires it up).
+# pwsh -File ./hello-world.ps1
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'

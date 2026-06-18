@@ -1,3 +1,5 @@
+// cc -o hello-world hello-world.c -lazul
+
 #include "azul.h"
 #include <stdio.h>
 #include <string.h>

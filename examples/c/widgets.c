@@ -1,4 +1,3 @@
-// Widgets Showcase - C
 // cc -o widgets widgets.c -lazul
 
 #include "azul.h"

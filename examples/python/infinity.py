@@ -1,9 +1,4 @@
-# Infinite Scrolling - Python
 # python infinity.py
-#
-# NOTE: VirtualView requires custom callbacks plus an OptionDom return,
-# both of which are still experimental in the Python binding. This example
-# falls back to a plain scrolling container that pre-renders a windowed slice.
 
 from azul import *
 

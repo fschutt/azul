@@ -1,4 +1,3 @@
-# Async Operations - Python
 # python async.py
 
 from azul import *

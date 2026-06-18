@@ -1,17 +1,4 @@
-// examples/go/main.go
-//
-// Go port of examples/c/hello-world.c.
-//
-// Same data model (a counter), same behaviour (mouse click increments,
-// layout rebuilds the DOM). Goes through the C ABI directly via cgo —
-// Go's cgo handles struct-by-value calls natively, and `//export` lets
-// us hand Go functions to C as `AzCallbackType` / `AzLayoutCallbackType`
-// function pointers. None of the managed-FFI host-invoker plumbing
-// (Lua / Node / Ruby / …) is needed here.
-//
-// Build:
-//   CGO_CFLAGS="-I." CGO_LDFLAGS="-L." go build
-//   DYLD_LIBRARY_PATH=. ./hello-world
+// CGO_CFLAGS="-I." CGO_LDFLAGS="-L." go build && LD_LIBRARY_PATH=. ./hello-world
 
 package main
 

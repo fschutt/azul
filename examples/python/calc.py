@@ -1,5 +1,4 @@
-# Calculator with CSS Grid - Python
-# Demonstrates CSS Grid layout and component composition
+# python calc.py
 
 from azul import *
 

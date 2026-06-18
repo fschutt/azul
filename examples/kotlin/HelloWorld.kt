@@ -1,5 +1,4 @@
-// macOS needs `java -XstartOnFirstThread -Djna.library.path=.` (Cocoa
-// main-thread rule).
+// kotlinc -cp $JNA_JAR Azul.kt HelloWorld.kt -include-runtime -d hello-world.jar && java -Djna.library.path=. -cp hello-world.jar:$JNA_JAR com.azul.HelloWorldKt
 
 package com.azul
 

@@ -1,10 +1,4 @@
-// Infinite Scrolling (VirtualView) - C
-//
-// Tests VirtualViewCallback with 4 million virtual rows, rendering only ~100 at a time.
-// Scroll the yellow container and watch the virtualized view re-render the visible chunk.
-//
-// Build: cc -o infinity infinity.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
-// Run:   DYLD_LIBRARY_PATH=../../target/release ./infinity
+// cc -o infinity infinity.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
 
 #include "azul.h"
 #include <stdio.h>

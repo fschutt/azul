@@ -1,3 +1,5 @@
+// dotnet run -c Release
+
 using System;
 using Azul;
 

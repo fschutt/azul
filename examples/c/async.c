@@ -1,3 +1,5 @@
+// cc -o async async.c -lazul
+
 #include "azul.h"
 #include <stdio.h>
 #include <string.h>

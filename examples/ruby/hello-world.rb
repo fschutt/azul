@@ -1,6 +1,4 @@
-# frozen_string_literal: true
-#
-# Run: ruby -I. hello-world.rb   (requires the `ffi` gem)
+# ruby -I. hello-world.rb   (requires the ffi gem)
 
 require 'azul'
 

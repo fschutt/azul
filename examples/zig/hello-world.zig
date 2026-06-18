@@ -1,15 +1,4 @@
-// examples/zig/hello-world.zig
-//
-// Zig port of examples/c/hello-world.c.
-//
-// Same data model (a counter), same behaviour (mouse click increments,
-// layout rebuilds the DOM). Goes through the C ABI directly via
-// `@cImport(azul.h)` — Zig handles struct-by-value calls and `callconv(.c)`
-// function pointers natively, so we don't need the host-invoker
-// indirection the managed-FFI languages (Lua / Node / Ruby / …) use.
-//
-// Build:    zig build
-// Run:      zig build run
+// zig build run
 
 const std = @import("std");
 const azul = @import("azul.zig");

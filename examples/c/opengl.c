@@ -1,5 +1,3 @@
-// OpenGL Integration - C
-// Renders animated map data from GeoJSON using OpenGL textures
 // cc -o opengl opengl.c -L../../target/release -lazul
 
 #include "azul.h"

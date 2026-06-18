@@ -1,4 +1,3 @@
-# Widgets Showcase - Python
 # python widgets.py
 
 from azul import *
