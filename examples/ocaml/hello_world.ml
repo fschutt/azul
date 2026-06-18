@@ -1,7 +1,4 @@
-(* OCaml port of examples/c/hello-world.c. Run:
-   dune build && LD_LIBRARY_PATH=. ./_build/default/hello_world.exe *)
-
-(* Azul shadows Stdlib.String, so reference Azul members explicitly. *)
+(* Run: dune build && LD_LIBRARY_PATH=. ./_build/default/hello_world.exe *)
 
 type my_data_model = { mutable counter : int }
 let model = { counter = 5 }

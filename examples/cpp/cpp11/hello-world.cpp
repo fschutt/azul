@@ -5,23 +5,14 @@
 
 using namespace azul;
 
-// Data model: plain old struct - the "single source of truth" for app state.
-// No AZ_REFLECT line in C++11+: reflection is template-based.
 struct MyDataModel {
     uint32_t counter;
 };
 
-// Callback signatures stay on the raw Az* types because the framework
-// dispatches through C function pointers. The body adopts the raw handle
-// into RAII wrappers immediately.
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
-
-    // refany.downcast_ref<T>() -> const T* (or nullptr). Per-type identity
-    // is derived from the address of a template-instantiated static, so the
-    // compiler stamps a unique tag per T at link time.
     auto* d = data_wrapper.downcast_ref<MyDataModel>();
     if (!d) return Dom::create_body().release();
 

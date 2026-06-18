@@ -1,10 +1,7 @@
 // g++ -std=c++23 -o hello-world hello-world.cpp -lazul
 
 #include "azul23.hpp"
-#include <version>
-#if defined(__cpp_lib_expected)
 #include <expected>
-#endif
 #include <string>
 #include <string_view>
 
@@ -17,16 +14,10 @@ struct MyDataModel {
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
-// std::expected is C++23 library support some toolchains still lack, so the
-// demo is guarded on __cpp_lib_expected; homepage_ok() works either way.
-#if defined(__cpp_lib_expected)
 static std::expected<AzUrl, AzUrlParseError> parse_homepage_url() {
     return Url::parse("https://example.com/"sv);
 }
 static bool homepage_ok() { return parse_homepage_url().has_value(); }
-#else
-static bool homepage_ok() { return Url::parse("https://example.com/"sv).isOk(); }
-#endif
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);

@@ -6,20 +6,12 @@
 
 using namespace azul;
 
-// Data model: plain old struct - the "single source of truth" for app state.
 struct MyDataModel {
     uint32_t counter;
 };
 
-// AZ_REFLECT(structName) emits per-type registration helpers. In C++03 there's
-// no template metaprogramming, so this macro is the only path:
-//
-//   MyDataModel_upcast(MyDataModel)            -> azul::RefAny
-//   MyDataModel_downcast_ref(azul::RefAny&)    -> const MyDataModel*
-//   MyDataModel_downcast_mut(azul::RefAny&)    -> MyDataModel*
 AZ_REFLECT(MyDataModel)
 
-// All callbacks use the raw Az* types - no wrapper-side coercion in C++03.
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {

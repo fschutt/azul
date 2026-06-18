@@ -11,11 +11,9 @@ struct MyDataModel {
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
-// auto deduces the wrapper return type. The framework still sees AzDom
-// because the trampoline at the wrapper boundary releases on return.
 auto layout(AzRefAny data, AzLayoutCallbackInfo info) -> AzDom {
     RefAny data_wrapper(data);
-    auto d = data_wrapper.downcast_ref<MyDataModel>();  // const MyDataModel*
+    auto d = data_wrapper.downcast_ref<MyDataModel>();
     if (!d) return AzDom_createBody();
 
     return Dom::create_body()
