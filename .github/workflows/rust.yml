@@ -2694,7 +2694,12 @@ jobs:
             # Also copy index.html to reftest.html in website root
             if [ -f website/reftest/index.html ]; then
               cp website/reftest/index.html website/reftest.html
-              echo "  [OK] Created reftest.html from reftest results"
+              # /ui/reftest (no trailing slash, the sidebar's link) resolves to
+              # website/ui/reftest.html — a skeleton placeholder that shadows the
+              # ui/reftest/ dir. Overwrite it (and its images) with the real results.
+              cp website/ui/reftest/index.html website/ui/reftest.html
+              [ -d website/ui/reftest/reftest_img ] && cp -r website/ui/reftest/reftest_img website/ui/reftest_img
+              echo "  [OK] Created reftest.html + ui/reftest.html from reftest results"
             fi
             # Copy reftest_img to website root so ./reftest_img/ paths work from reftest.html
             if [ -d website/reftest/reftest_img ]; then
