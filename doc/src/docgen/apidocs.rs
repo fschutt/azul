@@ -132,7 +132,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
 
         <aside>
             <header>
-            <h1 style='display:none;'>Azul GUI Framework</h1>
+            <h1 style='display:none;' data-pagefind-ignore>Azul GUI Framework</h1>
             <a href='{HTML_ROOT}'>
                 <img src='{HTML_ROOT}/logo.svg'>
             </a>
@@ -688,7 +688,7 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
 
         <aside>
             <header>
-            <h1 style='display:none;'>Azul GUI Framework</h1>
+            <h1 style='display:none;' data-pagefind-ignore>Azul GUI Framework</h1>
             <a href='{HTML_ROOT}'>
                 <img src='{HTML_ROOT}/logo.svg'>
             </a>

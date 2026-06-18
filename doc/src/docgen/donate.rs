@@ -78,7 +78,6 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
     let common_head_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
-    let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Other);
 
     // Additional CSS for the donation page
     let donation_css = r#"
@@ -186,7 +185,7 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
   <div class="center">
     <aside>
       <header>
-        <h1 style="display:none;">Azul GUI Framework</h1>
+        <h1 style="display:none;" data-pagefind-ignore>Azul GUI Framework</h1>
         <a href="{html_root}">
           <img src="{html_root}/logo.svg">
         </a>
@@ -194,7 +193,6 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
       {sidebar}
     </aside>
     <main>
-      <div id="azul-search-mount" class="azs-mount-inline page-search"></div>
       <h1>Support Azul!</h1>
 
       <div class="donation-intro">
@@ -213,13 +211,11 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
         <p>Thank you for considering supporting Azul! Every contribution helps the project grow.</p>
         <br/>
         <p>If you have any questions about donations, please reach out via 
-        <a href="https://github.com/fschutt/azul/issues">GitHub</a> or 
-        <a href="https://discord.gg/V96ZGKqQvn">Discord</a>.</p>
+        <a href="https://github.com/fschutt/azul/issues">GitHub</a>.</p>
       </div>
     </main>
   </div>
   {prism_script}
-  {search_script}
 </body>
 </html>"#,
         common_head_tags = common_head_tags,
@@ -228,7 +224,6 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
         sidebar = sidebar,
         donation_options = donation_options,
         prism_script = prism_script,
-        search_script = search_script,
     );
 
     Ok(html)

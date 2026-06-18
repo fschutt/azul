@@ -100,7 +100,6 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
-    let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Other);
 
     // Pre-process content
     let processed_content = preprocess_markdown_content(&post.content);
@@ -224,7 +223,7 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
 
         <aside>
             <header>
-            <h1 style='display:none;'>Azul GUI Framework</h1>
+            <h1 style='display:none;' data-pagefind-ignore>Azul GUI Framework</h1>
             <a href='{HTML_ROOT}'>
                 <img src='{HTML_ROOT}/logo.svg'>
             </a>
@@ -233,7 +232,6 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
         </aside>
 
         <main>
-            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
             <div id='blog'>
             <style>
                 {css}
@@ -249,7 +247,6 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
 
         </div>
         {prism_script}
-        {search_script}
         </body>
         </html>"
     )
@@ -259,7 +256,6 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
 pub fn generate_blog_index() -> String {
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
-    let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Other);
 
     // Get all blog posts, sorted by date (newest first)
     let mut posts = get_blog_list();
@@ -310,7 +306,7 @@ pub fn generate_blog_index() -> String {
         <div class='center'>
         <aside>
             <header>
-            <h1 style='display:none;'>Azul GUI Framework</h1>
+            <h1 style='display:none;' data-pagefind-ignore>Azul GUI Framework</h1>
             <a href='{HTML_ROOT}'>
                 <img src='{HTML_ROOT}/logo.svg'>
             </a>
@@ -318,7 +314,6 @@ pub fn generate_blog_index() -> String {
             {sidebar}
         </aside>
         <main>
-            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
             <div id='blog-index'>
             <style>
                 {css}
@@ -329,7 +324,6 @@ pub fn generate_blog_index() -> String {
             </div>
         </main>
         </div>
-        {search_script}
         </body>
         </html>"
     )

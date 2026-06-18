@@ -2670,11 +2670,14 @@ jobs:
             find "$pkgdir" -name "*.rpm" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           done
           
-          # Replace placeholder reftest with real results
+          # Replace placeholder reftest with real results. The sidebar links to
+          # /ui/reftest (azul.rs/ui/reftest); deploy there too, not just the legacy
+          # /reftest path, or the link shows the placeholder.
           if [ -d artifacts-reftest ]; then
-            rm -rf website/reftest 2>/dev/null || true
-            mkdir -p website/reftest
+            rm -rf website/reftest website/ui/reftest 2>/dev/null || true
+            mkdir -p website/reftest website/ui/reftest
             cp -r artifacts-reftest/* website/reftest/
+            cp -r artifacts-reftest/* website/ui/reftest/
             # Also copy index.html to reftest.html in website root
             if [ -f website/reftest/index.html ]; then
               cp website/reftest/index.html website/reftest.html
