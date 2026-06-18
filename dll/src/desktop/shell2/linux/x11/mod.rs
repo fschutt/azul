@@ -2094,9 +2094,10 @@ impl X11Window {
                     // ConfigureNotify, so request a repaint explicitly (self-Expose,
                     // coalesced) — otherwise resize relayouts but never presents.
                     crate::plog_info!(
-                        "[X11] ConfigureNotify resize -> {}x{}: relayout + request_redraw",
+                        "[X11] ConfigureNotify resize -> {}x{} (hidpi_factor={}): relayout + request_redraw",
                         new_width,
-                        new_height
+                        new_height,
+                        self.common.current_window_state.size.get_hidpi_factor().inner.get()
                     );
                     self.request_redraw();
                 }

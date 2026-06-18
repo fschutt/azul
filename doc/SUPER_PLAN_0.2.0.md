@@ -190,3 +190,11 @@ codegen all`; FFI compile check = `cargo check -p azul-dll --features build-dll`
   locating stops. `toggle_locate` resets the timeout on each enable. `cargo check -p azul-maps`
   green. (The resize-relayout-thrash part of the original #8 report is separate — X11 ConfigureNotify
   coalescing, still open with #1.) Next: re-trigger the release so the page picks up #8.
+- (2026-06-18) **#3 HiDPI fix-step-0: runtime-DPI diagnostic** (the assessment's #1-recommended
+  action): the X11 ConfigureNotify resize log now includes `hidpi_factor=<f>` so a single run on the
+  user's box reveals the machine's real device-pixel-ratio — which resolves the "not a HiDPI monitor
+  yet 2× low-res" contradiction that blocks the actual #3 fix. `cargo check -p azul-dll --features
+  build-dll` green. The real fix (map.rs:1336 tile DPR + Wayland initial-scale timing) follows once
+  the value is known (needs the user's live display). **Autonomous-safe queue now complete** — the
+  rest of step 5 (#3 fix, #6 menu→popup, #9 paint-crash, #10 maps-freeze, #1 over-damage) needs the
+  user's Wayland session to verify behaviorally; shipping those blind would risk renderer regressions.
