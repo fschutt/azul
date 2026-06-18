@@ -138,3 +138,13 @@ codegen all`; FFI compile check = `cargo check -p azul-dll --features build-dll`
   "meeting link" hash; **Udp removed** from the example. Builds static (REAL_BUILD_EXIT=0,
   4m56s) + renders headless (AZ_HEADLESS_SNAPSHOT_PATH snapshot verified: header+grid+tiles).
   Follow-ups: larger default window, device pickers (AudioDeviceList), WebTransport send.
+- (2026-06-18) **azul-meet device panel + 1100×720 window**: settings strip lists the real
+  enumerated audio devices (`AudioDeviceList::enumerate` — found the user's USB Blue mic +
+  HDMI/iec958 sinks); wider window shows the full 4-tile grid + toolbar. Headless snapshot
+  verified (REAL_BUILD_EXIT=0). Note: AudioDeviceList/LogicalSize live in `azul::css`.
+  Remaining azul-meet follow-ups: clickable device selection (routing), WebTransport send.
+- (2026-06-18) **Wayland bug assessment** → `doc/wayland-bugs-status.md`: #2 frame-leak, #4
+  input-misclass, #5 maps-resize ALREADY FIXED on master (the CI binary predates them — a
+  fresh 0.2.0 release clears them, plus #1/#7 fixed parts). OPEN: #3 HiDPI (top), #6
+  menu→xdg_popup (blocker), #10 maps-freeze + #9 paint-crash (need live Wayland), #8 Locate
+  (easy), #1 over-damage (partial). Fix order in the doc.
