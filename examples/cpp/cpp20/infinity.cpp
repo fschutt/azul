@@ -1,5 +1,4 @@
 // g++ -std=c++20 -o infinity infinity.cpp -lazul
-// Note: This example is simplified - full VirtualView scrolling requires more complex setup
 
 #include "azul20.hpp"
 #include <vector>

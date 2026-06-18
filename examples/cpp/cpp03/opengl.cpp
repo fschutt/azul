@@ -1,5 +1,4 @@
 // g++ -std=c++03 -o opengl opengl.cpp -lazul
-// Note: This example is simplified as OpenGL texture integration requires more complex setup
 
 #include "azul03.hpp"
 
