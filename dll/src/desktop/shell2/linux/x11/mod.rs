@@ -1264,7 +1264,7 @@ impl X11Window {
                 };
 
                 let new_frame_ready = Arc::new((Mutex::new(false), Condvar::new()));
-                let (renderer, sender) = match webrender::create_webrender_instance(
+                let (mut renderer, sender) = match webrender::create_webrender_instance(
                     gl_functions.functions.clone(),
                     Box::new(Notifier {
                         new_frame_ready: new_frame_ready.clone(),
@@ -1287,6 +1287,14 @@ impl X11Window {
                         break 'gpu (RenderMode::Cpu(Some(gc)), None, None, None, None, None, None.into());
                     }
                 };
+
+                // External-image-backed content (the paint canvas, GL textures) needs
+                // an ExternalImageHandler or WebRender panics ("Found external image, but
+                // no handler set!"). macOS/Windows register this; Linux must too — without
+                // it, azul-paint crashes the instant external-image content renders (#9).
+                renderer.set_external_image_handler(Box::new(
+                    crate::desktop::wr_translate2::Compositor::default(),
+                ));
 
                 let render_api = sender.create_api();
                 let framebuffer_size = webrender::api::units::DeviceIntSize::new(

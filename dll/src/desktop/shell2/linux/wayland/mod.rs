@@ -1563,7 +1563,7 @@ impl WaylandWindow {
         gl_functions: &GlFunctions,
     ) -> Result<(), WindowError> {
         let new_frame_ready = Arc::new((Mutex::new(false), Condvar::new()));
-        let (renderer, sender) = webrender::create_webrender_instance(
+        let (mut renderer, sender) = webrender::create_webrender_instance(
             gl_functions.functions.clone(),
             Box::new(Notifier {
                 new_frame_ready: new_frame_ready.clone(),
@@ -1575,6 +1575,14 @@ impl WaylandWindow {
             None,
         )
         .map_err(|e| WindowError::PlatformError(format!("WebRender init failed: {:?}", e)))?;
+
+        // External-image-backed content (the paint canvas, GL textures) needs an
+        // ExternalImageHandler or WebRender panics ("Found external image, but no
+        // handler set!"). macOS/Windows register this; Linux must too — without it,
+        // azul-paint crashes the instant external-image content renders (#9).
+        renderer.set_external_image_handler(Box::new(
+            crate::desktop::wr_translate2::Compositor::default(),
+        ));
 
         self.common.renderer = Some(renderer);
         self.common.render_api = Some(sender.create_api());

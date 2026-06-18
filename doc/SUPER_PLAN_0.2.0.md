@@ -206,3 +206,15 @@ codegen all`; FFI compile check = `cargo check -p azul-dll --features build-dll`
   re-trigger after all commits worked.) **OVERNIGHT AUTONOMOUS WORK COMPLETE.** Steps 1–4, 6 done +
   the headless-safe part of 5; the remaining step-5 bugs are queued for a session with the user's
   live Wayland display (see `doc/wayland-bugs-status.md` for the per-bug file:line fix plan).
+
+## SESSION 2 (2026-06-18, user present + testing live)
+- (2026-06-18) **#9 azul-paint GPU crash FIXED — also fixes all GPU demos** (`Found external image,
+  but no handler set!`): the Linux x11 + Wayland shells created the WebRender renderer but never
+  called `set_external_image_handler` (macOS/Windows did). Any external-image content (paint canvas,
+  map tiles, GL textures) panicked WebRender on the GPU backend — which is why every demo "works on
+  AZ_BACKEND=cpu, crashes on gpu" (CPU bypasses WebRender). Registered the same `Compositor` handler
+  mac/win use, in both `linux/x11/mod.rs` (after `create_webrender_instance`) and
+  `linux/wayland/mod.rs` (before storing the renderer). `cargo build -p azul-paint` green (472MB
+  binary). User testing `./target/debug/azul-paint` (click image → paint, not crash). NOTE: disk hit
+  100% (target/ → 79G from the night's builds); freed 14G (incremental cache + stale binaries) —
+  periodic `cargo clean` advised. Next: #6 menu→xdg_popup, then rebuild+verify azul-maps GPU.
