@@ -155,3 +155,10 @@ codegen all`; FFI compile check = `cargo check -p azul-dll --features build-dll`
   shape (`WebTransport`/`WtEvent`/`WtReliability`/`WtStats`/`OptionWtEvent`), wire format, fan-out
   server sketch, stub-loopback-first plan, + v1 checklist all in the doc. Next: step 2b/2c —
   remove `Udp`, scaffold AzWebTransport (stub engine).
+- (2026-06-18) **AzWebTransport scaffold** (step 2c, Rust half): `dll/src/desktop/extra/webtransport/mod.rs`
+  (POD types WtReliability/WtEventKind/WtEvent/WtStats/OptionWtEvent + `WebTransport` handle +
+  v1 loopback stub engine, mirrors the `Udp` handle convention) + `dll/src/unified/webtransport.rs`
+  (native re-export + wasm no-op stub) + registered in desktop/extra + unified `mod.rs`.
+  `cargo check -p azul-dll --features build-dll` green (CHECK_EXIT=0). Next: wire api.json (replace
+  the `Udp` class block with `WebTransport`+Wt types, add `OptionWtEvent` to the `option` module),
+  codegen all, build-dll + memtest, then remove the dll `udp` module + `azul-self-test` Udp usage.

@@ -43,6 +43,10 @@ pub mod screencap;
 /// feature gate - `std::net` is always present, real on every target). The
 /// fault-tolerant packet-sharing primitive for azul-meet. See `udp/mod.rs`.
 pub mod udp;
+/// WebTransport room transport (`WebTransport`) — typed media/chat/control to a
+/// coordination server; replaces `udp` for azul-meet. v1 = loopback stub engine;
+/// real QUIC behind `webtransport-native`. See `webtransport/mod.rs`.
+pub mod webtransport;
 /// Video encode/decode (P7/P8). `VideoEncoder` / `VideoDecoder` handles select
 /// the native codec per platform (gpu-video on desktop Linux/Windows,
 /// VideoToolbox on Apple, MediaCodec on Android); the codec FFI is on-device,
