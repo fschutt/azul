@@ -6,14 +6,18 @@
 //! and the widget's `AfterMount` then starts (or its `Drop` stops) the underlying
 //! capture. The local user is a camera/screen tile; remote participants are grey
 //! placeholders. Auto-joins a fake session (a generated "meeting link" hash).
+//! A settings strip lists the real audio devices (`AudioDeviceList::enumerate`).
 //!
 //! (Camera/screen tiles render their live frames on the GPU backend; on the CPU
 //! backend they show the widget placeholder. Sending the captured media to remote
-//! peers is the `WebTransport` follow-up — see doc/SUPER_PLAN_0.2.0.md.)
+//! peers + per-device routing are the `WebTransport` / device-selection follow-ups
+//! — see doc/SUPER_PLAN_0.2.0.md.)
 
 use azul::misc::{AudioConfig, CameraConfig, ScreenCaptureConfig};
 use azul::prelude::*;
 use azul::widgets::{CameraWidget, MicrophoneWidget, ScreenCaptureWidget};
+use azul::css::{AudioDeviceList, LogicalSize};
+use azul::str::String as AzString;
 
 struct MeetState {
     /// The fake "meeting link" (a generated hash), shown in the header.
@@ -21,6 +25,9 @@ struct MeetState {
     mic_on: bool,
     cam_on: bool,
     screen_on: bool,
+    /// Enumerated audio devices (shown in the settings strip).
+    mics: Vec<String>,
+    speakers: Vec<String>,
 }
 
 const TILE: &str = "width: 300px; height: 200px; margin: 8px; border-radius: 10px; \
@@ -35,9 +42,36 @@ fn participant(name: &str) -> Dom {
     Dom::create_div().with_css(TILE).with_child(Dom::create_text(name))
 }
 
+/// One column of the settings strip: a device-kind heading + the device names.
+fn device_col(title: &str, devices: &[String]) -> Dom {
+    let mut col = Dom::create_div().with_css("display: flex; flex-direction: column; margin: 0 28px;");
+    col = col.with_child(
+        Dom::create_text(title).with_css("font-size: 13px; color: #8890a8; margin-bottom: 4px;"),
+    );
+    if devices.is_empty() {
+        col = col.with_child(
+            Dom::create_text("(none detected)").with_css("font-size: 13px; color: #667;"),
+        );
+    } else {
+        for d in devices {
+            col = col.with_child(
+                Dom::create_text(d.as_str()).with_css("font-size: 13px; color: #ccd; padding: 2px 0;"),
+            );
+        }
+    }
+    col
+}
+
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let (link, mic, cam, screen) = match data.downcast_ref::<MeetState>() {
-        Some(s) => (s.link.clone(), s.mic_on, s.cam_on, s.screen_on),
+    let (link, mic, cam, screen, mics, speakers) = match data.downcast_ref::<MeetState>() {
+        Some(s) => (
+            s.link.clone(),
+            s.mic_on,
+            s.cam_on,
+            s.screen_on,
+            s.mics.clone(),
+            s.speakers.clone(),
+        ),
         None => return Dom::create_body(),
     };
 
@@ -106,6 +140,15 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 ),
         );
 
+    // --- settings strip: the real enumerated audio devices ---
+    let devices_panel = Dom::create_div()
+        .with_css(
+            "display: flex; justify-content: center; padding: 10px 12px 16px 12px; \
+             background: #0e0e14; border-top: 1px solid #222;",
+        )
+        .with_child(device_col("Microphones", &mics))
+        .with_child(device_col("Speakers", &speakers));
+
     let mut body = Dom::create_body().with_css(
         "display: flex; flex-direction: column; height: 100%; margin: 0; \
          background: #0e0e14; font-family: sans-serif; color: #e6e6f0;",
@@ -126,7 +169,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             .with_css("width: 1px; height: 1px; overflow: hidden;"),
         );
     }
-    body.with_child(grid).with_child(toolbar)
+    body.with_child(grid).with_child(toolbar).with_child(devices_panel)
 }
 
 extern "C" fn mic_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
@@ -166,15 +209,29 @@ fn gen_link() -> String {
 
 fn main() {
     let link = gen_link();
-    eprintln!("[azmeet] joined meeting {link} (camera/mic/screen off — toggle in the toolbar)");
+    let devs = AudioDeviceList::enumerate();
+    let mic_slice: &[AzString] = devs.inputs.as_ref();
+    let mics: Vec<String> = mic_slice.iter().map(|s| s.as_str().to_string()).collect();
+    let spk_slice: &[AzString] = devs.outputs.as_ref();
+    let speakers: Vec<String> = spk_slice.iter().map(|s| s.as_str().to_string()).collect();
+    eprintln!(
+        "[azmeet] joined meeting {link} — {} mic(s), {} speaker(s) detected \
+         (camera/mic/screen off — toggle in the toolbar)",
+        mics.len(),
+        speakers.len()
+    );
+
     let data = RefAny::new(MeetState {
         link,
         mic_on: false,
         cam_on: false,
         screen_on: false,
+        mics,
+        speakers,
     });
     let config = AppConfig::create();
     let app = App::create(data, config);
-    let window = WindowCreateOptions::create(layout);
+    let mut window = WindowCreateOptions::create(layout);
+    window.window_state.size.dimensions = LogicalSize::create(1100.0, 720.0);
     app.run(window);
 }
