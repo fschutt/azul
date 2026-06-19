@@ -120,8 +120,8 @@ use rust_fontconfig::registry::FcFontRegistry;
 use crate::desktop::shell2::common::WindowError;
 
 /// FNV-1a 64-bit offset basis. Shared with `html_render::content_hash`
-/// and `loader_js::loader_js_hash` so that all cache-busting URLs in
-/// the web backend use the same hash family.
+/// so that all cache-busting URLs in the web backend use the same hash
+/// family.
 pub(crate) const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 pub(crate) const FNV_PRIME: u64 = 0x100000001b3;
 

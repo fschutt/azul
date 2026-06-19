@@ -182,14 +182,10 @@ pub fn render_initial_page(
     );
     let mut preload_hints = generate_preload_hints(mini_wasm, &ctx.callbacks);
     preload_hints.push_str(&layout_preload_hint);
-    // Pass an empty callback list here; the second `generate_loader_js`
-    // call inside `server::run_server` uses the real `WebServerState.cb_wasms`
-    // list. This first render-time call would need the cb_wasms but they
-    // aren't built until after discovery + lift run (timing inverted from
-    // `render_initial_page`). The Phase-0 loader ignores both args, so the
-    // empty slice is currently harmless; revisit once M4 wires real per-callback
-    // module preloading into the HTML head.
-    let loader_js_content = super::loader_js::generate_loader_js("stub", &[]);
+    // The Phase-0 loader pulls every WASM URL from the HTML head hints, so it
+    // takes no arguments. Revisit once M4 wires real per-callback module
+    // preloading into the HTML head.
+    let loader_js_content = super::loader_js::generate_loader_js();
 
     // 5. Build stylesheet
     let stylesheet = build_stylesheet(&ctx);

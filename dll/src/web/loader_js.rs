@@ -22,17 +22,12 @@
 //! fallback in loader.js`), the loader does NOT call POST
 //! `/az/exec/`. Failures log to console + silently no-op.
 
-use super::CallbackWasm;
-
 /// Generate the loader JavaScript.
 ///
-/// Args are kept for forward compatibility — the M8.6 loader pulls
-/// the mini.wasm URL from the `<link rel="preload">` hint in the
-/// HTML head + the per-cb URLs from `[data-az-wasm]` attributes.
-pub fn generate_loader_js(
-    _mini_wasm_hash: &str,
-    _callbacks: &[CallbackWasm],
-) -> String {
+/// The M8.6 loader pulls the mini.wasm URL from the `<link rel="preload">`
+/// hint in the HTML head + the per-cb URLs from `[data-az-wasm]` attributes,
+/// so it needs no arguments.
+pub fn generate_loader_js() -> String {
     generate_m8_loader()
 }
 
@@ -1034,9 +1029,4 @@ if (document.readyState === 'loading') {
 }
 })();
 "#.to_string()
-}
-
-/// Content hash for the loader JS (for cache-busting).
-pub fn loader_js_hash(content: &str) -> String {
-    super::fnv1a64_hex(content.as_bytes())
 }
