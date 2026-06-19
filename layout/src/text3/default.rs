@@ -15,7 +15,6 @@ use allsorts::{
 };
 use azul_core::geom::LogicalSize;
 use azul_css::props::basic::FontRef;
-use rust_fontconfig::FcFontCache;
 
 use crate::{
     font::parsed::ParsedFont,
@@ -71,7 +70,7 @@ impl PathLoader {
     /// Convenience wrapper for callers that have a path but no
     /// `Arc<FontBytes>` yet — uses a heap read (`Owned`) since a
     /// loose path won't go through the fontconfig dedup cache.
-    pub fn load_from_path(&self, path: &Path, font_index: usize) -> Result<FontRef, LayoutError> {
+    pub(crate) fn load_from_path(&self, path: &Path, font_index: usize) -> Result<FontRef, LayoutError> {
         let font_bytes = std::fs::read(path).map_err(|_| {
             LayoutError::FontNotFound(FontSelector {
                 family: path.to_string_lossy().into_owned(),
@@ -113,10 +112,6 @@ impl PathLoader {
 }
 
 impl FontManager<FontRef> {
-    pub fn new_with_fc_cache(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
-        FontManager::new(fc_cache)
-    }
-
     /// Evict the cached `LocaGlyf` for every face that hasn't had a
     /// `get_or_decode_glyph` call within the last `idle` duration.
     /// Only `LocaGlyfState::Deferred` faces (the production lazy
@@ -141,7 +136,7 @@ impl FontManager<FontRef> {
         let now_nanos = crate::font::parsed::monotonic_now_nanos();
         let mut evicted = 0usize;
         for font_ref in parsed.values() {
-            let font: &ParsedFont = get_parsed_font(font_ref);
+            let font: &ParsedFont = crate::font_ref_to_parsed_font(font_ref);
             let last = font.last_used_nanos();
             // Untouched faces are eligible immediately. Touched
             // faces need to be `idle` past their last use.
@@ -165,11 +160,7 @@ impl crate::text3::cache::ShallowClone for FontRef {
     }
 }
 
-// Helper to get the inner ParsedFont from FontRef
-#[inline]
-fn get_parsed_font(font_ref: &FontRef) -> &ParsedFont {
-    unsafe { &*(font_ref.get_parsed() as *const ParsedFont) }
-}
+// Use crate::font_ref_to_parsed_font instead of a local duplicate
 
 impl ParsedFontTrait for FontRef {
     // +spec:block-formatting-context:21ec9a - bidi direction handled during text shaping for vertical writing modes
@@ -182,44 +173,44 @@ impl ParsedFontTrait for FontRef {
         style: &StyleProperties,
     ) -> Result<Vec<Glyph>, LayoutError> {
         // Delegate to the inner ParsedFont's shape_text, passing self as font_ref
-        let parsed = get_parsed_font(self);
+        let parsed = crate::font_ref_to_parsed_font(self);
         parsed.shape_text_for_font_ref(self, text, script, language, direction, style)
     }
 
     fn get_hash(&self) -> u64 {
-        get_parsed_font(self).hash
+        crate::font_ref_to_parsed_font(self).hash
     }
 
     fn get_glyph_size(&self, glyph_id: u16, font_size: f32) -> Option<LogicalSize> {
-        get_parsed_font(self).get_glyph_size(glyph_id, font_size)
+        crate::font_ref_to_parsed_font(self).get_glyph_size(glyph_id, font_size)
     }
 
     fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
-        get_parsed_font(self).get_hyphen_glyph_and_advance(font_size)
+        crate::font_ref_to_parsed_font(self).get_hyphen_glyph_and_advance(font_size)
     }
 
     fn get_kashida_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
-        get_parsed_font(self).get_kashida_glyph_and_advance(font_size)
+        crate::font_ref_to_parsed_font(self).get_kashida_glyph_and_advance(font_size)
     }
 
     fn has_glyph(&self, codepoint: u32) -> bool {
-        get_parsed_font(self).has_glyph(codepoint)
+        crate::font_ref_to_parsed_font(self).has_glyph(codepoint)
     }
 
     fn get_vertical_metrics(&self, glyph_id: u16) -> Option<VerticalMetrics> {
-        get_parsed_font(self).get_vertical_metrics(glyph_id)
+        crate::font_ref_to_parsed_font(self).get_vertical_metrics(glyph_id)
     }
 
     fn get_font_metrics(&self) -> LayoutFontMetrics {
-        get_parsed_font(self).font_metrics.clone()
+        crate::font_ref_to_parsed_font(self).font_metrics.clone()
     }
 
     fn num_glyphs(&self) -> u16 {
-        get_parsed_font(self).num_glyphs
+        crate::font_ref_to_parsed_font(self).num_glyphs
     }
 
     fn get_space_width(&self) -> Option<usize> {
-        get_parsed_font(self).get_space_width()
+        crate::font_ref_to_parsed_font(self).get_space_width()
     }
 }
 
@@ -239,7 +230,7 @@ pub trait FontRefExt {
 
 impl FontRefExt for FontRef {
     fn get_bytes(&self) -> &[u8] {
-        get_parsed_font(self)
+        crate::font_ref_to_parsed_font(self)
             .original_bytes
             .as_ref()
             .map(|b| b.as_slice())
@@ -249,7 +240,7 @@ impl FontRefExt for FontRef {
     fn get_full_font_metrics(&self) -> azul_css::props::basic::FontMetrics {
         use azul_css::{OptionI16, OptionU16, OptionU32};
 
-        let parsed = get_parsed_font(self);
+        let parsed = crate::font_ref_to_parsed_font(self);
         let pdf = &parsed.pdf_font_metrics;
 
         // PdfFontMetrics only has a subset of fields; fill others with defaults
@@ -342,51 +333,17 @@ impl ParsedFont {
     /// Delegates to shape_text_internal and converts the font reference.
     fn shape_text_for_font_ref(
         &self,
-        font_ref: &FontRef,
+        _font_ref: &FontRef,
         text: &str,
         script: Script,
         language: crate::text3::script::Language,
         direction: BidiDirection,
         style: &StyleProperties,
     ) -> Result<Vec<Glyph>, LayoutError> {
-        // Use the common shaping implementation
-        let shaped = shape_text_internal(self, text, script, language, direction, style)?;
-
-        // Convert Glyph - now using font_hash and font_metrics instead of font reference
-        let font_hash = font_ref.get_hash();
-        let font_metrics = LayoutFontMetrics {
-            ascent: self.font_metrics.ascent,
-            descent: self.font_metrics.descent,
-            line_gap: self.font_metrics.line_gap,
-            units_per_em: self.font_metrics.units_per_em,
-            x_height: self.font_metrics.x_height,
-            cap_height: self.font_metrics.cap_height,
-        };
-
-        Ok(shaped
-            .into_iter()
-            .map(|g| Glyph {
-                glyph_id: g.glyph_id,
-                codepoint: g.codepoint,
-                font_hash,
-                font_metrics: font_metrics.clone(),
-                style: g.style,
-                source: g.source,
-                logical_byte_index: g.logical_byte_index,
-                logical_byte_len: g.logical_byte_len,
-                content_index: g.content_index,
-                cluster: g.cluster,
-                advance: g.advance,
-                kerning: g.kerning,
-                offset: g.offset,
-                vertical_advance: g.vertical_advance,
-                vertical_origin_y: g.vertical_origin_y,
-                vertical_bearing: g.vertical_bearing,
-                orientation: g.orientation,
-                script: g.script,
-                bidi_level: g.bidi_level,
-            })
-            .collect())
+        // `shape_text_internal` already stamps each glyph with `font_hash`
+        // and `font_metrics` derived from `self`, which is the same
+        // `ParsedFont` backing `_font_ref`, so no per-glyph rewrite is needed.
+        shape_text_internal(self, text, script, language, direction, style)
     }
 
     fn get_hash(&self) -> u64 {
