@@ -345,14 +345,6 @@ struct BfcLayoutState {
     writing_mode: LayoutWritingMode,
 }
 
-/// Result of a formatting context layout operation
-#[derive(Debug, Default)]
-pub struct LayoutResult {
-    pub positions: Vec<(usize, LogicalPosition)>,
-    pub overflow_size: Option<LogicalSize>,
-    pub baseline_offset: f32,
-}
-
 // Entry Point & Dispatcher
 
 /// Main dispatcher for formatting context layout.
@@ -2488,8 +2480,6 @@ fn layout_ifc<T: ParsedFontTrait>(
         crate::az_mark(((0x60900 + slot)) as u32, (tree.nodes.len() as u32) as u32);
         crate::az_mark(((0x60920 + slot)) as u32, ((&*tree as *const LayoutTree as usize) as u32) as u32);
     }
-    let ifc_start = (ctx.get_system_time_fn.cb)();
-
     let float_count = constraints
         .bfc_state
         .as_ref()
@@ -2537,7 +2527,6 @@ fn layout_ifc<T: ParsedFontTrait>(
     // +spec:display-property:a469a6 - line boxes created as needed for inline-level content in IFC
     // +spec:display-property:f3c875 - calculate layout bounds (size contributions) of each inline-level box
     // Phase 1: Collect and measure all inline-level children.
-    let phase1_start = (ctx.get_system_time_fn.cb)();
     let collect_result = collect_and_measure_inline_content(
         ctx,
         text_cache,
@@ -2552,7 +2541,6 @@ fn layout_ifc<T: ParsedFontTrait>(
         crate::az_mark((0x60684) as u32, (if collect_result.is_ok() { 0xC0DE0680u32 } else { 0x000000EEu32 }) as u32);
     }
     let (inline_content, child_map) = collect_result?;
-    let _phase1_time = (ctx.get_system_time_fn.cb)().duration_since(&phase1_start);
 
     // #11 fix: hash the inline content once. Used to (a) skip stale Phase 2d
     // fast-path reuse and (b) force a cache REPLACE when content changed even
@@ -2573,10 +2561,6 @@ fn layout_ifc<T: ParsedFontTrait>(
         inline_content.len(),
         node_index
     );
-    if inline_content.len() > 10 {
-        let _text_count = inline_content.iter().filter(|i| matches!(i, InlineContent::Text(_))).count();
-        let _shape_count = inline_content.iter().filter(|i| matches!(i, InlineContent::Shape(_))).count();
-    }
     for (i, item) in inline_content.iter().enumerate() {
         match item {
             InlineContent::Text(run) => debug_info!(ctx, "  [{}] Text: '{}'", i, run.text),
@@ -2722,7 +2706,6 @@ fn layout_ifc<T: ParsedFontTrait>(
 
     // Phase 3: Invoke the text layout engine.
     // Get pre-loaded fonts from font manager (fonts should be loaded before layout)
-    let phase3_start = (ctx.get_system_time_fn.cb)();
     let loaded_fonts = ctx.font_manager.get_loaded_fonts();
     let text_layout_result = match text_cache.layout_flow(
         &inline_content,
@@ -2763,9 +2746,6 @@ fn layout_ifc<T: ParsedFontTrait>(
             return Ok(output);
         }
     };
-    let _phase3_time = (ctx.get_system_time_fn.cb)().duration_since(&phase3_start);
-    let _total_ifc_time = (ctx.get_system_time_fn.cb)().duration_since(&ifc_start);
-
     // Phase 4: Integrate results back into the solver3 layout tree.
     let mut output = LayoutOutput::default();
 
@@ -8415,61 +8395,7 @@ fn apply_segment_break_transform(text: &str) -> String {
 }
 
 // ============================================================================
-// WHITE-SPACE PROCESSING PIPELINE (CSS Text Level 3 §4)
-// ============================================================================
-//
 // +spec:white-space-processing:b64e38 - parser may normalize/collapse whitespace before CSS; CSS cannot restore
-// The white-space processing pipeline is organized into four phases per the
-// CSS Text Level 3 specification:
-//
-//   Phase 1 (Collapse): Collapse whitespace sequences per §4.1.1
-//   Phase 2 (Segment Break Transform): Transform segment breaks per §4.1.3
-//   Phase 3 (Edge Trimming): Trim spaces at line start/end per §4.1.2
-//   Phase 4 (Tab Resolution): Resolve tab stops per §4.2
-//
-// Each phase is a standalone function that transforms a string, allowing
-// spec patches to modify individual phases without touching others.
-
-/// Phase 1: Collapse consecutive whitespace to a single space.
-/// CSS Text 3 §4.1.1 - applies to `normal`, `nowrap`, and `pre-line` modes.
-pub fn ws_phase1_collapse(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut prev_was_space = false;
-    for ch in text.chars() {
-        if ch == ' ' || ch == '\t' {
-            if !prev_was_space {
-                result.push(' ');
-                prev_was_space = true;
-            }
-        } else {
-            result.push(ch);
-            prev_was_space = false;
-        }
-    }
-    result
-}
-
-/// Phase 2: Transform segment breaks (newlines) per CSS Text 3 §4.1.3.
-/// Delegates to `apply_segment_break_transform` for the actual transformation rules.
-pub fn ws_phase2_segment_break_transform(text: &str) -> String {
-    apply_segment_break_transform(text)
-}
-
-/// Phase 3: Trim leading/trailing collapsible whitespace at line boundaries.
-/// CSS Text 3 §4.1.2 - this is a no-op during text collection; actual trimming
-/// happens during line breaking when line start/end positions are known.
-/// Provided as a pipeline slot for patches to hook into.
-pub fn ws_phase3_trim_edges(text: &str) -> String {
-    text.to_string()
-}
-
-/// Phase 4: Resolve tab characters to spaces based on tab-size.
-/// CSS Text 3 §4.2 - for `normal`/`nowrap`, tabs are collapsed to spaces in Phase 1.
-/// For `pre`/`pre-wrap`/`break-spaces`, tabs are emitted as `InlineContent::Tab`
-/// and resolved during line layout. This phase is a no-op during text collection.
-pub fn ws_phase4_resolve_tabs(text: &str) -> String {
-    text.to_string()
-}
 
 /// Splits text content into InlineContent items based on white-space CSS property.
 ///
@@ -8514,7 +8440,7 @@ fn is_bidi_control(c: char) -> bool {
 /// Only spaces (U+0020), tabs (U+0009), and segment breaks (LF, CR, FF) qualify.
 /// Other Unicode whitespace (e.g. U+00A0 non-breaking space) is NOT document white space.
 #[inline]
-pub fn is_css_document_whitespace(c: char) -> bool {
+fn is_css_document_whitespace(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0C')
 }
 

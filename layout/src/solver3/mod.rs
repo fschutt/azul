@@ -189,7 +189,7 @@ use crate::{
     solver3::{
         cache::LayoutCache,
         display_list::DisplayList,
-        fc::{LayoutConstraints, LayoutResult},
+        fc::LayoutConstraints,
         layout_tree::DirtyFlag,
     },
 };
