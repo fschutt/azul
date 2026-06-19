@@ -229,12 +229,10 @@ pub use font::parsed::{
 // Re-export hyphenation for external crates (like printpdf)
 #[cfg(feature = "text_layout_hyphenation")]
 pub use hyphenation;
-/// CSS fragmentation engine for paged media (page/column breaks).
-pub mod fragmentation;
 /// Hit-testing: maps screen coordinates to DOM nodes.
 #[cfg(feature = "text_layout")]
 pub mod hit_test;
-/// Paged media layout engine (infinite canvas with physical spacers).
+/// Paged media: the `FragmentationContext` (continuous vs. paged) and page margins.
 pub mod paged;
 /// Text shaping, line breaking (Knuth-Plass), and inline formatting.
 #[cfg(feature = "text_layout")]
@@ -259,11 +257,8 @@ pub mod window_state;
 pub mod xml;
 
 // Export the main layout function and window management
-pub use fragmentation::{
-    BoxBreakBehavior, BreakDecision, FragmentationDefaults, FragmentationLayoutContext,
-    KeepTogetherPriority, PageCounter, PageFragment, PageMargins, PageNumberStyle, PageSlot,
-    PageSlotContent, PageSlotPosition, PageTemplate,
-};
+/// Canonical paged-media page margins (defined in [`paged`]).
+pub use paged::PageMargins;
 #[cfg(feature = "text_layout")]
 pub use hit_test::{CursorTypeHitTest, FullHitTest};
 #[cfg(feature = "text_layout")]

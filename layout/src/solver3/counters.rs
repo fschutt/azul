@@ -2,6 +2,12 @@
 //!
 //! Implements CSS counters for ordered lists and generated content as per CSS spec.
 //! Counters are cached per-node in the LayoutCache and computed during layout traversal.
+//!
+//! This module is the single canonical home for numbering-system formatting
+//! (decimal, roman, alphabetic, greek). The low-level converters
+//! [`to_roman`], [`to_alphabetic`], and [`to_greek`] back both [`format_counter`]
+//! (list markers) and `super::pagination::CounterFormat` (paged-media page counters),
+//! so the same number renders identically in both contexts.
 
 use alloc::string::String;
 
