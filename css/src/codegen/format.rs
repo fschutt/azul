@@ -828,6 +828,21 @@ fn format_style_background_content(content: &StyleBackgroundContent, tabs: usize
         StyleBackgroundContent::Color(c) => {
             format!("StyleBackgroundContent::Color({})", format_color_value(c))
         }
+        StyleBackgroundContent::SystemColor(s) => {
+            use crate::props::basic::color::SystemColorRef;
+            let variant = match s {
+                SystemColorRef::Text => "Text",
+                SystemColorRef::Background => "Background",
+                SystemColorRef::Accent => "Accent",
+                SystemColorRef::AccentText => "AccentText",
+                SystemColorRef::ButtonFace => "ButtonFace",
+                SystemColorRef::ButtonText => "ButtonText",
+                SystemColorRef::WindowBackground => "WindowBackground",
+                SystemColorRef::SelectionBackground => "SelectionBackground",
+                SystemColorRef::SelectionText => "SelectionText",
+            };
+            format!("StyleBackgroundContent::SystemColor(SystemColorRef::{})", variant)
+        }
     }
 }
 

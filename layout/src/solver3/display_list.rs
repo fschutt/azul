@@ -1319,6 +1319,12 @@ impl DisplayListBuilder {
                         self.push_image(bounds, image_ref.clone(), simple_border_radius);
                     }
                 }
+                StyleBackgroundContent::SystemColor(_s) => {
+                    // TODO(superplan g8): resolve via SystemColorRef::resolve(&SystemColors,
+                    // fallback) and push_rect. SystemColors is not threaded into the
+                    // display-list builder yet, so `background: system:<name>` currently
+                    // parses but paints nothing (graceful no-op rather than a wrong color).
+                }
             }
         }
 
@@ -1372,6 +1378,12 @@ impl DisplayListBuilder {
                     if let Some(image_ref) = image_cache.get_css_image_id(image_id) {
                         self.push_image(bounds, image_ref.clone(), BorderRadius::default());
                     }
+                }
+                StyleBackgroundContent::SystemColor(_s) => {
+                    // TODO(superplan g8): resolve via SystemColorRef::resolve(&SystemColors,
+                    // fallback) and push_rect. SystemColors is not threaded into the
+                    // display-list builder yet, so `background: system:<name>` currently
+                    // parses but paints nothing (graceful no-op rather than a wrong color).
                 }
             }
         }
