@@ -5,6 +5,21 @@
 //! and is composited together with the parent by the compositor.
 //!
 //! Note: Text rendering is currently a placeholder (solid rectangles per character).
+//!
+//! TODO(superplan): two follow-ups, both currently blocked on files this module
+//! cannot reach from here:
+//!   1. Wire `render_tooltip_content` into Azul's real text-shaping pipeline
+//!      instead of drawing black-bar placeholders. Unlike X11/macOS/Windows —
+//!      which delegate tooltip text to native server-side/UI text drawing
+//!      (`XDrawString` / `NSTextField` / GDI) — Wayland has no native text path,
+//!      so this needs an `FcFontCache` + shaped glyphs (`ParsedFont`) threaded in
+//!      via `new()`/`show()` and rasterized into the ARGB8888 `wl_shm` buffer.
+//!      Needs runtime verification on a real compositor.
+//!   2. Align `show`/`hide` with the other backends' signatures
+//!      (`show(text, position: LogicalPosition, dpi: DpiScaleFactor) -> Result<…>`,
+//!      `hide() -> Result<…>`, plus `is_visible()`). That changes the call sites
+//!      in `linux/wayland/mod.rs` (~:5095, a Group 7 file), so it must land
+//!      together with the per-backend wiring.
 
 use std::ffi::CString;
 use std::rc::Rc;
@@ -108,7 +123,11 @@ impl TooltipWindow {
         }
     }
 
-    /// Show the tooltip at the given position with text
+    /// Show the tooltip at the given position with text.
+    ///
+    /// TODO(superplan): align signature with X11/macOS/Windows
+    /// (`text, position: LogicalPosition, dpi: DpiScaleFactor) -> Result<(), String>`);
+    /// blocked on the `linux/wayland/mod.rs` caller (see module-level note).
     pub fn show(&mut self, text: &str, x: i32, y: i32) {
         unsafe {
             let text_width = text.len() as i32 * TOOLTIP_CHAR_WIDTH_PX;
@@ -252,6 +271,11 @@ impl TooltipWindow {
     }
 
     /// Render tooltip background and placeholder text into the pixel buffer.
+    ///
+    /// TODO(superplan): replace the per-character black-bar placeholder below
+    /// with glyphs shaped through Azul's text pipeline (needs an `FcFontCache` +
+    /// `ParsedFont` threaded in and rasterized into this ARGB8888 buffer). See
+    /// the module-level note. Needs runtime verification on a real compositor.
     fn render_tooltip_content(data: *mut u8, width: i32, height: i32, text: &str) {
         let stride = width * 4;
 

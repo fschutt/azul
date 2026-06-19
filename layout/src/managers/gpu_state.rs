@@ -13,7 +13,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     gpu::{GpuEventChanges, GpuTransformKeyEvent, GpuValueCache},
     resources::TransformKey,
-    task::{Duration, Instant, SystemTimeDiff},
+    task::{Duration, SystemTimeDiff},
     transform::ComputedTransform3D,
 };
 
@@ -47,8 +47,6 @@ pub struct GpuStateManager {
     pub fade_delay: Duration,
     /// Duration of the fade-out animation
     pub fade_duration: Duration,
-    /// Per-scrollbar fade state: (DomId, NodeId) → last activity time
-    pub fade_states: BTreeMap<(DomId, NodeId), ScrollbarFadeState>,
     /// Whether any scrollbar has non-zero opacity and needs continued frame
     /// generation. Set during both the fade_delay period (opacity == 1.0)
     /// and the active fade-out phase (0 < opacity < 1).
@@ -70,34 +68,6 @@ impl Default for GpuStateManager {
     }
 }
 
-/// Internal state for tracking per-scrollbar fade activity.
-///
-/// Stores the last scroll activity time so that `tick()` can
-/// independently recalculate opacity values each frame without
-/// needing access to the `ScrollManager`.
-#[derive(Debug, Clone)]
-pub struct ScrollbarFadeState {
-    /// Timestamp of last scroll activity for this scrollbar
-    pub last_activity_time: Option<Instant>,
-    /// Whether this scrollbar needs vertical fading
-    pub needs_vertical: bool,
-    /// Whether this scrollbar needs horizontal fading
-    pub needs_horizontal: bool,
-}
-
-/// Result of a GPU state tick operation.
-///
-/// Contains information about whether the GPU state changed and
-/// what specific changes occurred for the renderer to process.
-#[derive(Debug, Default)]
-#[must_use]
-pub struct GpuTickResult {
-    /// Whether any GPU state changed requiring a repaint
-    pub needs_repaint: bool,
-    /// Detailed changes to transform and opacity keys
-    pub changes: GpuEventChanges,
-}
-
 impl GpuStateManager {
     /// Creates a new GPU state manager with specified fade timing.
     pub fn new(fade_delay: Duration, fade_duration: Duration) -> Self {
@@ -105,7 +75,6 @@ impl GpuStateManager {
             caches: BTreeMap::new(),
             fade_delay,
             fade_duration,
-            fade_states: BTreeMap::new(),
             scrollbar_fade_active: false,
             pending_changes: GpuEventChanges::empty(),
         }
@@ -117,113 +86,13 @@ impl GpuStateManager {
         core::mem::take(&mut self.pending_changes)
     }
 
-    /// Advances GPU state by one tick, interpolating animated opacity values.
-    ///
-    /// This should be called each frame to update opacity transitions
-    /// for smooth scrollbar fading. Returns whether a repaint is needed
-    /// (i.e., any opacity value changed).
-    pub fn tick(&mut self, now: Instant) -> GpuTickResult {
-        let mut needs_repaint = false;
-        let fade_delay = self.fade_delay;
-        let fade_duration = self.fade_duration;
-
-        // Iterate over all tracked fade states and recalculate opacity
-        for (&(dom_id, node_id), fade_state) in &self.fade_states {
-            let cache = match self.caches.get_mut(&dom_id) {
-                Some(c) => c,
-                None => continue,
-            };
-
-            let opacity = Self::calculate_fade_opacity(
-                fade_state.last_activity_time.as_ref(),
-                &now,
-                fade_delay,
-                fade_duration,
-            );
-
-            // Update vertical opacity
-            if fade_state.needs_vertical {
-                let key = (dom_id, node_id);
-                if let Some(old_val) = cache.scrollbar_v_opacity_values.get(&key) {
-                    if (old_val - opacity).abs() > 0.001 {
-                        cache.scrollbar_v_opacity_values.insert(key, opacity);
-                        needs_repaint = true;
-                    }
-                }
-            }
-
-            // Update horizontal opacity
-            if fade_state.needs_horizontal {
-                let key = (dom_id, node_id);
-                if let Some(old_val) = cache.scrollbar_h_opacity_values.get(&key) {
-                    if (old_val - opacity).abs() > 0.001 {
-                        cache.scrollbar_h_opacity_values.insert(key, opacity);
-                        needs_repaint = true;
-                    }
-                }
-            }
-        }
-
-        GpuTickResult {
-            needs_repaint,
-            changes: GpuEventChanges::empty(),
-        }
-    }
-
-    /// Calculate scrollbar opacity based on elapsed time since last activity.
-    ///
-    /// Three-phase model:
-    /// 1. During `fade_delay`: fully visible (1.0)
-    /// 2. During `fade_duration` after delay: linear fade from 1.0 to 0.0
-    /// 3. After delay + duration: fully hidden (0.0)
-    fn calculate_fade_opacity(
-        last_activity: Option<&Instant>,
-        now: &Instant,
-        fade_delay: Duration,
-        fade_duration: Duration,
-    ) -> f32 {
-        let Some(last_activity) = last_activity else {
-            return 0.0;
-        };
-
-        let time_since_activity = now.duration_since(last_activity);
-
-        // Phase 1: Scrollbar stays fully visible during fade_delay
-        if time_since_activity.div(&fade_delay) < 1.0 {
-            return 1.0;
-        }
-
-        // Phase 2: Fade out over fade_duration
-        // Compute (time_since_activity - fade_delay) / fade_duration
-        let fade_progress = (time_since_activity.div(&fade_duration) - fade_delay.div(&fade_duration)).min(1.0);
-
-        // Phase 3: Fully faded
-        (1.0 - fade_progress).max(0.0)
-    }
-
-    /// Record scroll activity for a scrollbar node, resetting the fade timer.
-    ///
-    /// This should be called whenever scroll activity occurs to keep the
-    /// scrollbar visible and reset the fade-out timer.
-    pub fn record_scroll_activity(
-        &mut self,
-        dom_id: DomId,
-        node_id: NodeId,
-        now: Instant,
-        needs_vertical: bool,
-        needs_horizontal: bool,
-    ) {
-        let state = self.fade_states
-            .entry((dom_id, node_id))
-            .or_insert(ScrollbarFadeState {
-                last_activity_time: None,
-                needs_vertical: false,
-                needs_horizontal: false,
-            });
-        state.last_activity_time = Some(now);
-        state.needs_vertical = needs_vertical;
-        state.needs_horizontal = needs_horizontal;
-    }
+    // NOTE: the per-frame scrollbar-fade interpolation lives in
+    // `LayoutWindow::synchronize_scrollbar_opacity` (layout/src/window.rs),
+    // which reads the last-activity time straight from the `ScrollManager` and
+    // is the single source of truth for fade opacity. An earlier duplicate
+    // tick-based subsystem here (`tick` / `record_scroll_activity` /
+    // `calculate_fade_opacity` + a `fade_states` map) was never wired into any
+    // render loop and has been removed.
 
     /// Gets or creates the GPU cache for a specific DOM.
     pub fn get_cache(&self, dom_id: DomId) -> Option<&GpuValueCache> {

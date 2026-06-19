@@ -34,7 +34,10 @@
 
 use azul_core::{
     dom::DomNodeId,
-    events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
+    events::{
+        EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
+        TextInputEventData,
+    },
     task::Instant,
 };
 use azul_css::corety::AzString;
@@ -203,15 +206,20 @@ impl EventProvider for TextInputManager {
                 None => CoreEventSource::User,
             };
 
-            // Generate Input event (fires on every keystroke)
+            // Generate Input event (fires on every keystroke).
+            // Carry the edit details on the event itself (inserted/old text) so
+            // callbacks read them straight off the event — like other event
+            // types — without having to query `get_pending_changeset()`. The
+            // edited node is available via `SyntheticEvent.target`.
             events.push(SyntheticEvent::new(
                 EventType::Input,
                 event_source,
                 changeset.node,
                 timestamp,
-                // Callbacks can query changeset via
-                // text_input_manager.get_pending_changeset()
-                EventData::None,
+                EventData::TextInput(TextInputEventData {
+                    inserted_text: changeset.inserted_text.as_str().to_string(),
+                    old_text: changeset.old_text.as_str().to_string(),
+                }),
             ));
 
             // Note: We don't generate Change events here - those are generated

@@ -1173,7 +1173,20 @@ impl Clone for IcuLocalizerHandle {
 
 impl Drop for IcuLocalizerHandle {
     fn drop(&mut self) {
-        self.run_destructor = false;
+        // Honor `run_destructor`. When this `#[repr(C)]` handle is moved across
+        // the FFI boundary the codegen sets `run_destructor = false` on the
+        // moved-from (bitwise) copy, so a C-side by-value copy can never run the
+        // refcount decrement twice and double-free. Previously this impl ignored
+        // the flag and freed unconditionally — that was the double-free hazard.
+        // This now matches the canonical azul refcount pattern (`RefCount::drop`).
+        //
+        // NOTE: the field layout (ptr / copies / run_destructor) is pinned in
+        // api.json (`IcuLocalizerHandle.struct_fields`), so the manual refcount
+        // cannot be swapped for a plain `Arc` without an FFI ABI break + codegen
+        // regen; honoring the flag is the ABI-safe equivalent fix.
+        if !self.run_destructor || self.copies.is_null() {
+            return;
+        }
         unsafe {
             let copies = (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst);
             if copies == 1 {
@@ -1607,39 +1620,51 @@ pub trait LayoutCallbackInfoIcuExt {
     fn icu_strings_equal(&self, a: &str, b: &str) -> bool;
 }
 
+/// Process-wide ICU localizer shared by all `LayoutCallbackInfo` ICU calls.
+///
+/// Every `icu_*` method below used to allocate a throwaway `IcuLocalizerHandle`
+/// per call. Because the handle's per-locale formatter cache lives *inside* the
+/// handle, that rebuilt every ICU formatter (decimal, plural, list, collator, …)
+/// from scratch on every call — the cache never survived. Caching one shared
+/// handle here means each locale's formatters are built once and reused across
+/// all calls; the per-call locale is passed explicitly to each method, so a
+/// single shared handle serves every locale.
+fn shared_localizer_handle() -> &'static IcuLocalizerHandle {
+    use std::sync::OnceLock;
+    static SHARED: OnceLock<IcuLocalizerHandle> = OnceLock::new();
+    SHARED.get_or_init(|| IcuLocalizerHandle::new("en-US"))
+}
+
 impl LayoutCallbackInfoIcuExt for LayoutCallbackInfo {
     fn icu_get_locale(&self) -> AzString {
-        let system_style = self.get_system_style();
-        let handle = IcuLocalizerHandle::from_system_language(&system_style.language);
-        handle.get_default_locale()
+        // The active locale is the system language itself (the previous
+        // implementation round-tripped it through a fresh handle's default
+        // locale, which returned the same string).
+        self.get_system_style().language.clone()
     }
 
     fn icu_get_language(&self) -> AzString {
         let system_style = self.get_system_style();
-        let handle = IcuLocalizerHandle::from_system_language(&system_style.language);
-        let locale = system_style.language.as_str();
-        handle.get_language(locale)
+        shared_localizer_handle().get_language(system_style.language.as_str())
     }
 
     fn icu_format_integer(&self, value: i64) -> AzString {
         let system_style = self.get_system_style();
-        let handle = IcuLocalizerHandle::from_system_language(&system_style.language);
-        let locale = system_style.language.as_str();
-        handle.format_integer(locale, value)
+        shared_localizer_handle().format_integer(system_style.language.as_str(), value)
     }
 
     fn icu_format_decimal(&self, integer_part: i64, decimal_places: i16) -> AzString {
         let system_style = self.get_system_style();
-        let handle = IcuLocalizerHandle::from_system_language(&system_style.language);
-        let locale = system_style.language.as_str();
-        handle.format_decimal(locale, integer_part, decimal_places)
+        shared_localizer_handle().format_decimal(
+            system_style.language.as_str(),
+            integer_part,
+            decimal_places,
+        )
     }
 
     fn icu_get_plural_category(&self, value: i64) -> PluralCategory {
         let system_style = self.get_system_style();
-        let handle = IcuLocalizerHandle::from_system_language(&system_style.language);
-        let locale = system_style.language.as_str();
-        handle.get_plural_category(locale, value)
+        shared_localizer_handle().get_plural_category(system_style.language.as_str(), value)
     }
 
     fn icu_pluralize(
@@ -1653,58 +1678,55 @@ impl LayoutCallbackInfoIcuExt for LayoutCallbackInfo {
         other: &str,
     ) -> AzString {
         let system_style = self.get_system_style();
-        let handle = IcuLocalizerHandle::from_system_language(&system_style.language);
-        let locale = system_style.language.as_str();
-        handle.pluralize(locale, value, zero, one, two, few, many, other)
+        shared_localizer_handle().pluralize(
+            system_style.language.as_str(),
+            value,
+            zero,
+            one,
+            two,
+            few,
+            many,
+            other,
+        )
     }
 
     fn icu_format_list(&self, items: &[AzString], list_type: ListType) -> AzString {
         let system_style = self.get_system_style();
-        let handle = IcuLocalizerHandle::from_system_language(&system_style.language);
-        let locale = system_style.language.as_str();
-        handle.format_list(locale, items, list_type)
+        shared_localizer_handle().format_list(system_style.language.as_str(), items, list_type)
     }
 
     fn icu_format_date(&self, date: IcuDate, length: FormatLength) -> IcuResult {
         let system_style = self.get_system_style();
-        let handle = IcuLocalizerHandle::from_system_language(&system_style.language);
-        let locale = system_style.language.as_str();
-        handle.format_date(locale, date, length)
+        shared_localizer_handle().format_date(system_style.language.as_str(), date, length)
     }
 
     fn icu_format_time(&self, time: IcuTime, include_seconds: bool) -> IcuResult {
         let system_style = self.get_system_style();
-        let handle = IcuLocalizerHandle::from_system_language(&system_style.language);
-        let locale = system_style.language.as_str();
-        handle.format_time(locale, time, include_seconds)
+        shared_localizer_handle().format_time(
+            system_style.language.as_str(),
+            time,
+            include_seconds,
+        )
     }
 
     fn icu_format_datetime(&self, datetime: IcuDateTime, length: FormatLength) -> IcuResult {
         let system_style = self.get_system_style();
-        let handle = IcuLocalizerHandle::from_system_language(&system_style.language);
-        let locale = system_style.language.as_str();
-        handle.format_datetime(locale, datetime, length)
+        shared_localizer_handle().format_datetime(system_style.language.as_str(), datetime, length)
     }
 
     fn icu_compare_strings(&self, a: &str, b: &str) -> i32 {
         let system_style = self.get_system_style();
-        let handle = IcuLocalizerHandle::from_system_language(&system_style.language);
-        let locale = system_style.language.as_str();
-        handle.compare_strings(locale, a, b)
+        shared_localizer_handle().compare_strings(system_style.language.as_str(), a, b)
     }
 
     fn icu_sort_strings(&self, strings: &[AzString]) -> IcuStringVec {
         let system_style = self.get_system_style();
-        let handle = IcuLocalizerHandle::from_system_language(&system_style.language);
-        let locale = system_style.language.as_str();
-        handle.sort_strings(locale, strings)
+        shared_localizer_handle().sort_strings(system_style.language.as_str(), strings)
     }
 
     fn icu_strings_equal(&self, a: &str, b: &str) -> bool {
         let system_style = self.get_system_style();
-        let handle = IcuLocalizerHandle::from_system_language(&system_style.language);
-        let locale = system_style.language.as_str();
-        handle.strings_equal(locale, a, b)
+        shared_localizer_handle().strings_equal(system_style.language.as_str(), a, b)
     }
 }
 

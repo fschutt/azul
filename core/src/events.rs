@@ -432,6 +432,21 @@ pub struct WindowEventData {
     pub position: Option<LogicalPosition>,
 }
 
+/// Type-specific event data for text-input (editing) events.
+///
+/// Carried by `EventType::Input` events so that text-input callbacks can read
+/// the edit details directly off the event — matching how mouse/keyboard/scroll
+/// callbacks read their data — instead of having to reach into the
+/// `TextInputManager`'s pending changeset. The edited node is already available
+/// via `SyntheticEvent.target`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextInputEventData {
+    /// The text inserted by this edit (empty for pure deletions).
+    pub inserted_text: String,
+    /// The text content of the node *before* this edit was applied.
+    pub old_text: String,
+}
+
 /// Union of all possible event data types.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventData {
@@ -445,6 +460,8 @@ pub enum EventData {
     Touch(TouchEventData),
     /// Clipboard event data
     Clipboard(ClipboardEventData),
+    /// Text-input (editing) event data
+    TextInput(TextInputEventData),
     /// Lifecycle event data
     Lifecycle(LifecycleEventData),
     /// Window event data

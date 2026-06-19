@@ -3890,6 +3890,22 @@ pub trait PlatformWindow {
                 .unwrap_or_else(|| {
                     azul_core::refany::RefAny::new(EmptyRefAnyData(0))
                 });
+            // SAFETY / no-store invariant:
+            // `InputInterpreterCallbackType` is an `extern "C" fn`, which cannot be
+            // generic over a lifetime, so its info pointer is typed
+            // `*const InputInterpreterInfo<'static>`. The `info` we pass actually
+            // borrows this stack frame (events, hit_test, keyboard/mouse state),
+            // so the `'static` here is a deliberate lifetime *erasure*, not a real
+            // promise that the data lives forever.
+            //
+            // The contract every interpreter callback must uphold (and the built-in
+            // `default_input_interpreter_extern` does): the pointer and anything
+            // reachable through it are valid ONLY for the duration of this
+            // synchronous `(interpreter.cb)(...)` call. The callback must read it
+            // immediately and must NOT store the pointer, nor any reference derived
+            // from it, beyond the call. `info` is guaranteed live across the call
+            // because it is dropped only at the end of this block, after the call
+            // returns.
             let info_ptr = &info as *const InputInterpreterInfo as *const InputInterpreterInfo<'static>;
             (interpreter.cb)(ctx, info_ptr)
         } else {

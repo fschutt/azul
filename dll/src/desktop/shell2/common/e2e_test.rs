@@ -447,7 +447,10 @@ fn breakdown_line(iter: u32, window: &HeadlessWindow) -> Option<String> {
         gpu_scrollbar_opacity_keys +=
             cache.scrollbar_v_opacity_keys.len() + cache.scrollbar_h_opacity_keys.len();
     }
-    let fade_states_len = lw.gpu_state_manager.fade_states.len();
+    // `GpuStateManager::fade_states` was removed (dead duplicate fade-tick
+    // subsystem; live fade path is window.rs::synchronize_scrollbar_opacity).
+    // The map was never populated, so this snapshot value was always 0.
+    let fade_states_len = 0usize;
     let parsed_fonts_len = lw
         .font_manager
         .parsed_fonts

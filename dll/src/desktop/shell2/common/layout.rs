@@ -940,6 +940,29 @@ pub fn regenerate_layout(
 /// - CSD injection (already done)
 /// - State migration / reconciliation (NodeIds haven't changed)
 /// - Manager remapping (NodeIds haven't changed)
+///
+/// ## Per-backend wiring status — TODO(superplan)
+///
+/// Only the macOS backend currently routes `ProcessEventResult::ShouldIncrementalRelayout`
+/// to this fast path (see `macos/mod.rs` `process_close_event`, the
+/// `ShouldIncrementalRelayout => incremental_relayout(...)` arm). The other
+/// backends collapse `ShouldIncrementalRelayout` into the same arm as
+/// `ShouldRegenerateDomCurrentWindow`, so a restyle/runtime-edit (hover/focus CSS,
+/// `set_css_property`, `set_node_text`) triggers a *full* `regenerate_layout()` —
+/// re-invoking the user's `layout_callback()` and rebuilding the StyledDom — when
+/// re-running layout on the existing StyledDom would suffice.
+///
+/// To wire each backend, split `ShouldIncrementalRelayout` out of the combined
+/// arm and call `incremental_relayout(layout_window, &current_window_state,
+/// &mut renderer_resources, &mut debug_messages)` (mirroring `macos/mod.rs`),
+/// then set `frame_needs_regeneration = true`. These arms live in files owned by
+/// Group 7, so they cannot be edited here:
+///   - TODO(superplan): wire ShouldIncrementalRelayout in linux/x11/mod.rs
+///     (the `ShouldRegenerateDomCurrentWindow | ShouldIncrementalRelayout |
+///     UpdateHitTesterAndProcessAgain` arm, ~:1833).
+///   - TODO(superplan): wire ShouldIncrementalRelayout in windows/mod.rs (~:3540).
+///   - TODO(superplan): wire ShouldIncrementalRelayout in linux/wayland/mod.rs
+///     (the combined arms at ~:1951 and ~:2134).
 pub fn incremental_relayout(
     layout_window: &mut LayoutWindow,
     current_window_state: &FullWindowState,
