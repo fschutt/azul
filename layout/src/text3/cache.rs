@@ -73,6 +73,15 @@ const SUBSCRIPT_OFFSET_RATIO: f32 = 0.3;
 /// CSS superscript baseline offset as fraction of line ascent (CSS Inline §3).
 const SUPERSCRIPT_OFFSET_RATIO: f32 = 0.4;
 
+/// Approximate per-character advance for the (unshaped) ruby base placeholder,
+/// as a fraction of font_size. A coarse Latin-ish average; CJK bases (the common
+/// ruby case) are nearer 1.0em — see the TODO at the ruby shaping site.
+const RUBY_BASE_CHAR_WIDTH_RATIO: f32 = 0.6;
+/// Ruby annotation font size relative to the base, per the CSS UA stylesheet
+/// (`rt { font-size: 50% }`). Used to reserve placeholder width for the
+/// annotation so a long annotation is not clipped by a short base.
+const RUBY_ANNOTATION_FONT_SCALE: f32 = 0.5;
+
 /// Glyph storage for a single shaped cluster. Inline one glyph (the
 /// common case for Latin text), spill to heap for ligatures / combining
 /// marks / multi-glyph clusters. The `union` feature of smallvec packs
@@ -255,7 +264,15 @@ impl Hash for AvailableSpace {
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         if let AvailableSpace::Definite(v) = self {
-            (v.round() as isize).hash(state);
+            // Hash the full f32 bit pattern, NOT the integer-rounded value. The
+            // derived `PartialEq` compares `Definite` widths exactly, so rounding
+            // here both (a) broke sub-pixel precision — a 100.1px vs 100.4px
+            // constraint can wrap lines differently yet collided in the same hash
+            // bucket — and (b) was inconsistent with the exact equality used as the
+            // cache key. `-0.0` is normalized to `+0.0` so the `+0.0 == -0.0`
+            // PartialEq pair still hashes identically (Hash/Eq contract).
+            let normalized = if *v == 0.0 { 0.0f32 } else { *v };
+            normalized.to_bits().hash(state);
         }
     }
 }
@@ -3056,8 +3073,20 @@ impl ShapeBoundary {
                         "[ShapeBoundary::from_css_shape] Path - fallback to rectangle".to_string(),
                     ));
                 }
-                // TODO: Parse SVG path data into PathSegments
-                // For now, fall back to rectangle
+                // TODO(superplan): implement CSS `path()` shape-outside/inside.
+                // `path.data` is a raw SVG path `d=""` string; it can be parsed with
+                // the existing `azul_core::path_parser::parse_svg_path_d` (its result
+                // is `SvgPathElement` line/cubic/quadratic segments). Remaining work:
+                //   1. map parsed segments into `Vec<PathSegment>` (relative to
+                //      `reference_box`), flattening curves to a tolerance,
+                //   2. build `ShapeBoundary::Path { segments }`,
+                //   3. implement its scanline intersection (matching TODO below),
+                //      handling multiple subpaths / holes via a winding rule —
+                //      `polygon_line_intersection` only covers a single ring.
+                // The rect fallback is deliberately kept until ALL of the above land
+                // together: emitting a `Path` boundary whose scanline returns no
+                // segments would make a shape-inside container fit zero text.
+                let _ = path;
                 ShapeBoundary::Rectangle(reference_box)
             }
         };
@@ -4951,9 +4980,11 @@ impl UnifiedLayout {
 
     /// Moves a cursor one word to the left (Ctrl+Left / Option+Left).
     ///
-    /// Word boundaries are defined by whitespace: the cursor moves past any
-    /// whitespace to the left, then past non-whitespace characters until
-    /// the next whitespace or start of text.
+    /// Word boundaries use the shared [`is_word_char`] predicate (alphanumeric or
+    /// underscore are word characters; whitespace AND punctuation are boundaries),
+    /// so this agrees with double-click word selection. The cursor moves past any
+    /// boundary clusters to the left, then past word clusters until the next
+    /// boundary or start of text.
     pub fn move_cursor_to_prev_word(
         &self,
         cursor: TextCursor,
@@ -4984,21 +5015,21 @@ impl UnifiedLayout {
             Some(current_pos)
         };
 
-        // Skip whitespace
+        // Skip boundary clusters (whitespace + punctuation)
         while let Some(p) = pos {
             if let Some(cluster) = self.items[p].item.as_cluster() {
-                if !cluster.text.chars().all(|c| c.is_whitespace()) {
+                if !cluster_is_word_boundary(cluster) {
                     break;
                 }
             }
             pos = p.checked_sub(1);
         }
 
-        // Phase 2: Skip non-whitespace going left (the word itself)
+        // Phase 2: Skip word clusters going left (the word itself)
         while let Some(p) = pos {
             if let Some(cluster) = self.items[p].item.as_cluster() {
-                if cluster.text.chars().all(|c| c.is_whitespace()) {
-                    // We've reached whitespace before the word — stop at next cluster
+                if cluster_is_word_boundary(cluster) {
+                    // We've reached a boundary before the word — stop at next cluster
                     if p + 1 < self.items.len() {
                         if let Some(c) = self.items[p + 1].item.as_cluster() {
                             return TextCursor {
@@ -5035,9 +5066,10 @@ impl UnifiedLayout {
 
     /// Moves a cursor one word to the right (Ctrl+Right / Option+Right).
     ///
-    /// Word boundaries are defined by whitespace: the cursor moves past any
-    /// non-whitespace characters, then past whitespace until the next word
-    /// or end of text.
+    /// Word boundaries use the shared [`is_word_char`] predicate (alphanumeric or
+    /// underscore are word characters; whitespace AND punctuation are boundaries),
+    /// so this agrees with double-click word selection. The cursor moves past any
+    /// word clusters, then past boundary clusters until the next word or end of text.
     pub fn move_cursor_to_next_word(
         &self,
         cursor: TextCursor,
@@ -5074,20 +5106,20 @@ impl UnifiedLayout {
 
         let mut pos = start;
 
-        // Phase 1: Skip non-whitespace (current word)
+        // Phase 1: Skip word clusters (current word)
         while pos < len {
             if let Some(cluster) = self.items[pos].item.as_cluster() {
-                if cluster.text.chars().all(|c| c.is_whitespace()) {
+                if cluster_is_word_boundary(cluster) {
                     break;
                 }
             }
             pos += 1;
         }
 
-        // Phase 2: Skip whitespace after word
+        // Phase 2: Skip boundary clusters (whitespace + punctuation) after word
         while pos < len {
             if let Some(cluster) = self.items[pos].item.as_cluster() {
-                if !cluster.text.chars().all(|c| c.is_whitespace()) {
+                if !cluster_is_word_boundary(cluster) {
                     // Found start of next word
                     return TextCursor {
                         cluster_id: cluster.source_cluster_id,
@@ -5142,9 +5174,16 @@ fn get_baseline_for_item(item: &ShapedItem) -> Option<f32> {
 #[derive(Debug, Clone, Default)]
 pub struct OverflowInfo {
     /// The items that did not fit within the constraints.
+    ///
+    /// Currently always empty: the positioners place every item (visual overflow
+    /// is clipped at paint time) rather than dropping content, so nothing is ever
+    /// recorded here. The `window.rs` incremental-patch guard reads
+    /// `overflow_items.is_empty()` to stay future-proof against a positioning path
+    /// that *does* drop items. TODO(superplan): populate this if such a path lands.
     pub overflow_items: Vec<ShapedItem>,
-    /// The total bounds of all content, including overflowing items.
-    /// This is useful for `OverflowBehavior::Visible` or `Scroll`.
+    /// The total bounds of all positioned content, including any that overflows
+    /// the constraints. Populated by both positioners (greedy + Knuth-Plass) from
+    /// [`UnifiedLayout::bounds`]; useful for `OverflowBehavior::Visible`/`Scroll`.
     pub unclipped_bounds: Rect,
 }
 
@@ -7070,7 +7109,22 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 ruby_text,
                 style,
             } => {
-                let placeholder_width = base_text.chars().count() as f32 * style.font_size_px * 0.6;
+                // TODO(superplan): real ruby shaping. Currently the base text is
+                // shaped as a plain inline box and the annotation (`ruby_text`) is
+                // NOT shaped or stacked above the base — it only widens the reserved
+                // box below so a long annotation is not clipped. Proper support needs
+                // the shaping phase to (1) shape both base and annotation runs,
+                // (2) lay the annotation on a separate cross-axis line box at
+                // `RUBY_ANNOTATION_FONT_SCALE` size, and (3) center the narrower over
+                // the wider (CSS Ruby Layout §3). The per-char width estimates below
+                // are coarse (see RUBY_BASE_CHAR_WIDTH_RATIO; CJK bases want ~1.0em).
+                let base_width =
+                    base_text.chars().count() as f32 * style.font_size_px * RUBY_BASE_CHAR_WIDTH_RATIO;
+                let annotation_width = ruby_text.chars().count() as f32
+                    * style.font_size_px
+                    * RUBY_ANNOTATION_FONT_SCALE
+                    * RUBY_BASE_CHAR_WIDTH_RATIO;
+                let placeholder_width = base_width.max(annotation_width);
                 shaped.push(ShapedItem::Object {
                     source: *source,
                     bounds: Rect {
@@ -8156,14 +8210,21 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         )));
     }
 
-    let layout = UnifiedLayout {
+    let mut layout = UnifiedLayout {
         items: positioned_items,
         overflow: OverflowInfo::default(),
     };
 
     // Calculate bounds on demand via the bounds() method
     let calculated_bounds = layout.bounds();
-    
+
+    // Record the unclipped content bounds. `overflow_items` stays empty by
+    // design: this positioner places *every* item, so visual overflow is handled
+    // at paint time via clipping rather than by dropping items here.
+    // TODO(superplan): only populate `overflow_items` if a future positioning
+    // path actually discards content that does not fit.
+    layout.overflow.unclipped_bounds = calculated_bounds;
+
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "--- Calculated bounds: width={}, height={} ---",
@@ -9535,6 +9596,25 @@ fn is_cursive_script_char(ch: char) -> bool {
     false
 }
 
+/// Word-segmentation predicate shared by word selection (double-click) and word
+/// cursor motion (Ctrl/Alt+Arrow) so they agree on what a "word" is.
+///
+/// A word character is alphanumeric or underscore; everything else — whitespace
+/// AND punctuation — is a word boundary. This is deliberately distinct from
+/// [`is_word_separator`] (which classifies *spacing* characters for word-spacing
+/// justification per CSS Text §7.1, and treats punctuation as non-separator).
+/// Used by `selection::find_word_boundaries` and `UnifiedLayout::move_cursor_to_*_word`.
+pub(crate) fn is_word_char(ch: char) -> bool {
+    ch.is_alphanumeric() || ch == '_'
+}
+
+/// True when a shaped cluster is a word-segmentation boundary (whitespace or
+/// punctuation), i.e. it contains no word characters. Keeps cursor word-motion
+/// consistent with `selection::find_word_boundaries`.
+fn cluster_is_word_boundary(cluster: &ShapedCluster) -> bool {
+    !cluster.text.chars().any(is_word_char)
+}
+
 // exclude punctuation and fixed-width spaces (U+3000, U+2000..U+200A)
 pub fn is_word_separator(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
@@ -9828,7 +9908,15 @@ fn get_shape_horizontal_spans(
                 .map(|s| (s.start_x, s.start_x + s.width))
                 .collect())
         }
-        ShapeBoundary::Path { .. } => Ok(vec![]), // TODO!
+        // TODO(superplan): scanline intersection for `path()` shapes. When
+        // `ShapeBoundary::Path { segments }` is actually produced (see the
+        // `CssShape::Path` arm of `from_css_shape`), flatten `segments`
+        // (Close-terminated subpaths; sample CurveTo/QuadTo/Arc into line segments)
+        // into per-subpath polygons and intersect this scanline with each, applying
+        // a winding rule so holes carve out space (don't just concatenate points and
+        // call `polygon_line_intersection`, which assumes a single ring). Today no
+        // Path boundary is ever constructed, so this arm is unreachable.
+        ShapeBoundary::Path { .. } => Ok(vec![]),
     }
 }
 

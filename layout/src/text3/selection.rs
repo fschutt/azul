@@ -4,7 +4,9 @@
 
 use azul_core::selection::{CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor};
 
-use crate::text3::cache::{PositionedItem, ShapedCluster, ShapedItem, UnifiedLayout};
+use crate::text3::cache::{
+    is_word_char, PositionedItem, ShapedCluster, ShapedItem, UnifiedLayout,
+};
 
 /// Select the word at the given cursor position
 ///
@@ -220,11 +222,10 @@ fn find_word_boundaries(text: &str, cursor_offset: usize) -> (usize, usize) {
     (word_start, word_end)
 }
 
-/// Check if a character is part of a word
-#[inline]
-fn is_word_char(ch: char) -> bool {
-    ch.is_alphanumeric() || ch == '_'
-}
+// Word-character classification is shared with cursor word-motion via
+// `cache::is_word_char` (imported above) so selection and Ctrl/Alt+Arrow agree
+// on punctuation. Kept distinct from `cache::is_word_separator`, which is for
+// word-spacing justification, not segmentation.
 
 #[cfg(test)]
 mod tests {

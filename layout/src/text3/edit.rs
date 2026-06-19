@@ -195,19 +195,20 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
 }
 
 /// Deletes the content within a given range.
+///
+/// Handles:
+/// - Deletions within a single text run.
+/// - Deletions spanning multiple runs: the start/end runs are truncated, the
+///   runs strictly between them are dropped, and the two truncated runs are
+///   merged when they share the same style.
+///
+/// Non-text items (images, etc.) at the boundaries are left intact (their text
+/// offset resolves to 0), while intermediate non-text items are dropped along
+/// with the rest of the spanned content.
 pub fn delete_range(
     content: &[InlineContent],
     range: &SelectionRange,
 ) -> (Vec<InlineContent>, TextCursor) {
-    // This is a highly complex function. A full implementation needs to handle:
-    //
-    // - Deletions within a single text run.
-    // - Deletions that span across multiple text runs.
-    // - Deletions that include non-text items like images.
-    //
-    // For now, we provide a simplified version that handles deletion within a
-    // single run.
-
     let mut new_content = content.to_vec();
     let start_run_idx = range.start.cluster_id.source_run as usize;
     let end_run_idx = range.end.cluster_id.source_run as usize;
@@ -238,7 +239,81 @@ pub fn delete_range(
             }
         }
     } else {
-        // TODO: Handle multi-run deletion
+        // Multi-run deletion.
+        //
+        // Normalize direction so `lo` precedes `hi` in document order (the range
+        // may be backward if the user selected right-to-left across runs). Then:
+        //   1. truncate the start (lo) run to the text BEFORE the selection,
+        //   2. truncate the end (hi) run to the text AFTER the selection,
+        //   3. drop every run strictly between them,
+        //   4. merge the two truncated runs when they share the same style.
+        let (lo_run, lo_cursor, hi_run, hi_cursor) = if start_run_idx <= end_run_idx {
+            (start_run_idx, range.start, end_run_idx, range.end)
+        } else {
+            (end_run_idx, range.end, start_run_idx, range.start)
+        };
+
+        // Affinity-aware byte offsets within the two boundary runs. Non-text
+        // boundary runs resolve to 0 (nothing to truncate there).
+        let lo_byte = match new_content.get(lo_run) {
+            Some(InlineContent::Text(run)) => cursor_byte_offset_in_run(&run.text, &lo_cursor),
+            _ => 0,
+        };
+        let hi_byte = match new_content.get(hi_run) {
+            Some(InlineContent::Text(run)) => cursor_byte_offset_in_run(&run.text, &hi_cursor),
+            _ => 0,
+        };
+
+        // 1. Keep only text[..lo_byte] in the start run; remember the head length
+        //    (the collapse point for the caret).
+        let head_len = if let Some(InlineContent::Text(run)) = new_content.get_mut(lo_run) {
+            let cut = lo_byte.min(run.text.len());
+            run.text.truncate(cut);
+            cut
+        } else {
+            0
+        };
+
+        // 2. Keep only text[hi_byte..] in the end run.
+        if let Some(InlineContent::Text(run)) = new_content.get_mut(hi_run) {
+            let cut = hi_byte.min(run.text.len());
+            run.text.drain(..cut);
+        }
+
+        // 3. Drop the intermediate runs. After draining, the end run sits at
+        //    `lo_run + 1`. Clamp the end so a bogus out-of-range `hi_run` can
+        //    never panic the drain.
+        let drain_end = hi_run.min(new_content.len());
+        if drain_end > lo_run + 1 {
+            new_content.drain((lo_run + 1)..drain_end);
+        }
+        let tail_idx = lo_run + 1;
+
+        // 4. Merge head and tail when both are text with matching style. Compared
+        //    by value (`StyleProperties: PartialEq`) so runs that were split from
+        //    one DOM element — or otherwise carry identical styling — re-join into
+        //    a single run, while genuinely different styles stay separate.
+        let mergeable = matches!(
+            (new_content.get(lo_run), new_content.get(tail_idx)),
+            (Some(InlineContent::Text(a)), Some(InlineContent::Text(b)))
+                if a.style == b.style
+        );
+        if mergeable {
+            if let InlineContent::Text(tail) = new_content.remove(tail_idx) {
+                if let Some(InlineContent::Text(head)) = new_content.get_mut(lo_run) {
+                    head.text.push_str(&tail.text);
+                }
+            }
+        }
+
+        // Collapse the caret to the join point (start of the deleted region).
+        cursor_after = TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: lo_run as u32,
+                start_byte_in_run: head_len as u32,
+            },
+            affinity: CursorAffinity::Leading,
+        };
     }
 
     (new_content, cursor_after) // caret at the start of the deleted range

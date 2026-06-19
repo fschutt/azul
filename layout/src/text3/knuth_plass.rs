@@ -588,8 +588,15 @@ fn position_lines_from_breaks(
         start_node = end_node;
     }
 
-    UnifiedLayout {
+    let mut layout = UnifiedLayout {
         items: positioned_items,
         overflow: OverflowInfo::default(),
-    }
+    };
+    // Record the unclipped content bounds. `overflow_items` stays empty by
+    // design: every item is positioned (visual overflow is clipped at paint
+    // time), so nothing is dropped here. TODO(superplan): populate
+    // `overflow_items` only if a path actually discards content that doesn't fit.
+    let bounds = layout.bounds();
+    layout.overflow.unclipped_bounds = bounds;
+    layout
 }
