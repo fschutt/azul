@@ -548,96 +548,17 @@ impl Default for CounterFormat {
 impl CounterFormat {
     /// Format a number according to this counter style.
     pub fn format(&self, n: usize) -> String {
+        use super::counters::{to_alphabetic, to_greek, to_roman};
         match self {
             Self::Decimal => n.to_string(),
             Self::DecimalLeadingZero => format!("{:02}", n),
             Self::LowerRoman => to_roman(n, false),
             Self::UpperRoman => to_roman(n, true),
-            Self::LowerAlpha => to_alpha(n, false),
-            Self::UpperAlpha => to_alpha(n, true),
-            Self::LowerGreek => to_greek(n),
+            Self::LowerAlpha => to_alphabetic(n, false),
+            Self::UpperAlpha => to_alphabetic(n, true),
+            Self::LowerGreek => to_greek(n, false),
         }
     }
-}
-
-/// Convert number to roman numerals.
-fn to_roman(mut n: usize, uppercase: bool) -> String {
-    if n == 0 {
-        return "0".to_string();
-    }
-
-    let numerals = [
-        (1000, "m"),
-        (900, "cm"),
-        (500, "d"),
-        (400, "cd"),
-        (100, "c"),
-        (90, "xc"),
-        (50, "l"),
-        (40, "xl"),
-        (10, "x"),
-        (9, "ix"),
-        (5, "v"),
-        (4, "iv"),
-        (1, "i"),
-    ];
-
-    let mut result = String::new();
-    for (value, numeral) in &numerals {
-        while n >= *value {
-            result.push_str(numeral);
-            n -= value;
-        }
-    }
-
-    if uppercase {
-        result.to_uppercase()
-    } else {
-        result
-    }
-}
-
-/// Convert number to alphabetic (a-z, aa-az, etc.).
-fn to_alpha(n: usize, uppercase: bool) -> String {
-    if n == 0 {
-        return "0".to_string();
-    }
-
-    let mut result = String::new();
-    let mut remaining = n;
-
-    while remaining > 0 {
-        remaining -= 1;
-        let c = ((remaining % 26) as u8 + if uppercase { b'A' } else { b'a' }) as char;
-        result.insert(0, c);
-        remaining /= 26;
-    }
-
-    result
-}
-
-/// Convert number to Greek letters (α, β, γ, ...).
-fn to_greek(n: usize) -> String {
-    const GREEK: &[char] = &[
-        'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ', 'ο', 'π', 'ρ', 'σ',
-        'τ', 'υ', 'φ', 'χ', 'ψ', 'ω',
-    ];
-    if n == 0 {
-        return "0".to_string();
-    }
-    if n <= GREEK.len() {
-        return GREEK[n - 1].to_string();
-    }
-
-    // For numbers > 24, use αα, αβ, etc.
-    let mut result = String::new();
-    let mut remaining = n;
-    while remaining > 0 {
-        remaining -= 1;
-        result.insert(0, GREEK[remaining % GREEK.len()]);
-        remaining /= GREEK.len();
-    }
-    result
 }
 
 /// Information about the current page, passed to content generators.
