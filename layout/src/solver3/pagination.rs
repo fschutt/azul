@@ -66,34 +66,7 @@ pub struct PageGeometer {
     pub current_y: f32,
 }
 
-/// Page margin configuration
-#[derive(Debug, Clone, Copy, Default)]
-pub struct PageMargins {
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-    pub left: f32,
-}
-
-impl PageMargins {
-    pub fn new(top: f32, right: f32, bottom: f32, left: f32) -> Self {
-        Self {
-            top,
-            right,
-            bottom,
-            left,
-        }
-    }
-
-    pub fn uniform(margin: f32) -> Self {
-        Self {
-            top: margin,
-            right: margin,
-            bottom: margin,
-            left: margin,
-        }
-    }
-}
+pub use crate::fragmentation::PageMargins;
 
 impl PageGeometer {
     /// Create a new PageGeometer for paged layout.
