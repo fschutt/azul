@@ -10,6 +10,7 @@ use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     style::matches_html_element,
     styled_dom::NodeHierarchyItemId,
+    window::UpdateFocusWarning,
 };
 
 use crate::window::DomLayoutResult;
@@ -197,70 +198,6 @@ impl FocusManager {
             }
         }
     }
-}
-
-/// Direction for cursor navigation
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum CursorNavigationDirection {
-    /// Move cursor up one line
-    Up,
-    /// Move cursor down one line
-    Down,
-    /// Move cursor left one character
-    Left,
-    /// Move cursor right one character
-    Right,
-    /// Move cursor to start of current line
-    LineStart,
-    /// Move cursor to end of current line
-    LineEnd,
-    /// Move cursor to start of document
-    DocumentStart,
-    /// Move cursor to end of document
-    DocumentEnd,
-}
-
-/// Result of a cursor movement operation
-#[derive(Debug, Clone)]
-pub enum CursorMovementResult {
-    /// Cursor moved within the same text node
-    MovedWithinNode(azul_core::selection::TextCursor),
-    /// Cursor moved to a different text node
-    MovedToNode {
-        dom_id: DomId,
-        node_id: NodeId,
-        cursor: azul_core::selection::TextCursor,
-    },
-    /// Cursor is at a boundary and cannot move further
-    AtBoundary {
-        boundary: crate::text3::cache::TextBoundary,
-        cursor: azul_core::selection::TextCursor,
-    },
-}
-
-/// Error returned when cursor navigation cannot find a valid destination.
-///
-/// This occurs when attempting to move the cursor (e.g., arrow keys in a
-/// contenteditable element) but no valid target position exists, such as
-/// when already at the start/end of text content.
-#[derive(Debug, Clone)]
-pub struct NoCursorDestination {
-    /// Human-readable explanation of why navigation failed
-    pub reason: String,
-}
-
-/// Warning/error type for focus resolution failures.
-///
-/// Returned by `resolve_focus_target` when the requested focus target
-/// cannot be resolved to a valid focusable node.
-#[derive(Debug, Clone, PartialEq)]
-pub enum UpdateFocusWarning {
-    /// The specified DOM ID does not exist in the layout results
-    FocusInvalidDomId(DomId),
-    /// The specified node ID does not exist within its DOM
-    FocusInvalidNodeId(NodeHierarchyItemId),
-    /// CSS path selector did not match any focusable node (includes the path for debugging)
-    CouldNotFindFocusNode(String),
 }
 
 /// Direction for searching focusable nodes in the DOM tree.
