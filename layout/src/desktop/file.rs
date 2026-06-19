@@ -97,16 +97,16 @@ impl File {
         let file_bytes = std::fs::read(self.path.as_str()).ok()?;
         Some(file_bytes.into())
     }
-    /// Writes a string to the file handle.
-    pub fn write_string(&mut self, string: &str) -> Option<()> {
+    /// Writes a string to the file handle. Returns `false` on failure.
+    pub fn write_string(&mut self, string: &str) -> bool {
         self.write_bytes(string.as_bytes())
     }
-    /// Writes bytes to the file handle and syncs to disk.
-    pub fn write_bytes(&mut self, bytes: &[u8]) -> Option<()> {
-        let mut lock = self.ptr.lock().ok()?;
-        lock.write_all(bytes).ok()?;
-        lock.sync_all().ok()?;
-        Some(())
+    /// Writes bytes to the file handle and syncs to disk. Returns `false` on failure.
+    pub fn write_bytes(&mut self, bytes: &[u8]) -> bool {
+        let Ok(mut lock) = self.ptr.lock() else {
+            return false;
+        };
+        lock.write_all(bytes).is_ok() && lock.sync_all().is_ok()
     }
     /// Closes the file by dropping the handle. Provided for C API symmetry.
     pub fn close(self) {}
