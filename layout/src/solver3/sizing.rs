@@ -1616,7 +1616,7 @@ pub fn calculate_used_size_for_node(
             ) && !is_replaced
             {
                 let off = crate::solver3::positioning::resolve_position_offsets(
-                    styled_dom, dom_id, *containing_block_size,
+                    styled_dom, dom_id, *containing_block_size, *viewport_size,
                 );
                 match (off.top, off.bottom) {
                     (Some(t), Some(b)) => Some(
