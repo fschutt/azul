@@ -311,6 +311,17 @@ impl CompositorState {
                         }
                     }
                 }
+                // TODO(superplan g4): allocate a layer for `backdrop-filter` here
+                // (mirror the PushFilter arm above), but tag it so the compositor
+                // knows to filter the *backdrop* rather than the layer's own
+                // content. The compositing side then reads back the parent
+                // `output` region under the bounds in
+                // `composite_layer_recursive` and runs `apply_layer_filters` on
+                // it before blitting the content. Left unallocated for now — see
+                // the matching known-limitation TODO in `render_single_item`.
+                // `text-shadow` (Push/PopTextShadow) is a text-rasterization
+                // concern, not a layer boundary, so it is handled (currently as a
+                // documented no-op) in `render_single_item`, not here.
                 _ => {}
             }
             i += 1;
@@ -4094,11 +4105,45 @@ fn render_single_item(
         }
 
         // --- Filter effects ---
-        // TODO: proper compositing architecture with per-layer pixbufs
+        //
+        // `filter` (PushFilter/PopFilter) is intentionally a no-op *here*: the
+        // effect is realized by the compositor layer path, which allocates a
+        // dedicated pixbuf for the filtered subtree in
+        // `allocate_layers_from_display_list` and applies the blur/color filters
+        // at composite time via `apply_layer_filters`. The content between
+        // Push/PopFilter is rendered into that layer's pixbuf by this very
+        // function, so the markers themselves carry no work at item level.
         DisplayListItem::PushFilter { .. } => {}
         DisplayListItem::PopFilter => {}
+
+        // TODO(superplan g4): `backdrop-filter` is unimplemented in the CPU
+        // renderer. Unlike `filter` (which acts on the element's own content),
+        // it must read the *already-composited backdrop* (parent + earlier
+        // siblings) under the element and blur/tint that. Those pixels do not
+        // exist in this per-layer `pixmap`; they only exist in the `output`
+        // buffer inside `CompositorState::composite_layer_recursive`. Correct
+        // impl: (1) allocate a layer for PushBackdropFilter in
+        // `allocate_layers_from_display_list` (mirroring PushFilter but tagged as
+        // a backdrop filter, see the matching TODO there); (2) in
+        // `composite_layer_recursive`, before blitting that layer's own content,
+        // copy the `output` region under the layer's absolute bounds, run
+        // `apply_layer_filters` on the copy, and write it back. No item-level
+        // work belongs here. Documented as a known limitation rather than shipping
+        // a half-impl that ignores the backdrop.
         DisplayListItem::PushBackdropFilter { .. } => {}
         DisplayListItem::PopBackdropFilter => {}
+
+        // TODO(superplan g4): `text-shadow` is unimplemented in the CPU renderer.
+        // Correct impl: thread a `text_shadow_stack: &mut Vec<StyleBoxShadow>`
+        // into this function (pushed/popped by these markers), and in the
+        // `DisplayListItem::Text` / `TextLayout` arms, when the stack is
+        // non-empty, first rasterize the glyph run offset by `shadow.offset`,
+        // tinted with `shadow.color`, blurred by `shadow.blur_radius` (reuse the
+        // box-blur used by `StyleFilter::Blur` in `apply_layer_filters`, which
+        // needs an offscreen buffer), then draw the real glyphs on top. A
+        // shadow-less / blur-less shortcut would mis-render the common
+        // `text-shadow: Xpx Ypx Zpx` case, so this is documented as a known
+        // limitation rather than half-implemented.
         DisplayListItem::PushTextShadow { .. } => {}
         DisplayListItem::PopTextShadow => {}
 

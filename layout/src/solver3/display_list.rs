@@ -81,7 +81,6 @@ const APPROX_UNDERLINE_THICKNESS_RATIO: f32 = 0.08;
 const APPROX_UNDERLINE_OFFSET_RATIO: f32 = 0.12;
 const APPROX_STRIKETHROUGH_OFFSET_RATIO: f32 = 0.3;
 const APPROX_OVERLINE_OFFSET_RATIO: f32 = 0.85;
-const APPROX_MONOSPACE_CHAR_WIDTH_RATIO: f32 = 0.5;
 const APPROX_ELLIPSIS_WIDTH_RATIO: f32 = 0.6;
 const DEFAULT_A4_WIDTH_PT: f32 = 595.0;
 const DEFAULT_SHADOW_FONT_SIZE_PX: f32 = 16.0;
@@ -4378,7 +4377,11 @@ where
 
         match content {
             InlineContent::Image(image) => {
-                if let Some(image_ref) = get_image_ref_for_image_source(&image.source) {
+                if let Some(image_ref) = get_image_ref_for_image_source(
+                    &image.source,
+                    self.ctx.image_cache,
+                    object_bounds.size,
+                ) {
                     builder.push_image(object_bounds, image_ref, BorderRadius::default());
                 }
             }
@@ -4642,18 +4645,63 @@ fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<DisplayListTagId> {
     Some((tag_mapping.tag_id.inner, TAG_TYPE_DOM_NODE))
 }
 
+/// Resolve an [`ImageSource`] (as carried by an inline `InlineContent::Image`)
+/// to a concrete [`ImageRef`] ready for `push_image`.
+///
+/// `target_size` is the object's logical box size, used only to size the raster
+/// when rasterizing an SVG source.
 fn get_image_ref_for_image_source(
     source: &ImageSource,
+    image_cache: &azul_core::resources::ImageCache,
+    target_size: LogicalSize,
 ) -> Option<ImageRef> {
     match source {
         ImageSource::Ref(image_ref) => Some(image_ref.clone()),
-        ImageSource::Url(_url) => {
-            // TODO: Look up in ImageCache
-            // For now, CSS url() images are not yet supported
-            None
+        ImageSource::Url(url) => {
+            // CSS url() image — resolved exactly like `background-image`: look it
+            // up in the ImageCache by its CSS id (see push_backgrounds_and_border).
+            let css_id: azul_css::AzString = url.clone().into();
+            image_cache.get_css_image_id(&css_id).cloned()
         }
-        ImageSource::Data(_) | ImageSource::Svg(_) | ImageSource::Placeholder(_) => {
-            // TODO: Decode raw data / SVG to ImageRef
+        ImageSource::Data(bytes) => {
+            // Encoded image bytes (PNG/JPEG/…): decode to a RawImage, then build
+            // an ImageRef. The `decode` module is gated on `std` and the decoder
+            // itself needs the `image` crate (`image_decoding`).
+            #[cfg(all(feature = "std", feature = "image_decoding"))]
+            {
+                use crate::image::decode::{
+                    decode_raw_image_from_any_bytes, ResultRawImageDecodeImageError,
+                };
+                if let ResultRawImageDecodeImageError::Ok(raw) =
+                    decode_raw_image_from_any_bytes(bytes)
+                {
+                    return ImageRef::new_rawimage(raw);
+                }
+                None
+            }
+            #[cfg(not(all(feature = "std", feature = "image_decoding")))]
+            {
+                let _ = bytes;
+                None
+            }
+        }
+        ImageSource::Svg(svg) => {
+            // Rasterize the SVG source to the object's box size using the CPU SVG
+            // renderer. Needs the `cpurender` feature.
+            #[cfg(feature = "cpurender")]
+            {
+                let w = (target_size.width.round() as u32).max(1);
+                let h = (target_size.height.round() as u32).max(1);
+                crate::cpurender::render_svg_to_imageref(svg.as_bytes(), w, h).ok()
+            }
+            #[cfg(not(feature = "cpurender"))]
+            {
+                let _ = (svg, target_size);
+                None
+            }
+        }
+        ImageSource::Placeholder(_) => {
+            // Layout-only placeholder: reserves space, paints nothing.
             None
         }
     }
@@ -6020,10 +6068,33 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
     }
 }
 
-/// Generate display list items for simple text (headers/footers).
+/// Generate display list items for simple text (paginated headers/footers).
 ///
-/// This creates a simplified text rendering without full text layout.
-/// For now, this creates a placeholder that renderers should handle specially.
+/// TODO(superplan g4): paginated header/footer text is not rendered.
+///
+/// The previous implementation fabricated a `DisplayListItem::Text` whose glyph
+/// `index` was the Unicode *codepoint* (`c as u32`) and whose `font_hash` was
+/// `FontHash::from_hash(0)`. Both are invalid: glyph indices are font-specific
+/// (a font's cmap maps codepoint → GID), and hash 0 matches no registered font,
+/// so `cpurender::render_text` resolves no font, logs "Font hash 0 not found"
+/// and paints nothing. The output was therefore invisible *and* noisy — worse
+/// than emitting nothing — so the fabrication is removed here.
+///
+/// A correct implementation needs a real font, which the pagination API does not
+/// currently carry: `HeaderFooterConfig` has `font_size`/`text_color` but no
+/// font, and `paginate_display_list_with_slicer_and_breaks` (the sole caller, in
+/// `solver3/paged_layout.rs`) has `renderer_resources` in scope but does not
+/// thread it in. To finish:
+///   1. Add the chosen font (or its registered `u64` hash) to
+///      `HeaderFooterConfig` / `SlicerConfig`, and thread `renderer_resources`
+///      (already available in `paged_layout.rs`) into this function.
+///   2. Shape the string against that `ParsedFont`: for each char,
+///      `lookup_glyph_index(c as u32)` gives the GID, advancing the pen by
+///      `get_horizontal_advance(gid) as f32 * font_size / units_per_em`.
+///   3. Emit a `DisplayListItem::Text` with those real GIDs and the font's
+///      registered hash so the renderer can resolve and paint it.
+///
+/// Until then this returns nothing rather than unresolvable glyph soup.
 fn generate_text_display_items(
     text: &str,
     bounds: LogicalRect,
@@ -6031,54 +6102,8 @@ fn generate_text_display_items(
     color: ColorU,
     alignment: TextAlignment,
 ) -> Vec<DisplayListItem> {
-    use crate::font_traits::FontHash;
-
-    if text.is_empty() {
-        return Vec::new();
-    }
-
-    // Calculate approximate text position based on alignment
-    // For now, we estimate character width as 0.5 * font_size (monospace approximation)
-    let char_width = font_size * APPROX_MONOSPACE_CHAR_WIDTH_RATIO;
-    let text_width = text.len() as f32 * char_width;
-
-    let x_offset = match alignment {
-        TextAlignment::Left => bounds.origin.x,
-        TextAlignment::Center => bounds.origin.x + (bounds.size.width - text_width) / 2.0,
-        TextAlignment::Right => bounds.origin.x + bounds.size.width - text_width,
-    };
-
-    // Position text vertically centered in the bounds
-    let y_pos = bounds.origin.y + (bounds.size.height + font_size) / 2.0 - font_size * 0.2;
-
-    // Create simple glyph instances for each character
-    // Note: This is a simplified approach - proper text rendering should use text3
-    let glyphs: Vec<GlyphInstance> = text
-        .chars()
-        .enumerate()
-        .filter(|(_, c)| !c.is_control())
-        .map(|(i, c)| GlyphInstance {
-            index: c as u32, // Use Unicode codepoint as glyph index (placeholder)
-            point: LogicalPosition {
-                x: x_offset + i as f32 * char_width,
-                y: y_pos,
-            },
-            size: LogicalSize::new(char_width, font_size),
-        })
-        .collect();
-
-    if glyphs.is_empty() {
-        return Vec::new();
-    }
-
-    vec![DisplayListItem::Text {
-        glyphs,
-        font_hash: FontHash::from_hash(0), // Default font hash - renderer should use default font
-        font_size_px: font_size,
-        color,
-        clip_rect: bounds.into(),
-        source_node_index: None,
-    }]
+    let _ = (text, bounds, font_size, color, alignment);
+    Vec::new()
 }
 
 /// Calculate the total height of a display list (max Y + height of all items).

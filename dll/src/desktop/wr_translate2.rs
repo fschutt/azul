@@ -567,6 +567,30 @@ pub fn convert_cpu_hit_test_to_full(
     }
 }
 
+/// Compute the `child_rect` (scrollable content bounds) of an overflowing scroll
+/// node from the layout tree.
+///
+/// The content rect is anchored at the node's own border-box origin and sized to
+/// the node's overflow content size (`LayoutTree::get_content_size`, which honors
+/// `overflow_content_size` / inline text overflow). It is clamped to be at least
+/// as large as the viewport (`parent_rect`), so a node whose content does *not*
+/// overflow yields `child_rect == parent_rect` and the `ScrollState` clamping
+/// produces a zero scroll range (the prior, always-no-scroll behavior).
+fn compute_scroll_child_rect(
+    layout_result: &DomLayoutResult,
+    layout_idx: usize,
+    parent_rect: LogicalRect,
+) -> LogicalRect {
+    let content_size = layout_result.layout_tree.get_content_size(layout_idx);
+    LogicalRect::new(
+        parent_rect.origin,
+        azul_core::geom::LogicalSize::new(
+            content_size.width.max(parent_rect.size.width),
+            content_size.height.max(parent_rect.size.height),
+        ),
+    )
+}
+
 pub fn fullhittest_new_webrender(
     wr_hittester: &dyn WrApiHitTester,
     document_id: DocumentId,
@@ -687,7 +711,8 @@ pub fn fullhittest_new_webrender(
                         .unwrap_or_default();
                     let node_size = layout_node.used_size.unwrap_or_default();
                     let parent_rect = LogicalRect::new(node_pos, node_size);
-                    let child_rect = parent_rect;
+                    let child_rect =
+                        compute_scroll_child_rect(layout_result, layout_idx, parent_rect);
 
                     let scroll_node = OverflowingScrollNode {
                         parent_rect,
@@ -761,7 +786,8 @@ pub fn fullhittest_new_webrender(
                     .unwrap_or_default();
                 let node_size = layout_node.used_size.unwrap_or_default();
                 let parent_rect = LogicalRect::new(node_pos, node_size);
-                let child_rect = parent_rect; // TODO: Calculate actual content bounds
+                let child_rect =
+                    compute_scroll_child_rect(layout_result, layout_idx, parent_rect);
 
                 use azul_core::hit_test::{OverflowingScrollNode, ScrollHitTestItem};
                 let scroll_node = OverflowingScrollNode {
@@ -945,7 +971,8 @@ pub fn fullhittest_new_webrender(
 
                 let node_size = layout_node.used_size.unwrap_or_default();
                 let parent_rect = LogicalRect::new(node_pos, node_size);
-                let child_rect = parent_rect;
+                let child_rect =
+                    compute_scroll_child_rect(layout_result, layout_idx, parent_rect);
 
                 let scroll_id = layout_result
                     .scroll_ids
@@ -1520,6 +1547,97 @@ fn wr_translate_synthetic_italics(italics: SyntheticItalics) -> WrSyntheticItali
     }
 }
 
+/// Collect font + image resources referenced by the current display lists,
+/// register them into `layout_window.renderer_resources` (so `push_text` /
+/// image rendering can resolve `FontKey` / `FontInstanceKey` / `ImageKey` from
+/// hashes), and add the translated WebRender resources to `txn`.
+///
+/// Shared by [`generate_frame`] and [`build_webrender_transaction`], which both
+/// previously inlined this identical font+image registration block.
+fn register_frame_resources(
+    layout_window: &mut LayoutWindow,
+    txn: &mut WrTransaction,
+    dpi: DpiScaleFactor,
+) {
+    // --- Fonts ---
+    let font_updates =
+        collect_font_resource_updates(layout_window, &layout_window.renderer_resources, dpi);
+
+    // Update font_hash_map + currently_registered_fonts as we process resources.
+    // This is CRITICAL for push_text() to look up FontKey / FontInstanceKey from
+    // the font hash + glyph size.
+    for resource in &font_updates {
+        match resource {
+            ResourceUpdate::AddFont(ref add_font) => {
+                layout_window
+                    .renderer_resources
+                    .font_hash_map
+                    .insert(add_font.font.get_hash(), add_font.key);
+                layout_window
+                    .renderer_resources
+                    .currently_registered_fonts
+                    .entry(add_font.key)
+                    .or_insert_with(|| (add_font.font.clone(), BTreeMap::default()));
+            }
+            ResourceUpdate::AddFontInstance(ref add_font_instance) => {
+                if let Some((_, instances)) = layout_window
+                    .renderer_resources
+                    .currently_registered_fonts
+                    .get_mut(&add_font_instance.font_key)
+                {
+                    instances.insert(add_font_instance.glyph_size, add_font_instance.key);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if !font_updates.is_empty() {
+        let wr_resources: Vec<webrender::ResourceUpdate> = font_updates
+            .into_iter()
+            .filter_map(translate_resource_update)
+            .collect();
+        if !wr_resources.is_empty() {
+            txn.update_resources(wr_resources);
+        }
+    }
+
+    // --- Images ---
+    let image_updates =
+        collect_image_resource_updates(layout_window, &layout_window.renderer_resources);
+
+    // Update currently_registered_images + the reverse image_key_map lookup so
+    // the display-list builder can resolve an ImageRefHash to its ImageKey.
+    for (image_ref_hash, add_image_msg) in &image_updates {
+        use azul_core::resources::ResolvedImage;
+
+        let resolved_image = ResolvedImage {
+            key: add_image_msg.0.key,
+            descriptor: add_image_msg.0.descriptor,
+        };
+        layout_window
+            .renderer_resources
+            .currently_registered_images
+            .insert(*image_ref_hash, resolved_image);
+        layout_window
+            .renderer_resources
+            .image_key_map
+            .insert(add_image_msg.0.key, *image_ref_hash);
+    }
+
+    if !image_updates.is_empty() {
+        let wr_image_resources: Vec<webrender::ResourceUpdate> = image_updates
+            .into_iter()
+            .filter_map(|(_, add_image_msg)| {
+                translate_resource_update(add_image_msg.into_resource_update())
+            })
+            .collect();
+        if !wr_image_resources.is_empty() {
+            txn.update_resources(wr_image_resources);
+        }
+    }
+}
+
 /// Generate a new WebRender frame
 ///
 /// This function sets up the scene and tells WebRender to render.
@@ -1552,135 +1670,14 @@ pub fn generate_frame(
              transaction"
         );
 
-        // Re-collect font resources (already cached in renderer_resources)
-        let font_updates = collect_font_resource_updates(
-            layout_window,
-            &layout_window.renderer_resources,
-            layout_window.current_window_state.size.get_hidpi_factor(),
-        );
-
-        // Collect image resources
-        let image_updates =
-            collect_image_resource_updates(layout_window, &layout_window.renderer_resources);
-
-        log_debug!(
-            LogCategory::Rendering,
-            "[generate_frame] Collected {} image updates",
-            image_updates.len()
-        );
-
-        // Update currently_registered_images with new images
-        for (image_ref_hash, add_image_msg) in &image_updates {
-            use azul_core::resources::ResolvedImage;
-
-            let resolved_image = ResolvedImage {
-                key: add_image_msg.0.key,
-                descriptor: add_image_msg.0.descriptor,
-            };
-
-            layout_window
-                .renderer_resources
-                .currently_registered_images
-                .insert(*image_ref_hash, resolved_image);
-
-            // Also update reverse lookup map
-            layout_window
-                .renderer_resources
-                .image_key_map
-                .insert(add_image_msg.0.key, *image_ref_hash);
-
-            log_debug!(
-                LogCategory::Rendering,
-                "[generate_frame] Registered ImageRefHash({}) -> ImageKey {:?}",
-                image_ref_hash.inner,
-                add_image_msg.0.key
-            );
-        }
-
-        // Update font_hash_map and currently_registered_fonts as we process resources
-        // This is CRITICAL for push_text() to look up FontKey from font_hash
-        for resource in &font_updates {
-            match resource {
-                ResourceUpdate::AddFont(ref add_font) => {
-                    // Update font_hash_map
-                    layout_window
-                        .renderer_resources
-                        .font_hash_map
-                        .insert(add_font.font.get_hash(), add_font.key);
-
-                    // Update currently_registered_fonts with empty instance map
-                    layout_window
-                        .renderer_resources
-                        .currently_registered_fonts
-                        .entry(add_font.key)
-                        .or_insert_with(|| (add_font.font.clone(), BTreeMap::default()));
-
-                    log_debug!(
-                        LogCategory::Rendering,
-                        "[generate_frame] Registered font_hash {} -> FontKey {:?}",
-                        add_font.font.get_hash(),
-                        add_font.key
-                    );
-                }
-                ResourceUpdate::AddFontInstance(ref add_font_instance) => {
-                    // Update currently_registered_fonts with font instance
-                    if let Some((_, instances)) = layout_window
-                        .renderer_resources
-                        .currently_registered_fonts
-                        .get_mut(&add_font_instance.font_key)
-                    {
-                        let size = add_font_instance.glyph_size;
-                        instances.insert(size, add_font_instance.key);
-                        log_debug!(
-                            LogCategory::Rendering,
-                            "[generate_frame] Registered FontInstanceKey {:?} for FontKey {:?} at \
-                             size {:?}",
-                            add_font_instance.key,
-                            add_font_instance.font_key,
-                            size
-                        );
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Translate to WebRender resources
-        if !font_updates.is_empty() {
-            let wr_resources: Vec<webrender::ResourceUpdate> = font_updates
-                .into_iter()
-                .filter_map(translate_resource_update)
-                .collect();
-
-            log_debug!(
-                LogCategory::Rendering,
-                "[generate_frame] Adding {} font resources to transaction",
-                wr_resources.len()
-            );
-            txn.update_resources(wr_resources);
-        }
-
-        // Translate image updates to WebRender resources
-        if !image_updates.is_empty() {
-            let wr_image_resources: Vec<webrender::ResourceUpdate> = image_updates
-                .into_iter()
-                .filter_map(|(_, add_image_msg)| {
-                    translate_resource_update(add_image_msg.into_resource_update())
-                })
-                .collect();
-
-            log_debug!(
-                LogCategory::Rendering,
-                "[generate_frame] Adding {} image resources to transaction",
-                wr_image_resources.len()
-            );
-            txn.update_resources(wr_image_resources);
-        }
+        // Collect + register font and image resources, then add them to the
+        // transaction. Shared with build_webrender_transaction.
+        let dpi = layout_window.current_window_state.size.get_hidpi_factor();
+        register_frame_resources(layout_window, txn, dpi);
 
         // Build display lists for all DOMs and add to transaction
         let viewport_size =
             DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
-        let dpi = layout_window.current_window_state.size.get_hidpi_factor();
 
         for (dom_id, layout_result) in &layout_window.layout_results {
             let pipeline_id = wr_translate_pipeline_id(PipelineId(
@@ -2412,136 +2409,13 @@ pub fn build_webrender_transaction(
     // Get root pipeline ID
     let root_pipeline_id = wr_translate_pipeline_id(PipelineId(0, layout_window.document_id.id));
 
-    // Step 1: Collect and add font resources to transaction
+    // Step 1: Collect + register font and image resources, then add them to the
+    // transaction. Shared with generate_frame.
     log_debug!(
         LogCategory::Rendering,
-        "[build_atomic_txn] Step 1: Collecting font resources"
+        "[build_atomic_txn] Step 1: Collecting + registering font/image resources"
     );
-    let font_updates =
-        collect_font_resource_updates(layout_window, &layout_window.renderer_resources, dpi);
-
-    if !font_updates.is_empty() {
-        log_debug!(
-            LogCategory::Rendering,
-            "[build_atomic_txn] Adding {} font resources",
-            font_updates.len()
-        );
-
-        // Update font_hash_map and currently_registered_fonts
-        for resource in &font_updates {
-            match resource {
-                azul_core::resources::ResourceUpdate::AddFont(ref add_font) => {
-                    layout_window
-                        .renderer_resources
-                        .font_hash_map
-                        .insert(add_font.font.get_hash(), add_font.key);
-                    layout_window
-                        .renderer_resources
-                        .currently_registered_fonts
-                        .entry(add_font.key)
-                        .or_insert_with(|| (add_font.font.clone(), BTreeMap::default()));
-                    log_debug!(
-                        LogCategory::Rendering,
-                        "[build_atomic_txn] Font registered: hash {} -> key {:?}",
-                        add_font.font.get_hash(),
-                        add_font.key
-                    );
-                }
-                azul_core::resources::ResourceUpdate::AddFontInstance(ref add_font_instance) => {
-                    if let Some((_, instances)) = layout_window
-                        .renderer_resources
-                        .currently_registered_fonts
-                        .get_mut(&add_font_instance.font_key)
-                    {
-                        instances.insert(add_font_instance.glyph_size, add_font_instance.key);
-                        log_debug!(
-                            LogCategory::Rendering,
-                            "[build_atomic_txn] Font instance registered: key {:?} at size {:?}",
-                            add_font_instance.key,
-                            add_font_instance.glyph_size
-                        );
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Translate to WebRender resources and add to transaction
-        let wr_resources: Vec<webrender::ResourceUpdate> = font_updates
-            .into_iter()
-            .filter_map(translate_resource_update)
-            .collect();
-
-        if !wr_resources.is_empty() {
-            log_debug!(
-                LogCategory::Rendering,
-                "[build_atomic_txn] Adding {} WebRender resources to transaction",
-                wr_resources.len()
-            );
-            txn.update_resources(wr_resources);
-        }
-    }
-
-    // Step 1.5: Collect and add image resources to transaction
-    log_debug!(
-        LogCategory::Rendering,
-        "[build_atomic_txn] Step 1.5: Collecting image resources"
-    );
-    let image_updates = collect_image_resource_updates(layout_window, &layout_window.renderer_resources);
-    
-    if !image_updates.is_empty() {
-        log_debug!(
-            LogCategory::Rendering,
-            "[build_atomic_txn] Adding {} image resources",
-            image_updates.len()
-        );
-        
-        // Update currently_registered_images and image_key_map
-        for (image_ref_hash, add_image_msg) in &image_updates {
-            use azul_core::resources::ResolvedImage;
-            
-            let resolved_image = ResolvedImage {
-                key: add_image_msg.0.key,
-                descriptor: add_image_msg.0.descriptor,
-            };
-            
-            layout_window
-                .renderer_resources
-                .currently_registered_images
-                .insert(*image_ref_hash, resolved_image);
-            
-            layout_window
-                .renderer_resources
-                .image_key_map
-                .insert(add_image_msg.0.key, *image_ref_hash);
-            
-            log_debug!(
-                LogCategory::Rendering,
-                "[build_atomic_txn] Image registered: hash {:?} -> key {:?}",
-                image_ref_hash,
-                add_image_msg.0.key
-            );
-        }
-        
-        // Translate to WebRender resources and add to transaction
-        let wr_image_resources: Vec<webrender::ResourceUpdate> = image_updates
-            .into_iter()
-            .filter_map(|(_, add_image_msg)| {
-                translate_add_image(add_image_msg.0).map(|add_img| {
-                    webrender::ResourceUpdate::AddImage(add_img)
-                })
-            })
-            .collect();
-        
-        if !wr_image_resources.is_empty() {
-            log_debug!(
-                LogCategory::Rendering,
-                "[build_atomic_txn] Adding {} WebRender image resources to transaction",
-                wr_image_resources.len()
-            );
-            txn.update_resources(wr_image_resources);
-        }
-    }
+    register_frame_resources(layout_window, txn, dpi);
 
     // Step 1.6: Process image callback updates (GL textures from RenderImageCallback)
     // This MUST happen BEFORE building display lists so the textures are registered
