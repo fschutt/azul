@@ -94,13 +94,7 @@ const COLOR_9B9B9B: ColorU = ColorU {
     a: 255,
 }; // #9b9b9b
 
-const FILL_COLOR: ColorU = ColorU {
-    r: 155,
-    g: 155,
-    b: 155,
-    a: 255,
-}; // #9b9b9b
-const FILL_THEME: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(FILL_COLOR)];
+const FILL_THEME: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(COLOR_9B9B9B)];
 const FILL_COLOR_BACKGROUND: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(FILL_THEME);
 
