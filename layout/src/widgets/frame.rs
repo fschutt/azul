@@ -209,6 +209,100 @@ const CSS_MATCH_9156589477016488419_PROPERTIES: &[CssPropertyWithConditions] = &
 const CSS_MATCH_9156589477016488419: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_9156589477016488419_PROPERTIES);
 
+const CSS_MATCH_CONTENT_AREA_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul-native-frame .__azul-native-frame-content (static properties)
+    CssPropertyWithConditions::simple(CssProperty::PaddingRight(
+        LayoutPaddingRightValue::Exact(LayoutPaddingRight {
+            inner: PixelValue::const_px(5),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(
+        LayoutPaddingLeftValue::Exact(LayoutPaddingLeft {
+            inner: PixelValue::const_px(5),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(
+        LayoutPaddingBottomValue::Exact(LayoutPaddingBottom {
+            inner: PixelValue::const_px(5),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::PaddingTop(
+        LayoutPaddingTopValue::Exact(LayoutPaddingTop {
+            inner: PixelValue::const_px(5),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::FontSize(
+        StyleFontSizeValue::Exact(StyleFontSize {
+            inner: PixelValue::const_px(11),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::FontFamily(
+        StyleFontFamilyVecValue::Exact(StyleFontFamilyVec::from_const_slice(
+            STYLE_FONT_FAMILY_8122988506401935406_ITEMS,
+        )),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
+        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
+        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
+        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
+        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
+        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
+        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
+        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
+        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
+        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+            inner: BORDER_COLOR,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
+        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
+            inner: BORDER_COLOR,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
+        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+            inner: BORDER_COLOR,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
+        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
+            inner: BORDER_COLOR,
+        }),
+    )),
+];
+
 /// A titled border container widget, similar to an HTML `<fieldset>` or
 /// a Windows group box. Displays a header with a centered title and a
 /// bordered content area below.
@@ -288,104 +382,17 @@ impl Frame {
                             .with_children(DomVec::from_vec(vec![Dom::create_div()])),
                     ])),
                 Dom::create_div()
-                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-                        // .__azul-native-frame .__azul-native-frame-content
-                        CssPropertyWithConditions::simple(CssProperty::FlexGrow(
-                            LayoutFlexGrowValue::Exact(LayoutFlexGrow::new(
-                                self.flex_grow as isize,
+                    .with_css_props({
+                        let mut props = vec![
+                            CssPropertyWithConditions::simple(CssProperty::FlexGrow(
+                                LayoutFlexGrowValue::Exact(LayoutFlexGrow {
+                                    inner: FloatValue::new(self.flex_grow),
+                                }),
                             )),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::PaddingRight(
-                            LayoutPaddingRightValue::Exact(LayoutPaddingRight {
-                                inner: PixelValue::const_px(5),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::PaddingLeft(
-                            LayoutPaddingLeftValue::Exact(LayoutPaddingLeft {
-                                inner: PixelValue::const_px(5),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::PaddingBottom(
-                            LayoutPaddingBottomValue::Exact(LayoutPaddingBottom {
-                                inner: PixelValue::const_px(5),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::PaddingTop(
-                            LayoutPaddingTopValue::Exact(LayoutPaddingTop {
-                                inner: PixelValue::const_px(5),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::FontSize(
-                            StyleFontSizeValue::Exact(StyleFontSize {
-                                inner: PixelValue::const_px(11),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::FontFamily(
-                            StyleFontFamilyVecValue::Exact(StyleFontFamilyVec::from_const_slice(
-                                STYLE_FONT_FAMILY_8122988506401935406_ITEMS,
-                            )),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
-                            LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-                                inner: PixelValue::const_px(1),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
-                            LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-                                inner: PixelValue::const_px(1),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
-                            LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-                                inner: PixelValue::const_px(1),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
-                            LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-                                inner: PixelValue::const_px(1),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
-                            StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-                                inner: BorderStyle::Solid,
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
-                            StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-                                inner: BorderStyle::Solid,
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
-                            StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-                                inner: BorderStyle::Solid,
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
-                            StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-                                inner: BorderStyle::Solid,
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
-                            StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-                                inner: BORDER_COLOR,
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
-                            StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-                                inner: BORDER_COLOR,
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
-                            StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-                                inner: BORDER_COLOR,
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
-                            StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-                                inner: BORDER_COLOR,
-                            }),
-                        )),
-                    ]))
+                        ];
+                        props.extend_from_slice(CSS_MATCH_CONTENT_AREA_PROPERTIES);
+                        CssPropertyWithConditionsVec::from_vec(props)
+                    })
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_9898887665724137124: &[IdOrClass] = &[Class(
                             AzString::from_const_str("__azul-native-frame-content"),
