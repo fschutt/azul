@@ -131,7 +131,7 @@ macro_rules! impl_widget_callback {
 pub mod button;
 /// Checkbox widget
 pub mod check_box;
-/// Box displaying a color which opens a color picker dialog on being clicked
+/// Box displaying a color with a callback for value changes
 pub mod color_input;
 /// File input widget
 pub mod file_input;
