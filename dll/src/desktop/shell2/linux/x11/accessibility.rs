@@ -149,96 +149,9 @@ impl LinuxAccessibilityAdapter {
             }
         }
 
-        Self::decode_action_request(request)
-    }
-
-    fn decode_action_request(request: ActionRequest) -> Option<(DomId, NodeId, AccessibilityAction)> {
-        use azul_core::geom::LogicalPosition;
-        use azul_css::{props::basic::FloatValue, AzString};
-
-        // Upper 32 bits = DomId, Lower 32 bits = NodeId + 1
-        let a11y_node_id: u64 = request.target_node.0;
-        let dom_id = DomId {
-            inner: (a11y_node_id >> 32) as usize,
-        };
-        let node_id = NodeId::new(((a11y_node_id & 0xFFFF_FFFF).wrapping_sub(1)) as usize);
-
-        let action = match request.action {
-            accesskit::Action::Click => AccessibilityAction::Default,
-            accesskit::Action::Focus => AccessibilityAction::Focus,
-            accesskit::Action::Blur => AccessibilityAction::Blur,
-            accesskit::Action::Collapse => AccessibilityAction::Collapse,
-            accesskit::Action::Expand => AccessibilityAction::Expand,
-            accesskit::Action::Increment => AccessibilityAction::Increment,
-            accesskit::Action::Decrement => AccessibilityAction::Decrement,
-            accesskit::Action::ShowContextMenu => AccessibilityAction::ShowContextMenu,
-            accesskit::Action::HideTooltip => AccessibilityAction::HideTooltip,
-            accesskit::Action::ShowTooltip => AccessibilityAction::ShowTooltip,
-            accesskit::Action::ScrollUp => AccessibilityAction::ScrollUp,
-            accesskit::Action::ScrollDown => AccessibilityAction::ScrollDown,
-            accesskit::Action::ScrollLeft => AccessibilityAction::ScrollLeft,
-            accesskit::Action::ScrollRight => AccessibilityAction::ScrollRight,
-            accesskit::Action::ScrollIntoView => AccessibilityAction::ScrollIntoView,
-            accesskit::Action::ReplaceSelectedText => {
-                if let Some(accesskit::ActionData::Value(value)) = request.data {
-                    AccessibilityAction::ReplaceSelectedText(AzString::from(value.as_ref()))
-                } else {
-                    return None;
-                }
-            }
-            accesskit::Action::ScrollToPoint => {
-                if let Some(accesskit::ActionData::ScrollToPoint(point)) = request.data {
-                    AccessibilityAction::ScrollToPoint(LogicalPosition {
-                        x: point.x as f32,
-                        y: point.y as f32,
-                    })
-                } else {
-                    return None;
-                }
-            }
-            accesskit::Action::SetScrollOffset => {
-                if let Some(accesskit::ActionData::SetScrollOffset(point)) = request.data {
-                    AccessibilityAction::SetScrollOffset(LogicalPosition {
-                        x: point.x as f32,
-                        y: point.y as f32,
-                    })
-                } else {
-                    return None;
-                }
-            }
-            accesskit::Action::SetTextSelection => {
-                if let Some(accesskit::ActionData::SetTextSelection(selection)) = request.data {
-                    AccessibilityAction::SetTextSelection(
-                        azul_core::dom::TextSelectionStartEnd {
-                            selection_start: selection.anchor.character_index,
-                            selection_end: selection.focus.character_index,
-                        },
-                    )
-                } else {
-                    return None;
-                }
-            }
-            accesskit::Action::SetSequentialFocusNavigationStartingPoint => {
-                AccessibilityAction::SetSequentialFocusNavigationStartingPoint
-            }
-            accesskit::Action::SetValue => match request.data {
-                Some(accesskit::ActionData::Value(value)) => {
-                    AccessibilityAction::SetValue(AzString::from(value.as_ref()))
-                }
-                Some(accesskit::ActionData::NumericValue(value)) => {
-                    AccessibilityAction::SetNumericValue(FloatValue::new(value as f32))
-                }
-                _ => return None,
-            },
-            accesskit::Action::CustomAction => {
-                if let Some(accesskit::ActionData::CustomAction(id)) = request.data {
-                    AccessibilityAction::CustomAction(id)
-                } else {
-                    return None;
-                }
-            }
-        };
-
+        let (dom_id, node_id) =
+            azul_layout::managers::a11y::decode_a11y_node_id(request.target_node);
+        let action = azul_layout::managers::a11y::map_accesskit_action(request)?;
         Some((dom_id, node_id, action))
     }
 }
