@@ -16,11 +16,11 @@ use azul_css::props::{
 };
 
 /// CSS reference pixels per inch (96 px/in per CSS spec).
-const PX_PER_INCH: f32 = 96.0;
+pub(super) const PX_PER_INCH: f32 = 96.0;
 /// Centimetres per inch.
-const CM_PER_INCH: f32 = 2.54;
+pub(super) const CM_PER_INCH: f32 = 2.54;
 /// Millimetres per inch.
-const MM_PER_INCH: f32 = 25.4;
+pub(super) const MM_PER_INCH: f32 = 25.4;
 
 /// Font-size context captured at style-translation time and stored alongside the calc AST.
 ///
@@ -213,6 +213,46 @@ pub fn resolve_pixel_value_with_viewport(
         SizeMetric::Vmin => pv.number.get() / 100.0 * viewport_width.min(viewport_height),
         SizeMetric::Vmax => pv.number.get() / 100.0 * viewport_width.max(viewport_height),
         _ => resolve_pixel_value(pv, basis, em_size, rem_size),
+    }
+}
+
+/// Resolve a `PixelValue` to pixels, returning `None` for percentage and viewport units.
+pub fn resolve_pixel_value_no_percent(
+    pv: &PixelValue,
+    em_size: f32,
+    rem_size: f32,
+) -> Option<f32> {
+    match pv.metric {
+        SizeMetric::Px => Some(pv.number.get()),
+        SizeMetric::Pt => Some(pv.number.get() * PT_TO_PX),
+        SizeMetric::In => Some(pv.number.get() * PX_PER_INCH),
+        SizeMetric::Cm => Some(pv.number.get() * PX_PER_INCH / CM_PER_INCH),
+        SizeMetric::Mm => Some(pv.number.get() * PX_PER_INCH / MM_PER_INCH),
+        SizeMetric::Em => Some(pv.number.get() * em_size),
+        SizeMetric::Rem => Some(pv.number.get() * rem_size),
+        SizeMetric::Percent
+        | SizeMetric::Vw
+        | SizeMetric::Vh
+        | SizeMetric::Vmin
+        | SizeMetric::Vmax => None,
+    }
+}
+
+/// Like `resolve_pixel_value_no_percent`, but resolves viewport units using
+/// the provided viewport dimensions. Returns `None` only for percentages.
+pub fn resolve_pixel_value_no_percent_with_viewport(
+    pv: &PixelValue,
+    em_size: f32,
+    rem_size: f32,
+    viewport_width: f32,
+    viewport_height: f32,
+) -> Option<f32> {
+    match pv.metric {
+        SizeMetric::Vw => Some(pv.number.get() / 100.0 * viewport_width),
+        SizeMetric::Vh => Some(pv.number.get() / 100.0 * viewport_height),
+        SizeMetric::Vmin => Some(pv.number.get() / 100.0 * viewport_width.min(viewport_height)),
+        SizeMetric::Vmax => Some(pv.number.get() / 100.0 * viewport_width.max(viewport_height)),
+        _ => resolve_pixel_value_no_percent(pv, em_size, rem_size),
     }
 }
 

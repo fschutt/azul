@@ -314,40 +314,20 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
 
         // +spec:min-max-sizing:970fef - if min-width/min-height is a <length>, use as floor for intrinsic sizes
         if let Some(dom_id) = tree.get(node_index).and_then(|n| n.dom_node_id) {
-            use azul_css::props::basic::{pixel::{DEFAULT_FONT_SIZE, PT_TO_PX}, SizeMetric};
+            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
             use crate::solver3::getters::{get_css_min_width, get_css_min_height, MultiValue};
 
             let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
             if let MultiValue::Exact(mw) = get_css_min_width(self.ctx.styled_dom, dom_id, node_state) {
-                let px = &mw.inner;
-                let resolved = match px.metric {
-                    SizeMetric::Px => Some(px.number.get()),
-                    SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
-                    SizeMetric::In => Some(px.number.get() * 96.0),
-                    SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
-                    SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
-                    SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
-                    _ => None, // percentages are not <length>
-                };
-                if let Some(min_w) = resolved {
+                if let Some(min_w) = super::calc::resolve_pixel_value_no_percent(&mw.inner, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) {
                     intrinsic.min_content_width = intrinsic.min_content_width.max(min_w);
                     intrinsic.max_content_width = intrinsic.max_content_width.max(min_w);
                 }
             }
 
             if let MultiValue::Exact(mh) = get_css_min_height(self.ctx.styled_dom, dom_id, node_state) {
-                let px = &mh.inner;
-                let resolved = match px.metric {
-                    SizeMetric::Px => Some(px.number.get()),
-                    SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
-                    SizeMetric::In => Some(px.number.get() * 96.0),
-                    SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
-                    SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
-                    SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
-                    _ => None,
-                };
-                if let Some(min_h) = resolved {
+                if let Some(min_h) = super::calc::resolve_pixel_value_no_percent(&mh.inner, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) {
                     intrinsic.min_content_height = intrinsic.min_content_height.max(min_h);
                     intrinsic.max_content_height = intrinsic.max_content_height.max(min_h);
                 }
@@ -1161,7 +1141,6 @@ fn process_layout_children<T: ParsedFontTrait>(
     node_index: usize,
     content: &mut Vec<InlineContent>,
 ) -> Result<()> {
-    use azul_css::props::basic::SizeMetric;
     use azul_css::props::layout::{LayoutHeight, LayoutWidth};
 
     // [g73] PLC entry: 0x60708 = 0xC0<<24 | node_index (which node's children we process).
@@ -1208,23 +1187,14 @@ fn process_layout_children<T: ParsedFontTrait>(
             // Resolve CSS width - use explicit value if set, otherwise fall back to intrinsic
             let used_width = match css_width {
                 MultiValue::Exact(LayoutWidth::Px(px)) => {
-                    // Convert PixelValue to f32
-                    use azul_css::props::basic::pixel::{DEFAULT_FONT_SIZE, PT_TO_PX};
-                    match px.metric {
-                        SizeMetric::Px => px.number.get(),
-                        SizeMetric::Pt => px.number.get() * PT_TO_PX,
-                        SizeMetric::In => px.number.get() * 96.0,
-                        SizeMetric::Cm => px.number.get() * 96.0 / 2.54,
-                        SizeMetric::Mm => px.number.get() * 96.0 / 25.4,
-                        SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
-                        // +spec:containing-block:495930 - percentages in intrinsic sizing fall back to intrinsic contribution (css-sizing-3 §5.2.1)
-                        // For percentages and viewport units, fall back to intrinsic
-                        // +spec:containing-block:5246c0 - cyclic percentage: when containing block size depends on this box's intrinsic contribution, percentages fall back to intrinsic size
-                        // +spec:containing-block:598124 - cyclic percentage contributions use intrinsic size
-                        // +spec:height-calculation:ca9f19 - percentage-sized boxes use intrinsic size as contribution during intrinsic sizing
-                        // +spec:width-calculation:7a384a - percentage-sized boxes behave as width:auto for intrinsic contributions (cyclic percentage)
-                        _ => intrinsic_sizes.max_content_width,
-                    }
+                    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+                    // +spec:containing-block:495930 - percentages in intrinsic sizing fall back to intrinsic contribution (css-sizing-3 §5.2.1)
+                    // +spec:containing-block:5246c0 - cyclic percentage: when containing block size depends on this box's intrinsic contribution, percentages fall back to intrinsic size
+                    // +spec:containing-block:598124 - cyclic percentage contributions use intrinsic size
+                    // +spec:height-calculation:ca9f19 - percentage-sized boxes use intrinsic size as contribution during intrinsic sizing
+                    // +spec:width-calculation:7a384a - percentage-sized boxes behave as width:auto for intrinsic contributions (cyclic percentage)
+                    super::calc::resolve_pixel_value_no_percent(&px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                        .unwrap_or(intrinsic_sizes.max_content_width)
                 }
                 MultiValue::Exact(LayoutWidth::MinContent) => intrinsic_sizes.min_content_width,
                 MultiValue::Exact(LayoutWidth::MaxContent) => intrinsic_sizes.max_content_width,
@@ -1240,19 +1210,11 @@ fn process_layout_children<T: ParsedFontTrait>(
             // Resolve CSS height - use explicit value if set, otherwise fall back to intrinsic
             let used_height = match css_height {
                 MultiValue::Exact(LayoutHeight::Px(px)) => {
-                    use azul_css::props::basic::pixel::{DEFAULT_FONT_SIZE, PT_TO_PX};
-                    match px.metric {
-                        SizeMetric::Px => px.number.get(),
-                        SizeMetric::Pt => px.number.get() * PT_TO_PX,
-                        SizeMetric::In => px.number.get() * 96.0,
-                        SizeMetric::Cm => px.number.get() * 96.0 / 2.54,
-                        SizeMetric::Mm => px.number.get() * 96.0 / 25.4,
-                        SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
-                        // +spec:containing-block:7d5e79 - percentages behave as auto when containing block height is auto (cyclic percentage contribution)
-                        // +spec:height-calculation:7d807b - css-sizing-3 §5.2.1: percentage heights behave as auto during intrinsic sizing (cyclic percentage contribution)
-                        // Percentages and viewport units fall back to intrinsic (treated as auto)
-                        _ => intrinsic_sizes.max_content_height,
-                    }
+                    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+                    // +spec:containing-block:7d5e79 - percentages behave as auto when containing block height is auto (cyclic percentage contribution)
+                    // +spec:height-calculation:7d807b - css-sizing-3 §5.2.1: percentage heights behave as auto during intrinsic sizing (cyclic percentage contribution)
+                    super::calc::resolve_pixel_value_no_percent(&px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                        .unwrap_or(intrinsic_sizes.max_content_height)
                 }
                 // is equivalent to automatic size
                 MultiValue::Exact(LayoutHeight::MinContent) => intrinsic_sizes.max_content_height,
@@ -1577,39 +1539,22 @@ pub fn calculate_used_size_for_node(
             }
         }
         LayoutWidth::Px(px) => {
-            // Resolve percentage or absolute pixel value
-            use azul_css::props::basic::{
-                pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
-                SizeMetric,
-            };
-            let pixels_opt = match px.metric {
-                SizeMetric::Px => Some(px.number.get()),
-                SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
-                SizeMetric::In => Some(px.number.get() * 96.0),
-                SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
-                SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
-                SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
-                SizeMetric::Vw => Some(px.number.get() / 100.0 * viewport_size.width),
-                SizeMetric::Vh => Some(px.number.get() / 100.0 * viewport_size.height),
-                SizeMetric::Vmin => Some(px.number.get() / 100.0 * viewport_size.width.min(viewport_size.height)),
-                SizeMetric::Vmax => Some(px.number.get() / 100.0 * viewport_size.width.max(viewport_size.height)),
-                SizeMetric::Percent => None,
-            };
+            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            let pixels_opt = super::calc::resolve_pixel_value_no_percent_with_viewport(
+                &px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE,
+                viewport_size.width, viewport_size.height,
+            );
 
             match pixels_opt {
                 Some(pixels) => pixels,
                 None => match px.to_percent() {
-                    Some(p) => {
-                        let result = resolve_percentage_with_box_model(
-                            containing_block_size.width,
-                            p.get(),
-                            (_box_props.margin.left, _box_props.margin.right),
-                            (_box_props.border.left, _box_props.border.right),
-                            (_box_props.padding.left, _box_props.padding.right),
-                        );
-
-                        result
-                    }
+                    Some(p) => resolve_percentage_with_box_model(
+                        containing_block_size.width,
+                        p.get(),
+                        (_box_props.margin.left, _box_props.margin.right),
+                        (_box_props.border.left, _box_props.border.right),
+                        (_box_props.padding.left, _box_props.padding.right),
+                    ),
                     None => intrinsic.max_content_width,
                 },
             }
@@ -1723,24 +1668,11 @@ pub fn calculate_used_size_for_node(
             }
         }
         LayoutHeight::Px(px) => {
-            // Resolve percentage or absolute pixel value
-            use azul_css::props::basic::{
-                pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
-                SizeMetric,
-            };
-            let pixels_opt = match px.metric {
-                SizeMetric::Px => Some(px.number.get()),
-                SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
-                SizeMetric::In => Some(px.number.get() * 96.0),
-                SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
-                SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
-                SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
-                SizeMetric::Vw => Some(px.number.get() / 100.0 * viewport_size.width),
-                SizeMetric::Vh => Some(px.number.get() / 100.0 * viewport_size.height),
-                SizeMetric::Vmin => Some(px.number.get() / 100.0 * viewport_size.width.min(viewport_size.height)),
-                SizeMetric::Vmax => Some(px.number.get() / 100.0 * viewport_size.width.max(viewport_size.height)),
-                SizeMetric::Percent => None,
-            };
+            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            let pixels_opt = super::calc::resolve_pixel_value_no_percent_with_viewport(
+                &px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE,
+                viewport_size.width, viewport_size.height,
+            );
 
             match pixels_opt {
                 Some(pixels) => pixels,
@@ -2001,27 +1933,13 @@ fn apply_constraint_violation_table(
     containing_block_height: f32,
     box_props: &BoxProps,
 ) -> (f32, f32) {
-    use azul_css::props::basic::{
-        pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
-        SizeMetric,
-    };
+    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
     use crate::solver3::getters::{
         get_css_min_width, get_css_max_width, get_css_min_height, get_css_max_height, MultiValue,
     };
 
-    // Helper to resolve a pixel value to f32
     fn resolve_px(px: &azul_css::props::basic::pixel::PixelValue, containing: f32, box_props: &BoxProps, is_horizontal: bool) -> Option<f32> {
-        let pixels_opt = match px.metric {
-            SizeMetric::Px => Some(px.number.get()),
-            SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
-            SizeMetric::In => Some(px.number.get() * 96.0),
-            SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
-            SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
-            SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
-            SizeMetric::Percent => None,
-            _ => None,
-        };
-        match pixels_opt {
+        match super::calc::resolve_pixel_value_no_percent(px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) {
             Some(v) => Some(v),
             None => {
                 px.to_percent().map(|p| {
@@ -2164,11 +2082,7 @@ fn apply_width_constraints(
     containing_block_width: f32,
     box_props: &BoxProps,
 ) -> f32 {
-    use azul_css::props::basic::{
-        pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
-        SizeMetric,
-    };
-
+    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
     use crate::solver3::getters::{get_css_max_width, get_css_min_width, MultiValue};
 
     // +spec:display-property:0c55e5 - auto min-width resolves to 0 for CSS2 display types
@@ -2176,18 +2090,7 @@ fn apply_width_constraints(
     let min_width = match get_css_min_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {
             let px = &mw.inner;
-            let pixels_opt = match px.metric {
-                SizeMetric::Px => Some(px.number.get()),
-                SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
-                SizeMetric::In => Some(px.number.get() * 96.0),
-                SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
-                SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
-                SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
-                SizeMetric::Percent => None,
-                _ => None,
-            };
-
-            match pixels_opt {
+            match super::calc::resolve_pixel_value_no_percent(px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) {
                 Some(pixels) => pixels,
                 None => px
                     .to_percent()
@@ -2210,22 +2113,10 @@ fn apply_width_constraints(
     let max_width = match get_css_max_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {
             let px = &mw.inner;
-            // Check if it's the default "max" value (f32::MAX)
             if px.number.get() >= core::f32::MAX - 1.0 {
                 None
             } else {
-                let pixels_opt = match px.metric {
-                    SizeMetric::Px => Some(px.number.get()),
-                    SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
-                    SizeMetric::In => Some(px.number.get() * 96.0),
-                    SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
-                    SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
-                    SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
-                    SizeMetric::Percent => None,
-                    _ => None,
-                };
-
-                match pixels_opt {
+                match super::calc::resolve_pixel_value_no_percent(px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) {
                     Some(pixels) => Some(pixels),
                     None => px.to_percent().map(|p| {
                         resolve_percentage_with_box_model(
@@ -2268,11 +2159,7 @@ fn apply_height_constraints(
     containing_block_height: f32,
     box_props: &BoxProps,
 ) -> f32 {
-    use azul_css::props::basic::{
-        pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
-        SizeMetric,
-    };
-
+    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
     use crate::solver3::getters::{get_css_max_height, get_css_min_height, MultiValue};
 
     // for backwards-compat with CSS2 display types (block, inline, inline-block, table)
@@ -2280,18 +2167,7 @@ fn apply_height_constraints(
     let min_height = match get_css_min_height(styled_dom, id, node_state) {
         MultiValue::Exact(mh) => {
             let px = &mh.inner;
-            let pixels_opt = match px.metric {
-                SizeMetric::Px => Some(px.number.get()),
-                SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
-                SizeMetric::In => Some(px.number.get() * 96.0),
-                SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
-                SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
-                SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
-                SizeMetric::Percent => None,
-                _ => None,
-            };
-
-            match pixels_opt {
+            match super::calc::resolve_pixel_value_no_percent(px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) {
                 Some(pixels) => pixels,
                 None => px
                     .to_percent()
@@ -2314,22 +2190,10 @@ fn apply_height_constraints(
     let max_height = match get_css_max_height(styled_dom, id, node_state) {
         MultiValue::Exact(mh) => {
             let px = &mh.inner;
-            // Check if it's the default "max" value (f32::MAX)
             if px.number.get() >= core::f32::MAX - 1.0 {
                 None
             } else {
-                let pixels_opt = match px.metric {
-                    SizeMetric::Px => Some(px.number.get()),
-                    SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
-                    SizeMetric::In => Some(px.number.get() * 96.0),
-                    SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
-                    SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
-                    SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
-                    SizeMetric::Percent => None,
-                    _ => None,
-                };
-
-                match pixels_opt {
+                match super::calc::resolve_pixel_value_no_percent(px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) {
                     Some(pixels) => Some(pixels),
                     None => px.to_percent().map(|p| {
                         resolve_percentage_with_box_model(
