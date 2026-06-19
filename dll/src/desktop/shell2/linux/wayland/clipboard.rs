@@ -35,9 +35,16 @@ fn clipboard() -> Option<std::sync::MutexGuard<'static, Option<Clipboard>>> {
 
 /// Synchronize clipboard manager content to Wayland system clipboard
 ///
-/// This is called after user callbacks to commit clipboard changes.
 /// If the clipboard manager has pending copy content, it's written to
 /// the Wayland clipboard.
+///
+/// TODO(superplan): this flush path is now redundant — the copy/cut/paste
+/// shortcuts and the `SetCopyContent`/`SetCutContent` callbacks both write to
+/// the OS clipboard directly through `common/event.rs`
+/// (`set_system_clipboard` → `write_to_clipboard`), so no run loop calls
+/// `sync_clipboard`. The macOS + Windows backends already dropped their dead
+/// copies; this one (plus the `wayland/mod.rs` + `linux/mod.rs` `sync_clipboard`
+/// wrappers, owned by another group) should be removed in a follow-up.
 pub fn sync_clipboard(clipboard_manager: &mut ClipboardManager) {
     // Check if there's pending content to copy
     if let Some(content) = clipboard_manager.get_copy_content() {

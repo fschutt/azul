@@ -1,49 +1,23 @@
 //! macOS clipboard integration via Cocoa NSPasteboard API
 //!
 //! Public API:
-//! - [`sync_clipboard`]: commits pending `ClipboardManager` content to the system pasteboard
 //! - [`get_clipboard_content`]: reads the current pasteboard text
 //! - [`write_to_clipboard`]: writes a string to the pasteboard
 //!
-//! Called from `common/event.rs` during event processing.
+//! Called from `common/event.rs` during event processing (via the
+//! `get_system_clipboard`/`set_system_clipboard` helpers).
 
 use std::mem::transmute;
 
-use azul_layout::managers::clipboard::ClipboardManager;
 use objc::runtime::{Class, Object};
 use objc_foundation::{INSArray, INSObject, INSString, NSArray, NSDictionary, NSObject, NSString};
 use objc_id::{Id, Owned};
-
-use super::super::common::debug_server::LogCategory;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 use objc::{msg_send, sel, sel_impl};
 
 // Required to bring NSPasteboard into the path of the class-resolver
 #[link(name = "AppKit", kind = "framework")]
 extern "C" {}
-
-/// Synchronize clipboard manager content to macOS system clipboard
-///
-/// This is called after user callbacks to commit clipboard changes.
-/// If the clipboard manager has pending copy content, it's written to
-/// the macOS pasteboard via NSPasteboard API.
-pub fn sync_clipboard(clipboard_manager: &mut ClipboardManager) {
-    // Check if there's pending content to copy
-    if let Some(content) = clipboard_manager.get_copy_content() {
-        // Write to pasteboard
-        if let Err(e) = write_to_pasteboard(&content.plain_text) {
-            log_error!(
-                LogCategory::Resources,
-                "[macOS Clipboard] Failed to write: {:?}",
-                e
-            );
-        }
-    }
-
-    // Clear the clipboard manager after sync
-    clipboard_manager.clear();
-}
 
 /// Read content from macOS system clipboard
 ///

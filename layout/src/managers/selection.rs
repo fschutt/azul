@@ -2,6 +2,17 @@
 //!
 //! Contains `ClipboardContent` and `StyledTextRun`, used by clipboard and
 //! changeset modules.
+//!
+//! **Rich-text status:** `StyledTextRun`, `StyledTextRunVec` and the
+//! `ClipboardContent.styled_runs` field are FFI-exported (api.json), but the
+//! rich path is only half-wired: the live clipboard producers build
+//! `styled_runs` empty (`window.rs::get_selected_content_for_clipboard`,
+//! paste in `common/event.rs`) and the platform clipboard backends write only
+//! `plain_text`. Fully wiring it means (a) extracting per-run style from the
+//! styled DOM when copying and (b) adding an HTML/RTF format to each platform's
+//! clipboard write (and reading it back on paste). `to_html()` below is the
+//! retained consumer for that future format. Until then the FFI surface is
+//! kept (it is public API) but `styled_runs` stays empty.
 
 use azul_css::{impl_option, impl_option_inner, AzString, OptionString};
 
@@ -49,7 +60,11 @@ impl_option!(
 );
 
 impl ClipboardContent {
-    /// Convert styled runs to HTML for rich clipboard formats
+    /// Convert styled runs to HTML for rich clipboard formats.
+    ///
+    /// Retained consumer of the FFI-exported `styled_runs`: returns an empty
+    /// `<div></div>` until `styled_runs` is populated and the platform clipboard
+    /// backends gain an HTML format (see module docs). Kept as public API.
     pub fn to_html(&self) -> String {
         let mut html = String::from("<div>");
 

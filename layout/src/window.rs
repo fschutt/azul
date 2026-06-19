@@ -7203,6 +7203,11 @@ impl LayoutWindow {
         }
         Some(ClipboardContent {
             plain_text: plain.into(),
+            // TODO(superplan): styled_runs left empty — extracting per-run style
+            // (font/size/color/bold/italic from the styled DOM) is only useful once
+            // the platform clipboard backends gain an HTML/RTF format and ClipboardContent::to_html
+            // is wired into the copy path (see layout/src/managers/selection.rs docs).
+            // Plain-text copy is fully wired.
             styled_runs: Vec::new().into(),
         })
     }

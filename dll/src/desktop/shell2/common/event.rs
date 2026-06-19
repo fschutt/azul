@@ -1769,16 +1769,25 @@ pub trait PlatformWindow {
             // === Clipboard ===
 
             CallbackChange::SetCopyContent { target: _, content } => {
+                // A user On::Copy callback overrode the clipboard content. Commit it
+                // to the OS clipboard now: the old `sync_clipboard` flush path was
+                // never called by any run loop, so this is the only place the
+                // override reaches the system pasteboard.
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.clipboard_manager.set_copy_content(content.clone());
                 }
+                set_system_clipboard(content.plain_text.as_str().to_string());
                 ProcessEventResult::DoNothing
             }
 
             CallbackChange::SetCutContent { target: _, content } => {
+                // A user On::Cut callback overrode the clipboard content. Commit it
+                // to the OS clipboard (deletion of the selected text is handled by
+                // the CutToClipboard shortcut / user code, as before).
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.clipboard_manager.set_copy_content(content.clone());
                 }
+                set_system_clipboard(content.plain_text.as_str().to_string());
                 ProcessEventResult::DoNothing
             }
 
@@ -2273,6 +2282,10 @@ pub trait PlatformWindow {
                     if let Some(clipboard_text) = get_system_clipboard() {
                         layout_window.clipboard_manager.set_paste_content(ClipboardContent {
                             plain_text: clipboard_text.as_str().into(),
+                            // TODO(superplan): styled_runs empty — the OS clipboard read
+                            // (`get_system_clipboard`) only returns plain text; populating
+                            // rich runs needs an HTML/RTF clipboard format reader (see
+                            // layout/src/managers/selection.rs docs).
                             styled_runs: StyledTextRunVec::from_const_slice(&[]),
                         });
                         // Smart paste: if N lines == N cursors, paste one line per cursor

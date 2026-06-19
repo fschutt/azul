@@ -1,8 +1,14 @@
 //! Text editing changeset system
 //!
 //! **STATUS:** The core types (`TextChangeset`, `TextOperation`, `TextOp*` structs) are
-//! actively used by `window.rs`, `undo_redo.rs`, `event.rs`, and platform code. The
-//! `create_*_changeset` free functions are not yet wired into event handling.
+//! actively used by `window.rs`, `undo_redo.rs`, `event.rs`, and platform code.
+//!
+//! The live copy/cut/select-all/delete paths run through `common/event.rs`
+//! (`SystemChange::CopyToClipboard`/`CutToClipboard`, `CallbackChange::SetSelectAllRange`,
+//! `LayoutWindow::delete_selection`), not through changeset constructors. The earlier
+//! `create_*_changeset` helpers were a never-wired parallel implementation (with
+//! placeholder `deleted_text`, `CursorPosition::Uninitialized` cursors, and byte±1
+//! UTF-8 deletion) and have been removed.
 //!
 //! ## Architecture
 //!
@@ -267,225 +273,9 @@ impl TextChangeset {
     }
 }
 
-/// Returns the first active selection range from the multi-cursor state.
-fn get_first_selection_range(
-    layout_window: &crate::window::LayoutWindow,
-) -> Option<azul_core::selection::SelectionRange> {
-    layout_window.text_edit_manager.multi_cursor.as_ref()
-        .and_then(|mc| mc.selections.iter().find_map(|s| match &s.selection {
-            azul_core::selection::Selection::Range(r) => Some(*r),
-            _ => None,
-        }))
-}
-
-/// Creates a copy changeset from the current selection.
-///
-/// Extracts the selected text content and creates a `TextChangeset` with a `Copy`
-/// operation. Returns `None` if there is no selection or no content to copy.
-pub fn create_copy_changeset(
-    target: DomNodeId,
-    timestamp: Instant,
-    layout_window: &crate::window::LayoutWindow,
-) -> Option<TextChangeset> {
-    let dom_id = &target.dom;
-    let content = layout_window.get_selected_content_for_clipboard(dom_id)?;
-    let range = get_first_selection_range(layout_window)?;
-
-    Some(TextChangeset::new(
-        target,
-        TextOperation::Copy(TextOpCopy {
-            range,
-            content,
-        }),
-        timestamp,
-    ))
-}
-
-/// Creates a cut changeset from the current selection.
-///
-/// Extracts the selected text content and creates a `TextChangeset` with a `Cut`
-/// operation that will delete the selected text after copying it to clipboard.
-/// Returns `None` if there is no selection or no content to cut.
-pub fn create_cut_changeset(
-    target: DomNodeId,
-    timestamp: Instant,
-    layout_window: &crate::window::LayoutWindow,
-) -> Option<TextChangeset> {
-    let dom_id = &target.dom;
-    let content = layout_window.get_selected_content_for_clipboard(dom_id)?;
-    let range = get_first_selection_range(layout_window)?;
-
-    // The logical cursor will be at the start of the deleted range
-    // SelectionManager will map this to physical coordinates
-    let new_cursor_position = azul_core::window::CursorPosition::Uninitialized;
-
-    Some(TextChangeset::new(
-        target,
-        TextOperation::Cut(TextOpCut {
-            range,
-            content,
-            new_cursor: new_cursor_position,
-        }),
-        timestamp,
-    ))
-}
-
-/// Creates a select-all changeset for the target node.
-///
-/// Selects all text content in the target node from the beginning to the end.
-/// Returns `None` if the node has no text content.
-pub fn create_select_all_changeset(
-    target: DomNodeId,
-    timestamp: Instant,
-    layout_window: &crate::window::LayoutWindow,
-) -> Option<TextChangeset> {
-    use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-
-    let dom_id = &target.dom;
-    let node_id = target.node.into_crate_internal()?;
-
-    // Get current selection (if any) for undo
-    let old_range: Option<azul_core::selection::SelectionRange> = layout_window.text_edit_manager.multi_cursor.as_ref()
-        .and_then(|mc| mc.selections.iter().find_map(|s| match &s.selection {
-            azul_core::selection::Selection::Range(r) => Some(*r),
-            _ => None,
-        }));
-
-    // Get the text content to determine end position
-    let content = layout_window.get_text_before_textinput(*dom_id, node_id);
-    let text = layout_window.extract_text_from_inline_content(&content);
-
-    // Create selection range from start to end of text
-    let start_cursor = TextCursor {
-        cluster_id: GraphemeClusterId {
-            source_run: 0,
-            start_byte_in_run: 0,
-        },
-        affinity: CursorAffinity::Leading,
-    };
-
-    let end_cursor = TextCursor {
-        cluster_id: GraphemeClusterId {
-            source_run: 0,
-            start_byte_in_run: text.len() as u32,
-        },
-        affinity: CursorAffinity::Leading,
-    };
-
-    let new_range = azul_core::selection::SelectionRange {
-        start: start_cursor,
-        end: end_cursor,
-    };
-
-    Some(TextChangeset::new(
-        target,
-        TextOperation::SelectAll(TextOpSelectAll {
-            old_range: old_range.into(),
-            new_range,
-        }),
-        timestamp,
-    ))
-}
-
-/// Creates a delete changeset for the current selection or single character.
-///
-/// If there is an active selection, deletes the entire selection.
-/// If there is only a cursor (no selection), deletes a single character:
-/// - `forward = true` (Delete key): deletes the character after the cursor
-/// - `forward = false` (Backspace): deletes the character before the cursor
-///
-/// Returns `None` if there is nothing to delete (e.g., cursor at document boundary).
-pub fn create_delete_selection_changeset(
-    target: DomNodeId,
-    forward: bool,
-    timestamp: Instant,
-    layout_window: &crate::window::LayoutWindow,
-) -> Option<TextChangeset> {
-    use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-
-    let dom_id = &target.dom;
-    let node_id = target.node.into_crate_internal()?;
-
-    // Get current selection/cursor
-    let first_range = get_first_selection_range(layout_window);
-    let cursor = layout_window.text_edit_manager.get_primary_cursor();
-
-    // Determine what to delete
-    let (delete_range, deleted_text) = if let Some(range) = first_range {
-        // Selection exists - delete the selection
-        let content = layout_window.get_text_before_textinput(*dom_id, node_id);
-        let text = layout_window.extract_text_from_inline_content(&content);
-
-        // Extract the text in the range
-        // For now, simplified: delete entire selection
-        // TODO: Actually extract text between range.start and range.end
-        let deleted = String::new(); // Placeholder
-
-        (range, deleted)
-    } else if let Some(cursor_pos) = cursor {
-        // No selection - delete one character
-        let content = layout_window.get_text_before_textinput(*dom_id, node_id);
-        let text = layout_window.extract_text_from_inline_content(&content);
-
-        let byte_pos = cursor_pos.cluster_id.start_byte_in_run as usize;
-
-        let (range, deleted) = if forward {
-            // Delete key - delete character after cursor
-            if byte_pos >= text.len() {
-                return None; // At end, nothing to delete
-            }
-            // Delete one character forward
-            let end_pos = (byte_pos + 1).min(text.len());
-            let deleted = text[byte_pos..end_pos].to_string();
-
-            let range = azul_core::selection::SelectionRange {
-                start: cursor_pos,
-                end: TextCursor {
-                    cluster_id: GraphemeClusterId {
-                        source_run: cursor_pos.cluster_id.source_run,
-                        start_byte_in_run: end_pos as u32,
-                    },
-                    affinity: CursorAffinity::Leading,
-                },
-            };
-            (range, deleted)
-        } else {
-            // Backspace - delete character before cursor
-            if byte_pos == 0 {
-                return None; // At start, nothing to delete
-            }
-            // Delete one character backward
-            let start_pos = byte_pos.saturating_sub(1);
-            let deleted = text[start_pos..byte_pos].to_string();
-
-            let range = azul_core::selection::SelectionRange {
-                start: TextCursor {
-                    cluster_id: GraphemeClusterId {
-                        source_run: cursor_pos.cluster_id.source_run,
-                        start_byte_in_run: start_pos as u32,
-                    },
-                    affinity: CursorAffinity::Leading,
-                },
-                end: cursor_pos,
-            };
-            (range, deleted)
-        };
-
-        (range, deleted)
-    } else {
-        return None; // No cursor or selection
-    };
-
-    // New cursor position after deletion (at start of deleted range)
-    let new_cursor = azul_core::window::CursorPosition::Uninitialized;
-
-    Some(TextChangeset::new(
-        target,
-        TextOperation::DeleteText(TextOpDeleteText {
-            range: delete_range,
-            deleted_text: AzString::from(deleted_text),
-            new_cursor,
-        }),
-        timestamp,
-    ))
-}
+// The `create_copy_changeset` / `create_cut_changeset` / `create_select_all_changeset`
+// / `create_delete_selection_changeset` constructors lived here. They had zero callers
+// (the live editing paths run through `common/event.rs`, see the module docs) and
+// contained unfinished stubs, so they were removed rather than wired up. The
+// `TextOperation` payload types above are retained — they are FFI-exported (api.json)
+// and used by `undo_redo.rs` / `window.rs` for the changeset/undo records.

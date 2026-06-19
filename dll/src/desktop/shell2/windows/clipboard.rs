@@ -2,26 +2,11 @@
 //!
 //! Uses the `clipboard-win` crate to interface with the Windows clipboard API.
 //!
-//! - [`sync_clipboard`]: writes pending copy content from the [`ClipboardManager`]
-//!   to the system clipboard and clears the manager state.
+//! - [`write_to_clipboard`]: writes a string to the system clipboard.
 //! - [`get_clipboard_content`]: reads the current text content from the system clipboard.
-
-use azul_layout::managers::clipboard::ClipboardManager;
-
-/// Synchronize clipboard manager content to Windows system clipboard
-///
-/// This is called after user callbacks to commit clipboard changes.
-/// If the clipboard manager has pending copy content, it's written to
-/// the Windows clipboard via clipboard-win.
-pub fn sync_clipboard(clipboard_manager: &mut ClipboardManager) {
-    if let Some(content) = clipboard_manager.get_copy_content() {
-        if write_to_clipboard(&content.plain_text).is_ok() {
-            clipboard_manager.clear();
-        }
-    } else {
-        clipboard_manager.clear();
-    }
-}
+//!
+//! Both are called from `common/event.rs` during event processing (via the
+//! `get_system_clipboard`/`set_system_clipboard` helpers).
 
 /// Write text to the Windows system clipboard
 pub fn write_to_clipboard(text: &str) -> Result<(), ()> {
