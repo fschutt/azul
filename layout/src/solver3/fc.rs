@@ -3506,7 +3506,16 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         }
         // §10.8.1: <length> is absolute offset from baseline
         StyleVerticalAlign::Length(l) => {
-            let offset = super::calc::resolve_pixel_value(&l, 0.0, font_size, font_size);
+            // Resolve viewport units (vw/vh/vmin/vmax) against the real viewport
+            // instead of falling through `resolve_pixel_value`'s "treat 50vw as 50px".
+            let offset = super::calc::resolve_pixel_value_with_viewport(
+                &l,
+                0.0,
+                font_size,
+                font_size,
+                ctx.viewport_size.width,
+                ctx.viewport_size.height,
+            );
             text3::cache::VerticalAlign::Offset(offset)
         }
     };
@@ -3972,13 +3981,20 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             let n = line_height_value.inner.normalized();
             if n < 0.0 { -n } else { n * font_size }
         }),
-        // container's first available font. Approximated as 80%/20% of font_size (typical
-        // for Latin fonts). TODO: resolve actual font and use its OS/2 metrics.
+        // Strut metrics for the container's first available font, approximated as
+        // 80%/20%/50% of font_size (typical Latin ratios).
+        // TODO(superplan): use the resolved primary font's real OS/2 metrics
+        // (`ParsedFontTrait::get_font_metrics` → ascent/descent/x_height scaled by
+        // units_per_em) and `get_space_width` for `ch_width`. The font is not
+        // resolved here: picking the element's primary `ParsedFont` requires the
+        // font-chain machinery in `getters::resolve_font_chains` (font-family →
+        // fc_cache → loaded font), which isn't threaded into this function. The
+        // strut only sizes empty / whitespace-only lines — non-empty runs already
+        // use each run's real font metrics during shaping in text3.
         strut_ascent: font_size * 0.8,
         strut_descent: font_size * 0.2,
         strut_x_height: font_size * 0.5, // 0.5em fallback per CSS Inline 3 Appendix A
-        // ch unit width: try to get actual space width from font, fall back to 0.5 * font_size
-        ch_width: font_size * 0.5, // TODO: resolve from ParsedFontTrait::get_space_width()
+        ch_width: font_size * 0.5,
         vertical_align,
         // +spec:inline-formatting-context:48ce44 - overflow-wrap property: break at otherwise disallowed points to prevent overflow
         // +spec:line-breaking:bbb5f7 - overflow-wrap: anywhere vs break-word distinction for min-content
@@ -4998,6 +5014,27 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     debug_table_layout!(ctx, "  Total height: {:.2}", total_height);
     debug_table_layout!(ctx, "End Table Debug");
 
+    // CSS 2.2 §10.8.1: the baseline of a table is the baseline of its first
+    // in-flow row — used when the table is an `inline-table` aligned on a line.
+    // `row_baselines[0]` is that row's baseline measured from the row's top;
+    // every row-0 cell shares the row top, so add any row-0 cell's (already
+    // caption-adjusted) y position. Falls back to `None` for an empty table,
+    // where the caller treats the bottom content edge as the baseline.
+    // TODO(superplan): a rowspan cell that *starts* in row 0 but whose content
+    // baseline sits in a later row is approximated by `row_baselines[0]` here.
+    let table_baseline = table_ctx
+        .row_baselines
+        .first()
+        .copied()
+        .and_then(|row0_baseline| {
+            table_ctx
+                .cells
+                .iter()
+                .find(|c| c.row == 0)
+                .and_then(|c| cell_positions.get(&c.node_index))
+                .map(|pos| pos.y + row0_baseline)
+        });
+
     // Create output with the table's final size and cell positions
     // +spec:box-model:52fcfe - overflow_size must include borders that spill into margin in collapsing border model
     let output = LayoutOutput {
@@ -5007,9 +5044,8 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         },
         // Cell positions calculated in position_table_cells
         positions: cell_positions,
-        // line box or first in-flow table-row; if none, bottom of content edge
-        // TODO: implement proper table baseline propagation
-        baseline: None,
+        // First in-flow row's baseline (CSS 2.2 §10.8.1); None ⇒ bottom edge.
+        baseline: table_baseline,
     };
 
     Ok(output)
@@ -5123,6 +5159,25 @@ fn analyze_table_colgroup<T: ParsedFontTrait>(
     Ok(())
 }
 
+/// Read the HTML `colspan` / `rowspan` of a table cell from its DOM node.
+///
+/// These are HTML presentational attributes (`AttributeType::ColSpan`/`RowSpan`
+/// on `NodeData`), not CSS properties. Missing or non-positive values default to
+/// 1 per the HTML parsing rules.
+fn get_cell_spans(styled_dom: &StyledDom, dom_id: NodeId) -> (usize, usize) {
+    let mut colspan = 1usize;
+    let mut rowspan = 1usize;
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    for attr in node_data.attributes().as_ref().iter() {
+        match attr {
+            azul_core::dom::AttributeType::ColSpan(n) => colspan = (*n).max(1) as usize,
+            azul_core::dom::AttributeType::RowSpan(n) => rowspan = (*n).max(1) as usize,
+            _ => {}
+        }
+    }
+    (colspan, rowspan)
+}
+
 // +spec:display-property:7f167c - Table grid cell placement: rows fill table top-to-bottom, cells placed left-to-right with colspan/rowspan
 /// Analyze a table row to identify cells and update column count
 fn analyze_table_row<T: ParsedFontTrait>(
@@ -5152,9 +5207,11 @@ fn analyze_table_row<T: ParsedFontTrait>(
     for &cell_idx in tree.children(row_index) {
         if let Some(cell) = tree.get(cell_idx) {
             if matches!(cell.formatting_context, FormattingContext::TableCell) {
-                // Get colspan and rowspan (TODO: from CSS properties)
-                let colspan = 1; // TODO: Get from CSS
-                let rowspan = 1; // TODO: Get from CSS
+                // Read colspan/rowspan from the cell's HTML attributes (default 1).
+                let (colspan, rowspan) = cell
+                    .dom_node_id
+                    .map(|dom_id| get_cell_spans(ctx.styled_dom, dom_id))
+                    .unwrap_or((1, 1));
 
                 let cell_info = TableCellInfo {
                     node_index: cell_idx,

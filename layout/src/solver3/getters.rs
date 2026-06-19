@@ -2146,6 +2146,7 @@ fn get_inline_border_info(
     node_id: NodeId,
     node_state: &StyledNodeState,
     border_info: &BorderInfo,
+    viewport: azul_css::props::basic::PhysicalSize,
 ) -> Option<crate::text3::cache::InlineBorderInfo> {
     use crate::text3::cache::InlineBorderInfo;
 
@@ -2223,20 +2224,29 @@ fn get_inline_border_info(
     let bottom = border_width_px!(&border_info.widths.bottom);
     let left = border_width_px!(&border_info.widths.left);
 
-    // Fetch padding values for inline elements
-    fn resolve_padding(mv: MultiValue<PixelValue>) -> f32 {
+    // Fetch padding values for inline elements. Viewport units (vw/vh/...) resolve
+    // against the real viewport instead of being treated as raw pixels.
+    fn resolve_padding(
+        mv: MultiValue<PixelValue>,
+        viewport: azul_css::props::basic::PhysicalSize,
+    ) -> f32 {
         match mv {
-            MultiValue::Exact(pv) => {
-                super::calc::resolve_pixel_value(&pv, 0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-            }
+            MultiValue::Exact(pv) => super::calc::resolve_pixel_value_with_viewport(
+                &pv,
+                0.0,
+                DEFAULT_FONT_SIZE,
+                DEFAULT_FONT_SIZE,
+                viewport.width,
+                viewport.height,
+            ),
             _ => 0.0,
         }
     }
 
-    let p_top = resolve_padding(get_css_padding_top(styled_dom, node_id, node_state));
-    let p_right = resolve_padding(get_css_padding_right(styled_dom, node_id, node_state));
-    let p_bottom = resolve_padding(get_css_padding_bottom(styled_dom, node_id, node_state));
-    let p_left = resolve_padding(get_css_padding_left(styled_dom, node_id, node_state));
+    let p_top = resolve_padding(get_css_padding_top(styled_dom, node_id, node_state), viewport);
+    let p_right = resolve_padding(get_css_padding_right(styled_dom, node_id, node_state), viewport);
+    let p_bottom = resolve_padding(get_css_padding_bottom(styled_dom, node_id, node_state), viewport);
+    let p_left = resolve_padding(get_css_padding_left(styled_dom, node_id, node_state), viewport);
 
     // Only return Some if there's actually a border or padding
     let has_border = top > 0.0 || right > 0.0 || bottom > 0.0 || left > 0.0;
@@ -2569,6 +2579,13 @@ pub fn get_vertical_align_for_node(
         // §10.8.1: <length> is absolute offset from baseline
         StyleVerticalAlign::Length(l) => {
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
+            // TODO(superplan): viewport units (vw/vh/...) in a vertical-align <length>
+            // fall back to raw pixels here because this getter has no viewport ctx.
+            // Threading `viewport_size` requires changing this fn's signature, but one
+            // of its callers (`sizing.rs::process_layout_children`) lives outside
+            // Group 2's file ownership — deferred. (The sibling path in
+            // fc.rs::translate_to_text3_constraints already resolves it via
+            // `resolve_pixel_value_with_viewport`.)
             let px = super::calc::resolve_pixel_value(&l, 0.0, font_size, font_size);
             crate::text3::cache::VerticalAlign::Offset(px)
         }
@@ -2772,7 +2789,7 @@ pub fn get_style_properties(
             // Get border info for inline elements
             let border_info = get_border_info(styled_dom, dom_id, node_state);
             let inline_border =
-                get_inline_border_info(styled_dom, dom_id, node_state, &border_info);
+                get_inline_border_info(styled_dom, dom_id, node_state, &border_info, viewport_size);
 
             (bg_color, bg_contents, inline_border)
         } else {

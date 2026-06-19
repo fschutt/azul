@@ -198,6 +198,10 @@ impl NodeCache {
     /// This is Taffy's slot selection scheme: given whether width/height are
     /// "known" (definite constraint provided by parent) and what type of
     /// constraint applies to the unknown dimension(s), we get a unique slot 0–8.
+    ///
+    /// TODO(superplan): currently unused — the layout cache only ever touches
+    /// slot 0 (see the `get_size(0, ..)` / `store_size(0, ..)` call sites). This
+    /// is the intended entry point for wiring the full 9-slot scheme.
     pub fn slot_index(
         width_known: bool,
         height_known: bool,
@@ -2005,7 +2009,12 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     if node_index < ctx.cache_map.entries.len() {
         match compute_mode {
             ComputeMode::ComputeSize => {
-                // ComputeSize: check measurement slot first (Taffy's 9-slot scheme)
+                // ComputeSize: check measurement slot first (Taffy's 9-slot scheme).
+                // TODO(superplan): only slot 0 is ever read/written — the other 8
+                // measurement slots are dead. To wire the full multi-slot scheme,
+                // classify `containing_block_size` into (width_known, height_known,
+                // width_type, height_type) and select the slot via
+                // `NodeCache::slot_index(..)` here and at the matching `store_size`.
                 let sizing_hit = ctx.cache_map.entries[node_index]
                     .get_size(0, containing_block_size)
                     .cloned();
@@ -2066,6 +2075,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                     let box_props = tree.get(node_index)
                         .map(|n| n.box_props.unpack())
                         .unwrap_or_default();
+                    let writing_mode = tree
+                        .warm(node_index)
+                        .map(|w| w.computed_style.writing_mode)
+                        .unwrap_or_default();
                     let self_content_box_pos = calculate_content_box_pos(containing_block_pos, &box_props);
 
                     // Apply cached child positions and recurse
@@ -2079,7 +2092,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
 
                         let inner = box_props.inner_size(
                             result_size,
-                            LayoutWritingMode::HorizontalTb,
+                            writing_mode,
                         );
                         // Subtract scrollbar reservation from the available size
                         // passed to children. This mirrors what layout_bfc does in
@@ -2329,9 +2342,11 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
             scrollbar_info: merged_scrollbar_info.clone(),
         });
 
-        // Also store in a measurement slot (slot 0: both dimensions known)
+        // Also store in a measurement slot (slot 0: both dimensions known).
         // This enables the "result matches request" optimization (Taffy pattern):
         // when Pass 2 provides the same size as Pass 1 measured, it's a cache hit.
+        // TODO(superplan): see the matching note at the `get_size(0, ..)` site —
+        // slots 1-8 are unused; wire `NodeCache::slot_index(..)` to populate them.
         ctx.cache_map.get_mut(node_index).store_size(0, SizingCacheEntry {
             available_size: containing_block_size,
             result_size: final_used_size,
@@ -2379,6 +2394,10 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
 
         // Get child's content box for recursion
         let cbp = child_node.box_props.unpack();
+        let child_writing_mode = tree
+            .warm(child_index)
+            .map(|w| w.computed_style.writing_mode)
+            .unwrap_or_default();
         let child_content_box = LogicalPosition::new(
             child_abs_pos.x
                 + cbp.border.left
@@ -2389,7 +2408,7 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
         );
         let child_inner_size = cbp.inner_size(
             child_node.used_size.unwrap_or_default(),
-            LayoutWritingMode::HorizontalTb,
+            child_writing_mode,
         );
 
         // Recurse

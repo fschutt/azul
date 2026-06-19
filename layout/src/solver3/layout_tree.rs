@@ -1,19 +1,28 @@
 //! Layout tree construction from a styled DOM, including anonymous box generation
 use std::{
+    cell::Cell,
     collections::BTreeMap,
     hash::{Hash, Hasher},
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc,
-    },
+    sync::Arc,
 };
 
 use azul_core::diff::NodeDataFingerprint;
 
 use crate::text3::cache::UnifiedConstraints;
 
-/// Global counter for IFC IDs. Resets to 0 when layout() callback is invoked.
-static IFC_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
+thread_local! {
+    /// Per-thread counter for IFC IDs, reset to 0 at the start of each layout
+    /// pass (see [`IfcId::reset_counter`]).
+    ///
+    /// This was previously a process-global `AtomicU32`. Two `layout_document`
+    /// calls running concurrently on different threads (the `Sync` layout bound
+    /// permits this) shared that single counter, so their IFC IDs interleaved and
+    /// collided. A thread-local counter gives each pass its own sequence — a single
+    /// pass is single-threaded (`LayoutContext` holds non-`Sync` `RefCell` caches),
+    /// so IDs stay deterministic and stable across frames while never colliding
+    /// across concurrent passes.
+    static IFC_ID_COUNTER: Cell<u32> = Cell::new(0);
+}
 
 /// Unique identifier for an Inline Formatting Context (IFC).
 ///
@@ -21,22 +30,27 @@ static IFC_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 /// is laid out together. One IFC can contain content from multiple DOM nodes
 /// (e.g., `<p>Hello <span>world</span>!</p>` is one IFC with 3 text runs).
 ///
-/// The ID is generated using a global atomic counter that resets at the start
+/// The ID is generated using a per-thread counter that resets at the start
 /// of each layout pass. This ensures:
 /// - IDs are unique within a layout pass
 /// - The same logical IFC gets the same ID across frames (for selection stability)
+/// - Concurrent `layout_document` passes on different threads can't collide
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct IfcId(pub u32);
 
 impl IfcId {
-    /// Generate a new unique IFC ID.
+    /// Generate a new unique IFC ID (within the current thread's layout pass).
     pub fn unique() -> Self {
-        Self(IFC_ID_COUNTER.fetch_add(1, Ordering::Relaxed))
+        IFC_ID_COUNTER.with(|c| {
+            let v = c.get();
+            c.set(v.wrapping_add(1));
+            Self(v)
+        })
     }
 
     /// Reset the IFC ID counter. Called at the start of each layout pass.
     pub fn reset_counter() {
-        IFC_ID_COUNTER.store(0, Ordering::Relaxed);
+        IFC_ID_COUNTER.with(|c| c.set(0));
     }
 }
 

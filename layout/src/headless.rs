@@ -88,7 +88,16 @@ use std::collections::BTreeMap;
 use azul_core::{
     dom::{DomId, NodeId},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
+    styled_dom::StyledDom,
 };
+
+use crate::solver3::{getters::{get_overflow_x, get_overflow_y}, layout_tree::LayoutNodeHot, PositionVec};
+
+/// Large finite half-extent used in place of `f32::INFINITY` for clip axes that
+/// are not constrained by any ancestor. Keeping it finite avoids `NaN` in
+/// `point_in_rect` (`origin + size` would be `inf - inf = NaN`) while staying
+/// far outside any realistic logical-pixel coordinate.
+const CLIP_UNBOUNDED: f32 = 1.0e7;
 
 /// CPU-based hit tester that works without WebRender.
 ///
@@ -196,6 +205,7 @@ impl CpuHitTester {
 
             let positions = &layout_result.calculated_positions;
             let nodes = &layout_result.layout_tree.nodes;
+            let styled_dom = &layout_result.styled_dom;
 
             // Child DOM: shift into window space + clip to the composite rect.
             let (offset, dom_clip) = match placements.get(dom_id) {
@@ -231,11 +241,20 @@ impl CpuHitTester {
                     size,
                 };
 
+                // Clip this node to the intersection of the VirtualView composite
+                // bounds (`dom_clip`) and every `overflow: hidden | clip | scroll |
+                // auto` ancestor's box — otherwise a node that is scrolled/clipped
+                // out of its ancestor would still claim pointer events.
+                let clip = compute_node_clip(styled_dom, nodes, positions, idx, offset, dom_clip);
+
                 entries.push(HitTestEntry {
                     node_id,
                     rect,
-                    clip: dom_clip,
-                    pointer_events_none: false, // TODO: check CSS property
+                    clip,
+                    // azul has no `pointer-events` CSS property yet, so every laid-out
+                    // node is hit-testable. Populate this from the styled DOM once such
+                    // a property is added to `azul_css`.
+                    pointer_events_none: false,
                 });
             }
 
@@ -283,6 +302,107 @@ fn point_in_rect(point: LogicalPosition, rect: &LogicalRect) -> bool {
         && point.x < rect.origin.x + rect.size.width
         && point.y >= rect.origin.y
         && point.y < rect.origin.y + rect.size.height
+}
+
+/// Compute the hit-test clip rect for a layout node: the intersection of the
+/// host VirtualView composite bounds (`dom_clip`) and every clipping ancestor's
+/// border box (any `overflow` other than `visible`).
+///
+/// Clipping is tracked per-axis because `overflow-x` / `overflow-y` are
+/// independent — an axis whose ancestors are all `overflow: visible` stays
+/// unbounded (stored as a large finite extent, see [`CLIP_UNBOUNDED`]). The
+/// ancestor box used is the border box (`used_size`); CSS clips at the padding
+/// edge, but the slightly larger border box is a safe over-inclusion for point
+/// hit-testing and avoids resolving padding/border here.
+fn compute_node_clip(
+    styled_dom: &StyledDom,
+    nodes: &[LayoutNodeHot],
+    positions: &PositionVec,
+    node_index: usize,
+    offset: LogicalPosition,
+    dom_clip: Option<LogicalRect>,
+) -> Option<LogicalRect> {
+    // Accumulate clip bounds per axis, seeded from the DOM-level composite clip.
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+        f32::INFINITY,
+        f32::INFINITY,
+    );
+    let mut has_clip = false;
+    if let Some(dc) = dom_clip {
+        min_x = dc.min_x();
+        min_y = dc.min_y();
+        max_x = dc.max_x();
+        max_y = dc.max_y();
+        has_clip = true;
+    }
+
+    // Walk ancestors. A node's own overflow clips its descendants, not itself, so
+    // we start at the parent. `guard` bounds the loop in case `parent` links ever
+    // form a cycle (they shouldn't, but a hit-test rebuild must never hang).
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let mut cur = nodes.get(node_index).and_then(|n| n.parent);
+    let mut guard = 0usize;
+    while let Some(anc) = cur {
+        guard += 1;
+        if guard > nodes.len() {
+            break;
+        }
+        let Some(anc_node) = nodes.get(anc) else { break };
+        cur = anc_node.parent;
+
+        let Some(anc_dom_id) = anc_node.dom_node_id else {
+            continue;
+        };
+        let node_state = &styled_nodes[anc_dom_id].styled_node_state;
+        let clips_x = get_overflow_x(styled_dom, anc_dom_id, node_state).is_clipped();
+        let clips_y = get_overflow_y(styled_dom, anc_dom_id, node_state).is_clipped();
+        if !clips_x && !clips_y {
+            continue;
+        }
+        let (Some(pos), Some(size)) = (positions.get(anc), anc_node.used_size) else {
+            continue;
+        };
+        let (ax0, ay0) = (pos.x + offset.x, pos.y + offset.y);
+        if clips_x {
+            min_x = min_x.max(ax0);
+            max_x = max_x.min(ax0 + size.width);
+            has_clip = true;
+        }
+        if clips_y {
+            min_y = min_y.max(ay0);
+            max_y = max_y.min(ay0 + size.height);
+            has_clip = true;
+        }
+    }
+
+    if !has_clip {
+        return None;
+    }
+
+    // Replace any still-unbounded axis with a large finite extent so the stored
+    // rect's `origin + size` arithmetic stays finite (no `inf - inf = NaN`).
+    if !min_x.is_finite() {
+        min_x = -CLIP_UNBOUNDED;
+    }
+    if !min_y.is_finite() {
+        min_y = -CLIP_UNBOUNDED;
+    }
+    if !max_x.is_finite() {
+        max_x = CLIP_UNBOUNDED;
+    }
+    if !max_y.is_finite() {
+        max_y = CLIP_UNBOUNDED;
+    }
+
+    Some(LogicalRect {
+        origin: LogicalPosition { x: min_x, y: min_y },
+        size: LogicalSize {
+            width: (max_x - min_x).max(0.0),
+            height: (max_y - min_y).max(0.0),
+        },
+    })
 }
 
 #[cfg(test)]

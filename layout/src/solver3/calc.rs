@@ -175,6 +175,11 @@ fn evaluate_calc_ast(
 /// - `basis`    — the "100 %" reference (containing-block width or height)
 /// - `em_size`  — element's computed font-size (for `em` units)
 /// - `rem_size` — root element's computed font-size (for `rem` units)
+///
+/// NOTE: this variant has no viewport context, so viewport units (`vw`/`vh`/
+/// `vmin`/`vmax`) fall back to their raw number (i.e. `50vw` → `50px`). Callers
+/// that may see viewport units must use [`resolve_pixel_value_with_viewport`]
+/// (or [`resolve_pixel_value_no_percent_with_viewport`]) instead.
 pub fn resolve_pixel_value(
     pv: &PixelValue,
     basis: f32,
