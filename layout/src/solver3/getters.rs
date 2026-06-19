@@ -2487,7 +2487,7 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
 /// Get scrollbar information from a layout node.
 ///
 /// Scrollbar requirements are computed during the layout phase in two paths:
-/// - BFC layout: `compute_scrollbar_info()` + `merge_scrollbar_info()` in cache.rs
+/// - BFC layout: `compute_scrollbar_info()` in cache.rs
 /// - Taffy layout: set in the measure callback in taffy_bridge.rs
 ///
 /// If neither path set `scrollbar_info`, the node genuinely does not need

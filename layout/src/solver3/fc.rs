@@ -1020,13 +1020,14 @@ fn layout_bfc<T: ParsedFontTrait>(
     // Reserve space for vertical scrollbar when appropriate.
     //
     // - overflow: scroll  → ALWAYS reserve (CSS spec: scrollbar always shown)
-    // - overflow: auto    → Reserve ONLY when a previous pass / the anti-jitter
-    //   merge (`merge_scrollbar_info`) already determined a scrollbar is needed.
+    // - overflow: auto    → Reserve ONLY when a previous pass already determined
+    //   a scrollbar is needed.
     //   On the very first pass the node has no scrollbar_info yet, so no space
     //   is reserved.  After `compute_scrollbar_info` detects overflow it sets
     //   `reflow_needed_for_scrollbars = true`, triggering a second pass where
     //   `node.scrollbar_info.needs_vertical == true` and space IS reserved.
-    //   The merge uses `||` (keep once detected), preventing cross-frame jitter.
+    //   Each pass replaces `scrollbar_info` with the current state; the outer
+    //   layout loop's iteration cap handles oscillation safety.
     let scrollbar_reservation = node
         .dom_node_id
         .map(|dom_id| {
