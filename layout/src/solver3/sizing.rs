@@ -33,7 +33,7 @@ use crate::{
     },
     solver3::{
         fc::split_text_for_whitespace,
-        geometry::{BoxProps, BoxSizing, IntrinsicSizes, WritingModeContext},
+        geometry::{BoxProps, IntrinsicSizes, WritingModeContext},
         getters::{
             get_css_box_sizing, get_css_height, get_css_width, get_display_property,
             get_direction_property, get_element_font_size, get_flex_direction, get_float,

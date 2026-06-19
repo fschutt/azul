@@ -14,14 +14,6 @@ use azul_css::props::{
     style::{StyleDirection, StyleTextOrientation},
 };
 
-/// Represents the CSS `box-sizing` property.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum BoxSizing {
-    #[default]
-    ContentBox,
-    BorderBox,
-}
-
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct PositionedRectangle {
     /// The outer bounds of the rectangle
@@ -484,11 +476,13 @@ impl PackedBoxProps {
 
     #[inline(always)]
     fn pack_edge(e: &EdgeSizes) -> [i16; 4] {
+        const MIN: f32 = i16::MIN as f32;
+        const MAX: f32 = i16::MAX as f32;
         [
-            (e.top * 10.0).round() as i16,
-            (e.right * 10.0).round() as i16,
-            (e.bottom * 10.0).round() as i16,
-            (e.left * 10.0).round() as i16,
+            (e.top * 10.0).round().clamp(MIN, MAX) as i16,
+            (e.right * 10.0).round().clamp(MIN, MAX) as i16,
+            (e.bottom * 10.0).round().clamp(MIN, MAX) as i16,
+            (e.left * 10.0).round().clamp(MIN, MAX) as i16,
         ]
     }
 
@@ -540,18 +534,6 @@ pub struct IntrinsicSizes {
 // ============================================================================
 // WRITING MODE SUPPORT
 // ============================================================================
-
-/// Returns true if the writing mode is horizontal (HorizontalTb).
-///
-/// This is the main entry point for code that needs to check whether layout
-/// should proceed in horizontal or vertical mode. In horizontal mode, the
-/// inline axis is horizontal (left-to-right or right-to-left) and the block
-/// axis is vertical (top-to-bottom). In vertical modes, these are swapped.
-// +spec:block-formatting-context:6225cb - vertical writing modes: line-over is right, line-under is left
-// +spec:block-formatting-context:9a4269 - vertical vs horizontal script classification
-pub fn is_horizontal(writing_mode: LayoutWritingMode) -> bool {
-    matches!(writing_mode, LayoutWritingMode::HorizontalTb)
-}
 
 /// Captures the resolved writing mode context for a node.
 ///
@@ -611,28 +593,23 @@ impl WritingModeContext {
     }
 
     // +spec:writing-modes:458d31 - text-orientation:upright forces used direction to ltr
-    /// Returns the used value of `direction`, accounting for `text-orientation: upright`
-    /// which forces direction to `ltr` in vertical writing modes per CSS Writing Modes 4 §5.1.
+    /// Returns the used value of `direction`.
+    ///
+    /// The upright override is already applied in `new()`, so this just
+    /// returns the stored direction.
     pub fn used_direction(&self) -> StyleDirection {
-        match self.writing_mode {
-            LayoutWritingMode::HorizontalTb => self.direction,
-            LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => {
-                if self.text_orientation == StyleTextOrientation::Upright {
-                    StyleDirection::Ltr
-                } else {
-                    self.direction
-                }
-            }
-        }
+        self.direction
     }
 
     // +spec:containing-block:c205e5 - orthogonal flow: child writing mode perpendicular to containing block's
 
+    // +spec:block-formatting-context:6225cb - vertical writing modes: line-over is right, line-under is left
+    // +spec:block-formatting-context:9a4269 - vertical vs horizontal script classification
     /// Returns true if the writing mode is horizontal (HorizontalTb).
     ///
     /// When true, the inline axis is horizontal and the block axis is vertical.
     pub fn is_horizontal(&self) -> bool {
-        is_horizontal(self.writing_mode)
+        matches!(self.writing_mode, LayoutWritingMode::HorizontalTb)
     }
 
     /// Returns true if the inline size corresponds to the physical width.
