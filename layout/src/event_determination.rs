@@ -648,7 +648,7 @@ pub fn determine_all_events(
         ));
     }
 
-    if file_drop_manager.dropped_file.is_some() {
+    if file_drop_manager.get_dropped_file().is_some() {
         events.push(SyntheticEvent::new(
             EventType::FileDrop,
             EventSource::User,

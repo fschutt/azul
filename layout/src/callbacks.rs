@@ -3546,8 +3546,7 @@ impl CallbackInfo {
     pub fn get_dropped_file(&self) -> Option<&azul_css::AzString> {
         self.get_layout_window()
             .file_drop_manager
-            .dropped_file
-            .as_ref()
+            .get_dropped_file()
     }
 
     /// Check if a node or file drag is currently active
