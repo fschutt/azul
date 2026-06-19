@@ -11,7 +11,7 @@ use azul_css::props::style::StyleBackgroundContent;
 
 use crate::text3::cache::{
     get_item_vertical_metrics_approx, InlineBorderInfo, LoadedFonts, ParsedFontTrait, Point,
-    PositionedItem, ShapedGlyph, ShapedItem, UnifiedLayout,
+    ShapedGlyph, ShapedItem, UnifiedLayout,
 };
 
 /// Represents a single glyph ready for rendering, with an absolute position on the baseline.
@@ -50,25 +50,7 @@ pub struct SimpleGlyphRun {
     pub source_node_id: Option<NodeId>,
 }
 
-#[derive(Debug, Clone)]
-pub struct GlyphRun<T: ParsedFontTrait> {
-    /// The glyphs in this run, with their positions relative to the start of the run.
-    pub glyphs: Vec<GlyphInstance>,
-    /// The color of the text in this glyph run.
-    pub color: ColorU,
-    /// The font used for this glyph run.
-    pub font: T, // Changed from Arc<T> - T is already cheap to clone (e.g. FontRef)
-    /// A hash of the font, useful for caching purposes.
-    pub font_hash: u64,
-    /// The font size in pixels.
-    pub font_size_px: f32,
-    /// Text decoration (underline, strikethrough, overline)
-    pub text_decoration: crate::text3::cache::TextDecoration,
-    /// Whether this is an IME composition preview (should be rendered with special styling)
-    pub is_ime_preview: bool,
-}
-
-/// Simple version of get_glyph_runs that doesn't require fonts.
+/// Groups glyphs into runs without requiring font references.
 /// Use this when you only need glyph positions and don't need font references.
 pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
     let mut runs: Vec<SimpleGlyphRun> = Vec::new();
@@ -209,116 +191,6 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
             }
             i += 1;
         }
-    }
-
-    runs
-}
-
-/// Same as `get_glyph_positions`, but returns a list of `GlyphRun`s
-/// instead of a flat list of glyphs. This groups glyphs by their font and
-/// color, which can be more efficient for rendering.
-pub fn get_glyph_runs<T: ParsedFontTrait>(
-    layout: &UnifiedLayout,
-    fonts: &LoadedFonts<T>,
-) -> Vec<GlyphRun<T>> {
-    // Group glyphs by font and color
-    let mut runs: Vec<GlyphRun<T>> = Vec::new();
-    let mut current_run: Option<GlyphRun<T>> = None;
-
-    for item in &layout.items {
-        let (item_ascent, _) = get_item_vertical_metrics_approx(&item.item);
-        let baseline_y = item.position.y + item_ascent;
-
-        let mut process_glyphs =
-            |positioned_glyphs: &[ShapedGlyph],
-             item_origin_x: f32,
-             writing_mode: crate::text3::cache::WritingMode| {
-                let mut pen_x = item_origin_x;
-
-                for glyph in positioned_glyphs {
-                    let glyph_color = glyph.style.color;
-                    let font_hash = glyph.font_hash;
-                    let font_size_px = glyph.style.font_size_px;
-                    let text_decoration = glyph.style.text_decoration.clone();
-
-                    // Look up the font from the fonts container
-                    let font = match fonts.get_by_hash(font_hash) {
-                        Some(f) => f.clone(),
-                        None => continue, // Skip glyphs with unknown fonts
-                    };
-
-                    // Calculate absolute position: baseline position + GPOS offset
-                    let absolute_position = LogicalPosition {
-                        x: pen_x + glyph.offset.x,
-                        y: baseline_y - glyph.offset.y, // Y-down: subtract positive offset
-                    };
-
-                    let instance =
-                        glyph.into_glyph_instance_at(writing_mode, absolute_position, fonts);
-
-                    // changes. Text-decoration does not affect shaping (per spec, shaping
-                    // must not break when only text-decoration changes), but rendering
-                    // runs still split for correct visual output.
-                    if let Some(run) = current_run.as_mut() {
-                        if run.font_hash == font_hash
-                            && run.color == glyph_color
-                            && run.font_size_px == font_size_px
-                            && run.text_decoration == text_decoration
-                        {
-                            run.glyphs.push(instance);
-                        } else {
-                            // Different font, color, size, or decoration: finalize the
-                            // current run and start a new one
-                            runs.push(run.clone());
-                            current_run = Some(GlyphRun {
-                                glyphs: vec![instance],
-                                color: glyph_color,
-                                font: font.clone(),
-                                font_hash,
-                                font_size_px,
-                                text_decoration: text_decoration.clone(),
-                                is_ime_preview: false, // TODO: Set from input context
-                            });
-                        }
-                    } else {
-                        // Start a new run
-                        current_run = Some(GlyphRun {
-                            glyphs: vec![instance],
-                            color: glyph_color,
-                            font: font.clone(),
-                            font_hash,
-                            font_size_px,
-                            text_decoration: text_decoration.clone(),
-                            is_ime_preview: false, // TODO: Set from input context
-                        });
-                    }
-
-                    // Advance the pen for the next glyph in the cluster/block.
-                    // TODO: writing-mode support (vertical text) here
-                    pen_x += glyph.advance + glyph.kerning;
-                }
-            };
-
-        match &item.item {
-            ShapedItem::Cluster(cluster) => {
-                let writing_mode = cluster.style.writing_mode;
-                process_glyphs(&cluster.glyphs, item.position.x, writing_mode);
-            }
-            // This is a rare case for tate-chu-yoko (mixed horizontal+vertical text)
-            ShapedItem::CombinedBlock { glyphs, .. } => {
-                for g in glyphs {
-                    let writing_mode = g.style.writing_mode;
-                    process_glyphs(&[g.clone()], item.position.x, writing_mode);
-                }
-            }
-            _ => {
-                // Ignore non-text items like objects, breaks, etc.
-            }
-        }
-    }
-
-    if let Some(run) = current_run {
-        runs.push(run);
     }
 
     runs
@@ -602,75 +474,4 @@ pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
     }
 
     final_glyphs
-}
-
-// ============================================================================
-// +spec:display-property:e124e9 - Line box height sized to include aligned layout bounds of all inline-level boxes
-// LINE BOX METRICS ACCUMULATOR (CSS 2.2 §10.8.1)
-// +spec:height-calculation:18825a - half-leading model for line box height calculation
-// +spec:inline-formatting-context:ce2b15 - line box height from vertical stack of inline-level boxes
-// ============================================================================
-
-/// Accumulates metrics for a single line box during inline layout.
-///
-// +spec:display-property:61a267 - inline-sizing default (normal): content area height = font metrics (ascent+descent), no layout effect
-// +spec:display-property:a15ae9 - line-height determines layout bounds (contribution to line box logical height)
-// +spec:display-property:adc520 - inline-level baseline alignment: each glyph/inline-box aligned to parent baseline, then shifted by vertical-align
-// +spec:display-property:e2e64f - line box block-axis sizing from inline-level contents via line-height
-/// Implements the CSS 2.2 §10.8.1 "half-leading" model:
-/// - Each inline item has a content area (ascent + descent from font metrics)
-/// - CSS `line-height` distributes "half-leading" equally above and below
-/// - The line box height is the maximum extent of all items after leading
-///
-/// Usage: create a new `LineBoxMetrics`, call `add_item()` for each inline
-/// item on the line, then call `line_height()` and `baseline_offset()`.
-#[derive(Debug, Clone)]
-pub struct LineBoxMetrics {
-    /// Maximum distance above the baseline (positive = up).
-    max_above_baseline: f32,
-    /// Maximum distance below the baseline (positive = down).
-    max_below_baseline: f32,
-}
-
-impl LineBoxMetrics {
-    pub fn new() -> Self {
-        Self {
-            max_above_baseline: 0.0,
-            max_below_baseline: 0.0,
-        }
-    }
-
-    /// Add an inline item's metrics to this line box.
-    ///
-    /// - `ascent`: font ascent (positive, distance from baseline to top of text)
-    /// - `descent`: font descent (positive, distance from baseline to bottom of text)
-    /// - `line_height`: the computed CSS `line-height` for this item
-    ///
-    // +spec:font-metrics:05193a - half-leading model: L = line-height - AD, split above/below
-    /// Half-leading = (line_height - (ascent + descent)) / 2, added above and below.
-    // +spec:box-model:533ca2 - line-fit-edge:leading: line box height uses half-leading, not inline box margin/padding/border
-    // +spec:box-model:04846b - line-fit-edge:leading mode only uses line-height for layout bounds (non-leading modes not yet implemented)
-    // +spec:display-property:a15ae9 - line-height determines inline box layout bounds (contribution to line box height)
-    // +spec:font-metrics:5c5f79 - leading value: ascent/descent plus positive half-leading sizes line box
-    // +spec:font-metrics:3d59af - leading value uses half-leading; margin/padding/border ignored for line box sizing
-    // +spec:line-height:b3be30 - half-leading distributed above/below; line box grows to accommodate overflow
-    // +spec:overflow:196059 - half-leading model: L = line-height - AD, half added above A and below D
-    pub fn add_item(&mut self, ascent: f32, descent: f32, line_height: f32) {
-        let content_height = ascent + descent;
-        let half_leading = (line_height - content_height) / 2.0;
-        let above = ascent + half_leading;
-        let below = descent + half_leading;
-        self.max_above_baseline = self.max_above_baseline.max(above);
-        self.max_below_baseline = self.max_below_baseline.max(below);
-    }
-
-    /// The total height of the line box.
-    pub fn line_height(&self) -> f32 {
-        self.max_above_baseline + self.max_below_baseline
-    }
-
-    /// The offset from the top of the line box to the baseline.
-    pub fn baseline_offset(&self) -> f32 {
-        self.max_above_baseline
-    }
 }
