@@ -909,23 +909,14 @@ fn decide_splittable_break(
     }
 }
 
-// Helper Functions
+// Helper Functions — delegated to solver3::pagination canonical implementations
 
 fn is_forced_break(page_break: &PageBreak) -> bool {
-    matches!(
-        page_break,
-        PageBreak::Always
-            | PageBreak::Page
-            | PageBreak::Left
-            | PageBreak::Right
-            | PageBreak::Recto
-            | PageBreak::Verso
-            | PageBreak::All
-    )
+    crate::solver3::pagination::is_forced_break(*page_break)
 }
 
 fn is_avoid_break(page_break: &PageBreak) -> bool {
-    matches!(page_break, PageBreak::Avoid | PageBreak::AvoidPage)
+    crate::solver3::pagination::is_avoid_break(*page_break)
 }
 
 // Roman numeral conversion
