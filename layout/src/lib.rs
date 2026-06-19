@@ -135,8 +135,10 @@ pub use url::{Url, UrlParseError, ResultUrlUrlParseError};
 pub mod file;
 pub use file::{
     dir_create, dir_create_all, dir_list, dir_delete, dir_delete_all,
-    file_copy, path_exists, file_metadata, file_read, file_delete, file_rename, file_write,
-    path_is_dir, path_is_file, path_join, temp_dir,
+    file_append, file_copy, path_exists, file_metadata, file_read, file_read_string,
+    file_delete, file_rename, file_write, file_write_string,
+    path_canonicalize, path_extension, path_file_name, path_is_dir, path_is_file,
+    path_join, path_parent, temp_dir,
     DirEntry, DirEntryVec, DirEntryVecDestructor, DirEntryVecDestructorType,
     FileError, FileErrorKind, FileMetadata, FilePath, OptionFilePath,
 };
