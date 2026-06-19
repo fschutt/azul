@@ -158,7 +158,7 @@ pub use http::{
 pub mod json;
 #[cfg(feature = "json")]
 pub use json::{
-    json_parse, json_parse_bytes, json_stringify, json_stringify_pretty,
+    json_parse, json_stringify,
     Json, JsonInternal, JsonKeyValue, JsonKeyValueVec, JsonKeyValueVecDestructor, JsonKeyValueVecDestructorType,
     JsonParseError, JsonType, JsonVec,
     ResultJsonJsonParseError, OptionJson, OptionJsonVec, OptionJsonKeyValueVec,

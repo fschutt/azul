@@ -22,23 +22,10 @@ pub fn json_parse(s: &str) -> Result<Json, JsonParseError> {
     Json::parse(s)
 }
 
-/// Parse JSON from bytes
-#[cfg(feature = "json")]
-#[must_use]
-pub fn json_parse_bytes(bytes: &[u8]) -> Result<Json, JsonParseError> {
-    Json::parse_bytes(bytes)
-}
-
 /// Serialize JSON to string
 #[cfg(feature = "json")]
 pub fn json_stringify(json: &Json) -> AzString {
     json.to_json_string()
-}
-
-/// Serialize JSON to pretty-printed string
-#[cfg(feature = "json")]
-pub fn json_stringify_pretty(json: &Json) -> AzString {
-    json.to_string_pretty()
 }
 
 // ============================================================================
