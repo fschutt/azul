@@ -11,7 +11,7 @@
 //! provides programmatic control over page decoration as a temporary solution.
 
 use crate::debug_log;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use azul_core::{
     dom::{DomId, NodeId},
@@ -33,13 +33,6 @@ use crate::{
         LayoutContext, LayoutError, Result,
     },
 };
-
-/// Result of `compute_layout_with_fragmentation`: contains the data
-/// needed to generate a display list afterwards. The tree and
-/// calculated_positions are stored in the `LayoutCache` that was passed in.
-pub struct FragmentationLayoutResult {
-    pub scroll_ids: HashMap<usize, u64>,
-}
 
 /// Layout a document with integrated pagination, returning one DisplayList per page.
 ///
@@ -188,7 +181,7 @@ where
 
     // Handle continuous media (no pagination)
     if !fragmentation_context.is_paged() {
-        let _result = compute_layout_with_fragmentation(
+        compute_layout_with_fragmentation(
             cache,
             text_cache,
             &mut fragmentation_context,
@@ -243,7 +236,7 @@ where
     // Paged Layout
 
     // Perform layout with fragmentation context (layout only, no display list)
-    let _result = compute_layout_with_fragmentation(
+    compute_layout_with_fragmentation(
         cache,
         text_cache,
         &mut fragmentation_context,
@@ -374,8 +367,7 @@ where
 
 /// Internal helper: Perform layout with a fragmentation context (layout only, no display list)
 ///
-/// Returns a `FragmentationLayoutResult` containing the computed scroll IDs.
-/// The tree & positions are stored in `cache`. To generate a display list,
+/// The tree, positions, and scroll IDs are stored in `cache`. To generate a display list,
 /// call `generate_display_list` separately using the tree/positions from the cache.
 #[cfg(feature = "text_layout")]
 fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
@@ -389,11 +381,11 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     image_cache: &azul_core::resources::ImageCache,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
     _print_timing: bool,
-) -> Result<FragmentationLayoutResult> {
+) -> Result<()> {
     use crate::solver3::cache;
 
     // Create temporary context without counters for tree generation
-    let mut counter_values = HashMap::new();
+    let mut counter_values = std::collections::HashMap::new();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx_temp = LayoutContext {
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
@@ -478,12 +470,10 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
         use crate::window::LayoutWindow;
         let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(tree, new_dom);
-        cache.scroll_ids = scroll_ids.clone();
+        cache.scroll_ids = scroll_ids;
         cache.scroll_id_to_node_id = scroll_id_to_node_id;
 
-        return Ok(FragmentationLayoutResult {
-            scroll_ids,
-        });
+        return Ok(());
     }
 
     // --- Step 2: Incremental Layout Loop ---
@@ -506,7 +496,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         )?;
 
         for &root_idx in &recon_result.layout_roots {
-            let (cb_pos, cb_size) = get_containing_block_for_node(
+            let (cb_pos, cb_size) = super::get_containing_block_for_node(
                 &new_tree,
                 new_dom,
                 root_idx,
@@ -601,58 +591,10 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     cache.tree = Some(new_tree);
     cache.previous_positions = std::mem::replace(&mut cache.calculated_positions, calculated_positions);
     cache.viewport = Some(viewport);
-    cache.scroll_ids = scroll_ids.clone();
+    cache.scroll_ids = scroll_ids;
     cache.scroll_id_to_node_id = scroll_id_to_node_id;
     cache.counters = counter_values;
     cache.cache_map = cache_map_back;
 
-    Ok(FragmentationLayoutResult {
-        scroll_ids,
-    })
-}
-
-// Helper function (copy from mod.rs)
-fn get_containing_block_for_node(
-    tree: &crate::solver3::layout_tree::LayoutTree,
-    styled_dom: &StyledDom,
-    node_idx: usize,
-    calculated_positions: &super::PositionVec,
-    viewport: LogicalRect,
-) -> (LogicalPosition, LogicalSize) {
-    use crate::solver3::getters::get_writing_mode;
-
-    if let Some(parent_idx) = tree.get(node_idx).and_then(|n| n.parent) {
-        if let Some(parent_node) = tree.get(parent_idx) {
-            let pos = calculated_positions
-                .get(parent_idx)
-                .copied()
-                .unwrap_or_default();
-            let size = parent_node.used_size.unwrap_or_default();
-            let pbp = parent_node.box_props.unpack();
-            let content_pos = LogicalPosition::new(
-                pos.x + pbp.border.left + pbp.padding.left,
-                pos.y + pbp.border.top + pbp.padding.top,
-            );
-
-            if let Some(dom_id) = parent_node.dom_node_id {
-                let styled_node_state = &styled_dom
-                    .styled_nodes
-                    .as_container()
-                    .get(dom_id)
-                    .map(|n| &n.styled_node_state)
-                    .cloned()
-                    .unwrap_or_default();
-                let writing_mode =
-                    get_writing_mode(styled_dom, dom_id, styled_node_state).unwrap_or_default();
-                let content_size = pbp.inner_size(size, writing_mode);
-                return (content_pos, content_size);
-            }
-
-            return (content_pos, size);
-        }
-    }
-    
-    // For ROOT nodes: the containing block is the viewport.
-    // Do NOT subtract margin here - margins are handled in calculate_used_size().
-    (viewport.origin, viewport.size)
+    Ok(())
 }
