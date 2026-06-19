@@ -637,10 +637,24 @@ pub fn determine_all_events(
     }
 
     // File Drop Events
+    //
+    // FileHover fires while a file is hovered over the window; FileHoverCancel
+    // fires once when that hover ends without a drop. Both depend on platform
+    // backends calling `file_drop_manager.set_hovered_file(Some/None)` from
+    // their drag-enter / drag-leave handlers (macOS `draggingEntered` /
+    // `draggingExited`, Windows OLE `IDropTarget::DragEnter` / `DragLeave`).
 
     if file_drop_manager.get_hovered_file().is_some() {
         events.push(SyntheticEvent::new(
             EventType::FileHover,
+            EventSource::User,
+            root_node.clone(),
+            timestamp.clone(),
+            EventData::None,
+        ));
+    } else if file_drop_manager.hover_was_cancelled() {
+        events.push(SyntheticEvent::new(
+            EventType::FileHoverCancel,
             EventSource::User,
             root_node.clone(),
             timestamp.clone(),

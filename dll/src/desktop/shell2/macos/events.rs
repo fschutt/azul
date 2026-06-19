@@ -61,6 +61,14 @@ fn macos_to_azul_coords(location: NSPoint, window_height: f32) -> LogicalPositio
 }
 
 /// Result of processing an event - determines whether to redraw, update layout, etc.
+///
+/// TODO(superplan g6): this macOS-only enum is a lossy projection of
+/// `azul_core::events::ProcessEventResult` (see `convert_process_result` below —
+/// `ShouldIncrementalRelayout`, `UpdateHitTesterAndProcessAgain` and
+/// `ShouldRegenerateDomAllWindows` all collapse into coarser variants). It
+/// should be dropped in favour of the core type, but ~40 match sites in
+/// `macos/mod.rs` (owned by Group 7) consume these variants, so the conversion
+/// has to be removed there in the same pass. Left as-is to avoid breaking mod.rs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EventProcessResult {
     /// No action needed
@@ -785,7 +793,23 @@ impl MacOSWindow {
         EventProcessResult::RegenerateDisplayList
     }
 
-    /// Process a file drop event.
+    /// Process a file drop event (the user released the dragged files over the
+    /// window — emits `EventType::FileDrop`).
+    ///
+    /// TODO(superplan g6): wire the `NSDraggingDestination` delegate in
+    /// `macos/mod.rs` (Group 7 — both `GLView` and `CPUView`). It does not exist
+    /// yet, so file-drop on macOS never fires (Windows wires this via
+    /// `WM_DROPFILES`). Needed in mod.rs:
+    ///   - `registerForDraggedTypes:[NSFilenamesPboardType]` after the view is
+    ///     created, so the window accepts file drags.
+    ///   - `draggingEntered:` / `draggingUpdated:` -> read the pasteboard file
+    ///     paths and call `self.handle_file_drag_entered(paths)`; return
+    ///     `NSDragOperationCopy`.
+    ///   - `draggingExited:` -> call `self.handle_file_drag_exited()`.
+    ///   - `performDragOperation:` -> read file paths and call
+    ///     `self.handle_file_drop(paths)`; return `true`.
+    /// The three `handle_file_*` methods below own all manager mutation +
+    /// one-shot clearing, so the delegate only has to extract paths and forward.
     pub fn handle_file_drop(&mut self, paths: Vec<String>) -> EventProcessResult {
         // Save previous state BEFORE making changes
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
@@ -811,6 +835,58 @@ impl MacOSWindow {
         // Clear dropped file after processing (one-shot event)
         if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window.file_drop_manager.set_dropped_file(None);
+        }
+
+        Self::convert_process_result(result)
+    }
+
+    /// Process a file drag entering / moving over the window (emits
+    /// `EventType::FileHover`). Called by the `NSDraggingDestination`
+    /// `draggingEntered:` / `draggingUpdated:` delegate (see `handle_file_drop`).
+    pub fn handle_file_drag_entered(&mut self, paths: Vec<String>) -> EventProcessResult {
+        // Save previous state BEFORE making changes
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+
+        // Mark the first file as hovered (FileDropManager tracks a single path).
+        if let Some(first_path) = paths.first() {
+            if let Some(layout_window) = self.common.layout_window.as_mut() {
+                layout_window
+                    .file_drop_manager
+                    .set_hovered_file(Some(first_path.clone().into()));
+            }
+        }
+
+        // Update hit test at current cursor position
+        if let CursorPosition::InWindow(pos) =
+            self.common.current_window_state.mouse_state.cursor_position
+        {
+            self.update_hit_test(pos);
+        }
+
+        // V2 system detects FileHover from the file_drop_manager state.
+        let result = self.process_window_events(0);
+        Self::convert_process_result(result)
+    }
+
+    /// Process a file drag leaving the window without a drop (emits
+    /// `EventType::FileHoverCancel`). Called by the `NSDraggingDestination`
+    /// `draggingExited:` delegate (see `handle_file_drop`).
+    pub fn handle_file_drag_exited(&mut self) -> EventProcessResult {
+        // Save previous state BEFORE making changes
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+
+        // Clear the hovered file; the Some -> None transition latches the
+        // one-shot hover-cancel flag so FileHoverCancel can fire this pass.
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window.file_drop_manager.set_hovered_file(None);
+        }
+
+        // V2 system detects FileHoverCancel from the latched flag.
+        let result = self.process_window_events(0);
+
+        // Clear the one-shot hover-cancel flag after processing.
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window.file_drop_manager.clear_hover_cancelled();
         }
 
         Self::convert_process_result(result)

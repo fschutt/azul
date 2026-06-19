@@ -2553,7 +2553,16 @@ pub trait PlatformWindow {
 
             SystemChange::InitDragVisualState => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    // Sync DragDropManager from GestureAndDragManager
+                    // Sync DragDropManager from GestureAndDragManager.
+                    //
+                    // TODO(superplan g6): this mirrored clone is frozen here at
+                    // drag-init and drifts from the live gesture context (whose
+                    // drop-target/position update later). It only exists to feed
+                    // `CallbackInfo::get_drag_context`/`get_dragged_node` in
+                    // layout/src/callbacks.rs. Once those read
+                    // `gesture_drag_manager` directly (and the `drag_drop_manager`
+                    // field is dropped from window.rs), delete this sync and the
+                    // reset in DeactivateDrag below. See drag_drop.rs module doc.
                     if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
                         layout_window.drag_drop_manager.active_drag = Some(ctx.clone());
                     }
@@ -2678,6 +2687,7 @@ pub trait PlatformWindow {
                     if layout_window.gesture_drag_manager.is_dragging() {
                         layout_window.gesture_drag_manager.end_drag();
                     }
+                    // Reset the mirrored clone (see TODO in InitDragVisualState).
                     layout_window.drag_drop_manager.active_drag = None;
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow

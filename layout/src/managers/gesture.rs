@@ -19,16 +19,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use azul_core::{
     dom::{DomId, NodeId},
-    drag::{
-        ActiveDragType, AutoScrollDirection, DragContext, DragData,
-        ScrollbarAxis,
-    },
+    drag::{ActiveDragType, AutoScrollDirection, DragContext, DragData},
     geom::{LogicalPosition, PhysicalPositionI32},
     hit_test::HitTest,
     task::{Duration as CoreDuration, Instant as CoreInstant},
     window::WindowPosition,
 };
-use azul_css::AzString;
 use azul_css::{impl_option, impl_option_inner};
 
 
@@ -1354,45 +1350,12 @@ impl GestureAndDragManager {
         self.active_drag.as_mut()
     }
 
-    /// Activate a text selection drag
-    pub fn activate_text_selection_drag(
-        &mut self,
-        dom_id: DomId,
-        anchor_ifc_node: NodeId,
-        start_mouse_position: LogicalPosition,
-    ) {
-        let session_id = self.current_session_id().unwrap_or(0);
-        self.active_drag = Some(DragContext::text_selection(
-            dom_id,
-            anchor_ifc_node,
-            start_mouse_position,
-            session_id,
-        ));
-    }
-
-    /// Activate a scrollbar thumb drag
-    pub fn activate_scrollbar_drag(
-        &mut self,
-        scroll_container_node: NodeId,
-        axis: ScrollbarAxis,
-        start_mouse_position: LogicalPosition,
-        start_scroll_offset: f32,
-        track_length_px: f32,
-        content_length_px: f32,
-        viewport_length_px: f32,
-    ) {
-        let session_id = self.current_session_id().unwrap_or(0);
-        self.active_drag = Some(DragContext::scrollbar_thumb(
-            scroll_container_node,
-            axis,
-            start_mouse_position,
-            start_scroll_offset,
-            track_length_px,
-            content_length_px,
-            viewport_length_px,
-            session_id,
-        ));
-    }
+    // NOTE: text-selection and scrollbar-thumb drags do NOT flow through this
+    // manager's `active_drag`. Text selection is driven by `MultiCursorState`
+    // (managers/selection.rs) and scrollbar dragging by `ScrollbarDragState`
+    // (window.rs, set in common/event.rs). The former `activate_text_selection_drag`
+    // / `activate_scrollbar_drag` constructors here were dead duplicates of those
+    // paths (zero callers) and were removed.
 
     /// Activate a node drag-and-drop
     pub fn activate_node_drag(
@@ -1428,11 +1391,9 @@ impl GestureAndDragManager {
         }
     }
 
-    /// Start file drop from OS
-    pub fn start_file_drop(&mut self, files: Vec<AzString>, position: LogicalPosition) {
-        let session_id = self.current_session_id().unwrap_or(0);
-        self.active_drag = Some(DragContext::file_drop(files, position, session_id));
-    }
+    // NOTE: OS file drops are tracked by `FileDropManager` (managers/file_drop.rs),
+    // not by this manager's `active_drag`. The former `start_file_drop` constructor
+    // here was a dead duplicate (zero callers) and was removed.
 
     /// Update positions for active drag (call on mouse move)
     pub fn update_active_drag_positions(&mut self, position: LogicalPosition) {

@@ -7,6 +7,20 @@
 //! `managers/gesture.rs`. This `DragDropManager` is a read-only mirror
 //! whose `active_drag` field is populated by event-processing code in
 //! `event.rs`.
+//!
+//! TODO(superplan g6): finish collapsing this into a thin read-only view over
+//! `GestureAndDragManager::active_drag` to remove the state-drift risk of the
+//! mirrored clone. That clone is frozen at `InitDragVisualState` time, so a
+//! drag whose drop-target/position change later goes stale here. The remaining
+//! work lives in files this group does not own:
+//!   - `layout/src/callbacks.rs`: redirect `CallbackInfo::get_drag_context`
+//!     (~:3594) and the public `get_dragged_node` (~:3639) to read
+//!     `lw.gesture_drag_manager` instead of `lw.drag_drop_manager`.
+//!   - `layout/src/window.rs`: drop the `drag_drop_manager` field (~:371/:578).
+//!   - `event.rs`: remove the sync at ~:2545/:2668 (see the TODO there).
+//! Once those readers no longer touch `active_drag`, this whole struct can be
+//! reduced to the stateless `DragState`/`DragType` conversion helpers (which
+//! are public API and must stay).
 
 use azul_core::dom::{DomNodeId, OptionDomNodeId};
 use azul_core::drag::{ActiveDragType, DragContext};
@@ -81,11 +95,6 @@ impl DragDropManager {
     /// Create a new drag-drop manager
     pub fn new() -> Self {
         Self { active_drag: None }
-    }
-
-    /// End the drag operation and return the final context
-    pub fn end_drag(&mut self) -> Option<DragContext> {
-        self.active_drag.take()
     }
 
     /// Check if a drag operation is active
