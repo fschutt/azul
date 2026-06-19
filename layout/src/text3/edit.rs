@@ -4,13 +4,11 @@
 //! [`edit_text_multi`] (per-cursor text), and [`inspect_delete`]
 //! (preview what a delete would remove).
 
-use std::sync::Arc;
-
 use azul_core::selection::{
     CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextCursor,
 };
 
-use crate::text3::cache::{ContentIndex, InlineContent, StyledRun};
+use crate::text3::cache::{InlineContent, StyledRun};
 
 /// An enum representing a single text editing action.
 #[derive(Debug, Clone)]
@@ -21,6 +19,67 @@ pub enum TextEdit {
     DeleteBackward,
     /// Delete one grapheme cluster after the cursor (Delete key).
     DeleteForward,
+}
+
+fn selection_start_run(selection: &Selection) -> u32 {
+    match selection {
+        Selection::Cursor(c) => c.cluster_id.source_run,
+        Selection::Range(r) => r.start.cluster_id.source_run,
+    }
+}
+
+fn selection_start_byte(selection: &Selection) -> u32 {
+    match selection {
+        Selection::Cursor(c) => c.cluster_id.start_byte_in_run,
+        Selection::Range(r) => r.start.cluster_id.start_byte_in_run,
+    }
+}
+
+/// Sorts selections from the end of the document to the beginning so that
+/// applying an edit at one selection does not invalidate the byte offsets of
+/// selections still to be processed.
+fn sort_selections_back_to_front(selections: &[Selection]) -> Vec<Selection> {
+    let mut sorted = selections.to_vec();
+    sorted.sort_by(|a, b| {
+        let cursor_a = match a {
+            Selection::Cursor(c) => c,
+            Selection::Range(r) => &r.start,
+        };
+        let cursor_b = match b {
+            Selection::Cursor(c) => c,
+            Selection::Range(r) => &r.start,
+        };
+        cursor_b.cluster_id.cmp(&cursor_a.cluster_id) // Reverse sort
+    });
+    sorted
+}
+
+/// Shifts every already-processed cursor sitting at or after `edit_byte` in
+/// `edit_run` by `byte_offset_change`, clamping to zero.
+fn adjust_cursors(
+    selections: &mut [Selection],
+    edit_run: u32,
+    edit_byte: u32,
+    byte_offset_change: i32,
+) {
+    for sel in selections.iter_mut() {
+        if let Selection::Cursor(cursor) = sel {
+            if cursor.cluster_id.source_run == edit_run
+                && cursor.cluster_id.start_byte_in_run >= edit_byte
+            {
+                cursor.cluster_id.start_byte_in_run =
+                    (cursor.cluster_id.start_byte_in_run as i32 + byte_offset_change).max(0) as u32;
+            }
+        }
+    }
+}
+
+/// Byte length of the text in the run at `run_idx`, or 0 for non-text / missing runs.
+fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
+    match content.get(run_idx as usize) {
+        Some(InlineContent::Text(run)) => run.text.len(),
+        _ => 0,
+    }
 }
 
 /// The primary entry point for text modification. Takes the current content and selections,
@@ -40,56 +99,23 @@ pub fn edit_text(
     // To handle multiple cursors correctly, we must process edits
     // from the end of the document to the beginning. This ensures that
     // earlier edits do not invalidate the indices of later edits.
-    let mut sorted_selections = selections.to_vec();
-    sorted_selections.sort_by(|a, b| {
-        let cursor_a = match a {
-            Selection::Cursor(c) => c,
-            Selection::Range(r) => &r.start,
-        };
-        let cursor_b = match b {
-            Selection::Cursor(c) => c,
-            Selection::Range(r) => &r.start,
-        };
-        cursor_b.cluster_id.cmp(&cursor_a.cluster_id) // Reverse sort
-    });
+    let sorted_selections = sort_selections_back_to_front(selections);
 
     for selection in sorted_selections {
-        let (mut temp_content, new_cursor) =
+        let edit_run = selection_start_run(&selection);
+        let edit_byte = selection_start_byte(&selection);
+
+        // Measure the affected run before and after the edit so we can shift
+        // previously-processed cursors by the ACTUAL byte delta. The old code
+        // hardcoded -1 for any delete, which mis-tracked multi-byte graphemes.
+        let old_run_len = run_text_len(&new_content, edit_run);
+        let (temp_content, new_cursor) =
             apply_edit_to_selection(&new_content, &selection, edit);
-
-        // When we insert/delete text, we need to adjust all previously-processed cursors
-        // that come after this edit position in the same run
-        let edit_run = match selection {
-            Selection::Cursor(c) => c.cluster_id.source_run,
-            Selection::Range(r) => r.start.cluster_id.source_run,
-        };
-        let edit_byte = match selection {
-            Selection::Cursor(c) => c.cluster_id.start_byte_in_run,
-            Selection::Range(r) => r.start.cluster_id.start_byte_in_run,
-        };
-
-        // Calculate the byte offset change
-        let byte_offset_change: i32 = match edit {
-            TextEdit::Insert(text) => text.len() as i32,
-            TextEdit::DeleteBackward | TextEdit::DeleteForward => {
-                // For simplicity, assume 1 grapheme deleted = some bytes
-                // A full implementation would track actual bytes deleted
-                -1
-            }
-        };
+        let new_run_len = run_text_len(&temp_content, edit_run);
+        let byte_offset_change = new_run_len as i32 - old_run_len as i32;
 
         // Adjust all previously-processed cursors in the same run that come after this position
-        for prev_selection in new_selections.iter_mut() {
-            if let Selection::Cursor(cursor) = prev_selection {
-                if cursor.cluster_id.source_run == edit_run
-                    && cursor.cluster_id.start_byte_in_run >= edit_byte
-                {
-                    cursor.cluster_id.start_byte_in_run =
-                        (cursor.cluster_id.start_byte_in_run as i32 + byte_offset_change).max(0)
-                            as u32;
-                }
-            }
-        }
+        adjust_cursors(&mut new_selections, edit_run, edit_byte, byte_offset_change);
 
         new_content = temp_content;
         new_selections.push(Selection::Cursor(new_cursor));
@@ -469,31 +495,17 @@ pub fn edit_text_multi(
 
     for (selection, text) in &pairs {
         let edit = TextEdit::Insert(text.to_string());
+
+        let edit_run = selection_start_run(selection);
+        let edit_byte = selection_start_byte(selection);
+
+        let old_run_len = run_text_len(&new_content, edit_run);
         let (temp_content, new_cursor) =
             apply_edit_to_selection(&new_content, selection, &edit);
+        let new_run_len = run_text_len(&temp_content, edit_run);
+        let byte_offset_change = new_run_len as i32 - old_run_len as i32;
 
-        let edit_run = match selection {
-            Selection::Cursor(c) => c.cluster_id.source_run,
-            Selection::Range(r) => r.start.cluster_id.source_run,
-        };
-        let edit_byte = match selection {
-            Selection::Cursor(c) => c.cluster_id.start_byte_in_run,
-            Selection::Range(r) => r.start.cluster_id.start_byte_in_run,
-        };
-
-        let byte_offset_change = text.len() as i32;
-
-        for prev_selection in new_selections.iter_mut() {
-            if let Selection::Cursor(cursor) = prev_selection {
-                if cursor.cluster_id.source_run == edit_run
-                    && cursor.cluster_id.start_byte_in_run >= edit_byte
-                {
-                    cursor.cluster_id.start_byte_in_run =
-                        (cursor.cluster_id.start_byte_in_run as i32 + byte_offset_change).max(0)
-                            as u32;
-                }
-            }
-        }
+        adjust_cursors(&mut new_selections, edit_run, edit_byte, byte_offset_change);
 
         new_content = temp_content;
         new_selections.push(Selection::Cursor(new_cursor));
@@ -536,9 +548,11 @@ fn inspect_delete_forward(
     use unicode_segmentation::UnicodeSegmentation;
 
     let run_idx = cursor.cluster_id.source_run as usize;
-    let byte_offset = cursor.cluster_id.start_byte_in_run as usize;
 
     if let Some(InlineContent::Text(run)) = content.get(run_idx) {
+        // Honor cursor affinity, mirroring delete_forward — a Trailing cursor
+        // sits after its grapheme, so the raw start_byte_in_run is wrong here.
+        let byte_offset = cursor_byte_offset_in_run(&run.text, cursor);
         if byte_offset < run.text.len() {
             // Delete within same run
             let next_grapheme_end = run.text[byte_offset..]
@@ -598,9 +612,11 @@ fn inspect_delete_backward(
     use unicode_segmentation::UnicodeSegmentation;
 
     let run_idx = cursor.cluster_id.source_run as usize;
-    let byte_offset = cursor.cluster_id.start_byte_in_run as usize;
 
     if let Some(InlineContent::Text(run)) = content.get(run_idx) {
+        // Honor cursor affinity, mirroring delete_backward — a Trailing cursor
+        // sits after its grapheme, so the raw start_byte_in_run is wrong here.
+        let byte_offset = cursor_byte_offset_in_run(&run.text, cursor);
         if byte_offset > 0 {
             // Delete within same run
             let prev_grapheme_start = run.text[..byte_offset]
