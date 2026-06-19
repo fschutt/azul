@@ -5,6 +5,16 @@
 //!
 //! Gated behind `cfg(feature = "a11y")` — a no-op stub is provided
 //! when the feature is disabled.
+//
+// TODO(superplan): the `pending_actions` field + `set_focus` /
+// `take_pending_actions` / `poll_action` and the `AccessibilityActionHandler`
+// `ActionHandler`/`ActivationHandler` impls are byte-for-byte identical to the
+// X11 (`linux/x11/accessibility.rs`) and macOS (`macos/accessibility.rs`)
+// adapters. They should be hoisted into one shared generic/macro parameterised
+// over the accesskit adapter type (`SubclassingAdapter` vs unix `Adapter` vs
+// macOS), keeping only `new`/`initialize` per-backend. Deferred here because the
+// shared home + the X11/macOS adapters live outside this group's file ownership;
+// the action *mapping* is already shared in `layout/managers/a11y.rs`.
 
 use std::sync::{Arc, Mutex};
 

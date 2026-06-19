@@ -135,6 +135,328 @@ pub enum RenderBackend {
     CPU,
 }
 
+/// Shared bodies for the AppKit event handlers that are byte-for-byte identical
+/// between [`GLView`] and [`CPUView`].
+///
+/// Both views carry the same `window_ptr` back-pointer ivar; their
+/// `define_class!` methods read it and delegate here, so the (previously
+/// duplicated) handler logic lives in exactly one place. Only handlers that
+/// depend solely on the `MacOSWindow` back-pointer (plus the `NSEvent`) are
+/// shared — GL/CPU-specific methods (drawRect, prepareOpenGL/reshape/isOpaque,
+/// init, and the IME / tracking-area methods that touch view-local state or call
+/// `self` as an `NSView`) stay in each view.
+mod view_handlers {
+    use super::*;
+    // Same import the per-method bodies used inline; hoisted here so the shared
+    // bodies read identically to the originals.
+    use crate::desktop::shell2::macos::events::EventProcessResult;
+
+    pub(super) fn mouse_down(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        let loc = unsafe { event.locationInWindow() };
+        crate::log_debug!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Input,
+            "[mouseDown] LEFT at ({:.1}, {:.1})", loc.x, loc.y
+        );
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
+                crate::log_debug!(
+                    crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                    "[mouseDown] result={:?}, focused={:?}",
+                    result,
+                    macos_window.common.layout_window.as_ref()
+                        .and_then(|lw| lw.focus_manager.get_focused_node().copied())
+                );
+                match result {
+                    EventProcessResult::RegenerateDisplayList => {
+                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::UpdateDisplayList => {
+                        macos_window.common.display_list_dirty = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::RequestRedraw => {
+                        macos_window.request_redraw();
+                    }
+                    _ => {}
+                }
+                macos_window.sync_window_state();
+            }
+        }
+    }
+
+    pub(super) fn mouse_up(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        let loc = unsafe { event.locationInWindow() };
+        crate::log_debug!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Input,
+            "[mouseUp] LEFT at ({:.1}, {:.1})", loc.x, loc.y
+        );
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
+                match result {
+                    EventProcessResult::RegenerateDisplayList => {
+                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::UpdateDisplayList => {
+                        macos_window.common.display_list_dirty = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::RequestRedraw => {
+                        macos_window.request_redraw();
+                    }
+                    _ => {}
+                }
+                macos_window.sync_window_state();
+            }
+        }
+    }
+
+    pub(super) fn mouse_dragged(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_mouse_move(event);
+                match result {
+                    EventProcessResult::RegenerateDisplayList => {
+                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::UpdateDisplayList => {
+                        macos_window.common.display_list_dirty = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::RequestRedraw => {
+                        macos_window.request_redraw();
+                    }
+                    _ => {}
+                }
+                macos_window.sync_window_state();
+            }
+        }
+    }
+
+    pub(super) fn right_mouse_down(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
+                match result {
+                    EventProcessResult::RegenerateDisplayList => {
+                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::UpdateDisplayList => {
+                        macos_window.common.display_list_dirty = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::RequestRedraw => {
+                        macos_window.request_redraw();
+                    }
+                    _ => {}
+                }
+                macos_window.sync_window_state();
+            }
+        }
+    }
+
+    pub(super) fn right_mouse_up(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
+                match result {
+                    EventProcessResult::RegenerateDisplayList => {
+                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::UpdateDisplayList => {
+                        macos_window.common.display_list_dirty = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::RequestRedraw => {
+                        macos_window.request_redraw();
+                    }
+                    _ => {}
+                }
+                macos_window.sync_window_state();
+            }
+        }
+    }
+
+    pub(super) fn scroll_wheel(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        let (dx, dy) = unsafe { (event.scrollingDeltaX(), event.scrollingDeltaY()) };
+        crate::log_debug!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Input,
+            "[scrollWheel] dx={:.2}, dy={:.2}", dx, dy
+        );
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_scroll_wheel(event);
+                match result {
+                    EventProcessResult::RegenerateDisplayList => {
+                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::UpdateDisplayList => {
+                        macos_window.common.display_list_dirty = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::RequestRedraw => {
+                        macos_window.request_redraw();
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    pub(super) fn key_up(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        // Forward to MacOSWindow for handling
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_key_up(event);
+                match result {
+                    EventProcessResult::RegenerateDisplayList => {
+                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::UpdateDisplayList => {
+                        macos_window.common.display_list_dirty = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::RequestRedraw => {
+                        macos_window.request_redraw();
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    pub(super) fn flags_changed(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        // Forward to MacOSWindow for handling
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_flags_changed(event);
+                match result {
+                    EventProcessResult::RegenerateDisplayList => {
+                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::UpdateDisplayList => {
+                        macos_window.common.display_list_dirty = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::RequestRedraw => {
+                        macos_window.request_redraw();
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    pub(super) fn mouse_entered(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_mouse_entered(event);
+                match result {
+                    EventProcessResult::RegenerateDisplayList => {
+                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::UpdateDisplayList => {
+                        macos_window.common.display_list_dirty = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::RequestRedraw => {
+                        macos_window.request_redraw();
+                    }
+                    _ => {}
+                }
+                macos_window.sync_window_state();
+            }
+        }
+    }
+
+    pub(super) fn mouse_exited(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_mouse_exited(event);
+                match result {
+                    EventProcessResult::RegenerateDisplayList => {
+                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::UpdateDisplayList => {
+                        macos_window.common.display_list_dirty = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::RequestRedraw => {
+                        macos_window.request_redraw();
+                    }
+                    _ => {}
+                }
+                macos_window.sync_window_state();
+            }
+        }
+    }
+
+    pub(super) fn mouse_moved(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_mouse_move(event);
+                match result {
+                    EventProcessResult::RegenerateDisplayList => {
+                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::UpdateDisplayList => {
+                        macos_window.common.display_list_dirty = true;
+                        macos_window.request_redraw();
+                    }
+                    EventProcessResult::RequestRedraw => {
+                        macos_window.request_redraw();
+                    }
+                    _ => {} // DoNothing: no redraw needed for move within same node
+                }
+                macos_window.sync_window_state();
+            }
+        }
+    }
+
+    pub(super) fn undo(window_ptr: Option<*mut std::ffi::c_void>) {
+        // Forward to MacOSWindow for actual undo logic
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                macos_window.perform_undo();
+            }
+        }
+    }
+
+    pub(super) fn redo(window_ptr: Option<*mut std::ffi::c_void>) {
+        // Forward to MacOSWindow for actual redo logic
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                macos_window.perform_redo();
+            }
+        }
+    }
+}
+
 // GLView - OpenGL rendering view
 
 /// Instance variables for GLView
@@ -233,179 +555,32 @@ define_class!(
 
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
-            let loc = unsafe { event.locationInWindow() };
-            crate::log_debug!(
-                crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                "[mouseDown] LEFT at ({:.1}, {:.1})", loc.x, loc.y
-            );
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
-                    crate::log_debug!(
-                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                        "[mouseDown] result={:?}, focused={:?}",
-                        result,
-                        macos_window.common.layout_window.as_ref()
-                            .and_then(|lw| lw.focus_manager.get_focused_node().copied())
-                    );
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::mouse_down(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(mouseUp:))]
         fn mouse_up(&self, event: &NSEvent) {
-            let loc = unsafe { event.locationInWindow() };
-            crate::log_debug!(
-                crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                "[mouseUp] LEFT at ({:.1}, {:.1})", loc.x, loc.y
-            );
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::mouse_up(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(mouseDragged:))]
         fn mouse_dragged(&self, event: &NSEvent) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_move(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::mouse_dragged(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(rightMouseDown:))]
         fn right_mouse_down(&self, event: &NSEvent) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::right_mouse_down(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(rightMouseUp:))]
         fn right_mouse_up(&self, event: &NSEvent) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::right_mouse_up(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
-            let (dx, dy) = unsafe { (event.scrollingDeltaX(), event.scrollingDeltaY()) };
-            crate::log_debug!(
-                crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                "[scrollWheel] dx={:.2}, dy={:.2}", dx, dy
-            );
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_scroll_wheel(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            view_handlers::scroll_wheel(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(keyDown:))]
@@ -483,54 +658,12 @@ define_class!(
 
         #[unsafe(method(keyUp:))]
         fn key_up(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_key_up(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            view_handlers::key_up(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_flags_changed(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            view_handlers::flags_changed(*self.ivars().window_ptr.borrow(), event);
         }
 
         // NSResponder Undo/Redo Support
@@ -538,24 +671,12 @@ define_class!(
 
         #[unsafe(method(undo:))]
         fn undo(&self, _sender: Option<&NSObject>) {
-            // Forward to MacOSWindow for actual undo logic
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.perform_undo();
-                }
-            }
+            view_handlers::undo(*self.ivars().window_ptr.borrow());
         }
 
         #[unsafe(method(redo:))]
         fn redo(&self, _sender: Option<&NSObject>) {
-            // Forward to MacOSWindow for actual redo logic
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.perform_redo();
-                }
-            }
+            view_handlers::redo(*self.ivars().window_ptr.borrow());
         }
 
         #[unsafe(method(validateUserInterfaceItem:))]
@@ -666,80 +787,17 @@ define_class!(
 
         #[unsafe(method(mouseEntered:))]
         fn mouse_entered(&self, event: &NSEvent) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_entered(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::mouse_entered(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(mouseExited:))]
         fn mouse_exited(&self, event: &NSEvent) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_exited(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::mouse_exited(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(mouseMoved:))]
         fn mouse_moved(&self, event: &NSEvent) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_move(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {} // DoNothing: no redraw needed for move within same node
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::mouse_moved(*self.ivars().window_ptr.borrow(), event);
         }
 
         // NSTextInputClient Protocol
@@ -1082,179 +1140,32 @@ define_class!(
 
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
-            let loc = unsafe { event.locationInWindow() };
-            crate::log_debug!(
-                crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                "[mouseDown] LEFT at ({:.1}, {:.1})", loc.x, loc.y
-            );
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
-                    crate::log_debug!(
-                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                        "[mouseDown] result={:?}, focused={:?}",
-                        result,
-                        macos_window.common.layout_window.as_ref()
-                            .and_then(|lw| lw.focus_manager.get_focused_node().copied())
-                    );
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::mouse_down(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(mouseUp:))]
         fn mouse_up(&self, event: &NSEvent) {
-            let loc = unsafe { event.locationInWindow() };
-            crate::log_debug!(
-                crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                "[mouseUp] LEFT at ({:.1}, {:.1})", loc.x, loc.y
-            );
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::mouse_up(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(mouseDragged:))]
         fn mouse_dragged(&self, event: &NSEvent) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_move(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::mouse_dragged(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(rightMouseDown:))]
         fn right_mouse_down(&self, event: &NSEvent) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::right_mouse_down(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(rightMouseUp:))]
         fn right_mouse_up(&self, event: &NSEvent) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::right_mouse_up(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
-            let (dx, dy) = unsafe { (event.scrollingDeltaX(), event.scrollingDeltaY()) };
-            crate::log_debug!(
-                crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                "[scrollWheel] dx={:.2}, dy={:.2}", dx, dy
-            );
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_scroll_wheel(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            view_handlers::scroll_wheel(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(keyDown:))]
@@ -1332,54 +1243,12 @@ define_class!(
 
         #[unsafe(method(keyUp:))]
         fn key_up(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_key_up(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            view_handlers::key_up(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_flags_changed(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            view_handlers::flags_changed(*self.ivars().window_ptr.borrow(), event);
         }
 
         // NSResponder Undo/Redo Support
@@ -1387,24 +1256,12 @@ define_class!(
 
         #[unsafe(method(undo:))]
         fn undo(&self, _sender: Option<&NSObject>) {
-            // Forward to MacOSWindow for actual undo logic
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.perform_undo();
-                }
-            }
+            view_handlers::undo(*self.ivars().window_ptr.borrow());
         }
 
         #[unsafe(method(redo:))]
         fn redo(&self, _sender: Option<&NSObject>) {
-            // Forward to MacOSWindow for actual redo logic
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.perform_redo();
-                }
-            }
+            view_handlers::redo(*self.ivars().window_ptr.borrow());
         }
 
         /// Timer tick method - called by NSTimer with repeats:true
@@ -1521,80 +1378,17 @@ define_class!(
 
         #[unsafe(method(mouseEntered:))]
         fn mouse_entered(&self, event: &NSEvent) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_entered(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::mouse_entered(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(mouseExited:))]
         fn mouse_exited(&self, event: &NSEvent) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_exited(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {}
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::mouse_exited(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(mouseMoved:))]
         fn mouse_moved(&self, event: &NSEvent) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    use crate::desktop::shell2::macos::events::EventProcessResult;
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let result = macos_window.handle_mouse_move(event);
-                    match result {
-                        EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::UpdateDisplayList => {
-                            macos_window.common.display_list_dirty = true;
-                            macos_window.request_redraw();
-                        }
-                        EventProcessResult::RequestRedraw => {
-                            macos_window.request_redraw();
-                        }
-                        _ => {} // DoNothing: no redraw needed for move within same node
-                    }
-                    macos_window.sync_window_state();
-                }
-            }
+            view_handlers::mouse_moved(*self.ivars().window_ptr.borrow(), event);
         }
 
         // NSTextInputClient Protocol
@@ -1993,8 +1787,14 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let ns_window = macos_window.get_ns_window_ptr();
 
-                    // Unregister from global window registry
-                    registry::unregister_window(ns_window);
+                    // Unregister from the global registry and PARK the box for
+                    // deferred drop. We are executing inside this window's own
+                    // WindowDelegate (owned by the MacOSWindow), so dropping the
+                    // box here would free `self` out from under us — the event
+                    // loop reclaims it via drain_closed_windows() instead.
+                    if let Some(freed) = registry::unregister_window(ns_window) {
+                        queue_window_free(freed);
+                    }
                     log_debug!(LogCategory::Window, "[WindowDelegate] Window unregistered, remaining windows: {}", registry::window_count());
                 }
             }
@@ -4396,9 +4196,15 @@ impl MacOSWindow {
     }
 
     fn close_window(&mut self) {
-        // Unregister from global window registry before closing
+        // Unregister from the global registry before closing, and park the box
+        // for deferred drop — we cannot drop `self` from behind `&mut self`.
+        // `self.window.close()` below re-enters windowWillClose:, whose
+        // unregister then returns None (already removed), so the box is parked
+        // exactly once and freed later by drain_closed_windows().
         let ns_window = self.get_ns_window_ptr();
-        registry::unregister_window(ns_window);
+        if let Some(freed) = registry::unregister_window(ns_window) {
+            queue_window_free(freed);
+        }
 
         unsafe {
             self.window.close();
@@ -5777,6 +5583,44 @@ impl MacOSWindow {
     }
 }
 
+thread_local! {
+    /// Windows whose close handler has fired and been removed from the registry,
+    /// parked for deferred drop.
+    ///
+    /// They cannot be freed inline at their unregister sites: `windowWillClose:`
+    /// runs *inside* the window's own `WindowDelegate` (which the `MacOSWindow`
+    /// owns via a `Retained<WindowDelegate>` field, so dropping the box there is a
+    /// use-after-free), and `close_window` runs behind `&mut self`. The raw `Box`
+    /// pointers are parked here and reclaimed by [`drain_closed_windows`] once the
+    /// event loop is back at a safe point — the same deferred-drop strategy the
+    /// X11/Wayland backends use in their run-loop close check.
+    static PENDING_WINDOW_FREES: std::cell::RefCell<Vec<*mut MacOSWindow>> =
+        std::cell::RefCell::new(Vec::new());
+}
+
+/// Park a window pointer (already removed from the registry) for deferred drop.
+fn queue_window_free(window_ptr: *mut MacOSWindow) {
+    PENDING_WINDOW_FREES.with(|q| q.borrow_mut().push(window_ptr));
+}
+
+/// Reclaim every window parked by [`queue_window_free`], running `MacOSWindow`'s
+/// destructor (CVDisplayLink stop, timer invalidation, GL/NSWindow teardown).
+///
+/// Must only be called from the event loop, i.e. outside any window delegate
+/// callback or `&mut MacOSWindow` borrow.
+pub(crate) fn drain_closed_windows() {
+    let pending: Vec<*mut MacOSWindow> =
+        PENDING_WINDOW_FREES.with(|q| std::mem::take(&mut *q.borrow_mut()));
+    for window_ptr in pending {
+        // SAFETY: each pointer came from `Box::into_raw(Box::new(MacOSWindow))`
+        // (run.rs) and was removed from the registry exactly once before being
+        // queued, so this is its sole owner and the box is freed exactly once.
+        unsafe {
+            drop(Box::from_raw(window_ptr));
+        }
+    }
+}
+
 impl Drop for MacOSWindow {
     fn drop(&mut self) {
         log_trace!(
@@ -6414,11 +6258,6 @@ impl MacOSWindow {
         actions
     }
 
-    /// Gets information about the screen the window is currently on.
-    fn get_screen_info(&self) -> Option<objc2::rc::Retained<objc2_app_kit::NSScreen>> {
-        self.window.screen()
-    }
-
     /// Returns the frame of the window in screen coordinates.
     fn get_window_frame(&self) -> objc2_foundation::NSRect {
         self.window.frame()
@@ -6429,55 +6268,6 @@ impl MacOSWindow {
         self.window.backingScaleFactor()
     }
 
-    /// Get display information for the screen this window is on
-    pub fn get_window_display_info(&self) -> Option<crate::desktop::display::DisplayInfo> {
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-
-        let screen = self.get_screen_info()?;
-        let frame = screen.frame();
-        let visible_frame = screen.visibleFrame();
-        let scale = screen.backingScaleFactor();
-
-        let bounds = LogicalRect::new(
-            LogicalPosition::new(frame.origin.x as f32, frame.origin.y as f32),
-            LogicalSize::new(frame.size.width as f32, frame.size.height as f32),
-        );
-
-        let work_area = LogicalRect::new(
-            LogicalPosition::new(visible_frame.origin.x as f32, visible_frame.origin.y as f32),
-            LogicalSize::new(
-                visible_frame.size.width as f32,
-                visible_frame.size.height as f32,
-            ),
-        );
-
-        // Get refresh rate from NSScreen (macOS 10.15+)
-        let refresh_rate = unsafe {
-            use objc2::msg_send;
-            let fps: f64 = msg_send![&**screen, maximumFramesPerSecond];
-            if fps > 0.0 {
-                fps as u16
-            } else {
-                60
-            }
-        };
-
-        Some(crate::desktop::display::DisplayInfo {
-            name: screen.localizedName().to_string(),
-            bounds,
-            work_area,
-            scale_factor: scale as f32,
-            is_primary: false, // Would need to check if this is the main screen
-            video_modes: vec![azul_core::window::VideoMode {
-                size: azul_css::props::basic::LayoutSize::new(
-                    bounds.size.width as isize,
-                    bounds.size.height as isize,
-                ),
-                bit_depth: 32,
-                refresh_rate,
-            }],
-        })
-    }
 }
 
 /// Position window on requested monitor, or center on primary monitor

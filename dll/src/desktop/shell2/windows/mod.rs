@@ -3923,97 +3923,9 @@ impl Win32Window {
         Ok(())
     }
 
-    /// Gets the monitor information for the monitor that the window is currently on.
-    #[cfg(target_os = "windows")]
-    pub fn get_monitor_info(&self) -> Option<winapi::um::winuser::MONITORINFO> {
-        use winapi::um::winuser::{
-            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-        };
-
-        let monitor = unsafe { MonitorFromWindow(self.hwnd as _, MONITOR_DEFAULTTONEAREST) };
-
-        if monitor.is_null() {
-            return None;
-        }
-
-        let mut monitor_info: MONITORINFO = unsafe { std::mem::zeroed() };
-        monitor_info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-
-        let result = unsafe { GetMonitorInfoW(monitor, &mut monitor_info as *mut _) };
-
-        if result != 0 {
-            Some(monitor_info)
-        } else {
-            None
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    pub fn get_monitor_info(&self) -> Option<()> {
-        None
-    }
-
-    /// Returns the position and size of the window in physical pixels.
-    pub fn get_window_rect(&self) -> Option<dlopen::RECT> {
-        let mut rect: dlopen::RECT = Default::default();
-        if unsafe { (self.win32.user32.GetWindowRect)(self.hwnd, &mut rect) } != 0 {
-            Some(rect)
-        } else {
-            None
-        }
-    }
-
     /// Returns the DPI of the window.
     pub fn get_window_dpi(&self) -> u32 {
         unsafe { self.dpi.hwnd_dpi(self.hwnd as _) }
-    }
-
-    /// Get display information for the monitor this window is on
-    pub fn get_window_display_info(&self) -> Option<crate::desktop::display::DisplayInfo> {
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-
-        let monitor_info = self.get_monitor_info()?;
-
-        let bounds = LogicalRect::new(
-            LogicalPosition::new(
-                monitor_info.rcMonitor.left as f32,
-                monitor_info.rcMonitor.top as f32,
-            ),
-            LogicalSize::new(
-                (monitor_info.rcMonitor.right - monitor_info.rcMonitor.left) as f32,
-                (monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top) as f32,
-            ),
-        );
-
-        let work_area = LogicalRect::new(
-            LogicalPosition::new(
-                monitor_info.rcWork.left as f32,
-                monitor_info.rcWork.top as f32,
-            ),
-            LogicalSize::new(
-                (monitor_info.rcWork.right - monitor_info.rcWork.left) as f32,
-                (monitor_info.rcWork.bottom - monitor_info.rcWork.top) as f32,
-            ),
-        );
-
-        let dpi = self.get_window_dpi();
-        let scale_factor = dpi as f32 / 96.0;
-
-        Some(crate::desktop::display::DisplayInfo {
-            name: "Current Monitor".to_string(),
-            bounds,
-            work_area,
-            scale_factor,
-            is_primary: false,
-            video_modes: vec![azul_core::window::VideoMode {
-                size: azul_css::props::basic::LayoutSize::new(
-                    bounds.size.width as isize,
-                    bounds.size.height as isize,
-                ),
-                bit_depth: 32,
-                refresh_rate: 60,
-            }],
-        })
     }
 
     /// Show a tooltip with the given text at the specified position

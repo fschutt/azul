@@ -1731,6 +1731,42 @@ impl X11Window {
         }
     }
 
+    /// Export the application menu bar to GNOME Shell via DBus.
+    ///
+    /// When GNOME native menus are active the software menu bar is suppressed
+    /// (`common::layout::inject_software_menubar` returns the DOM unchanged), so
+    /// the menu must instead be exported over DBus. This extracts the `Menu`
+    /// from the root DOM node — the same source the Windows `inject_menu_bar`
+    /// path uses — and hands it to the manager, which converts + registers it
+    /// (skipping the work when the menu is unchanged). No-op when GNOME menus
+    /// are not in use or the root DOM declares no menu bar.
+    fn update_gnome_menu(&self) {
+        let manager = match self.gnome_menu.as_ref() {
+            Some(m) => m,
+            None => return,
+        };
+
+        let menu_opt: Option<azul_core::menu::Menu> =
+            self.common.layout_window.as_ref().and_then(|lw| {
+                lw.layout_results
+                    .get(&azul_core::dom::DomId::ROOT_ID)
+                    .and_then(|lr| {
+                        lr.styled_dom
+                            .node_data
+                            .as_container()
+                            .get(azul_core::dom::NodeId::ZERO)
+                            .and_then(|n| n.get_menu_bar())
+                            .map(|boxed_menu| (**boxed_menu).clone())
+                    })
+            });
+
+        if let Some(menu) = menu_opt {
+            if let Err(e) = manager.sync_menu(&menu) {
+                super::gnome_menu::debug_log(&format!("Failed to sync GNOME menu: {}", e));
+            }
+        }
+    }
+
     /// Process pending menu callbacks from GNOME DBus.
     ///
     /// When a menu item is clicked in GNOME Shell, the DBus handler queues
@@ -2427,6 +2463,10 @@ impl X11Window {
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
         self.sync_ime_position_to_os();
+
+        // Export the (possibly changed) application menu bar to GNOME Shell.
+        // No-op unless GNOME native menus are active for this window.
+        self.update_gnome_menu();
 
         Ok(result)
     }
@@ -3297,66 +3337,6 @@ impl X11Window {
         }
     }
 
-    /// Get display information for the screen this window is on
-    pub fn get_window_display_info(&self) -> Option<crate::desktop::display::DisplayInfo> {
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-
-        unsafe {
-            let screen = (self.xlib.XDefaultScreen)(self.display);
-
-            // Get screen dimensions in pixels
-            let width_px = (self.xlib.XDisplayWidth)(self.display, screen);
-            let height_px = (self.xlib.XDisplayHeight)(self.display, screen);
-
-            // Get screen dimensions in millimeters for DPI calculation
-            let width_mm = (self.xlib.XDisplayWidthMM)(self.display, screen);
-            let height_mm = (self.xlib.XDisplayHeightMM)(self.display, screen);
-
-            // Calculate DPI
-            let dpi_x = if width_mm > 0 {
-                (width_px as f32 / width_mm as f32) * 25.4
-            } else {
-                96.0
-            };
-
-            let dpi_y = if height_mm > 0 {
-                (height_px as f32 / height_mm as f32) * 25.4
-            } else {
-                96.0
-            };
-
-            // Use average DPI for scale factor
-            let avg_dpi = (dpi_x + dpi_y) / 2.0;
-            let scale_factor = avg_dpi / 96.0;
-
-            let bounds = LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(width_px as f32, height_px as f32),
-            );
-
-            // Approximate work area by subtracting common panel height
-            let work_area = LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(width_px as f32, (height_px - 24).max(0) as f32),
-            );
-
-            Some(crate::desktop::display::DisplayInfo {
-                name: format!(":0.{}", screen),
-                bounds,
-                work_area,
-                scale_factor,
-                is_primary: true,
-                video_modes: vec![azul_core::window::VideoMode {
-                    size: azul_css::props::basic::LayoutSize::new(
-                        width_px as isize,
-                        height_px as isize,
-                    ),
-                    bit_depth: 32,
-                    refresh_rate: 60,
-                }],
-            })
-        }
-    }
 }
 
 // PlatformWindow Trait Implementation

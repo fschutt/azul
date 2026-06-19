@@ -500,6 +500,14 @@ pub fn run(
                             }
                         }
 
+                        // --- Reclaim windows closed during event dispatch ---
+                        // Their close handlers unregistered + parked the box (it
+                        // can't be freed from inside the window's own delegate);
+                        // free them now that we're back in the run loop, before
+                        // the is_empty() check below decides whether to exit.
+                        // Mirrors the X11/Wayland run-loop close check.
+                        super::macos::drain_closed_windows();
+
                         // --- Check if all windows are closed ---
                         if super::macos::registry::is_empty() {
                             match config.termination_behavior {
@@ -631,6 +639,22 @@ pub fn run(
                 }
             }
         }
+
+        // Event loop has exited (e.g. NSApplication.run() returned after the app
+        // was terminated while windows were still open). Free every window still
+        // registered, plus any parked for deferred drop, so MacOSWindow
+        // destructors (CVDisplayLink stop, timer invalidation, GL/NSWindow
+        // teardown) run before we hand control back to the caller. Mirrors the
+        // Windows/Linux end-of-loop cleanup.
+        for window_ptr in super::macos::registry::get_all_window_ptrs() {
+            unsafe {
+                let ns_window = (*window_ptr).get_ns_window_ptr();
+                if let Some(freed) = super::macos::registry::unregister_window(ns_window) {
+                    drop(Box::from_raw(freed));
+                }
+            }
+        }
+        super::macos::drain_closed_windows();
 
         Ok(())
     })

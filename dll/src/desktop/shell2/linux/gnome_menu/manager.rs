@@ -5,13 +5,14 @@
 //! The older V1 implementation lives in `dbus_connection.rs`.
 
 use std::{
+    cell::Cell,
     collections::HashMap,
     sync::{Arc, Mutex},
 };
 
 use super::{
     debug_log, register_actions_interface, register_menus_interface, DbusAction, DbusMenuGroup,
-    GnomeMenuError,
+    GnomeMenuError, MenuConversion,
 };
 use crate::desktop::shell2::linux::dbus::DBusLib;
 
@@ -33,6 +34,10 @@ pub struct GnomeMenuManager {
     // Menu and action state (shared with protocol handlers)
     menu_groups: Arc<Mutex<HashMap<u32, DbusMenuGroup>>>,
     actions: Arc<Mutex<HashMap<String, DbusAction>>>,
+
+    // Hash of the menu last pushed via `sync_menu`, so an unchanged menu is
+    // not re-converted and re-registered on every relayout.
+    last_menu_hash: Cell<Option<u64>>,
 }
 
 /// Extract the error message string from a DBusError, falling back to "Unknown error".
@@ -168,6 +173,7 @@ impl GnomeMenuManager {
             connection,
             menu_groups,
             actions,
+            last_menu_hash: Cell::new(None),
         })
     }
 
@@ -184,6 +190,33 @@ impl GnomeMenuManager {
     /// Get the menu bar object path
     pub fn get_menubar_path(&self) -> String {
         format!("{}/menus/MenuBar", self.object_path)
+    }
+
+    /// Push an application `Menu` to GNOME Shell.
+    ///
+    /// Converts the Azul menu tree into the flat DBus group/action
+    /// representation ([`MenuConversion::convert_menu`] /
+    /// [`MenuConversion::extract_actions`]) and registers it via
+    /// [`update_menu`](Self::update_menu) / [`register_actions`](Self::register_actions).
+    ///
+    /// The conversion + registration is skipped when the menu is byte-for-byte
+    /// identical (by [`Menu::get_hash`](azul_core::menu::Menu::get_hash)) to the
+    /// previously synced one, so this is cheap to call on every relayout.
+    pub fn sync_menu(&self, menu: &azul_core::menu::Menu) -> Result<(), GnomeMenuError> {
+        let hash = menu.get_hash();
+        if self.last_menu_hash.get() == Some(hash) {
+            return Ok(());
+        }
+
+        let groups = MenuConversion::convert_menu(menu)?;
+        let actions = MenuConversion::extract_actions(menu)?;
+
+        self.update_menu(groups)?;
+        self.register_actions(actions)?;
+
+        self.last_menu_hash.set(Some(hash));
+        debug_log("GNOME menu synced from application menu bar");
+        Ok(())
     }
 
     /// Update menu structure

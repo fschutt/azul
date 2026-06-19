@@ -1869,6 +1869,42 @@ impl WaylandWindow {
         self.process_window_events(0)
     }
 
+    /// Export the application menu bar to GNOME Shell via DBus.
+    ///
+    /// When GNOME native menus are active the software menu bar is suppressed
+    /// (`common::layout::inject_software_menubar` returns the DOM unchanged), so
+    /// the menu must instead be exported over DBus. This extracts the `Menu`
+    /// from the root DOM node — the same source the Windows `inject_menu_bar`
+    /// path uses — and hands it to the manager, which converts + registers it
+    /// (skipping the work when the menu is unchanged). No-op when GNOME menus
+    /// are not in use or the root DOM declares no menu bar.
+    fn update_gnome_menu(&self) {
+        let manager = match self.gnome_menu.as_ref() {
+            Some(m) => m,
+            None => return,
+        };
+
+        let menu_opt: Option<azul_core::menu::Menu> =
+            self.common.layout_window.as_ref().and_then(|lw| {
+                lw.layout_results
+                    .get(&azul_core::dom::DomId::ROOT_ID)
+                    .and_then(|lr| {
+                        lr.styled_dom
+                            .node_data
+                            .as_container()
+                            .get(azul_core::dom::NodeId::ZERO)
+                            .and_then(|n| n.get_menu_bar())
+                            .map(|boxed_menu| (**boxed_menu).clone())
+                    })
+            });
+
+        if let Some(menu) = menu_opt {
+            if let Err(e) = manager.sync_menu(&menu) {
+                super::gnome_menu::debug_log(&format!("Failed to sync GNOME menu: {}", e));
+            }
+        }
+    }
+
     /// Process pending menu callbacks from GNOME DBus.
     ///
     /// When a menu item is clicked in GNOME Shell, the DBus handler queues
@@ -2725,6 +2761,10 @@ impl WaylandWindow {
         self.update_ime_position_from_cursor();
         self.sync_text_input_v3_focus_state();
         self.sync_ime_position_to_os();
+
+        // Export the (possibly changed) application menu bar to GNOME Shell.
+        // No-op unless GNOME native menus are active for this window.
+        self.update_gnome_menu();
 
         Ok(result)
     }
@@ -4070,65 +4110,6 @@ impl WaylandWindow {
         }
 
         max_scale
-    }
-
-    /// Get display information for Wayland
-    ///
-    /// Note: Wayland doesn't expose absolute positioning information to clients.
-    /// This returns an approximation based on the window's size and scale.
-    pub fn get_window_display_info(&self) -> Option<crate::desktop::display::DisplayInfo> {
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-
-        let scale_factor = self.get_scale_factor();
-
-        // Use actual window size if available, otherwise reasonable defaults
-        let (width, height) = if self.common.current_window_state.size.dimensions.width > 0.0
-            && self.common.current_window_state.size.dimensions.height > 0.0
-        {
-            // Use window dimensions as a proxy for display size
-            // This is not accurate for multi-monitor setups, but Wayland doesn't
-            // provide absolute display enumeration to clients
-            (
-                self.common.current_window_state.size.dimensions.width as i32,
-                self.common.current_window_state.size.dimensions.height as i32,
-            )
-        } else {
-            // Fallback to environment variables or defaults
-            let width = std::env::var("WAYLAND_DISPLAY_WIDTH")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(1920);
-            let height = std::env::var("WAYLAND_DISPLAY_HEIGHT")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(1080);
-            (width, height)
-        };
-
-        let bounds = LogicalRect::new(
-            LogicalPosition::zero(),
-            LogicalSize::new(width as f32, height as f32),
-        );
-
-        // Approximate panel/taskbar height — Wayland doesn't expose actual work area
-        const ESTIMATED_PANEL_HEIGHT: i32 = 24;
-        let work_area = LogicalRect::new(
-            LogicalPosition::zero(),
-            LogicalSize::new(width as f32, (height as i32 - ESTIMATED_PANEL_HEIGHT).max(0) as f32),
-        );
-
-        Some(crate::desktop::display::DisplayInfo {
-            name: "wayland-0".to_string(),
-            bounds,
-            work_area,
-            scale_factor,
-            is_primary: true,
-            video_modes: vec![azul_core::window::VideoMode {
-                size: azul_css::props::basic::LayoutSize::new(width as isize, height as isize),
-                bit_depth: 32,
-                refresh_rate: 60,
-            }],
-        })
     }
 
     /// Get the current display/monitor the window is on
