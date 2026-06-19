@@ -1289,6 +1289,19 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
+        ["autoreview", "apply-midlevel", "auto", rest @ ..] => {
+            // Subcommand sugar: `apply-midlevel auto` ≡ `apply-midlevel --auto-apply`.
+            // No human in the loop: the analyzer classifies every un-processed
+            // commit and its tag drives apply/skip/reject automatically.
+            let mut all_args: Vec<String> = vec!["--auto-apply".to_string()];
+            all_args.extend(rest.iter().map(|s| s.to_string()));
+            let arg_refs: Vec<&str> = all_args.iter().map(|s| s.as_str()).collect();
+            let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::apply_midlevel::run(config)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            return Ok(());
+        }
         ["autoreview", "apply-midlevel", "refresh-pending", rest @ ..] => {
             // Subcommand sugar: `apply-midlevel refresh-pending` ≡ `--refresh-pending`.
             // Backfills the analyzer iteration trace for legacy pending entries
@@ -1905,12 +1918,21 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autoreview --retry-failed     - Re-queue failed reviews");
     println!("    autoreview small-fixes         - Fix small issues in parallel (docs, style, minor bugs)");
     println!("    autoreview midlevel-fixes     - Fix mid-level issues sequentially (dedup, refactor)");
+    println!("    autoreview summarize-highlevel - For each committed review report, ask a low-effort");
+    println!("                                    agent whether its HIGH-LEVEL / architectural finding");
+    println!("                                    still applies, and append one bullet to");
+    println!("                                    scripts/HIGHLEVEL_SUPERPLAN.md (sequential, resumable,");
+    println!("                                    NO commits). [--reference=<branch>] [--model=<name>]");
+    println!("                                    [--limit=N] [--timeout=SECS]  (default ref:");
+    println!("                                    midlevel-fixes-reference)");
     println!("    autoreview merge              - Merge reports into a single checklist");
     println!("    autoreview process            - Implement checklist items (one commit each)");
     println!("    autoreview apply-midlevel     - Interactively replay commits from a reference branch");
     println!("                                    --reference=<branch/tag> [--base=<ref>] [--model=<name>]");
-    println!("                                    [--no-telegram] [--triage] [--pending-only]");
-    println!("                                    [--limit=N] [--retries=N]");
+    println!("                                    [--no-telegram] [--triage] [--pending-only] [--auto-apply]");
+    println!("                                    [--limit=N] [--last=N] [--retries=N]");
+    println!("                                    --last=N windows to the most recent N commits of the");
+    println!("                                    range (resume the un-applied tail after lost progress).");
     println!("                                    Pending pre-decisions (from `triage`) auto-apply");
     println!("                                    without prompting; failures retry up to --retries=3");
     println!("                                    (concurrent-build errors wait 60s, real errors 5s");
@@ -1928,6 +1950,17 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("                                      skip / reject       → finalized immediately");
     println!("                                    Pair with --limit=N to triage 5–10 commits at a");
     println!("                                    time, then break and resume later.");
+    println!("    autoreview apply-midlevel auto");
+    println!("                                  - Sugar for --auto-apply. FULLY UNATTENDED: the analyzer");
+    println!("                                    classifies every un-processed commit and acts on its tag");
+    println!("                                    with no human in the loop and no prior triage needed:");
+    println!("                                      [KEEP]/[WIRE]/[REFACTOR] → apply (retries up to N)");
+    println!("                                      [DONE]    → skip (already fixed in the drifted tree)");
+    println!("                                      [REJECT]  → reject");
+    println!("                                      [UNCLEAR] → skip for human review");
+    println!("                                    Add --auto-apply-unclear to apply [UNCLEAR] too.");
+    println!("                                    Walks all commits in order; pair with --limit=N for");
+    println!("                                    batches. Skips/rejects are recorded so re-runs resume.");
     println!("    autoreview apply-midlevel pending");
     println!("                                  - Sugar for --pending-only. Applies ONLY commits");
     println!("                                    you already pre-decided in a triage pass, in commit");

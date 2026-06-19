@@ -70,6 +70,24 @@ pub struct Config {
     /// processes) sleep 60s before retry; real errors sleep 5s and inject
     /// the failure into the agent's feedback for the next attempt.
     pub retries: u32,
+    /// Full-auto mode: no human in the loop. The analyzer runs on every
+    /// un-processed commit and its classification tag drives the action
+    /// directly — `[KEEP]`/`[WIRE]`/`[REFACTOR]` apply (unattended, with
+    /// retries), `[DONE]` skips (already fixed in the drifted tree),
+    /// `[REJECT]` rejects, `[UNCLEAR]` skips for later human review. Unlike
+    /// `pending_only` it needs no prior triage — it decides AND acts in one
+    /// pass. Walks the same `!done` commit set as normal APPLY mode.
+    pub auto_apply: bool,
+    /// In `auto_apply`, treat `[UNCLEAR]` (and an unclassifiable analyzer
+    /// output) as "apply" rather than the default "skip for human review".
+    pub auto_unclear_apply: bool,
+    /// Window the reference range to its LAST N commits (the commit list is
+    /// oldest→newest, so this keeps the most recent N and ignores everything
+    /// before them). Used to resume after lost progress: if you already applied
+    /// the first chunk, `--last=152` processes only the remaining tail. Unlike
+    /// `--limit` (which stops the session after N *decisions*), `--last`
+    /// narrows the whole commit set for every run. `None` = the full range.
+    pub last: Option<usize>,
 }
 
 pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> {
@@ -82,7 +100,10 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
     let mut triage_only = false;
     let mut pending_only = false;
     let mut refresh_pending = false;
+    let mut auto_apply = false;
+    let mut auto_unclear_apply = false;
     let mut limit: Option<usize> = None;
+    let mut last: Option<usize> = None;
     let mut retries: u32 = 3;
 
     for arg in args {
@@ -97,6 +118,9 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
         } else if let Some(v) = arg.strip_prefix("--limit=") {
             limit = Some(v.parse::<usize>()
                 .map_err(|_| format!("--limit must be a non-negative integer, got: {}", v))?);
+        } else if let Some(v) = arg.strip_prefix("--last=") {
+            last = Some(v.parse::<usize>()
+                .map_err(|_| format!("--last must be a non-negative integer, got: {}", v))?);
         } else if let Some(v) = arg.strip_prefix("--retries=") {
             retries = v.parse::<u32>()
                 .map_err(|_| format!("--retries must be a non-negative integer, got: {}", v))?
@@ -107,8 +131,12 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
             no_telegram = true;
         } else if *arg == "--triage" || *arg == "--triage-only" {
             triage_only = true;
-        } else if *arg == "--pending-only" || *arg == "--auto" {
+        } else if *arg == "--pending-only" {
             pending_only = true;
+        } else if *arg == "--auto" || *arg == "--auto-apply" {
+            auto_apply = true;
+        } else if *arg == "--auto-apply-unclear" || *arg == "--unclear=apply" {
+            auto_unclear_apply = true;
         } else if *arg == "--refresh-pending" {
             refresh_pending = true;
         } else if arg.starts_with('-') {
@@ -116,11 +144,14 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
         }
     }
 
-    let mode_count =
-        (triage_only as u8) + (pending_only as u8) + (refresh_pending as u8);
+    let mode_count = (triage_only as u8)
+        + (pending_only as u8)
+        + (refresh_pending as u8)
+        + (auto_apply as u8);
     if mode_count > 1 {
-        return Err("--triage, --pending-only, and --refresh-pending are mutually \
-                    exclusive: they walk different subsets of the commit list."
+        return Err("--triage, --pending-only, --auto-apply, and --refresh-pending \
+                    are mutually exclusive: they walk different subsets of the \
+                    commit list."
             .to_string());
     }
 
@@ -140,6 +171,9 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
         limit,
         refresh_pending,
         retries,
+        auto_apply,
+        auto_unclear_apply,
+        last,
     })
 }
 
@@ -165,6 +199,7 @@ pub fn run(config: Config) -> Result<(), String> {
         .map_err(|e| format!("Failed to create progress dir: {}", e))?;
 
     let mut progress = load_progress(&progress_path)
+        .or_else(|_| load_progress(&legacy_progress_path(&project_root)))
         .unwrap_or_else(|_| Progress::new(&config.reference, &reference_sha, &base_sha));
 
     // Safety: don't allow reusing progress from a different reference
@@ -179,7 +214,22 @@ pub fn run(config: Config) -> Result<(), String> {
     }
 
     // Build the ordered commit list (oldest → newest)
-    let commits = git_commit_list(&project_root, &base_sha, &reference_sha)?;
+    let mut commits = git_commit_list(&project_root, &base_sha, &reference_sha)?;
+    let full_count = commits.len();
+
+    // `--last=N`: narrow to the most recent N commits (the tail of the range).
+    // Used to resume after lost progress — process only the un-applied tail
+    // without re-walking the already-applied prefix.
+    if let Some(n) = config.last {
+        if n < commits.len() {
+            let cut = commits.len() - n;
+            println!(
+                "--last={}: windowing to the last {} of {} commits (skipping the first {}).",
+                n, n, full_count, cut
+            );
+            commits.drain(..cut);
+        }
+    }
     let total = commits.len();
 
     if config.refresh_pending {
@@ -190,6 +240,8 @@ pub fn run(config: Config) -> Result<(), String> {
         "TRIAGE"
     } else if config.pending_only {
         "PENDING-ONLY"
+    } else if config.auto_apply {
+        "AUTO-APPLY"
     } else {
         "APPLY"
     };
@@ -215,6 +267,17 @@ pub fn run(config: Config) -> Result<(), String> {
             if progress.pending.len() == 1 { "y" } else { "ies" }
         );
         println!("  commits are left untouched. Runs to completion without prompting.\n");
+    } else if config.auto_apply {
+        println!("Auto-apply mode: no human in the loop. The analyzer classifies every");
+        println!("  un-processed commit and acts on its tag automatically:");
+        println!("    [KEEP]/[WIRE]/[REFACTOR] → apply (unattended, up to {} attempts)", config.retries);
+        println!("    [DONE]    → skip (bug already fixed in the drifted tree)");
+        println!("    [REJECT]  → reject");
+        println!(
+            "    [UNCLEAR] → {}",
+            if config.auto_unclear_apply { "apply (--auto-apply-unclear)" } else { "skip, leave for human review" }
+        );
+        println!("  Re-run to resume; [UNCLEAR]/[DONE] skips are recorded so they're not redone.\n");
     } else if !progress.pending.is_empty() {
         println!(
             "Will auto-consume {} pending decision(s) without prompting.\n",
@@ -287,7 +350,7 @@ pub fn run(config: Config) -> Result<(), String> {
                         .filter(|d| d.decision == DecisionKind::Rejected).count();
                     let skipped = progress.processed.iter().filter(|d| matches!(
                         d.decision,
-                        DecisionKind::SkippedMd | DecisionKind::SkippedByUser
+                        DecisionKind::SkippedMd | DecisionKind::SkippedByUser | DecisionKind::SkippedAuto
                     )).count();
                     let _ = b.send_message(
                         &format!(
@@ -346,6 +409,12 @@ pub fn run(config: Config) -> Result<(), String> {
         if consuming_pending {
             save_progress(&progress_path, &progress)?;
         }
+
+        // Whether the apply loop runs without a human: either we're consuming a
+        // pre-decided pending entry, or we're in full --auto-apply mode. Drives
+        // auto-accept-on-success, retry-on-failure, and record-reject-on-final-
+        // failure instead of prompting.
+        let unattended = consuming_pending || config.auto_apply;
 
         // Mark current and save — so Ctrl+C leaves a known-good pointer
         progress.current = Some(next.clone());
@@ -414,6 +483,49 @@ pub fn run(config: Config) -> Result<(), String> {
                 );
             }
             UserAction::Yes
+        } else if config.auto_apply {
+            // ── Full-auto: the analyzer IS the decision-maker ───────────────
+            // Always run it (skip_analyze is ignored here — we have nothing to
+            // decide on without it) and map its classification tag straight to
+            // an action. No prompt, no refinement loop.
+            match run_analysis_agent(
+                &project_root, &next, &info, paired_docs.as_ref(),
+                &plan, None, &config,
+            ) {
+                Ok(output) => plan.iterations.push(PlanIteration {
+                    user_feedback: None,
+                    analyzer_output: output,
+                }),
+                Err(e) => {
+                    println!("[auto] analyzer failed: {} — recording skip for human review", e);
+                }
+            }
+            let (action, tag) = match plan.latest_plan() {
+                Some(out) => auto_decision(out, config.auto_unclear_apply),
+                None => (
+                    UserAction::Skip(Some(
+                        "auto: analyzer produced no output — left for human review".into(),
+                    )),
+                    "NO-OUTPUT",
+                ),
+            };
+            let verb = match &action {
+                UserAction::Yes => "APPLY",
+                UserAction::Skip(_) => "SKIP",
+                UserAction::Reject(_) => "REJECT",
+                _ => "?",
+            };
+            println!("\n[auto] classification [{}] → {}\n", tag, verb);
+            if let Some(b) = bridge.as_ref() {
+                let _ = b.send_message(
+                    &format!(
+                        "[auto {}/{}] {}\n[{}] → {}",
+                        processed_so_far + 1, total, info.subject, tag, verb
+                    ),
+                    None,
+                );
+            }
+            action
         } else {
             // Initial analysis (no user feedback yet)
             if !config.skip_analyze {
@@ -552,11 +664,10 @@ pub fn run(config: Config) -> Result<(), String> {
                                     eprintln!("[telegram] applied-diff sendDocument failed: {}", e);
                                 }
                             }
-                            // When consuming a pre-decided pending entry, the
-                            // user wanted unattended execution — auto-accept
-                            // the result. Diff was already mirrored to phone
-                            // above for later review.
-                            if consuming_pending {
+                            // Unattended (pending-consumer or full-auto): no
+                            // human to confirm — auto-accept the result. Diff
+                            // was already mirrored to phone above for review.
+                            if unattended {
                                 break Ok(applied);
                             }
                             match prompt_post_apply(&input_channel)? {
@@ -589,7 +700,7 @@ pub fn run(config: Config) -> Result<(), String> {
                             // injected feedback — the patch is innocent, the
                             // env is wrong. Real errors get a 5s wait + a
                             // hint to the agent describing what failed.
-                            if consuming_pending && attempts < config.retries {
+                            if unattended && attempts < config.retries {
                                 let lc = e.to_ascii_lowercase();
                                 let looks_transient = lc.contains("blocking waiting")
                                     || lc.contains("file lock")
@@ -641,7 +752,7 @@ pub fn run(config: Config) -> Result<(), String> {
                                 continue;
                             }
 
-                            if consuming_pending {
+                            if unattended {
                                 println!("\n[pending] apply failed after {} attempt(s): {}", attempts, e);
                                 println!("[pending] recording as rejected; moving on to next commit.");
                                 if let Some(b) = bridge.as_ref() {
@@ -704,7 +815,13 @@ pub fn run(config: Config) -> Result<(), String> {
                 progress.processed.push(Decision {
                     sha: next.clone(),
                     subject: info.subject.clone(),
-                    decision: DecisionKind::SkippedByUser,
+                    // Distinguish a machine skip (analyzer said [DONE]/[UNCLEAR])
+                    // from a deliberate human "I'll revisit later".
+                    decision: if config.auto_apply {
+                        DecisionKind::SkippedAuto
+                    } else {
+                        DecisionKind::SkippedByUser
+                    },
                     new_sha: None,
                     notes,
                 });
@@ -946,6 +1063,9 @@ enum DecisionKind {
     SkippedMd,
     /// User chose to skip — we'll revisit later.
     SkippedByUser,
+    /// `--auto-apply` mode skipped it: the analyzer classified it `[DONE]`
+    /// (already fixed in the drifted tree) or `[UNCLEAR]` (needs a human).
+    SkippedAuto,
 }
 
 /// A pre-decided "yes, apply this" produced during a `triage` run. The main
@@ -982,6 +1102,16 @@ enum PendingAction {
 }
 
 fn progress_path(project_root: &Path) -> PathBuf {
+    // Must live OUTSIDE any cargo target dir: the apply agent runs `cargo clean`
+    // between commits, which would wipe progress (and silently re-walk all
+    // commits from scratch). `.apply-midlevel/` is the same cargo-clean-safe
+    // location used for the staged binary.
+    project_root.join(".apply-midlevel/progress.json")
+}
+
+/// Legacy location, inside `doc/target/` — destroyed by `cargo clean`. Read
+/// once for back-compat so an in-flight run migrates instead of resetting.
+fn legacy_progress_path(project_root: &Path) -> PathBuf {
     project_root.join("doc/target/autoreview/apply-midlevel/progress.json")
 }
 
@@ -1120,7 +1250,7 @@ fn build_phone_summary(
     let rejected = progress.processed.iter().filter(|d| d.decision == DecisionKind::Rejected).count();
     let skipped = progress.processed.iter().filter(|d| matches!(
         d.decision,
-        DecisionKind::SkippedMd | DecisionKind::SkippedByUser
+        DecisionKind::SkippedMd | DecisionKind::SkippedByUser | DecisionKind::SkippedAuto
     )).count();
 
     let mut s = String::new();
@@ -1156,6 +1286,78 @@ fn build_phone_summary(
     }
 
     s
+}
+
+/// Find the analyzer's final classification tag (`KEEP`/`DONE`/`WIRE`/
+/// `REFACTOR`/`REJECT`/`UNCLEAR`). The analyzer prints `[CATEGORY] <sentence>`
+/// as its recommendation, so we prefer the LAST line whose first non-blank
+/// token is a bracketed tag; failing that, the last bracketed tag anywhere in
+/// the text. Returns `None` if nothing matches.
+fn classify_tag(text: &str) -> Option<&'static str> {
+    const TAGS: [&str; 6] = ["KEEP", "DONE", "WIRE", "REFACTOR", "REJECT", "UNCLEAR"];
+
+    // Preferred: a recommendation line that *starts* with the tag.
+    for line in text.lines().rev() {
+        let t = line.trim_start();
+        for tag in TAGS {
+            if t.starts_with(&format!("[{}]", tag)) {
+                return Some(tag);
+            }
+        }
+    }
+
+    // Fallback: the last bracketed tag occurring anywhere.
+    let mut best: Option<(usize, &'static str)> = None;
+    for tag in TAGS {
+        if let Some(pos) = text.rfind(&format!("[{}]", tag)) {
+            best = Some(match best {
+                Some((p, t)) if p >= pos => (p, t),
+                _ => (pos, tag),
+            });
+        }
+    }
+    best.map(|(_, t)| t)
+}
+
+/// `--auto-apply`: map the analyzer's classification straight to an action with
+/// no human in the loop. Returns the action plus the tag string for logging.
+///   `[KEEP]`/`[WIRE]`/`[REFACTOR]` → apply
+///   `[DONE]`                       → skip (already fixed in the drifted tree)
+///   `[REJECT]`                     → reject
+///   `[UNCLEAR]` / no tag           → skip for human review, unless
+///                                    `unclear_applies` (then apply)
+fn auto_decision(analyzer_output: &str, unclear_applies: bool) -> (UserAction, &'static str) {
+    match classify_tag(analyzer_output) {
+        Some("KEEP") => (UserAction::Yes, "KEEP"),
+        Some("WIRE") => (UserAction::Yes, "WIRE"),
+        Some("REFACTOR") => (UserAction::Yes, "REFACTOR"),
+        Some("DONE") => (
+            UserAction::Skip(Some("auto: [DONE] — already fixed in current tree".into())),
+            "DONE",
+        ),
+        Some("REJECT") => (
+            UserAction::Reject(Some("auto: [REJECT] — analyzer flagged the fix as wrong/harmful".into())),
+            "REJECT",
+        ),
+        Some("UNCLEAR") | None => {
+            if unclear_applies {
+                (UserAction::Yes, "UNCLEAR→apply")
+            } else {
+                (
+                    UserAction::Skip(Some("auto: [UNCLEAR] — left for human review".into())),
+                    "UNCLEAR",
+                )
+            }
+        }
+        Some(other) => {
+            // classify_tag only returns the six known tags; defensively skip.
+            let _ = other;
+            (
+                UserAction::Skip(Some("auto: unrecognized classification — left for human".into())),
+                "UNKNOWN",
+            )
+        }
+    }
 }
 
 /// Pull just the recommendation block out of the analyzer's full output.
@@ -1220,7 +1422,7 @@ fn print_commit_summary(
     let rejected = progress.processed.iter().filter(|d| d.decision == DecisionKind::Rejected).count();
     let skipped  = progress.processed.iter().filter(|d| matches!(
         d.decision,
-        DecisionKind::SkippedMd | DecisionKind::SkippedByUser
+        DecisionKind::SkippedMd | DecisionKind::SkippedByUser | DecisionKind::SkippedAuto
     )).count();
     let remaining = total.saturating_sub(progress.processed.len()).saturating_sub(1);
 
