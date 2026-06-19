@@ -1330,54 +1330,6 @@ const CSS_MATCH_7894335449545988724_PROPERTIES: &[CssPropertyWithConditions] = &
 const CSS_MATCH_7894335449545988724: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_7894335449545988724_PROPERTIES);
 
-const CSS_MATCH_7937682281721781688_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul_native-list-rows-row-cell
-    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-        LayoutPaddingLeft {
-            inner: PixelValue::const_px(7),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::MinWidth(LayoutMinWidthValue::Exact(
-        LayoutMinWidth {
-            inner: PixelValue::const_px(100),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
-        StyleFontSize {
-            inner: PixelValue::const_px(11),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
-        StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
-    ))),
-];
-const CSS_MATCH_7937682281721781688: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_7937682281721781688_PROPERTIES);
-
-const CSS_MATCH_8793836789597026811_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul_native-list-rows-row-cell
-    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-        LayoutPaddingLeft {
-            inner: PixelValue::const_px(7),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::MinWidth(LayoutMinWidthValue::Exact(
-        LayoutMinWidth {
-            inner: PixelValue::const_px(100),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
-        StyleFontSize {
-            inner: PixelValue::const_px(11),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
-        StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
-    ))),
-];
-const CSS_MATCH_8793836789597026811: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_8793836789597026811_PROPERTIES);
-
 const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul_native-list-rows-row",
 ))];
