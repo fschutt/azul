@@ -52,17 +52,17 @@ use unicode_segmentation::UnicodeSegmentation;
 const FALLBACK_ASCENT_RATIO: f32 = 0.8;
 const FALLBACK_DESCENT_RATIO: f32 = 1.0 - FALLBACK_ASCENT_RATIO;
 
-/// Default font size (px) used when no explicit size is set (CSS initial value).
-const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
+// Strut/metric fallbacks below assume the CSS-initial 16px font size when no
+// explicit size is set.
 
-/// Default strut ascent: FALLBACK_ASCENT_RATIO * (DEFAULT_FONT_SIZE_PX * DEFAULT_LINE_HEIGHT_FACTOR)
+/// Default strut ascent: FALLBACK_ASCENT_RATIO * (16px * DEFAULT_LINE_HEIGHT_FACTOR)
 const DEFAULT_STRUT_ASCENT: f32 = 12.8;
-/// Default strut descent: FALLBACK_DESCENT_RATIO * (DEFAULT_FONT_SIZE_PX * DEFAULT_LINE_HEIGHT_FACTOR)
+/// Default strut descent: FALLBACK_DESCENT_RATIO * (16px * DEFAULT_LINE_HEIGHT_FACTOR)
 const DEFAULT_STRUT_DESCENT: f32 = 3.2;
 
-/// Default x-height approximation: 0.5 * DEFAULT_FONT_SIZE_PX (CSS spec fallback).
+/// Default x-height approximation: 0.5 * 16px (CSS spec fallback).
 const DEFAULT_X_HEIGHT: f32 = 8.0;
-/// Default ch-width (advance of '0'): 0.5 * DEFAULT_FONT_SIZE_PX.
+/// Default ch-width (advance of '0'): 0.5 * 16px.
 const DEFAULT_CH_WIDTH: f32 = 8.0;
 
 /// Approximate space character width as a fraction of font_size.

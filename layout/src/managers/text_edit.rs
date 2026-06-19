@@ -2,8 +2,9 @@
 //!
 //! Single source of truth for all text editing state. `MultiCursorState` is
 //! the primary cursor/selection system. `BlinkState` handles the caret blink
-//! animation. `SelectionManager` (in sibling module `selection`) handles
-//! non-editable drag-select only.
+//! animation. (Non-editable drag-select is not yet wired — the former
+//! `SelectionManager` scaffolding was dead and has been removed; a future
+//! implementation should build on `MultiCursorState`.)
 //!
 //! Every mutation that affects visual output sets `display_list_dirty = true`,
 //! ensuring the display list is always regenerated.

@@ -179,11 +179,10 @@ pub fn update_tree(
     cursor_info: Option<CursorA11yInfo>,
 ) -> TreeUpdate;
 
-// Decode an action request from the AT.
-pub fn handle_action_request(
-    &self,
-    request: ActionRequest,
-) -> Option<(DomNodeId, AccessibilityAction)>;
+// Decode an action request from the AT. Free functions in
+// `azul_layout::managers::a11y`, called by each platform adapter:
+pub fn decode_a11y_node_id(a11y_node_id: A11yNodeId) -> (DomId, NodeId);
+pub fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction>;
 ```
 
 `update_tree` walks every `DomLayoutResult`, allocates an `accesskit::Node` per laid-out element, sets role / label / bounds / state, and stitches them into the `TreeUpdate`. The `A11yNodeId` for an Azul node is encoded as:
@@ -193,7 +192,7 @@ upper 32 bits = DomId
 lower 32 bits = NodeId + 1   (0 is reserved for the root window)
 ```
 
-`handle_action_request` reverses that encoding and returns a `(DomNodeId, AccessibilityAction)` the event system can dispatch.
+`decode_a11y_node_id` reverses that encoding to a `(DomId, NodeId)`, and `map_accesskit_action` maps the AccessKit action to an Azul `AccessibilityAction`; each platform adapter's `decode_action_request` combines them into the `(DomNodeId, AccessibilityAction)` the event system dispatches.
 
 `tree_initialized` flips `false → true` after the first full tree push so later updates can omit the `tree` field — accesskit treats absent `tree` as "node-set delta only".
 
@@ -216,7 +215,7 @@ Lifecycle:
 - **`LinuxAccessibilityAdapter::new()`.** Allocates the mutexes and defers adapter construction.
 - **`initialize(window_name)`.** Builds an `accesskit_unix::Adapter` inside `panic::catch_unwind` so D-Bus connection failures don't crash the app.
 - **`update_tree(tree_update)`.** Calls `try_lock` (never blocks the UI), then `adapter.update_if_active(|| tree_update)`.
-- **AT triggers an action.** `accesskit_unix` calls `ActionHandler::do_action`, which pushes to `pending_actions`. The event loop drains them and feeds them back to `A11yManager::handle_action_request`.
+- **AT triggers an action.** `accesskit_unix` calls `ActionHandler::do_action`, which pushes to `pending_actions`. The event loop drains them and decodes each via `decode_a11y_node_id` + `map_accesskit_action`.
 - **`set_focus(_)`.** No-op. Focus state is managed by `accesskit_unix` itself.
 
 `update_if_active` is the load-bearing call: if the AT is not currently listening, the closure is never invoked and no D-Bus traffic is generated.
