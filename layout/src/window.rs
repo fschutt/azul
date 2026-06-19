@@ -85,7 +85,7 @@ use crate::{
     text3::{
         cache::{
             FontManager, FontSelector, FontStyle, InlineContent, TextShapingCache as TextLayoutCache,
-            LayoutError, ShapedItem, StyleProperties, StyledRun, TextBoundary, UnifiedConstraints,
+            LayoutError, ShapedItem, StyleProperties, StyledRun, UnifiedConstraints,
             UnifiedLayout,
         },
         default::PathLoader,
@@ -104,51 +104,6 @@ fn new_document_id() -> DocumentId {
     let namespace_id = new_id_namespace();
     let id = DOCUMENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed) as u32;
     DocumentId { namespace_id, id }
-}
-
-/// Direction for cursor navigation
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum CursorNavigationDirection {
-    /// Move cursor up one line
-    Up,
-    /// Move cursor down one line
-    Down,
-    /// Move cursor left one character
-    Left,
-    /// Move cursor right one character
-    Right,
-    /// Move cursor to start of current line
-    LineStart,
-    /// Move cursor to end of current line
-    LineEnd,
-    /// Move cursor to start of document
-    DocumentStart,
-    /// Move cursor to end of document
-    DocumentEnd,
-}
-
-/// Result of a cursor movement operation
-#[derive(Debug, Clone)]
-pub enum CursorMovementResult {
-    /// Cursor moved within the same text node
-    MovedWithinNode(TextCursor),
-    /// Cursor moved to a different text node
-    MovedToNode {
-        dom_id: DomId,
-        node_id: NodeId,
-        cursor: TextCursor,
-    },
-    /// Cursor is at a boundary and cannot move further
-    AtBoundary {
-        boundary: TextBoundary,
-        cursor: TextCursor,
-    },
-}
-
-/// Error when no cursor destination is available
-#[derive(Debug, Clone)]
-pub struct NoCursorDestination {
-    pub reason: String,
 }
 
 /// Action to take for the cursor blink timer when focus changes
