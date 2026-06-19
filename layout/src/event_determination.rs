@@ -312,67 +312,41 @@ pub fn determine_all_events(
     let current_mouse_down = current_state.mouse_state.mouse_down();
     let previous_mouse_down = previous_state.mouse_state.mouse_down();
 
-    // Left mouse button down
-    if current_state.mouse_state.left_down && !previous_state.mouse_state.left_down {
-        events.push(SyntheticEvent::new(
-            EventType::MouseDown,
-            EventSource::User,
-            mouse_target.clone(),
-            timestamp.clone(),
-            make_mouse_data(MouseButton::Left),
-        ));
-    }
-    // Left mouse button up
-    if !current_state.mouse_state.left_down && previous_state.mouse_state.left_down {
-        events.push(SyntheticEvent::new(
-            EventType::MouseUp,
-            EventSource::User,
-            mouse_target.clone(),
-            timestamp.clone(),
-            make_mouse_data(MouseButton::Left),
-        ));
-    }
-
-    // Right mouse button down
-    if current_state.mouse_state.right_down && !previous_state.mouse_state.right_down {
-        events.push(SyntheticEvent::new(
-            EventType::MouseDown,
-            EventSource::User,
-            mouse_target.clone(),
-            timestamp.clone(),
-            make_mouse_data(MouseButton::Right),
-        ));
-    }
-    // Right mouse button up
-    if !current_state.mouse_state.right_down && previous_state.mouse_state.right_down {
-        events.push(SyntheticEvent::new(
-            EventType::MouseUp,
-            EventSource::User,
-            mouse_target.clone(),
-            timestamp.clone(),
-            make_mouse_data(MouseButton::Right),
-        ));
-    }
-
-    // Middle mouse button down
-    if current_state.mouse_state.middle_down && !previous_state.mouse_state.middle_down {
-        events.push(SyntheticEvent::new(
-            EventType::MouseDown,
-            EventSource::User,
-            mouse_target.clone(),
-            timestamp.clone(),
-            make_mouse_data(MouseButton::Middle),
-        ));
-    }
-    // Middle mouse button up
-    if !current_state.mouse_state.middle_down && previous_state.mouse_state.middle_down {
-        events.push(SyntheticEvent::new(
-            EventType::MouseUp,
-            EventSource::User,
-            mouse_target.clone(),
-            timestamp.clone(),
-            make_mouse_data(MouseButton::Middle),
-        ));
+    for (curr_down, prev_down, button) in [
+        (
+            current_state.mouse_state.left_down,
+            previous_state.mouse_state.left_down,
+            MouseButton::Left,
+        ),
+        (
+            current_state.mouse_state.right_down,
+            previous_state.mouse_state.right_down,
+            MouseButton::Right,
+        ),
+        (
+            current_state.mouse_state.middle_down,
+            previous_state.mouse_state.middle_down,
+            MouseButton::Middle,
+        ),
+    ] {
+        if curr_down && !prev_down {
+            events.push(SyntheticEvent::new(
+                EventType::MouseDown,
+                EventSource::User,
+                mouse_target.clone(),
+                timestamp.clone(),
+                make_mouse_data(button),
+            ));
+        }
+        if !curr_down && prev_down {
+            events.push(SyntheticEvent::new(
+                EventType::MouseUp,
+                EventSource::User,
+                mouse_target.clone(),
+                timestamp.clone(),
+                make_mouse_data(button),
+            ));
+        }
     }
 
     // ========================================================================
@@ -452,8 +426,6 @@ pub fn determine_all_events(
     // Compare FULL hover chains between current and previous frames.
     // Nodes that gained hover get MouseEnter, nodes that lost hover get MouseLeave.
     {
-        let dom_id = DomId { inner: 0 };
-
         let current_hovered = get_all_hovered_nodes(hover_manager, 0);
         let previous_hovered = get_all_hovered_nodes(hover_manager, 1);
 
@@ -463,7 +435,7 @@ pub fn determine_all_events(
                 EventType::MouseLeave,
                 EventSource::User,
                 DomNodeId {
-                    dom: dom_id,
+                    dom: root_node.dom,
                     node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
                 },
                 timestamp.clone(),
@@ -477,7 +449,7 @@ pub fn determine_all_events(
                 EventType::MouseEnter,
                 EventSource::User,
                 DomNodeId {
-                    dom: dom_id,
+                    dom: root_node.dom,
                     node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
                 },
                 timestamp.clone(),
@@ -801,7 +773,6 @@ pub fn determine_all_events(
         // Detect DragEnter/DragOver/DragLeave events on drop targets
         // W3C: These fire ON the drop target node (the node UNDER the cursor)
         if manager.is_node_drag_active() && current_mouse_down {
-            let dom_id = DomId { inner: 0 };
             let current_hover = hover_manager.current_hover_node();
             let previous_hover = hover_manager.previous_hover_node();
 
@@ -812,7 +783,7 @@ pub fn determine_all_events(
                         EventType::DragLeave,
                         EventSource::User,
                         DomNodeId {
-                            dom: dom_id,
+                            dom: root_node.dom,
                             node: NodeHierarchyItemId::from_crate_internal(Some(prev_node)),
                         },
                         timestamp.clone(),
@@ -824,7 +795,7 @@ pub fn determine_all_events(
                         EventType::DragEnter,
                         EventSource::User,
                         DomNodeId {
-                            dom: dom_id,
+                            dom: root_node.dom,
                             node: NodeHierarchyItemId::from_crate_internal(Some(curr_node)),
                         },
                         timestamp.clone(),
@@ -839,7 +810,7 @@ pub fn determine_all_events(
                     EventType::DragOver,
                     EventSource::User,
                     DomNodeId {
-                        dom: dom_id,
+                        dom: root_node.dom,
                         node: NodeHierarchyItemId::from_crate_internal(Some(curr_node)),
                     },
                     timestamp.clone(),
