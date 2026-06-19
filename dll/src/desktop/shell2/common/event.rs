@@ -2210,7 +2210,7 @@ pub trait PlatformWindow {
                 log_debug!(super::debug_server::LogCategory::Input, "[DRAG] TextSelectionDrag start=({:.1},{:.1}) current=({:.1},{:.1})", start_position.x, start_position.y, current_position.x, current_position.y);
                 // Suppress text selection if a node drag is active
                 let node_dragging = self.get_layout_window()
-                    .map(|lw| lw.gesture_drag_manager.is_node_dragging_any())
+                    .map(|lw| lw.gesture_drag_manager.is_node_drag_active())
                     .unwrap_or(false);
                 if node_dragging {
                     return ProcessEventResult::DoNothing;
@@ -4019,7 +4019,7 @@ pub trait PlatformWindow {
 
         // FORCE RE-RENDER DURING ACTIVE DRAG
         let is_node_dragging = self.get_layout_window()
-            .map(|lw| lw.gesture_drag_manager.is_node_dragging_any())
+            .map(|lw| lw.gesture_drag_manager.is_node_drag_active())
             .unwrap_or(false);
         if is_node_dragging {
             post_system_changes.push(SystemChange::UpdateDragGpuTransform);

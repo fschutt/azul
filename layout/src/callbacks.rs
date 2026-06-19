@@ -3562,7 +3562,7 @@ impl CallbackInfo {
     /// Check if a node drag is specifically active
     pub fn is_node_drag_active(&self) -> bool {
         let lw = self.get_layout_window();
-        lw.gesture_drag_manager.is_node_dragging_any() || lw.drag_drop_manager.is_dragging_node()
+        lw.gesture_drag_manager.is_node_drag_active() || lw.drag_drop_manager.is_dragging_node()
     }
 
     /// Check if a file drag is specifically active
