@@ -15,7 +15,7 @@ use std::sync::OnceLock;
 
 use azul_css::AzString;
 
-use super::{FormatLength, IcuDate, IcuDateTime, IcuResult, IcuTime, ListType, PluralCategory, plural_for};
+use super::{FormatLength, IcuDate, IcuDateTime, IcuResult, IcuTime, ListType, PluralCategory, decimal_string, plural_for};
 
 // ─── Win32 inline types (no winapi dep needed) ───────────────────────────────
 
@@ -329,10 +329,7 @@ impl IcuLocalizer {
     }
 
     pub fn format_decimal(&mut self, integer_part: i64, decimal_places: i16) -> AzString {
-        // Build the numeric string with a period as decimal separator (required by NLS).
-        let dp = decimal_places.max(0) as usize;
-        let v = integer_part as f64 * 10f64.powi(-(decimal_places as i32));
-        let value_str = alloc::format!("{v:.dp$}");
+        let value_str = decimal_string(integer_part, decimal_places);
         let Some(f) = nls() else {
             return AzString::from(value_str);
         };

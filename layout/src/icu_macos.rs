@@ -20,7 +20,7 @@ use objc2_foundation::{
     NSNumberFormatter, NSNumberFormatterStyle, NSRange, NSString, NSStringCompareOptions,
 };
 
-use super::{FormatLength, IcuDate, IcuDateTime, IcuResult, IcuTime, ListType, PluralCategory, plural_for};
+use super::{FormatLength, IcuDate, IcuDateTime, IcuResult, IcuTime, ListType, PluralCategory, decimal_string, plural_for};
 
 // ─── IcuLocalizer ─────────────────────────────────────────────────────────────
 
@@ -92,8 +92,11 @@ impl IcuLocalizer {
     }
 
     pub fn format_decimal(&mut self, integer_part: i64, decimal_places: i16) -> AzString {
+        let value_str = decimal_string(integer_part, decimal_places);
         let dp = decimal_places.max(0) as usize;
-        let value = integer_part as f64 * 10f64.powi(-(decimal_places as i32));
+        // NSNumber only accepts f64, so large i64 values (>2^53) may still
+        // lose precision in the formatted output. The fallback path is exact.
+        let value: f64 = value_str.parse().unwrap_or(0.0);
         unsafe {
             let fmt = NSNumberFormatter::new();
             fmt.setNumberStyle(NSNumberFormatterStyle::DecimalStyle);
@@ -103,7 +106,7 @@ impl IcuLocalizer {
             let n = NSNumber::new_f64(value);
             fmt.stringFromNumber(&n)
                 .map(|s| AzString::from(s.to_string()))
-                .unwrap_or_else(|| AzString::from(format!("{value:.dp$}")))
+                .unwrap_or_else(|| AzString::from(value_str))
         }
     }
 

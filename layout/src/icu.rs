@@ -137,6 +137,53 @@ impl From<IcuPluralCategory> for PluralCategory {
     }
 }
 
+// ─── Shared helpers for macOS / Windows backends ─────────────────────────────
+
+/// Build a decimal string from `integer_part × 10^(-decimal_places)` without
+/// going through `f64`, avoiding precision loss for large `i64` values.
+#[cfg(any(
+    all(target_os = "macos", feature = "icu_macos"),
+    all(target_os = "windows", feature = "icu_windows"),
+))]
+pub(crate) fn decimal_string(integer_part: i64, decimal_places: i16) -> alloc::string::String {
+    use alloc::string::String;
+
+    if decimal_places <= 0 {
+        let mut s = integer_part.to_string();
+        for _ in 0..(-decimal_places as usize) {
+            s.push('0');
+        }
+        return s;
+    }
+
+    let dp = decimal_places as usize;
+    let negative = integer_part < 0;
+    let abs_val = (integer_part as i128).unsigned_abs();
+    let abs_str = alloc::format!("{abs_val}");
+
+    let body = if abs_str.len() <= dp {
+        let mut s = String::from("0.");
+        for _ in 0..(dp - abs_str.len()) {
+            s.push('0');
+        }
+        s.push_str(&abs_str);
+        s
+    } else {
+        let split = abs_str.len() - dp;
+        let mut s = String::new();
+        s.push_str(&abs_str[..split]);
+        s.push('.');
+        s.push_str(&abs_str[split..]);
+        s
+    };
+
+    if negative {
+        alloc::format!("-{body}")
+    } else {
+        body
+    }
+}
+
 // ─── CLDR plural rules ───────────────────────────────────────────────────────
 //
 // Shared between macOS and Windows backends. Covers the major plural-rule
