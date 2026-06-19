@@ -25,7 +25,7 @@ use crate::{
                 parse_angle_value, AngleValue, CssAngleValueParseError,
                 CssAngleValueParseErrorOwned, OptionAngleValue,
             },
-            color::{parse_css_color, ColorU, ColorOrSystem, CssColorParseError, CssColorParseErrorOwned},
+            color::{ColorU, ColorOrSystem, SystemColorRef, CssColorParseError, CssColorParseErrorOwned},
             direction::{
                 parse_direction, CssDirectionParseError, CssDirectionParseErrorOwned, Direction,
             },
@@ -65,7 +65,21 @@ pub enum StyleBackgroundContent {
     ConicGradient(ConicGradient),
     Image(AzString),
     Color(ColorU),
+    /// A theme-aware system color (e.g. `background: system:accent`), kept unresolved
+    /// and resolved at render time. Mirrors the `ColorOrSystem::System` value that
+    /// gradient color stops already accept.
+    SystemColor(SystemColorRef),
 }
+
+// TODO(superplan g8 item 4): the new `SystemColor` variant ripples into exhaustive
+// `match StyleBackgroundContent { .. }` sites in files this group does not own; each
+// needs a new arm (resolve the system color, then paint/emit it like `Color`):
+//   - css/src/codegen/format.rs  ~fn format_style_background_content (CSS->Rust codegen)
+//   - layout/src/solver3/display_list.rs  (two paint loops: push_backgrounds_and_border
+//     and the inline variant) -> resolve via `SystemColorRef::resolve(system_colors, _)`
+//     then `push_rect`.
+// Wildcard matches (codegen/format.rs collect pass, scrollbar.rs, system.rs, getters.rs)
+// already fall through and need no change.
 
 impl_option!(
     StyleBackgroundContent,
@@ -122,6 +136,7 @@ impl PrintAsCssValue for StyleBackgroundContent {
             }
             StyleBackgroundContent::Image(id) => format!("url(\"{}\")", id.as_str()),
             StyleBackgroundContent::Color(c) => c.to_hash(),
+            StyleBackgroundContent::SystemColor(s) => s.as_css_str().to_string(),
         }
     }
 }
@@ -1112,7 +1127,15 @@ pub mod parser {
                 };
                 parse_gradient(brace_contents, gradient_type)
             }
-            Err(_) => Ok(StyleBackgroundContent::Color(parse_css_color(input)?)),
+            // A bare `background:` value is a color. Accept system colors here too
+            // (`system:accent`, `system:text`, ...), matching the gradient color stops
+            // (which use `parse_color_or_system`). System colors stay unresolved and are
+            // theme-resolved at render time. `parse_color_or_system` is a superset of
+            // `parse_css_color`, so ordinary colors keep parsing exactly as before.
+            Err(_) => Ok(match parse_color_or_system(input)? {
+                ColorOrSystem::Color(c) => StyleBackgroundContent::Color(c),
+                ColorOrSystem::System(s) => StyleBackgroundContent::SystemColor(s),
+            }),
         }
     }
 

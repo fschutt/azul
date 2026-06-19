@@ -462,9 +462,6 @@ pub struct AppConfig {
     /// If this is set to `true` (the default), a backtrace + error information
     /// gets logged to stdout and the logging file (only if logging is enabled).
     pub enable_logging_on_panic: bool,
-    /// (STUB) Whether keyboard navigation should be enabled (default: true).
-    /// Currently not implemented.
-    pub enable_tab_navigation: bool,
     /// Determines what happens when all windows are closed.
     /// Default: EndProcess (terminate when last window closes).
     pub termination_behavior: AppTerminationBehavior,
@@ -524,7 +521,6 @@ impl AppConfig {
             log_level,
             enable_visual_panic_hook: false,
             enable_logging_on_panic: true,
-            enable_tab_navigation: true,
             termination_behavior: AppTerminationBehavior::default(),
             icon_provider,
             bundled_fonts,

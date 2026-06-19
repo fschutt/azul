@@ -2475,386 +2475,228 @@ impl ComponentMap {
 // Builtin component bridge — wraps existing render/compile into ComponentDef
 // ============================================================================
 
-/// Map a builtin tag name to its corresponding `NodeType`.
-/// Falls back to `NodeType::Div` for unknown tags.
-pub fn tag_to_node_type(tag: &str) -> NodeType {
-    match tag {
-        // Document structure
-        "html" => NodeType::Html,
-        "head" => NodeType::Head,
-        "title" => NodeType::Title,
-        "body" => NodeType::Body,
-        // Block-level
-        "div" => NodeType::Div,
-        "header" => NodeType::Header,
-        "footer" => NodeType::Footer,
-        "section" => NodeType::Section,
-        "article" => NodeType::Article,
-        "aside" => NodeType::Aside,
-        "nav" => NodeType::Nav,
-        "main" => NodeType::Main,
-        "figure" => NodeType::Figure,
-        "figcaption" => NodeType::FigCaption,
-        "address" => NodeType::Address,
-        "details" => NodeType::Details,
-        "summary" => NodeType::Summary,
-        "dialog" => NodeType::Dialog,
-        // Headings
-        "h1" => NodeType::H1,
-        "h2" => NodeType::H2,
-        "h3" => NodeType::H3,
-        "h4" => NodeType::H4,
-        "h5" => NodeType::H5,
-        "h6" => NodeType::H6,
-        // Text content
-        "p" => NodeType::P,
-        "span" => NodeType::Span,
-        "pre" => NodeType::Pre,
-        "code" => NodeType::Code,
-        "blockquote" => NodeType::BlockQuote,
-        "br" => NodeType::Br,
-        "hr" => NodeType::Hr,
-        // Lists
-        "ul" => NodeType::Ul,
-        "ol" => NodeType::Ol,
-        "li" => NodeType::Li,
-        "dl" => NodeType::Dl,
-        "dt" => NodeType::Dt,
-        "dd" => NodeType::Dd,
-        "menu" => NodeType::Menu,
-        "menuitem" => NodeType::MenuItem,
-        "dir" => NodeType::Dir,
-        // Tables
-        "table" => NodeType::Table,
-        "caption" => NodeType::Caption,
-        "thead" => NodeType::THead,
-        "tbody" => NodeType::TBody,
-        "tfoot" => NodeType::TFoot,
-        "tr" => NodeType::Tr,
-        "th" => NodeType::Th,
-        "td" => NodeType::Td,
-        "colgroup" => NodeType::ColGroup,
-        "col" => NodeType::Col,
-        // Forms
-        "form" => NodeType::Form,
-        "fieldset" => NodeType::FieldSet,
-        "legend" => NodeType::Legend,
-        "label" => NodeType::Label,
-        "input" => NodeType::Input,
-        "button" => NodeType::Button,
-        "select" => NodeType::Select,
-        "optgroup" => NodeType::OptGroup,
-        "option" => NodeType::SelectOption,
-        "textarea" => NodeType::TextArea,
-        "output" => NodeType::Output,
-        "progress" => NodeType::Progress,
-        "meter" => NodeType::Meter,
-        "datalist" => NodeType::DataList,
-        // Inline
-        "a" => NodeType::A,
-        "strong" => NodeType::Strong,
-        "em" => NodeType::Em,
-        "b" => NodeType::B,
-        "i" => NodeType::I,
-        "u" => NodeType::U,
-        "s" => NodeType::S,
-        "small" => NodeType::Small,
-        "mark" => NodeType::Mark,
-        "del" => NodeType::Del,
-        "ins" => NodeType::Ins,
-        "samp" => NodeType::Samp,
-        "kbd" => NodeType::Kbd,
-        "var" => NodeType::Var,
-        "cite" => NodeType::Cite,
-        "dfn" => NodeType::Dfn,
-        "abbr" => NodeType::Abbr,
-        "acronym" => NodeType::Acronym,
-        "q" => NodeType::Q,
-        "time" => NodeType::Time,
-        "sub" => NodeType::Sub,
-        "sup" => NodeType::Sup,
-        "big" => NodeType::Big,
-        "bdo" => NodeType::Bdo,
-        "bdi" => NodeType::Bdi,
-        "wbr" => NodeType::Wbr,
-        "ruby" => NodeType::Ruby,
-        "rt" => NodeType::Rt,
-        "rtc" => NodeType::Rtc,
-        "rp" => NodeType::Rp,
-        "data" => NodeType::Data,
-        // Embedded content
-        // `<img>` becomes a replaced `NodeType::Image`. The `src` attribute is not
-        // available here, so a placeholder `NullImage` (0x0, empty tag) is created;
-        // `xml_node_to_dom_fast` overrides it with a `NullImage` whose `tag` carries
-        // the `src` bytes so a renderer (e.g. printpdf) can resolve the actual image.
-        "img" => NodeType::Image(azul_css::css::BoxOrStatic::heap(
-            crate::resources::ImageRef::null_image(
-                0,
-                0,
-                crate::resources::RawImageFormat::RGBA8,
-                alloc::vec::Vec::new(),
-            ),
-        )),
-        "canvas" => NodeType::Canvas,
-        "object" => NodeType::Object,
-        "param" => NodeType::Param,
-        "embed" => NodeType::Embed,
-        "audio" => NodeType::Audio,
-        "video" => NodeType::Video,
-        "source" => NodeType::Source,
-        "track" => NodeType::Track,
-        "map" => NodeType::Map,
-        "area" => NodeType::Area,
-        // SVG elements
-        "svg" => NodeType::Svg,
-        "g" => NodeType::SvgG,
-        "defs" => NodeType::SvgDefs,
-        "symbol" => NodeType::SvgSymbol,
-        "use" => NodeType::SvgUse,
-        "switch" => NodeType::SvgSwitch,
-        "path" => NodeType::SvgPath,
-        "circle" => NodeType::SvgCircle,
-        "rect" => NodeType::SvgRect,
-        "ellipse" => NodeType::SvgEllipse,
-        "line" => NodeType::SvgLine,
-        "polygon" => NodeType::SvgPolygon,
-        "polyline" => NodeType::SvgPolyline,
-        "tspan" => NodeType::SvgTspan,
-        "textpath" => NodeType::SvgTextPath,
-        "lineargradient" => NodeType::SvgLinearGradient,
-        "radialgradient" => NodeType::SvgRadialGradient,
-        "stop" => NodeType::SvgStop,
-        "pattern" => NodeType::SvgPattern,
-        "clippath" => NodeType::SvgClipPathElement,
-        "mask" => NodeType::SvgMask,
-        "filter" => NodeType::SvgFilter,
-        "feblend" => NodeType::SvgFeBlend,
-        "fecolormatrix" => NodeType::SvgFeColorMatrix,
-        "fecomponenttransfer" => NodeType::SvgFeComponentTransfer,
-        "fecomposite" => NodeType::SvgFeComposite,
-        "feconvolvematrix" => NodeType::SvgFeConvolveMatrix,
-        "fediffuselighting" => NodeType::SvgFeDiffuseLighting,
-        "fedisplacementmap" => NodeType::SvgFeDisplacementMap,
-        "fedistantlight" => NodeType::SvgFeDistantLight,
-        "fedropshadow" => NodeType::SvgFeDropShadow,
-        "feflood" => NodeType::SvgFeFlood,
-        "fefuncr" => NodeType::SvgFeFuncR,
-        "fefuncg" => NodeType::SvgFeFuncG,
-        "fefuncb" => NodeType::SvgFeFuncB,
-        "fefunca" => NodeType::SvgFeFuncA,
-        "fegaussianblur" => NodeType::SvgFeGaussianBlur,
-        "feimage" => NodeType::SvgFeImage,
-        "femerge" => NodeType::SvgFeMerge,
-        "femergenode" => NodeType::SvgFeMergeNode,
-        "femorphology" => NodeType::SvgFeMorphology,
-        "feoffset" => NodeType::SvgFeOffset,
-        "fepointlight" => NodeType::SvgFePointLight,
-        "fespecularlighting" => NodeType::SvgFeSpecularLighting,
-        "fespotlight" => NodeType::SvgFeSpotLight,
-        "fetile" => NodeType::SvgFeTile,
-        "feturbulence" => NodeType::SvgFeTurbulence,
-        "foreignobject" => NodeType::SvgForeignObject,
-        "desc" => NodeType::SvgDesc,
-        "view" => NodeType::SvgView,
-        "animate" => NodeType::SvgAnimate,
-        "animatemotion" => NodeType::SvgAnimateMotion,
-        "animatetransform" => NodeType::SvgAnimateTransform,
-        "set" => NodeType::SvgSet,
-        "mpath" => NodeType::SvgMpath,
-        // Metadata
-        "meta" => NodeType::Meta,
-        "link" => NodeType::Link,
-        "script" => NodeType::Script,
-        "style" => NodeType::Style,
-        "base" => NodeType::Base,
-        _ => NodeType::Div,
-    }
+/// Single source of truth mapping HTML/SVG tag names to node variants.
+///
+/// Each `"tag" => Variant` entry expands to **both** a `NodeType::Variant` arm in
+/// [`tag_to_node_type`] and a `NodeTypeTag::Variant` arm in [`tag_to_node_type_tag`],
+/// so the two lookups can never drift apart. Tags whose two enums diverge —
+/// `img`, `image`, `icon` — are handled as explicit special cases inside each
+/// generated function and are intentionally absent from this table.
+macro_rules! html_tag_node_types {
+    ($($tag:literal => $variant:ident),* $(,)?) => {
+        /// Map a builtin tag name to its corresponding `NodeType`.
+        /// Falls back to `NodeType::Div` for unknown tags.
+        pub fn tag_to_node_type(tag: &str) -> NodeType {
+            match tag {
+                // `<img>` becomes a replaced `NodeType::Image`. The `src` attribute is not
+                // available here, so a placeholder `NullImage` (0x0, empty tag) is created;
+                // `xml_node_to_dom_fast` overrides it with a `NullImage` whose `tag` carries
+                // the `src` bytes so a renderer (e.g. printpdf) can resolve the actual image.
+                "img" => NodeType::Image(azul_css::css::BoxOrStatic::heap(
+                    crate::resources::ImageRef::null_image(
+                        0,
+                        0,
+                        crate::resources::RawImageFormat::RGBA8,
+                        alloc::vec::Vec::new(),
+                    ),
+                )),
+                $($tag => NodeType::$variant,)*
+                _ => NodeType::Div,
+            }
+        }
+
+        /// Map a tag name to its CSS `NodeTypeTag` for CSS matching in the compile pipeline.
+        /// Falls back to `NodeTypeTag::Div` for unknown tags.
+        fn tag_to_node_type_tag(tag: &str) -> NodeTypeTag {
+            match tag {
+                // `img`/`image`/`icon` have no 1:1 `NodeType` equivalent (see
+                // `tag_to_node_type`), so they map to dedicated `NodeTypeTag` variants.
+                "img" | "image" => NodeTypeTag::Img,
+                "icon" => NodeTypeTag::Icon,
+                $($tag => NodeTypeTag::$variant,)*
+                _ => NodeTypeTag::Div,
+            }
+        }
+    };
 }
 
-/// Map a tag name to its CSS `NodeTypeTag` for CSS matching in the compile pipeline.
-/// Falls back to `NodeTypeTag::Div` for unknown tags.
-fn tag_to_node_type_tag(tag: &str) -> NodeTypeTag {
-    match tag {
-        // Document structure
-        "html" => NodeTypeTag::Html,
-        "head" => NodeTypeTag::Head,
-        "title" => NodeTypeTag::Title,
-        "body" => NodeTypeTag::Body,
-        // Block-level
-        "div" => NodeTypeTag::Div,
-        "header" => NodeTypeTag::Header,
-        "footer" => NodeTypeTag::Footer,
-        "section" => NodeTypeTag::Section,
-        "article" => NodeTypeTag::Article,
-        "aside" => NodeTypeTag::Aside,
-        "nav" => NodeTypeTag::Nav,
-        "main" => NodeTypeTag::Main,
-        "figure" => NodeTypeTag::Figure,
-        "figcaption" => NodeTypeTag::FigCaption,
-        "address" => NodeTypeTag::Address,
-        "details" => NodeTypeTag::Details,
-        "summary" => NodeTypeTag::Summary,
-        "dialog" => NodeTypeTag::Dialog,
-        // Headings
-        "h1" => NodeTypeTag::H1,
-        "h2" => NodeTypeTag::H2,
-        "h3" => NodeTypeTag::H3,
-        "h4" => NodeTypeTag::H4,
-        "h5" => NodeTypeTag::H5,
-        "h6" => NodeTypeTag::H6,
-        // Text content
-        "p" => NodeTypeTag::P,
-        "span" => NodeTypeTag::Span,
-        "pre" => NodeTypeTag::Pre,
-        "code" => NodeTypeTag::Code,
-        "blockquote" => NodeTypeTag::BlockQuote,
-        "br" => NodeTypeTag::Br,
-        "hr" => NodeTypeTag::Hr,
-        // Lists
-        "ul" => NodeTypeTag::Ul,
-        "ol" => NodeTypeTag::Ol,
-        "li" => NodeTypeTag::Li,
-        "dl" => NodeTypeTag::Dl,
-        "dt" => NodeTypeTag::Dt,
-        "dd" => NodeTypeTag::Dd,
-        "menu" => NodeTypeTag::Menu,
-        "menuitem" => NodeTypeTag::MenuItem,
-        "dir" => NodeTypeTag::Dir,
-        // Tables
-        "table" => NodeTypeTag::Table,
-        "caption" => NodeTypeTag::Caption,
-        "thead" => NodeTypeTag::THead,
-        "tbody" => NodeTypeTag::TBody,
-        "tfoot" => NodeTypeTag::TFoot,
-        "tr" => NodeTypeTag::Tr,
-        "th" => NodeTypeTag::Th,
-        "td" => NodeTypeTag::Td,
-        "colgroup" => NodeTypeTag::ColGroup,
-        "col" => NodeTypeTag::Col,
-        // Forms
-        "form" => NodeTypeTag::Form,
-        "fieldset" => NodeTypeTag::FieldSet,
-        "legend" => NodeTypeTag::Legend,
-        "label" => NodeTypeTag::Label,
-        "input" => NodeTypeTag::Input,
-        "button" => NodeTypeTag::Button,
-        "select" => NodeTypeTag::Select,
-        "optgroup" => NodeTypeTag::OptGroup,
-        "option" => NodeTypeTag::SelectOption,
-        "textarea" => NodeTypeTag::TextArea,
-        "output" => NodeTypeTag::Output,
-        "progress" => NodeTypeTag::Progress,
-        "meter" => NodeTypeTag::Meter,
-        "datalist" => NodeTypeTag::DataList,
-        // Inline
-        "a" => NodeTypeTag::A,
-        "strong" => NodeTypeTag::Strong,
-        "em" => NodeTypeTag::Em,
-        "b" => NodeTypeTag::B,
-        "i" => NodeTypeTag::I,
-        "u" => NodeTypeTag::U,
-        "s" => NodeTypeTag::S,
-        "small" => NodeTypeTag::Small,
-        "mark" => NodeTypeTag::Mark,
-        "del" => NodeTypeTag::Del,
-        "ins" => NodeTypeTag::Ins,
-        "samp" => NodeTypeTag::Samp,
-        "kbd" => NodeTypeTag::Kbd,
-        "var" => NodeTypeTag::Var,
-        "cite" => NodeTypeTag::Cite,
-        "dfn" => NodeTypeTag::Dfn,
-        "abbr" => NodeTypeTag::Abbr,
-        "acronym" => NodeTypeTag::Acronym,
-        "q" => NodeTypeTag::Q,
-        "time" => NodeTypeTag::Time,
-        "sub" => NodeTypeTag::Sub,
-        "sup" => NodeTypeTag::Sup,
-        "big" => NodeTypeTag::Big,
-        "bdo" => NodeTypeTag::Bdo,
-        "bdi" => NodeTypeTag::Bdi,
-        "wbr" => NodeTypeTag::Wbr,
-        "ruby" => NodeTypeTag::Ruby,
-        "rt" => NodeTypeTag::Rt,
-        "rtc" => NodeTypeTag::Rtc,
-        "rp" => NodeTypeTag::Rp,
-        "data" => NodeTypeTag::Data,
-        // Embedded content
-        "canvas" => NodeTypeTag::Canvas,
-        "object" => NodeTypeTag::Object,
-        "param" => NodeTypeTag::Param,
-        "embed" => NodeTypeTag::Embed,
-        "audio" => NodeTypeTag::Audio,
-        "video" => NodeTypeTag::Video,
-        "source" => NodeTypeTag::Source,
-        "track" => NodeTypeTag::Track,
-        "map" => NodeTypeTag::Map,
-        "area" => NodeTypeTag::Area,
-        "svg" => NodeTypeTag::Svg,
-        "g" => NodeTypeTag::SvgG,
-        "defs" => NodeTypeTag::SvgDefs,
-        "symbol" => NodeTypeTag::SvgSymbol,
-        "use" => NodeTypeTag::SvgUse,
-        "switch" => NodeTypeTag::SvgSwitch,
-        "path" => NodeTypeTag::SvgPath,
-        "circle" => NodeTypeTag::SvgCircle,
-        "rect" => NodeTypeTag::SvgRect,
-        "ellipse" => NodeTypeTag::SvgEllipse,
-        "line" => NodeTypeTag::SvgLine,
-        "polygon" => NodeTypeTag::SvgPolygon,
-        "polyline" => NodeTypeTag::SvgPolyline,
-        "tspan" => NodeTypeTag::SvgTspan,
-        "textpath" => NodeTypeTag::SvgTextPath,
-        "lineargradient" => NodeTypeTag::SvgLinearGradient,
-        "radialgradient" => NodeTypeTag::SvgRadialGradient,
-        "stop" => NodeTypeTag::SvgStop,
-        "pattern" => NodeTypeTag::SvgPattern,
-        "clippath" => NodeTypeTag::SvgClipPathElement,
-        "mask" => NodeTypeTag::SvgMask,
-        "filter" => NodeTypeTag::SvgFilter,
-        "feblend" => NodeTypeTag::SvgFeBlend,
-        "fecolormatrix" => NodeTypeTag::SvgFeColorMatrix,
-        "fecomponenttransfer" => NodeTypeTag::SvgFeComponentTransfer,
-        "fecomposite" => NodeTypeTag::SvgFeComposite,
-        "feconvolvematrix" => NodeTypeTag::SvgFeConvolveMatrix,
-        "fediffuselighting" => NodeTypeTag::SvgFeDiffuseLighting,
-        "fedisplacementmap" => NodeTypeTag::SvgFeDisplacementMap,
-        "fedistantlight" => NodeTypeTag::SvgFeDistantLight,
-        "fedropshadow" => NodeTypeTag::SvgFeDropShadow,
-        "feflood" => NodeTypeTag::SvgFeFlood,
-        "fefuncr" => NodeTypeTag::SvgFeFuncR,
-        "fefuncg" => NodeTypeTag::SvgFeFuncG,
-        "fefuncb" => NodeTypeTag::SvgFeFuncB,
-        "fefunca" => NodeTypeTag::SvgFeFuncA,
-        "fegaussianblur" => NodeTypeTag::SvgFeGaussianBlur,
-        "feimage" => NodeTypeTag::SvgFeImage,
-        "femerge" => NodeTypeTag::SvgFeMerge,
-        "femergenode" => NodeTypeTag::SvgFeMergeNode,
-        "femorphology" => NodeTypeTag::SvgFeMorphology,
-        "feoffset" => NodeTypeTag::SvgFeOffset,
-        "fepointlight" => NodeTypeTag::SvgFePointLight,
-        "fespecularlighting" => NodeTypeTag::SvgFeSpecularLighting,
-        "fespotlight" => NodeTypeTag::SvgFeSpotLight,
-        "fetile" => NodeTypeTag::SvgFeTile,
-        "feturbulence" => NodeTypeTag::SvgFeTurbulence,
-        "foreignobject" => NodeTypeTag::SvgForeignObject,
-        "desc" => NodeTypeTag::SvgDesc,
-        "view" => NodeTypeTag::SvgView,
-        "animate" => NodeTypeTag::SvgAnimate,
-        "animatemotion" => NodeTypeTag::SvgAnimateMotion,
-        "animatetransform" => NodeTypeTag::SvgAnimateTransform,
-        "set" => NodeTypeTag::SvgSet,
-        "mpath" => NodeTypeTag::SvgMpath,
-        // Metadata
-        "meta" => NodeTypeTag::Meta,
-        "link" => NodeTypeTag::Link,
-        "script" => NodeTypeTag::Script,
-        "style" => NodeTypeTag::Style,
-        "base" => NodeTypeTag::Base,
-        // Special
-        "img" | "image" => NodeTypeTag::Img,
-        "icon" => NodeTypeTag::Icon,
-        _ => NodeTypeTag::Div,
-    }
+html_tag_node_types! {
+    // Document structure
+    "html" => Html,
+    "head" => Head,
+    "title" => Title,
+    "body" => Body,
+    // Block-level
+    "div" => Div,
+    "header" => Header,
+    "footer" => Footer,
+    "section" => Section,
+    "article" => Article,
+    "aside" => Aside,
+    "nav" => Nav,
+    "main" => Main,
+    "figure" => Figure,
+    "figcaption" => FigCaption,
+    "address" => Address,
+    "details" => Details,
+    "summary" => Summary,
+    "dialog" => Dialog,
+    // Headings
+    "h1" => H1,
+    "h2" => H2,
+    "h3" => H3,
+    "h4" => H4,
+    "h5" => H5,
+    "h6" => H6,
+    // Text content
+    "p" => P,
+    "span" => Span,
+    "pre" => Pre,
+    "code" => Code,
+    "blockquote" => BlockQuote,
+    "br" => Br,
+    "hr" => Hr,
+    // Lists
+    "ul" => Ul,
+    "ol" => Ol,
+    "li" => Li,
+    "dl" => Dl,
+    "dt" => Dt,
+    "dd" => Dd,
+    "menu" => Menu,
+    "menuitem" => MenuItem,
+    "dir" => Dir,
+    // Tables
+    "table" => Table,
+    "caption" => Caption,
+    "thead" => THead,
+    "tbody" => TBody,
+    "tfoot" => TFoot,
+    "tr" => Tr,
+    "th" => Th,
+    "td" => Td,
+    "colgroup" => ColGroup,
+    "col" => Col,
+    // Forms
+    "form" => Form,
+    "fieldset" => FieldSet,
+    "legend" => Legend,
+    "label" => Label,
+    "input" => Input,
+    "button" => Button,
+    "select" => Select,
+    "optgroup" => OptGroup,
+    "option" => SelectOption,
+    "textarea" => TextArea,
+    "output" => Output,
+    "progress" => Progress,
+    "meter" => Meter,
+    "datalist" => DataList,
+    // Inline
+    "a" => A,
+    "strong" => Strong,
+    "em" => Em,
+    "b" => B,
+    "i" => I,
+    "u" => U,
+    "s" => S,
+    "small" => Small,
+    "mark" => Mark,
+    "del" => Del,
+    "ins" => Ins,
+    "samp" => Samp,
+    "kbd" => Kbd,
+    "var" => Var,
+    "cite" => Cite,
+    "dfn" => Dfn,
+    "abbr" => Abbr,
+    "acronym" => Acronym,
+    "q" => Q,
+    "time" => Time,
+    "sub" => Sub,
+    "sup" => Sup,
+    "big" => Big,
+    "bdo" => Bdo,
+    "bdi" => Bdi,
+    "wbr" => Wbr,
+    "ruby" => Ruby,
+    "rt" => Rt,
+    "rtc" => Rtc,
+    "rp" => Rp,
+    "data" => Data,
+    // Embedded content (`img` is a special case in the generated fns)
+    "canvas" => Canvas,
+    "object" => Object,
+    "param" => Param,
+    "embed" => Embed,
+    "audio" => Audio,
+    "video" => Video,
+    "source" => Source,
+    "track" => Track,
+    "map" => Map,
+    "area" => Area,
+    // SVG elements
+    "svg" => Svg,
+    "g" => SvgG,
+    "defs" => SvgDefs,
+    "symbol" => SvgSymbol,
+    "use" => SvgUse,
+    "switch" => SvgSwitch,
+    "path" => SvgPath,
+    "circle" => SvgCircle,
+    "rect" => SvgRect,
+    "ellipse" => SvgEllipse,
+    "line" => SvgLine,
+    "polygon" => SvgPolygon,
+    "polyline" => SvgPolyline,
+    "tspan" => SvgTspan,
+    "textpath" => SvgTextPath,
+    "lineargradient" => SvgLinearGradient,
+    "radialgradient" => SvgRadialGradient,
+    "stop" => SvgStop,
+    "pattern" => SvgPattern,
+    "clippath" => SvgClipPathElement,
+    "mask" => SvgMask,
+    "filter" => SvgFilter,
+    "feblend" => SvgFeBlend,
+    "fecolormatrix" => SvgFeColorMatrix,
+    "fecomponenttransfer" => SvgFeComponentTransfer,
+    "fecomposite" => SvgFeComposite,
+    "feconvolvematrix" => SvgFeConvolveMatrix,
+    "fediffuselighting" => SvgFeDiffuseLighting,
+    "fedisplacementmap" => SvgFeDisplacementMap,
+    "fedistantlight" => SvgFeDistantLight,
+    "fedropshadow" => SvgFeDropShadow,
+    "feflood" => SvgFeFlood,
+    "fefuncr" => SvgFeFuncR,
+    "fefuncg" => SvgFeFuncG,
+    "fefuncb" => SvgFeFuncB,
+    "fefunca" => SvgFeFuncA,
+    "fegaussianblur" => SvgFeGaussianBlur,
+    "feimage" => SvgFeImage,
+    "femerge" => SvgFeMerge,
+    "femergenode" => SvgFeMergeNode,
+    "femorphology" => SvgFeMorphology,
+    "feoffset" => SvgFeOffset,
+    "fepointlight" => SvgFePointLight,
+    "fespecularlighting" => SvgFeSpecularLighting,
+    "fespotlight" => SvgFeSpotLight,
+    "fetile" => SvgFeTile,
+    "feturbulence" => SvgFeTurbulence,
+    "foreignobject" => SvgForeignObject,
+    "desc" => SvgDesc,
+    "view" => SvgView,
+    "animate" => SvgAnimate,
+    "animatemotion" => SvgAnimateMotion,
+    "animatetransform" => SvgAnimateTransform,
+    "set" => SvgSet,
+    "mpath" => SvgMpath,
+    // Metadata
+    "meta" => Meta,
+    "link" => Link,
+    "script" => Script,
+    "style" => Style,
+    "base" => Base,
 }
 
 /// Default render function for builtin HTML elements.
@@ -5524,18 +5366,20 @@ fn parse_svg_points(pts: &str, close: bool) -> Option<crate::svg::SvgMultiPolygo
 
 /// Fast XML to Dom conversion that builds Dom tree directly without intermediate StyledDom
 /// This is O(n) instead of O(n²) for large documents
-fn xml_node_to_dom_fast<'a>(
-    xml_node: &'a XmlNode,
-    component_map: &'a ComponentMap,
+/// Apply the shared set of XML attributes onto a single [`NodeData`] node.
+///
+/// Handles `<img src>` rebuild, `id`/`class`, `focusable`, `tabindex`, inline
+/// `style`, and SVG-shape geometry — the block that was previously duplicated
+/// verbatim between [`xml_node_to_dom_fast`] (operating on `dom.root`) and
+/// [`xml_node_to_fast_dom`] (operating on the arena `NodeData`). `component_name`
+/// must already be normalized (lowercased); the caller computes `child_inside_svg`.
+fn apply_xml_node_attributes(
+    node: &mut crate::dom::NodeData,
+    xml_node: &XmlNode,
+    component_name: &str,
     inside_svg: bool,
-) -> Result<Dom, RenderDomError> {
-    use crate::dom::{Dom, IdOrClass, NodeType, TabIndex};
-
-    let component_name = normalize_casing(&xml_node.node_type);
-
-    // Look up the component definition
-    let node_type = tag_to_node_type(&component_name);
-    let mut dom = Dom::create_node(node_type);
+) {
+    use crate::dom::{IdOrClass, NodeType, TabIndex};
 
     // `<img src="...">`: rebuild the placeholder Image node so its `NullImage`
     // carries the `src` string (as UTF-8 bytes in `tag`). The bytes are NOT
@@ -5574,7 +5418,7 @@ fn xml_node_to_dom_fast<'a>(
                 crate::resources::RawImageFormat::RGBA8,
                 src.as_str().as_bytes().to_vec(),
             );
-            dom.root
+            node
                 .set_node_type(NodeType::Image(azul_css::css::BoxOrStatic::heap(image_ref)));
         }
     }
@@ -5592,7 +5436,7 @@ fn xml_node_to_dom_fast<'a>(
         }
     }
     if !ids_and_classes.is_empty() {
-        dom.root.set_ids_and_classes(ids_and_classes.into());
+        node.set_ids_and_classes(ids_and_classes.into());
     }
 
     // Handle focusable attribute
@@ -5602,8 +5446,8 @@ fn xml_node_to_dom_fast<'a>(
         .and_then(|f| parse_bool(f.as_str()))
     {
         match focusable {
-            true => dom.root.set_tab_index(TabIndex::Auto),
-            false => dom.root.set_tab_index(TabIndex::NoKeyboardFocus),
+            true => node.set_tab_index(TabIndex::Auto),
+            false => node.set_tab_index(TabIndex::NoKeyboardFocus),
         }
     }
 
@@ -5614,9 +5458,9 @@ fn xml_node_to_dom_fast<'a>(
         .and_then(|val| val.parse::<isize>().ok())
     {
         match tab_index {
-            0 => dom.root.set_tab_index(TabIndex::Auto),
-            i if i > 0 => dom.root.set_tab_index(TabIndex::OverrideInParent(i as u32)),
-            _ => dom.root.set_tab_index(TabIndex::NoKeyboardFocus),
+            0 => node.set_tab_index(TabIndex::Auto),
+            i if i > 0 => node.set_tab_index(TabIndex::OverrideInParent(i as u32)),
+            _ => node.set_tab_index(TabIndex::NoKeyboardFocus),
         }
     }
 
@@ -5654,13 +5498,12 @@ fn xml_node_to_dom_fast<'a>(
             })
             .collect::<Vec<_>>();
         if !props.is_empty() {
-            dom.root.set_css_props(props.into());
+            node.set_css_props(props.into());
         }
     }
 
     // Handle SVG shape elements when inside an <svg> context
-    let tag = component_name.as_str();
-    let child_inside_svg = inside_svg || tag == "svg";
+    let tag = component_name;
     let is_svg_shape = inside_svg
         && matches!(
             tag,
@@ -5798,9 +5641,27 @@ fn xml_node_to_dom_fast<'a>(
         };
 
         if let Some(mp) = clip {
-            dom.root.set_svg_data(crate::dom::SvgNodeData::Path(mp));
+            node.set_svg_data(crate::dom::SvgNodeData::Path(mp));
         }
     }
+}
+
+fn xml_node_to_dom_fast<'a>(
+    xml_node: &'a XmlNode,
+    component_map: &'a ComponentMap,
+    inside_svg: bool,
+) -> Result<Dom, RenderDomError> {
+    use crate::dom::Dom;
+
+    let component_name = normalize_casing(&xml_node.node_type);
+
+    // Look up the component definition
+    let node_type = tag_to_node_type(&component_name);
+    let mut dom = Dom::create_node(node_type);
+
+    apply_xml_node_attributes(&mut dom.root, xml_node, &component_name, inside_svg);
+
+    let child_inside_svg = inside_svg || component_name == "svg";
 
     // Recursively convert children
     let mut children = Vec::new();
@@ -5940,271 +5801,15 @@ fn xml_node_to_fast_dom<'a>(
     inside_svg: bool,
     builder: &mut CompactDomBuilder,
 ) -> Result<(), RenderDomError> {
-    use crate::dom::{Dom, IdOrClass, NodeData, NodeType, TabIndex};
+    use crate::dom::NodeData;
 
     let component_name = normalize_casing(&xml_node.node_type);
     let node_type = tag_to_node_type(&component_name);
     let mut node_data = NodeData::create_node(node_type);
 
-    // `<img src="...">`: rebuild the placeholder Image node so its `NullImage`
-    // carries the `src` string (UTF-8 bytes in `tag`). The bytes are resolved
-    // downstream (e.g. printpdf) via the tag. Mirrors `xml_node_to_dom_fast`.
-    if component_name == "img" {
-        if let Some(src) = xml_node.attributes.get_key("src") {
-            let width = xml_node
-                .attributes
-                .get_key("width")
-                .and_then(|w| {
-                    w.as_str()
-                        .trim()
-                        .trim_end_matches("px")
-                        .trim()
-                        .parse::<usize>()
-                        .ok()
-                })
-                .unwrap_or(0);
-            let height = xml_node
-                .attributes
-                .get_key("height")
-                .and_then(|h| {
-                    h.as_str()
-                        .trim()
-                        .trim_end_matches("px")
-                        .trim()
-                        .parse::<usize>()
-                        .ok()
-                })
-                .unwrap_or(0);
-            let image_ref = crate::resources::ImageRef::null_image(
-                width,
-                height,
-                crate::resources::RawImageFormat::RGBA8,
-                src.as_str().as_bytes().to_vec(),
-            );
-            node_data.set_node_type(NodeType::Image(azul_css::css::BoxOrStatic::heap(image_ref)));
-        }
-    }
+    apply_xml_node_attributes(&mut node_data, xml_node, &component_name, inside_svg);
 
-    // Set id and class attributes
-    let mut ids_and_classes = Vec::new();
-    if let Some(id_str) = xml_node.attributes.get_key("id") {
-        for id in id_str.split_whitespace() {
-            ids_and_classes.push(IdOrClass::Id(id.into()));
-        }
-    }
-    if let Some(class_str) = xml_node.attributes.get_key("class") {
-        for class in class_str.split_whitespace() {
-            ids_and_classes.push(IdOrClass::Class(class.into()));
-        }
-    }
-    if !ids_and_classes.is_empty() {
-        node_data.set_ids_and_classes(ids_and_classes.into());
-    }
-
-    // Handle focusable attribute
-    if let Some(focusable) = xml_node
-        .attributes
-        .get_key("focusable")
-        .and_then(|f| parse_bool(f.as_str()))
-    {
-        match focusable {
-            true => node_data.set_tab_index(TabIndex::Auto),
-            false => node_data.set_tab_index(TabIndex::NoKeyboardFocus),
-        }
-    }
-
-    // Handle tabindex attribute
-    if let Some(tab_index) = xml_node
-        .attributes
-        .get_key("tabindex")
-        .and_then(|val| val.parse::<isize>().ok())
-    {
-        match tab_index {
-            0 => node_data.set_tab_index(TabIndex::Auto),
-            i if i > 0 => node_data.set_tab_index(TabIndex::OverrideInParent(i as u32)),
-            _ => node_data.set_tab_index(TabIndex::NoKeyboardFocus),
-        }
-    }
-
-    // Handle inline style attribute
-    if let Some(style) = xml_node.attributes.get_key("style") {
-        let css_key_map = azul_css::props::property::get_css_key_map();
-        let mut attributes = Vec::new();
-        for s in style.as_str().split(";") {
-            let mut s = s.split(":");
-            let key = match s.next() {
-                Some(s) => s,
-                None => continue,
-            };
-            let value = match s.next() {
-                Some(s) => s,
-                None => continue,
-            };
-            let _ = azul_css::parser2::parse_css_declaration(
-                key.trim(),
-                value.trim(),
-                azul_css::parser2::ErrorLocationRange::default(),
-                &css_key_map,
-                &mut Vec::new(),
-                &mut attributes,
-            );
-        }
-        let props = attributes
-            .into_iter()
-            .filter_map(|s| {
-                use azul_css::dynamic_selector::CssPropertyWithConditions;
-                match s {
-                    CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
-                    _ => None,
-                }
-            })
-            .collect::<Vec<_>>();
-        if !props.is_empty() {
-            node_data.set_css_props(props.into());
-        }
-    }
-
-    // Handle SVG shape elements
-    let tag = component_name.as_str();
-    let child_inside_svg = inside_svg || tag == "svg";
-    let is_svg_shape = inside_svg
-        && matches!(
-            tag,
-            "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline"
-        );
-
-    if is_svg_shape {
-        let clip = match tag {
-            "path" => xml_node
-                .attributes
-                .get_key("d")
-                .and_then(|d| crate::path_parser::parse_svg_path_d(d.as_str()).ok()),
-            "circle" => {
-                let cx = parse_svg_float(xml_node.attributes.get_key("cx")).unwrap_or(0.0);
-                let cy = parse_svg_float(xml_node.attributes.get_key("cy")).unwrap_or(0.0);
-                let r = parse_svg_float(xml_node.attributes.get_key("r")).unwrap_or(0.0);
-                if r > 0.0 {
-                    Some(crate::svg::SvgMultiPolygon {
-                        rings: crate::svg::SvgPathVec::from_vec(vec![
-                            crate::path_parser::svg_circle_to_paths(cx, cy, r),
-                        ]),
-                    })
-                } else {
-                    None
-                }
-            }
-            "rect" => {
-                let x = parse_svg_float(xml_node.attributes.get_key("x")).unwrap_or(0.0);
-                let y = parse_svg_float(xml_node.attributes.get_key("y")).unwrap_or(0.0);
-                let w = parse_svg_float(xml_node.attributes.get_key("width")).unwrap_or(0.0);
-                let h = parse_svg_float(xml_node.attributes.get_key("height")).unwrap_or(0.0);
-                let rx = parse_svg_float(xml_node.attributes.get_key("rx")).unwrap_or(0.0);
-                let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(rx);
-                if w > 0.0 && h > 0.0 {
-                    Some(crate::svg::SvgMultiPolygon {
-                        rings: crate::svg::SvgPathVec::from_vec(vec![
-                            crate::path_parser::svg_rect_to_path(x, y, w, h, rx, ry),
-                        ]),
-                    })
-                } else {
-                    None
-                }
-            }
-            "ellipse" => {
-                let cx = parse_svg_float(xml_node.attributes.get_key("cx")).unwrap_or(0.0);
-                let cy = parse_svg_float(xml_node.attributes.get_key("cy")).unwrap_or(0.0);
-                let rx = parse_svg_float(xml_node.attributes.get_key("rx")).unwrap_or(0.0);
-                let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(0.0);
-                if rx > 0.0 && ry > 0.0 {
-                    use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
-                    const KAPPA: f32 = 0.5522847498;
-                    let kx = rx * KAPPA;
-                    let ky = ry * KAPPA;
-                    let elements = vec![
-                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint { x: cx, y: cy - ry },
-                            ctrl_1: SvgPoint {
-                                x: cx + kx,
-                                y: cy - ry,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: cx + rx,
-                                y: cy - ky,
-                            },
-                            end: SvgPoint { x: cx + rx, y: cy },
-                        }),
-                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint { x: cx + rx, y: cy },
-                            ctrl_1: SvgPoint {
-                                x: cx + rx,
-                                y: cy + ky,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: cx + kx,
-                                y: cy + ry,
-                            },
-                            end: SvgPoint { x: cx, y: cy + ry },
-                        }),
-                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint { x: cx, y: cy + ry },
-                            ctrl_1: SvgPoint {
-                                x: cx - kx,
-                                y: cy + ry,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: cx - rx,
-                                y: cy + ky,
-                            },
-                            end: SvgPoint { x: cx - rx, y: cy },
-                        }),
-                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint { x: cx - rx, y: cy },
-                            ctrl_1: SvgPoint {
-                                x: cx - rx,
-                                y: cy - ky,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: cx - kx,
-                                y: cy - ry,
-                            },
-                            end: SvgPoint { x: cx, y: cy - ry },
-                        }),
-                    ];
-                    Some(crate::svg::SvgMultiPolygon {
-                        rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
-                            items: crate::svg::SvgPathElementVec::from_vec(elements),
-                        }]),
-                    })
-                } else {
-                    None
-                }
-            }
-            "line" => {
-                let x1 = parse_svg_float(xml_node.attributes.get_key("x1")).unwrap_or(0.0);
-                let y1 = parse_svg_float(xml_node.attributes.get_key("y1")).unwrap_or(0.0);
-                let x2 = parse_svg_float(xml_node.attributes.get_key("x2")).unwrap_or(0.0);
-                let y2 = parse_svg_float(xml_node.attributes.get_key("y2")).unwrap_or(0.0);
-                Some(crate::svg::SvgMultiPolygon {
-                    rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
-                        items: crate::svg::SvgPathElementVec::from_vec(vec![
-                            crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(
-                                azul_css::props::basic::SvgPoint { x: x1, y: y1 },
-                                azul_css::props::basic::SvgPoint { x: x2, y: y2 },
-                            )),
-                        ]),
-                    }]),
-                })
-            }
-            "polygon" | "polyline" => xml_node
-                .attributes
-                .get_key("points")
-                .and_then(|pts| parse_svg_points(pts.as_str(), tag == "polygon")),
-            _ => None,
-        };
-        if let Some(mp) = clip {
-            node_data.set_svg_data(crate::dom::SvgNodeData::Path(mp));
-        }
-    }
+    let child_inside_svg = inside_svg || component_name == "svg";
 
     // Open this node in the builder
     builder.open_node(node_data);

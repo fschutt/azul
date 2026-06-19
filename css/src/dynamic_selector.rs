@@ -5,6 +5,14 @@ use crate::props::property::CssProperty;
 
 /// State flags for pseudo-classes (used in DynamicSelectorContext)
 /// Note: This is a CSS-only version. See azul_core::styled_dom::StyledNodeState for the main type.
+//
+// TODO(superplan g8 item 3): unify with `azul_core::styled_dom::StyledNodeState`
+// (core/src/styled_dom.rs:190). The two structs now carry the *identical* 10 fields
+// (hover/active/focused/disabled/checked/focus_within/visited/backdrop/dragging/
+// drag_over) and core already bridges them via `StyledNodeState::from_pseudo_state_flags`.
+// `azul_css` cannot depend on `azul_core`, so the merge must land core-side (e.g. move
+// the shared struct into `azul_css` and re-export from core, or delete one type). This is
+// a cross-crate change touching core/, left as a TODO per group ownership.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct PseudoStateFlags {
@@ -97,6 +105,106 @@ impl_vec_clone!(
 impl_vec_debug!(DynamicSelector, DynamicSelectorVec);
 impl_vec_partialeq!(DynamicSelector, DynamicSelectorVec);
 
+impl DynamicSelector {
+    /// Stable per-variant tag (mirrors the `#[repr(C, u8)]` discriminants), used as
+    /// the primary key for both `Ord` and `Hash` so the two stay consistent.
+    fn variant_tag(&self) -> u8 {
+        match self {
+            DynamicSelector::Os(_) => 0,
+            DynamicSelector::OsVersion(_) => 1,
+            DynamicSelector::Media(_) => 2,
+            DynamicSelector::ViewportWidth(_) => 3,
+            DynamicSelector::ViewportHeight(_) => 4,
+            DynamicSelector::ContainerWidth(_) => 5,
+            DynamicSelector::ContainerHeight(_) => 6,
+            DynamicSelector::ContainerName(_) => 7,
+            DynamicSelector::Theme(_) => 8,
+            DynamicSelector::AspectRatio(_) => 9,
+            DynamicSelector::Orientation(_) => 10,
+            DynamicSelector::PrefersReducedMotion(_) => 11,
+            DynamicSelector::PrefersHighContrast(_) => 12,
+            DynamicSelector::PseudoState(_) => 13,
+            DynamicSelector::Language(_) => 14,
+        }
+    }
+}
+
+// `DynamicSelector` carries `f32` ranges (`MinMaxRange`), so `Eq`/`Ord`/`Hash`
+// cannot be derived. They are implemented by hand here: every non-float payload
+// already provides them, and the float ranges are compared/hashed by their bit
+// pattern so the resulting order is *total* and consistent with `Hash`. (Bit
+// comparison means NaN sentinels sort deterministically instead of being
+// incomparable.)
+impl Eq for DynamicSelector {}
+
+impl PartialOrd for DynamicSelector {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DynamicSelector {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        use core::cmp::Ordering;
+        match self.variant_tag().cmp(&other.variant_tag()) {
+            Ordering::Equal => {}
+            non_eq => return non_eq,
+        }
+        // Same variant on both sides (tags are equal): compare the payloads.
+        match (self, other) {
+            (DynamicSelector::Os(a), DynamicSelector::Os(b)) => a.cmp(b),
+            (DynamicSelector::OsVersion(a), DynamicSelector::OsVersion(b)) => a.cmp(b),
+            (DynamicSelector::Media(a), DynamicSelector::Media(b)) => a.cmp(b),
+            (DynamicSelector::ContainerName(a), DynamicSelector::ContainerName(b)) => a.cmp(b),
+            (DynamicSelector::Theme(a), DynamicSelector::Theme(b)) => a.cmp(b),
+            (DynamicSelector::Orientation(a), DynamicSelector::Orientation(b)) => a.cmp(b),
+            (DynamicSelector::PrefersReducedMotion(a), DynamicSelector::PrefersReducedMotion(b)) => {
+                a.cmp(b)
+            }
+            (DynamicSelector::PrefersHighContrast(a), DynamicSelector::PrefersHighContrast(b)) => {
+                a.cmp(b)
+            }
+            (DynamicSelector::PseudoState(a), DynamicSelector::PseudoState(b)) => a.cmp(b),
+            (DynamicSelector::Language(a), DynamicSelector::Language(b)) => a.cmp(b),
+            (DynamicSelector::ViewportWidth(a), DynamicSelector::ViewportWidth(b))
+            | (DynamicSelector::ViewportHeight(a), DynamicSelector::ViewportHeight(b))
+            | (DynamicSelector::ContainerWidth(a), DynamicSelector::ContainerWidth(b))
+            | (DynamicSelector::ContainerHeight(a), DynamicSelector::ContainerHeight(b))
+            | (DynamicSelector::AspectRatio(a), DynamicSelector::AspectRatio(b)) => {
+                (a.min.to_bits(), a.max.to_bits()).cmp(&(b.min.to_bits(), b.max.to_bits()))
+            }
+            // Unreachable: tags are equal, so both sides are the same variant.
+            _ => Ordering::Equal,
+        }
+    }
+}
+
+impl core::hash::Hash for DynamicSelector {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.variant_tag().hash(state);
+        match self {
+            DynamicSelector::Os(x) => x.hash(state),
+            DynamicSelector::OsVersion(x) => x.hash(state),
+            DynamicSelector::Media(x) => x.hash(state),
+            DynamicSelector::ContainerName(x) => x.hash(state),
+            DynamicSelector::Theme(x) => x.hash(state),
+            DynamicSelector::Orientation(x) => x.hash(state),
+            DynamicSelector::PrefersReducedMotion(x) => x.hash(state),
+            DynamicSelector::PrefersHighContrast(x) => x.hash(state),
+            DynamicSelector::PseudoState(x) => x.hash(state),
+            DynamicSelector::Language(x) => x.hash(state),
+            DynamicSelector::ViewportWidth(r)
+            | DynamicSelector::ViewportHeight(r)
+            | DynamicSelector::ContainerWidth(r)
+            | DynamicSelector::ContainerHeight(r)
+            | DynamicSelector::AspectRatio(r) => {
+                r.min.to_bits().hash(state);
+                r.max.to_bits().hash(state);
+            }
+        }
+    }
+}
+
 /// Min/Max Range for numeric conditions (C-compatible)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -156,7 +264,7 @@ impl MinMaxRange {
 
 /// Boolean condition (C-compatible)
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
 pub enum BoolCondition {
     #[default]
     False,
@@ -181,7 +289,7 @@ impl From<BoolCondition> for bool {
 
 /// Operating system condition for `@os` CSS selectors
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum OsCondition {
     Any,
     Apple, // macOS + iOS
@@ -215,7 +323,7 @@ impl OsCondition {
 }
 
 #[repr(C, u8)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum OsVersionCondition {
     /// Minimum version: >= specified version
     /// Format: OsVersion { os, version_id }
@@ -237,7 +345,7 @@ pub enum OsVersionCondition {
 /// A desktop environment together with a numeric version (e.g. GNOME 40).
 /// Used by `OsVersionCondition::DesktopEnv{Min,Max,Exact}` for `@os(linux:gnome > 40)` style selectors.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DesktopEnvVersion {
     pub env: LinuxDesktopEnv,
     pub version_id: u32,
@@ -248,7 +356,7 @@ pub struct DesktopEnvVersion {
 /// Each OS has its own version numbering system with named versions.
 /// Comparisons between different OS families always return false.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct OsVersion {
     /// Which OS family this version belongs to
     pub os: OsFamily,
@@ -305,7 +413,7 @@ impl OsVersion {
 
 /// OS family for version comparisons
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum OsFamily {
     Windows,
     MacOS,
@@ -588,7 +696,7 @@ fn parse_linux_version(s: &str) -> Option<OsVersion> {
 /// XFCE, Unity, Cinnamon, and MATE can be matched via CSS parsing (`@os(linux:xfce)`)
 /// but will not be auto-detected from the system — they map to `Other` at runtime.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum LinuxDesktopEnv {
     Gnome,
     KDE,
@@ -617,7 +725,7 @@ impl LinuxDesktopEnv {
 
 /// Media type for `@media` CSS selectors (screen, print, all)
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum MediaType {
     Screen,
     Print,
@@ -625,7 +733,7 @@ pub enum MediaType {
 }
 
 #[repr(C, u8)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ThemeCondition {
     Light,
     Dark,
@@ -654,7 +762,7 @@ impl ThemeCondition {
 
 /// Orientation type for `@media (orientation: ...)` CSS selectors
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum OrientationType {
     Portrait,
     Landscape,
@@ -663,7 +771,7 @@ pub enum OrientationType {
 /// Language/Locale condition for @lang() CSS selector
 /// Matches BCP 47 language tags with prefix matching
 #[repr(C, u8)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum LanguageCondition {
     /// Exact match (e.g., "de-DE" matches only "de-DE")
     Exact(AzString),
@@ -1158,11 +1266,14 @@ impl PartialOrd for CssPropertyWithConditions {
 
 impl Ord for CssPropertyWithConditions {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        // Compare by condition count only (simple stable ordering)
-        self.apply_if
-            .as_slice()
-            .len()
-            .cmp(&other.apply_if.as_slice().len())
+        // Order by the property first, then lexicographically by the full list of
+        // conditions. This is consistent with the derived `PartialEq` (which compares
+        // both fields) and with `Hash` below, so the type is sound to use as a
+        // `BTreeMap`/`BTreeSet` key or to dedup after sorting. (The previous impl
+        // compared the condition *count* only, which violated the Eq/Ord agreement.)
+        self.property
+            .cmp(&other.property)
+            .then_with(|| self.apply_if.as_slice().cmp(other.apply_if.as_slice()))
     }
 }
 
@@ -1318,23 +1429,26 @@ impl Eq for CssPropertyWithConditionsVec {}
 
 impl Ord for CssPropertyWithConditionsVec {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.as_slice().len().cmp(&other.as_slice().len())
+        // Lexicographic, matching the `impl_vec_partialord!` PartialOrd above and the
+        // element `Ord`; previously this compared length only (inconsistent with Eq).
+        self.as_slice().cmp(other.as_slice())
     }
 }
 
 impl core::hash::Hash for CssPropertyWithConditions {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.property.hash(state);
-        // DynamicSelectorVec doesn't implement Hash, so we hash the length
-        self.apply_if.as_slice().len().hash(state);
+        // Hash the full set of conditions (length + each selector, via the now-`Hash`
+        // `DynamicSelector`) so the hash agrees with `Eq`/`Ord` instead of colliding
+        // on condition count alone.
+        self.apply_if.as_slice().hash(state);
     }
 }
 
 impl core::hash::Hash for CssPropertyWithConditionsVec {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        for item in self.as_slice() {
-            item.hash(state);
-        }
+        // Hashing the slice folds in the length as well as every element.
+        self.as_slice().hash(state);
     }
 }
 
