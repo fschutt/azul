@@ -64,6 +64,15 @@ const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
+// -- Layout constants --
+
+const FONT_SIZE_PX: isize = 13;
+const ARROW_FONT_SIZE_PX: isize = 18;
+const PADDING_HORIZONTAL_PX: isize = 4;
+const PADDING_VERTICAL_PX: isize = 2;
+const LABEL_PADDING_RIGHT_PX: isize = 8;
+const BORDER_WIDTH_PX: isize = 1;
+
 // -- Colors --
 
 const BORDER_NORMAL: ColorU = ColorU { r: 172, g: 172, b: 172, a: 255 };
@@ -144,18 +153,18 @@ static DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     // Font
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(FONT_SIZE_PX))),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     // Padding
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(2))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(PADDING_HORIZONTAL_PX))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(PADDING_HORIZONTAL_PX))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(PADDING_VERTICAL_PX))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(PADDING_VERTICAL_PX))),
     // Border
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(BORDER_WIDTH_PX))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(BORDER_WIDTH_PX))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(BORDER_WIDTH_PX))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(BORDER_WIDTH_PX))),
     CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
     CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
     CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
@@ -191,13 +200,13 @@ static DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
 
 static DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(8))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(LABEL_PADDING_RIGHT_PX))),
 ];
 
 // -- Arrow icon style --
 
 static DROPDOWN_ARROW_ICON_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(ARROW_FONT_SIZE_PX))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
