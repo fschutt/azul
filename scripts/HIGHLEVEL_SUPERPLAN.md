@@ -67,6 +67,7 @@ re-wire items it surfaced.
 - Clipboard: sync_clipboard is dead on all 4 backends → callback SetCopyContent/SetCutContent (event.rs:1771-1783) never reach the OS clipboard; route them through set_system_clipboard and delete the orphaned sync_clipboard chain.  _(from dll__src__desktop__shell2__windows__clipboard.md)_
 - Wire copy/cut/select-all/delete changeset constructors in layout/src/managers/changeset.rs into the event path or remove them — and before wiring, fix the empty-`deleted_text` stub (:421), `CursorPosition::Uninitialized` cursors (:320,:480), and byte±1 UTF-8 deletion (:438,:458).  _(from layout__src__managers__changeset.md)_
 - Clipboard: rich styled-run path is half-wired — StyledTextRun/StyledTextRunVec/to_html() are FFI-exported but styled_runs is always built empty (window.rs:7206, event.rs:2276) and to_html has no callers; either populate styled runs or strip the dead rich-text machinery.  _(from layout__src__managers__selection.md)_
+- Text selection — selection itself works (via `MultiCursor`), but finish the loop (needs GUI verification): **(a)** wire **Ctrl+C / Ctrl+V** for the selected range to the OS clipboard — this is the same missing copy path as the dead `sync_clipboard` chain above (callback SetCopyContent/SetCutContent never reach the OS); **(b)** wire **select+drag-to-scroll** (auto-scroll when a drag-selection reaches the viewport edge — helpers already exist: `window.rs::calculate_selection_bounding_rect` and the "Scroll for drag selection" path at window.rs:3839, just not driven from the drag handler). The old `SelectionManager` scaffolding for this was dead and was removed (42b68f940); build on `MultiCursorState`.  _(from deletion audit)_
 
 ## Group 6 — Drag / drop, file-drop & gestures
 *Owns: `layout/src/managers/{drag_drop.rs, file_drop.rs, gesture.rs}`, `dll/.../shell2/macos/events.rs` (drag delegates), windows OLE IDropTarget, `event_determination.rs:641`. Shared: `event.rs:2545/2668` (coordinate w/ Groups 5, 9).*
@@ -125,12 +126,19 @@ removals all checked out:
 - button per-OS statics (−659) — genuinely dead (each defined once, never read, no `cfg`/platform selection ever existed); image rendering is a real **fix** (`set_image()` now actually renders).
 - `text3/glyphs.rs` (−201) — `get_glyph_runs`/`GlyphRun` dead; live path is `get_glyph_runs_simple` (+ `get_glyph_runs_pdf` for printpdf, retained).
 
-### Items to fix / wire up properly (from the audit)
+### Audit follow-ups — RESOLVED
 
-- **Fix broken `download_cached` import** in `examples/rust/src/http_zip_demo.rs:10` — commit `a4196419d` *claimed* to remove it but didn't; `download_cached` is undefined (only `download_bytes` exists), so the `examples/rust` crate fails to compile. Drop it from the `use` + the 3 `println!` refs (:109/:162/:167), or add the function. *[BUILD — pre-existing, not a deletion regression]*
-- **(Optional) Implement non-editable text drag-selection** — `SelectionManager` (removed `42b68f940`) was dead scaffolding never wired; live selection is editable-only via `MultiCursor`. If selectable non-editable text is desired, implement it on `multi_cursor`. *[FEATURE GAP — predates the deletions]*
+All concrete fix-items the audit surfaced are done (commits `5f493d9be` examples,
+`d9eaba8ba` cleanups):
+- Broken rust examples (path bugs + stale fluent/zip/timer API, incl. the
+  `download_cached` import) — fixed; `icu_demo`/`fluent_demo`/`http_zip_demo`/`opengl` now build.
+- Unused `DEFAULT_FONT_SIZE_PX` const — removed.
+- Doc drift (`handle_action_request` → `decode_a11y_node_id`/`map_accesskit_action`;
+  stale `SelectionManager` module doc) — fixed. `merge_scrollbar_info` was already clean.
+- The non-editable-selection / copy-paste / drag-scroll gap moved to **Group 5**.
 
-### Minor cleanups (non-blocking, noted by the audit)
-- Remove unused `DEFAULT_FONT_SIZE_PX` const (`layout/src/text3/cache.rs`, from `ef59a7fb`) — referenced only in comments.
-- Doc drift: guide pages still reference removed symbols (`handle_action_request` in accessibility.md/windowing.md; stale `merge_scrollbar_info` comments) — update or delete.
-- Several commit messages overclaim work already present or not actually done (`d4b7e75a` ListView callbacks already existed; `CollationStrength` "removed" but still at `icu.rs:392`; `clear_scroll_rect_into_view` mislabel; the `9e5eef466` "remove dead duplicate" was correctly *refined into a wiring* instead). Cosmetic — no code impact.
+Remaining cosmetic-only note (no code impact, optional): a few commit messages
+overclaim work already present or not done (`d4b7e75a` ListView callbacks already
+existed; `CollationStrength` "removed" but still at `icu.rs:392`;
+`clear_scroll_rect_into_view` mislabel; `9e5eef466` was correctly refined into a
+wiring). History-only — not worth touching.
