@@ -72,15 +72,15 @@ path = "src/anim.rs"
 
 [[example]]
 name = "icu_demo"
-path = "icu_demo.rs"
+path = "src/icu_demo.rs"
 required-features = ["icu"]
 
 [[example]]
 name = "fluent_demo"
-path = "fluent_demo.rs"
+path = "src/fluent_demo.rs"
 required-features = ["fluent", "icu"]
 
 [[example]]
 name = "http_zip_demo"
-path = "http_zip_demo.rs"
+path = "src/http_zip_demo.rs"
 required-features = ["fluent", "http", "zip_support"]

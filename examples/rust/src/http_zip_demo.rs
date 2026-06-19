@@ -6,16 +6,22 @@
 //! 3. Cache downloaded language packs locally
 //! 4. Use multiple translation sources (builtin, path, network)
 
-use azul::desktop::fluent::{FluentLocalizerHandle, FluentFormatArg};
-use azul::desktop::http::{download_bytes, download_cached, HttpRequestConfig, http_get_with_config, HttpError};
-use azul::desktop::zip::{zip_list_contents, zip_extract_all, zip_create_from_files, ZipEntry};
-use std::path::PathBuf;
+// The localizer handle is exposed via `azul::fluent`; the `{ $name }`-style
+// format-arg types (`FmtArg`/`FmtValue`) via `azul::misc`.
+use azul::fluent::FluentLocalizerHandle;
+use azul::misc::{FmtArg, FmtValue};
+// NOTE: the `azul::desktop::http` functions (download_bytes, etc.) are only
+// described in the print statements below (Examples 3 & 6 are simulated), not
+// called — so there is intentionally no `use` for them here.
+use azul::desktop::zip::{
+    zip_list_contents, zip_extract_all, zip_create_from_files, ZipReadConfig, ZipWriteConfig,
+};
 
 fn main() {
     println!("=== HTTP & ZIP Language Pack Demo ===\n");
     
     // Create a localizer instance
-    let localizer = FluentLocalizerHandle::new("en-US");
+    let localizer = FluentLocalizerHandle::create("en-US");
     
     // =========================================================================
     // Example 1: Builtin translations (embedded in binary)
@@ -45,9 +51,9 @@ emails = { $count ->
     localizer.add_resource("en-US", en_us_ftl);
     localizer.add_resource("de-DE", de_de_ftl);
     
-    println!("   Loaded: {:?}", localizer.get_loaded_locales());
-    println!("   en-US 'hello': {}", localizer.translate("en-US", "hello", None));
-    println!("   de-DE 'hello': {}", localizer.translate("de-DE", "hello", None));
+    println!("   Loaded: {:?}", localizer.get_loaded_locales().iter().map(|s| s.as_str()).collect::<Vec<_>>());
+    println!("   en-US 'hello': {}", localizer.translate("en-US", "hello", Vec::<FmtArg>::new()));
+    println!("   de-DE 'hello': {}", localizer.translate("de-DE", "hello", Vec::<FmtArg>::new()));
     println!();
     
     // =========================================================================
@@ -81,19 +87,19 @@ emails = { $count ->
         ("es-ES.fluent".to_string(), es_es_ftl.as_bytes().to_vec()),
     ];
     
-    let zip_data = zip_create_from_files(&files).expect("Failed to create ZIP");
+    let zip_data = zip_create_from_files(files, &ZipWriteConfig::default()).expect("Failed to create ZIP");
     println!("   Created ZIP: {} bytes", zip_data.len());
-    
+
     // List contents
-    let contents = zip_list_contents(&zip_data).expect("Failed to list ZIP");
+    let contents = zip_list_contents(&zip_data, &ZipReadConfig::default()).expect("Failed to list ZIP");
     println!("   Contents: {:?}", contents);
-    
+
     // Load from ZIP
-    let load_result = localizer.load_from_zip(&zip_data);
+    let load_result = localizer.load_from_zip(zip_data.as_slice().into());
     println!("   Loaded {} files from ZIP", load_result.files_loaded);
-    println!("   All locales now: {:?}", localizer.get_loaded_locales());
-    println!("   fr-FR 'hello': {}", localizer.translate("fr-FR", "hello", None));
-    println!("   es-ES 'hello': {}", localizer.translate("es-ES", "hello", None));
+    println!("   All locales now: {:?}", localizer.get_loaded_locales().iter().map(|s| s.as_str()).collect::<Vec<_>>());
+    println!("   fr-FR 'hello': {}", localizer.translate("fr-FR", "hello", Vec::<FmtArg>::new()));
+    println!("   es-ES 'hello': {}", localizer.translate("es-ES", "hello", Vec::<FmtArg>::new()));
     println!();
     
     // =========================================================================
@@ -114,11 +120,11 @@ emails = { $count ->
     // =========================================================================
     println!("4. Extracting specific files from ZIP...");
     
-    let entries = zip_extract_all(&zip_data).expect("Failed to extract");
+    let entries = zip_extract_all(&zip_data, &ZipReadConfig::default()).expect("Failed to extract");
     for entry in &entries {
-        println!("   {} - {} bytes ({})", 
+        println!("   {} - {} bytes ({})",
             entry.path,
-            entry.size,
+            entry.data.len(),
             if entry.is_directory { "dir" } else { "file" }
         );
     }
@@ -136,14 +142,14 @@ emails = { $count ->
     
     for locale in &locales {
         let welcome_args = vec![
-            FluentFormatArg::string("name", user_name),
+            FmtArg { key: "name".into(), value: FmtValue::Str(user_name.into()) },
         ];
         let email_args = vec![
-            FluentFormatArg::number("count", email_count),
+            FmtArg { key: "count".into(), value: FmtValue::Double(email_count) },
         ];
-        
-        let welcome = localizer.translate(locale, "welcome", Some(&welcome_args));
-        let emails = localizer.translate(locale, "emails", Some(&email_args));
+
+        let welcome = localizer.translate(*locale, "welcome", welcome_args);
+        let emails = localizer.translate(*locale, "emails", email_args);
         
         println!("   [{}]", locale);
         println!("      {}", welcome);

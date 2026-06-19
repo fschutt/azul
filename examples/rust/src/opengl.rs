@@ -10,6 +10,7 @@ use azul::css::{
 use azul::dom::RenderImageCallback;
 use azul::gl::Texture;
 use azul::image::{ImageRef, RawImageFormat};
+use azul::option::OptionRefAny;
 use azul::svg::*;
 use azul::task::TerminateTimer;
 use azul::vec::U8VecRef;
@@ -165,7 +166,14 @@ fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()
     let timer_id = TimerId::unique();
     info.add_timer(
         timer_id,
-        Timer::create(data.clone(), animate, info.get_system_time_fn()),
+        Timer::create(
+            data.clone(),
+            TimerCallback {
+                cb: animate,
+                ctx: OptionRefAny::None,
+            },
+            info.get_system_time_fn(),
+        ),
     );
 
     Some(())
