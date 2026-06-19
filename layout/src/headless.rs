@@ -88,48 +88,7 @@ use std::collections::BTreeMap;
 use azul_core::{
     dom::{DomId, NodeId},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
-    resources::RendererResources,
 };
-
-/// Configuration for headless rendering.
-#[derive(Debug, Clone)]
-pub struct HeadlessConfig {
-    /// Logical window width in CSS pixels
-    pub width: f32,
-    /// Logical window height in CSS pixels
-    pub height: f32,
-    /// DPI scale factor (1.0 = 96 DPI, 2.0 = Retina)
-    pub dpi_factor: f32,
-    /// Whether to enable CPU rendering for screenshots
-    /// (false = layout-only mode, no pixel output)
-    pub enable_rendering: bool,
-    /// Maximum number of event loop iterations before auto-close
-    /// (prevents infinite loops in tests)
-    pub max_iterations: Option<usize>,
-}
-
-/// Default safety limit for event loop iterations in headless/test mode.
-const DEFAULT_MAX_ITERATIONS: usize = 1000;
-
-impl Default for HeadlessConfig {
-    fn default() -> Self {
-        Self {
-            width: 800.0,
-            height: 600.0,
-            dpi_factor: 1.0,
-            enable_rendering: false,
-            max_iterations: Some(DEFAULT_MAX_ITERATIONS),
-        }
-    }
-}
-
-impl HeadlessConfig {
-    /// Create with defaults. Viewport can be changed at runtime via
-    /// the debug server's `resize` command or E2E test JSON steps.
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
 
 /// CPU-based hit tester that works without WebRender.
 ///
@@ -326,65 +285,9 @@ fn point_in_rect(point: LogicalPosition, rect: &LogicalRect) -> bool {
         && point.y < rect.origin.y + rect.size.height
 }
 
-/// Headless renderer for CPU-based screenshot capture.
-///
-/// Wraps `cpurender::render()` with headless-specific configuration.
-/// This is separate from `CpuCompositor` (which implements the `Compositor`
-/// trait for the WebRender software fallback path). The headless renderer
-/// operates entirely without WebRender.
-#[cfg(feature = "cpurender")]
-pub struct HeadlessRenderer {
-    pub width: f32,
-    pub height: f32,
-    pub dpi_factor: f32,
-}
-
-#[cfg(feature = "cpurender")]
-impl HeadlessRenderer {
-    /// Create a new headless renderer with the given dimensions.
-    pub fn new(width: f32, height: f32, dpi_factor: f32) -> Self {
-        Self {
-            width,
-            height,
-            dpi_factor,
-        }
-    }
-
-    /// Render a display list to a pixel buffer.
-    ///
-    /// Returns an `AzulPixmap` that can be saved as PNG.
-    pub fn render_frame(
-        &self,
-        display_list: &crate::solver3::display_list::DisplayList,
-        renderer_resources: &RendererResources,
-    ) -> Result<crate::cpurender::AzulPixmap, String> {
-        let mut glyph_cache = crate::glyph_cache::GlyphCache::new();
-        crate::cpurender::render(
-            display_list,
-            renderer_resources,
-            crate::cpurender::RenderOptions {
-                width: self.width,
-                height: self.height,
-                dpi_factor: self.dpi_factor,
-            },
-            &mut glyph_cache,
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_headless_config_default() {
-        let config = HeadlessConfig::default();
-        assert_eq!(config.width, 800.0);
-        assert_eq!(config.height, 600.0);
-        assert_eq!(config.dpi_factor, 1.0);
-        assert!(!config.enable_rendering);
-        assert_eq!(config.max_iterations, Some(DEFAULT_MAX_ITERATIONS));
-    }
 
     #[test]
     fn test_cpu_hit_tester_empty() {
