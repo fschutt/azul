@@ -110,6 +110,7 @@ objc2-foundation = { version = "0.3.0", default-features = true, optional = true
     "NSLocale",
     "NSNumberFormatter",
     "NSObjCRuntime",
+    "NSRange",
     "NSString",
     "NSValue",
 ] }

@@ -9,184 +9,18 @@
 
 use alloc::{string::String, vec::Vec};
 use core::cmp::Ordering;
+use core::ops::Deref;
 
 use azul_css::AzString;
 use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
 use objc2_foundation::{
     NSArray, NSCalendar, NSCalendarIdentifierGregorian, NSDate,
     NSDateComponents, NSDateFormatter, NSDateFormatterStyle, NSListFormatter, NSLocale, NSNumber,
-    NSNumberFormatter, NSNumberFormatterStyle, NSString,
+    NSNumberFormatter, NSNumberFormatterStyle, NSRange, NSString, NSStringCompareOptions,
 };
 
-use super::{FormatLength, IcuDate, IcuDateTime, IcuResult, IcuTime, ListType, PluralCategory};
-
-// ─── CLDR plural rules ───────────────────────────────────────────────────────
-//
-// Covers the major plural-rule groups defined in CLDR without bundling any
-// data file.  Languages not explicitly listed fall back to English rules.
-
-fn plural_for(n: i64, lang: &str) -> PluralCategory {
-    let lang = lang.split(['-', '_']).next().unwrap_or(lang);
-    match lang {
-        // Arabic: six categories
-        "ar" | "arz" | "ckb" => {
-            let n100 = n.abs() % 100;
-            if n == 0 {
-                PluralCategory::Zero
-            } else if n == 1 {
-                PluralCategory::One
-            } else if n == 2 {
-                PluralCategory::Two
-            } else if (3..=10).contains(&n100) {
-                PluralCategory::Few
-            } else if (11..=99).contains(&n100) {
-                PluralCategory::Many
-            } else {
-                PluralCategory::Other
-            }
-        }
-        // Welsh: six categories
-        "cy" => match n {
-            0 => PluralCategory::Zero,
-            1 => PluralCategory::One,
-            2 => PluralCategory::Two,
-            3 => PluralCategory::Few,
-            6 => PluralCategory::Many,
-            _ => PluralCategory::Other,
-        },
-        // East Slavic (Russian, Ukrainian, Belarusian, Serbian, Croatian, Bosnian)
-        "ru" | "uk" | "be" | "sr" | "hr" | "bs" | "sh" => {
-            let n10 = n.abs() % 10;
-            let n100 = n.abs() % 100;
-            if n10 == 1 && n100 != 11 {
-                PluralCategory::One
-            } else if (2..=4).contains(&n10) && !(12..=14).contains(&n100) {
-                PluralCategory::Few
-            } else {
-                PluralCategory::Many
-            }
-        }
-        // Polish
-        "pl" => {
-            let n10 = n.abs() % 10;
-            let n100 = n.abs() % 100;
-            if n == 1 {
-                PluralCategory::One
-            } else if (2..=4).contains(&n10) && !(12..=14).contains(&n100) {
-                PluralCategory::Few
-            } else {
-                PluralCategory::Many
-            }
-        }
-        // Czech, Slovak
-        "cs" | "sk" => {
-            if n == 1 {
-                PluralCategory::One
-            } else if (2..=4).contains(&n) {
-                PluralCategory::Few
-            } else {
-                PluralCategory::Other
-            }
-        }
-        // Slovenian
-        "sl" => {
-            let n100 = n.abs() % 100;
-            if n100 == 1 {
-                PluralCategory::One
-            } else if n100 == 2 {
-                PluralCategory::Two
-            } else if (3..=4).contains(&n100) {
-                PluralCategory::Few
-            } else {
-                PluralCategory::Other
-            }
-        }
-        // Lithuanian
-        "lt" => {
-            let n10 = n.abs() % 10;
-            let n100 = n.abs() % 100;
-            if n10 == 1 && !(11..=19).contains(&n100) {
-                PluralCategory::One
-            } else if (2..=9).contains(&n10) && !(11..=19).contains(&n100) {
-                PluralCategory::Few
-            } else {
-                PluralCategory::Other
-            }
-        }
-        // Latvian
-        "lv" => {
-            let n10 = n.abs() % 10;
-            let n100 = n.abs() % 100;
-            if n == 0 {
-                PluralCategory::Zero
-            } else if n10 == 1 && n100 != 11 {
-                PluralCategory::One
-            } else {
-                PluralCategory::Other
-            }
-        }
-        // Romanian
-        "ro" | "mo" => {
-            let n100 = n.abs() % 100;
-            if n == 1 {
-                PluralCategory::One
-            } else if n == 0 || (1..=19).contains(&n100) {
-                PluralCategory::Few
-            } else {
-                PluralCategory::Other
-            }
-        }
-        // Maltese
-        "mt" => {
-            let n100 = n.abs() % 100;
-            if n == 1 {
-                PluralCategory::One
-            } else if n == 0 || (2..=10).contains(&n100) {
-                PluralCategory::Few
-            } else if (11..=19).contains(&n100) {
-                PluralCategory::Many
-            } else {
-                PluralCategory::Other
-            }
-        }
-        // Hebrew / Yiddish
-        "he" | "yi" | "iw" => {
-            if n == 1 {
-                PluralCategory::One
-            } else if n == 2 {
-                PluralCategory::Two
-            } else if n != 0 && n % 10 == 0 {
-                PluralCategory::Many
-            } else {
-                PluralCategory::Other
-            }
-        }
-        // Irish (Gaelic)
-        "ga" => match n {
-            1 => PluralCategory::One,
-            2 => PluralCategory::Two,
-            3..=6 => PluralCategory::Few,
-            7..=10 => PluralCategory::Many,
-            _ => PluralCategory::Other,
-        },
-        // French, Kabyle: 0 and 1 are "one"
-        "fr" | "ff" | "kab" => {
-            if n == 0 || n == 1 {
-                PluralCategory::One
-            } else {
-                PluralCategory::Other
-            }
-        }
-        // Default: English-style (exactly 1 → one, everything else → other)
-        _ => {
-            if n == 1 {
-                PluralCategory::One
-            } else {
-                PluralCategory::Other
-            }
-        }
-    }
-}
+use super::{FormatLength, IcuDate, IcuDateTime, IcuResult, IcuTime, ListType, PluralCategory, plural_for};
 
 // ─── IcuLocalizer ─────────────────────────────────────────────────────────────
 
@@ -314,12 +148,20 @@ impl IcuLocalizer {
         unsafe {
             let ns_strings: Vec<Retained<NSString>> =
                 items.iter().map(|s| NSString::from_str(s.as_str())).collect();
-            let refs: Vec<&NSString> = ns_strings.iter().map(|s| s.as_ref()).collect();
-            let array = NSArray::from_slice(&refs);
-            // NSListFormatter::localizedStringByJoiningStrings is a class method
-            // that uses the user's current locale — exactly what we want on macOS.
-            let result = NSListFormatter::localizedStringByJoiningStrings(&array);
-            AzString::from(result.to_string())
+            let any_refs: Vec<&AnyObject> =
+                ns_strings.iter().map(|s| s.deref().deref().deref()).collect();
+            let array = NSArray::<AnyObject>::from_slice(&any_refs);
+            let formatter = NSListFormatter::new();
+            formatter.setLocale(Some(&self.make_ns_locale()));
+            match formatter.stringFromItems(&array) {
+                Some(result) => AzString::from(result.to_string()),
+                None => {
+                    let str_refs: Vec<&NSString> = ns_strings.iter().map(|s| s.as_ref()).collect();
+                    let str_array = NSArray::from_slice(&str_refs);
+                    let result = NSListFormatter::localizedStringByJoiningStrings(&str_array);
+                    AzString::from(result.to_string())
+                }
+            }
         }
     }
 
@@ -388,7 +230,15 @@ impl IcuLocalizer {
         unsafe {
             let a_ns = NSString::from_str(a);
             let b_ns = NSString::from_str(b);
-            Ordering::from(a_ns.localizedCompare(&b_ns))
+            let range = NSRange::new(0, a_ns.len());
+            let locale = self.make_ns_locale();
+            let result = a_ns.compare_options_range_locale(
+                &b_ns,
+                NSStringCompareOptions(0),
+                range,
+                Some(locale.deref().deref()),
+            );
+            Ordering::from(result)
         }
     }
 
