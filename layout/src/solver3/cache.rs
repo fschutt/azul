@@ -31,7 +31,7 @@ use azul_css::{
     css::CssPropertyValue,
     props::{
         layout::{
-            LayoutDisplay, LayoutFlexWrap, LayoutHeight, LayoutJustifyContent, LayoutOverflow,
+            LayoutDisplay, LayoutHeight, LayoutOverflow,
             LayoutPosition, LayoutWritingMode,
         },
         property::{CssProperty, CssPropertyType},
@@ -46,8 +46,8 @@ use crate::{
         fc::{self, layout_formatting_context, LayoutConstraints, OverflowBehavior},
         geometry::PositionedRectangle,
         getters::{
-            get_css_height, get_display_property, get_justify_content, get_overflow_x,
-            get_overflow_y, get_scrollbar_gutter_property, get_text_align, get_white_space_property, get_wrap, get_writing_mode,
+            get_css_height, get_display_property, get_overflow_x,
+            get_overflow_y, get_scrollbar_gutter_property, get_text_align, get_white_space_property, get_writing_mode,
             MultiValue,
         },
         layout_tree::{
@@ -565,7 +565,7 @@ pub fn reposition_clean_subtrees(
 /// Convert LayoutOverflow to OverflowBehavior
 /// CSS Overflow Module Level 3: initial value of `overflow` is `visible`.
 // +spec:overflow:3a6297 - initial value 'visible', maps hidden/scroll/auto overflow behaviors
-pub fn to_overflow_behavior(overflow: MultiValue<LayoutOverflow>) -> fc::OverflowBehavior {
+fn to_overflow_behavior(overflow: MultiValue<LayoutOverflow>) -> fc::OverflowBehavior {
     match overflow.unwrap_or(LayoutOverflow::Visible) {
         LayoutOverflow::Visible => fc::OverflowBehavior::Visible,
         LayoutOverflow::Hidden | LayoutOverflow::Clip => fc::OverflowBehavior::Hidden,
@@ -576,7 +576,7 @@ pub fn to_overflow_behavior(overflow: MultiValue<LayoutOverflow>) -> fc::Overflo
 
 /// Convert StyleTextAlign to fc::TextAlign
 // +spec:text-alignment-spacing:43ea0a - text-align-all shorthand: aligns all lines except last (overridden by text-align-last)
-pub const fn style_text_align_to_fc(text_align: StyleTextAlign) -> fc::TextAlign {
+const fn style_text_align_to_fc(text_align: StyleTextAlign) -> fc::TextAlign {
     match text_align {
         StyleTextAlign::Start | StyleTextAlign::Left => fc::TextAlign::Start,
         StyleTextAlign::End | StyleTextAlign::Right => fc::TextAlign::End,
@@ -632,44 +632,6 @@ pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -
         }
     }
     children
-}
-
-/// Checks if a flex container is simple enough to be treated like a block-stack for
-/// repositioning.
-pub fn is_simple_flex_stack(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> bool {
-    let Some(id) = dom_id else { return false };
-    let binding = styled_dom.styled_nodes.as_container();
-    let styled_node = match binding.get(id) {
-        Some(styled_node) => styled_node,
-        None => return false,
-    };
-
-    // Must be a single-line flex container
-    let wrap = get_wrap(styled_dom, id, &styled_node.styled_node_state);
-
-    if wrap.unwrap_or_default() != LayoutFlexWrap::NoWrap {
-        return false;
-    }
-
-    // Must be start-aligned, so there's no space distribution to recalculate.
-    let justify = get_justify_content(styled_dom, id, &styled_node.styled_node_state);
-
-    if !matches!(
-        justify.unwrap_or_default(),
-        LayoutJustifyContent::FlexStart | LayoutJustifyContent::Start
-    ) {
-        return false;
-    }
-
-    // Crucially, no clean siblings can have flexible sizes, otherwise a dirty
-    // sibling's size change could affect their resolved size.
-    // NOTE: This check is expensive and incomplete. A more robust solution might
-    // store flags on the LayoutNode indicating if flex factors are present.
-    // For now, we assume that if a container *could* have complex flex behavior,
-    // we play it safe and require a full relayout. This heuristic is a compromise.
-    // To be truly safe, we'd have to check all children for flex-grow/shrink > 0.
-
-    true
 }
 
 /// Repositions clean children within a simple block-flow layout (like a BFC or a
@@ -777,7 +739,7 @@ pub fn reposition_block_flow_siblings(
 }
 
 /// Helper to recursively shift the absolute position of a node and all its descendants.
-pub fn shift_subtree_position(
+fn shift_subtree_position(
     node_idx: usize,
     delta: LogicalPosition,
     tree: &LayoutTree,
@@ -1674,20 +1636,6 @@ fn check_scrollbar_change(
     }
 }
 
-/// Returns the new scrollbar info directly, replacing any previous state.
-///
-/// Previous versions used `||` to make scrollbars "sticky" (never removed once added).
-/// This prevented oscillation but caused scrollbars to persist forever—even after
-/// content shrinks or the window grows. The outer layout loop's iteration cap
-/// now handles oscillation safety, so we can faithfully reflect the current state.
-fn merge_scrollbar_info(
-    _tree: &LayoutTree,
-    _node_index: usize,
-    new_info: &ScrollbarRequirements,
-) -> ScrollbarRequirements {
-    new_info.clone()
-}
-
 /// Calculates the content-box position from a margin-box position.
 ///
 /// The content-box is offset from the margin-box by border + padding.
@@ -2251,7 +2199,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                 tree,
                 node_index,
                 writing_mode,
-            );
+            )?;
         }
     }
 
@@ -2275,7 +2223,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         *reflow_needed_for_scrollbars = true;
     }
 
-    let merged_scrollbar_info = merge_scrollbar_info(tree, node_index, &scrollbar_info);
+    let merged_scrollbar_info = scrollbar_info.clone();
     let content_box_size = box_props.inner_size(final_used_size, writing_mode);
     let inner_size_after_scrollbars = merged_scrollbar_info.shrink_size(content_box_size);
 
@@ -2414,101 +2362,48 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
     reflow_needed_for_scrollbars: &mut bool,
     float_cache: &mut HashMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
-    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
     let children: Vec<usize> = tree.children(node_index).to_vec();
-    let fc = node.formatting_context.clone();
 
-    // If this node is itself a Flex/Grid container, its children were laid out by Taffy
-    // and already have relative_position set. We just need to convert to absolute and recurse.
-    if matches!(fc, FormattingContext::Flex | FormattingContext::Grid) {
-        for &child_index in &children {
-            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-            let child_rel_pos = tree.warm(child_index)
-                .and_then(|w| w.relative_position)
-                .unwrap_or_default();
-            let child_abs_pos = LogicalPosition::new(
-                content_box_pos.x + child_rel_pos.x,
-                content_box_pos.y + child_rel_pos.y,
-            );
+    for &child_index in &children {
+        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+        let child_rel_pos = tree.warm(child_index)
+            .and_then(|w| w.relative_position)
+            .unwrap_or_default();
+        let child_abs_pos = LogicalPosition::new(
+            content_box_pos.x + child_rel_pos.x,
+            content_box_pos.y + child_rel_pos.y,
+        );
 
-            // Insert position
-            super::pos_set(calculated_positions, child_index, child_abs_pos);
+        // Insert position
+        super::pos_set(calculated_positions, child_index, child_abs_pos);
 
-            // Get child's content box for recursion
-            let cbp = child_node.box_props.unpack();
-            let child_content_box = LogicalPosition::new(
-                child_abs_pos.x
-                    + cbp.border.left
-                    + cbp.padding.left,
-                child_abs_pos.y
-                    + cbp.border.top
-                    + cbp.padding.top,
-            );
-            let child_inner_size = cbp.inner_size(
-                child_node.used_size.unwrap_or_default(),
-                LayoutWritingMode::HorizontalTb,
-            );
+        // Get child's content box for recursion
+        let cbp = child_node.box_props.unpack();
+        let child_content_box = LogicalPosition::new(
+            child_abs_pos.x
+                + cbp.border.left
+                + cbp.padding.left,
+            child_abs_pos.y
+                + cbp.border.top
+                + cbp.padding.top,
+        );
+        let child_inner_size = cbp.inner_size(
+            child_node.used_size.unwrap_or_default(),
+            LayoutWritingMode::HorizontalTb,
+        );
 
-            // Recurse
-            position_flex_child_descendants(
-                ctx,
-                tree,
-                text_cache,
-                child_index,
-                child_content_box,
-                child_inner_size,
-                calculated_positions,
-                reflow_needed_for_scrollbars,
-                float_cache,
-            )?;
-        }
-    } else {
-        // For Block/Inline/Table children, their descendants need proper layout calculation
-        // Use the output.positions from their own layout
-        let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-        let children: Vec<usize> = tree.children(node_index).to_vec();
-
-        for &child_index in &children {
-            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-            let child_rel_pos = tree.warm(child_index)
-                .and_then(|w| w.relative_position)
-                .unwrap_or_default();
-            let child_abs_pos = LogicalPosition::new(
-                content_box_pos.x + child_rel_pos.x,
-                content_box_pos.y + child_rel_pos.y,
-            );
-
-            // Insert position
-            super::pos_set(calculated_positions, child_index, child_abs_pos);
-
-            // Get child's content box for recursion
-            let cbp = child_node.box_props.unpack();
-            let child_content_box = LogicalPosition::new(
-                child_abs_pos.x
-                    + cbp.border.left
-                    + cbp.padding.left,
-                child_abs_pos.y
-                    + cbp.border.top
-                    + cbp.padding.top,
-            );
-            let child_inner_size = cbp.inner_size(
-                child_node.used_size.unwrap_or_default(),
-                LayoutWritingMode::HorizontalTb,
-            );
-
-            // Recurse
-            position_flex_child_descendants(
-                ctx,
-                tree,
-                text_cache,
-                child_index,
-                child_content_box,
-                child_inner_size,
-                calculated_positions,
-                reflow_needed_for_scrollbars,
-                float_cache,
-            )?;
-        }
+        // Recurse
+        position_flex_child_descendants(
+            ctx,
+            tree,
+            text_cache,
+            child_index,
+            child_content_box,
+            child_inner_size,
+            calculated_positions,
+            reflow_needed_for_scrollbars,
+            float_cache,
+        )?;
     }
 
     Ok(())
@@ -2565,8 +2460,8 @@ fn apply_content_based_height(
     tree: &LayoutTree,
     node_index: usize,
     writing_mode: LayoutWritingMode,
-) -> LogicalSize {
-    let node_props = tree.get(node_index).unwrap().box_props.unpack();
+) -> Result<LogicalSize> {
+    let node_props = tree.get(node_index).ok_or(LayoutError::InvalidTree)?.box_props.unpack();
     let main_axis_padding_border =
         node_props.padding.main_sum(writing_mode) + node_props.border.main_sum(writing_mode);
 
@@ -2580,7 +2475,7 @@ fn apply_content_based_height(
 
     used_size = used_size.with_main(writing_mode, final_main_size);
 
-    used_size
+    Ok(used_size)
 }
 
 // hash_styled_node_data() removed — replaced by NodeDataFingerprint::compute()
