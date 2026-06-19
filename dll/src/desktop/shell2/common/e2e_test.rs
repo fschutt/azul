@@ -459,8 +459,7 @@ fn breakdown_line(iter: u32, window: &HeadlessWindow) -> Option<String> {
     let renderer_fonts = lw.renderer_resources.currently_registered_fonts.len();
     let renderer_images = lw.renderer_resources.currently_registered_images.len();
 
-    let (scroll_states, scroll_ext_ids, scrollbar_states) =
-        lw.scroll_manager.debug_counts();
+    let (scroll_states, scrollbar_states) = lw.scroll_manager.debug_counts();
     let (hover_points, hover_total) = lw.hover_manager.debug_counts();
     let (vv_states, vv_pipelines) = lw.virtual_view_manager.debug_counts();
     let (gesture_sessions, gesture_long_press) =
@@ -491,7 +490,7 @@ fn breakdown_line(iter: u32, window: &HeadlessWindow) -> Option<String> {
     let hit_test_entries: usize = window.cpu_backend.hit_tester.node_rects_total();
 
     let mgr_fields = format!(
-        r#""mgr_layout_results":{},"mgr_gpu_caches":{},"mgr_gpu_transform_keys":{},"mgr_gpu_opacity_keys":{},"mgr_gpu_css_transform_keys":{},"mgr_gpu_scrollbar_opacity_keys":{},"mgr_gpu_fade_states":{},"mgr_font_parsed":{},"mgr_font_chain":{},"mgr_font_hash_families":{},"mgr_renderer_fonts":{},"mgr_renderer_images":{},"mgr_renderer_image_key_map":{},"mgr_renderer_last_frame_fonts":{},"mgr_renderer_font_families":{},"mgr_renderer_font_id_map":{},"mgr_renderer_font_hash_map":{},"mgr_scroll_states":{},"mgr_scroll_ext_ids":{},"mgr_scrollbar_states":{},"mgr_hover_points":{},"mgr_hover_history_total":{},"mgr_vv_states":{},"mgr_vv_pipelines":{},"mgr_gesture_sessions":{},"mgr_gesture_long_press":{},"mgr_dirty_text_nodes":{},"mgr_timers":{},"mgr_threads":{},"probe_events":{},"cpu_layers":{},"cpu_next_layer_id":{},"cpu_last_frame_bytes":{},"cpu_prev_dl_items":{},"cpu_glyph_paths":{},"cpu_glyph_cells":{},"cpu_hit_rects":{},"prev_window_state":{}"#,
+        r#""mgr_layout_results":{},"mgr_gpu_caches":{},"mgr_gpu_transform_keys":{},"mgr_gpu_opacity_keys":{},"mgr_gpu_css_transform_keys":{},"mgr_gpu_scrollbar_opacity_keys":{},"mgr_gpu_fade_states":{},"mgr_font_parsed":{},"mgr_font_chain":{},"mgr_font_hash_families":{},"mgr_renderer_fonts":{},"mgr_renderer_images":{},"mgr_renderer_image_key_map":{},"mgr_renderer_last_frame_fonts":{},"mgr_renderer_font_families":{},"mgr_renderer_font_id_map":{},"mgr_renderer_font_hash_map":{},"mgr_scroll_states":{},"mgr_scrollbar_states":{},"mgr_hover_points":{},"mgr_hover_history_total":{},"mgr_vv_states":{},"mgr_vv_pipelines":{},"mgr_gesture_sessions":{},"mgr_gesture_long_press":{},"mgr_dirty_text_nodes":{},"mgr_timers":{},"mgr_threads":{},"probe_events":{},"cpu_layers":{},"cpu_next_layer_id":{},"cpu_last_frame_bytes":{},"cpu_prev_dl_items":{},"cpu_glyph_paths":{},"cpu_glyph_cells":{},"cpu_hit_rects":{},"prev_window_state":{}"#,
         lw.layout_results.len(),
         lw.gpu_state_manager.caches.len(),
         gpu_transform_keys,
@@ -510,7 +509,6 @@ fn breakdown_line(iter: u32, window: &HeadlessWindow) -> Option<String> {
         rr.font_id_map.len(),
         rr.font_hash_map.len(),
         scroll_states,
-        scroll_ext_ids,
         scrollbar_states,
         hover_points,
         hover_total,
