@@ -45,6 +45,34 @@ use smallvec::{smallvec, SmallVec};
 use unicode_bidi::{BidiInfo, Level, TextSource};
 use unicode_segmentation::UnicodeSegmentation;
 
+// --- Named constants for layout heuristics ---
+
+/// Fraction of line-height used as ascent when no font metrics are available.
+/// Matches the typical 80/20 ascent/descent ratio found in Latin fonts.
+const FALLBACK_ASCENT_RATIO: f32 = 0.8;
+const FALLBACK_DESCENT_RATIO: f32 = 1.0 - FALLBACK_ASCENT_RATIO;
+
+/// Default font size (px) used when no explicit size is set (CSS initial value).
+const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
+
+/// Default strut ascent: FALLBACK_ASCENT_RATIO * (DEFAULT_FONT_SIZE_PX * DEFAULT_LINE_HEIGHT_FACTOR)
+const DEFAULT_STRUT_ASCENT: f32 = 12.8;
+/// Default strut descent: FALLBACK_DESCENT_RATIO * (DEFAULT_FONT_SIZE_PX * DEFAULT_LINE_HEIGHT_FACTOR)
+const DEFAULT_STRUT_DESCENT: f32 = 3.2;
+
+/// Default x-height approximation: 0.5 * DEFAULT_FONT_SIZE_PX (CSS spec fallback).
+const DEFAULT_X_HEIGHT: f32 = 8.0;
+/// Default ch-width (advance of '0'): 0.5 * DEFAULT_FONT_SIZE_PX.
+const DEFAULT_CH_WIDTH: f32 = 8.0;
+
+/// Approximate space character width as a fraction of font_size.
+const SPACE_WIDTH_RATIO: f32 = 0.5;
+
+/// CSS subscript baseline offset as fraction of line ascent (CSS Inline §3).
+const SUBSCRIPT_OFFSET_RATIO: f32 = 0.3;
+/// CSS superscript baseline offset as fraction of line ascent (CSS Inline §3).
+const SUPERSCRIPT_OFFSET_RATIO: f32 = 0.4;
+
 /// Glyph storage for a single shaped cluster. Inline one glyph (the
 /// common case for Latin text), spill to heap for ligatures / combining
 /// marks / multi-glyph clusters. The `union` feature of smallvec packs
@@ -227,7 +255,7 @@ impl Hash for AvailableSpace {
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         if let AvailableSpace::Definite(v) = self {
-            (v.round() as usize).hash(state);
+            (v.round() as isize).hash(state);
         }
     }
 }
@@ -1011,11 +1039,9 @@ pub enum TextBoundary {
 
 /// Error returned when cursor movement hits a boundary
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CursorBoundsError {
-    /// The boundary that was hit
-    pub boundary: TextBoundary,
-    /// The cursor position (unchanged from input)
-    pub cursor: TextCursor,
+pub(crate) struct CursorBoundsError {
+    pub(crate) boundary: TextBoundary,
+    pub(crate) cursor: TextCursor,
 }
 
 /// Unified constraints combining all layout features
@@ -1170,10 +1196,10 @@ impl Default for UnifiedConstraints {
             text_justify: JustifyContent::default(),
             line_height: LineHeight::Normal,
             vertical_align: VerticalAlign::default(),
-            strut_ascent: 12.8, // 80% of default line-height (typical ratio)
-            strut_descent: 3.2, // 20% of default line-height
-            strut_x_height: 8.0, // 0.5 * default font_size (16.0), spec fallback
-            ch_width: 8.0, // 0.5 * default font_size (16.0)
+            strut_ascent: DEFAULT_STRUT_ASCENT,
+            strut_descent: DEFAULT_STRUT_DESCENT,
+            strut_x_height: DEFAULT_X_HEIGHT,
+            ch_width: DEFAULT_CH_WIDTH,
             overflow: OverflowBehavior::default(),
             segment_alignment: SegmentAlignment::default(),
             text_combine_upright: None,
@@ -1206,7 +1232,7 @@ impl Hash for UnifiedConstraints {
         self.shape_exclusions.hash(state);
         self.available_width.hash(state);
         self.available_height
-            .map(|h| h.round() as usize)
+            .map(|h| h.round() as isize)
             .hash(state);
         self.writing_mode.hash(state);
         self.direction.hash(state);
@@ -1215,23 +1241,23 @@ impl Hash for UnifiedConstraints {
         self.text_justify.hash(state);
         self.line_height.hash(state);
         self.vertical_align.hash(state);
-        (self.strut_ascent.round() as usize).hash(state);
-        (self.strut_descent.round() as usize).hash(state);
-        (self.strut_x_height.round() as usize).hash(state);
-        (self.ch_width.round() as usize).hash(state);
+        (self.strut_ascent.round() as isize).hash(state);
+        (self.strut_descent.round() as isize).hash(state);
+        (self.strut_x_height.round() as isize).hash(state);
+        (self.ch_width.round() as isize).hash(state);
         self.overflow.hash(state);
         self.segment_alignment.hash(state);
         self.text_combine_upright.hash(state);
-        (self.exclusion_margin.round() as usize).hash(state);
+        (self.exclusion_margin.round() as isize).hash(state);
         self.hyphenation.hash(state);
         self.hyphenation_language.hash(state);
-        (self.text_indent.round() as usize).hash(state);
+        (self.text_indent.round() as isize).hash(state);
         self.text_indent_each_line.hash(state);
         self.text_indent_hanging.hash(state);
         self.initial_letter.hash(state);
         self.line_clamp.hash(state);
         self.columns.hash(state);
-        (self.column_gap.round() as usize).hash(state);
+        (self.column_gap.round() as isize).hash(state);
         self.hanging_punctuation.hash(state);
         self.overflow_wrap.hash(state);
         self.text_align_last.hash(state);
@@ -1775,7 +1801,7 @@ impl Hash for InitialLetter {
         // This is a lossy conversion; values like 2.3 and 2.4 will produce
         // the same hash value for this field. This is acceptable as long as
         // the `PartialEq` implementation correctly distinguishes them.
-        (self.size.round() as usize).hash(state);
+        (self.size.round() as isize).hash(state);
         self.sink.hash(state);
         self.count.hash(state);
         self.align.hash(state);
@@ -1834,9 +1860,9 @@ impl Hash for PathSegment {
                 end_angle,
             } => {
                 center.hash(state);
-                (radius.round() as usize).hash(state);
-                (start_angle.round() as usize).hash(state);
-                (end_angle.round() as usize).hash(state);
+                (radius.round() as isize).hash(state);
+                (start_angle.round() as isize).hash(state);
+                (end_angle.round() as isize).hash(state);
             }
             PathSegment::Close => {} // No data to hash
         }
@@ -2060,11 +2086,11 @@ impl Glyph {
 
 // Information about text runs after initial analysis
 #[derive(Debug, Clone)]
-pub struct TextRunInfo<'a> {
-    pub text: &'a str,
-    pub style: Arc<StyleProperties>,
-    pub logical_start: usize,
-    pub content_index: usize,
+pub(crate) struct TextRunInfo<'a> {
+    pub(crate) text: &'a str,
+    pub(crate) style: Arc<StyleProperties>,
+    pub(crate) logical_start: usize,
+    pub(crate) content_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -2339,21 +2365,21 @@ pub enum OverflowBehavior {
 }
 
 #[derive(Debug, Clone)]
-pub struct MeasuredImage {
-    pub source: ImageSource,
-    pub size: Size,
-    pub baseline_offset: f32,
-    pub alignment: VerticalAlign,
-    pub content_index: usize,
+pub(crate) struct MeasuredImage {
+    pub(crate) source: ImageSource,
+    pub(crate) size: Size,
+    pub(crate) baseline_offset: f32,
+    pub(crate) alignment: VerticalAlign,
+    pub(crate) content_index: usize,
 }
 
 #[derive(Debug, Clone)]
-pub struct MeasuredShape {
-    pub shape_def: ShapeDefinition,
-    pub size: Size,
-    pub baseline_offset: f32,
-    pub alignment: VerticalAlign,
-    pub content_index: usize,
+pub(crate) struct MeasuredShape {
+    pub(crate) shape_def: ShapeDefinition,
+    pub(crate) size: Size,
+    pub(crate) baseline_offset: f32,
+    pub(crate) alignment: VerticalAlign,
+    pub(crate) content_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -2460,10 +2486,10 @@ impl Hash for Rect {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // The order in which you hash the fields matters.
         // A consistent order is crucial.
-        (self.x.round() as usize).hash(state);
-        (self.y.round() as usize).hash(state);
-        (self.width.round() as usize).hash(state);
-        (self.height.round() as usize).hash(state);
+        (self.x.round() as isize).hash(state);
+        (self.y.round() as isize).hash(state);
+        (self.width.round() as isize).hash(state);
+        (self.height.round() as isize).hash(state);
     }
 }
 
@@ -2475,17 +2501,17 @@ pub struct Size {
 
 impl Ord for Size {
     fn cmp(&self, other: &Self) -> Ordering {
-        (self.width.round() as usize)
-            .cmp(&(other.width.round() as usize))
-            .then_with(|| (self.height.round() as usize).cmp(&(other.height.round() as usize)))
+        (self.width.round() as isize)
+            .cmp(&(other.width.round() as isize))
+            .then_with(|| (self.height.round() as isize).cmp(&(other.height.round() as isize)))
     }
 }
 
 // Size
 impl Hash for Size {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        (self.width.round() as usize).hash(state);
-        (self.height.round() as usize).hash(state);
+        (self.width.round() as isize).hash(state);
+        (self.height.round() as isize).hash(state);
     }
 }
 impl PartialEq for Size {
@@ -2513,8 +2539,8 @@ pub struct Point {
 // Point
 impl Hash for Point {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        (self.x.round() as usize).hash(state);
-        (self.y.round() as usize).hash(state);
+        (self.x.round() as isize).hash(state);
+        (self.y.round() as isize).hash(state);
     }
 }
 
@@ -2556,10 +2582,10 @@ impl Hash for ShapeDefinition {
                 corner_radius,
             } => {
                 size.hash(state);
-                corner_radius.map(|r| r.round() as usize).hash(state);
+                corner_radius.map(|r| r.round() as isize).hash(state);
             }
             ShapeDefinition::Circle { radius } => {
-                (radius.round() as usize).hash(state);
+                (radius.round() as isize).hash(state);
             }
             ShapeDefinition::Ellipse { radii } => {
                 radii.hash(state);
@@ -2784,7 +2810,7 @@ pub struct Stroke {
 impl Hash for Stroke {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.color.hash(state);
-        (self.width.round() as usize).hash(state);
+        (self.width.round() as isize).hash(state);
 
         // Manual hashing for Option<Vec<f32>>
         match &self.dash_pattern {
@@ -2793,7 +2819,7 @@ impl Hash for Stroke {
                 1u8.hash(state); // Hash a discriminant for Some
                 pattern.len().hash(state); // Hash the length
                 for &val in pattern {
-                    (val.round() as usize).hash(state); // Hash each rounded value
+                    (val.round() as isize).hash(state); // Hash each rounded value
                 }
             }
         }
@@ -2862,7 +2888,7 @@ impl Hash for ShapeBoundary {
             ShapeBoundary::Rectangle(rect) => rect.hash(state),
             ShapeBoundary::Circle { center, radius } => {
                 center.hash(state);
-                (radius.round() as usize).hash(state);
+                (radius.round() as isize).hash(state);
             }
             ShapeBoundary::Ellipse { center, radii } => {
                 center.hash(state);
@@ -3072,12 +3098,12 @@ pub enum ClearType {
 
 // Complex shape constraints for non-rectangular text flow
 #[derive(Debug, Clone)]
-pub struct ShapeConstraints {
-    pub boundaries: Vec<ShapeBoundary>,
-    pub exclusions: Vec<ShapeBoundary>,
-    pub writing_mode: WritingMode,
-    pub text_align: TextAlign,
-    pub line_height: LineHeight,
+pub(crate) struct ShapeConstraints {
+    pub(crate) boundaries: Vec<ShapeBoundary>,
+    pub(crate) exclusions: Vec<ShapeBoundary>,
+    pub(crate) writing_mode: WritingMode,
+    pub(crate) text_align: TextAlign,
+    pub(crate) line_height: LineHeight,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Hash, Eq, PartialOrd, Ord)]
@@ -3328,7 +3354,7 @@ impl Hash for StyleProperties {
         self.word_spacing.hash(state);
 
         // For f32 fields, round and cast to usize before hashing.
-        (self.font_size_px.round() as usize).hash(state);
+        (self.font_size_px.round() as isize).hash(state);
         self.line_height.hash(state);
     }
 }
@@ -3358,7 +3384,7 @@ impl StyleProperties {
 
         // Font selection (affects shaping and metrics)
         self.font_stack.hash(&mut hasher);
-        (self.font_size_px.round() as usize).hash(&mut hasher);
+        (self.font_size_px.round() as isize).hash(&mut hasher);
         self.font_features.hash(&mut hasher);
         // font_variations affects glyph outlines
         for (tag, value) in &self.font_variations {
@@ -3370,7 +3396,7 @@ impl StyleProperties {
         self.letter_spacing.hash(&mut hasher);
         self.word_spacing.hash(&mut hasher);
         self.line_height.hash(&mut hasher);
-        (self.tab_size.round() as usize).hash(&mut hasher);
+        (self.tab_size.round() as isize).hash(&mut hasher);
         
         // Writing mode (affects layout direction)
         self.writing_mode.hash(&mut hasher);
@@ -5154,12 +5180,12 @@ pub struct LayoutFragment {
 
 /// Represents the final layout distributed across multiple fragments.
 #[derive(Debug, Clone)]
-pub struct FlowLayout {
+pub(crate) struct FlowLayout {
     /// A map from a fragment's unique ID to the layout it contains.
-    pub fragment_layouts: HashMap<String, Arc<UnifiedLayout>>,
+    pub(crate) fragment_layouts: HashMap<String, Arc<UnifiedLayout>>,
     /// Any items that did not fit into the last fragment in the flow chain.
     /// This is useful for pagination or determining if more layout space is needed.
-    pub remaining_items: Vec<ShapedItem>,
+    pub(crate) remaining_items: Vec<ShapedItem>,
 }
 
 /// Inline-axis intrinsic contributions derived from shaped text, without running
@@ -5312,11 +5338,11 @@ pub fn try_incremental_relayout(
 
 /// Cached shaped result for a single visual item (or coalesced group).
 /// Enables per-item cache hits when only one word changes in a paragraph.
-pub struct PerItemShapedEntry {
+pub(crate) struct PerItemShapedEntry {
     /// The shaped clusters for this single item/group.
-    pub clusters: Vec<ShapedItem>,
+    pub(crate) clusters: Vec<ShapedItem>,
     /// Sum of advance widths — for fast same-width detection during incremental relayout.
-    pub total_advance: f32,
+    pub(crate) total_advance: f32,
 }
 
 pub struct TextShapingCache {
@@ -5515,29 +5541,28 @@ impl Default for TextShapingCache {
 
 /// Key for caching the conversion from `InlineContent` to `LogicalItem`s.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct LogicalItemsKey<'a> {
-    pub inline_content_hash: u64, // Pre-hash the content for efficiency
-    pub default_font_size: u32,   // Affects space widths
-    // Add other relevant properties from constraints if they affect this stage
-    pub _marker: std::marker::PhantomData<&'a ()>,
+pub(crate) struct LogicalItemsKey<'a> {
+    pub(crate) inline_content_hash: u64,
+    pub(crate) default_font_size: u32,
+    pub(crate) _marker: std::marker::PhantomData<&'a ()>,
 }
 
 /// Key for caching the Bidi reordering stage.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct VisualItemsKey {
-    pub logical_items_id: CacheId,
-    pub base_direction: BidiDirection,
+pub(crate) struct VisualItemsKey {
+    pub(crate) logical_items_id: CacheId,
+    pub(crate) base_direction: BidiDirection,
 }
 
 /// Key for caching the shaping stage.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct ShapedItemsKey {
-    pub visual_items_id: CacheId,
-    pub style_hash: u64, // Represents a hash of all font/style properties
+pub(crate) struct ShapedItemsKey {
+    pub(crate) visual_items_id: CacheId,
+    pub(crate) style_hash: u64,
 }
 
 impl ShapedItemsKey {
-    pub fn new(visual_items_id: CacheId, visual_items: &[VisualItem]) -> Self {
+    pub(crate) fn new(visual_items_id: CacheId, visual_items: &[VisualItem]) -> Self {
         let style_hash = {
             let mut hasher = DefaultHasher::new();
             for item in visual_items.iter() {
@@ -5561,9 +5586,9 @@ impl ShapedItemsKey {
 
 /// Key for the final layout stage.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct LayoutKey {
-    pub shaped_items_id: CacheId,
-    pub constraints: UnifiedConstraints,
+pub(crate) struct LayoutKey {
+    pub(crate) shaped_items_id: CacheId,
+    pub(crate) constraints: UnifiedConstraints,
 }
 
 /// Helper to create a `CacheId` from any `Hash`able type.
@@ -6999,7 +7024,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     // TODO: use actual font's space_width via ParsedFontTrait::get_space_width()
                     // once we thread font resolution into the shaping phase for tab stops.
                     // For now, approximate space advance as 0.5 * font_size (typical for Latin fonts).
-                    let space_advance_approx = style.font_size_px * 0.5;
+                    let space_advance_approx = style.font_size_px * SPACE_WIDTH_RATIO;
                     // +spec:text-alignment-spacing:5a5efd - tab-size includes letter-spacing and word-spacing
                     let ls = match style.letter_spacing {
                         Spacing::Px(px) => px as f32,
@@ -7573,11 +7598,15 @@ pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
     match item {
         ShapedItem::Cluster(c) => {
             let lh = c.style.line_height.resolve(c.style.font_size_px, 0.0, 0.0, 0.0, 0);
-            (lh * 0.8, lh * 0.2)
+            (lh * FALLBACK_ASCENT_RATIO, lh * FALLBACK_DESCENT_RATIO)
         }
-        ShapedItem::CombinedBlock { bounds, .. } => (bounds.height * 0.8, bounds.height * 0.2),
+        ShapedItem::CombinedBlock { bounds, .. } => {
+            (bounds.height * FALLBACK_ASCENT_RATIO, bounds.height * FALLBACK_DESCENT_RATIO)
+        }
         ShapedItem::Object { bounds, .. } => (bounds.height, 0.0),
-        ShapedItem::Tab { bounds, .. } => (bounds.height * 0.8, bounds.height * 0.2),
+        ShapedItem::Tab { bounds, .. } => {
+            (bounds.height * FALLBACK_ASCENT_RATIO, bounds.height * FALLBACK_DESCENT_RATIO)
+        }
         ShapedItem::Break { .. } => (0.0, 0.0),
     }
 }
@@ -8971,10 +9000,10 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 // bottom: align bottom of aligned subtree with bottom of line box
                 VerticalAlign::Bottom => line_top_y + line_box_height - item_descent,
                 // +spec:font-metrics:aa21f7 - sub: lower baseline to proper subscript position
-                VerticalAlign::Sub => line_baseline_y + line_ascent * 0.3,
+                VerticalAlign::Sub => line_baseline_y + line_ascent * SUBSCRIPT_OFFSET_RATIO,
                 // +spec:display-property:3b0e76 - baseline-shift super raises by ~1/3 font-size; top/bottom align to line box edges
                 // super: raise baseline to proper superscript position (~0.4em)
-                VerticalAlign::Super => line_baseline_y - line_ascent * 0.4,
+                VerticalAlign::Super => line_baseline_y - line_ascent * SUPERSCRIPT_OFFSET_RATIO,
                 // text-top: align top of box with top of parent's content area (§10.6.1)
                 // Parent's content area top = baseline - strut_ascent
                 VerticalAlign::TextTop => (line_baseline_y - constraints.strut_ascent) + item_ascent,
