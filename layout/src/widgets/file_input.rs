@@ -207,18 +207,27 @@ extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> 
     };
     let fileinputstatewrapper = &mut *fileinputstatewrapper;
 
-    // File dialog is not available in azul_layout
-    // The user must provide their own file dialog callback via on_path_change
-    // Just trigger the callback with the current state
+    #[cfg(feature = "extra")]
+    {
+        let mut dialog = tfd::FileDialog::new(fileinputstatewrapper.file_dialog_title.as_str());
+        if let Some(dir) = fileinputstatewrapper.default_dir.as_ref() {
+            dialog = dialog.with_path(dir.as_str());
+        }
+        let selected_path = match dialog.open_file() {
+            Some(p) => p,
+            None => return Update::DoNothing,
+        };
+        fileinputstatewrapper.inner.path = Some(selected_path.into()).into();
+    }
+
     let inner = fileinputstatewrapper.inner.clone();
     let mut result = match fileinputstatewrapper.on_path_change.as_mut() {
         Some(FileInputOnPathChange { refany, callback }) => {
             (callback.cb)(refany.clone(), info.clone(), inner)
         }
-        None => return Update::DoNothing,
+        None => Update::RefreshDom,
     };
 
-    // Force at least a DOM refresh so the displayed filename updates
     result.max_self(Update::RefreshDom);
 
     result
