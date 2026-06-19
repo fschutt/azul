@@ -14,6 +14,10 @@ use crate::text3::cache::{
 };
 
 const INFINITY_BADNESS: f32 = 10000.0;
+const SPACE_STRETCH_RATIO: f32 = 0.5;
+const SPACE_SHRINK_RATIO: f32 = 0.33;
+const HYPHENATION_PENALTY: f32 = 50.0;
+const BADNESS_MULTIPLIER: f32 = 100.0;
 
 /// Represents the elements of a paragraph for the line-breaking algorithm.
 #[derive(Debug, Clone)]
@@ -128,8 +132,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                 nodes.push(LayoutNode::Glue {
                     item: item.clone(),
                     width,
-                    stretch: width * 0.5,
-                    shrink: width * 0.33,
+                    stretch: width * SPACE_STRETCH_RATIO,
+                    shrink: width * SPACE_SHRINK_RATIO,
                 });
                 nodes.push(LayoutNode::Penalty {
                     item: None,
@@ -204,7 +208,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                         nodes.push(LayoutNode::Penalty {
                             item: Some(b.hyphen_item.clone()),
                             width: hyphen_measure,
-                            penalty: 50.0, // Standard penalty for hyphenation
+                            penalty: HYPHENATION_PENALTY, // Standard penalty for hyphenation
                         });
                     }
 
@@ -249,8 +253,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                 nodes.push(LayoutNode::Glue {
                     item: item.clone(),
                     width: bounds.width,
-                    stretch: bounds.width * 0.5, // Treat like a space for flexibility
-                    shrink: bounds.width * 0.33,
+                    stretch: bounds.width * SPACE_STRETCH_RATIO, // Treat like a space for flexibility
+                    shrink: bounds.width * SPACE_SHRINK_RATIO,
                 });
             }
             ShapedItem::Break { .. } => {
@@ -297,13 +301,34 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
         line_width
     };
 
+    // Prefix sums for O(1) range queries (eliminates O(n³) inner loop).
+    let n = nodes.len();
+    let mut prefix_width = vec![0.0f32; n + 1];
+    let mut prefix_stretch = vec![0.0f32; n + 1];
+    let mut prefix_shrink = vec![0.0f32; n + 1];
+    for (k, node) in nodes.iter().enumerate() {
+        let (w, st, sh) = match node {
+            LayoutNode::Box(_, w) => (*w, 0.0, 0.0),
+            LayoutNode::Glue {
+                width,
+                stretch,
+                shrink,
+                ..
+            } => (*width, *stretch, *shrink),
+            LayoutNode::Penalty { width, .. } => (*width, 0.0, 0.0),
+        };
+        prefix_width[k + 1] = prefix_width[k] + w;
+        prefix_stretch[k + 1] = prefix_stretch[k] + st;
+        prefix_shrink[k + 1] = prefix_shrink[k] + sh;
+    }
+
     let mut breakpoints = vec![
         Breakpoint {
             demerit: INFINITY_BADNESS,
             previous: 0,
             line: 0
         };
-        nodes.len() + 1
+        n + 1
     ];
     breakpoints[0] = Breakpoint {
         demerit: 0.0,
@@ -311,7 +336,7 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
         line: 0,
     };
 
-    for i in 0..nodes.len() {
+    for i in 0..n {
         // Optimization:
         //
         // A legal line break can only occur at a Penalty node. If the current node
@@ -323,24 +348,10 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
 
         for j in (0..=i).rev() {
             // Calculate the properties of a potential line from node `j` to `i`.
-            let (mut current_width, mut stretch, mut shrink) = (0.0, 0.0, 0.0);
-
-            for k in j..=i {
-                match &nodes[k] {
-                    LayoutNode::Box(_, w) => current_width += w,
-                    LayoutNode::Glue {
-                        width,
-                        stretch: s,
-                        shrink: k,
-                        ..
-                    } => {
-                        current_width += width;
-                        stretch += s;
-                        shrink += k;
-                    }
-                    LayoutNode::Penalty { width, .. } => current_width += width,
-                }
-            }
+            // O(1) range sum via prefix sums: sum of nodes[j..=i]
+            let current_width = prefix_width[i + 1] - prefix_width[j];
+            let stretch = prefix_stretch[i + 1] - prefix_stretch[j];
+            let shrink = prefix_shrink[i + 1] - prefix_shrink[j];
 
             let effective_line_width = if breakpoints[j].line == 0 {
                 first_line_width
@@ -374,7 +385,7 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
             }
 
             // Calculate badness
-            let mut badness = 100.0 * ratio.abs().powi(3);
+            let mut badness = BADNESS_MULTIPLIER * ratio.abs().powi(3);
 
             // Add penalty for the break point
             if let Some(LayoutNode::Penalty { penalty, .. }) = nodes.get(i) {
