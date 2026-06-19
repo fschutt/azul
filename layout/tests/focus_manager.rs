@@ -1,17 +1,12 @@
 //! Tests for focus and tab navigation management
 
-use std::collections::BTreeMap;
-
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
-    selection::{
-        CursorAffinity, GraphemeClusterId, Selection, SelectionState, SelectionVec, TextCursor,
-    },
     styled_dom::NodeHierarchyItemId,
 };
 use azul_layout::{
     callbacks::FocusUpdateRequest,
-    managers::{focus_cursor::FocusManager, selection::SelectionManager},
+    managers::focus_cursor::FocusManager,
     window::LayoutWindow,
 };
 
@@ -91,117 +86,6 @@ fn test_focus_update_request_from_optional() {
     let req = FocusUpdateRequest::from_optional(None);
     assert!(matches!(req, FocusUpdateRequest::NoChange));
     assert!(!req.is_change());
-}
-
-#[test]
-fn test_selection_manager_clear_all() {
-    let mut selection_manager = SelectionManager::new();
-
-    // Add some selections to different DOMs
-    let dom1 = DomId::ROOT_ID;
-    let dom2 = DomId { inner: 1 };
-
-    let node1 = DomNodeId {
-        dom: dom1,
-        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
-    };
-    let node2 = DomNodeId {
-        dom: dom2,
-        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(2))),
-    };
-
-    let sel_state1 = SelectionState {
-        selections: vec![Selection::Cursor(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 0,
-            },
-            affinity: CursorAffinity::Leading,
-        })]
-        .into(),
-        node_id: node1.clone(),
-    };
-
-    let sel_state2 = SelectionState {
-        selections: vec![Selection::Cursor(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 5,
-            },
-            affinity: CursorAffinity::Trailing,
-        })]
-        .into(),
-        node_id: node2.clone(),
-    };
-
-    selection_manager.set_selection(dom1, sel_state1);
-    selection_manager.set_selection(dom2, sel_state2);
-
-    // Verify selections exist
-    assert!(selection_manager.get_selection(&dom1).is_some());
-    assert!(selection_manager.get_selection(&dom2).is_some());
-    assert!(selection_manager.has_any_selection());
-
-    // Clear all selections
-    selection_manager.clear_all();
-
-    // Verify all selections are gone
-    assert!(selection_manager.get_selection(&dom1).is_none());
-    assert!(selection_manager.get_selection(&dom2).is_none());
-    assert!(!selection_manager.has_any_selection());
-}
-
-#[test]
-fn test_focus_change_clears_selections() {
-    // This test verifies that when focus changes, selections are cleared.
-    // The actual integration happens in event_v2.rs, but we test the components here.
-
-    let mut focus_manager = FocusManager::new();
-    let mut selection_manager = SelectionManager::new();
-
-    // Setup initial focus
-    let node1 = DomNodeId {
-        dom: DomId::ROOT_ID,
-        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
-    };
-    focus_manager.set_focused_node(Some(node1.clone()));
-
-    // Add selection to the DOM
-    let sel_state = SelectionState {
-        selections: vec![Selection::Cursor(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 0,
-            },
-            affinity: CursorAffinity::Leading,
-        })]
-        .into(),
-        node_id: node1.clone(),
-    };
-    selection_manager.set_selection(DomId::ROOT_ID, sel_state);
-    assert!(selection_manager.get_selection(&DomId::ROOT_ID).is_some());
-
-    // Simulate focus change (as would happen in event_v2.rs)
-    let old_focus = focus_manager.get_focused_node().copied();
-
-    let node2 = DomNodeId {
-        dom: DomId::ROOT_ID,
-        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(2))),
-    };
-    focus_manager.set_focused_node(Some(node2.clone()));
-
-    let new_focus = focus_manager.get_focused_node();
-
-    // Verify focus changed
-    assert_ne!(old_focus.as_ref(), new_focus);
-
-    // In real code, event_v2.rs would call clear_all() here
-    if old_focus.as_ref() != new_focus {
-        selection_manager.clear_all();
-    }
-
-    // Verify selection was cleared
-    assert!(selection_manager.get_selection(&DomId::ROOT_ID).is_none());
 }
 
 #[test]
@@ -296,92 +180,6 @@ fn test_recursive_focus_change_detection() {
 }
 
 #[test]
-fn test_focus_change_cascade_with_selection_clearing() {
-    // Comprehensive test simulating a full focus change cascade
-    // with selection clearing at each step
-
-    let mut focus_manager = FocusManager::new();
-    let mut selection_manager = SelectionManager::new();
-
-    let dom_id = DomId::ROOT_ID;
-    let nodes = vec![
-        DomNodeId {
-            dom: dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
-        },
-        DomNodeId {
-            dom: dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
-        },
-        DomNodeId {
-            dom: dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(2))),
-        },
-    ];
-
-    // Step 1: Initial focus on node 0
-    focus_manager.set_focused_node(Some(nodes[0].clone()));
-    let sel_state = SelectionState {
-        selections: vec![Selection::Cursor(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 0,
-            },
-            affinity: CursorAffinity::Leading,
-        })]
-        .into(),
-        node_id: nodes[0].clone(),
-    };
-    selection_manager.set_selection(dom_id, sel_state);
-
-    // Step 2: Change focus to node 1 (simulating callback result)
-    let old_focus = focus_manager.get_focused_node().copied();
-    focus_manager.set_focused_node(Some(nodes[1].clone()));
-    let new_focus = focus_manager.get_focused_node().copied();
-
-    // Verify focus changed
-    assert_ne!(old_focus, new_focus);
-
-    // Clear selections (as event_v2.rs would do)
-    selection_manager.clear_all();
-
-    // Verify selection cleared
-    assert!(selection_manager.get_selection(&dom_id).is_none());
-
-    // Add selection to new focused node
-    let sel_state = SelectionState {
-        selections: vec![Selection::Cursor(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 5,
-            },
-            affinity: CursorAffinity::Leading,
-        })]
-        .into(),
-        node_id: nodes[1].clone(),
-    };
-    selection_manager.set_selection(dom_id, sel_state);
-
-    // Step 3: Change focus to node 2 (recursive focus change from FocusIn callback)
-    let old_focus = focus_manager.get_focused_node().copied();
-    focus_manager.set_focused_node(Some(nodes[2].clone()));
-    let new_focus = focus_manager.get_focused_node().copied();
-
-    // Verify focus changed again
-    assert_ne!(old_focus, new_focus);
-
-    // Clear selections again
-    selection_manager.clear_all();
-
-    // Verify all selections cleared
-    assert!(selection_manager.get_selection(&dom_id).is_none());
-    assert!(!selection_manager.has_any_selection());
-
-    // Verify final focus state
-    assert_eq!(focus_manager.get_focused_node(), Some(&nodes[2]));
-}
-
-#[test]
 fn test_focus_clear_then_set() {
     let mut focus_manager = FocusManager::new();
 
@@ -404,82 +202,6 @@ fn test_focus_clear_then_set() {
     };
     focus_manager.set_focused_node(Some(node2.clone()));
     assert_eq!(focus_manager.get_focused_node(), Some(&node2));
-}
-
-#[test]
-fn test_multiple_selection_clear_operations() {
-    let mut selection_manager = SelectionManager::new();
-
-    let doms = vec![
-        DomId::ROOT_ID,
-        DomId { inner: 1 },
-        DomId { inner: 2 },
-        DomId { inner: 3 },
-    ];
-
-    // Add selections to all DOMs
-    for (i, dom_id) in doms.iter().enumerate() {
-        let node = DomNodeId {
-            dom: *dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
-        };
-        let sel_state = SelectionState {
-            selections: vec![Selection::Cursor(TextCursor {
-                cluster_id: GraphemeClusterId {
-                    source_run: 0,
-                    start_byte_in_run: (i * 5) as u32,
-                },
-                affinity: CursorAffinity::Leading,
-            })]
-            .into(),
-            node_id: node,
-        };
-        selection_manager.set_selection(*dom_id, sel_state);
-    }
-
-    // Verify all selections exist
-    for dom_id in &doms {
-        assert!(selection_manager.get_selection(dom_id).is_some());
-    }
-    assert!(selection_manager.has_any_selection());
-
-    // Clear all
-    selection_manager.clear_all();
-
-    // Verify all cleared
-    for dom_id in &doms {
-        assert!(selection_manager.get_selection(dom_id).is_none());
-    }
-    assert!(!selection_manager.has_any_selection());
-
-    // Add new selections
-    for (i, dom_id) in doms.iter().enumerate() {
-        let node = DomNodeId {
-            dom: *dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i + 10))),
-        };
-        let sel_state = SelectionState {
-            selections: vec![Selection::Cursor(TextCursor {
-                cluster_id: GraphemeClusterId {
-                    source_run: 0,
-                    start_byte_in_run: (i * 10) as u32,
-                },
-                affinity: CursorAffinity::Trailing,
-            })]
-            .into(),
-            node_id: node,
-        };
-        selection_manager.set_selection(*dom_id, sel_state);
-    }
-
-    // Clear again
-    selection_manager.clear_all();
-
-    // Verify cleared again
-    for dom_id in &doms {
-        assert!(selection_manager.get_selection(dom_id).is_none());
-    }
-    assert!(!selection_manager.has_any_selection());
 }
 
 #[test]
@@ -592,55 +314,6 @@ fn test_recursion_depth_limit_enforcement() {
         focus_manager.get_focused_node(),
         Some(&nodes[MAX_DEPTH + 1])
     );
-}
-
-#[test]
-fn test_selection_persistence_without_focus_change() {
-    // Test that selections persist when focus doesn't change
-    let mut focus_manager = FocusManager::new();
-    let mut selection_manager = SelectionManager::new();
-
-    let dom_id = DomId::ROOT_ID;
-    let node = DomNodeId {
-        dom: dom_id,
-        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
-    };
-
-    // Set focus
-    focus_manager.set_focused_node(Some(node.clone()));
-
-    // Add selection
-    let sel_state = SelectionState {
-        selections: vec![Selection::Cursor(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 5,
-            },
-            affinity: CursorAffinity::Leading,
-        })]
-        .into(),
-        node_id: node.clone(),
-    };
-    selection_manager.set_selection(dom_id, sel_state.clone());
-
-    // "Change" focus to same node (no actual change)
-    let old_focus = focus_manager.get_focused_node().copied();
-    focus_manager.set_focused_node(Some(node.clone()));
-    let new_focus = focus_manager.get_focused_node().copied();
-
-    // Verify focus didn't actually change
-    assert_eq!(old_focus, new_focus);
-
-    // Selection should NOT be cleared (no focus change occurred)
-    if old_focus != new_focus {
-        selection_manager.clear_all();
-    }
-
-    // Verify selection still exists
-    assert!(selection_manager.get_selection(&dom_id).is_some());
-    let current_sel = selection_manager.get_selection(&dom_id).unwrap();
-    assert_eq!(current_sel.node_id, node);
-    assert_eq!(current_sel.selections.len(), 1);
 }
 
 #[test]

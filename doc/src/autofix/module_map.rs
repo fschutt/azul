@@ -650,7 +650,6 @@ pub const INTERNAL_ONLY_TYPES: &[&str] = &[
     "HoverManager",
     "GpuStateManager",
     "GpuValueCache",
-    "SelectionManager",
     "VirtualViewManager",
     "FocusManager",
     "GestureAndDragManager",
