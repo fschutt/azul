@@ -1856,7 +1856,17 @@ pub trait PlatformWindow {
 
             // === Cursor Blink ===
 
-            CallbackChange::SetCursorVisibility { visible: _ } => {
+            CallbackChange::SetCursorVisibility { visible } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.text_edit_manager.blink.set_visibility(*visible);
+                    if let Some(dom_id) = lw.text_edit_manager.get_editing_dom_id() {
+                        lw.regenerate_display_list_for_dom(dom_id);
+                    }
+                }
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+
+            CallbackChange::ToggleCursorVisibility => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     let now = azul_core::task::Instant::now();
                     if lw.text_edit_manager.blink.should_blink(&now) {

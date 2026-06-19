@@ -450,6 +450,8 @@ pub enum CallbackChange {
     // Cursor Blinking (System Timer Control)
     /// Set the cursor visibility state (called by blink timer)
     SetCursorVisibility { visible: bool },
+    /// Toggle cursor visibility based on blink timing
+    ToggleCursorVisibility,
     /// Reset cursor blink state on user input (makes cursor visible, records time)
     ResetCursorBlink,
     /// Start the cursor blink timer for the focused contenteditable element

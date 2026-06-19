@@ -469,25 +469,24 @@ impl TimerCallbackInfo {
         self.frame_start.clone()
     }
 
-    /// Check if the DOM is focused
-    pub fn is_dom_focused(&self) -> bool {
-        // TimerCallbackInfo doesn't have direct focus info
-        true // Timers run regardless of focus
+    /// Check if any node in a specific DOM is focused
+    pub fn is_dom_focused(&self, dom_id: DomId) -> bool {
+        self.callback_info.is_dom_focused(dom_id)
     }
 
     /// Check if pen is in contact
     pub fn is_pen_in_contact(&self) -> bool {
-        false // Not available in timer context
+        self.callback_info.is_pen_in_contact()
     }
 
     /// Check if pen eraser is active
     pub fn is_pen_eraser(&self) -> bool {
-        false // Not available in timer context
+        self.callback_info.is_pen_eraser()
     }
 
     /// Check if pen barrel button is pressed
     pub fn is_pen_barrel_button_pressed(&self) -> bool {
-        false // Not available in timer context
+        self.callback_info.is_pen_barrel_button_pressed()
     }
 
     /// Check if dragging is active
@@ -507,12 +506,12 @@ impl TimerCallbackInfo {
 
     /// Check if file drag is active
     pub fn is_file_drag_active(&self) -> bool {
-        false // Timers don't track file drags
+        self.callback_info.is_file_drag_active()
     }
 
     /// Check if there's sufficient history for gestures
     pub fn has_sufficient_history_for_gestures(&self) -> bool {
-        false // Timers don't track gesture history
+        self.callback_info.has_sufficient_history_for_gestures()
     }
 
     // ==================== Scroll Management (timer architecture) ====================
@@ -582,14 +581,9 @@ impl TimerCallbackInfo {
     }
     
     /// Toggle cursor visibility (for cursor blink timer).
-    ///
-    /// NOTE: Currently always sets visibility to `true` — proper toggle logic
-    /// requires a `CallbackChange::ToggleCursorVisibility` variant or reading
-    /// current state, which is not yet implemented.
     pub fn set_cursor_visibility_toggle(&mut self) {
         use crate::callbacks::CallbackChange;
-        // TODO: implement actual toggle — needs CallbackChange::ToggleCursorVisibility
-        self.callback_info.push_change(CallbackChange::SetCursorVisibility { visible: true });
+        self.callback_info.push_change(CallbackChange::ToggleCursorVisibility);
     }
     
     /// Reset cursor blink state on user input
