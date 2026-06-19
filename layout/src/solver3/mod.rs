@@ -129,7 +129,7 @@ use azul_core::{
 };
 
 /// Sentinel value for "position not yet computed". No real position is ever f32::MIN.
-pub const POSITION_UNSET: LogicalPosition = LogicalPosition { x: f32::MIN, y: f32::MIN };
+pub(crate) const POSITION_UNSET: LogicalPosition = LogicalPosition { x: f32::MIN, y: f32::MIN };
 
 /// Maximum number of scrollbar-induced reflow iterations before layout gives up.
 /// Scrollbar appearance can change container size, which may trigger further scrollbar
@@ -139,12 +139,6 @@ const MAX_SCROLLBAR_REFLOW_ITERATIONS: usize = 10;
 /// Vec-based position storage indexed by layout-tree node index.
 /// Replaces `BTreeMap<usize, LogicalPosition>` for O(1) access and cache-friendly iteration.
 pub type PositionVec = Vec<LogicalPosition>;
-
-/// Create a new PositionVec pre-sized for the given number of nodes.
-#[inline]
-pub fn new_position_vec(num_nodes: usize) -> PositionVec {
-    vec![POSITION_UNSET; num_nodes]
-}
 
 /// Get position for node index, returning None if unset.
 ///
@@ -193,9 +187,6 @@ use crate::{
         layout_tree::DirtyFlag,
     },
 };
-
-/// A map of hashes for each node to detect changes in content like text.
-pub type NodeHashMap = BTreeMap<usize, u64>;
 
 /// Central context for a single layout pass.
 pub struct LayoutContext<'a, T: ParsedFontTrait> {
@@ -258,13 +249,7 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
 }
 
 impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
-    /// Check if debug messages are enabled (for use with lazy macros)
-    #[inline]
-    pub fn has_debug(&self) -> bool {
-        self.debug_messages.is_some()
-    }
-
-    /// Internal method - called by debug_log! macro after checking has_debug()
+    /// Internal method - called by debug_log! macro after checking debug_messages.is_some()
     #[inline]
     pub fn debug_log_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -276,7 +261,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_info! macro after checking has_debug()
+    /// Internal method - called by debug_info! macro after checking debug_messages.is_some()
     #[inline]
     pub fn debug_info_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -284,7 +269,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_warning! macro after checking has_debug()
+    /// Internal method - called by debug_warning! macro after checking debug_messages.is_some()
     #[inline]
     pub fn debug_warning_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -292,7 +277,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_error! macro after checking has_debug()
+    /// Internal method - called by debug_error! macro after checking debug_messages.is_some()
     #[inline]
     pub fn debug_error_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -300,7 +285,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_box_props! macro after checking has_debug()
+    /// Internal method - called by debug_box_props! macro after checking debug_messages.is_some()
     #[inline]
     pub fn debug_box_props_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -308,7 +293,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_css_getter! macro after checking has_debug()
+    /// Internal method - called by debug_css_getter! macro after checking debug_messages.is_some()
     #[inline]
     pub fn debug_css_getter_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -316,7 +301,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_bfc_layout! macro after checking has_debug()
+    /// Internal method - called by debug_bfc_layout! macro after checking debug_messages.is_some()
     #[inline]
     pub fn debug_bfc_layout_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -324,7 +309,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_ifc_layout! macro after checking has_debug()
+    /// Internal method - called by debug_ifc_layout! macro after checking debug_messages.is_some()
     #[inline]
     pub fn debug_ifc_layout_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -332,7 +317,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_table_layout! macro after checking has_debug()
+    /// Internal method - called by debug_table_layout! macro after checking debug_messages.is_some()
     #[inline]
     pub fn debug_table_layout_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -340,55 +325,12 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_display_type! macro after checking has_debug()
+    /// Internal method - called by debug_display_type! macro after checking debug_messages.is_some()
     #[inline]
     pub fn debug_display_type_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
             messages.push(LayoutDebugMessage::display_type(message));
         }
-    }
-
-    // Convenience wrappers (prefer debug_*! macros for lazy evaluation)
-
-    #[inline]
-    pub fn debug_info(&mut self, message: impl Into<String>) {
-        self.debug_info_inner(message.into());
-    }
-    #[inline]
-    pub fn debug_warning(&mut self, message: impl Into<String>) {
-        self.debug_warning_inner(message.into());
-    }
-    #[inline]
-    pub fn debug_error(&mut self, message: impl Into<String>) {
-        self.debug_error_inner(message.into());
-    }
-    #[inline]
-    pub fn debug_log(&mut self, message: &str) {
-        self.debug_log_inner(message.to_string());
-    }
-    #[inline]
-    pub fn debug_box_props(&mut self, message: impl Into<String>) {
-        self.debug_box_props_inner(message.into());
-    }
-    #[inline]
-    pub fn debug_css_getter(&mut self, message: impl Into<String>) {
-        self.debug_css_getter_inner(message.into());
-    }
-    #[inline]
-    pub fn debug_bfc_layout(&mut self, message: impl Into<String>) {
-        self.debug_bfc_layout_inner(message.into());
-    }
-    #[inline]
-    pub fn debug_ifc_layout(&mut self, message: impl Into<String>) {
-        self.debug_ifc_layout_inner(message.into());
-    }
-    #[inline]
-    pub fn debug_table_layout(&mut self, message: impl Into<String>) {
-        self.debug_table_layout_inner(message.into());
-    }
-    #[inline]
-    pub fn debug_display_type(&mut self, message: impl Into<String>) {
-        self.debug_display_type_inner(message.into());
     }
 }
 
@@ -1125,10 +1067,8 @@ fn get_containing_block_for_node(
 ) -> (LogicalPosition, LogicalSize) {
     if let Some(parent_idx) = tree.get(node_idx).and_then(|n| n.parent) {
         if let Some(parent_node) = tree.get(parent_idx) {
-            let pos = calculated_positions
-                .get(parent_idx)
-                .copied()
-                .unwrap_or_default();
+            let pos = pos_get(calculated_positions, parent_idx)
+                .unwrap_or(viewport.origin);
             let size = parent_node.used_size.unwrap_or_default();
             // Position in calculated_positions is the margin-box position
             // To get content-box, add: border + padding (NOT margin, that's already in pos)
