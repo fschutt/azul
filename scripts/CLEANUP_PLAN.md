@@ -324,14 +324,28 @@ Validated: `cargo check` on core(+url), layout(+fluent,+json), dll(web, web-tran
   avoid a half-migrated icon API on a working feature; do Button + menu together once the provider can
   be threaded into menu building.
 
-- [x] **Undo/redo system** 🔴 — **DONE (core building block):** added `RefAnyUndoManager` in
-  `layout/src/json.rs` — a generic application-state undo/redo stack that snapshots the whole app
-  `RefAny` via its serialize fn (JSON) and restores via deserialize + `replace_contents`
-  (`snapshot`/`undo`/`redo`/`can_undo`/`can_redo`/`clear`, bounded depth). Drive it manually at
-  action boundaries or from the new RefAny `update_fn` hook. **Fixed a real bug found while testing:**
-  `replace_contents` copies the *new* value's (de)serialize fns, so `restore` now re-attaches the
-  live serialize/deserialize/update hooks across the swap. Validated by `test_undo_manager_roundtrip`.
-  (Wiring it into the desktop event loop's command palette is a separate app-level step.)
+- [x] **Undo/redo system** 🔴 — **DONE (mini-git core, validated):** `RefAnyUndoManager` in
+  `layout/src/json.rs` is now a **"mini-git"** — it stores reversible **JSON diffs** between commits
+  (not full snapshots; memory-efficient for large models like a text document) via a private
+  `jsondiff` module (RFC-6901 leaf diffs, forward=redo/backward=undo). `commit` records the diff vs
+  the last commit and discards the orphaned redo branch ("do a → undo → do b clears a");
+  `undo`/`redo`/`can_undo`/`can_redo`/`clear`; bounded depth. JSON-gated (needs `AZ_REFLECT_JSON`).
+  Bug fixed: `restore` re-attaches the live (de)serialize/update hooks across `replace_contents`.
+  Tests: `test_json_diff_apply_reversible` + `test_undo_manager_roundtrip` (incl. branch discard).
+  **⏳ CallbackInfo wiring — NEXT (mapped, not yet done):** so a callback (incl. a timer callback)
+  can drive it: (1) add `CallbackChange::{CommitUndoSnapshot, Undo, Redo}` (`layout/callbacks.rs`)
+  + `CallbackInfo::{commit_undo_snapshot, undo, redo}` push-methods (+ api.json via autofix);
+  (2) hold a `RefAnyUndoManager` in the app-data-holder and handle the 3 variants in
+  `apply_user_change` (`dll/.../shell2/common/event.rs:1168`) operating on `get_app_data()`'s
+  `Arc<RefCell<RefAny>>`; (3) auto-save = a timer callback calling `commit_undo_snapshot`, optionally
+  gated by a dirty flag set from the RefAny `update_fn` hook. Needs the desktop-dll build to validate.
+  **UNIFIED with the AZ_DEBUG server's state save/restore:** extracted the common
+  `restore_refany_from_json` (deserialize + `replace_contents` + re-attach the live hooks) into
+  `layout/src/json.rs`; both `RefAnyUndoManager::restore` and the debug server's `set_app_state`
+  (`debug_server/full.rs`) now call it, so they round-trip identically (and the debug-server restore
+  gains the hook-preservation robustness for free). Validated `--features build-dll,debug-server`.
+  The debug server's tagged `snapshots: HashMap<tag, Value>` (E2E checkpoints) remains the dev-tool
+  layer on the same serialize/restore primitives; the undo manager is the user-facing history layer.
 
 - [x] ~~File API — home dirs / C test~~ → **GOOD** 🟢 — `azul_layout::file::FilePath` exposes
   `get_home_dir`/`get_temp_dir`/`get_cache_dir`/etc. (api.json:59789); `FileDialog`

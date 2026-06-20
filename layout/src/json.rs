@@ -148,6 +148,35 @@ pub fn json_deserialize_to_refany(json: Json, deserialize_fn: usize) -> ResultRe
     deserialize_refany_from_json(json, deserialize_fn).into()
 }
 
+/// Restores `state`'s contents in-place from `json`, using its registered
+/// deserialize fn, and **preserves the live serialize/deserialize/update hooks**
+/// across the swap (`replace_contents` copies them from the freshly-deserialized
+/// value, which a non-`AZ_REFLECT`-upcast deserialize would leave unset). Returns
+/// `Err` with a reason if `state` has no deserialize fn, the JSON can't be
+/// deserialized, or the swap fails (active borrows).
+///
+/// Shared by [`RefAnyUndoManager`] and the AZ_DEBUG server's `set_app_state` /
+/// `restore_snapshot` so both round-trip identically.
+#[cfg(feature = "json")]
+pub fn restore_refany_from_json(state: &mut RefAny, json: Json) -> Result<(), String> {
+    let deser_fn = state.get_deserialize_fn();
+    if deser_fn == 0 {
+        return Err("state has no deserialize fn (AZ_REFLECT_JSON not registered)".to_string());
+    }
+    let restored = deserialize_refany_from_json(json, deser_fn)?;
+    let ser_fn = state.get_serialize_fn();
+    let upd_fn = state.get_update_fn();
+    let ok = state.replace_contents(restored);
+    state.set_serialize_fn(ser_fn);
+    state.set_deserialize_fn(deser_fn);
+    state.set_update_fn(upd_fn);
+    if ok {
+        Ok(())
+    } else {
+        Err("replace_contents failed (active borrows exist)".to_string())
+    }
+}
+
 // ============================================================================
 // Generic application-state undo/redo ("mini-git" with reversible JSON diffs)
 // ============================================================================
@@ -376,23 +405,7 @@ impl RefAnyUndoManager {
     }
 
     fn restore(state: &mut RefAny, value: &serde_json::Value) -> bool {
-        let deser_fn = state.get_deserialize_fn();
-        let json = Json::from_serde_value(value.clone());
-        match deserialize_refany_from_json(json, deser_fn) {
-            Ok(restored) => {
-                // `replace_contents` copies the (de)serialize/update fn-ptrs from
-                // `restored`, which a plain deserialize ctor leaves unset — re-attach
-                // the live hooks so subsequent undo/redo still has a serializer.
-                let ser_fn = state.get_serialize_fn();
-                let upd_fn = state.get_update_fn();
-                let ok = state.replace_contents(restored);
-                state.set_serialize_fn(ser_fn);
-                state.set_deserialize_fn(deser_fn);
-                state.set_update_fn(upd_fn);
-                ok
-            }
-            Err(_) => false,
-        }
+        restore_refany_from_json(state, Json::from_serde_value(value.clone())).is_ok()
     }
 }
 

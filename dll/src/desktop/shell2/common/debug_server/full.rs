@@ -8553,7 +8553,7 @@ fn process_debug_event(
         }
 
         DebugEvent::SetAppState { state } => {
-            use azul_layout::json::{deserialize_refany_from_json, Json};
+            use azul_layout::json::Json;
 
             // Get deserialize_fn from RefAny
             let deserialize_fn = app_data.get_deserialize_fn();
@@ -8569,16 +8569,12 @@ fn process_debug_event(
                 let json_string = state.to_string();
                 match Json::parse(&json_string) {
                     Ok(json) => {
-                        match deserialize_refany_from_json(json, deserialize_fn) {
-                            Ok(new_app_data) => {
-                                // Replace the app data contents - this is visible to all clones
-                                let success = app_data.replace_contents(new_app_data);
-                                needs_update = success;
-                                
-                                let response = AppStateSetResponse {
-                                    success,
-                                    error: if success { None } else { Some(RefAnyError::TypeConstructionError("Failed to replace contents - active borrows exist".to_string())) },
-                                };
+                        // Shared restore (preserves the live serialize/deserialize/update
+                        // hooks across replace_contents) — same path as RefAnyUndoManager.
+                        match azul_layout::json::restore_refany_from_json(app_data, json) {
+                            Ok(()) => {
+                                needs_update = true;
+                                let response = AppStateSetResponse { success: true, error: None };
                                 send_ok(request, None, Some(ResponseData::AppStateSet(response)));
                             }
                             Err(e) => {
