@@ -2252,6 +2252,31 @@ impl X11Window {
             }
         }
 
+        // Restyle / runtime edit (hover/focus CSS, set_css_property, set_node_text):
+        // re-run layout on the EXISTING StyledDom instead of forcing the full
+        // regenerate_layout(). process_window_events() does NOT mark
+        // frame_needs_regeneration for ShouldIncrementalRelayout (it is not a
+        // RefreshDom), so the main event loop owns it here — mirrors the menu-callback
+        // arm in process_pending_menu_callbacks() and the macOS
+        // apply_incremental_relayout_result() helper. render_and_present() then takes
+        // the frame_relayout_only fast path (skip regenerate_layout, rebuild + send the
+        // transaction). The redraw is posted by the != DoNothing block below.
+        if result == ProcessEventResult::ShouldIncrementalRelayout {
+            if let Some(layout_window) = self.common.layout_window.as_mut() {
+                let mut debug_messages = None;
+                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
+                    layout_window,
+                    &self.common.current_window_state,
+                    &mut self.common.renderer_resources,
+                    &mut debug_messages,
+                ) {
+                    log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
+                }
+            }
+            self.common.frame_relayout_only = true;
+            self.common.frame_needs_regeneration = true;
+        }
+
         // Request redraw if needed
         if result != ProcessEventResult::DoNothing {
             self.request_redraw();
