@@ -115,10 +115,12 @@ blind (no compile). Each carries a concrete approach inline:
   `layout/src/managers/clipboard.rs:1-27`; matches the stated Paste/Copy/Cut flows exactly. No
   action.
 
-- [ ] **RefAny — add optional on-update / sync callback** 🔴 — `core/src/refany.rs` has no
-  observer/notify hook; `clone` is a shallow refcount bump. **Action:** add an optional on-update fn
-  on the RefAny inner box, fired on `downcast_mut`. Enables (a) client/server state sync on web and
-  (b) the undo/redo deep-copy/snapshot backup. Foundational for two other items below.
+- [x] **RefAny — add optional on-update / sync callback** 🔴 — **DONE:** added `update_fn: usize`
+  to `RefCountInner` (mirrors the internal `serialize_fn`/`deserialize_fn` pattern — not a new FFI
+  ctor param, init 0), fired from `downcast_mut` BEFORE the mutable borrow as
+  `extern "C" fn(*const c_void, usize)` (pre-mutation data ptr + byte len), copied across
+  `replace_contents`, with `set_update_fn`/`get_update_fn` (Rust-side; not FFI-exported yet since the
+  consumers are Rust). Validated: `cargo check -p azul-core` clean.
 
 ---
 

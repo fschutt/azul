@@ -119,6 +119,13 @@ pub struct RefCountInner {
     /// Cast to RefAnyDeserializeFnType (defined in azul_layout::json) when called.
     /// Type: extern "C" fn(Json) -> ResultRefAnyString
     pub deserialize_fn: usize,
+
+    /// Function pointer to an on-update observer (0 = not set).
+    /// Cast to `extern "C" fn(*const c_void, usize)` — the (data ptr, byte len)
+    /// of the *pre-mutation* data — and fired from `downcast_mut` BEFORE the
+    /// mutable borrow is handed out. This is the foundation for undo/redo
+    /// snapshots and client/server state sync. Set via `RefAny::set_update_fn`.
+    pub update_fn: usize,
 }
 
 /// Wrapper around a heap-allocated `RefCountInner`.
@@ -748,6 +755,7 @@ impl RefAny {
             custom_destructor,
             serialize_fn,
             deserialize_fn,
+            update_fn: 0, // on-update observer not set by default; see set_update_fn
         };
 
         let sharing_info = RefCount::new(ref_count_inner);
@@ -931,6 +939,17 @@ impl RefAny {
             return None;
         }
 
+        // Fire the on-update observer (if registered) BEFORE handing out the
+        // mutable borrow: the callback sees the pre-mutation data + its byte
+        // length, enabling undo/redo snapshots and client/server state sync.
+        let update_fn = self.sharing_info.downcast().update_fn;
+        if update_fn != 0 {
+            let cb: extern "C" fn(*const c_void, usize) =
+                unsafe { core::mem::transmute(update_fn) };
+            let len = self.sharing_info.downcast()._internal_len;
+            cb(data_ptr, len);
+        }
+
         // Increment mutable borrow count atomically
         self.sharing_info.increase_refmut();
 
@@ -1055,6 +1074,28 @@ impl RefAny {
         unsafe {
             (*inner).deserialize_fn = deserialize_fn;
         }
+    }
+
+    /// Registers an on-update observer (`0` = unset). It is fired from
+    /// [`Self::downcast_mut`] with the (data ptr, byte len) of the *pre-mutation*
+    /// data, just before the mutable borrow is handed out — the foundation for
+    /// undo/redo snapshots and client/server state sync.
+    ///
+    /// # Safety
+    ///
+    /// If `update_fn != 0` it must be a valid `extern "C" fn(*const c_void, usize)`.
+    /// Same shared-`RefCountInner` caveat as [`Self::set_serialize_fn`]: `&mut self`
+    /// is exclusive to this clone, not to the shared inner.
+    pub fn set_update_fn(&mut self, update_fn: usize) {
+        let inner = self.sharing_info.ptr as *mut RefCountInner;
+        unsafe {
+            (*inner).update_fn = update_fn;
+        }
+    }
+
+    /// Returns the registered on-update observer fn pointer (`0` = unset).
+    pub fn get_update_fn(&self) -> usize {
+        self.sharing_info.downcast().update_fn
     }
 
     /// Returns true if this RefAny supports JSON serialization.
@@ -1190,6 +1231,7 @@ impl RefAny {
             (*inner).custom_destructor = new_inner.custom_destructor;
             (*inner).serialize_fn = new_inner.serialize_fn;
             (*inner).deserialize_fn = new_inner.deserialize_fn;
+            (*inner).update_fn = new_inner.update_fn;
         }
 
         // Release the mutable lock
