@@ -33,8 +33,11 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   needed: extract body lines 3250-3685 into `core/src/events/tests.rs`, replace the inline module
   with `#[cfg(test)] #[path = "events/tests.rs"] mod tests;` (`use super::*` keeps resolving).
 
-- [ ] **gpu.rs — split `synchronize`** 🟡 — `GpuValueCache::synchronize` is `core/src/gpu.rs:99-347`
-  (~248 lines). **Action:** split into per-property-category helpers/iterators.
+- [x] **gpu.rs — split `synchronize`** 🟡 — **DONE:** `synchronize` is now a ~15-line orchestrator
+  calling `init_simd_features()` + read-only `compute_transform_events`/`compute_opacity_events`
+  (diff vs. cache, return `Vec<…Event>`) + `apply_transform_events`/`apply_opacity_events` (mutate
+  cache). Closure bodies untouched; `&self` compute / `&mut self` apply split avoids borrow
+  conflicts.
 
 - [ ] **Merge hit_test.rs + hit_test_tag.rs** 🟡 — `core/src/hit_test.rs` (343) + `hit_test_tag.rs`
   (541) are tightly coupled (hit_test imports `hit_test_tag::CursorType`; tag file is pure

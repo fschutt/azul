@@ -95,14 +95,28 @@ impl GpuValueCache {
 
     /// Synchronizes the cache with the current `StyledDom`, generating change events
     /// for CSS transform and opacity additions, modifications, and removals.
+    ///
+    /// Split into read-only `compute_*_events` passes (which diff against the cache)
+    /// and `apply_*_events` passes (which mutate it).
     #[must_use]
     pub fn synchronize(&mut self, styled_dom: &StyledDom) -> GpuEventChanges {
-        let css_property_cache = styled_dom.get_css_property_cache();
-        let node_data = styled_dom.node_data.as_container();
-        let node_states = styled_dom.styled_nodes.as_container();
+        Self::init_simd_features();
 
-        let default_transform_origin = StyleTransformOrigin::default();
+        let transform_key_changes = self.compute_transform_events(styled_dom);
+        self.apply_transform_events(&transform_key_changes);
 
+        let opacity_key_changes = self.compute_opacity_events(styled_dom);
+        self.apply_opacity_events(&opacity_key_changes);
+
+        GpuEventChanges {
+            transform_key_changes,
+            opacity_key_changes,
+            scrollbar_opacity_changes: Vec::new(), // Filled by separate synchronization
+        }
+    }
+
+    /// One-time CPU feature detection (SSE/AVX) for the transform math fast paths.
+    fn init_simd_features() {
         #[cfg(target_arch = "x86_64")]
         unsafe {
             if !INITIALIZED.load(AtomicOrdering::SeqCst) {
@@ -120,6 +134,15 @@ impl GpuValueCache {
                 INITIALIZED.store(true, AtomicOrdering::SeqCst);
             }
         }
+    }
+
+    /// Computes CSS-transform change events against the cached values (read-only).
+    fn compute_transform_events(&self, styled_dom: &StyledDom) -> Vec<GpuTransformKeyEvent> {
+        let css_property_cache = styled_dom.get_css_property_cache();
+        let node_data = styled_dom.node_data.as_container();
+        let node_states = styled_dom.styled_nodes.as_container();
+
+        let default_transform_origin = StyleTransformOrigin::default();
 
         // calculate the transform values of every single node that has a non-default transform.
         //
@@ -127,7 +150,7 @@ impl GpuValueCache {
         // The overwhelmingly common case is "no transform set", which now reads one
         // byte and bails — no cascade walk. Only nodes that actually have a
         // transform pay the slow-walk cost (required to retrieve the parsed value).
-        let all_current_transform_events = (0..styled_dom.node_data.len())
+        (0..styled_dom.node_data.len())
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
                 let styled_node_state = &node_states[node_id].styled_node_state;
@@ -201,10 +224,13 @@ impl GpuValueCache {
                     )),
                 }
             })
-            .collect::<Vec<GpuTransformKeyEvent>>();
+            .collect::<Vec<GpuTransformKeyEvent>>()
+    }
 
+    /// Applies transform key changes (additions/removals) to the cache.
+    fn apply_transform_events(&mut self, events: &[GpuTransformKeyEvent]) {
         // remove / add the CSS transform keys accordingly
-        for event in all_current_transform_events.iter() {
+        for event in events.iter() {
             match &event {
                 GpuTransformKeyEvent::Added(node_id, key, matrix) => {
                     self.css_transform_keys.insert(*node_id, *key);
@@ -219,6 +245,13 @@ impl GpuValueCache {
                 }
             }
         }
+    }
+
+    /// Computes opacity change events against the cached values (read-only).
+    fn compute_opacity_events(&self, styled_dom: &StyledDom) -> Vec<GpuOpacityKeyEvent> {
+        let css_property_cache = styled_dom.get_css_property_cache();
+        let node_data = styled_dom.node_data.as_container();
+        let node_states = styled_dom.styled_nodes.as_container();
 
         // calculate the opacity of every single node that has a non-default opacity
         //
@@ -226,7 +259,7 @@ impl GpuValueCache {
         // no author-set opacity (the common case) have `OPACITY_SENTINEL` and
         // return immediately — no cascade walk. Only non-default opacities
         // generate key events.
-        let all_current_opacity_events = (0..styled_dom.node_data.len())
+        (0..styled_dom.node_data.len())
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
                 let styled_node_state = &node_states[node_id].styled_node_state;
@@ -282,10 +315,13 @@ impl GpuValueCache {
                     )),
                 }
             })
-            .collect::<Vec<GpuOpacityKeyEvent>>();
+            .collect::<Vec<GpuOpacityKeyEvent>>()
+    }
 
+    /// Applies opacity key changes (additions/removals) to the cache.
+    fn apply_opacity_events(&mut self, events: &[GpuOpacityKeyEvent]) {
         // remove / add the opacity keys accordingly
-        for event in all_current_opacity_events.iter() {
+        for event in events.iter() {
             match &event {
                 GpuOpacityKeyEvent::Added(node_id, key, opacity) => {
                     self.opacity_keys.insert(*node_id, *key);
@@ -299,12 +335,6 @@ impl GpuValueCache {
                     self.current_opacity_values.remove(node_id);
                 }
             }
-        }
-
-        GpuEventChanges {
-            transform_key_changes: all_current_transform_events,
-            opacity_key_changes: all_current_opacity_events,
-            scrollbar_opacity_changes: Vec::new(), // Filled by separate synchronization
         }
     }
 }
