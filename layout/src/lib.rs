@@ -9,33 +9,36 @@
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico"
 )]
-// Lint policy: deny correctness/safety issues, warn on style
+// Lint policy: deny correctness/safety issues, warn on style (`clippy::all`).
+//
+// Crate-wide allows are intentionally limited to lints that are either
+//   (a) pervasive AND feature-sensitive — an import/binding/field that is unused
+//       under one feature set is live under another, so a per-site fix would
+//       break a different feature build — or
+//   (b) churny / newer-toolchain lints with little value in scoping.
+// Lints that fire in only a few, well-localized places are scoped with
+// `#[allow(...)]` on the specific `pub mod` declarations further down, so the
+// rest of the (hand-written) crate is actually checked.
 #![deny(unused_must_use)]
 #![warn(clippy::all)]
 #![allow(
-    clippy::non_canonical_partial_ord_impl,
-    clippy::legacy_numeric_constants,
-    clippy::should_implement_trait,
-    clippy::result_unit_err,
-    clippy::ptr_as_ptr,
-    clippy::too_many_arguments,
-    clippy::type_complexity,
+    // `unknown_lints` lets the two forward-compat lints below be listed even on
+    // the CI toolchain (1.88), where they are not yet known, without emitting an
+    // "unknown lint" warning of their own. They still apply on newer rustc.
+    unknown_lints,
+    mismatched_lifetime_syntaxes,          // newer rustc; fires in macro-generated code
+    function_casts_as_integer,             // newer rustc; widget callback pointer identity
+    // pervasive + feature-sensitive (unused under one feature, live under another):
     unused_imports,
     unused_variables,
     unused_mut,
     dead_code,
-    unused_parens,
-    unused_doc_comments,                   // doc comments before macro invocations
-    unused_assignments,                    // layout solver incremental updates
-    unused_labels,
-    dropping_references,                   // intentional scope markers in layout solver
-    private_interfaces,                    // internal solver types exposed for testing
-    function_casts_as_integer,             // widget callback pointer identity
-    improper_ctypes_definitions,           // node_graph extern fn returns ()
-    mismatched_lifetime_syntaxes,
-    unreachable_patterns,                  // exhaustive match in generated property code
-    unexpected_cfgs,
-    deprecated,                            // image crate tiff encoder
+    // design lint, pervasive across the layout solver / renderer:
+    clippy::too_many_arguments,
+    // churny / 3rd-party, low value to scope:
+    clippy::legacy_numeric_constants,
+    unexpected_cfgs,                        // web-lift diagnostic cfgs
+    deprecated,                             // image crate tiff encoder (only under `tiff`)
 )]
 
 #[macro_use]
@@ -49,6 +52,12 @@ extern crate core;
 /// `__PAGEZERO` covers the low 4 GiB). All in-tree diagnostic markers MUST go
 /// through this helper rather than calling `core::ptr::write_volatile` on a
 /// literal address directly.
+///
+/// # Safety
+///
+/// With the `web_lift` feature enabled, `addr` must be a valid, writable wasm
+/// linear-memory address (within the 0x40000–0xF0000 diagnostic band). Without
+/// the feature this is a no-op and always safe.
 #[inline(always)]
 pub unsafe fn az_mark(_addr: u32, _val: u32) {
     #[cfg(feature = "web_lift")]
@@ -57,6 +66,12 @@ pub unsafe fn az_mark(_addr: u32, _val: u32) {
 
 /// Read counterpart of [`az_mark`] (marker counters like `0x60758`).
 /// Returns 0 without the `web_lift` feature.
+///
+/// # Safety
+///
+/// With the `web_lift` feature enabled, `addr` must be a valid, readable wasm
+/// linear-memory address (within the 0x40000–0xF0000 diagnostic band). Without
+/// the feature this is a no-op that returns 0 and is always safe.
 #[inline(always)]
 pub unsafe fn az_mark_read(_addr: u32) -> u32 {
     #[cfg(feature = "web_lift")]
@@ -75,9 +90,22 @@ pub mod probe;
 pub mod image;
 /// Scroll, hover, clipboard, cursor, and focus managers.
 #[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): internal manager types exposed for tests.
+#[allow(private_interfaces)]
 pub mod managers;
 /// CSS layout solver: block, inline, flex, grid, and table formatting.
 #[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): solver internals — intentional `drop(&_)` scope
+// markers, internal types exposed for tests, incremental-relayout assignments,
+// generated/parenthesized property code, and exhaustive generated matches.
+#[allow(
+    dropping_references,
+    private_interfaces,
+    unreachable_patterns,
+    unused_parens,
+    unused_doc_comments,
+    unused_assignments
+)]
 pub mod solver3;
 
 /// C-compatible string formatting via `strfmt`.
@@ -88,6 +116,9 @@ pub use fmt::{FmtArg, FmtArgVec, FmtArgVecDestructor, FmtValue, fmt_string};
 
 /// Built-in widgets: button, text input, tabs, tree view, node graph, etc.
 #[cfg(feature = "widgets")]
+// Scoped (was crate-wide): incremental widget-state assignments and the
+// node_graph extern "C" fn that returns `()`.
+#[allow(unused_assignments, improper_ctypes_definitions)]
 pub mod widgets;
 
 /// Desktop platform helpers (file dialogs, notifications).
@@ -132,6 +163,10 @@ pub use azul_core::url;
 pub use azul_core::url::{Url, UrlParseError, ResultUrlUrlParseError};
 
 /// File system operations (C-compatible wrappers for `std::fs`).
+// Scoped (was crate-wide): `///` doc comments before `impl_vec!`/`impl_option!`
+// macro invocations, and an infallible inherent `FilePath::from_str` (returns
+// `Self`, so it cannot implement the fallible `FromStr` trait).
+#[allow(unused_doc_comments, clippy::should_implement_trait)]
 pub mod file;
 pub use file::{
     dir_create, dir_create_all, dir_list, dir_delete, dir_delete_all,
@@ -200,6 +235,8 @@ pub use azul_core::icon::{
 pub mod callbacks;
 /// CPU-based software rendering (no GPU required).
 #[cfg(feature = "cpurender")]
+// Scoped (was crate-wide): complex rasterizer signatures.
+#[allow(clippy::type_complexity)]
 pub mod cpurender;
 /// Glyph path and cell cache for CPU text rendering.
 #[cfg(feature = "cpurender")]
@@ -212,6 +249,8 @@ pub mod default_actions;
 pub mod event_determination;
 /// Font parsing, metrics extraction, and subsetting.
 #[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): complex font-table signatures.
+#[allow(clippy::type_complexity)]
 pub mod font;
 
 /// Headless backend for CPU-only rendering without a display server.
@@ -238,24 +277,33 @@ pub mod hit_test;
 pub use azul_core::paged;
 /// Text shaping, line breaking (Knuth-Plass), and inline formatting.
 #[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): internal types exposed for tests, a labelled
+// shaping loop, and complex shaping/cache signatures.
+#[allow(private_interfaces, unused_labels, clippy::type_complexity)]
 pub mod text3;
 /// Thread callback wrappers for the C API.
 #[cfg(feature = "text_layout")]
 pub mod thread;
 /// Timer callback wrappers for the C API.
 #[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): hand-written `Ord`/`PartialOrd` on a timer type.
+#[allow(clippy::non_canonical_partial_ord_impl)]
 pub mod timer;
 /// Scroll physics timer for momentum-based smooth scrolling.
 #[cfg(feature = "text_layout")]
 pub mod scroll_timer;
 /// Window layout management: relayout, event processing, state sync.
 #[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): parenthesized layout expressions.
+#[allow(unused_parens)]
 pub mod window;
 /// Window state types (keyboard, mouse, DPI, focus).
 #[cfg(feature = "text_layout")]
 pub mod window_state;
 /// XML and XHTML parsing for declarative UI definitions.
 #[cfg(feature = "xml")]
+// Scoped (was crate-wide): incremental parser-state assignments.
+#[allow(unused_assignments)]
 pub mod xml;
 
 // Export the main layout function and window management

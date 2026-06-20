@@ -619,7 +619,7 @@ macro_rules! impl_vec_mut {
                     }
                 };
 
-                if res == core::ptr::null_mut() {
+                if res.is_null() {
                     return Err(false);
                 }
 

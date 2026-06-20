@@ -101,12 +101,12 @@ pub extern "C" fn default_icon_resolver(
     
     // Try ImageIconData
     if let Some(img) = data.downcast_ref::<ImageIconData>() {
-        return create_image_icon_from_original(&*img, original_icon_dom, system_style);
+        return create_image_icon_from_original(&img, original_icon_dom, system_style);
     }
     
     // Try FontIconData
     if let Some(font_icon) = data.downcast_ref::<FontIconData>() {
-        return create_font_icon_from_original(&*font_icon, original_icon_dom, system_style);
+        return create_font_icon_from_original(&font_icon, original_icon_dom, system_style);
     }
     
     // Unknown data type → empty div
