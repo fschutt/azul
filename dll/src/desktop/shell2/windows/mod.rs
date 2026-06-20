@@ -1354,6 +1354,86 @@ impl Win32Window {
         }
     }
 
+    /// Route a `ProcessEventResult` produced by a MAIN-WINDOW input handler
+    /// (`WM_MOUSEMOVE` / `WM_LBUTTONDOWN` / `WM_LBUTTONUP` / `WM_KEYDOWN` /
+    /// `WM_KEYUP` / `WM_CHAR` / `WM_MOUSEWHEEL` / `WM_IME_CHAR` / …) exactly the
+    /// way the `WM_COMMAND` menu-callback arm routes its `event_result`.
+    ///
+    /// Before this, every main-window input handler did
+    /// `if !matches!(result, DoNothing) { InvalidateRect }` and IGNORED the
+    /// variant — so a restyle / runtime edit triggered from plain input
+    /// (hover/focus CSS, `set_css_property`, `set_node_text` →
+    /// `ShouldIncrementalRelayout`, or a `ShouldRegenerateDom*`) never set
+    /// `frame_needs_regeneration` NOR took the incremental-relayout fast path, and
+    /// WM_PAINT then just repainted the STALE layout.
+    ///
+    /// Mirrors the `WM_COMMAND` `match event_result` arm:
+    /// - `ShouldIncrementalRelayout` → `incremental_relayout()` on the existing
+    ///   StyledDom + `frame_relayout_only` + `frame_needs_regeneration`, then
+    ///   invalidate (WM_PAINT's `frame_relayout_only` branch sends the frame).
+    /// - `ShouldRegenerateDom* | UpdateHitTesterAndProcessAgain` →
+    ///   `frame_needs_regeneration` + invalidate (full `regenerate_layout()` in
+    ///   WM_PAINT).
+    /// - `ShouldUpdateDisplayListCurrentWindow | ShouldReRenderCurrentWindow` →
+    ///   invalidate only (preserves the old `!DoNothing` repaint).
+    /// - `DoNothing` → nothing (preserves the old no-op).
+    fn route_main_window_result(
+        &mut self,
+        hwnd: HWND,
+        result: azul_core::events::ProcessEventResult,
+    ) {
+        use azul_core::events::ProcessEventResult;
+        match result {
+            ProcessEventResult::ShouldIncrementalRelayout => {
+                // Restyle / runtime edit (hover/focus CSS, set_css_property,
+                // set_node_text): re-run layout on the EXISTING StyledDom instead of
+                // a full regenerate_layout() (which would re-invoke the user's
+                // layout_callback + rebuild the StyledDom). Mirrors the macOS backend
+                // + the WM_COMMAND menu arm. frame_relayout_only then makes WM_PAINT
+                // skip regenerate_layout and only rebuild + send the WebRender
+                // transaction.
+                if let Some(layout_window) = self.common.layout_window.as_mut() {
+                    let mut debug_messages = None;
+                    if let Err(e) =
+                        crate::desktop::shell2::common::layout::incremental_relayout(
+                            layout_window,
+                            &self.common.current_window_state,
+                            &mut self.common.renderer_resources,
+                            &mut debug_messages,
+                        )
+                    {
+                        log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
+                    }
+                }
+                self.common.frame_relayout_only = true;
+                self.common.frame_needs_regeneration = true;
+                unsafe {
+                    (self.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+                }
+            }
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            | ProcessEventResult::ShouldRegenerateDomAllWindows
+            | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                self.common.frame_needs_regeneration = true;
+                unsafe {
+                    (self.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+                }
+            }
+            // ShouldUpdateDisplayListCurrentWindow: pending VirtualView updates are
+            // queued in layout_window.pending_virtual_view_updates and processed in
+            // the render path — no full layout regeneration needed.
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            | ProcessEventResult::ShouldReRenderCurrentWindow => {
+                unsafe {
+                    (self.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+                }
+            }
+            ProcessEventResult::DoNothing => {
+                // No action needed (matches the old `!DoNothing` no-op).
+            }
+        }
+    }
+
     /// Update ime_position in window state from focused text cursor
     /// Called after layout to ensure IME window appears at correct position
     fn update_ime_position_from_cursor(&mut self) {
@@ -2718,9 +2798,7 @@ unsafe extern "system" fn window_proc(
             }
 
             // Request redraw if needed
-            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-            }
+            window.route_main_window_result(hwnd, result);
 
             0
         }
@@ -2746,9 +2824,7 @@ unsafe extern "system" fn window_proc(
             let result = window.process_window_events(0);
 
             // Request redraw if needed to clear hover states
-            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-            }
+            window.route_main_window_result(hwnd, result);
 
             0
         }
@@ -2840,9 +2916,7 @@ unsafe extern "system" fn window_proc(
             let result = window.process_window_events(0);
 
             // Request redraw if needed
-            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-            }
+            window.route_main_window_result(hwnd, result);
 
             0
         }
@@ -2918,9 +2992,7 @@ unsafe extern "system" fn window_proc(
             let result = window.process_window_events(0);
 
             // Request redraw if needed
-            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-            }
+            window.route_main_window_result(hwnd, result);
 
             0
         }
@@ -2974,9 +3046,7 @@ unsafe extern "system" fn window_proc(
             let result = window.process_window_events(0);
 
             // Request redraw if needed
-            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-            }
+            window.route_main_window_result(hwnd, result);
 
             0
         }
@@ -3035,9 +3105,7 @@ unsafe extern "system" fn window_proc(
                 let result = window.process_window_events(0);
 
                 // Request redraw if needed
-                if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-                    (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-                }
+                window.route_main_window_result(hwnd, result);
             }
 
             0
@@ -3066,9 +3134,7 @@ unsafe extern "system" fn window_proc(
             // V2 system will detect MouseDown event
             let result = window.process_window_events(0);
 
-            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-            }
+            window.route_main_window_result(hwnd, result);
 
             0
         }
@@ -3097,9 +3163,7 @@ unsafe extern "system" fn window_proc(
             // V2 system will detect MouseUp event
             let result = window.process_window_events(0);
 
-            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-            }
+            window.route_main_window_result(hwnd, result);
 
             0
         }
@@ -3210,9 +3274,7 @@ unsafe extern "system" fn window_proc(
             // V2 system will detect Scroll event from ScrollManager state
             let result = window.process_window_events(0);
 
-            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-            }
+            window.route_main_window_result(hwnd, result);
 
             0
         }
@@ -3258,9 +3320,7 @@ unsafe extern "system" fn window_proc(
                 // V2 system will detect VirtualKeyDown event
                 let result = window.process_window_events(0);
 
-                if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-                    (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-                }
+                window.route_main_window_result(hwnd, result);
             }
 
             0
@@ -3298,9 +3358,7 @@ unsafe extern "system" fn window_proc(
                 // V2 system will detect VirtualKeyUp event
                 let result = window.process_window_events(0);
 
-                if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-                    (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-                }
+                window.route_main_window_result(hwnd, result);
             }
 
             0
@@ -3348,9 +3406,7 @@ unsafe extern "system" fn window_proc(
                 // V2 system will detect TextInput event
                 let result = window.process_window_events(0);
 
-                if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-                    (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-                }
+                window.route_main_window_result(hwnd, result);
             }
 
             0
@@ -3480,9 +3536,7 @@ unsafe extern "system" fn window_proc(
                     // V2 system will detect TextInput event
                     let result = window.process_window_events(0);
 
-                    if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-                        (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-                    }
+                    window.route_main_window_result(hwnd, result);
                 }
             }
 
