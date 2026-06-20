@@ -62,13 +62,14 @@ fn macos_to_azul_coords(location: NSPoint, window_height: f32) -> LogicalPositio
 
 /// Result of processing an event - determines whether to redraw, update layout, etc.
 ///
-/// TODO(superplan g6): this macOS-only enum is a lossy projection of
+/// TODO(superplan g6): this macOS-only enum is a (now less) lossy projection of
 /// `azul_core::events::ProcessEventResult` (see `convert_process_result` below —
-/// `ShouldIncrementalRelayout`, `UpdateHitTesterAndProcessAgain` and
-/// `ShouldRegenerateDomAllWindows` all collapse into coarser variants). It
-/// should be dropped in favour of the core type, but ~40 match sites in
-/// `macos/mod.rs` (owned by Group 7) consume these variants, so the conversion
-/// has to be removed there in the same pass. Left as-is to avoid breaking mod.rs.
+/// `UpdateHitTesterAndProcessAgain` and `ShouldRegenerateDomAllWindows` still
+/// collapse into coarser variants; `ShouldIncrementalRelayout` now maps 1:1 to
+/// `RegenerateLayoutIncremental`). It should be dropped in favour of the core
+/// type, but ~40 match sites in `macos/mod.rs` (owned by Group 7) consume these
+/// variants, so the conversion has to be removed there in the same pass. Left
+/// as-is to avoid breaking mod.rs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EventProcessResult {
     /// No action needed
@@ -77,6 +78,15 @@ pub enum EventProcessResult {
     RequestRedraw,
     /// Regenerate display list from existing layout tree (text edit, no DOM rebuild)
     UpdateDisplayList,
+    /// Restyle / runtime edit changed layout-affecting properties (hover/focus CSS,
+    /// `set_css_property`, `set_node_text`): re-run layout on the EXISTING StyledDom
+    /// via `incremental_relayout()` — NO DOM rebuild (the `layout_callback` is NOT
+    /// re-invoked). This is the non-lossy projection of
+    /// `ProcessEventResult::ShouldIncrementalRelayout` (previously collapsed into
+    /// `UpdateDisplayList`, which only rebuilt the display list and never re-ran
+    /// layout). Mapped to `incremental_relayout()` + `frame_relayout_only` in the
+    /// main-window input handlers.
+    RegenerateLayoutIncremental,
     /// Full DOM rebuild needed (layout callback will be re-invoked)
     RegenerateDisplayList,
     /// Window should close
@@ -93,7 +103,11 @@ impl MacOSWindow {
             PER::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
             PER::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::UpdateDisplayList,
             PER::UpdateHitTesterAndProcessAgain => EventProcessResult::RegenerateDisplayList,
-            PER::ShouldIncrementalRelayout => EventProcessResult::UpdateDisplayList,
+            // Restyle that needs re-layout (not a DOM rebuild) now maps to its own
+            // variant instead of collapsing into UpdateDisplayList, so the main-window
+            // input handlers can route it to incremental_relayout() (the fast path)
+            // rather than forcing the full regenerate_layout().
+            PER::ShouldIncrementalRelayout => EventProcessResult::RegenerateLayoutIncremental,
             PER::ShouldRegenerateDomCurrentWindow => EventProcessResult::RegenerateDisplayList,
             PER::ShouldRegenerateDomAllWindows => EventProcessResult::RegenerateDisplayList,
         }
