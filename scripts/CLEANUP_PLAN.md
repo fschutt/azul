@@ -187,9 +187,12 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
 - [x] ~~auth_check — difficult on web~~ → **KEEP** 🟢 — `server.rs:524`: bearer-token strip +
   `constant_time_eq`, tested. Fine as-is. No action.
 
-- [ ] **Shard manifest — use AzJson + pretty-print** 🟢 — `server.rs:628 build_manifest` hand-rolls
-  JSON via `format!` ("no serde_json dep here"). **Action:** rebuild with AzJson + the
-  `to_string_pretty` helper (already exposed in api.json:90187).
+- [x] **Shard manifest — use AzJson + pretty-print** 🟢 — **DONE:** rewrote `build_manifest` with
+  `azul_core::json::{Json, JsonKeyValue, JsonKeyValueVec, JsonVec}` + `to_string_pretty()` via small
+  `obj`/`arr`/`kv` builders; deleted the now-dead hand-rolled `json_escape` (the AzJson serializer
+  handles escaping + number formatting). Safe because `run_web` already uses `azul_layout::json`
+  unconditionally, and layout's `json` feature pulls `azul-core/serde-json` — exactly what gates
+  `Json::object`/`to_string_pretty`.
 
 - [ ] **run_tool / wasm-ld — static-link question answered** 🟢/INVESTIGATE — `transpiler_remill.rs:9139
   run_tool` spawns `remill-lift-17`/`llc`/`wasm-ld` as **subprocesses by default**; static linking

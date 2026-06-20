@@ -627,91 +627,93 @@ fn send_response_cached(
 /// The JSON is hand-rolled (no serde_json dep here) to keep the
 /// server module dependency-free. loader.js parses it via `JSON.parse`.
 pub fn build_manifest(state: &WebServerState) -> String {
-    let mut out = String::with_capacity(4096);
-    out.push_str("{\"version\":1,");
-    // Mini URL
-    let mini_hash = super::fnv1a64_hex(&state.mini_wasm);
-    out.push_str(&format!(
-        "\"mini\":{{\"url\":\"/az/mini.{}.wasm\"}},",
-        mini_hash,
-    ));
-    // Layout WASMs
-    out.push_str("\"layout\":[");
-    let mut first = true;
-    for lw in &state.layout_wasms {
-        if !first { out.push(','); }
-        first = false;
-        out.push_str(&format!(
-            "{{\"name\":\"{}\",\"url\":\"/az/layout/{}.{}.wasm\",\"fn_addr\":{},\
-              \"client_side\":{}}}",
-            json_escape(&lw.name),
-            json_escape(&lw.name),
-            lw.content_hash,
-            lw.fn_addr,
-            lw.is_client_side,
-        ));
-    }
-    out.push_str("],");
-    // Callback WASMs
-    out.push_str("\"callbacks\":[");
-    let mut first = true;
-    for cb in &state.cb_wasms {
-        if !first { out.push(','); }
-        first = false;
-        out.push_str(&format!(
-            "{{\"name\":\"{}\",\"url\":\"/az/cb/{}.{}.wasm\",\"fn_addr\":{},\
-              \"client_side\":{}}}",
-            json_escape(&cb.name),
-            json_escape(&cb.name),
-            cb.content_hash,
-            cb.fn_addr,
-            cb.is_client_side,
-        ));
-    }
-    out.push_str("],");
-    // Boundary WASMs
-    out.push_str("\"boundaries\":[");
-    let mut first = true;
-    for bw in &state.boundary_wasms {
-        if !first { out.push(','); }
-        first = false;
-        out.push_str(&format!(
-            "{{\"name\":\"{}\",\"url\":\"/az/fn/{}.{}.wasm\",\
-              \"body_export\":\"{}\",\"canonical_addr\":{},\
-              \"transitive_boundaries\":[",
-            json_escape(&bw.canonical_name),
-            json_escape(&bw.canonical_name),
-            bw.content_hash,
-            json_escape(&bw.body_export),
-            bw.canonical_addr,
-        ));
-        let mut first_t = true;
-        for &t in &bw.transitive_boundaries {
-            if !first_t { out.push(','); }
-            first_t = false;
-            out.push_str(&format!("{}", t));
-        }
-        out.push_str("]}");
-    }
-    out.push(']');
-    out.push('}');
-    out
-}
+    use azul_core::json::{Json, JsonKeyValue, JsonKeyValueVec, JsonVec};
+    use azul_css::AzString;
 
-fn json_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
+    // Small builders over the FFI-safe AzJson types. JSON escaping and number
+    // formatting are handled by the AzJson serializer (serde_json under the hood),
+    // so no hand-rolled escaping is needed.
+    fn obj(entries: Vec<JsonKeyValue>) -> Json {
+        Json::object(JsonKeyValueVec::from_vec(entries))
     }
-    out
+    fn arr(values: Vec<Json>) -> Json {
+        Json::array(JsonVec::from_vec(values))
+    }
+    fn kv(key: &str, value: Json) -> JsonKeyValue {
+        JsonKeyValue::create(AzString::from(key.to_string()), value)
+    }
+
+    let mini_hash = super::fnv1a64_hex(&state.mini_wasm);
+
+    let layout: Vec<Json> = state
+        .layout_wasms
+        .iter()
+        .map(|lw| {
+            obj(vec![
+                kv("name", Json::string(lw.name.clone())),
+                kv(
+                    "url",
+                    Json::string(format!("/az/layout/{}.{}.wasm", lw.name, lw.content_hash)),
+                ),
+                kv("fn_addr", Json::integer(lw.fn_addr as i64)),
+                kv("client_side", Json::bool(lw.is_client_side)),
+            ])
+        })
+        .collect();
+
+    let callbacks: Vec<Json> = state
+        .cb_wasms
+        .iter()
+        .map(|cb| {
+            obj(vec![
+                kv("name", Json::string(cb.name.clone())),
+                kv(
+                    "url",
+                    Json::string(format!("/az/cb/{}.{}.wasm", cb.name, cb.content_hash)),
+                ),
+                kv("fn_addr", Json::integer(cb.fn_addr as i64)),
+                kv("client_side", Json::bool(cb.is_client_side)),
+            ])
+        })
+        .collect();
+
+    let boundaries: Vec<Json> = state
+        .boundary_wasms
+        .iter()
+        .map(|bw| {
+            let transitive: Vec<Json> = bw
+                .transitive_boundaries
+                .iter()
+                .map(|&t| Json::integer(t as i64))
+                .collect();
+            obj(vec![
+                kv("name", Json::string(bw.canonical_name.clone())),
+                kv(
+                    "url",
+                    Json::string(format!("/az/fn/{}.{}.wasm", bw.canonical_name, bw.content_hash)),
+                ),
+                kv("body_export", Json::string(bw.body_export.clone())),
+                kv("canonical_addr", Json::integer(bw.canonical_addr as i64)),
+                kv("transitive_boundaries", arr(transitive)),
+            ])
+        })
+        .collect();
+
+    let manifest = obj(vec![
+        kv("version", Json::integer(1)),
+        kv(
+            "mini",
+            obj(vec![kv(
+                "url",
+                Json::string(format!("/az/mini.{}.wasm", mini_hash)),
+            )]),
+        ),
+        kv("layout", arr(layout)),
+        kv("callbacks", arr(callbacks)),
+        kv("boundaries", arr(boundaries)),
+    ]);
+
+    manifest.to_string_pretty().as_str().to_string()
 }
 
 #[cfg(test)]
