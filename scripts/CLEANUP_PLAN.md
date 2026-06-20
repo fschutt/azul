@@ -217,10 +217,11 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   **Action:** review `open`/`backend()` vs vulkan/pipeline decoders for overlap; finish or remove the
   H.265 path.
 
-- [ ] **gnome_menu/README.md — trim stale plan** 🟢 —
-  `dll/src/desktop/shell2/linux/gnome_menu/README.md` dated Oct 30 2025 with a completed "Week 2
-  Implementation Plan" + unchecked integration items. **Action:** drop the dated plan/summary, keep
-  protocol/API reference.
+- [x] **gnome_menu/README.md — trim stale plan** 🟢 — **DONE:** dropped the "Implementation Status"
+  checklist (stale unchecked integration items), the dated "Week 2 Implementation Summary
+  (COMPLETED, Oct 30 2025)", and the "Week 2 Implementation Plan" (Day 1-7). Kept the feature-flag/
+  overview/module-structure/public-API/env-var/GTK-DBus-protocol reference + usage + architecture
+  diagram + design principles. 509 → 352 lines.
 
 - [ ] **dll clippy — scope the allows** 🟡 — `dll/src/lib.rs:30-53` blanket-allows
   `unused_imports, unused_variables, dead_code, unused_mut, non_snake_case, deprecated,
