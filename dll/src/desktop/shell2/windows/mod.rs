@@ -2474,8 +2474,13 @@ unsafe extern "system" fn window_proc(
             // and process callbacks to allow cancellation
             window.common.current_window_state.flags.close_requested = true;
 
-            // Process window events to trigger OnWindowClose callback
-            let _ = window.process_window_events(0);
+            // Process window events to trigger OnWindowClose callback.
+            // A close callback can cancel the close AND restyle (e.g. show a styled
+            // "unsaved changes" prompt) — route the result so any restyle takes the
+            // incremental fast path / repaints, same as every other input handler.
+            // If the close proceeds below, the InvalidateRect is harmless.
+            let result = window.process_window_events(0);
+            window.route_main_window_result(hwnd, result);
 
             // Check if callback cancelled the close
             if window.common.current_window_state.flags.close_requested {
