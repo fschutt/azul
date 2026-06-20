@@ -100,9 +100,24 @@ See memory `misc_reorg_and_undo_2026_06_20`.
   dropped `pub mod hit_test_tag`, and updated all 6 importers (`layout/hit_test.rs`,
   `solver3/display_list.rs`, dll `wr_translate2.rs` ×2, `compositor2.rs`) from `hit_test_tag::` →
   `hit_test::` (merging the duplicate `hit_test::` import groups). Not FFI-exported (0 api.json refs).
-- [ ] **⚠ CPU hit tester ignores CSS transforms** 🔴 (correctness, not cleanup) — zero `transform`
-  matches in either file. **Action:** account for CSS transforms in hit testing. Tracks with the
-  "use CPU hit tester always" decoupling-from-WebRender goal.
+- [ ] **⚠ CPU hit tester ignores CSS transforms** 🔴 (correctness; BATCHED rendering — plan below)
+  — `CpuHitTester` (`layout/src/headless.rs:45`) stores axis-aligned `LogicalRect`s in absolute window
+  space and tests via `point_in_rect` (`hit_test()` ~line 202); `HitTestEntry` has NO transform field.
+  Transforms live in `core/src/transform.rs ComputedTransform3D` (computed on-the-fly, NOT stored in
+  layout results); the GPU/WebRender path (`webrender/core/src/hit_test.rs:349`) handles them via
+  `transform.inverse().project_point2d(point)` against a spatial tree. **Plan (mirror WebRender, reuse
+  existing math):** (1) add `accumulated_transform: ComputedTransform3D` (+origin) to `HitTestEntry`;
+  (2) in `rebuild_from_layout()` compute per-node transform via `get_transform`
+  (`solver3/getters.rs:5412`, has fast-path cache bit) + `prop_cache.get_transform_origin()` +
+  `ComputedTransform3D::from_style_transform_vec(.., RotationMode::ForHitTesting)`, ACCUMULATE with
+  ancestors (`parent.then(node)`), resolving % against parent `used_size`; (3) in `hit_test()` invert
+  (`ComputedTransform3D::inverse()`) and `transform_point2d(cursor)` into local space (skip node on
+  `None` = behind perspective) before `point_in_rect`. Building blocks all exist (inverse/transform_point2d/
+  then/from_style_transform_vec). Complications: %-resolution needs parent sizes (rebuild already walks
+  ancestors for clip), scroll-offset+transform ordering, VirtualView child offsets, rounded-clip
+  approximation (border-box ok). Medium risk; NO transform hit-test tests exist (add: rotate/scale/
+  translate/skew/perspective/nested/origin/scroll). Tracks the "use CPU hit-tester always" WebRender
+  decouple. DEFER to the dedicated rendering session (with [[SVG #3]]).
 
 - [x] **changeset.rs trailing comment** 🟢 — **DONE:** removed the trailing comment in
   `layout/src/managers/changeset.rs`; the module-level docs (lines 8-11) already cover that the
@@ -203,12 +218,27 @@ See memory `misc_reorg_and_undo_2026_06_20`.
   web-lift mis-lift hunts (memory: g147). (The 198-`unsafe` audit is a separate, larger task — left
   as a follow-up.)
 
-- [ ] **SVG — unify on the DOM path** 🔴 — two divergent paths: DOM (`SvgNodeData::Path`) only
-  produces a clip mask (can't paint fill/stroke); the working renderer is the direct rasterizer
-  `cpurender.rs:5247 render_svg_to_png/_to_imageref/_group`. `widgets/map.rs:1001` documents the
-  workaround (rasterize → image node). Types in `core/src/svg.rs` (1464) + `xml/svg.rs` (2352).
-  **Action:** give `SvgNodeData::Path` real fill/stroke painting (or have the DOM display-list call
-  `render_svg_group`), then remove the map.rs rasterize-to-image workaround.
+- [ ] **SVG — unify on the DOM path** 🔴 (BATCHED rendering — investigate-then-surface, do not auto-push)
+  — CORRECTED GOAL (user 2026-06-20): retire the standalone `Svg::render()` → RawImage direct path
+  (the "skips the Dom entirely" path in `doc/guide/en/images/svg.md:164-183`); ALWAYS render
+  `SVG → DOM (clip paths) → PNG via cpurender`. The original "make `SvgNodeData::Path` paint colors"
+  framing is WRONG (agent investigation 2026-06-20, high-confidence): `SvgNodeData::Path` wraps
+  `SvgMultiPolygon` = pure geometry with NO color; it is a GENUINE, TESTED clip primitive
+  (`layout/tests/svg_render.rs`: Path clip-mask + CSS `background-color` → colored shape, 4 tests).
+  The map tiles are grey because the XML parser (`core/src/xml.rs:5482-5614`
+  `apply_xml_node_attributes`) DROPS `fill`/`stroke` at parse time, NOT because Path "fails to paint".
+  Adding a Path color-paint path would break those 4 tests + double-paint + still not fix the map
+  (also a viewBox-units-vs-CSS-pixels coordinate mismatch). The default build (cpurender on) already
+  renders the map fine via the `map.rs:1001 svg_string_to_dom` rasterize workaround; only `not(cpurender)`
+  is grey. The paint path is `display_list.rs:3576 paint_node_content` (only Image/inline today; no SVG
+  paint). NO SVG reftest coverage exists (reftests = `cargo run -r -p azul-doc reftest`, `doc/working/*.xht`).
+  Doc `svg.md:180` claims "both paths share the SVG renderer" — INACCURATE (DOM=clip masks vs standalone=
+  agg rasterizer diverge); update once unified. **Plan (medium risk, needs a new SVG reftest):** (1) parser
+  carries `fill`/`stroke`(+`<g>` inheritance) so the DOM clip+background mechanism produces color; (2) make
+  the DOM SVG path handle viewBox→layout coordinate mapping so map/standalone geometry lays out correctly;
+  (3) route `Svg::render`/`map.rs`/`xml/svg.rs:2304` through `SVG → DOM → cpurender`; (4) retire
+  `render_svg_to_png` direct path; (5) ADD an SVG reftest; (6) fix `svg.md`. Types: `core/src/svg.rs`,
+  `xml/svg.rs`, `cpurender/svg.rs` (post-split). DEFER to a dedicated rendering session.
 
 ---
 
