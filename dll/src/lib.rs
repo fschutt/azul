@@ -27,6 +27,33 @@
 #![deny(improper_ctypes_definitions)]
 #![deny(unused_must_use)]
 #![warn(clippy::all)]
+// === "extreme lints" lockdown (2026-06-20) — maximal opt-in lint set ===
+// All clippy groups + opt-in rustc lints, warn-level so normal builds still
+// pass; the CI clippy job runs `-D warnings`, turning every one of these into
+// the outstanding-lint-failure report for Monday triage. NOT yet fixed.
+#![warn(
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::cargo,
+    missing_docs,
+    missing_debug_implementations,
+    missing_copy_implementations,
+    unreachable_pub,
+    unused_qualifications,
+    unused_lifetimes,
+    unused_import_braces,
+    unused_macro_rules,
+    unused_crate_dependencies,
+    meta_variable_misuse,
+    trivial_casts,
+    trivial_numeric_casts,
+    elided_lifetimes_in_paths,
+    single_use_lifetimes,
+    variant_size_differences,
+    non_ascii_idents,
+    unsafe_op_in_unsafe_fn,
+    let_underscore_drop,
+)]
 #![allow(
     clippy::non_canonical_partial_ord_impl,
     clippy::legacy_numeric_constants,
