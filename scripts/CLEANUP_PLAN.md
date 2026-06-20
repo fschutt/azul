@@ -97,10 +97,10 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   replaced layout's `pub mod paged` with `pub use azul_core::paged;` so existing
   `azul_layout::paged::*` / `crate::paged::*` / `pub use paged::PageMargins` paths keep resolving.
 
-- [ ] **window_state.rs — small module review** 🟢 — `layout/src/window_state.rs` (161 lines:
-  `WindowCreateOptions`, `FullWindowState`) vs `window.rs` (7605 lines). Placement (avoid
-  core→layout cycle) is documented and valid. **Action:** optional merge into window.rs for tidiness;
-  otherwise leave.
+- [x] **window_state.rs — small module review** 🟢 — **DONE (reviewed, keep as-is):** the module's
+  own header (lines 3-5) documents that `WindowCreateOptions`/`FullWindowState` live here because
+  `CallbackInfo` references them and must live in azul-layout. Merging 161 lines into the already
+  7605-line `window.rs` would reduce clarity, not improve it; the split is valid. No change.
 
 - [ ] **cpurender.rs — split monolith** 🔴 — `layout/src/cpurender.rs` (6086 lines, 126 fns) mixes
   compositor (`CompositorState`/`Layer`), scroll fast-path, `AzulPixmap` framebuffer, agg-rust
