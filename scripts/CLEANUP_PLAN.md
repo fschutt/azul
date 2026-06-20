@@ -327,9 +327,10 @@ blind (no compile). Each carries a concrete approach inline:
   `FluentLoadError` enum (OpenArchive / ReadEntry / UnknownLocale / ReadFile / Parse / InvalidUtf8 /
   UnknownExtension, each carrying the detail `AzString`) + FFI `impl_option!`/`impl_vec!` scaffolding,
   changed `FluentZipLoadResult.errors` to `FluentLoadErrorVec`, converted all 8 construction sites,
-  and re-exported the new types from the layout lib. **⚠ api.json sync pending:** run
-  `azul-doc autofix` at the final build step to add `FluentLoadError`/`FluentLoadErrorVec`(+Destructor/
-  Option) and update the `errors` field type (do NOT hand-curate — use the tool).
+  and re-exported the new types from the layout lib. **api.json synced:** `azul-doc autofix add
+  FluentLoadErrorVec.create` generated + applied patches adding `FluentLoadError` (error module) +
+  `FluentLoadErrorVec`/`...Destructor`/`...DestructorType` (vec module); the `errors` field is now
+  `FluentLoadErrorVec`. `codegen all` regenerated all 35 language bindings cleanly.
 
 - [x] **Dockerfile — trim docs** 🟢 — **DONE:** condensed the 44-line header to a ~12-line summary
   (full design/extend/caveats already in `docker/README.md`) and trimmed the verbose per-stage
