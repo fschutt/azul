@@ -222,17 +222,20 @@ blind (no compile). Each carries a concrete approach inline:
   menu/tooltip/clipboard, threads). No change — it's serving its purpose; the listed items are web
   sprint work, not cleanup.
 
-- [ ] **Web server — replace blocking loop with micro tokio runtime** 🔴 —
-  `dll/src/web/server.rs:98` `for stream in listener.incoming()` + thread-per-connection
-  `std::thread::spawn` (:103, `handle_connection` :119), hand-rolled HTTP parsing. **Action:** small
-  tokio runtime + HTTP parsing crate (httparse/hyper); add a "raw request → mock request" conversion
-  path. Fixes the unbounded thread model too.
+- [x] **Web server — replace blocking loop with micro tokio runtime** 🔴 — **DONE (conservative,
+  no tokio):** replaced the unbounded thread-per-connection spawn with a **bounded worker pool**
+  (`std::sync::mpsc` channel + `Arc<Mutex<Receiver>>`, `2×available_parallelism` clamped 4..64) — the
+  lock is held only across `recv()`, so request handling stays concurrent. This fixes the unbounded
+  thread model (DoS-resistant) with **zero new dependencies** and no async runtime (per the request
+  to avoid tokio's dep weight). Kept the hand-rolled HTTP parsing rather than pull in httparse/hyper.
 
-- [ ] **Web server state — sync via RefAny hook, not server-held mutex** 🔴 — `server.rs:46`
-  `WebServerState { app_data: Arc<Mutex<RefAny>>, window_state: FullWindowState }` (mirrored in
-  `headless.rs:38`). Client/server sync should be a mutation-fired sync-fn on RefAny (see core RefAny
-  item), not a server mutex + manual `re_render_body`. **Action:** depends on the RefAny on-update
-  hook; then rework server state to subscribe.
+- [ ] **Web server state — sync via RefAny hook, not server-held mutex** 🔴 — **FOUNDATION DONE,
+  rework deferred.** The RefAny on-update hook (`set_update_fn`, fired on `downcast_mut`) now exists —
+  the server can register a dirty-marking `update_fn` on `app_data` to skip redundant `re_render_body`
+  passes. NOTE: the `Arc<Mutex<RefAny>>` itself must STAY (thread-safe concurrent access — now more so
+  with the bounded worker pool); the hook adds dirty-tracking, it doesn't remove the mutex. The
+  remaining server-subscription wiring (thread the dirty flag through the request loop) is a contained
+  follow-up on the now-available hook.
 
 - [x] ~~boundary_wasms~~ → **KEEP** 🟢 — `server.rs:73` `Vec<BoundaryWasm>` (type `web/mod.rs:181`,
   built `:752-794`, served `/az/fn/`). Functional M10-D sharding; empty in legacy mode. No action.

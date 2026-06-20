@@ -88,10 +88,16 @@ pub fn render_initial_page(
     // succeed, both sides need the same value; we translate the
     // server's natively-captured type_id into synth space here.
     let native_type_id = app_data.get_type_id();
+    // Translate the natively-captured type_id into the lifter's synth-address
+    // space so the wasm-side `isType` matches. Without the transpiler there is no
+    // synth space (and no symbol_table module), so the native id is used as-is.
+    #[cfg(feature = "web-transpiler")]
     let hydrate_type_id = super::symbol_table::get()
         .and_then(|t| t.native_to_synth(native_type_id as usize))
         .map(|s| s as u64)
         .unwrap_or(native_type_id);
+    #[cfg(not(feature = "web-transpiler"))]
+    let hydrate_type_id = native_type_id;
     let hydrate_json: String = match azul_layout::json::refany_serialize_to_json(app_data) {
         azul_core::json::OptionJson::Some(j) => format!("{}", j),
         azul_core::json::OptionJson::None => String::from("null"),

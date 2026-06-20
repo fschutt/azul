@@ -33,6 +33,21 @@ pub mod eventloop;
 pub mod headless;
 pub mod hydration;
 
+/// Whether M10-D per-fn WASM sharding is active. Always `false` when the
+/// transpiler (and thus `symbol_table`) isn't compiled in — keeps the non-
+/// transpiler `web` build working without sprinkling `#[cfg]` at every call.
+#[inline]
+fn shards_enabled() -> bool {
+    #[cfg(feature = "web-transpiler")]
+    {
+        symbol_table::shards_enabled()
+    }
+    #[cfg(not(feature = "web-transpiler"))]
+    {
+        false
+    }
+}
+
 /// Framework-internal eventloop symbols lifted from libazul at server
 /// startup, linked into `azul-mini.wasm`. Hand-written in
 /// [`eventloop`]; not in `api.json`, so language bindings never see
@@ -1179,7 +1194,7 @@ pub fn run_web(
         v.sort_unstable();
         v
     };
-    let boundary_wasms = if symbol_table::shards_enabled() {
+    let boundary_wasms = if shards_enabled() {
         eprintln!(
             "[azul-web] M10-D: lifting boundary shards (seed_count={})",
             initial_seeds.len(),
@@ -1191,7 +1206,7 @@ pub fn run_web(
     eprintln!(
         "[azul-web] Boundary shards: {} (sharded mode={})",
         boundary_wasms.len(),
-        symbol_table::shards_enabled(),
+        shards_enabled(),
     );
 
     // Phase D-cache (2026-06-10): turn the cb/layout wasm URL hashes into REAL

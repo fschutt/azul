@@ -95,16 +95,46 @@ pub fn run_server(
     let loader_js = loader_js::generate_loader_js();
     let loader_js = Arc::new(loader_js);
 
+    // Bounded worker pool instead of an unbounded thread-per-connection spawn:
+    // caps concurrency (DoS-resistant) with zero extra dependencies — no async
+    // runtime. Workers pull accepted streams off a shared mpsc channel; the
+    // `Mutex<Receiver>` is held only across `recv()`, never while handling a
+    // request, so request handling stays fully concurrent.
+    let worker_count = std::thread::available_parallelism()
+        .map(|n| (n.get() * 2).clamp(4, 64))
+        .unwrap_or(8);
+    let (tx, rx) = std::sync::mpsc::channel::<TcpStream>();
+    let rx = Arc::new(Mutex::new(rx));
+
+    for _ in 0..worker_count {
+        let rx = Arc::clone(&rx);
+        let state = Arc::clone(&state);
+        let loader_js = Arc::clone(&loader_js);
+        std::thread::spawn(move || loop {
+            // Grab one stream, releasing the lock before handling it.
+            let stream = {
+                let lock = match rx.lock() {
+                    Ok(l) => l,
+                    Err(_) => return, // poisoned → retire this worker
+                };
+                match lock.recv() {
+                    Ok(s) => s,
+                    Err(_) => return, // channel closed → server shutting down
+                }
+            };
+            if let Err(e) = handle_connection(stream, &state, &loader_js) {
+                eprintln!("[azul-web] Connection error: {}", e);
+            }
+        });
+    }
+
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                let state = Arc::clone(&state);
-                let loader_js = Arc::clone(&loader_js);
-                std::thread::spawn(move || {
-                    if let Err(e) = handle_connection(stream, &state, &loader_js) {
-                        eprintln!("[azul-web] Connection error: {}", e);
-                    }
-                });
+                // All workers gone (channel closed) → stop accepting.
+                if tx.send(stream).is_err() {
+                    break;
+                }
             }
             Err(e) => {
                 eprintln!("[azul-web] Accept error: {}", e);
