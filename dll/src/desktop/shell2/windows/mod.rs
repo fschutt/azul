@@ -3823,8 +3823,12 @@ unsafe extern "system" fn window_proc(
                             }
                         }
 
-                        // Process window events to trigger FileDrop callbacks
-                        let _ = window.process_window_events(0);
+                        // Process window events to trigger FileDrop callbacks.
+                        // A FileDrop callback can restyle / rebuild the DOM — route the
+                        // result so that takes the incremental fast path / repaints
+                        // (previously the result was dropped and nothing repainted).
+                        let result = window.process_window_events(0);
+                        window.route_main_window_result(hwnd, result);
 
                         // Clear dropped file after processing
                         if let Some(ref mut layout_window) = window.common.layout_window {
