@@ -6725,6 +6725,254 @@ fn compile_node_to_rust_code_inner<'a>(
     Ok(dom_string)
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Generic FLUENT DOM-builder emitter (C++ / Python).
+//
+// Rust has its own dedicated walker above (`compile_*_to_rust_code`). C++ and
+// Python share this generic walker because their builder APIs are also fluent
+// (`Dom::create_*().with_css(..).with_child(..)`); only the surface tokens
+// differ, captured in `FluentSyntax`. Plain C is imperative and has its own
+// walker (`compile_*_to_c_code`).
+// ───────────────────────────────────────────────────────────────────────────
+
+/// Per-language token hooks for the fluent walker. The `&str` args are already
+/// escaped for a double-quoted string literal.
+struct FluentSyntax {
+    target: CompileTarget,
+    /// tag debug-name (e.g. "Div") -> full create expression
+    create_node: fn(&str) -> String,
+    /// escaped text -> create-text expression
+    create_text: fn(&str) -> String,
+    /// escaped css -> `.with_css(..)` call
+    with_css: fn(&str) -> String,
+    /// escaped class -> `.with_class(..)` call
+    with_class: fn(&str) -> String,
+    /// escaped id -> `.with_id(..)` call
+    with_id: fn(&str) -> String,
+    /// escaped child expression -> `.with_child(..)` call (children are chained)
+    with_child: fn(&str) -> String,
+}
+
+const CPP_SYNTAX: FluentSyntax = FluentSyntax {
+    target: CompileTarget::Cpp,
+    // Use per-tag creators (Dom::create_div(), create_p(), create_body(), …)
+    // — `NodeType` is a tagged union, so `create_node` would need union
+    // construction; the per-tag creators exist for every common HTML element.
+    create_node: |tag| alloc::format!("Dom::create_{}()", tag.to_lowercase()),
+    create_text: |s| alloc::format!("Dom::create_text(String(\"{}\"))", s),
+    with_css: |s| alloc::format!(".with_css(String(\"{}\"))", s),
+    with_class: |s| alloc::format!(".with_class(String(\"{}\"))", s),
+    with_id: |s| alloc::format!(".with_id(String(\"{}\"))", s),
+    with_child: |c| alloc::format!(".with_child({})", c),
+};
+
+const PYTHON_SYNTAX: FluentSyntax = FluentSyntax {
+    target: CompileTarget::Python,
+    // Per-tag creators (azul.Dom.create_div(), …) — see CPP_SYNTAX note.
+    create_node: |tag| alloc::format!("azul.Dom.create_{}()", tag.to_lowercase()),
+    create_text: |s| alloc::format!("azul.Dom.create_text(\"{}\")", s),
+    with_css: |s| alloc::format!(".with_css(\"{}\")", s),
+    with_class: |s| alloc::format!(".with_class(\"{}\")", s),
+    with_id: |s| alloc::format!(".with_id(\"{}\")", s),
+    with_child: |c| alloc::format!(".with_child({})", c),
+};
+
+/// Walk one element node, emitting a fluent create-expression for `syntax`'s
+/// language. Mirrors `compile_node_to_rust_code_inner` but token-parameterized.
+fn compile_node_fluent<'a>(
+    node: &XmlNode,
+    syntax: &FluentSyntax,
+    component_map: &'a ComponentMap,
+    css: &Css,
+    mut matcher: CssMatcher,
+) -> Result<String, CompileError> {
+    use azul_css::css::CssDeclaration;
+
+    let component_name = normalize_casing(&node.node_type);
+    let node_type_tag = tag_to_node_type_tag(&component_name);
+    let tag_dbg = alloc::format!("{:?}", tag_to_node_type(&component_name));
+
+    // Base create-expression. For an exported live page every node is a plain
+    // HTML element, so emit `create_node(<Tag>)` directly via the language hooks
+    // (universal + verified) rather than the per-component `compile_fn`, whose
+    // C++/Python arms emit stale placeholder syntax (`Dom.div()` etc.). Any
+    // element text shows up as a Text child below and is handled there.
+    let _ = &syntax.target;
+    let mut s = (syntax.create_node)(&tag_dbg);
+
+    matcher.path.push(CssPathSelector::Type(node_type_tag));
+    let ids: Vec<String> = node.attributes.get_key("id")
+        .map(|v| v.split_whitespace().map(|x| x.to_string()).collect())
+        .unwrap_or_default();
+    matcher.path.extend(ids.iter().map(|id| CssPathSelector::Id(id.clone().into())));
+    let classes: Vec<String> = node.attributes.get_key("class")
+        .map(|v| v.split_whitespace().map(|x| x.to_string()).collect())
+        .unwrap_or_default();
+    matcher.path.extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
+
+    // Inline CSS (matched rules -> `.with_css("..")`, pseudo blocks included).
+    let blocks = get_css_blocks(css, &matcher);
+    if !blocks.is_empty() {
+        let inline_css = css_blocks_to_inline_string(&blocks);
+        if !inline_css.is_empty() {
+            let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
+            s.push_str(&(syntax.with_css)(&esc));
+        }
+    }
+    for id in &ids {
+        s.push_str(&(syntax.with_id)(&id.replace('\\', "\\\\").replace('"', "\\\"")));
+    }
+    for class in &classes {
+        s.push_str(&(syntax.with_class)(&class.replace('\\', "\\\\").replace('"', "\\\"")));
+    }
+
+    // Children (chained `.with_child(..)`).
+    for (child_idx, child) in node.children.as_ref().iter().enumerate() {
+        match child {
+            XmlNodeChild::Element(child_node) => {
+                let mut m = matcher.clone();
+                m.path.push(CssPathSelector::Children);
+                m.indices_in_parent.push(child_idx);
+                m.children_length.push(node.children.len());
+                let child_src = compile_node_fluent(child_node, syntax, component_map, css, m)?;
+                s.push_str(&(syntax.with_child)(&child_src));
+            }
+            XmlNodeChild::Text(text) => {
+                let text = text.trim();
+                if !text.is_empty() {
+                    let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
+                    s.push_str(&(syntax.with_child)(&(syntax.create_text)(&esc)));
+                }
+            }
+        }
+    }
+
+    Ok(s)
+}
+
+/// Build the `<body>` render-expression for `syntax`'s language.
+fn compile_body_fluent<'a>(
+    body_node: &'a XmlNode,
+    syntax: &FluentSyntax,
+    component_map: &'a ComponentMap,
+    css: &Css,
+    mut matcher: CssMatcher,
+) -> Result<String, CompileError> {
+    let mut s = (syntax.create_node)("Body");
+    matcher.path.push(CssPathSelector::Type(NodeTypeTag::Body));
+    let classes: Vec<String> = body_node.attributes.get_key("class")
+        .map(|v| v.split_whitespace().map(|x| x.to_string()).collect())
+        .unwrap_or_default();
+    matcher.path.extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
+
+    let blocks = get_css_blocks(css, &matcher);
+    if !blocks.is_empty() {
+        let inline_css = css_blocks_to_inline_string(&blocks);
+        if !inline_css.is_empty() {
+            let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
+            s.push_str(&(syntax.with_css)(&esc));
+        }
+    }
+    for class in &classes {
+        s.push_str(&(syntax.with_class)(&class.replace('\\', "\\\\").replace('"', "\\\"")));
+    }
+
+    for (child_idx, child) in body_node.children.as_ref().iter().enumerate() {
+        match child {
+            XmlNodeChild::Element(child_node) => {
+                let mut m = matcher.clone();
+                m.path.push(CssPathSelector::Children);
+                m.indices_in_parent.push(child_idx);
+                m.children_length.push(body_node.children.len());
+                let child_src = compile_node_fluent(child_node, syntax, component_map, css, m)?;
+                s.push_str(&(syntax.with_child)(&child_src));
+            }
+            XmlNodeChild::Text(text) => {
+                let text = text.trim();
+                if !text.is_empty() {
+                    let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
+                    s.push_str(&(syntax.with_child)(&(syntax.create_text)(&esc)));
+                }
+            }
+        }
+    }
+    Ok(s)
+}
+
+/// Parse the page's `<style>` and seed a matcher rooted at `<body>`. Shared by
+/// the C++/Python/C entry points (mirrors the head of `str_to_rust_code`).
+fn parse_page_style_and_body<'a>(
+    root_nodes: &'a [XmlNodeChild],
+) -> Result<(Css, &'a XmlNode), CompileError> {
+    let html_node = get_html_node(&root_nodes)?;
+    let body_node = get_body_node(html_node.children.as_ref())?;
+    let mut global_style = Css::empty();
+    if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
+        if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
+            let text = style_node.get_text_content();
+            if !text.is_empty() {
+                global_style = azul_css::parser2::new_from_str(&text).0;
+            }
+        }
+    }
+    global_style.sort_by_specificity();
+    Ok((global_style, body_node))
+}
+
+fn body_matcher(body_node: &XmlNode) -> CssMatcher {
+    CssMatcher {
+        path: Vec::new(),
+        indices_in_parent: vec![0],
+        children_length: vec![body_node.children.as_ref().len()],
+    }
+}
+
+/// Compile a full HTML page to a compilable **C++** Azul app.
+pub fn str_to_cpp_code<'a>(
+    root_nodes: &'a [XmlNodeChild],
+    component_map: &'a ComponentMap,
+) -> Result<String, CompileError> {
+    let (global_style, body_node) = parse_page_style_and_body(root_nodes)?;
+    let render = compile_body_fluent(body_node, &CPP_SYNTAX, component_map, &global_style, body_matcher(body_node))?;
+    Ok(alloc::format!(
+        "// Auto-generated UI source code (C++). Build:\n\
+         //   clang++ -std=c++20 -I <azul>/target/codegen main.cpp -lazul\n\
+         #include \"azul20.hpp\"\n\
+         using namespace azul;\n\n\
+         struct Data {{}};\n\n\
+         AzDom render(AzRefAny data, AzLayoutCallbackInfo info) {{\n    \
+         return {};\n}}\n\n\
+         int main() {{\n    \
+         RefAny data = RefAny::create(Data{{}});\n    \
+         WindowCreateOptions window = WindowCreateOptions::create(render);\n    \
+         App app = App::create(std::move(data), AppConfig::default_());\n    \
+         app.run(std::move(window));\n    \
+         return 0;\n}}\n",
+        render
+    ))
+}
+
+/// Compile a full HTML page to a compilable **Python** Azul app.
+pub fn str_to_python_code<'a>(
+    root_nodes: &'a [XmlNodeChild],
+    component_map: &'a ComponentMap,
+) -> Result<String, CompileError> {
+    let (global_style, body_node) = parse_page_style_and_body(root_nodes)?;
+    let render = compile_body_fluent(body_node, &PYTHON_SYNTAX, component_map, &global_style, body_matcher(body_node))?;
+    Ok(alloc::format!(
+        "# Auto-generated UI source code (Python). Run: python3 main.py\n\
+         import azul\n\n\
+         class Data:\n    pass\n\n\
+         def render(data, info):\n    return (\n        {}\n    )\n\n\
+         def main():\n    \
+         app = azul.App.create(Data(), azul.AppConfig.create())\n    \
+         window = azul.WindowCreateOptions.create(render)\n    \
+         app.run(window)\n\n\
+         if __name__ == \"__main__\":\n    main()\n",
+        render.replace("\r\n", "\n        ")
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

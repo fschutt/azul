@@ -4,8 +4,44 @@
 
 #[cfg(feature = "xml")]
 mod xml_compilation_tests {
-    use azul_core::xml::{str_to_rust_code, ComponentMap};
+    use azul_core::xml::{str_to_rust_code, str_to_cpp_code, str_to_python_code, ComponentMap};
     use azul_layout::xml::parse_xml_string;
+
+    const SAMPLE: &str = r#"<!DOCTYPE html>
+<html><head><style>.box { width: 100%; color: #222222; }</style></head>
+<body><div class="box"><p>Hello</p><div>A</div></div></body></html>"#;
+
+    #[test]
+    fn test_cpp_export_shape() {
+        let parsed = parse_xml_string(SAMPLE).expect("parse");
+        let cmap = ComponentMap::with_builtin();
+        let cpp = str_to_cpp_code(parsed.as_ref(), &cmap).expect("cpp");
+        // public C++ builder idiom + per-tag creators + scaffold
+        assert!(cpp.contains("#include \"azul20.hpp\""));
+        assert!(cpp.contains("Dom::create_body()"));
+        assert!(cpp.contains("Dom::create_div()"));
+        assert!(cpp.contains(".with_css(String("));
+        assert!(cpp.contains(".with_class(String(\"box\"))"));
+        assert!(cpp.contains("Dom::create_text(String(\"Hello\"))"));
+        assert!(cpp.contains("App::create"));
+        // must NOT carry stale/internal API
+        assert!(!cpp.contains("AzNodeType_"));
+        assert!(!cpp.contains("from_const_str"));
+    }
+
+    #[test]
+    fn test_python_export_shape() {
+        let parsed = parse_xml_string(SAMPLE).expect("parse");
+        let cmap = ComponentMap::with_builtin();
+        let py = str_to_python_code(parsed.as_ref(), &cmap).expect("py");
+        assert!(py.contains("import azul"));
+        assert!(py.contains("azul.Dom.create_body()"));
+        assert!(py.contains("azul.Dom.create_div()"));
+        assert!(py.contains(".with_class(\"box\")"));
+        assert!(py.contains("azul.Dom.create_text(\"Hello\")"));
+        assert!(py.contains("azul.App.create"));
+        assert!(!py.contains("Dom.div()")); // not the stale arm
+    }
 
     #[test]
     fn test_simple_div_compilation() {
