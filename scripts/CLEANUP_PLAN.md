@@ -27,6 +27,23 @@ fixed a rebase regression: ungated `symbol_table` refs (web-transpiler-only) bro
 Validated: `cargo check` on core(+url), layout(+fluent,+json), dll(web, web-transpiler) + `cargo test
 --lib json::tests` (10/10).
 
+**Undo E2E + CI DONE (2026-06-20, shipped to master):** `debug-server` feature now pulls `json`
+(its app-state ops use `azul_layout::json`); E2E ops `commit_undo_snapshot`/`undo_app_state`/
+`redo_app_state` on `E2eContinuation.undo_manager`; `examples/c/hello-world.c` serializes as
+`{"counter":N}` (object form); `tests/e2e/undo_redo.json` + `tests/e2e/undo-redo.sh` wired into the
+rust.yml `export_code_e2e` job (like the export-code test). NOT yet done: the App-level event-loop
+wiring (manager on App as `Arc<Mutex<>>`, threaded via fn args into `apply_user_change`, relayout-all).
+
+**'misc' API module ELIMINATED (2026-06-20, shipped to master 15f46f992):** all 47 misc types sorted
+into 15 new proper modules (json/audio/video/screen/camera/biometric/sensor/gamepad/gesture/
+webtransport/db/file/fmt/pdf/url) + 5 consolidations (AudioSink/AudioDeviceList→audio,
+WebTransport→webtransport, GamepadButton→gamepad, BiometricResult→biometric) + ExternalResource*→xml,
+OkCancel/YesNo→dialog; `misc` module removed. Mechanism: extended the azul-doc auto-sort
+(`doc/src/autofix/module_map.rs` MODULES + `module_from_external_path` path arms +
+`get_correct_module_with_path` "path-confirms-current PROTECT" precedence — NOT path-first, which
+mis-moved 245 types). Applied only the `move_module` patches; codegen all + dll build + cc verified.
+See memory `misc_reorg_and_undo_2026_06_20`.
+
 **Still remaining — follow-ups (concrete approach inline / below):**
 - **clippy de-liberalization** (layout + dll) — remove the blanket `allow`s then fix surfaced errors
   incrementally with the compiler open.
