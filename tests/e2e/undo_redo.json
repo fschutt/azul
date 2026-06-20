@@ -1,7 +1,7 @@
 [
   {
     "name": "undo_redo_app_state",
-    "description": "Mini-git undo/redo of the whole app-state RefAny via the E2E ops (commit_undo_snapshot / undo_app_state / redo_app_state), backed by RefAnyUndoManager (reversible JSON diffs). PREREQUISITE: the running app's root model must be JSON-serializable via AZ_REFLECT_JSON (the bundled test apps use plain AZ_REFLECT and are NOT serializable). The test is model-light: set_app_state seeds each state, so the model only needs a numeric 'counter' field. Each commit records the diff vs the previous commit; undo/redo walk the history; committing a new state after an undo discards the orphaned redo branch (git-like).",
+    "description": "Mini-git undo/redo of the whole app-state RefAny via the E2E ops (commit_undo_snapshot / undo_app_state / redo_app_state), backed by RefAnyUndoManager (reversible JSON diffs). Run against examples/c/hello-world.c, whose model is JSON-serializable via AZ_REFLECT_JSON and serializes as { \"counter\": N }. The test is model-light: set_app_state seeds each state, so only the 'counter' field matters. Each commit records the diff vs the previous commit; undo/redo walk the history; committing a new state after an undo discards the orphaned redo branch (git-like). Driven by tests/e2e/undo-redo.sh in CI.",
     "steps": [
       { "op": "set_app_state", "state": { "counter": 1 } },
       { "op": "commit_undo_snapshot" },

@@ -781,6 +781,9 @@ jobs:
       - name: Run export-code E2E (export live page → compile 4 languages)
         run: bash tests/e2e/test_export_code.sh
 
+      - name: Run undo/redo E2E (app-state mini-git via debug server)
+        run: bash tests/e2e/undo-redo.sh
+
   build_binaries:
     name: Build Binaries (${{ matrix.os }})
     # Normal run ~30-55 min; a cold Windows prod-release build is the slowest.

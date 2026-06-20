@@ -660,7 +660,10 @@ logging = ["log"]
 # ~8k lines of `common/debug_server` request handling are NOT compiled in (a few
 # MB + an attacker-reachable port off the customer build). Build the swap-in
 # `azuldbg.*` with `--features build-dll,debug-server` to re-enable AZ_DEBUG.
-debug-server = []
+# Pulls `json`: the debug server's app-state ops (get/set/assert_app_state and
+# the undo/redo mini-git) deserialize/serialize the app RefAny through
+# `azul_layout::json`, so the server cannot compile without it.
+debug-server = ["json"]
 
 # Memory allocator features — set the global allocator inside the azul DLL.
 # Since azul exposes a C API, the allocator only affects azul's internal

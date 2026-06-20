@@ -20,13 +20,20 @@ AzJson MyDataModel_toJson(AzRefAny refany) {
     }
     int64_t counter = (int64_t)ref.ptr->counter;
     MyDataModelRef_delete(&ref);
-    return AzJson_int(counter);
+    // Serialize as an object { "counter": N } so app-state tooling (debug
+    // server set/assert, undo/redo) can address the field by name.
+    AzJsonKeyValue kv = AzJsonKeyValue_create(AZ_STR("counter"), AzJson_int(counter));
+    return AzJson_object(AzJsonKeyValueVec_fromItem(kv));
 }
 
 AzResultRefAnyString MyDataModel_fromJson(AzJson json) {
-    AzOptionI64 counter_opt = AzJson_asInt(&json);
+    AzOptionJson field = AzJson_getKey(&json, AZ_STR("counter"));
+    if (field.None.tag == AzOptionJson_Tag_None) {
+        return AzResultRefAnyString_err(AZ_STR("Expected object with 'counter'"));
+    }
+    AzOptionI64 counter_opt = AzJson_asInt(&field.Some.payload);
     if (counter_opt.None.tag == AzOptionI64_Tag_None) {
-        return AzResultRefAnyString_err(AZ_STR("Expected integer"));
+        return AzResultRefAnyString_err(AZ_STR("'counter' is not an integer"));
     }
     MyDataModel model = { .counter = (uint32_t)counter_opt.Some.payload };
     return AzResultRefAnyString_ok(MyDataModel_upcast(model));
