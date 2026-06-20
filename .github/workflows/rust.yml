@@ -674,6 +674,52 @@ jobs:
             --skip desktop::display \
             --skip desktop::native_screenshot
 
+  # Cross-backend ICU parity: pin every i18n backend to the ICU4X REFERENCE
+  # output (layout/tests/icu_parity.rs). The three backends are mutually-
+  # exclusive features, so the SAME public-API test is run once per backend on
+  # its native OS:
+  #   - ubuntu  : `icu`         (ICU4X, the reference)  -> RUN  (source of truth)
+  #   - macOS   : `icu_macos`   (Apple Foundation)      -> RUN  (verified parity)
+  #   - windows : `icu_windows` (Win32 NLS)             -> COMPILE-ONLY
+  # The 11 documented ICU4X-vs-platform divergences are pinned inside the test.
+  # Windows NLS output (short-date year width, French U+00A0 grouping, list
+  # comma placement) legitimately differs from the reference in ways not
+  # verifiable off-Windows, so that leg only compiles the backend + test; flip
+  # its `run:` to true to execute on a real Windows host once values are pinned.
+  icu_parity:
+    name: ICU Parity (${{ matrix.backend.feature }})
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ${{ matrix.backend.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        backend:
+          - os: ubuntu-22.04
+            feature: icu           # ICU4X reference backend
+            run: true
+          - os: macos-14
+            feature: icu_macos     # Apple Foundation backend
+            run: true
+          - os: windows-2022
+            feature: icu_windows   # Win32 NLS backend (compile-only off real Windows)
+            run: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Run ICU parity tests (${{ matrix.backend.feature }})
+        if: matrix.backend.run
+        run: cargo test -p azul-layout --test icu_parity --no-default-features --features ${{ matrix.backend.feature }}
+
+      - name: Compile-check ICU parity test (${{ matrix.backend.feature }})
+        if: ${{ !matrix.backend.run }}
+        run: cargo test -p azul-layout --test icu_parity --no-default-features --features ${{ matrix.backend.feature }} --no-run
+
   # Cheap "does azul.h compile + link" check across every C compiler that
   # matters, WITHOUT rebuilding the DLL per compiler. The ABI rule is: a C
   # consumer must match the DLL's ABI, so we build the DLL ONCE per OS and fan
