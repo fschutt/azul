@@ -941,33 +941,43 @@ pub fn regenerate_layout(
 /// - State migration / reconciliation (NodeIds haven't changed)
 /// - Manager remapping (NodeIds haven't changed)
 ///
-/// ## Per-backend wiring status — TODO(superplan)
+/// ## Per-backend wiring status — DONE (all desktop backends)
 ///
-/// Only the macOS backend currently routes `ProcessEventResult::ShouldIncrementalRelayout`
-/// to this fast path (see `macos/mod.rs` `process_close_event`, the
-/// `ShouldIncrementalRelayout => incremental_relayout(...)` arm). The other
-/// backends collapse `ShouldIncrementalRelayout` into the same arm as
-/// `ShouldRegenerateDomCurrentWindow`, so a restyle/runtime-edit (hover/focus CSS,
-/// `set_css_property`, `set_node_text`) triggers a *full* `regenerate_layout()` —
-/// re-invoking the user's `layout_callback()` and rebuilding the StyledDom — when
-/// re-running layout on the existing StyledDom would suffice.
+/// Every desktop backend now routes `ProcessEventResult::ShouldIncrementalRelayout`
+/// to this fast path instead of collapsing it into the `ShouldRegenerateDomCurrentWindow`
+/// arm (which triggers a *full* `regenerate_layout()` — re-invoking the user's
+/// `layout_callback()` and rebuilding the StyledDom — when re-running layout on the
+/// existing StyledDom would suffice for a restyle/runtime-edit: hover/focus CSS,
+/// `set_css_property`, `set_node_text`).
 ///
-/// Wiring this per backend ONLY works when the backend's frame-generation path
-/// is transaction-only (rebuilds the WebRender transaction from the current
-/// StyledDom WITHOUT re-running layout) — i.e. its `generate_frame_if_needed`
-/// calls `generate_frame()`, like macOS. There, splitting `ShouldIncrementalRelayout`
-/// out and calling `incremental_relayout(layout_window, &current_window_state,
-/// &mut renderer_resources, &mut debug_messages)` + `frame_needs_regeneration = true`
-/// gives the cheap layout then a transaction-only present.
-///   - DONE: linux/x11/mod.rs (its `generate_frame_if_needed` is transaction-only).
-///   - TODO2(superplan): windows/mod.rs — its WM_PAINT path runs the FULL
-///     `regenerate_layout()` when `frame_needs_regeneration` is set, so an
-///     incremental pass here would just be overridden. Needs a separate
-///     `frame_needs_relayout_only` flag (re-layout existing StyledDom + rebuild
-///     transaction, skip the full regen). Deeper rendering-pipeline change.
-///   - TODO2(superplan): linux/wayland/mod.rs — same: its `generate_frame_if_needed`
-///     runs the FULL `regenerate_layout()` on `frame_needs_regeneration`; same
-///     separate-flag rework needed.
+/// In every backend the `ShouldIncrementalRelayout` event arm calls
+/// `incremental_relayout(layout_window, &current_window_state, &mut renderer_resources,
+/// &mut debug_messages)` immediately. Backends differ in how their frame-generation
+/// path then presents:
+///
+/// - **Transaction-only generate path** (macOS, linux/x11): `generate_frame_if_needed`
+///   already rebuilds the WebRender transaction from the current StyledDom WITHOUT
+///   re-running layout (it calls `generate_frame()`), so the event arm just sets
+///   `frame_needs_regeneration = true` and the existing path presents.
+///     - DONE: macos/mod.rs (`process_close_event` etc., the reference arm).
+///     - DONE: linux/x11/mod.rs (its `generate_frame_if_needed` is transaction-only).
+///
+/// - **Full-regen generate path** (windows, linux/wayland): the frame path runs the
+///   FULL `regenerate_layout()` when `frame_needs_regeneration` is set, which would
+///   OVERRIDE the incremental pass. These use the `frame_relayout_only` flag on
+///   `CommonWindowState` (`event.rs`), set alongside `frame_needs_regeneration` by the
+///   event arm. The frame path then branches: `frame_relayout_only` ⇒ SKIP the full
+///   `regenerate_layout()` (layout is already up to date) but STILL build + send the
+///   WebRender transaction + present; else `frame_needs_regeneration` ⇒ full
+///   `regenerate_layout()`. Both flags reset after the frame is sent.
+///     - DONE: windows/mod.rs — `ShouldIncrementalRelayout` event arm +
+///       `send_frame_after_incremental_relayout()` helper called from the WM_PAINT
+///       `frame_relayout_only` branch (GPU `generate_frame` + flush / CPU hit-tester
+///       rebuild — `regenerate_layout()`'s finalize tail — then `render_and_present(true)`).
+///     - DONE: linux/wayland/mod.rs — both `ShouldIncrementalRelayout` event arms
+///       split; `generate_frame_if_needed` runs `regenerate_layout()` only in the true
+///       full case and still rebuilds the hit-tester + sends the transaction (via
+///       `generate_frame()`) in both.
 pub fn incremental_relayout(
     layout_window: &mut LayoutWindow,
     current_window_state: &FullWindowState,
