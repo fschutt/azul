@@ -18,28 +18,32 @@ Reasoned KEEP/DEFER decisions recorded inline for: window_state, udp_framing, ru
 brotli, az_mark (already gated), EVENT_PATCH_SCHEMA, desktop/extra/udp, video_codec H.265,
 source_language, icon migration.
 
-**Remaining (🔴 large + 2 🟡) — scoped for the compile/verify phase or as follow-ups**, because they
-need compile-feedback iteration, are multi-day features, or risk breaking foundational code if done
-blind (no compile). Each carries a concrete approach inline:
-- **clippy de-liberalization** (layout + dll) — MUST be done with the compiler open (remove the
-  blanket `allow`s, then fix the surfaced errors incrementally). Compile-phase work.
-- **HashMap→BTreeMap** (322 sites) — mechanical but needs compile to catch `Ord`-bound violations +
-  unused imports; the web/ codegen maps (symbol_table/transpiler_remill) are the priority for
-  reproducible lift output (careful: those files' comments discuss `std::HashMap`'s lifted-wasm
-  hasher — don't blind-replace prose).
-- **cpurender.rs split** — pure module reorg into `cpurender/{compositor,raster,svg,pixmap}.rs`;
-  best with the compiler to fix cross-module `pub(crate)`/`use` visibility.
-- **RefAny on-update hook → undo/redo + web-server state sync** — a 3-item cluster. Mechanism:
-  add `update_fn: usize` to `RefCountInner` (mirror the existing `serialize_fn`/`deserialize_fn`
-  pattern), a setter, and fire it on `downcast_mut`; then build the generic undo stack and rework
-  `WebServerState` to subscribe instead of holding a mutex. Multi-day; the bare hook is unused
-  without the consumers, so do the cluster together (foundational + critical core type → with compile).
-- **web server tokio rewrite**, **SVG DOM-path unification**, **CPU hit-test CSS transforms**,
-  **rich clipboard (typed content enum)** — genuine feature/architecture work (new deps / rendering /
-  transform math / FFI + Copy/Cut/Paste wiring); too large + high-risk to do blind. `rich clipboard`
-  also lives in `core/events.rs`, which the user is editing by hand (test split) — coordinate.
-- **AzJson + ICU parity tests** — additive test follow-ups (ICU's cross-backend parity is awkward
-  because the backends are mutually-exclusive features).
+**Architecture cluster DONE this pass (all compile-validated):** the **RefAny on-update hook**
+(`update_fn` on `RefCountInner`, fired on `downcast_mut`), the generic **undo/redo** manager
+(`RefAnyUndoManager`, JSON-snapshot based; +bugfix: `restore` re-attaches live (de)serialize hooks
+across `replace_contents`), **AzJson serde-parity tests** (+fixed 9 pre-existing E0308 assertions),
+and the **web server bounded worker pool** (no tokio — `mpsc`+`Mutex<Receiver>`, zero new deps). Also
+fixed a rebase regression: ungated `symbol_table` refs (web-transpiler-only) broke `--features web`.
+Validated: `cargo check` on core(+url), layout(+fluent,+json), dll(web, web-transpiler) + `cargo test
+--lib json::tests` (10/10).
+
+**Still remaining — follow-ups (concrete approach inline / below):**
+- **clippy de-liberalization** (layout + dll) — remove the blanket `allow`s then fix surfaced errors
+  incrementally with the compiler open.
+- **HashMap→BTreeMap** (322 sites) — mechanical; needs compile for `Ord` bounds + unused imports;
+  web/ codegen maps first for reproducible lift output (don't blind-replace the `std::HashMap` prose
+  in those files' comments).
+- **cpurender.rs split** — module reorg into `cpurender/{compositor,raster,svg,pixmap}.rs`; do with
+  the compiler to fix cross-module visibility.
+- **web-server state dirty-sync** — FOUNDATION DONE (the hook); register a dirty-marking `update_fn`
+  on `app_data` to skip redundant `re_render_body`. The `Arc<Mutex<>>` stays (thread-safety w/ the
+  pool). Contained follow-up.
+- **SVG DOM-path unification** & **CPU hit-test CSS transforms** — genuine rendering / transform-math
+  features; higher-risk, best as focused sessions (see items below for the exact approach).
+- **rich clipboard (typed content enum)** — lives in `core/events.rs`, which the user is editing by
+  hand (test split) — coordinate to avoid conflicts.
+- **ICU parity tests** — awkward: the three backends are mutually-exclusive features, so a single-build
+  parity test isn't possible; a per-backend reference test is the realistic shape.
 
 ---
 
