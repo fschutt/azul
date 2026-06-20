@@ -204,13 +204,19 @@ pub fn render_initial_page(
         hydrate_type_id, hydrate_json, hydrate_size, hydrate_bytes_hex,
     );
 
+    // Honor document metadata from the DOM (`<html lang>` / `<title>`); fall back
+    // to sensible defaults when the app's DOM doesn't carry a <head>/<title>.
+    let (dom_title, dom_lang) = extract_head_meta(&styled_dom);
+    let page_title_esc = html_escape(dom_title.as_deref().unwrap_or("Azul Web App"));
+    let page_lang_esc = html_escape_attr(dom_lang.as_deref().unwrap_or("en"));
+
     let html = format!(
         r#"<!DOCTYPE html>
-<html lang="en">
+<html lang="{page_lang_esc}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Azul Web App</title>
+<title>{page_title_esc}</title>
 {}
 {}
 <style>{}
@@ -311,6 +317,13 @@ impl RenderContext {
         }
 
         let nd = &node_data[idx];
+
+        // Document metadata (`<head>` and its `<title>`) is emitted into the real
+        // `<head>` via extract_head_meta — never into the rendered `<body>`.
+        if matches!(nd.node_type, NodeType::Head | NodeType::Title) {
+            return String::new();
+        }
+
         let az_id = self.node_counter;
         self.node_counter += 1;
 
@@ -634,6 +647,51 @@ fn generate_preload_hints(mini_wasm: &[u8], discovered: &[DiscoveredCallback]) -
 /// `super::fnv1a64_hex` so the existing call site keeps reading naturally.
 fn content_hash(data: &[u8]) -> String {
     super::fnv1a64_hex(data)
+}
+
+/// Scans the DOM for document-level metadata that belongs in `<head>`: the
+/// `<title>` text (a `NodeType::Title` node's first text child) and the `lang`
+/// attribute on the root `NodeType::Html` node. Either may be absent.
+fn extract_head_meta(styled_dom: &StyledDom) -> (Option<String>, Option<String>) {
+    let node_data = styled_dom.node_data.as_ref();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut title = None;
+    let mut lang = None;
+
+    for (idx, nd) in node_data.iter().enumerate() {
+        match &nd.node_type {
+            NodeType::Html => {
+                for attr in nd.attributes().as_ref().iter() {
+                    if attr.name() == "lang" {
+                        let v = attr.value();
+                        if !v.as_str().is_empty() {
+                            lang = Some(v.as_str().to_string());
+                        }
+                    }
+                }
+            }
+            NodeType::Title => {
+                let node_id = NodeId::new(idx);
+                if let Some(child) = hierarchy
+                    .internal
+                    .get(idx)
+                    .and_then(|h| h.first_child_id(node_id))
+                {
+                    if let Some(NodeType::Text(s)) =
+                        node_data.get(child.index()).map(|c| &c.node_type)
+                    {
+                        title = Some(s.as_str().to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+        if title.is_some() && lang.is_some() {
+            break;
+        }
+    }
+
+    (title, lang)
 }
 
 /// Map NodeType to HTML tag name.

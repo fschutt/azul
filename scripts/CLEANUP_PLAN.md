@@ -155,14 +155,16 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   direction #4") to be self-contained (kept the technical rationale, dropped the dangling doc
   references). Left the descriptive "Sprint N" section markers as-is per the plan's scope.
 
-- [ ] **html_render.rs — head/title support** 🟡 — body assembled at `:158`; HTML template at
-  `:207-230` hardcodes `<title>Azul Web App</title>` (:213) and `<html lang="en">` (:209).
-  `NodeType::Head`/`Title`/`Body` are mapped in `node_type_to_html_tag` (:640) but never populate
-  the real `<head>` (body walk wraps everything in `<div id="az-body">`). **Action:** thread a
-  title+lang through `render_html` and honor `NodeType::Head`/`Title` if present in the DOM.
+- [x] **html_render.rs — head/title support** 🟡 — **DONE:** added `extract_head_meta(styled_dom)`
+  which scans the arena for the `<title>` text (a `NodeType::Title` node's first text child) and the
+  `lang` attribute on the root `NodeType::Html` node; `render_initial_page` now threads these into the
+  template (`<html lang="{…}">` / `<title>{…}</title>`) via captured-ident format args, defaulting to
+  `en` / "Azul Web App". Escaped via `html_escape`/`html_escape_attr`.
 
-- [ ] **html_render.rs:640 — incomplete head emission** 🟡 — tie-in with item above; `<head>` is
-  never populated from the DOM. **Action:** complete the head/title walk.
+- [x] **html_render.rs:640 — incomplete head emission** 🟡 — **DONE (with the item above):** the
+  body walk (`render_node_recursive`) now skips `NodeType::Head`/`Title` subtrees entirely (they
+  belong in the real `<head>`, populated from `extract_head_meta`), so head content no longer leaks
+  into `<div id="az-body">`.
 
 - [x] ~~html_render.rs — disallow `_`~~ → **SKIP / low value** 🟢 — ~17 `_` usages are all legitimate
   match wildcards / `Err(_)` over a ~80-variant `NodeType`; no `let _ =` discards. A blanket ban
