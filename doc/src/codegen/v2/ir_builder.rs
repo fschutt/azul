@@ -863,9 +863,6 @@ impl<'a> IRBuilder<'a> {
     // ========================================================================
 
     fn build_type_lookups(&mut self) -> Result<()> {
-        // TODO: Iterate through all modules and classes
-        // TODO: Build type_to_module map
-        // TODO: Build type_to_external map from class.external field
 
         for (module_name, module_data) in &self.version_data.api {
             for (class_name, class_data) in &module_data.classes {
@@ -978,8 +975,6 @@ impl<'a> IRBuilder<'a> {
     }
 
     fn build_struct_fields(&self, class_data: &ClassData) -> Result<Vec<FieldDef>> {
-        // TODO: Iterate through class_data.struct_fields
-        // TODO: Build FieldDef for each field with proper type analysis
 
         let mut fields = Vec::new();
 
@@ -1053,8 +1048,6 @@ impl<'a> IRBuilder<'a> {
     }
 
     fn build_enum_variants(&self, class_data: &ClassData) -> Result<(Vec<EnumVariantDef>, bool)> {
-        // TODO: Parse enum_fields and determine variant kinds
-        // TODO: Return (variants, is_union)
 
         let mut variants = Vec::new();
         let mut is_union = false;
@@ -1423,9 +1416,6 @@ impl<'a> IRBuilder<'a> {
     // ========================================================================
 
     fn build_api_functions(&mut self) -> Result<()> {
-        // TODO: Extract constructors and functions from api.json
-        // TODO: Build FunctionDef for each
-        // TODO: Handle fn_body from api.json
 
         for (module_name, module_data) in &self.version_data.api {
             for (class_name, class_data) in &module_data.classes {
@@ -1754,7 +1744,7 @@ impl<'a> IRBuilder<'a> {
     // ========================================================================
 
     fn build_trait_functions(&mut self) -> Result<()> {
-        // TODO: For each struct/enum with relevant traits, generate:
+        // For each struct/enum with relevant traits, generates:
         //   - _delete if has custom drop or !Copy
         //   - _deepCopy if Clone && !Copy
         //   - _partialEq if PartialEq
