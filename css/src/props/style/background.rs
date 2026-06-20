@@ -71,16 +71,6 @@ pub enum StyleBackgroundContent {
     SystemColor(SystemColorRef),
 }
 
-// TODO(superplan g8 item 4): the new `SystemColor` variant ripples into exhaustive
-// `match StyleBackgroundContent { .. }` sites in files this group does not own; each
-// needs a new arm (resolve the system color, then paint/emit it like `Color`):
-//   - css/src/codegen/format.rs  ~fn format_style_background_content (CSS->Rust codegen)
-//   - layout/src/solver3/display_list.rs  (two paint loops: push_backgrounds_and_border
-//     and the inline variant) -> resolve via `SystemColorRef::resolve(system_colors, _)`
-//     then `push_rect`.
-// Wildcard matches (codegen/format.rs collect pass, scrollbar.rs, system.rs, getters.rs)
-// already fall through and need no change.
-
 impl_option!(
     StyleBackgroundContent,
     OptionStyleBackgroundContent,

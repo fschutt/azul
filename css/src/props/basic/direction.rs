@@ -158,8 +158,9 @@ impl Direction {
         match self {
             Direction::Angle(angle_value) => {
                 // Convert the angle to start/end points on the rectangle.
-                // TODO: does not handle negative angles or angles >= 360 correctly.
-                let deg = -angle_value.to_degrees();
+                // Normalize to [0, 360) so negative angles and angles >= 360 fall
+                // into the same quadrant branches below (rem_euclid is always >= 0).
+                let deg = (-angle_value.to_degrees()).rem_euclid(360.0);
                 let width_half = rect.size.width as f32 / 2.0;
                 let height_half = rect.size.height as f32 / 2.0;
                 let hypotenuse_len = libm::hypotf(width_half, height_half);
