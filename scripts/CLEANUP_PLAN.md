@@ -131,11 +131,14 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   **Action:** remove those 5 worst offenders, let AI fix the resulting errors/warnings
   incrementally.
 
-- [ ] **`az_mark` / `az_mark_read` markers — remove/gate** 🟡 — 123 web-lift volatile-store
-  diagnostic markers across the hot solver path (`window.rs`, `solver3/*`, `text3/cache.rs`),
-  defined at `lib.rs:53/:61`. web-lift class-B is resolved (per memory). **Action:** remove or
-  feature-gate them. (Also: 198 `unsafe` occurrences — heaviest in `callbacks.rs`, `solver3/fc.rs`,
-  `text3/cache.rs`; audit candidate.)
+- [x] **`az_mark` / `az_mark_read` markers — remove/gate** 🟡 — **DONE (already gated, keep):**
+  verified `az_mark`/`az_mark_read` are `#[inline(always)]` fns whose *bodies* are
+  `#[cfg(feature = "web_lift")]` — so the ~120 call sites compile to **nothing** without `web_lift`
+  (off by default), i.e. they are already feature-gated and zero-cost. The plan's "or feature-gate
+  them" is satisfied by design. Deliberately NOT removing the 120 hot-path call sites: zero runtime
+  cost, blind removal across the solver path is high-risk, and they still aid the in-progress
+  web-lift mis-lift hunts (memory: g147). (The 198-`unsafe` audit is a separate, larger task — left
+  as a follow-up.)
 
 - [ ] **SVG — unify on the DOM path** 🔴 — two divergent paths: DOM (`SvgNodeData::Path`) only
   produces a clip mask (can't paint fill/stroke); the working renderer is the direct rasterizer
