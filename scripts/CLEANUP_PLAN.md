@@ -332,13 +332,21 @@ Validated: `cargo check` on core(+url), layout(+fluent,+json), dll(web, web-tran
   `undo`/`redo`/`can_undo`/`can_redo`/`clear`; bounded depth. JSON-gated (needs `AZ_REFLECT_JSON`).
   Bug fixed: `restore` re-attaches the live (de)serialize/update hooks across `replace_contents`.
   Tests: `test_json_diff_apply_reversible` + `test_undo_manager_roundtrip` (incl. branch discard).
-  **⏳ CallbackInfo wiring — NEXT (mapped, not yet done):** so a callback (incl. a timer callback)
-  can drive it: (1) add `CallbackChange::{CommitUndoSnapshot, Undo, Redo}` (`layout/callbacks.rs`)
-  + `CallbackInfo::{commit_undo_snapshot, undo, redo}` push-methods (+ api.json via autofix);
-  (2) hold a `RefAnyUndoManager` in the app-data-holder and handle the 3 variants in
-  `apply_user_change` (`dll/.../shell2/common/event.rs:1168`) operating on `get_app_data()`'s
-  `Arc<RefCell<RefAny>>`; (3) auto-save = a timer callback calling `commit_undo_snapshot`, optionally
-  gated by a dirty flag set from the RefAny `update_fn` hook. Needs the desktop-dll build to validate.
+  **⏳ CallbackInfo wiring — designed (App-level, NOT global), focused follow-up:** per review, the
+  manager lives on the **App** (app-global, `Arc<Mutex<RefAnyUndoManager>>`), is threaded in **via fn
+  args** (not a global static, not per-window), and undo/redo/commit triggers **relayout of ALL
+  windows** (the model is shared across windows). Concrete plan:
+  1. `layout/callbacks.rs`: `CallbackChange::{CommitUndoSnapshot, UndoAppState, RedoAppState}` +
+     `CallbackInfo::{commit_undo_snapshot, undo_app_state, redo_app_state}` push-methods (json-
+     independent) + api.json via `azul-doc autofix`.
+  2. dll: an **always-compiled `AppUndoHistory`** newtype wrapping `#[cfg(feature="json")]
+     Arc<Mutex<RefAnyUndoManager>>` (dodges the unstable `#[cfg]`-on-fn-param), held on `App`.
+  3. Thread `&AppUndoHistory` into `apply_user_change` (new arg) — call sites are macos/mod.rs (×2) +
+     the common `event.rs:~3320` path (other platforms route through common, so macOS-validatable);
+     handle the 3 variants there on `get_app_data()`, returning a **relayout-all-windows** result.
+  4. Auto-save = a timer callback (which already gets a `CallbackInfo`) calling `commit_undo_snapshot`,
+     optionally gated by a dirty flag set from the RefAny `update_fn` hook.
+  (A global-static manager was tried and rejected — wrong shape. Reverted to clean.)
   **UNIFIED with the AZ_DEBUG server's state save/restore:** extracted the common
   `restore_refany_from_json` (deserialize + `replace_contents` + re-attach the live hooks) into
   `layout/src/json.rs`; both `RefAnyUndoManager::restore` and the debug server's `set_app_state`
