@@ -1983,9 +1983,29 @@ impl WaylandWindow {
             // Handle the event result
             use azul_core::events::ProcessEventResult;
             match event_result {
+                ProcessEventResult::ShouldIncrementalRelayout => {
+                    // Restyle / runtime edit (hover/focus CSS, set_css_property,
+                    // set_node_text): re-run layout on the EXISTING StyledDom instead
+                    // of a full regenerate_layout(). Mirrors the macOS arm.
+                    // frame_relayout_only then makes generate_frame_if_needed() skip
+                    // regenerate_layout() and only rebuild + send the transaction.
+                    if let Some(layout_window) = self.common.layout_window.as_mut() {
+                        let mut debug_messages = None;
+                        if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
+                            layout_window,
+                            &self.common.current_window_state,
+                            &mut self.common.renderer_resources,
+                            &mut debug_messages,
+                        ) {
+                            log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
+                        }
+                    }
+                    self.common.frame_relayout_only = true;
+                    self.common.frame_needs_regeneration = true;
+                    self.request_redraw();
+                }
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 | ProcessEventResult::ShouldRegenerateDomAllWindows
-                | ProcessEventResult::ShouldIncrementalRelayout
                 | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                     self.common.frame_needs_regeneration = true;
                     self.request_redraw();
@@ -2166,9 +2186,30 @@ impl WaylandWindow {
 
     fn handle_process_event_result(&mut self, result: ProcessEventResult) {
         match result {
+            ProcessEventResult::ShouldIncrementalRelayout => {
+                // Restyle / runtime edit: re-run layout on the EXISTING StyledDom
+                // instead of a full regenerate_layout() (mirrors the macOS arm).
+                // generate_frame_if_needed() then takes the relayout-only path
+                // (frame_relayout_only): skip regenerate_layout, but still rebuild the
+                // CPU hit-tester + build & send the full WebRender transaction + present
+                // (an incremental relayout does NOT send the transaction itself).
+                if let Some(layout_window) = self.common.layout_window.as_mut() {
+                    let mut debug_messages = None;
+                    if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
+                        layout_window,
+                        &self.common.current_window_state,
+                        &mut self.common.renderer_resources,
+                        &mut debug_messages,
+                    ) {
+                        log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
+                    }
+                }
+                self.common.frame_relayout_only = true;
+                self.common.frame_needs_regeneration = true;
+                self.request_redraw();
+            }
             ProcessEventResult::ShouldRegenerateDomCurrentWindow
             | ProcessEventResult::ShouldRegenerateDomAllWindows
-            | ProcessEventResult::ShouldIncrementalRelayout
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                 // Layout/content changed → take the FULL rebuild path:
                 // generate_frame_if_needed() runs regenerate_layout + rebuilds the CPU
@@ -3228,7 +3269,9 @@ impl WaylandWindow {
     /// After sending the transaction, renders via WebRender and swaps buffers.
     /// Sets up Wayland frame callback for VSync.
     pub fn generate_frame_if_needed(&mut self) {
-        let needs_work = self.common.frame_needs_regeneration || self.needs_redraw;
+        let needs_work = self.common.frame_needs_regeneration
+            || self.common.frame_relayout_only
+            || self.needs_redraw;
         if !needs_work || self.frame_callback_pending {
             return;
         }
@@ -3240,16 +3283,26 @@ impl WaylandWindow {
             gl_context.make_current();
         }
 
-        if self.common.frame_needs_regeneration {
-            // FULL PATH: Regenerate layout + build full transaction
-            if let Err(e) = self.regenerate_layout() {
-                log_error!(
-                    LogCategory::Layout,
-                    "[Wayland] Layout regeneration failed: {:?}",
-                    e
-                );
+        if self.common.frame_needs_regeneration || self.common.frame_relayout_only {
+            // FULL or RELAYOUT-ONLY PATH: both rebuild the CPU hit-tester + build &
+            // send the full WebRender transaction below. Only the FULL path re-runs
+            // regenerate_layout() (re-invokes the user's layout_callback + rebuilds the
+            // StyledDom). The RELAYOUT-ONLY path's layout was already re-run by
+            // incremental_relayout() in the ShouldIncrementalRelayout event arm
+            // (frame_relayout_only) — re-running regenerate_layout() here would discard
+            // that work and re-invoke the layout_callback.
+            if self.common.frame_needs_regeneration && !self.common.frame_relayout_only {
+                // FULL PATH: Regenerate layout
+                if let Err(e) = self.regenerate_layout() {
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Wayland] Layout regeneration failed: {:?}",
+                        e
+                    );
+                }
             }
             self.common.frame_needs_regeneration = false;
+            self.common.frame_relayout_only = false;
 
             // Rebuild the CPU hit-tester from the fresh layout. CPU mode has no
             // WebRender hit-tester (render_api is None), and without this rebuild every
