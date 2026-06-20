@@ -611,10 +611,12 @@ pub struct CommonWindowState {
     /// `regenerate_layout()` (which would re-invoke the user's `layout_callback`
     /// and rebuild the `StyledDom`) and only rebuild + send the WebRender
     /// transaction. Set alongside `frame_needs_regeneration` by the
-    /// `ShouldIncrementalRelayout` arms on backends whose frame path runs the full
-    /// `regenerate_layout()` (windows / wayland); both flags are reset after the
-    /// frame is sent. macOS / x11 don't need it (their generate path is already
-    /// transaction-only), so it simply stays `false` there.
+    /// `ShouldIncrementalRelayout` arms on every backend; both flags are reset
+    /// after the frame is sent. All four desktop frame paths honor it — windows
+    /// (`WM_PAINT`), wayland (`generate_frame_if_needed`), macOS
+    /// (`build_atomic_txn`) and x11 (`render_and_present`) all otherwise run the
+    /// full `regenerate_layout()`, so each checks this flag to take the
+    /// transaction-only path after an incremental relayout.
     pub frame_relayout_only: bool,
     /// Reason tag the *next* `regenerate_layout()` call should pass to the
     /// user's `LayoutCallback` via `LayoutCallbackInfo::relayout_reason()`.
