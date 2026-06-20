@@ -1298,6 +1298,62 @@ impl Win32Window {
         Ok(result)
     }
 
+    /// Build + send the WebRender display-list transaction (GPU) / rebuild the CPU
+    /// hit-tester after an *incremental* relayout — the "finalize" tail that
+    /// `regenerate_layout()` runs after layout, MINUS the layout-callback /
+    /// StyledDom rebuild.
+    ///
+    /// `incremental_relayout()` (called from the `ShouldIncrementalRelayout` event
+    /// arm) re-runs layout on the existing StyledDom but, unlike
+    /// `regenerate_layout()`, does NOT send a frame. The `frame_relayout_only`
+    /// WM_PAINT branch calls this so the restyle still reaches `generate_frame` /
+    /// the present path. Mirrors `regenerate_layout()`'s GPU `generate_frame` + CPU
+    /// hit-tester tail.
+    fn send_frame_after_incremental_relayout(&mut self) {
+        // Send frame to WebRender (GPU mode only - CPU mode reads display list directly)
+        if let RenderMode::Gpu { gl_context: hglrc, hdc: stored_hdc } = &self.render_mode {
+            // Make OpenGL context current BEFORE generate_frame
+            #[cfg(target_os = "windows")]
+            unsafe {
+                use winapi::um::wingdi::wglMakeCurrent;
+                let hdc = if !stored_hdc.is_null() {
+                    *stored_hdc
+                } else {
+                    (self.win32.user32.GetDC)(self.hwnd)
+                };
+                wglMakeCurrent(
+                    hdc as winapi::shared::windef::HDC,
+                    *hglrc as winapi::shared::windef::HGLRC,
+                );
+            }
+
+            if let (Some(layout_window), Some(render_api), Some(document_id)) = (
+                self.common.layout_window.as_mut(),
+                self.common.render_api.as_mut(),
+                self.common.document_id,
+            ) {
+                crate::desktop::shell2::common::layout::generate_frame(
+                    layout_window,
+                    render_api,
+                    document_id,
+                    &self.common.gl_context_ptr,
+                );
+                render_api.flush_scene_builder();
+            }
+        }
+
+        // CPU mode: rebuild the shared hit-tester from the new layout so pointer
+        // events resolve to the correct node after a restyle changes node rects.
+        // GPU mode uses WebRender's async hit-tester instead.
+        if !matches!(self.render_mode, RenderMode::Gpu { .. }) {
+            if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
+                if let Some(lw) = self.common.layout_window.as_ref() {
+                    cpu_ht.rebuild_from_layout(&lw.layout_results);
+                }
+            }
+        }
+    }
+
     /// Update ime_position in window state from focused text cursor
     /// Called after layout to ensure IME window appears at correct position
     fn update_ime_position_from_cursor(&mut self) {
@@ -2361,7 +2417,18 @@ unsafe extern "system" fn window_proc(
 
         WM_PAINT => {
             // Determine if layout needs regeneration (DOM changed)
-            let layout_was_regenerated = if window.common.frame_needs_regeneration {
+            let layout_was_regenerated = if window.common.frame_relayout_only {
+                // Restyle / runtime edit: incremental_relayout() already re-ran layout
+                // on the existing StyledDom in the ShouldIncrementalRelayout event arm.
+                // Skip the full regenerate_layout() (no layout_callback / StyledDom
+                // rebuild), but still build + send the WebRender display-list
+                // transaction (GPU) / rebuild the CPU hit-tester so the restyle reaches
+                // the screen — render_and_present(true) then presents the new scene.
+                window.send_frame_after_incremental_relayout();
+                window.common.frame_relayout_only = false;
+                window.common.frame_needs_regeneration = false;
+                true
+            } else if window.common.frame_needs_regeneration {
                 if let Err(e) = window.regenerate_layout() {
                     log_error!(LogCategory::Layout, "Layout regeneration error: {:?}", e);
                 }
@@ -3536,9 +3603,38 @@ unsafe extern "system" fn window_proc(
                     // Handle the event result
                     use azul_core::events::ProcessEventResult;
                     match event_result {
+                        ProcessEventResult::ShouldIncrementalRelayout => {
+                            // Restyle / runtime edit (hover/focus CSS, set_css_property,
+                            // set_node_text): re-run layout on the EXISTING StyledDom
+                            // instead of a full regenerate_layout() (which would
+                            // re-invoke the user's layout_callback + rebuild the
+                            // StyledDom). Mirrors the macOS backend's
+                            // ShouldIncrementalRelayout arm. frame_relayout_only then
+                            // makes WM_PAINT skip regenerate_layout and only rebuild +
+                            // send the WebRender transaction.
+                            if let Some(layout_window) = window.common.layout_window.as_mut() {
+                                let mut debug_messages = None;
+                                if let Err(e) =
+                                    crate::desktop::shell2::common::layout::incremental_relayout(
+                                        layout_window,
+                                        &window.common.current_window_state,
+                                        &mut window.common.renderer_resources,
+                                        &mut debug_messages,
+                                    )
+                                {
+                                    log_warn!(
+                                        LogCategory::Layout,
+                                        "Incremental relayout failed: {}",
+                                        e
+                                    );
+                                }
+                            }
+                            window.common.frame_relayout_only = true;
+                            window.common.frame_needs_regeneration = true;
+                            (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+                        }
                         ProcessEventResult::ShouldRegenerateDomCurrentWindow
                         | ProcessEventResult::ShouldRegenerateDomAllWindows
-                        | ProcessEventResult::ShouldIncrementalRelayout
                         | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                             window.common.frame_needs_regeneration = true;
                             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
