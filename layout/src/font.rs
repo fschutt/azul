@@ -601,7 +601,7 @@ pub mod parsed {
             use base64::Engine;
             let s = format!(
                 "{FONT_B64_START}{}",
-                base64::prelude::BASE64_STANDARD.encode(&self.to_bytes(None).unwrap_or_default())
+                base64::prelude::BASE64_STANDARD.encode(self.to_bytes(None).unwrap_or_default())
             );
             s.serialize(serializer)
         }
@@ -613,9 +613,8 @@ pub mod parsed {
         ) -> Result<ParsedFont, D::Error> {
             use base64::Engine;
             let s = String::deserialize(deserializer)?;
-            let b64 = if s.starts_with(FONT_B64_START) {
-                let b = &s[FONT_B64_START.len()..];
-                base64::prelude::BASE64_STANDARD.decode(&b).ok()
+            let b64 = if let Some(b) = s.strip_prefix(FONT_B64_START) {
+                base64::prelude::BASE64_STANDARD.decode(b).ok()
             } else {
                 None
             };
@@ -1203,7 +1202,7 @@ pub mod parsed {
             #[cfg(not(feature = "web_lift"))]
             let hint_instance = allsorts::hinting::HintInstance::new(
                 &font_data_impl.font_table_provider
-            ).ok().flatten().map(|h| std::sync::Mutex::new(h));
+            ).ok().flatten().map(std::sync::Mutex::new);
 
             // Stash raw GSUB/GPOS bytes for lazy parse. Typical fonts
             // have ~tens of KiB of GSUB + a few-to-tens of KiB of GPOS —
@@ -1559,7 +1558,7 @@ pub mod parsed {
         /// decode, not across the caller's use of the returned Arc.
         pub fn get_or_decode_glyph(&self, gid: u16) -> Option<std::sync::Arc<OwnedGlyph>> {
             use std::sync::Arc;
-            if usize::from(gid) >= self.num_glyphs.min(u16::MAX) as usize {
+            if usize::from(gid) >= self.num_glyphs as usize {
                 return None;
             }
             // Bump the LRU timestamp so `FontManager::evict_unused`
@@ -1608,7 +1607,7 @@ pub mod parsed {
         /// [`ParsedFont::glyph_cache_snapshot`] to observe the
         /// populated cache.
         pub fn prime_glyph_cache(&mut self) {
-            let n = self.num_glyphs.min(u16::MAX) as usize;
+            let n = self.num_glyphs as usize;
             for glyph_index in 0..n {
                 let gid = glyph_index as u16;
                 let _ = self.get_or_decode_glyph(gid);
@@ -1741,7 +1740,7 @@ pub mod parsed {
                             if let Ok(store) = VariableGlyfContextStore::read(&provider) {
                                 if let Ok(var_ctx) = VariableGlyfContext::new(&store) {
                                     let mut visitor = GlyfVisitorContext::new(
-                                        &mut *loca_glyf,
+                                        &mut loca_glyf,
                                         Some(var_ctx),
                                     );
                                     let mut collector = GlyphOutlineCollector::new();
@@ -1765,7 +1764,7 @@ pub mod parsed {
             }
             if !outline_done {
                 let mut visitor =
-                    GlyfVisitorContext::new(&mut *loca_glyf, None);
+                    GlyfVisitorContext::new(&mut loca_glyf, None);
                 let mut collector = GlyphOutlineCollector::new();
                 if visitor.visit(gid, None, &mut collector).is_ok() {
                     record.outline = collector.into_outlines();

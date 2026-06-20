@@ -283,7 +283,7 @@ extern "C" fn on_focus_lost(
 
     match onfocuslost.as_mut() {
         Some(NumberInputOnFocusLost { callback, refany }) => {
-            (callback.cb)(refany.clone(), info.clone(), inner)
+            (callback.cb)(refany.clone(), info, inner)
         }
         None => Update::DoNothing,
     }
@@ -334,7 +334,7 @@ extern "C" fn validate_text_input(
 
     let update = match onvaluechange.as_mut() {
         Some(NumberInputOnValueChange { callback, refany }) => {
-            (callback.cb)(refany.clone(), info.clone(), inner_clone)
+            (callback.cb)(refany.clone(), info, inner_clone)
         }
         None => Update::DoNothing,
     };

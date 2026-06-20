@@ -61,10 +61,10 @@ use crate::window_state::FullWindowState;
 /// ## Returns
 ///
 /// - Vector of SyntheticEvents, deduplicated and ready for dispatch.
-pub fn determine_events_from_managers<'a>(
+pub fn determine_events_from_managers(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,
-    managers: &[&'a dyn EventProvider],
+    managers: &[&dyn EventProvider],
     timestamp: Instant,
 ) -> Vec<SyntheticEvent> {
     let mut events = Vec::new();
@@ -116,7 +116,7 @@ fn detect_window_state_events(
             EventData::Window(WindowEventData {
                 size: Some(LogicalRect {
                     origin: LogicalPosition { x: 0.0, y: 0.0 },
-                    size: current.size.dimensions.clone(),
+                    size: current.size.dimensions,
                 }),
                 position: None,
             }),
@@ -293,7 +293,7 @@ pub fn determine_all_events(
     // For single-DOM apps only DomId 0 is ever hit, so this is unchanged.
     let mouse_target = hover_manager
         .current_hover_node_full()
-        .unwrap_or(root_node.clone());
+        .unwrap_or(root_node);
 
     // Helper: build MouseEventData for a specific button
     let make_mouse_data = |button: MouseButton| -> EventData {
@@ -333,7 +333,7 @@ pub fn determine_all_events(
             events.push(SyntheticEvent::new(
                 EventType::MouseDown,
                 EventSource::User,
-                mouse_target.clone(),
+                mouse_target,
                 timestamp.clone(),
                 make_mouse_data(button),
             ));
@@ -342,7 +342,7 @@ pub fn determine_all_events(
             events.push(SyntheticEvent::new(
                 EventType::MouseUp,
                 EventSource::User,
-                mouse_target.clone(),
+                mouse_target,
                 timestamp.clone(),
                 make_mouse_data(button),
             ));
@@ -361,7 +361,7 @@ pub fn determine_all_events(
             events.push(SyntheticEvent::new(
                 EventType::Click,
                 EventSource::User,
-                mouse_target.clone(),
+                mouse_target,
                 timestamp.clone(),
                 make_mouse_data(MouseButton::Left),
             ));
@@ -390,7 +390,7 @@ pub fn determine_all_events(
             events.push(SyntheticEvent::new(
                 EventType::MouseOver,
                 EventSource::User,
-                mouse_target.clone(),
+                mouse_target,
                 timestamp.clone(),
                 make_mouse_data(MouseButton::Left), // MouseOver doesn't care about button
             ));
@@ -410,7 +410,7 @@ pub fn determine_all_events(
             events.push(SyntheticEvent::new(
                 EventType::Scroll,
                 EventSource::User,
-                mouse_target.clone(),
+                mouse_target,
                 timestamp.clone(),
                 EventData::Scroll(ScrollEventData {
                     delta,
@@ -463,7 +463,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::MouseEnter,
             EventSource::User,
-            root_node.clone(),
+            root_node,
             timestamp.clone(),
             EventData::None,
         ));
@@ -472,7 +472,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::MouseLeave,
             EventSource::User,
-            root_node.clone(),
+            root_node,
             timestamp.clone(),
             EventData::None,
         ));
@@ -484,7 +484,7 @@ pub fn determine_all_events(
     let focus_target = focus_manager
         .get_focused_node()
         .cloned()
-        .unwrap_or(root_node.clone());
+        .unwrap_or(root_node);
 
     let current_key = current_state
         .keyboard_state
@@ -509,7 +509,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::KeyDown,
             EventSource::User,
-            focus_target.clone(),
+            focus_target,
             timestamp.clone(),
             keyboard_data.clone(),
         ));
@@ -525,7 +525,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::KeyUp,
             EventSource::User,
-            focus_target.clone(),
+            focus_target,
             timestamp.clone(),
             key_up_data,
         ));
@@ -538,12 +538,12 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::WindowResize,
             EventSource::User,
-            root_node.clone(),
+            root_node,
             timestamp.clone(),
             EventData::Window(WindowEventData {
                 size: Some(LogicalRect {
                     origin: LogicalPosition { x: 0.0, y: 0.0 },
-                    size: current_state.size.dimensions.clone(),
+                    size: current_state.size.dimensions,
                 }),
                 position: None,
             }),
@@ -556,7 +556,7 @@ pub fn determine_all_events(
             events.push(SyntheticEvent::new(
                 EventType::WindowMove,
                 EventSource::User,
-                root_node.clone(),
+                root_node,
                 timestamp.clone(),
                 EventData::Window(WindowEventData {
                     size: None,
@@ -574,7 +574,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::WindowClose,
             EventSource::User,
-            root_node.clone(),
+            root_node,
             timestamp.clone(),
             EventData::None,
         ));
@@ -585,7 +585,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::WindowFocusIn,
             EventSource::User,
-            root_node.clone(),
+            root_node,
             timestamp.clone(),
             EventData::None,
         ));
@@ -594,7 +594,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::WindowFocusOut,
             EventSource::User,
-            root_node.clone(),
+            root_node,
             timestamp.clone(),
             EventData::None,
         ));
@@ -605,7 +605,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::ThemeChange,
             EventSource::User,
-            root_node.clone(),
+            root_node,
             timestamp.clone(),
             EventData::None,
         ));
@@ -616,7 +616,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::WindowDpiChanged,
             EventSource::User,
-            root_node.clone(),
+            root_node,
             timestamp.clone(),
             EventData::None,
         ));
@@ -630,7 +630,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::WindowMonitorChanged,
             EventSource::User,
-            root_node.clone(),
+            root_node,
             timestamp.clone(),
             EventData::None,
         ));
@@ -648,7 +648,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::FileHover,
             EventSource::User,
-            root_node.clone(),
+            root_node,
             timestamp.clone(),
             EventData::None,
         ));
@@ -656,7 +656,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::FileHoverCancel,
             EventSource::User,
-            root_node.clone(),
+            root_node,
             timestamp.clone(),
             EventData::None,
         ));
@@ -666,7 +666,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::FileDrop,
             EventSource::User,
-            root_node.clone(),
+            root_node,
             timestamp.clone(),
             EventData::None,
         ));
@@ -683,14 +683,14 @@ pub fn determine_all_events(
                 (None, Some(_)) => events.push(SyntheticEvent::new(
                     EventType::PenEnter,
                     EventSource::User,
-                    mouse_target.clone(),
+                    mouse_target,
                     timestamp.clone(),
                     pen_data.clone(),
                 )),
                 (Some(_), None) => events.push(SyntheticEvent::new(
                     EventType::PenLeave,
                     EventSource::User,
-                    mouse_target.clone(),
+                    mouse_target,
                     timestamp.clone(),
                     pen_data.clone(),
                 )),
@@ -699,7 +699,7 @@ pub fn determine_all_events(
                         events.push(SyntheticEvent::new(
                             EventType::PenDown,
                             EventSource::User,
-                            mouse_target.clone(),
+                            mouse_target,
                             timestamp.clone(),
                             pen_data.clone(),
                         ));
@@ -707,7 +707,7 @@ pub fn determine_all_events(
                         events.push(SyntheticEvent::new(
                             EventType::PenUp,
                             EventSource::User,
-                            mouse_target.clone(),
+                            mouse_target,
                             timestamp.clone(),
                             pen_data.clone(),
                         ));
@@ -716,7 +716,7 @@ pub fn determine_all_events(
                         events.push(SyntheticEvent::new(
                             EventType::PenMove,
                             EventSource::User,
-                            mouse_target.clone(),
+                            mouse_target,
                             timestamp.clone(),
                             pen_data.clone(),
                         ));
@@ -733,17 +733,16 @@ pub fn determine_all_events(
         let event_was_mouse_release = !current_mouse_down && previous_mouse_down;
 
         // Detect DragStart (targeted at hovered node)
-        if manager.detect_drag().is_some() {
-            if !manager.is_dragging() {
+        if manager.detect_drag().is_some()
+            && !manager.is_dragging() {
                 events.push(SyntheticEvent::new(
                     EventType::DragStart,
                     EventSource::User,
-                    mouse_target.clone(),
+                    mouse_target,
                     timestamp.clone(),
                     make_mouse_data(MouseButton::Left),
                 ));
             }
-        }
 
         // Detect Drag (continuous movement, targeted at hovered node)
         if manager.is_dragging() && current_mouse_down {
@@ -754,7 +753,7 @@ pub fn determine_all_events(
                 events.push(SyntheticEvent::new(
                     EventType::Drag,
                     EventSource::User,
-                    mouse_target.clone(),
+                    mouse_target,
                     timestamp.clone(),
                     make_mouse_data(MouseButton::Left),
                 ));
@@ -766,7 +765,7 @@ pub fn determine_all_events(
             events.push(SyntheticEvent::new(
                 EventType::DragEnd,
                 EventSource::User,
-                mouse_target.clone(),
+                mouse_target,
                 timestamp.clone(),
                 make_mouse_data(MouseButton::Left),
             ));
@@ -777,7 +776,7 @@ pub fn determine_all_events(
                 events.push(SyntheticEvent::new(
                     EventType::Drop,
                     EventSource::User,
-                    mouse_target.clone(), // W3C: Drop targets the node under cursor
+                    mouse_target, // W3C: Drop targets the node under cursor
                     timestamp.clone(),
                     make_mouse_data(MouseButton::Left),
                 ));
@@ -838,7 +837,7 @@ pub fn determine_all_events(
             events.push(SyntheticEvent::new(
                 EventType::DoubleClick,
                 EventSource::User,
-                mouse_target.clone(),
+                mouse_target,
                 timestamp.clone(),
                 make_mouse_data(MouseButton::Left),
             ));
@@ -850,7 +849,7 @@ pub fn determine_all_events(
                 events.push(SyntheticEvent::new(
                     EventType::LongPress,
                     EventSource::User,
-                    mouse_target.clone(),
+                    mouse_target,
                     timestamp.clone(),
                     make_mouse_data(MouseButton::Left),
                 ));
@@ -869,7 +868,7 @@ pub fn determine_all_events(
             events.push(SyntheticEvent::new(
                 event_type,
                 EventSource::User,
-                mouse_target.clone(),
+                mouse_target,
                 timestamp.clone(),
                 EventData::None,
             ));
@@ -885,7 +884,7 @@ pub fn determine_all_events(
             events.push(SyntheticEvent::new(
                 event_type,
                 EventSource::User,
-                mouse_target.clone(),
+                mouse_target,
                 timestamp.clone(),
                 EventData::None,
             ));
@@ -901,7 +900,7 @@ pub fn determine_all_events(
             events.push(SyntheticEvent::new(
                 event_type,
                 EventSource::User,
-                mouse_target.clone(),
+                mouse_target,
                 timestamp.clone(),
                 EventData::None,
             ));
@@ -917,7 +916,7 @@ pub fn determine_all_events(
                     events.push(SyntheticEvent::new(
                         EventType::TouchMove, // Use TouchMove as fallback
                         EventSource::User,
-                        mouse_target.clone(),
+                        mouse_target,
                         timestamp.clone(),
                         EventData::None,
                     ));

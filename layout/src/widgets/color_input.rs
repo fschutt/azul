@@ -197,7 +197,7 @@ extern "C" fn on_color_input_clicked(mut data: RefAny, mut info: CallbackInfo) -
         Some(ColorInputOnValueChange {
             callback,
             refany: data,
-        }) => (callback.cb)(data.clone(), info.clone(), inner),
+        }) => (callback.cb)(data.clone(), info, inner),
         None => Update::DoNothing,
     }
 }

@@ -64,7 +64,7 @@ pub fn invoke_on_frame(
 ) -> Update {
     match hook {
         OptionOnVideoFrame::Some(h) => {
-            (h.callback.cb)(h.refany.clone(), info.clone(), frame.clone())
+            (h.callback.cb)(h.refany.clone(), *info, frame.clone())
         }
         OptionOnVideoFrame::None => Update::DoNothing,
     }

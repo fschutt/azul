@@ -72,6 +72,12 @@ fn quantize_subpx(frac: f32) -> u8 {
     (f * 4.0).min(3.0) as u8
 }
 
+impl Default for GlyphCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GlyphCache {
     #[must_use]
     pub fn new() -> Self {
@@ -142,7 +148,7 @@ impl GlyphCache {
         }
         let subpx_x = if is_hinted { 0 } else { quantize_subpx(glyph_x) };
         let subpx_y = if is_hinted { 0 } else { quantize_subpx(glyph_y) };
-        debug_assert!(scale >= 0.0 && scale < 65536.0, "scale out of range for fixed-point: {}", scale);
+        debug_assert!((0.0..65536.0).contains(&scale), "scale out of range for fixed-point: {}", scale);
         let scale_fixed = if is_hinted { 0 } else { (scale * 65536.0) as u32 };
 
         let cell_key = GlyphCellKey {

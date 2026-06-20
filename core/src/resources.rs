@@ -85,6 +85,7 @@ impl DpiScaleFactor {
 /// Determines what happens when all application windows are closed
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum AppTerminationBehavior {
     /// Return control to main() when all windows are closed (if platform supports it).
     /// On macOS, this exits the NSApplication run loop and returns to main().
@@ -95,15 +96,10 @@ pub enum AppTerminationBehavior {
     RunForever,
     /// Immediately terminate the process when all windows are closed.
     /// Calls std::process::exit(0).
+    #[default]
     EndProcess,
 }
 
-impl Default for AppTerminationBehavior {
-    fn default() -> Self {
-        // Default: End the process when all windows close (cross-platform behavior)
-        AppTerminationBehavior::EndProcess
-    }
-}
 
 /// A named font bundled with the application (name + raw bytes).
 /// The name is used to reference the font in CSS (e.g. `font-family: "MyFont"`).
@@ -197,8 +193,10 @@ impl_vec_clone!(LoadedFont, LoadedFontVec, LoadedFontVecDestructor);
 /// Configuration for how fonts should be loaded at app startup.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum FontLoadingConfig {
     /// Load all system fonts (default behavior, can be slow on systems with many fonts)
+    #[default]
     LoadAllSystemFonts,
     /// Only load fonts for specific families (faster startup).
     /// Generic families like "sans-serif" are automatically expanded to OS-specific fonts.
@@ -207,11 +205,6 @@ pub enum FontLoadingConfig {
     BundledFontsOnly,
 }
 
-impl Default for FontLoadingConfig {
-    fn default() -> Self {
-        FontLoadingConfig::LoadAllSystemFonts
-    }
-}
 
 /// Mock environment for CSS evaluation.
 /// 
@@ -894,11 +887,11 @@ impl ImageRef {
         }
     }
 
-    pub fn get_data<'a>(&'a self) -> &'a DecodedImage {
+    pub fn get_data(&self) -> &DecodedImage {
         unsafe { &*self.data }
     }
 
-    pub fn get_image_callback<'a>(&'a self) -> Option<&'a CoreImageCallback> {
+    pub fn get_image_callback(&self) -> Option<&CoreImageCallback> {
         if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
             return None; // not safe
         }
@@ -909,7 +902,7 @@ impl ImageRef {
         }
     }
 
-    pub fn get_image_callback_mut<'a>(&'a mut self) -> Option<&'a mut CoreImageCallback> {
+    pub fn get_image_callback_mut(&mut self) -> Option<&mut CoreImageCallback> {
         if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
             return None; // not safe
         }
@@ -946,7 +939,7 @@ impl ImageRef {
             // WARNING: the data may still be a U8Vec<'static> - the data may still not be
             // actually cloned. The data only gets cloned on a write operation
             DecodedImage::Raw((descriptor, data)) => {
-                DecodedImage::Raw((descriptor.clone(), data.clone()))
+                DecodedImage::Raw((*descriptor, data.clone()))
             }
             DecodedImage::Callback(cb) => DecodedImage::Callback(cb.clone()),
         };
@@ -1092,7 +1085,7 @@ unsafe impl Sync for ImageRef {}
 
 impl PartialEq for ImageRef {
     fn eq(&self, rhs: &Self) -> bool {
-        self.data as usize == rhs.data as usize
+        std::ptr::eq(self.data, rhs.data)
     }
 }
 
@@ -1177,6 +1170,7 @@ pub fn font_ref_get_hash(fr: &FontRef) -> u64 {
 /// Images and fonts can be references across window contexts (not yet tested,
 /// but should work).
 #[derive(Debug)]
+#[derive(Default)]
 pub struct ImageCache {
     /// The AzString is the string used in the CSS, i.e. url("my_image") = "my_image" -> ImageId(4)
     ///
@@ -1186,13 +1180,6 @@ pub struct ImageCache {
     pub image_id_map: OrderedMap<AzString, ImageRef>,
 }
 
-impl Default for ImageCache {
-    fn default() -> Self {
-        Self {
-            image_id_map: OrderedMap::default(),
-        }
-    }
-}
 
 impl ImageCache {
     pub fn new() -> Self {
@@ -1289,6 +1276,7 @@ impl RendererResourcesTrait for RendererResources {
 ///
 /// The resources are automatically managed, meaning that they each new frame
 /// (signified by start_frame_gc and end_frame_gc)
+#[derive(Default)]
 pub struct RendererResources {
     /// All image keys currently active in the RenderApi
     pub currently_registered_images: OrderedMap<ImageRefHash, ResolvedImage>,
@@ -1335,19 +1323,6 @@ impl fmt::Debug for RendererResources {
     }
 }
 
-impl Default for RendererResources {
-    fn default() -> Self {
-        Self {
-            currently_registered_images: OrderedMap::default(),
-            image_key_map: OrderedMap::default(),
-            currently_registered_fonts: OrderedMap::default(),
-            last_frame_registered_fonts: OrderedMap::default(),
-            font_families_map: OrderedMap::default(),
-            font_id_map: OrderedMap::default(),
-            font_hash_map: OrderedMap::default(),
-        }
-    }
-}
 
 impl RendererResources {
     pub fn get_renderable_font_data(
@@ -1418,7 +1393,7 @@ impl RendererResources {
             .iter()
             .filter_map(|(font_family, font_key)| {
                 if !self.currently_registered_fonts.contains_key(font_key) {
-                    Some(font_family.clone())
+                    Some(*font_family)
                 } else {
                     None
                 }
@@ -1434,7 +1409,7 @@ impl RendererResources {
             .iter()
             .filter_map(|(font_families, font_family)| {
                 if !self.font_id_map.contains_key(font_family) {
-                    Some(font_families.clone())
+                    Some(*font_families)
                 } else {
                     None
                 }
@@ -2374,18 +2349,15 @@ pub enum FontHinting {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(Default)]
 pub enum FontLCDFilter {
     None,
+    #[default]
     Default,
     Light,
     Legacy,
 }
 
-impl Default for FontLCDFilter {
-    fn default() -> Self {
-        FontLCDFilter::Default
-    }
-}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct FontInstanceOptions {
@@ -2410,15 +2382,11 @@ impl Default for FontInstanceOptions {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(Default)]
 pub struct SyntheticItalics {
     pub angle: i16,
 }
 
-impl Default for SyntheticItalics {
-    fn default() -> Self {
-        Self { angle: 0 }
-    }
-}
 
 /// Reference-counted wrapper around raw image bytes (U8Vec).
 /// This allows sharing image data between azul-core and webrender without cloning.
@@ -2520,7 +2488,7 @@ impl Drop for SharedRawImageData {
 
 impl PartialEq for SharedRawImageData {
     fn eq(&self, rhs: &Self) -> bool {
-        self.data as usize == rhs.data as usize
+        std::ptr::eq(self.data, rhs.data)
     }
 }
 
@@ -2580,6 +2548,12 @@ pub struct ExternalImageId {
 }
 
 static LAST_EXTERNAL_IMAGE_ID: AtomicUsize = AtomicUsize::new(0);
+
+impl Default for ExternalImageId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl ExternalImageId {
     /// Creates a new, unique ExternalImageId
@@ -2782,6 +2756,12 @@ pub struct Epoch {
 impl fmt::Display for Epoch {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.inner)
+    }
+}
+
+impl Default for Epoch {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -3020,7 +3000,7 @@ pub fn build_add_font_resource_updates(
 
                 // Find the first font that can be loaded and parsed
                 'inner: for family in style_font_families.as_ref().iter() {
-                    let current_family_hash = StyleFontFamilyHash::new(&family);
+                    let current_family_hash = StyleFontFamilyHash::new(family);
 
                     if let Some(font_id) = renderer_resources.font_id_map.get(&current_family_hash)
                     {
@@ -3035,17 +3015,17 @@ pub fn build_add_font_resource_updates(
                         StyleFontFamily::Ref(r) => r.clone(), // Clone the FontRef
                         other => {
                             // Load and parse the font
-                            let font_data = match (font_source_load_fn)(&other, fc_cache) {
+                            let font_data = match (font_source_load_fn)(other, fc_cache) {
                                 Some(s) => s,
                                 None => continue 'inner,
                             };
 
-                            let font_ref = match (parse_font_fn)(font_data) {
+                            
+
+                            match (parse_font_fn)(font_data) {
                                 Some(s) => s,
                                 None => continue 'inner,
-                            };
-
-                            font_ref
+                            }
                         }
                     };
 
@@ -3109,7 +3089,7 @@ pub fn build_add_image_resource_updates(
     images_in_dom
         .iter()
         .filter_map(|image_ref| {
-            let image_ref_hash = image_ref_get_hash(&image_ref);
+            let image_ref_hash = image_ref_get_hash(image_ref);
 
             if renderer_resources
                 .currently_registered_images
@@ -3158,7 +3138,7 @@ pub fn build_add_image_resource_updates(
                         AddImageMsg(AddImage {
                             key,
                             data: data.clone(), // deep-copy except in the &'static case
-                            descriptor: descriptor.clone(), /* deep-copy, but struct is not very
+                            descriptor: *descriptor, /* deep-copy, but struct is not very
                                                  * large */
                             tiling: None,
                         }),

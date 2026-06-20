@@ -10,7 +10,7 @@ use azul_css::props::basic::{SvgCubicCurve, SvgPoint, SvgQuadraticCurve};
 use crate::svg::{SvgLine, SvgMultiPolygon, SvgPath, SvgPathElement, SvgPathElementVec, SvgPathVec};
 
 /// Bezier approximation constant for quarter-circle arcs.
-const KAPPA: f32 = 0.5522847498;
+const KAPPA: f32 = 0.552_284_8;
 
 /// Tolerance for treating two points as coincident (used in closepath and arc degeneracy checks).
 const POINT_EPSILON: f32 = 1e-6;

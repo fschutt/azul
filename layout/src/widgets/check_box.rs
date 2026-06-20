@@ -294,7 +294,7 @@ mod input {
                 Some(CheckBoxOnToggle {
                     callback,
                     refany: data,
-                }) => (callback.cb)(data.clone(), info.clone(), inner),
+                }) => (callback.cb)(data.clone(), info, inner),
                 None => Update::DoNothing,
             }
         };

@@ -594,7 +594,7 @@ fn match_nth_child(html_node: &CascadeInfo, pattern: &CssNthChildSelector) -> bo
 
     match pattern {
         Number(n) => index == *n,
-        Even => index % 2 == 0,
+        Even => index.is_multiple_of(2),
         Odd => index % 2 == 1,
         Pattern(CssNthChildPattern {
             pattern_repeat,
@@ -603,7 +603,7 @@ fn match_nth_child(html_node: &CascadeInfo, pattern: &CssNthChildSelector) -> bo
             if *pattern_repeat == 0 {
                 index == *offset
             } else {
-                index >= *offset && ((index - offset) % pattern_repeat == 0)
+                index >= *offset && (index - offset).is_multiple_of(*pattern_repeat)
             }
         }
     }

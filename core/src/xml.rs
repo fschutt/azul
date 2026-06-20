@@ -2217,20 +2217,17 @@ impl ComponentDataModel {
 /// Source of a component definition — determines whether it can be exported
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum ComponentSource {
     /// Built into the DLL (HTML elements). Never exported.
     Builtin,
     /// Compiled Rust widget (Button, TextInput, etc.). Never exported.
     Compiled,
     /// Defined via JSON/XML at runtime. Can be exported.
+    #[default]
     UserDefined,
 }
 
-impl Default for ComponentSource {
-    fn default() -> Self {
-        ComponentSource::UserDefined
-    }
-}
 
 impl ComponentSource {
     pub fn create() -> Self {
@@ -4857,7 +4854,7 @@ impl<'a> fmt::Display for RenderDomError {
 
 /// Find the one and only `<body>` node, return error if
 /// there is no app node or there are multiple app nodes
-pub fn get_html_node<'a>(root_nodes: &'a [XmlNodeChild]) -> Result<&'a XmlNode, DomXmlParseError> {
+pub fn get_html_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlParseError> {
     let mut html_node_iterator = root_nodes.iter().filter_map(|child| {
         if let XmlNodeChild::Element(node) = child {
             let node_type_normalized = normalize_casing(&node.node_type);
@@ -4883,7 +4880,7 @@ pub fn get_html_node<'a>(root_nodes: &'a [XmlNodeChild]) -> Result<&'a XmlNode, 
 
 /// Find the one and only `<body>` node, return error if
 /// there is no app node or there are multiple app nodes
-pub fn get_body_node<'a>(root_nodes: &'a [XmlNodeChild]) -> Result<&'a XmlNode, DomXmlParseError> {
+pub fn get_body_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlParseError> {
     // First try to find body as a direct child (proper HTML structure)
     let direct_body = root_nodes
         .iter()
@@ -4907,7 +4904,7 @@ pub fn get_body_node<'a>(root_nodes: &'a [XmlNodeChild]) -> Result<&'a XmlNode, 
 
     // If not found as direct child, search recursively (for malformed HTML like example.com)
     // where <body> might be nested inside <head> due to missing </head> tag
-    fn find_body_recursive<'a>(nodes: &'a [XmlNodeChild]) -> Option<&'a XmlNode> {
+    fn find_body_recursive(nodes: &[XmlNodeChild]) -> Option<&XmlNode> {
         for child in nodes {
             if let XmlNodeChild::Element(node) = child {
                 let node_type_normalized = normalize_casing(&node.node_type);
@@ -4954,7 +4951,7 @@ fn find_node_by_type<'a>(root_nodes: &'a [XmlNodeChild], node_type: &str) -> Opt
 pub fn find_attribute<'a>(node: &'a XmlNode, attribute: &str) -> Option<&'a AzString> {
     node.attributes
         .iter()
-        .find(|n| normalize_casing(&n.key.as_str()).as_str() == attribute)
+        .find(|n| normalize_casing(n.key.as_str()).as_str() == attribute)
         .map(|s| &s.value)
 }
 
@@ -5055,7 +5052,7 @@ fn str_to_dom_fast<'a>(
         }
     }
 
-    render_dom_from_body_node_fast(&body_node, global_style, component_map, max_width)
+    render_dom_from_body_node_fast(body_node, global_style, component_map, max_width)
         .map_err(|e| e.into())
 }
 
@@ -5087,8 +5084,8 @@ pub fn str_to_dom_unstyled<'a>(
     }
 
     // Build the DOM tree from the body node
-    let body_dom = xml_node_to_dom_fast(&body_node, component_map, false)
-        .map_err(|e| DomXmlParseError::from(e))?;
+    let body_dom = xml_node_to_dom_fast(body_node, component_map, false)
+        .map_err(DomXmlParseError::from)?;
 
     // Wrap in proper HTML structure
     use crate::dom::NodeType;
@@ -5120,7 +5117,7 @@ pub fn str_to_rust_code<'a>(
     imports: &str,
     component_map: &'a ComponentMap,
 ) -> Result<String, CompileError> {
-    let html_node = get_html_node(&root_nodes)?;
+    let html_node = get_html_node(root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
     let mut global_style = Css::empty();
 
@@ -5139,7 +5136,7 @@ pub fn str_to_rust_code<'a>(
     let mut css_blocks = BTreeMap::new();
     let mut extra_blocks = VecContents::default();
     let app_source = compile_body_node_to_rust_code(
-        &body_node,
+        body_node,
         component_map,
         &mut extra_blocks,
         &mut css_blocks,
@@ -5218,7 +5215,7 @@ fn compile_components(
     let cs = components
         .iter()
         .map(|(name, function_body, function_args, css_blocks)| {
-            let name = &normalize_casing(&name);
+            let name = &normalize_casing(name);
             let f = compile_component(name, function_args, function_body)
                 .lines()
                 .map(|l| format!("    {}", l))
@@ -5255,7 +5252,7 @@ fn format_component_args(component_args: &ComponentArgumentVec) -> String {
         .map(|a| format!("{}: {}", a.name, a.arg_type))
         .collect::<Vec<String>>();
 
-    args.sort_by(|a, b| b.cmp(&a));
+    args.sort_by(|a, b| b.cmp(a));
 
     args.join(", ")
 }
@@ -5265,7 +5262,7 @@ pub fn compile_component(
     component_args: &ComponentArguments,
     component_function_body: &str,
 ) -> String {
-    let component_name = &normalize_casing(&component_name);
+    let component_name = &normalize_casing(component_name);
     let function_args = format_component_args(&component_args.args);
     let component_function_body = component_function_body
         .lines()
@@ -5304,7 +5301,7 @@ fn parse_svg_points(pts: &str, close: bool) -> Option<crate::svg::SvgMultiPolygo
         .filter(|s| !s.is_empty())
         .filter_map(|s| s.parse::<f32>().ok())
         .collect();
-    if nums.len() < 4 || nums.len() % 2 != 0 {
+    if nums.len() < 4 || !nums.len().is_multiple_of(2) {
         return None;
     }
     let mut elements = Vec::new();
@@ -5524,7 +5521,7 @@ fn apply_xml_node_attributes(
                 if rx > 0.0 && ry > 0.0 {
                     // Approximate ellipse with 4 cubic beziers (using rx for x-kappa, ry for y-kappa)
                     use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
-                    const KAPPA: f32 = 0.5522847498;
+                    const KAPPA: f32 = 0.552_284_8;
                     let kx = rx * KAPPA;
                     let ky = ry * KAPPA;
                     let elements = vec![
@@ -5662,6 +5659,12 @@ pub struct CompactDomBuilder {
     css: Vec<crate::dom::CssWithNodeId>,
     /// Stack of (node_index, previous_child_index) for open elements
     stack: Vec<(usize, Option<usize>)>,
+}
+
+impl Default for CompactDomBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CompactDomBuilder {
@@ -5868,7 +5871,7 @@ fn set_stringified_attributes(
         dom_string.push_str(&format!(
             "\r\n{}.with_id(\"{}\")",
             t0,
-            format_args_dynamic(id, &filtered_xml_attributes)
+            format_args_dynamic(id, filtered_xml_attributes)
         ));
     }
 
@@ -5880,13 +5883,13 @@ fn set_stringified_attributes(
         dom_string.push_str(&format!(
             "\r\n{}.with_class(\"{}\")",
             t0,
-            format_args_dynamic(class, &filtered_xml_attributes)
+            format_args_dynamic(class, filtered_xml_attributes)
         ));
     }
 
     if let Some(focusable) = xml_attributes
         .get_key("focusable")
-        .map(|f| format_args_dynamic(f, &filtered_xml_attributes))
+        .map(|f| format_args_dynamic(f, filtered_xml_attributes))
         .and_then(|f| parse_bool(&f))
     {
         match focusable {
@@ -5900,7 +5903,7 @@ fn set_stringified_attributes(
 
     if let Some(tab_index) = xml_attributes
         .get_key("tabindex")
-        .map(|val| format_args_dynamic(val, &filtered_xml_attributes))
+        .map(|val| format_args_dynamic(val, filtered_xml_attributes))
         .and_then(|val| val.parse::<isize>().ok())
     {
         match tab_index {
@@ -6001,7 +6004,7 @@ pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
                         name: var_name,
                         format_spec,
                     });
-                    current_idx = current_idx + start_offset;
+                    current_idx += start_offset;
                     last_idx = current_idx;
                 } else {
                     current_idx += start_offset;
@@ -6050,7 +6053,7 @@ fn combine_and_replace_dynamic_items(
                 {
                     Some(resolved_var) => {
                         // Format specifiers are applied at compile time, not at runtime replacement
-                        s.push_str(&resolved_var);
+                        s.push_str(resolved_var);
                     }
                     None => {
                         s.push('{');
@@ -6064,7 +6067,7 @@ fn combine_and_replace_dynamic_items(
                 }
             }
             DynamicItem::Str(dynamic_str) => {
-                s.push_str(&dynamic_str);
+                s.push_str(dynamic_str);
             }
         }
     }
@@ -6259,7 +6262,7 @@ impl CssMatcher {
         }
 
         // only return true if all path_groups matched
-        return cur_pathgroup_scan == path_groups.len() - 1;
+        cur_pathgroup_scan == path_groups.len() - 1
     }
 }
 
@@ -6282,7 +6285,7 @@ fn group_matches(
             PseudoSelector(CssPathPseudoSelector::Focus) => {}
 
             Type(tag) => {
-                if !b.iter().any(|t| **t == Type(tag.clone())) {
+                if !b.iter().any(|t| **t == Type(*tag)) {
                     return false;
                 }
             }
@@ -6312,17 +6315,17 @@ fn group_matches(
                 }
             }
             PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Even)) => {
-                if idx_in_parent % 2 != 0 {
+                if !idx_in_parent.is_multiple_of(2) {
                     return false;
                 }
             }
             PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Odd)) => {
-                if idx_in_parent % 2 == 0 {
+                if idx_in_parent.is_multiple_of(2) {
                     return false;
                 }
             }
             PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Pattern(p))) => {
-                if idx_in_parent.saturating_sub(p.offset as usize) % p.pattern_repeat as usize != 0
+                if !idx_in_parent.saturating_sub(p.offset as usize).is_multiple_of(p.pattern_repeat as usize)
                 {
                     return false;
                 }
@@ -6405,7 +6408,7 @@ pub fn compile_body_node_to_rust_code<'a>(
     if !body_node.children.as_ref().is_empty() {
         use azul_css::codegen::format::GetHash;
         let children_hash = body_node.children.as_ref().get_hash();
-        dom_string.push_str(&format!("\r\n.with_children(vec![\r\n"));
+        dom_string.push_str("\r\n.with_children(vec![\r\n");
 
         for (child_idx, child) in body_node.children.as_ref().iter().enumerate() {
             match child {
@@ -6568,9 +6571,9 @@ fn format_args_for_rust_code(input: &str) -> String {
     compile_and_format_dynamic_items(&dynamic_str_items)
 }
 
-fn compile_node_to_rust_code_inner<'a>(
+fn compile_node_to_rust_code_inner(
     node: &XmlNode,
-    component_map: &'a ComponentMap,
+    component_map: &ComponentMap,
     tabs: usize,
     extra_blocks: &mut VecContents,
     css_blocks: &mut BTreeMap<String, String>,
@@ -6712,7 +6715,7 @@ fn compile_node_to_rust_code_inner<'a>(
             }
         })
         .collect::<Result<Vec<_>, _>>()?
-        .join(&format!(",\r\n"));
+        .join(",\r\n");
 
     if !children_string.is_empty() {
         dom_string.push_str(&format!(
@@ -6836,7 +6839,7 @@ fn camel_to_snake(s: &str) -> String {
     for (i, &ch) in chars.iter().enumerate() {
         if ch.is_ascii_uppercase() && i > 0 {
             let prev = chars[i - 1];
-            let next_lower = chars.get(i + 1).map_or(false, |n| n.is_ascii_lowercase());
+            let next_lower = chars.get(i + 1).is_some_and(|n| n.is_ascii_lowercase());
             if prev.is_ascii_lowercase()
                 || prev.is_ascii_digit()
                 || (prev.is_ascii_uppercase() && next_lower)
@@ -7222,10 +7225,10 @@ const PYTHON_SYNTAX: FluentSyntax = FluentSyntax {
 
 /// Walk one element node, emitting a fluent create-expression for `syntax`'s
 /// language. Mirrors `compile_node_to_rust_code_inner` but token-parameterized.
-fn compile_node_fluent<'a>(
+fn compile_node_fluent(
     node: &XmlNode,
     syntax: &FluentSyntax,
-    component_map: &'a ComponentMap,
+    component_map: &ComponentMap,
     css: &Css,
     mut matcher: CssMatcher,
 ) -> Result<String, CompileError> {
@@ -7360,10 +7363,10 @@ fn compile_body_fluent<'a>(
 
 /// Parse the page's `<style>` and seed a matcher rooted at `<body>`. Shared by
 /// the C++/Python/C entry points (mirrors the head of `str_to_rust_code`).
-fn parse_page_style_and_body<'a>(
-    root_nodes: &'a [XmlNodeChild],
-) -> Result<(Css, &'a XmlNode), CompileError> {
-    let html_node = get_html_node(&root_nodes)?;
+fn parse_page_style_and_body(
+    root_nodes: &[XmlNodeChild],
+) -> Result<(Css, &XmlNode), CompileError> {
+    let html_node = get_html_node(root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
     let mut global_style = Css::empty();
     if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
@@ -7453,9 +7456,9 @@ fn c_creator_suffix(tag_dbg: &str) -> String {
     }
 }
 
-fn compile_node_c<'a>(
+fn compile_node_c(
     node: &XmlNode,
-    component_map: &'a ComponentMap,
+    component_map: &ComponentMap,
     css: &Css,
     mut matcher: CssMatcher,
     counter: &mut usize,

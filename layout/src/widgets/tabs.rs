@@ -1456,7 +1456,7 @@ extern "C" fn on_tab_click(mut refany: RefAny, mut info: CallbackInfo) -> Update
 
             match onclick.as_mut() {
                 Some(TabOnClick { callback, refany }) => {
-                    (callback.cb)(refany.clone(), info.clone(), tab_header_state)
+                    (callback.cb)(refany.clone(), *info, tab_header_state)
                 }
                 None => Update::DoNothing,
             }

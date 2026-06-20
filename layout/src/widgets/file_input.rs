@@ -226,7 +226,7 @@ extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> 
     let inner = fileinputstatewrapper.inner.clone();
     let mut result = match fileinputstatewrapper.on_path_change.as_mut() {
         Some(FileInputOnPathChange { refany, callback }) => {
-            (callback.cb)(refany.clone(), info.clone(), inner)
+            (callback.cb)(refany.clone(), info, inner)
         }
         None => Update::RefreshDom,
     };

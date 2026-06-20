@@ -21,7 +21,7 @@ thread_local! {
     /// pass is single-threaded (`LayoutContext` holds non-`Sync` `RefCell` caches),
     /// so IDs stay deterministic and stable across frames while never colliding
     /// across concurrent passes.
-    static IFC_ID_COUNTER: Cell<u32> = Cell::new(0);
+    static IFC_ID_COUNTER: Cell<u32> = const { Cell::new(0) };
 }
 
 /// Unique identifier for an Inline Formatting Context (IFC).
@@ -690,6 +690,7 @@ pub struct LayoutNodeWarm {
 /// Stored in a separate `Vec`. These fields are rarely accessed during layout;
 /// mostly used during tree construction, reconciliation, and dirty tracking.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct LayoutNodeCold {
     /// Type of anonymous box (if applicable)
     pub anonymous_type: Option<AnonymousBoxType>,
@@ -705,18 +706,6 @@ pub struct LayoutNodeCold {
     pub ifc_id: Option<IfcId>,
 }
 
-impl Default for LayoutNodeCold {
-    fn default() -> Self {
-        Self {
-            anonymous_type: None,
-            node_data_fingerprint: NodeDataFingerprint::default(),
-            subtree_hash: SubtreeHash::default(),
-            dirty_flag: DirtyFlag::default(),
-            unresolved_box_props: Default::default(),
-            ifc_id: None,
-        }
-    }
-}
 
 impl LayoutNode {
     /// Split this full layout node into hot/warm/cold components.
@@ -1111,7 +1100,7 @@ pub fn generate_layout_tree<T: ParsedFontTrait>(
         .into_crate_internal()
         .unwrap_or(NodeId::ZERO);
     let root_index =
-        builder.process_node(ctx.styled_dom, root_id, None, &mut ctx.debug_messages)?;
+        builder.process_node(ctx.styled_dom, root_id, None, ctx.debug_messages)?;
     let mut layout_tree = builder.build(root_index);
 
     // Pre-compute the STF (shrink-to-fit) subtree bitmap. This is static-DOM
@@ -2013,9 +2002,9 @@ impl LayoutTreeBuilder {
         // before commit. Runs only in lifted wasm (server lifts, never runs natively).
         unsafe {
             let c = crate::az_mark_read(0x40500);
-            crate::az_mark((0x60500) as u32, (c.wrapping_add(1)) as u32);
+            crate::az_mark(0x60500_u32, (c.wrapping_add(1)));
             if (c as usize) < 14 {
-                crate::az_mark(((0x40504 + (c as usize) * 4)) as u32, (0xDD000000 | (dom_id.index() as u32 & 0xffff)) as u32);
+                crate::az_mark(((0x40504 + (c as usize) * 4)) as u32, ((0xDD000000 | (dom_id.index() as u32 & 0xffff))));
             }
         }
         index
@@ -2186,7 +2175,7 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
         .styled_nodes
         .as_container()
         .get(dom_id)
-        .map(|n| n.styled_node_state.clone())
+        .map(|n| n.styled_node_state)
         .unwrap_or_default();
 
     // Get display property

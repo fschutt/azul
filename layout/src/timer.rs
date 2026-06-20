@@ -81,7 +81,7 @@ impl From<TimerCallbackType> for TimerCallback {
 
 impl PartialEq for TimerCallback {
     fn eq(&self, other: &Self) -> bool {
-        self.cb as *const () as usize == other.cb as *const () as usize
+        std::ptr::eq(self.cb as *const (), other.cb as *const ())
     }
 }
 

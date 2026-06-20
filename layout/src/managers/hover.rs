@@ -312,6 +312,6 @@ fn remap_scrollbar_hit_id(
         ScrollbarHitId::HorizontalThumb(d, n) if *d == dom_id => {
             ScrollbarHitId::HorizontalThumb(*d, *node_id_map.get(n).unwrap_or(n))
         }
-        other => other.clone(),
+        other => *other,
     }
 }

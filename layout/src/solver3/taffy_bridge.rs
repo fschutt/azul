@@ -377,7 +377,7 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
         .styled_nodes
         .as_container()
         .get(dom_id)
-        .map(|s| s.styled_node_state.clone())
+        .map(|s| s.styled_node_state)
         .unwrap_or_default();
 
     // Compute padding + border from the node's box_props
@@ -407,13 +407,13 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
 
     let css_container_w = css_width
         .exact()
-        .and_then(|w| css_width_to_px(w))
+        .and_then(css_width_to_px)
         .unwrap_or(result_content_w)
         .max(0.0);
 
     let css_container_h = css_height
         .exact()
-        .and_then(|h| css_height_to_px(h))
+        .and_then(css_height_to_px)
         .unwrap_or(result_content_h)
         .max(0.0);
 
@@ -512,7 +512,7 @@ fn multi_value_to_lp(mv: MultiValue<PixelValue>) -> taffy::LengthPercentage {
                 pv.to_percent()
                     .map(|p| taffy::LengthPercentage::percent(p.get()))
             })
-            .unwrap_or_else(|| taffy::LengthPercentage::ZERO),
+            .unwrap_or(taffy::LengthPercentage::ZERO),
     }
 }
 
@@ -541,7 +541,7 @@ fn pixel_to_lp(pv: PixelValue) -> taffy::LengthPercentage {
             pv.to_percent()
                 .map(|p| taffy::LengthPercentage::percent(p.get()))
         })
-        .unwrap_or_else(|| taffy::LengthPercentage::ZERO)
+        .unwrap_or(taffy::LengthPercentage::ZERO)
 }
 
 /// Slow path for flex-basis: full property cache lookup + decode.
@@ -836,7 +836,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     None
                 }
             })
-            .map(|v| grid_template_rows_to_taffy(v).into())
+            .map(grid_template_rows_to_taffy)
             .unwrap_or_default();
 
         // Grid template columns - convert GridTemplate to Vec<GridTemplateComponent>
@@ -854,7 +854,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     None
                 }
             })
-            .map(|v| grid_template_columns_to_taffy(v).into())
+            .map(grid_template_columns_to_taffy)
             .unwrap_or_default();
 
         // Grid template areas - convert GridTemplateAreas to Vec<taffy::GridTemplateArea<String>>
@@ -885,7 +885,6 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                         column_end: a.column_end,
                     })
                     .collect::<Vec<_>>()
-                    .into()
             })
             .unwrap_or_default();
 
@@ -898,7 +897,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     None
                 }
             })
-            .map(|v| grid_auto_rows_to_taffy(v))
+            .map(grid_auto_rows_to_taffy)
             .unwrap_or_default();
 
         taffy_style.grid_auto_columns = cache
@@ -915,7 +914,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     None
                 }
             })
-            .map(|v| grid_auto_columns_to_taffy(v))
+            .map(grid_auto_columns_to_taffy)
             .unwrap_or_default();
 
         taffy_style.grid_auto_flow = if let Some(cc) = cache.compact_cache.as_ref() {
@@ -927,7 +926,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             cache
                 .get_property(node_data, &id, node_state, &CssPropertyType::GridAutoFlow)
                 .and_then(|p| if let CssProperty::GridAutoFlow(v) = p { Some(*v) } else { None })
-                .map(|v| grid_auto_flow_to_taffy(v))
+                .map(grid_auto_flow_to_taffy)
                 .unwrap_or_default()
         };
 
@@ -1002,7 +1001,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             cache
                 .get_property(node_data, &id, node_state, &CssPropertyType::JustifyItems)
                 .and_then(|p| if let CssProperty::JustifyItems(v) = p { Some(*v) } else { None })
-                .map(|v| layout_justify_items_to_taffy(v))
+                .map(layout_justify_items_to_taffy)
         };
         // COMPACT FAST PATH: justify-content is in tier1 bits 21-23.
         taffy_style.justify_content = if let Some(ref cc) = cache.compact_cache {
@@ -1023,7 +1022,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             cache
                 .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
                 .and_then(|p| if let CssProperty::JustifyContent(v) = p { Some(v) } else { None })
-                .map(|v| layout_justify_content_to_taffy(v.clone()))
+                .map(|v| layout_justify_content_to_taffy(*v))
         };
                 // CSS spec: default justify-content is "normal". Taffy handles
                 // this internally when justify_content is None.
@@ -1389,8 +1388,8 @@ impl<'a, 'b, T: ParsedFontTrait> TraversePartialTree for TaffyBridge<'a, 'b, T> 
 
     fn child_count(&self, node_id: taffy::NodeId) -> usize {
         let node_idx: usize = node_id.into();
-        let count = self.get_layout_children(node_idx).len();
-        count
+        
+        self.get_layout_children(node_idx).len()
     }
 
     fn get_child_id(&self, node_id: taffy::NodeId, index: usize) -> taffy::NodeId {
@@ -1620,7 +1619,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             .known_dimensions
             .width
             .map(|kw| (kw - node_padding_width - node_border_width).max(0.0))
-            .or_else(|| match inputs.available_space.width {
+            .or(match inputs.available_space.width {
                 AvailableSpace::Definite(w) => Some(w),
                 AvailableSpace::MinContent => None, // Use infinity, return intrinsic min-content
                 AvailableSpace::MaxContent => None, // Use infinity for max-content
@@ -1631,7 +1630,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             .known_dimensions
             .height
             .map(|kh| (kh - node_padding_height - node_border_height).max(0.0))
-            .or_else(|| match inputs.available_space.height {
+            .or(match inputs.available_space.height {
                 AvailableSpace::Definite(h) => Some(h),
                 AvailableSpace::MinContent => None, // Use infinity, return intrinsic min-content
                 AvailableSpace::MaxContent => None,
@@ -1804,7 +1803,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                                 self.ctx.styled_dom,
                                 Some(id),
                                 &constraints.containing_block_size,
-                                intrinsic.clone(),
+                                intrinsic,
                                 &bp,
                                 &self.ctx.viewport_size,
                             ) {

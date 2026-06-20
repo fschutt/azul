@@ -320,7 +320,7 @@ fn render_node(
         .with_children(DomVec::from_vec(vec![icon_or_spacer, label]));
 
     // Attach click callback if provided
-    if let Some(ref cb) = on_click.as_ref() {
+    if let Some(cb) = on_click.as_ref() {
         let cb_data = NodeClickData {
             node_index: current_index,
             on_node_click: Some(TreeViewOnNodeClick {
@@ -395,7 +395,7 @@ extern "C" fn on_tree_node_click(mut refany: RefAny, info: CallbackInfo) -> Upda
 
     match refany.on_node_click.as_mut() {
         Some(TreeViewOnNodeClick { refany, callback }) => {
-            (callback.cb)(refany.clone(), info.clone(), node_index)
+            (callback.cb)(refany.clone(), info, node_index)
         }
         None => Update::DoNothing,
     }

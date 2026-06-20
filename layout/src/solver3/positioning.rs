@@ -162,7 +162,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             // Same applies to flex containers (Flexbox §4.1).
             {
                 use azul_core::dom::FormattingContext;
-                let parent_is_flex_or_grid = node.parent.and_then(|p| tree.get(p)).map_or(false, |pn| {
+                let parent_is_flex_or_grid = node.parent.and_then(|p| tree.get(p)).is_some_and(|pn| {
                     matches!(pn.formatting_context, FormattingContext::Flex | FormattingContext::Grid)
                 });
                 if parent_is_flex_or_grid {
@@ -618,7 +618,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         && tree.children(node_index).iter().any(|&c| {
                             tree.get(c)
                                 .and_then(|cn| cn.used_size)
-                                .map_or(true, |s| s.height < 1.0)
+                                .is_none_or(|s| s.height < 1.0)
                         });
                     (used, inner, collapsed)
                 };

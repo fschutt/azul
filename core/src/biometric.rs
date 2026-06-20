@@ -25,8 +25,10 @@ use azul_css::AzString;
 /// per-attempt [`BiometricResult`] variants.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default)]
 pub enum BiometricKind {
     /// No usable biometric sensor (absent, unenrolled, or disabled).
+    #[default]
     NotAvailable,
     /// Fingerprint reader (Touch ID, Android fingerprint, Windows Hello
     /// fingerprint).
@@ -37,11 +39,6 @@ pub enum BiometricKind {
     Iris,
 }
 
-impl Default for BiometricKind {
-    fn default() -> Self {
-        BiometricKind::NotAvailable
-    }
-}
 
 impl BiometricKind {
     /// `true` for any real sensor — i.e. anything except `NotAvailable`.

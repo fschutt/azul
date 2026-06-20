@@ -59,6 +59,12 @@ pub struct A11yManager {
 }
 
 #[cfg(feature = "a11y")]
+impl Default for A11yManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl A11yManager {
     /// Creates a new `A11yManager` with an empty tree containing only a root window node.
     pub fn new() -> Self {
@@ -285,7 +291,7 @@ impl A11yManager {
                 if let Some(parent_id) = accessible_parent_id {
                     parent_children_map
                         .entry(parent_id)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(a11y_node_id);
                 } else {
                     root_children.push(a11y_node_id);
@@ -322,14 +328,14 @@ impl A11yManager {
             });
 
         // Create the tree update
-        let tree_update = TreeUpdate {
+        
+
+        TreeUpdate {
             nodes,
             tree: Some(Tree::new(root_id)),
             focus,
             tree_id: accesskit::TreeId::ROOT,
-        };
-
-        tree_update
+        }
     }
 
     /// Builds an accesskit Node from Azul's NodeData and layout information.

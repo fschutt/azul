@@ -146,7 +146,7 @@ extern "C" fn screencap_worker(_init: RefAny, mut sender: ThreadSender, _recv: T
     // Real platform capture if the dll registered a screen backend
     // (ScreenCaptureKit / X11 / DXGI; Wayland stays a dummy); else the test pattern.
     if let Some(backend) = screen_backend() {
-        let handle = (backend.open)(0, DEFAULT_W as u32, DEFAULT_H as u32);
+        let handle = (backend.open)(0, DEFAULT_W, DEFAULT_H);
         if handle != 0 {
             let mut buf: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
             loop {

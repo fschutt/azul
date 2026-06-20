@@ -48,12 +48,14 @@ use crate::{
 ///
 /// See the module-level documentation for the full description.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum RicingMode {
     /// `AZ_RICING=off` (or `disabled` / `none` / `0`). Skip the user
     /// CSS file *and* the riced-desktop sources. Vanilla detection.
     Off,
     /// Unset. Load the user CSS if present; standard detection chain
     /// (`KDE > GNOME > riced > defaults` on Linux).
+    #[default]
     Default,
     /// `AZ_RICING=force` (or `prefer` / `aggressive` / `1`). Reorder
     /// the Linux detection chain so riced-desktop sources win over
@@ -61,9 +63,6 @@ pub enum RicingMode {
     Force,
 }
 
-impl Default for RicingMode {
-    fn default() -> Self { RicingMode::Default }
-}
 
 /// Read the `AZ_RICING` env var and classify it. Case-insensitive.
 /// Anything we don't recognise falls through to `Default` so a typo

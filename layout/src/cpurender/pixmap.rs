@@ -113,7 +113,7 @@ pub(crate) fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
             data[start..start + stride].fill(0);
         }
     } else if dy < 0 {
-        let ady = (-dy) as i32;
+        let ady = -dy;
         // Shift up: copy from bottom to top
         for row in ady..h {
             let src_start = (row * w * 4) as usize;
@@ -647,7 +647,7 @@ fn agg_fill_transformed_path_clipped(
     if transform.is_identity(IDENTITY_EPSILON_F64) {
         agg_fill_path_clipped(pixmap, path, color, rule, clip);
     } else {
-        let mut transformed = ConvTransform::new(path, transform.clone());
+        let mut transformed = ConvTransform::new(path, *transform);
         agg_fill_path_clipped(pixmap, &mut transformed, color, rule, clip);
     }
 }

@@ -18,8 +18,10 @@ use crate::resources::RawImageFormat;
 /// What to capture.
 #[repr(C, u8)]
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default)]
 pub enum ScreenCaptureSource {
     /// The primary display (the default).
+    #[default]
     PrimaryDisplay,
     /// A specific display by index (0-based).
     Display(u32),
@@ -27,11 +29,6 @@ pub enum ScreenCaptureSource {
     Window(u64),
 }
 
-impl Default for ScreenCaptureSource {
-    fn default() -> Self {
-        ScreenCaptureSource::PrimaryDisplay
-    }
-}
 
 /// Requested screen-capture configuration — the input to the screencap
 /// widget. Zero `fps` means "let the backend pick its default".

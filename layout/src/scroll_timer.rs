@@ -312,16 +312,14 @@ pub extern "C" fn scroll_physics_timer_callback(
         node_physics.velocity.y *= decay;
 
         // At edges without rubber-banding: kill velocity
-        if !rubber_band_x {
-            if new_pos.x <= 0.0 || new_pos.x >= info.max_scroll_x {
+        if !rubber_band_x
+            && (new_pos.x <= 0.0 || new_pos.x >= info.max_scroll_x) {
                 node_physics.velocity.x = 0.0;
             }
-        }
-        if !rubber_band_y {
-            if new_pos.y <= 0.0 || new_pos.y >= info.max_scroll_y {
+        if !rubber_band_y
+            && (new_pos.y <= 0.0 || new_pos.y >= info.max_scroll_y) {
                 node_physics.velocity.y = 0.0;
             }
-        }
 
         // Check if rubber-banding spring-back is almost complete
         let new_overshoot_x = calculate_overshoot(new_pos.x, 0.0, info.max_scroll_x);

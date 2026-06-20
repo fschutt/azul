@@ -1943,12 +1943,14 @@ unsafe impl Send for NodeData {}
 // (e.g., using the Tab key).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum TabIndex {
     /// Automatic tab index, similar to simply setting `focusable = "true"` or `tabindex = 0`
     /// (both have the effect of making the element focusable).
     ///
     /// Sidenote: See https://www.w3.org/TR/html5/editing.html#sequential-focus-navigation-and-the-tabindex-attribute
     /// for interesting notes on tabindex and accessibility
+    #[default]
     Auto,
     /// Set the tab index in relation to its parent element. I.e. if you have a list of elements,
     /// the focusing order is restricted to the current parent.
@@ -1979,11 +1981,6 @@ impl TabIndex {
     }
 }
 
-impl Default for TabIndex {
-    fn default() -> Self {
-        TabIndex::Auto
-    }
-}
 
 /// Packed representation of tab index + contenteditable flag.
 ///
@@ -1998,15 +1995,11 @@ impl Default for TabIndex {
 ///   [27:0]   OverrideInParent value (max ~268 million)
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default)]
 pub struct NodeFlags {
     pub inner: u32,
 }
 
-impl Default for NodeFlags {
-    fn default() -> Self {
-        NodeFlags { inner: 0 }
-    }
-}
 
 impl NodeFlags {
     const CONTENTEDITABLE_BIT: u32 = 1 << 31;
@@ -2098,7 +2091,7 @@ impl Default for NodeData {
 impl fmt::Display for NodeData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let html_type = self.node_type.get_path();
-        let attributes_string = node_data_to_string(&self);
+        let attributes_string = node_data_to_string(self);
 
         match self.node_type.format() {
             Some(content) => write!(
@@ -3155,10 +3148,7 @@ impl NodeData {
     /// using the DOM hierarchy.
     pub fn get_accessible_label(&self) -> Option<&str> {
         for attr in self.attributes().as_ref() {
-            match attr {
-                AttributeType::AriaLabel(s) => return Some(s.as_str()),
-                _ => {}
-            }
+            if let AttributeType::AriaLabel(s) = attr { return Some(s.as_str()) }
         }
         for attr in self.attributes().as_ref() {
             match attr {
@@ -3200,9 +3190,9 @@ impl NodeData {
         self.extra.as_ref()?.virtual_view.as_ref()
     }
 
-    pub fn get_render_image_callback_node<'a>(
-        &'a mut self,
-    ) -> Option<(&'a mut CoreImageCallback, ImageRefHash)> {
+    pub fn get_render_image_callback_node(
+        &mut self,
+    ) -> Option<(&mut CoreImageCallback, ImageRefHash)> {
         match &mut self.node_type {
             NodeType::Image(ref mut img) => {
                 let hash = image_ref_get_hash(img.as_ref());
@@ -3219,8 +3209,8 @@ impl NodeData {
         node_state: &StyledNodeState,
     ) -> String {
         let html_type = self.node_type.get_path();
-        let attributes_string = node_data_to_string(&self);
-        let style = css_cache.get_computed_css_style_string(&self, node_id, node_state);
+        let attributes_string = node_data_to_string(self);
+        let style = css_cache.get_computed_css_style_string(self, node_id, node_state);
         format!(
             "<{} data-az-node-id=\"{}\" {} {style}>",
             html_type,
@@ -5956,7 +5946,7 @@ impl Dom {
                 .map(|s| s.fixup_children_estimated() + 1)
                 .sum();
         }
-        return self.estimated_total_children;
+        self.estimated_total_children
     }
 }
 
@@ -5965,9 +5955,8 @@ impl core::iter::FromIterator<Dom> for Dom {
         let mut estimated_total_children = 0;
         let children = iter
             .into_iter()
-            .map(|c| {
+            .inspect(|c| {
                 estimated_total_children += c.estimated_total_children + 1;
-                c
             })
             .collect::<Vec<Dom>>();
 

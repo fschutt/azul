@@ -144,6 +144,7 @@ fn parse_viewbox(node: &azul_core::xml::XmlNode) -> Option<(f64, f64, f64, f64)>
 /// Inherited SVG style (fill, stroke, stroke-width) that cascades from parent groups.
 #[cfg(all(feature = "std", feature = "xml"))]
 #[derive(Clone)]
+#[derive(Default)]
 struct SvgInheritedStyle {
     fill: Option<String>,   // None = not set (inherit default black)
     stroke: Option<String>, // None = not set (inherit default none)
@@ -151,15 +152,6 @@ struct SvgInheritedStyle {
 }
 
 #[cfg(all(feature = "std", feature = "xml"))]
-impl Default for SvgInheritedStyle {
-    fn default() -> Self {
-        Self {
-            fill: None,
-            stroke: None,
-            stroke_width: None,
-        }
-    }
-}
 
 #[cfg(all(feature = "std", feature = "xml"))]
 fn render_svg_group(
@@ -190,7 +182,7 @@ fn render_svg_group_with_style(
         tf.premultiply(parent_transform);
         tf
     } else {
-        parent_transform.clone()
+        *parent_transform
     };
 
     // Inherit style from this group's attributes
@@ -239,7 +231,7 @@ fn render_svg_group_with_style(
                     tf.premultiply(&group_transform);
                     tf
                 } else {
-                    group_transform.clone()
+                    group_transform
                 };
 
                 // Fill: element overrides group
@@ -283,7 +275,7 @@ fn render_svg_group_with_style(
                         _ => FillingRule::NonZero,
                     };
 
-                    let mut transformed = ConvTransform::new(&mut curved, elem_transform.clone());
+                    let mut transformed = ConvTransform::new(&mut curved, elem_transform);
                     agg_fill_path(pixmap, &mut transformed, &color, rule);
                 }
 
@@ -319,7 +311,7 @@ fn render_svg_group_with_style(
                     conv_stroke.set_line_join(LineJoin::Round);
 
                     let mut transformed =
-                        ConvTransform::new(&mut conv_stroke, elem_transform.clone());
+                        ConvTransform::new(&mut conv_stroke, elem_transform);
                     agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
                 }
             }
@@ -539,8 +531,7 @@ fn parse_svg_transform(s: &str) -> TransAffine {
 #[cfg(all(feature = "std", feature = "xml"))]
 fn parse_svg_color(s: &str) -> Option<Rgba8> {
     let s = s.trim();
-    if s.starts_with('#') {
-        let hex = &s[1..];
+    if let Some(hex) = s.strip_prefix('#') {
         return match hex.len() {
             6 => {
                 let r = u8::from_str_radix(&hex[0..2], 16).ok()?;

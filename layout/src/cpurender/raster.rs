@@ -502,7 +502,7 @@ pub(crate) enum MaskEntry {
 /// Extract and scale mask image data (R8) to target dimensions.
 fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Option<Vec<u8>> {
     let image_data = mask_image.get_data();
-    let (mask_bytes, src_w, src_h) = match &*image_data {
+    let (mask_bytes, src_w, src_h) = match image_data {
         DecodedImage::Raw((descriptor, data)) => {
             let w = descriptor.width as u32;
             let h = descriptor.height as u32;
@@ -828,19 +828,19 @@ impl CpuRenderState {
             // Scrollbar thumb transforms (vertical)
             for (node_id, key) in &cache.transform_keys {
                 if let Some(value) = cache.current_transform_values.get(node_id) {
-                    transforms.insert(key.id, value.clone());
+                    transforms.insert(key.id, *value);
                 }
             }
             // Scrollbar thumb transforms (horizontal)
             for (node_id, key) in &cache.h_transform_keys {
                 if let Some(value) = cache.h_current_transform_values.get(node_id) {
-                    transforms.insert(key.id, value.clone());
+                    transforms.insert(key.id, *value);
                 }
             }
             // CSS transforms
             for (node_id, key) in &cache.css_transform_keys {
                 if let Some(value) = cache.css_current_transform_values.get(node_id) {
-                    transforms.insert(key.id, value.clone());
+                    transforms.insert(key.id, *value);
                 }
             }
             // Scrollbar opacity (vertical)
@@ -2452,7 +2452,7 @@ fn render_image(
     }
 
     let image_data = image.get_data();
-    let (src_rgba, src_w, src_h) = match &*image_data {
+    let (src_rgba, src_w, src_h) = match image_data {
         DecodedImage::Raw((descriptor, data)) => {
             let w = descriptor.width as u32;
             let h = descriptor.height as u32;

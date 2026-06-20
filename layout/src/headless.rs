@@ -61,6 +61,12 @@ struct HitTestEntry {
     pointer_events_none: bool,
 }
 
+impl Default for CpuHitTester {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CpuHitTester {
     /// Create a new empty hit tester.
     pub fn new() -> Self {

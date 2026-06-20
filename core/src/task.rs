@@ -218,7 +218,7 @@ impl Instant {
                     #[cfg(feature = "std")]
                     {
                         let s: StdInstant = i.clone().into();
-                        let d: StdDuration = d.clone().into();
+                        let d: StdDuration = (*d).into();
                         let new: InstantPtr = (s + d).into();
                         Instant::System(new)
                     }
@@ -417,7 +417,7 @@ impl Ord for InstantPtr {
 #[cfg(feature = "std")]
 impl InstantPtr {
     fn get(&self) -> StdInstant {
-        (**self.ptr).clone()
+        (**self.ptr)
     }
 }
 
@@ -432,8 +432,8 @@ extern "C" fn std_instant_clone(ptr: *const InstantPtr) -> InstantPtr {
     let az_instant_ptr = unsafe { &*ptr };
     InstantPtr {
         ptr: ManuallyDrop::new((*az_instant_ptr.ptr).clone()),
-        clone_fn: az_instant_ptr.clone_fn.clone(),
-        destructor: az_instant_ptr.destructor.clone(),
+        clone_fn: az_instant_ptr.clone_fn,
+        destructor: az_instant_ptr.destructor,
         run_destructor: true,
     }
 }
@@ -502,7 +502,7 @@ impl core::fmt::Display for Duration {
         match self {
             #[cfg(feature = "std")]
             Duration::System(s) => {
-                let s: StdDuration = s.clone().into();
+                let s: StdDuration = (*s).into();
                 write!(f, "{:?}", s)
             }
             #[cfg(not(feature = "std"))]
@@ -561,8 +561,8 @@ impl Duration {
             (Duration::System(s), Duration::System(o)) => {
                 #[cfg(feature = "std")]
                 {
-                    let s: StdDuration = s.clone().into();
-                    let o: StdDuration = o.clone().into();
+                    let s: StdDuration = (*s).into();
+                    let o: StdDuration = (*o).into();
                     s > o
                 }
                 #[cfg(not(feature = "std"))]
@@ -586,8 +586,8 @@ impl Duration {
             (Duration::System(s), Duration::System(o)) => {
                 #[cfg(feature = "std")]
                 {
-                    let s: StdDuration = s.clone().into();
-                    let o: StdDuration = o.clone().into();
+                    let s: StdDuration = (*s).into();
+                    let o: StdDuration = (*o).into();
                     s < o
                 }
                 #[cfg(not(feature = "std"))]
@@ -841,7 +841,7 @@ impl core::hash::Hash for ThreadReceiverInner {
 #[cfg(feature = "std")]
 impl PartialEq for ThreadReceiverInner {
     fn eq(&self, other: &Self) -> bool {
-        (self.ptr.as_ref() as *const _ as usize) == (other.ptr.as_ref() as *const _ as usize)
+        std::ptr::eq(self.ptr.as_ref(), other.ptr.as_ref())
     }
 }
 

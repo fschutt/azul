@@ -1788,7 +1788,7 @@ extern "C" fn on_list_view_row_click(mut refany: RefAny, info: CallbackInfo) -> 
     };
     match data.on_row_click.as_ref() {
         Some(ListViewOnRowClick { refany: user_data, callback }) => {
-            (callback.cb)(user_data.clone(), info.clone(), data.state.clone(), data.row_index)
+            (callback.cb)(user_data.clone(), info, data.state.clone(), data.row_index)
         }
         None => Update::DoNothing,
     }
@@ -1802,7 +1802,7 @@ extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) 
     };
     match data.on_column_click.as_ref() {
         Some(ListViewOnColumnClick { refany: user_data, callback }) => {
-            (callback.cb)(user_data.clone(), info.clone(), data.state.clone(), data.col_index)
+            (callback.cb)(user_data.clone(), info, data.state.clone(), data.col_index)
         }
         None => Update::DoNothing,
     }

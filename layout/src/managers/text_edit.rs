@@ -25,6 +25,7 @@ pub const CURSOR_BLINK_INTERVAL_MS: u64 = 530;
 /// Extracted from the old `CursorManager` so it can live independently
 /// on `TextEditManager` without coupling to cursor position.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct BlinkState {
     /// Whether the cursor is currently visible (toggled by blink timer)
     pub is_visible: bool,
@@ -35,15 +36,6 @@ pub struct BlinkState {
     pub blink_timer_active: bool,
 }
 
-impl Default for BlinkState {
-    fn default() -> Self {
-        Self {
-            is_visible: false,
-            last_input_time: None,
-            blink_timer_active: false,
-        }
-    }
-}
 
 impl BlinkState {
     pub fn new() -> Self { Self::default() }

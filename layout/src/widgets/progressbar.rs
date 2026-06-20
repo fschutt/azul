@@ -254,7 +254,7 @@ impl ProgressBar {
             .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
                 // .__azul-native-progress-bar-container
                 CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
-                    LayoutHeight::Px(self.height.clone()),
+                    LayoutHeight::Px(self.height),
                 ))),
                 CssPropertyWithConditions::simple(CssProperty::FlexDirection(
                     LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),

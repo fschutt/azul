@@ -282,7 +282,9 @@ impl DropDown {
             &[Class(AzString::from_const_str("__azul-native-dropdown"))];
 
         // Wrapper: focusable trigger that opens popup on focus
-        let wrapper = Dom::create_div()
+        
+
+        Dom::create_div()
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_WRAPPER_STYLE))
             .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
             .with_tab_index(TabIndex::Auto)
@@ -307,9 +309,7 @@ impl DropDown {
                 // Arrow icon (resolved via Material Icons)
                 Dom::create_icon(AzString::from_const_str("arrow_drop_down"))
                     .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_ARROW_ICON_STYLE)),
-            ]));
-
-        wrapper
+            ]))
     }
 }
 
@@ -367,7 +367,7 @@ extern "C" fn on_choice_selected(mut refany: RefAny, info: CallbackInfo) -> Upda
 
     match refany.on_choice_change.as_mut() {
         Some(DropDownOnChoiceChange { refany, callback }) => {
-            (callback.cb)(refany.clone(), info.clone(), choice_id)
+            (callback.cb)(refany.clone(), info, choice_id)
         }
         None => Update::DoNothing,
     }

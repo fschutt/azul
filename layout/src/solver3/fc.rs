@@ -165,6 +165,12 @@ pub struct BfcState {
     pub margins: MarginCollapseContext,
 }
 
+impl Default for BfcState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BfcState {
     pub fn new() -> Self {
         Self {
@@ -1028,7 +1034,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 .styled_nodes
                 .as_container()
                 .get(dom_id)
-                .map(|s| s.styled_node_state.clone())
+                .map(|s| s.styled_node_state)
                 .unwrap_or_default();
             let overflow_y =
                 crate::solver3::getters::get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
@@ -1806,7 +1812,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
             let cbp = child_node.box_props.unpack();
             (
-                cbp.margin.clone(),
+                cbp.margin,
                 cbp.margin_auto,
                 child_node.used_size.unwrap_or_default(),
                 child_node.formatting_context == FormattingContext::Inline,
@@ -1917,10 +1923,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                 // in RTL, margin-left is ignored (element positioned from right edge)
                 let is_rtl = tree.get(node_index)
                     .and_then(|n| n.dom_node_id)
-                    .map_or(false, |cb_dom_id| {
+                    .is_some_and(|cb_dom_id| {
                         let node_state = ctx.styled_dom.styled_nodes.as_container()
                             .get(cb_dom_id)
-                            .map(|s| s.styled_node_state.clone())
+                            .map(|s| s.styled_node_state)
                             .unwrap_or_default();
                         matches!(
                             get_direction_property(ctx.styled_dom, cb_dom_id, &node_state),
@@ -2469,7 +2475,7 @@ fn layout_ifc<T: ParsedFontTrait>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
-    unsafe { crate::az_mark((0x60704) as u32, (0x20u32) as u32); }
+    unsafe { crate::az_mark(0x60704_u32, (0x20u32)); }
     // [g147 az-web-lift DIAG] CALLER-side tree validity at layout_ifc entry, indexed by node_index
     // (0x60900+ = nodes.len, 0x60920+ = tree ptr) to dodge marker-overwrite across multiple IFCs.
     // Compare vs _impl's CALLEE-side (0x60940+/0x60960+): ptr differs ⇒ &mut tree mis-passes across
@@ -3178,7 +3184,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     styled_dom: &StyledDom,
     dom_id: NodeId,
 ) -> UnifiedConstraints {
-    unsafe { crate::az_mark((0x60704) as u32, (0x30u32) as u32); }
+    unsafe { crate::az_mark(0x60704_u32, (0x30u32)); }
     // DOM-level declared flags: if a bit is clear, no node in this DOM
     // declared the corresponding property → cascade walks always return
     // None, and we use the default value directly. All flags default to
@@ -3853,7 +3859,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .ptr
             .get_exclusion_margin(node_data, &id, node_state)
             .and_then(|s| s.get_property())
-            .map(|em| em.inner.get() as f32)
+            .map(|em| em.inner.get())
             .unwrap_or(0.0)
     } else {
         0.0
@@ -3865,7 +3871,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .ptr
             .get_shape_margin(node_data, &id, node_state)
             .and_then(|s| s.get_property())
-            .map(|sm| sm.inner.number.get() as f32)
+            .map(|sm| sm.inner.number.get())
             .unwrap_or(0.0)
     } else {
         0.0
@@ -4281,7 +4287,7 @@ fn get_border_info<T: ParsedFontTrait>(
     };
 
     let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
+    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let cache = &ctx.styled_dom.css_property_cache.ptr;
 
     // FAST PATH: compact cache for normal state
@@ -4480,7 +4486,7 @@ fn get_table_layout_property<T: ParsedFontTrait>(
     };
 
     let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
+    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
     ctx.styled_dom
         .css_property_cache
@@ -4505,7 +4511,7 @@ fn get_border_collapse_property<T: ParsedFontTrait>(
     }
 
     let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
+    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
     ctx.styled_dom
         .css_property_cache
@@ -4539,7 +4545,7 @@ fn get_border_spacing_property<T: ParsedFontTrait>(
         }
 
         let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-        let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
+        let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
         if let Some(prop) = ctx.styled_dom.css_property_cache.ptr.get_border_spacing(
             node_data,
@@ -4566,7 +4572,7 @@ fn get_empty_cells_property<T: ParsedFontTrait>(
     };
 
     let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
+    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
     ctx.styled_dom
         .css_property_cache
@@ -4590,7 +4596,7 @@ fn get_caption_side_property<T: ParsedFontTrait>(
 ) -> StyleCaptionSide {
     if let Some(dom_id) = node.dom_node_id {
         let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-        let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
+        let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
         if let Some(prop) =
             ctx.styled_dom
@@ -4627,7 +4633,7 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
     node: &LayoutNodeHot,
 ) -> bool {
     if let Some(dom_id) = node.dom_node_id {
-        let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
+        let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
         if let MultiValue::Exact(value) = get_visibility(ctx.styled_dom, dom_id, &node_state) {
             return matches!(value, StyleVisibility::Collapse);
@@ -5304,7 +5310,7 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
         };
 
         let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-        let css_width = get_css_width(ctx.styled_dom, dom_id, &node_state);
+        let css_width = get_css_width(ctx.styled_dom, dom_id, node_state);
 
         let explicit_px = match css_width.unwrap_or_default() {
             LayoutWidth::Px(px) => {
@@ -6424,7 +6430,7 @@ fn position_table_cells<T: ParsedFontTrait>(
 
                 // Get vertical-align property from styled_dom
                 let vertical_align = if let Some(dom_id) = cell_dom_node_id {
-                    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state.clone();
+                    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
                     match get_vertical_align_property(ctx.styled_dom, dom_id, &node_state) {
                         MultiValue::Exact(v) => v,
@@ -6753,7 +6759,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 // We must determine its size and baseline before passing it to text3.
 
                 // The intrinsic sizing pass has already calculated its preferred size.
-                let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes.clone()).unwrap_or_default();
+                let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
                 let box_props = child_node.box_props.unpack();
 
                 let styled_node_state = ctx
@@ -6761,7 +6767,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     .styled_nodes
                     .as_container()
                     .get(dom_id)
-                    .map(|n| n.styled_node_state.clone())
+                    .map(|n| n.styled_node_state)
                     .unwrap_or_default();
 
                 // Calculate tentative border-box size based on CSS properties
@@ -7202,7 +7208,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // We must determine its size and baseline before passing it to text3.
 
             // The intrinsic sizing pass has already calculated its preferred size.
-            let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes.clone()).unwrap_or_default();
+            let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
             let box_props = child_node.box_props.unpack();
 
             let styled_node_state = ctx
@@ -7210,7 +7216,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 .styled_nodes
                 .as_container()
                 .get(dom_id)
-                .map(|n| n.styled_node_state.clone())
+                .map(|n| n.styled_node_state)
                 .unwrap_or_default();
 
             // Calculate tentative border-box size based on CSS properties
@@ -7403,7 +7409,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
             // Get intrinsic size from the image data or fall back to layout node
             let intrinsic_size = tree.warm(child_index)
-                .and_then(|w| w.intrinsic_sizes.clone())
+                .and_then(|w| w.intrinsic_sizes)
                 .unwrap_or(IntrinsicSizes {
                     max_content_width: 50.0,
                     max_content_height: 50.0,
@@ -7416,7 +7422,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 .styled_nodes
                 .as_container()
                 .get(dom_id)
-                .map(|n| n.styled_node_state.clone())
+                .map(|n| n.styled_node_state)
                 .unwrap_or_default();
             
             // Calculate the used size respecting CSS width/height constraints
@@ -7424,7 +7430,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 ctx.styled_dom,
                 Some(dom_id),
                 &constraints.containing_block_size,
-                intrinsic_size.clone(),
+                intrinsic_size,
                 &box_props,
                 &ctx.viewport_size,
             )?;
@@ -7557,32 +7563,32 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
         let font_size = get_element_font_size(ctx.styled_dom, span_dom_id, node_state);
 
         let line_height_value = crate::solver3::getters::get_line_height_value(
-            ctx.styled_dom, span_dom_id, &node_state
+            ctx.styled_dom, span_dom_id, node_state
         );
         let line_height = line_height_value
             .map(|v| text3::cache::LineHeight::Px(v.inner.normalized() * font_size))
             .unwrap_or(text3::cache::LineHeight::Normal);
 
         let cb_width = constraints.containing_block_size.main(constraints.writing_mode);
-        let padding_top = crate::solver3::getters::get_css_padding_top(ctx.styled_dom, span_dom_id, &node_state)
+        let padding_top = crate::solver3::getters::get_css_padding_top(ctx.styled_dom, span_dom_id, node_state)
             .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-        let padding_bottom = crate::solver3::getters::get_css_padding_bottom(ctx.styled_dom, span_dom_id, &node_state)
+        let padding_bottom = crate::solver3::getters::get_css_padding_bottom(ctx.styled_dom, span_dom_id, node_state)
             .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-        let padding_left = crate::solver3::getters::get_css_padding_left(ctx.styled_dom, span_dom_id, &node_state)
+        let padding_left = crate::solver3::getters::get_css_padding_left(ctx.styled_dom, span_dom_id, node_state)
             .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-        let padding_right = crate::solver3::getters::get_css_padding_right(ctx.styled_dom, span_dom_id, &node_state)
+        let padding_right = crate::solver3::getters::get_css_padding_right(ctx.styled_dom, span_dom_id, node_state)
             .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-        let border_top = crate::solver3::getters::get_css_border_top_width(ctx.styled_dom, span_dom_id, &node_state)
+        let border_top = crate::solver3::getters::get_css_border_top_width(ctx.styled_dom, span_dom_id, node_state)
             .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-        let border_bottom = crate::solver3::getters::get_css_border_bottom_width(ctx.styled_dom, span_dom_id, &node_state)
+        let border_bottom = crate::solver3::getters::get_css_border_bottom_width(ctx.styled_dom, span_dom_id, node_state)
             .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-        let border_left = crate::solver3::getters::get_css_border_left_width(ctx.styled_dom, span_dom_id, &node_state)
+        let border_left = crate::solver3::getters::get_css_border_left_width(ctx.styled_dom, span_dom_id, node_state)
             .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-        let border_right = crate::solver3::getters::get_css_border_right_width(ctx.styled_dom, span_dom_id, &node_state)
+        let border_right = crate::solver3::getters::get_css_border_right_width(ctx.styled_dom, span_dom_id, node_state)
             .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-        let margin_left = crate::solver3::getters::get_css_margin_left(ctx.styled_dom, span_dom_id, &node_state)
+        let margin_left = crate::solver3::getters::get_css_margin_left(ctx.styled_dom, span_dom_id, node_state)
             .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-        let margin_right = crate::solver3::getters::get_css_margin_right(ctx.styled_dom, span_dom_id, &node_state)
+        let margin_right = crate::solver3::getters::get_css_margin_right(ctx.styled_dom, span_dom_id, node_state)
             .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
 
         let resolved_line_height = line_height.resolve(font_size, 0.0, 0.0, 0.0, 0);
@@ -7676,7 +7682,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 };
 
                 let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-                let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes.clone()).unwrap_or_default();
+                let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
                 let width = intrinsic_size.max_content_width;
 
                 let styled_node_state = ctx
@@ -7684,7 +7690,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     .styled_nodes
                     .as_container()
                     .get(child_dom_id)
-                    .map(|n| n.styled_node_state.clone())
+                    .map(|n| n.styled_node_state)
                     .unwrap_or_default();
                 let writing_mode =
                     get_writing_mode(ctx.styled_dom, child_dom_id, &styled_node_state)
@@ -7934,16 +7940,14 @@ pub fn check_scrollbar_necessity(
     // A full solution involves a loop, but this two-pass check handles most cases.
     // Only relevant when scrollbars reserve layout space (non-overlay).
     if scrollbar_width_px > 0.0 {
-        if needs_vertical && !needs_horizontal && overflow_x == OverflowBehavior::Auto {
-            if content_size.width > (container_size.width - scrollbar_width_px) + EPSILON {
+        if needs_vertical && !needs_horizontal && overflow_x == OverflowBehavior::Auto
+            && content_size.width > (container_size.width - scrollbar_width_px) + EPSILON {
                 needs_horizontal = true;
             }
-        }
-        if needs_horizontal && !needs_vertical && overflow_y == OverflowBehavior::Auto {
-            if content_size.height > (container_size.height - scrollbar_width_px) + EPSILON {
+        if needs_horizontal && !needs_vertical && overflow_y == OverflowBehavior::Auto
+            && content_size.height > (container_size.height - scrollbar_width_px) + EPSILON {
                 needs_vertical = true;
             }
-        }
     }
 
     ScrollbarRequirements {
@@ -8519,7 +8523,7 @@ pub fn split_text_for_whitespace(
     // Strip bidi control characters before white-space processing so they don't
     // interfere with collapsing (e.g. a bidi mark between two spaces).
     let text_owned;
-    let text: &str = if text.chars().any(|c| is_bidi_control(c)) {
+    let text: &str = if text.chars().any(is_bidi_control) {
         text_owned = text.chars().filter(|c| !is_bidi_control(*c)).collect::<String>();
         &text_owned
     } else {
@@ -8536,7 +8540,7 @@ pub fn split_text_for_whitespace(
         let styled_nodes = styled_dom.styled_nodes.as_container();
         let parent_state = styled_nodes
             .get(parent)
-            .map(|n| n.styled_node_state.clone())
+            .map(|n| n.styled_node_state)
             .unwrap_or_default();
         
         match get_white_space_property(styled_dom, parent, &parent_state) {
@@ -8669,8 +8673,8 @@ pub fn split_text_for_whitespace(
                     " ".to_string()
                 } else if !collapsed.is_empty() {
                     // Check if original had leading/trailing document whitespace
-                    let had_leading = segment.chars().next().map(|c| is_css_document_whitespace(c)).unwrap_or(false);
-                    let had_trailing = segment.chars().last().map(|c| is_css_document_whitespace(c)).unwrap_or(false);
+                    let had_leading = segment.chars().next().map(is_css_document_whitespace).unwrap_or(false);
+                    let had_trailing = segment.chars().last().map(is_css_document_whitespace).unwrap_or(false);
 
                     let mut r = String::new();
                     if had_leading { r.push(' '); }

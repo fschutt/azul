@@ -131,7 +131,7 @@ impl PageInfo {
             total_pages,
             is_first: page_number == 1,
             is_last: total_pages > 0 && page_number == total_pages,
-            is_left: page_number % 2 == 0, // Even pages are left (verso)
+            is_left: page_number.is_multiple_of(2), // Even pages are left (verso)
             is_right: page_number % 2 == 1, // Odd pages are right (recto)
             is_blank: false,
         }

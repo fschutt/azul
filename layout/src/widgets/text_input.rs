@@ -1007,7 +1007,7 @@ extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackIn
 
     match onfocuslost.as_mut() {
         Some(TextInputOnFocusLost { callback, refany }) => {
-            (callback.cb)(refany.clone(), info.clone(), inner)
+            (callback.cb)(refany.clone(), info, inner)
         }
         None => Update::DoNothing,
     }
@@ -1049,7 +1049,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
         match ontextinput.as_mut() {
             Some(TextInputOnTextInput { callback, refany }) => {
-                (callback.cb)(refany.clone(), info.clone(), inner_clone)
+                (callback.cb)(refany.clone(), info, inner_clone)
             }
             None => OnTextInputReturn {
                 update: Update::DoNothing,

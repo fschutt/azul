@@ -998,7 +998,7 @@ pub fn scroll_fast_path_eligible(
     // show through, so the shift is always safe.
     let content_opaque: Vec<LogicalRect> = display_list.items[start + 1..end]
         .iter()
-        .filter_map(|it| opaque_fill_rect(it))
+        .filter_map(opaque_fill_rect)
         .map(|r| LogicalRect {
             origin: LogicalPosition {
                 x: r.origin.x - scroll_offset.0,

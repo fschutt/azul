@@ -547,7 +547,7 @@ impl ScrollManager {
         let hit_test = hover_manager.get_current(input_point_id)?;
 
         for (dom_id, hit_node) in &hit_test.hovered_nodes {
-            for (node_id, _scroll_item) in &hit_node.scroll_hit_test_nodes {
+            for node_id in hit_node.scroll_hit_test_nodes.keys() {
                 let scrollable = self.is_node_scrollable(*dom_id, *node_id);
                 if !scrollable {
                     continue;
@@ -637,7 +637,7 @@ impl ScrollManager {
     /// overflow check, so VirtualView nodes with large virtual content are correctly
     /// identified as scrollable even when only a small subset is rendered.
     fn is_node_scrollable(&self, dom_id: DomId, node_id: NodeId) -> bool {
-        let result = self.states.get(&(dom_id, node_id)).map_or(false, |state| {
+        let result = self.states.get(&(dom_id, node_id)).is_some_and(|state| {
             let effective_width = state.virtual_scroll_size
                 .map(|s| s.width)
                 .unwrap_or(state.content_rect.size.width);
@@ -1248,7 +1248,7 @@ impl ScrollManager {
         // Remap scrollbar_states
         let scrollbar_states_to_remap: Vec<_> = self.scrollbar_states.keys()
             .filter(|(d, node_id, _)| {
-                *d == dom_id && node_id_map.get(node_id).map_or(false, |new_id| new_id != node_id)
+                *d == dom_id && node_id_map.get(node_id).is_some_and(|new_id| new_id != node_id)
             })
             .cloned()
             .collect();

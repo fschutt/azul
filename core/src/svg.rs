@@ -101,9 +101,7 @@ impl SvgLine {
 
     /// Reverses the direction of the line by swapping start and end points.
     pub fn reverse(&mut self) {
-        let temp = self.start;
-        self.start = self.end;
-        self.end = temp;
+        std::mem::swap(&mut self.start, &mut self.end);
     }
     /// Returns the start point of the line.
     pub fn get_start(&self) -> SvgPoint {
@@ -420,7 +418,7 @@ impl SvgPath {
     }
     /// Returns the axis-aligned bounding rectangle of the entire path.
     pub fn get_bounds(&self) -> SvgRect {
-        let mut first_bounds = match self.items.as_ref().get(0) {
+        let mut first_bounds = match self.items.as_ref().first() {
             Some(s) => s.get_bounds(),
             None => return SvgRect::default(),
         };
@@ -537,9 +535,9 @@ impl SvgSimpleNode {
         match self {
             SvgSimpleNode::Path(a) => a.get_bounds(),
             SvgSimpleNode::Circle(a) => a.get_bounds(),
-            SvgSimpleNode::Rect(a) => a.clone(),
+            SvgSimpleNode::Rect(a) => *a,
             SvgSimpleNode::CircleHole(a) => a.get_bounds(),
-            SvgSimpleNode::RectHole(a) => a.clone(),
+            SvgSimpleNode::RectHole(a) => *a,
         }
     }
     /// Returns `true` if this node represents a closed shape.
@@ -585,7 +583,7 @@ impl SvgNode {
             }
             SvgNode::Path(a) => a.get_bounds(),
             SvgNode::Circle(a) => a.get_bounds(),
-            SvgNode::Rect(a) => a.clone(),
+            SvgNode::Rect(a) => *a,
         }
     }
     /// Returns `true` if all sub-paths in this node are closed.
@@ -807,7 +805,7 @@ impl Clone for TessellatedSvgNodeVecRef {
 }
 
 impl TessellatedSvgNodeVecRef {
-    pub fn as_slice<'a>(&'a self) -> &'a [TessellatedSvgNode] {
+    pub fn as_slice(&self) -> &[TessellatedSvgNode] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -884,7 +882,7 @@ impl Clone for TessellatedColoredSvgNodeVecRef {
 }
 
 impl TessellatedColoredSvgNodeVecRef {
-    pub fn as_slice<'a>(&'a self) -> &'a [TessellatedColoredSvgNode] {
+    pub fn as_slice(&self) -> &[TessellatedColoredSvgNode] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -1076,16 +1074,13 @@ impl SvgStyle {
 /// SVG fill rule for determining the interior of a shape.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
+#[derive(Default)]
 pub enum SvgFillRule {
+    #[default]
     Winding,
     EvenOdd,
 }
 
-impl Default for SvgFillRule {
-    fn default() -> Self {
-        SvgFillRule::Winding
-    }
-}
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -1227,33 +1222,27 @@ impl_option!(
 /// The shape used at the end of open sub-paths when they are stroked.
 #[derive(Debug, Copy, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(C)]
+#[derive(Default)]
 pub enum SvgLineCap {
+    #[default]
     Butt,
     Square,
     Round,
 }
 
-impl Default for SvgLineCap {
-    fn default() -> Self {
-        SvgLineCap::Butt
-    }
-}
 
 /// The shape used at the corners of stroked paths.
 #[derive(Debug, Copy, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(C)]
+#[derive(Default)]
 pub enum SvgLineJoin {
+    #[default]
     Miter,
     MiterClip,
     Round,
     Bevel,
 }
 
-impl Default for SvgLineJoin {
-    fn default() -> Self {
-        SvgLineJoin::Miter
-    }
-}
 
 pub use core::ffi::c_void;
 
@@ -1327,18 +1316,15 @@ pub struct SvgRenderTransform {
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum SvgFitTo {
+    #[default]
     Original,
     Width(u32),
     Height(u32),
     Zoom(f32),
 }
 
-impl Default for SvgFitTo {
-    fn default() -> Self {
-        SvgFitTo::Original
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]

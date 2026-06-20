@@ -271,9 +271,7 @@ impl GpuValueCache {
                         let raw = cc.get_opacity_raw(node_id.index());
                         compact_opacity = if raw == azul_css::compact_cache::OPACITY_SENTINEL {
                             // unset → default (1.0) — bail out unless we had a prior opacity key
-                            if self.current_opacity_values.get(&node_id).is_none() {
-                                return None;
-                            }
+                            self.current_opacity_values.get(&node_id)?;
                             None
                         } else {
                             Some((raw as f32) / 254.0)
@@ -390,12 +388,9 @@ impl GpuEventChanges {
     ///
     /// This is useful for combining changes from multiple sources.
     pub fn merge(&mut self, other: &mut Self) {
-        self.transform_key_changes
-            .extend(other.transform_key_changes.drain(..));
-        self.opacity_key_changes
-            .extend(other.opacity_key_changes.drain(..));
-        self.scrollbar_opacity_changes
-            .extend(other.scrollbar_opacity_changes.drain(..));
+        self.transform_key_changes.append(&mut other.transform_key_changes);
+        self.opacity_key_changes.append(&mut other.opacity_key_changes);
+        self.scrollbar_opacity_changes.append(&mut other.scrollbar_opacity_changes);
     }
 }
 

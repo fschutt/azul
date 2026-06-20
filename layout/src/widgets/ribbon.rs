@@ -301,7 +301,7 @@ extern "C" fn on_ribbon_tab_click(mut refany: RefAny, info: CallbackInfo) -> Upd
     let idx = data.tab_idx;
     match data.on_tab_click.as_mut() {
         Some(RibbonOnTabClick { refany, callback }) => {
-            (callback.cb)(refany.clone(), info.clone(), idx)
+            (callback.cb)(refany.clone(), info, idx)
         }
         None => Update::DoNothing,
     }

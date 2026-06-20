@@ -1630,8 +1630,10 @@ impl Default for CssAttributeSelector {
 /// Operator that compares an attribute value against a target string.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
+#[derive(Default)]
 pub enum AttributeMatchOp {
     /// `[attr]` — attribute is present (any value).
+    #[default]
     Exists,
     /// `[attr="value"]` — attribute equals value exactly.
     Eq,
@@ -1647,11 +1649,6 @@ pub enum AttributeMatchOp {
     Substring,
 }
 
-impl Default for AttributeMatchOp {
-    fn default() -> Self {
-        AttributeMatchOp::Exists
-    }
-}
 
 impl_option!(
     CssPathSelector,

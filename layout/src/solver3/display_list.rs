@@ -345,8 +345,8 @@ impl DisplayList {
                 source_node_index: Some(src_idx),
                 ..
             } = item {
-                if *src_idx == node_index {
-                    if run_idx < new_glyphs_by_run.len() {
+                if *src_idx == node_index
+                    && run_idx < new_glyphs_by_run.len() {
                         *glyphs = new_glyphs_by_run[run_idx].clone();
                         let bounds = *clip_rect.inner();
                         damage = Some(match damage {
@@ -369,7 +369,6 @@ impl DisplayList {
                         });
                         run_idx += 1;
                     }
-                }
             }
         }
 
@@ -918,7 +917,7 @@ impl DisplayListItem {
             (Self::Image { bounds: b1, image: i1, border_radius: br1 },
              Self::Image { bounds: b2, image: i2, border_radius: br2 }) => {
                 b1 == b2
-                    && i1.data as usize == i2.data as usize // pointer identity
+                    && std::ptr::eq(i1.data, i2.data) // pointer identity
                     && br1.top_left == br2.top_left && br1.top_right == br2.top_right
                     && br1.bottom_left == br2.bottom_left && br1.bottom_right == br2.bottom_right
             }
@@ -1870,7 +1869,7 @@ where
             .styled_nodes
             .as_container()
             .get(dom_id)
-            .map(|n| n.styled_node_state.clone())
+            .map(|n| n.styled_node_state)
             .unwrap_or_default()
     }
 
@@ -3344,14 +3343,12 @@ where
                 super::getters::get_box_shadow_right(self.ctx.styled_dom, dom_id, node_state),
                 super::getters::get_box_shadow_top(self.ctx.styled_dom, dom_id, node_state),
                 super::getters::get_box_shadow_bottom(self.ctx.styled_dom, dom_id, node_state),
-            ] {
-                if let Some(shadow) = shadow {
-                    builder.push_item(DisplayListItem::BoxShadow {
-                        bounds: paint_rect.into(),
-                        shadow,
-                        border_radius: simple_border_radius,
-                    });
-                }
+            ].into_iter().flatten() {
+                builder.push_item(DisplayListItem::BoxShadow {
+                    bounds: paint_rect.into(),
+                    shadow,
+                    border_radius: simple_border_radius,
+                });
             }
 
             // Use unified background/border painting
@@ -3687,7 +3684,7 @@ where
                 {
                     if let Some(shadow) = shadow_val.get_property() {
                         builder.push_item(DisplayListItem::PushTextShadow {
-                            shadow: (**shadow).clone(),
+                            shadow: (**shadow),
                         });
                         pushed_text_shadow = true;
                     }
@@ -3925,7 +3922,7 @@ where
                             .get(&(self.dom_id, nid))
                             .copied()
                     })
-                    .unwrap_or_else(|| OpacityKey::unique())
+                    .unwrap_or_else(OpacityKey::unique)
             });
 
             // Vertical scrollbar: use shared geometry computation
@@ -3960,7 +3957,7 @@ where
             let thumb_transform_key = node_id.map(|nid| {
                 self.gpu_value_cache
                     .and_then(|cache| cache.transform_keys.get(&nid).copied())
-                    .unwrap_or_else(|| TransformKey::unique())
+                    .unwrap_or_else(TransformKey::unique)
             });
 
             // Initial transform: translate thumb within usable region
@@ -4020,7 +4017,7 @@ where
                             .get(&(self.dom_id, nid))
                             .copied()
                     })
-                    .unwrap_or_else(|| OpacityKey::unique())
+                    .unwrap_or_else(OpacityKey::unique)
             });
 
             // Horizontal scrollbar: use shared geometry computation
@@ -4052,7 +4049,7 @@ where
             let thumb_transform_key = node_id.map(|nid| {
                 self.gpu_value_cache
                     .and_then(|cache| cache.h_transform_keys.get(&nid).copied())
-                    .unwrap_or_else(|| TransformKey::unique())
+                    .unwrap_or_else(TransformKey::unique)
             });
             let thumb_initial_transform =
                 ComputedTransform3D::new_translation(h_geom.thumb_offset, 0.0, 0.0);
@@ -4217,7 +4214,7 @@ where
         }
 
         // SECOND PASS: Render text runs
-        for (_idx, glyph_run) in glyph_runs.iter().enumerate() {
+        for glyph_run in glyph_runs.iter() {
             // Clip text to the viewport-sized content box, not the full scroll
             // content area. This prevents text from overflowing outside the
             // container when overflow is hidden/scroll/auto.
@@ -4229,7 +4226,7 @@ where
                 .glyphs
                 .iter()
                 .map(|g| {
-                    let mut g = g.clone();
+                    let mut g = *g;
                     g.point.x += container_rect.origin.x;
                     g.point.y += container_rect.origin.y;
                     g
@@ -4748,7 +4745,7 @@ fn clip_and_offset_display_item(
             *widths,
             *colors,
             *styles,
-            border_radius.clone(),
+            *border_radius,
             page_top,
             page_bottom,
         ),
@@ -5823,10 +5820,10 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             border_radius,
         } => DisplayListItem::Border {
             bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
-            widths: widths.clone(),
+            widths: *widths,
             colors: *colors,
             styles: *styles,
-            border_radius: border_radius.clone(),
+            border_radius: *border_radius,
         },
         DisplayListItem::Text {
             glyphs,
@@ -6063,7 +6060,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
         },
         DisplayListItem::PopReferenceFrame => DisplayListItem::PopReferenceFrame,
         DisplayListItem::PushTextShadow { shadow } => DisplayListItem::PushTextShadow {
-            shadow: shadow.clone(),
+            shadow: *shadow,
         },
         DisplayListItem::PopTextShadow => DisplayListItem::PopTextShadow,
         DisplayListItem::PushImageMaskClip {

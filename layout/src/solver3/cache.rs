@@ -606,7 +606,7 @@ pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -
         // parent → 0xC0000000 marker @0x40540+parent*4. REVERT before commit.
         unsafe {
             let pi = parent_dom_id.index();
-            if pi < 8 { crate::az_mark(((0x40540 + pi * 4)) as u32, (0xC000_0000u32) as u32); }
+            if pi < 8 { crate::az_mark(((0x40540 + pi * 4)) as u32, (0xC000_0000u32)); }
         }
         return children;
     };
@@ -632,7 +632,7 @@ pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -
     unsafe {
         let pi = parent_dom_id.index();
         if pi < 8 {
-            crate::az_mark(((0x40540 + pi * 4)) as u32, (0xCC00_0000u32 | (children.len() as u32 & 0xffff)) as u32);
+            crate::az_mark(((0x40540 + pi * 4)) as u32, ((0xCC00_0000u32 | (children.len() as u32 & 0xffff))));
         }
     }
     children
@@ -657,7 +657,7 @@ pub fn reposition_block_flow_siblings(
         .styled_nodes
         .as_container()
         .get(dom_id)
-        .map(|n| n.styled_node_state.clone())
+        .map(|n| n.styled_node_state)
         .unwrap_or_default();
 
     let writing_mode = get_writing_mode(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
@@ -853,7 +853,7 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     // (#9 "grey on resize"). On a size change, drop the cached tree so the whole
     // tree is laid out fresh against the new viewport. (Position-only moves keep
     // the incremental path.)
-    let viewport_resized = cache.viewport.map_or(true, |v| v.size != viewport.size);
+    let viewport_resized = cache.viewport.is_none_or(|v| v.size != viewport.size);
     let old_tree = if viewport_resized {
         None
     } else {
@@ -877,7 +877,7 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
         old_tree,
         &mut new_tree_builder,
         &mut recon_result,
-        &mut ctx.debug_messages,
+        ctx.debug_messages,
     )?;
 
     // Clean up layout roots: if a parent is a layout root, its children don't need to be.
@@ -1440,7 +1440,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
 
     // This size is based on the node's CSS properties (width, height, etc.) and
     // its containing block. If height is 'auto', this is a temporary value.
-    let intrinsic = warm.intrinsic_sizes.clone().unwrap_or_default();
+    let intrinsic = warm.intrinsic_sizes.unwrap_or_default();
     let final_used_size = calculate_used_size_for_node(
         ctx.styled_dom,
         dom_id, // Now Option<NodeId>
@@ -2148,7 +2148,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     // an incorrect children_containing_block_size. By updating used_size here, we ensure
     // that layout_bfc reads the freshly resolved size from prepare_layout_context.
     {
-        let is_table_cell = tree.get(node_index).map_or(false, |n| {
+        let is_table_cell = tree.get(node_index).is_some_and(|n| {
             matches!(n.formatting_context, FormattingContext::TableCell)
         });
         if !is_table_cell {
@@ -2193,7 +2193,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     //
     // Exception: if the containing block height is infinite (unconstrained),
     // we must still grow, since you can't scroll inside an infinitely tall box.
-    let is_scroll_container = dom_id.map_or(false, |id| {
+    let is_scroll_container = dom_id.is_some_and(|id| {
         let ov_x = get_overflow_x(ctx.styled_dom, id, &styled_node_state);
         let ov_y = get_overflow_y(ctx.styled_dom, id, &styled_node_state);
         matches!(ov_x, MultiValue::Exact(LayoutOverflow::Scroll) | MultiValue::Exact(LayoutOverflow::Auto))
@@ -2612,7 +2612,7 @@ fn compute_counters_recursive(
     // FAST PATH: almost no nodes declare counter-reset/counter-increment.
     // Single-bit check in compact cache lets us skip two cascade walks per node.
     let has_counter_css = node_state.is_normal()
-        && cache.compact_cache.as_ref().map_or(true, |cc| cc.has_counter(dom_id.index()));
+        && cache.compact_cache.as_ref().is_none_or(|cc| cc.has_counter(dom_id.index()));
 
     // Process counter-reset (now properly typed)
     let counter_reset = if has_counter_css {
@@ -2671,10 +2671,8 @@ fn compute_counters_recursive(
         if stack.is_empty() {
             // Auto-initialize if counter doesn't exist
             stack.push(1);
-        } else {
-            if let Some(current) = stack.last_mut() {
-                *current += 1;
-            }
+        } else if let Some(current) = stack.last_mut() {
+            *current += 1;
         }
     }
 

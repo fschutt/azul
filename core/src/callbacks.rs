@@ -314,10 +314,10 @@ impl VirtualViewCallbackInfo {
         self.bounds
     }
 
-    fn internal_get_system_fonts<'a>(&'a self) -> &'a FcFontCache {
+    fn internal_get_system_fonts(&self) -> &FcFontCache {
         unsafe { &*self.system_fonts }
     }
-    fn internal_get_image_cache<'a>(&'a self) -> &'a ImageCache {
+    fn internal_get_image_cache(&self) -> &ImageCache {
         unsafe { &*self.image_cache }
     }
 }
@@ -543,8 +543,10 @@ pub struct LayoutCallbackInfoRefData<'a> {
 /// example, skip expensive analytics on `Resize` calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum RelayoutReason {
     /// First layout call for this window.
+    #[default]
     Initial,
     /// A user callback returned `Update::RefreshDom`.
     RefreshDom,
@@ -562,9 +564,6 @@ pub enum RelayoutReason {
     Other,
 }
 
-impl Default for RelayoutReason {
-    fn default() -> Self { RelayoutReason::Initial }
-}
 
 #[repr(C)]
 pub struct LayoutCallbackInfo {
@@ -661,13 +660,13 @@ impl LayoutCallbackInfo {
         unsafe { (*self.ref_data).system_style.clone() }
     }
 
-    fn internal_get_image_cache<'a>(&'a self) -> &'a ImageCache {
+    fn internal_get_image_cache(&self) -> &ImageCache {
         unsafe { (*self.ref_data).image_cache }
     }
-    fn internal_get_system_fonts<'a>(&'a self) -> &'a FcFontCache {
+    fn internal_get_system_fonts(&self) -> &FcFontCache {
         unsafe { (*self.ref_data).system_fonts }
     }
-    fn internal_get_gl_context<'a>(&'a self) -> &'a OptionGlContextPtr {
+    fn internal_get_gl_context(&self) -> &OptionGlContextPtr {
         unsafe { (*self.ref_data).gl_context }
     }
 

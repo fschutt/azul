@@ -72,6 +72,12 @@ pub struct WindowId {
     pub id: i64,
 }
 
+impl Default for WindowId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WindowId {
     pub fn new() -> Self {
         WindowId {
@@ -89,6 +95,12 @@ static LAST_ICON_KEY: AtomicUsize = AtomicUsize::new(0);
 #[repr(C)]
 pub struct IconKey {
     icon_id: usize,
+}
+
+impl Default for IconKey {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl IconKey {
@@ -262,7 +274,9 @@ pub struct AndroidHandle {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum MouseCursorType {
+    #[default]
     Default,
     Crosshair,
     Hand,
@@ -300,11 +314,6 @@ pub enum MouseCursorType {
     RowResize,
 }
 
-impl Default for MouseCursorType {
-    fn default() -> Self {
-        MouseCursorType::Default
-    }
-}
 
 /// Hardware-dependent keyboard scan code.
 pub type ScanCode = u32;
@@ -483,17 +492,14 @@ impl_option!(
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
+#[derive(Default)]
 pub enum ContextMenuMouseButton {
+    #[default]
     Right,
     Middle,
     Left,
 }
 
-impl Default for ContextMenuMouseButton {
-    fn default() -> Self {
-        ContextMenuMouseButton::Right
-    }
-}
 
 impl MouseState {
     /// Returns whether any mouse button (left, right or center) is currently held down
@@ -560,17 +566,14 @@ pub fn process_system_scroll(delta: LogicalPosition, hit_scrollbar: bool) -> Scr
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum CursorPosition {
     OutOfWindow(LogicalPosition),
+    #[default]
     Uninitialized,
     InWindow(LogicalPosition),
 }
 
-impl Default for CursorPosition {
-    fn default() -> CursorPosition {
-        CursorPosition::Uninitialized
-    }
-}
 
 impl CursorPosition {
     pub fn get_position(&self) -> Option<LogicalPosition> {
@@ -656,16 +659,13 @@ impl_vec_partialeq!(TouchPoint, TouchPointVec);
 /// State, size, etc of the window, for comparing to the last frame
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
 #[repr(C)]
+#[derive(Default)]
 pub enum WindowTheme {
     DarkMode,
+    #[default]
     LightMode,
 }
 
-impl Default for WindowTheme {
-    fn default() -> WindowTheme {
-        WindowTheme::LightMode // sorry!
-    }
-}
 
 impl_option!(
     WindowTheme,
@@ -840,7 +840,9 @@ impl_vec_partialord!(VideoMode, VideoModeVec);
 /// Position of the window on screen
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C, u8)]
+#[derive(Default)]
 pub enum WindowPosition {
+    #[default]
     Uninitialized,
     /// Absolute position on the virtual screen (physical px). The default for
     /// top-level windows.
@@ -855,25 +857,17 @@ pub enum WindowPosition {
     RelativeToParentWindow(PhysicalPositionI32),
 }
 
-impl Default for WindowPosition {
-    fn default() -> WindowPosition {
-        WindowPosition::Uninitialized
-    }
-}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C, u8)]
 /// IME composition window rectangle (cursor position + height)
+#[derive(Default)]
 pub enum ImePosition {
+    #[default]
     Uninitialized,
     Initialized(LogicalRect),
 }
 
-impl Default for ImePosition {
-    fn default() -> ImePosition {
-        ImePosition::Uninitialized
-    }
-}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
@@ -1146,6 +1140,7 @@ impl Default for WindowsWindowOptions {
 /// [`_NET_WM_WINDOW_TYPE`](https://specifications.freedesktop.org/wm-spec/wm-spec-1.5.html).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum XWindowType {
     /// A desktop feature. This can include a single window containing desktop icons with the same
     /// dimensions as the screen, allowing the desktop environment to have full control of the
@@ -1183,6 +1178,7 @@ pub enum XWindowType {
     /// This property is typically used on override-redirect windows.
     Dnd,
     /// This is a normal, top-level window.
+    #[default]
     Normal,
 }
 
@@ -1192,25 +1188,17 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl Default for XWindowType {
-    fn default() -> Self {
-        XWindowType::Normal
-    }
-}
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum UserAttentionType {
+    #[default]
     None,
     Critical,
     Informational,
 }
 
-impl Default for UserAttentionType {
-    fn default() -> UserAttentionType {
-        UserAttentionType::None
-    }
-}
 
 /// State for tracking hover and interaction with Linux window decoration elements (CSD).
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
@@ -1369,12 +1357,14 @@ pub struct WasmWindowOptions {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum FullScreenMode {
     /// - macOS: If the window is in windowed mode, transitions it slowly to fullscreen mode
     /// - other: Does the same as `FastFullScreen`.
     SlowFullScreen,
     /// Window should immediately go into fullscreen mode (on macOS this is not the default
     /// behaviour).
+    #[default]
     FastFullScreen,
     /// - macOS: If the window is in fullscreen mode, transitions slowly back to windowed state.
     /// - other: Does the same as `FastWindowed`.
@@ -1384,11 +1374,6 @@ pub enum FullScreenMode {
     FastWindowed,
 }
 
-impl Default for FullScreenMode {
-    fn default() -> Self {
-        FullScreenMode::FastFullScreen
-    }
-}
 
 // Translation type because in winit 24.0 the WinitWaylandTheme is a trait instead
 // of a struct, which makes things more complicated

@@ -754,10 +754,10 @@ pub fn insert_into_active_gl_textures(
         let active_textures = ACTIVE_GL_TEXTURES.as_mut().unwrap();
         let active_epochs = active_textures
             .entry(document_id)
-            .or_insert_with(|| OrderedMap::new());
+            .or_default();
         let active_textures_for_epoch = active_epochs
             .entry(epoch)
-            .or_insert_with(|| OrderedMap::new());
+            .or_default();
         active_textures_for_epoch.insert(external_image_id, texture);
     }
 
@@ -879,7 +879,7 @@ impl Clone for GlContextPtr {
     fn clone(&self) -> Self {
         Self {
             ptr: ManuallyDrop::new((*self.ptr).clone()),
-            renderer_type: self.renderer_type.clone(),
+            renderer_type: self.renderer_type,
             run_destructor: true,
         }
     }
@@ -1168,7 +1168,7 @@ fn try_compile_program(
     gl_context.attach_shader(prog, vs);
     gl_context.attach_shader(prog, fs);
     for (loc, name) in attribs {
-        gl_context.bind_attrib_location(prog, *loc, (*name).into());
+        gl_context.bind_attrib_location(prog, *loc, name);
     }
     gl_context.link_program(prog);
     gl_context.delete_shader(vs);
@@ -1265,7 +1265,8 @@ impl GlContextPtr {
         let (svg_program_id, svg_multicolor_program_id, fxaa_program_id, brush_program_id, glsl_version) =
             (0u32, 0u32, 0u32, 0u32, AzString::from_const_str(""));
 
-        let me = Self {
+        
+        Self {
             ptr: ManuallyDrop::new(Box::new(Rc::new(GlContextPtrInner {
                 svg_shader: svg_program_id,
                 svg_multicolor_shader: svg_multicolor_program_id,
@@ -1276,11 +1277,10 @@ impl GlContextPtr {
             }))),
             renderer_type,
             run_destructor: true,
-        };
-        me
+        }
     }
 
-    pub fn get<'a>(&'a self) -> &'a Rc<GenericGlContext> {
+    pub fn get(&self) -> &Rc<GenericGlContext> {
         &self.ptr.ptr
     }
     fn as_usize(&self) -> usize {
@@ -2737,12 +2737,12 @@ impl Clone for Texture {
         }
         Self {
             gl_context: self.gl_context.clone(),
-            texture_id: self.texture_id.clone(),
+            texture_id: self.texture_id,
             refcount: self.refcount,
-            size: self.size.clone(),
-            format: self.format.clone(),
-            background_color: self.background_color.clone(),
-            flags: self.flags.clone(),
+            size: self.size,
+            format: self.format,
+            background_color: self.background_color,
+            flags: self.flags,
             run_destructor: true,
         }
     }
@@ -3255,7 +3255,7 @@ impl VertexLayout {
                 .map(|ll| *ll as i32)
                 .unwrap_or_else(|| {
                     gl_context
-                        .get_attrib_location(program_id, vertex_attribute.va_name.as_str().into())
+                        .get_attrib_location(program_id, vertex_attribute.va_name.as_str())
                 });
 
             gl_context.vertex_attrib_pointer(
@@ -3280,7 +3280,7 @@ impl VertexLayout {
                 .map(|ll| *ll as i32)
                 .unwrap_or_else(|| {
                     gl_context
-                        .get_attrib_location(program_id, vertex_attribute.va_name.as_str().into())
+                        .get_attrib_location(program_id, vertex_attribute.va_name.as_str())
                 });
             gl_context.disable_vertex_attrib_array(attribute_location as u32);
         }
@@ -3439,12 +3439,12 @@ impl Clone for VertexBuffer {
         unsafe { (*self.refcount).fetch_add(1, AtomicOrdering::SeqCst) };
         Self {
             vao: self.vao.clone(),
-            vertex_buffer_id: self.vertex_buffer_id.clone(),
-            vertex_buffer_len: self.vertex_buffer_len.clone(),
-            index_buffer_id: self.index_buffer_id.clone(),
-            index_buffer_len: self.index_buffer_len.clone(),
+            vertex_buffer_id: self.vertex_buffer_id,
+            vertex_buffer_len: self.vertex_buffer_len,
+            index_buffer_id: self.index_buffer_id,
+            index_buffer_len: self.index_buffer_len,
             refcount: self.refcount,
-            index_buffer_format: self.index_buffer_format.clone(),
+            index_buffer_format: self.index_buffer_format,
             run_destructor: true,
         }
     }
@@ -3496,7 +3496,7 @@ impl VertexBuffer {
         gl_context.bind_buffer(gl::ARRAY_BUFFER, *vertex_buffer_id);
         gl_context.buffer_data_untyped(
             gl::ARRAY_BUFFER,
-            (mem::size_of::<T>() * vertices.len()) as isize,
+            std::mem::size_of_val(vertices) as isize,
             GlVoidPtrConst {
                 ptr: vertices.as_ptr() as *const core::ffi::c_void,
                 run_destructor: true,
@@ -3508,7 +3508,7 @@ impl VertexBuffer {
         gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, *index_buffer_id);
         gl_context.buffer_data_untyped(
             gl::ELEMENT_ARRAY_BUFFER,
-            (mem::size_of::<u32>() * indices.len()) as isize,
+            std::mem::size_of_val(indices) as isize,
             GlVoidPtrConst {
                 ptr: indices.as_ptr() as *const core::ffi::c_void,
                 run_destructor: true,
@@ -3822,13 +3822,13 @@ impl GlShader {
         );
         gl_context.compile_shader(vertex_shader_object);
 
-        if let Some(error_id) = get_gl_shader_error(&gl_context, vertex_shader_object) {
+        if let Some(error_id) = get_gl_shader_error(gl_context, vertex_shader_object) {
             let info_log = gl_context.get_shader_info_log(vertex_shader_object);
             gl_context.delete_shader(vertex_shader_object);
             return Err(GlShaderCreateError::Compile(GlShaderCompileError::Vertex(
                 VertexShaderCompileError {
                     error_id,
-                    info_log: info_log.into(),
+                    info_log,
                 },
             )));
         }
@@ -3842,14 +3842,14 @@ impl GlShader {
         );
         gl_context.compile_shader(fragment_shader_object);
 
-        if let Some(error_id) = get_gl_shader_error(&gl_context, fragment_shader_object) {
+        if let Some(error_id) = get_gl_shader_error(gl_context, fragment_shader_object) {
             let info_log = gl_context.get_shader_info_log(fragment_shader_object);
             gl_context.delete_shader(vertex_shader_object);
             gl_context.delete_shader(fragment_shader_object);
             return Err(GlShaderCreateError::Compile(
                 GlShaderCompileError::Fragment(FragmentShaderCompileError {
                     error_id,
-                    info_log: info_log.into(),
+                    info_log,
                 }),
             ));
         }
@@ -3861,14 +3861,14 @@ impl GlShader {
         gl_context.attach_shader(program_id, fragment_shader_object);
         gl_context.link_program(program_id);
 
-        if let Some(error_id) = get_gl_program_error(&gl_context, program_id) {
+        if let Some(error_id) = get_gl_program_error(gl_context, program_id) {
             let info_log = gl_context.get_program_info_log(program_id);
             gl_context.delete_shader(vertex_shader_object);
             gl_context.delete_shader(fragment_shader_object);
             gl_context.delete_program(program_id);
             return Err(GlShaderCreateError::Link(GlShaderLinkError {
                 error_id,
-                info_log: info_log.into(),
+                info_log,
             }));
         }
 
@@ -3999,7 +3999,7 @@ impl GlShader {
         gl_context.enable(gl::PRIMITIVE_RESTART);
         unsafe {
             let gl = gl_context.get();
-            if gl.glPrimitiveRestartIndex != core::ptr::null_mut() {
+            if !gl.glPrimitiveRestartIndex.is_null() {
                 let func: extern "system" fn(u32) =
                     core::mem::transmute(gl.glPrimitiveRestartIndex);
                 func(GL_RESTART_INDEX); // u32::MAX
@@ -4019,7 +4019,7 @@ impl GlShader {
                         uniform.uniform_name.clone(),
                         gl_context.get_uniform_location(
                             shader_program_id,
-                            uniform.uniform_name.as_str().into(),
+                            uniform.uniform_name.as_str(),
                         ),
                     );
                 }

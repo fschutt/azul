@@ -175,6 +175,12 @@ impl ::core::fmt::Debug for PipelineId {
 
 static LAST_PIPELINE_ID: AtomicU32 = AtomicU32::new(0);
 
+impl Default for PipelineId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PipelineId {
     pub const DUMMY: PipelineId = PipelineId(0, 0);
 
@@ -230,7 +236,7 @@ impl ScrollStates {
     }
 
     pub fn get_scroll_position(&self, scroll_id: &ExternalScrollId) -> Option<LogicalPosition> {
-        self.0.get(&scroll_id).map(|entry| entry.get())
+        self.0.get(scroll_id).map(|entry| entry.get())
     }
 
     /// Set the scroll amount - does not update the `entry.used_this_frame`,

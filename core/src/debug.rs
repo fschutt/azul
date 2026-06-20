@@ -10,10 +10,12 @@
 /// Debug message severity level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum DebugLevel {
     /// Very detailed tracing information
     Trace,
     /// Debugging information
+    #[default]
     Debug,
     /// General information
     Info,
@@ -23,17 +25,14 @@ pub enum DebugLevel {
     Error,
 }
 
-impl Default for DebugLevel {
-    fn default() -> Self {
-        DebugLevel::Debug
-    }
-}
 
 /// Categories for debug messages to enable filtering
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+#[derive(Default)]
 pub enum DebugCategory {
     /// General/uncategorized
+    #[default]
     General,
     /// Window creation and management
     Window,
@@ -65,11 +64,6 @@ pub enum DebugCategory {
     Icon,
 }
 
-impl Default for DebugCategory {
-    fn default() -> Self {
-        DebugCategory::General
-    }
-}
 
 // Convenience macros for logging with automatic category and format.
 //

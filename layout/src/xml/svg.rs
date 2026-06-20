@@ -342,7 +342,7 @@ pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLi
 
     let mut items = p.items.as_slice().to_vec();
     if let Some(mut first) = items.first() {
-        items.push(first.clone());
+        items.push(*first);
     }
 
     let mut items = items
@@ -354,7 +354,7 @@ pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLi
                         x: s.x * distance,
                         y: s.y * distance,
                     },
-                    None => return l.clone(),
+                    None => return *l,
                 };
 
                 SvgPathElement::Line(SvgLine {
@@ -370,8 +370,8 @@ pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLi
             }
             SvgPathElement::QuadraticCurve(q) => {
                 let n1 = match (SvgLine {
-                    start: q.start.clone(),
-                    end: q.ctrl.clone(),
+                    start: q.start,
+                    end: q.ctrl,
                 }
                 .outwards_normal())
                 {
@@ -379,12 +379,12 @@ pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLi
                         x: s.x * distance,
                         y: s.y * distance,
                     },
-                    None => return l.clone(),
+                    None => return *l,
                 };
 
                 let n2 = match (SvgLine {
-                    start: q.ctrl.clone(),
-                    end: q.end.clone(),
+                    start: q.ctrl,
+                    end: q.end,
                 }
                 .outwards_normal())
                 {
@@ -392,7 +392,7 @@ pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLi
                         x: s.x * distance,
                         y: s.y * distance,
                     },
-                    None => return l.clone(),
+                    None => return *l,
                 };
 
                 let nl1 = SvgLine {
@@ -419,7 +419,7 @@ pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLi
 
                 let nctrl = match raw_line_intersection(&nl1, &nl2) {
                     Some(s) => s,
-                    None => return l.clone(),
+                    None => return *l,
                 };
 
                 SvgPathElement::QuadraticCurve(SvgQuadraticCurve {
@@ -430,8 +430,8 @@ pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLi
             }
             SvgPathElement::CubicCurve(q) => {
                 let n1 = match (SvgLine {
-                    start: q.start.clone(),
-                    end: q.ctrl_1.clone(),
+                    start: q.start,
+                    end: q.ctrl_1,
                 }
                 .outwards_normal())
                 {
@@ -439,12 +439,12 @@ pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLi
                         x: s.x * distance,
                         y: s.y * distance,
                     },
-                    None => return l.clone(),
+                    None => return *l,
                 };
 
                 let n2 = match (SvgLine {
-                    start: q.ctrl_1.clone(),
-                    end: q.ctrl_2.clone(),
+                    start: q.ctrl_1,
+                    end: q.ctrl_2,
                 }
                 .outwards_normal())
                 {
@@ -452,12 +452,12 @@ pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLi
                         x: s.x * distance,
                         y: s.y * distance,
                     },
-                    None => return l.clone(),
+                    None => return *l,
                 };
 
                 let n3 = match (SvgLine {
-                    start: q.ctrl_2.clone(),
-                    end: q.end.clone(),
+                    start: q.ctrl_2,
+                    end: q.end,
                 }
                 .outwards_normal())
                 {
@@ -465,7 +465,7 @@ pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLi
                         x: s.x * distance,
                         y: s.y * distance,
                     },
-                    None => return l.clone(),
+                    None => return *l,
                 };
 
                 let nl1 = SvgLine {
@@ -503,12 +503,12 @@ pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLi
 
                 let nctrl_1 = match raw_line_intersection(&nl1, &nl2) {
                     Some(s) => s,
-                    None => return l.clone(),
+                    None => return *l,
                 };
 
                 let nctrl_2 = match raw_line_intersection(&nl2, &nl3) {
                     Some(s) => s,
-                    None => return l.clone(),
+                    None => return *l,
                 };
 
                 SvgPathElement::CubicCurve(SvgCubicCurve {
@@ -523,31 +523,31 @@ pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLi
 
     for i in 0..items.len().saturating_sub(2) {
         let a_end_line = match items[i] {
-            SvgPathElement::Line(q) => q.clone(),
+            SvgPathElement::Line(q) => q,
             SvgPathElement::QuadraticCurve(q) => SvgLine {
-                start: q.ctrl.clone(),
-                end: q.end.clone(),
+                start: q.ctrl,
+                end: q.end,
             },
             SvgPathElement::CubicCurve(q) => SvgLine {
-                start: q.ctrl_2.clone(),
-                end: q.end.clone(),
+                start: q.ctrl_2,
+                end: q.end,
             },
         };
 
         let b_start_line = match items[i + 1] {
-            SvgPathElement::Line(q) => q.clone(),
+            SvgPathElement::Line(q) => q,
             SvgPathElement::QuadraticCurve(q) => SvgLine {
-                start: q.ctrl.clone(),
-                end: q.start.clone(),
+                start: q.ctrl,
+                end: q.start,
             },
             SvgPathElement::CubicCurve(q) => SvgLine {
-                start: q.ctrl_1.clone(),
-                end: q.start.clone(),
+                start: q.ctrl_1,
+                end: q.start,
             },
         };
 
         if let Some(intersect_pt) = raw_line_intersection(&a_end_line, &b_start_line) {
-            items[i].set_last(intersect_pt.clone());
+            items[i].set_last(intersect_pt);
             items[i + 1].set_first(intersect_pt);
         }
     }
@@ -607,8 +607,8 @@ pub fn svg_path_bevel(p: &SvgPath, distance: f32) -> SvgPath {
 
     let mut final_items = Vec::new();
     for i in 0..items.len().saturating_sub(1) {
-        let a = items[i].clone();
-        let b = items[i + 1].clone();
+        let a = items[i];
+        let b = items[i + 1];
         match (a, b) {
             (SvgPathElement::Line(a), SvgPathElement::Line(b)) => {
                 let a_short = shorten_line_end_by(a, distance);
@@ -708,7 +708,7 @@ pub fn tessellate_multi_polygon_fill(
         }),
     );
 
-    if let Err(_) = tess_result {
+    if tess_result.is_err() {
         TessellatedSvgNode::empty()
     } else {
         vertex_buffers_to_tessellated_cpu_node(geometry)
@@ -745,7 +745,7 @@ pub fn tessellate_multi_shape_fill(
         }),
     );
 
-    if let Err(_) = tess_result {
+    if tess_result.is_err() {
         TessellatedSvgNode::empty()
     } else {
         vertex_buffers_to_tessellated_cpu_node(geometry)
@@ -837,7 +837,7 @@ pub fn polygon_contains_point(
         path::FillRule as LyonFillRule,
     };
     polygon.rings.iter().any(|path| {
-        let path = svg_path_to_lyon_path_events(&path);
+        let path = svg_path_to_lyon_path_events(path);
         let fill_rule = match fill_rule {
             SvgFillRule::Winding => LyonFillRule::NonZero,
             SvgFillRule::EvenOdd => LyonFillRule::EvenOdd,
@@ -880,7 +880,7 @@ pub fn tessellate_multi_shape_stroke(
         }),
     );
 
-    if let Err(_) = tess_result {
+    if tess_result.is_err() {
         TessellatedSvgNode::empty()
     } else {
         vertex_buffers_to_tessellated_cpu_node(stroke_geometry)
@@ -918,7 +918,7 @@ pub fn tessellate_multi_polygon_stroke(
         }),
     );
 
-    if let Err(_) = tess_result {
+    if tess_result.is_err() {
         TessellatedSvgNode::empty()
     } else {
         vertex_buffers_to_tessellated_cpu_node(stroke_geometry)
@@ -952,7 +952,7 @@ pub fn tessellate_path_fill(path: &SvgPath, fill_style: SvgFillStyle) -> Tessell
         }),
     );
 
-    if let Err(_) = tess_result {
+    if tess_result.is_err() {
         TessellatedSvgNode::empty()
     } else {
         vertex_buffers_to_tessellated_cpu_node(geometry)
@@ -984,7 +984,7 @@ pub fn tessellate_path_stroke(path: &SvgPath, stroke_style: SvgStrokeStyle) -> T
         }),
     );
 
-    if let Err(_) = tess_result {
+    if tess_result.is_err() {
         TessellatedSvgNode::empty()
     } else {
         vertex_buffers_to_tessellated_cpu_node(stroke_geometry)
@@ -1015,7 +1015,7 @@ pub fn tessellate_circle_fill(c: &SvgCircle, fill_style: SvgFillStyle) -> Tessel
         }),
     );
 
-    if let Err(_) = tess_result {
+    if tess_result.is_err() {
         TessellatedSvgNode::empty()
     } else {
         vertex_buffers_to_tessellated_cpu_node(geometry)
@@ -1048,7 +1048,7 @@ pub fn tessellate_circle_stroke(c: &SvgCircle, stroke_style: SvgStrokeStyle) -> 
         }),
     );
 
-    if let Err(_) = tess_result {
+    if tess_result.is_err() {
         TessellatedSvgNode::empty()
     } else {
         vertex_buffers_to_tessellated_cpu_node(stroke_geometry)
@@ -1063,10 +1063,7 @@ pub fn tessellate_circle_stroke(c: &SvgCircle, stroke_style: SvgStrokeStyle) -> 
 // TODO: radii not respected on latest version of lyon
 #[cfg(feature = "svg")]
 fn get_radii(r: &SvgRect) -> lyon::geom::Box2D<f32> {
-    let rect = lyon::geom::Box2D::from_origin_and_size(
-        Point2D::new(r.x, r.y),
-        Size2D::new(r.width, r.height),
-    );
+    
     /*
     let radii = BorderRadii {
         top_left: r.radius_top_left,
@@ -1074,12 +1071,15 @@ fn get_radii(r: &SvgRect) -> lyon::geom::Box2D<f32> {
         bottom_left: r.radius_bottom_left,
         bottom_right: r.radius_bottom_right
     };*/
-    rect
+    lyon::geom::Box2D::from_origin_and_size(
+        Point2D::new(r.x, r.y),
+        Size2D::new(r.width, r.height),
+    )
 }
 
 #[cfg(feature = "svg")]
 pub fn tessellate_rect_fill(r: &SvgRect, fill_style: SvgFillStyle) -> TessellatedSvgNode {
-    let rect = get_radii(&r);
+    let rect = get_radii(r);
     let mut geometry = VertexBuffers::new();
     let mut tesselator = FillTessellator::new();
 
@@ -1095,7 +1095,7 @@ pub fn tessellate_rect_fill(r: &SvgRect, fill_style: SvgFillStyle) -> Tessellate
         }),
     );
 
-    if let Err(_) = tess_result {
+    if tess_result.is_err() {
         TessellatedSvgNode::empty()
     } else {
         vertex_buffers_to_tessellated_cpu_node(geometry)
@@ -1110,7 +1110,7 @@ pub fn tessellate_rect_fill(r: &SvgRect, fill_style: SvgFillStyle) -> Tessellate
 #[cfg(feature = "svg")]
 pub fn tessellate_rect_stroke(r: &SvgRect, stroke_style: SvgStrokeStyle) -> TessellatedSvgNode {
     let stroke_options: StrokeOptions = translate_svg_stroke_style(stroke_style);
-    let rect = get_radii(&r);
+    let rect = get_radii(r);
 
     let mut stroke_geometry = VertexBuffers::new();
     let mut tesselator = StrokeTessellator::new();
@@ -1127,7 +1127,7 @@ pub fn tessellate_rect_stroke(r: &SvgRect, stroke_style: SvgStrokeStyle) -> Tess
         }),
     );
 
-    if let Err(_) = tess_result {
+    if tess_result.is_err() {
         TessellatedSvgNode::empty()
     } else {
         vertex_buffers_to_tessellated_cpu_node(stroke_geometry)
@@ -1181,7 +1181,7 @@ pub fn tessellate_line_stroke(
         }),
     );
 
-    if let Err(_) = tess_result {
+    if tess_result.is_err() {
         TessellatedSvgNode::empty()
     } else {
         vertex_buffers_to_tessellated_cpu_node(stroke_geometry)
@@ -1228,7 +1228,7 @@ pub fn tessellate_cubiccurve_stroke(
         }),
     );
 
-    if let Err(_) = tess_result {
+    if tess_result.is_err() {
         TessellatedSvgNode::empty()
     } else {
         vertex_buffers_to_tessellated_cpu_node(stroke_geometry)
@@ -1277,7 +1277,7 @@ pub fn tessellate_quadraticcurve_stroke(
         }),
     );
 
-    if let Err(_) = tess_result {
+    if tess_result.is_err() {
         TessellatedSvgNode::empty()
     } else {
         vertex_buffers_to_tessellated_cpu_node(stroke_geometry)

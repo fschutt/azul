@@ -87,7 +87,7 @@ pub fn determine_keyboard_default_action(
             if let Some(ref focus) = focused_node {
                 if is_element_activatable(focus, layout_results) {
                     DefaultAction::ActivateFocusedElement {
-                        target: focus.clone(),
+                        target: *focus,
                     }
                 } else {
                     // Enter on non-activatable element - might submit form
@@ -108,7 +108,7 @@ pub fn determine_keyboard_default_action(
                     && !is_text_input(focus, layout_results)
                 {
                     DefaultAction::ActivateFocusedElement {
-                        target: focus.clone(),
+                        target: *focus,
                     }
                 } else {
                     // Space in text input should insert space (handled by text input system)

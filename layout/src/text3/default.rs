@@ -748,7 +748,7 @@ fn shape_text_internal(
         .collect();
     add_variant_features(style, &mut user_features);
 
-    let opt_gdef = parsed_font.opt_gdef_table.as_ref().map(|v| &**v);
+    let opt_gdef = parsed_font.opt_gdef_table.as_deref();
 
     let mut raw_glyphs: Vec<allsorts::gsub::RawGlyph<()>> = Vec::new();
     {

@@ -2377,7 +2377,7 @@ impl CallbackInfo {
 
     /// Get current window flags
     pub fn get_current_window_flags(&self) -> WindowFlags {
-        self.get_current_window_state().flags.clone()
+        self.get_current_window_state().flags
     }
 
     /// Get current keyboard state
@@ -2387,7 +2387,7 @@ impl CallbackInfo {
 
     /// Get current mouse state
     pub fn get_current_mouse_state(&self) -> MouseState {
-        self.get_current_window_state().mouse_state.clone()
+        self.get_current_window_state().mouse_state
     }
 
     /// Get full previous window state (immutable reference)
@@ -2397,7 +2397,7 @@ impl CallbackInfo {
 
     /// Get previous window flags
     pub fn get_previous_window_flags(&self) -> Option<WindowFlags> {
-        Some(self.get_previous_window_state().as_ref()?.flags.clone())
+        Some(self.get_previous_window_state().as_ref()?.flags)
     }
 
     /// Get previous keyboard state
@@ -2415,8 +2415,7 @@ impl CallbackInfo {
         Some(
             self.get_previous_window_state()
                 .as_ref()?
-                .mouse_state
-                .clone(),
+                .mouse_state,
         )
     }
 
@@ -2532,7 +2531,7 @@ impl CallbackInfo {
     }
 
     pub fn get_current_window_handle(&self) -> RawWindowHandle {
-        unsafe { (*self.ref_data).current_window_handle.clone() }
+        unsafe { *(*self.ref_data).current_window_handle }
     }
 
     /// Get the system style (for menu rendering, CSD, etc.)
@@ -3054,7 +3053,7 @@ impl CallbackInfo {
             opts,
             &mut glyph_cache,
             &render_state,
-        ).map_err(|e| AzString::from(e))?;
+        ).map_err(AzString::from)?;
 
         // Encode to PNG
         let png_data = pixmap
@@ -4173,7 +4172,7 @@ impl CallbackInfo {
     /// This checks if the specific node (identified by DomNodeId) has a selection,
     /// as opposed to has_selection(DomId) which checks the entire DOM.
     pub fn node_has_selection(&self, target: DomNodeId) -> bool {
-        self.get_node_selection_ranges(target).as_ref().is_empty() == false
+        !self.get_node_selection_ranges(target).as_ref().is_empty()
     }
 
     /// Get the length of text in a node
@@ -4718,15 +4717,15 @@ impl RenderImageCallbackInfo {
         self.bounds
     }
 
-    fn internal_get_gl_context<'a>(&'a self) -> &'a OptionGlContextPtr {
+    fn internal_get_gl_context(&self) -> &OptionGlContextPtr {
         unsafe { &*self.gl_context }
     }
 
-    fn internal_get_image_cache<'a>(&'a self) -> &'a ImageCache {
+    fn internal_get_image_cache(&self) -> &ImageCache {
         unsafe { &*self.image_cache }
     }
 
-    fn internal_get_system_fonts<'a>(&'a self) -> &'a FcFontCache {
+    fn internal_get_system_fonts(&self) -> &FcFontCache {
         unsafe { &*self.system_fonts }
     }
 
@@ -4799,7 +4798,7 @@ const BASE64_ALPHABET: &[u8; 64] =
 
 /// Encode bytes to Base64 string
 pub fn base64_encode(input: &[u8]) -> alloc::string::String {
-    let mut output = alloc::string::String::with_capacity((input.len() + 2) / 3 * 4);
+    let mut output = alloc::string::String::with_capacity(input.len().div_ceil(3) * 4);
 
     for chunk in input.chunks(3) {
         let b0 = chunk[0] as usize;

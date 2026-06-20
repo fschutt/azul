@@ -412,7 +412,7 @@ pub fn delete_backward(
         if byte_offset > 0 {
             let prev_grapheme_start = run.text[..byte_offset]
                 .grapheme_indices(true)
-                .last()
+                .next_back()
                 .map_or(0, |(i, _)| i);
             run.text.drain(prev_grapheme_start..byte_offset);
 
@@ -696,7 +696,7 @@ fn inspect_delete_backward(
             // Delete within same run
             let prev_grapheme_start = run.text[..byte_offset]
                 .grapheme_indices(true)
-                .last()
+                .next_back()
                 .map_or(0, |(i, _)| i);
 
             let deleted_text = run.text[prev_grapheme_start..byte_offset].to_string();
@@ -716,11 +716,11 @@ fn inspect_delete_backward(
         } else if run_idx > 0 {
             // Would delete across run boundary
             if let Some(InlineContent::Text(prev_run)) = content.get(run_idx - 1) {
-                let deleted_text = prev_run.text.graphemes(true).last()?.to_string();
+                let deleted_text = prev_run.text.graphemes(true).next_back()?.to_string();
 
                 let prev_grapheme_start = prev_run.text[..]
                     .grapheme_indices(true)
-                    .last()
+                    .next_back()
                     .map_or(0, |(i, _)| i);
 
                 let range = SelectionRange {

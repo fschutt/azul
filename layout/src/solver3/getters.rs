@@ -330,8 +330,10 @@ pub fn get_root_font_size(styled_dom: &StyledDom, _node_state: &StyledNodeState)
 /// A value that can be Auto, Initial, Inherit, or an explicit value.
 /// This preserves CSS cascade semantics better than Option<T>.
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Default)]
 pub enum MultiValue<T> {
     /// CSS 'auto' keyword
+    #[default]
     Auto,
     /// CSS 'initial' keyword - use initial value
     Initial,
@@ -486,11 +488,6 @@ impl MultiValue<LayoutFloat> {
     }
 }
 
-impl<T: Default> Default for MultiValue<T> {
-    fn default() -> Self {
-        MultiValue::Auto
-    }
-}
 
 /// Helper macro to reduce boilerplate for simple CSS property getters
 /// Returns the inner PixelValue wrapped in MultiValue
@@ -1725,7 +1722,7 @@ pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
     styled_dom
         .css_property_cache
         .ptr
-        .get_z_index(node_data, &node_id, &node_state)
+        .get_z_index(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .map(|z| match z {
             LayoutZIndex::Auto => 0,
@@ -1768,7 +1765,7 @@ pub fn is_z_index_auto(styled_dom: &StyledDom, node_id: Option<NodeId>) -> bool 
     styled_dom
         .css_property_cache
         .ptr
-        .get_z_index(node_data, &node_id, &node_state)
+        .get_z_index(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .map(|z| matches!(z, LayoutZIndex::Auto))
         .unwrap_or(true) // no value = auto
@@ -1821,7 +1818,7 @@ pub fn get_background_color(
             .and_then(|bg| bg.get_property())
             .and_then(|bg_vec| bg_vec.get(0).cloned())
             .and_then(|first_bg| match &first_bg {
-                azul_css::props::style::StyleBackgroundContent::Color(color) => Some(color.clone()),
+                azul_css::props::style::StyleBackgroundContent::Color(color) => Some(*color),
                 azul_css::props::style::StyleBackgroundContent::Image(_) => None, // Has image, not transparent
                 _ => None,
             })
@@ -2209,7 +2206,7 @@ fn get_inline_border_info(
         // If any radius is defined, use the maximum (for inline, uniform radius is most common)
         let radii: Vec<f32> = [top_left, top_right, bottom_left, bottom_right]
             .into_iter()
-            .filter_map(|r| r)
+            .flatten()
             .collect();
 
         if radii.is_empty() {
@@ -2910,7 +2907,7 @@ pub fn get_style_properties(
             cache
                 .get_text_decoration(node_data, &dom_id, node_state)
                 .and_then(|v| v.get_property().cloned())
-                .map(|v| crate::text3::cache::TextDecoration::from_css(v))
+                .map(crate::text3::cache::TextDecoration::from_css)
                 .unwrap_or_default()
         }
     };
@@ -2948,7 +2945,9 @@ pub fn get_style_properties(
         })
     };
 
-    let properties = StyleProperties {
+    
+
+    StyleProperties {
         font_stack,
         font_size_px: font_size,
         color,
@@ -2964,9 +2963,7 @@ pub fn get_style_properties(
         // font_features, font_variations, text_transform, writing_mode,
         // text_orientation, text_combine_upright, font_variant_*
         ..Default::default()
-    };
-
-    properties
+    }
 }
 
 pub fn get_list_style_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> StyleListStyleType {
@@ -3519,11 +3516,11 @@ pub fn collect_font_stacks_from_styled_dom(
         let p1 = (&node_data.internal[1].node_type) as *const _ as *const u8;
         let p0 = (&node_data.internal[0].node_type) as *const _ as *const u8;
         unsafe {
-            crate::az_mark((0x606D0) as u32, (core::ptr::read(p1) as u32) as u32);
-            crate::az_mark((0x606D4) as u32, (core::ptr::read(p1.add(1)) as u32) as u32);
-            crate::az_mark((0x606D8) as u32, (core::ptr::read(p1.add(2)) as u32) as u32);
-            crate::az_mark((0x606DC) as u32, (core::ptr::read(p1.add(4)) as u32) as u32);
-            crate::az_mark((0x606E0) as u32, (core::ptr::read(p0) as u32) as u32);
+            crate::az_mark(0x606D0_u32, (core::ptr::read(p1) as u32) as u32);
+            crate::az_mark(0x606D4_u32, (core::ptr::read(p1.add(1)) as u32) as u32);
+            crate::az_mark(0x606D8_u32, (core::ptr::read(p1.add(2)) as u32) as u32);
+            crate::az_mark(0x606DC_u32, (core::ptr::read(p1.add(4)) as u32) as u32);
+            crate::az_mark(0x606E0_u32, (core::ptr::read(p0) as u32) as u32);
         }
     }
     for i in 0..node_count {
@@ -3566,10 +3563,10 @@ pub fn collect_font_stacks_from_styled_dom(
             }
         }
         unsafe {
-            crate::az_mark((0x606C0) as u32, (0x5E5E0003u32) as u32);
-            crate::az_mark((0x606C4) as u32, (node_count as u32) as u32);
-            crate::az_mark((0x606C8) as u32, (unique_font_keys.len() as u32) as u32);
-            crate::az_mark((0x606CC) as u32, (raw_text) as u32);
+            crate::az_mark(0x606C0_u32, (0x5E5E0003u32));
+            crate::az_mark(0x606C4_u32, ((node_count as u32)));
+            crate::az_mark(0x606C8_u32, ((unique_font_keys.len() as u32)));
+            crate::az_mark(0x606CC_u32, (raw_text));
         }
     }
 
@@ -3631,11 +3628,11 @@ pub fn collect_font_stacks_from_styled_dom(
             hasher.finish()
         };
 
-        if !hash_to_index.contains_key(&hash) {
+        hash_to_index.entry(hash).or_insert_with(|| {
             let idx = font_stacks.len();
             font_stacks.push(font_stack);
-            hash_to_index.insert(hash, idx);
-        }
+            idx
+        });
     }
 
     CollectedFontStacks {
@@ -4009,7 +4006,7 @@ pub fn collect_and_resolve_font_chains_with_registration<T: crate::font_traits::
     let collected = collect_font_stacks_from_styled_dom(styled_dom, platform);
 
     // Register embedded FontRefs (from the same scan, no second pass)
-    for (_ptr, font_ref) in &collected.font_refs {
+    for font_ref in collected.font_refs.values() {
         font_manager.register_embedded_font(font_ref);
     }
 
@@ -4159,7 +4156,7 @@ pub fn register_embedded_fonts_from_styled_dom<T: crate::font_traits::ParsedFont
     platform: &azul_css::system::Platform,
 ) {
     let collected = collect_font_stacks_from_styled_dom(styled_dom, platform);
-    for (_ptr, font_ref) in &collected.font_refs {
+    for font_ref in collected.font_refs.values() {
         font_manager.register_embedded_font(font_ref);
     }
 }
@@ -4279,11 +4276,11 @@ where
         // Get font index (for font collections like .ttc files)
         let font_index = fc_cache
             .get_font_by_id(font_id)
-            .and_then(|source| match source {
-                rust_fontconfig::OwnedFontSource::Disk(path) => Some(path.font_index),
-                rust_fontconfig::OwnedFontSource::Memory(font) => Some(font.font_index),
+            .map(|source| match source {
+                rust_fontconfig::OwnedFontSource::Disk(path) => path.font_index,
+                rust_fontconfig::OwnedFontSource::Memory(font) => font.font_index,
             })
-            .unwrap_or(0) as usize;
+            .unwrap_or(0);
 
         // Load the font using the provided function
         match load_fn(font_bytes, font_index) {
@@ -4463,7 +4460,7 @@ impl ComputedScrollbarStyle {
             r: thumb_color.r.saturating_add(THUMB_HOVER_LIGHTEN),
             g: thumb_color.g.saturating_add(THUMB_HOVER_LIGHTEN),
             b: thumb_color.b.saturating_add(THUMB_HOVER_LIGHTEN),
-            a: thumb_color.a.saturating_add(THUMB_HOVER_ALPHA_ADD).min(255),
+            a: thumb_color.a.saturating_add(THUMB_HOVER_ALPHA_ADD),
         };
         let thumb_active = ColorU {
             r: thumb_color.r.saturating_sub(THUMB_ACTIVE_DARKEN),
@@ -4475,7 +4472,7 @@ impl ComputedScrollbarStyle {
             r: track_color.r,
             g: track_color.g,
             b: track_color.b,
-            a: track_color.a.saturating_add(THUMB_HOVER_ALPHA_ADD).min(255),
+            a: track_color.a.saturating_add(THUMB_HOVER_ALPHA_ADD),
         };
         let hover_width = visual_width_px + SCROLLBAR_HOVER_EXPAND_PX;
         let active_width = visual_width_px + SCROLLBAR_HOVER_EXPAND_PX;
@@ -4911,7 +4908,7 @@ impl ExtractPropertyValue<StyleEmptyCells> for CssProperty {
 impl ExtractPropertyValue<StyleCursor> for CssProperty {
     fn extract(&self) -> Option<StyleCursor> {
         match self {
-            Self::Cursor(CssPropertyValue::Exact(v)) => Some(v.clone()),
+            Self::Cursor(CssPropertyValue::Exact(v)) => Some(*v),
             _ => None,
         }
     }
@@ -5165,7 +5162,7 @@ pub fn get_exclusion_margin(
         .ptr
         .get_exclusion_margin(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| v.inner.get() as f32)
+        .map(|v| v.inner.get())
         .unwrap_or(0.0)
 }
 
@@ -5324,7 +5321,7 @@ pub fn get_box_shadow_left(
         .ptr
         .get_box_shadow_left(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v).clone())
+        .map(|v| (**v))
 }
 
 /// Get box-shadow for right side. Returns Option<StyleBoxShadow> (cloned).
@@ -5342,7 +5339,7 @@ pub fn get_box_shadow_right(
         .ptr
         .get_box_shadow_right(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v).clone())
+        .map(|v| (**v))
 }
 
 /// Get box-shadow for top side. Returns Option<StyleBoxShadow> (cloned).
@@ -5360,7 +5357,7 @@ pub fn get_box_shadow_top(
         .ptr
         .get_box_shadow_top(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v).clone())
+        .map(|v| (**v))
 }
 
 /// Get box-shadow for bottom side. Returns Option<StyleBoxShadow> (cloned).
@@ -5378,7 +5375,7 @@ pub fn get_box_shadow_bottom(
         .ptr
         .get_box_shadow_bottom(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v).clone())
+        .map(|v| (**v))
 }
 
 /// Get text-shadow property. Returns Option<StyleBoxShadow> (cloned).
@@ -5400,7 +5397,7 @@ pub fn get_text_shadow(
         .ptr
         .get_text_shadow(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v).clone())
+        .map(|v| (**v))
 }
 
 /// Get transform property. Returns Option (non-empty transform list, cloned).

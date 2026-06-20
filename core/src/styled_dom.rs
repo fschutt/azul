@@ -902,8 +902,7 @@ impl StyledDom {
         let n = self.node_data.len();
         StyledDomMemoryReport {
             node_count: n,
-            node_hierarchy_bytes: self.node_hierarchy.as_ref().len()
-                * core::mem::size_of::<NodeHierarchyItem>(),
+            node_hierarchy_bytes: std::mem::size_of_val(self.node_hierarchy.as_ref()),
             node_data_bytes: {
                 let base = n * core::mem::size_of::<crate::dom::NodeData>();
                 // NodeData contains inline Vecs (callbacks, css_props, datasets)
@@ -919,10 +918,8 @@ impl StyledDom {
             },
             styled_nodes_bytes: n * core::mem::size_of::<StyledNode>(),
             cascade_info_bytes: n * core::mem::size_of::<CascadeInfo>(),
-            tag_ids_bytes: self.tag_ids_to_node_ids.as_ref().len()
-                * core::mem::size_of::<TagIdToNodeIdMapping>(),
-            non_leaf_nodes_bytes: self.non_leaf_nodes.as_ref().len()
-                * core::mem::size_of::<ParentWithNodeDepth>(),
+            tag_ids_bytes: std::mem::size_of_val(self.tag_ids_to_node_ids.as_ref()),
+            non_leaf_nodes_bytes: std::mem::size_of_val(self.non_leaf_nodes.as_ref()),
             callback_vecs_bytes:
                 self.nodes_with_window_callbacks.as_ref().len() * 8
                 + self.nodes_with_datasets.as_ref().len() * 8,
@@ -1432,14 +1429,14 @@ impl StyledDom {
 
     /// Returns an immutable reference to the CSS property cache.
     #[inline]
-    pub fn get_css_property_cache<'a>(&'a self) -> &'a CssPropertyCache {
-        &**self.css_property_cache.ptr
+    pub fn get_css_property_cache(&self) -> &CssPropertyCache {
+        &self.css_property_cache.ptr
     }
 
     /// Returns a mutable reference to the CSS property cache.
     #[inline]
-    pub fn get_css_property_cache_mut<'a>(&'a mut self) -> &'a mut CssPropertyCache {
-        &mut **self.css_property_cache.ptr
+    pub fn get_css_property_cache_mut(&mut self) -> &mut CssPropertyCache {
+        &mut self.css_property_cache.ptr
     }
 
     /// Returns the current state (hover, active, focus) of a styled node.
@@ -1447,7 +1444,6 @@ impl StyledDom {
     pub fn get_styled_node_state(&self, node_id: &NodeId) -> StyledNodeState {
         self.styled_nodes.as_container()[*node_id]
             .styled_node_state
-            .clone()
     }
 
     /// Updates hover state for nodes and returns changed CSS properties.
@@ -1509,7 +1505,6 @@ impl StyledDom {
             .map(|nid| {
                 self.styled_nodes.as_container()[*nid]
                     .styled_node_state
-                    .clone()
             })
             .collect::<Vec<_>>();
 
@@ -1588,12 +1583,12 @@ impl StyledDom {
                             None
                         } else {
                             Some(ChangedCssProperty {
-                                previous_state: old_node_state.clone(),
+                                previous_state: *old_node_state,
                                 previous_prop: match old {
                                     None => CssProperty::auto(*prop),
                                     Some(s) => s.clone(),
                                 },
-                                current_state: new_node_state.clone(),
+                                current_state: *new_node_state,
                                 current_prop: match new {
                                     None => CssProperty::auto(*prop),
                                     Some(s) => s.clone(),
@@ -1782,10 +1777,10 @@ impl StyledDom {
                         None
                     } else {
                         Some(ChangedCssProperty {
-                            previous_state: old_node_state.clone(),
+                            previous_state: *old_node_state,
                             previous_prop: old_prop,
                             // overriding a user property does not change the state
-                            current_state: old_node_state.clone(),
+                            current_state: *old_node_state,
                             current_prop: new_prop.clone(),
                         })
                     }
@@ -1854,7 +1849,7 @@ impl StyledDom {
                 let mut total_last_child = None;
                 recursive_get_last_child(
                     parent_node_id,
-                    &self.node_hierarchy.as_ref(),
+                    self.node_hierarchy.as_ref(),
                     &mut total_last_child,
                 );
                 let total_last_child = total_last_child?;
@@ -1945,11 +1940,11 @@ impl StyledDom {
     /// Returns nodes grouped by their rendering order (respects z-index and position).
     pub fn get_rects_in_rendering_order(&self) -> ContentGroup {
         Self::determine_rendering_order(
-            &self.non_leaf_nodes.as_ref(),
+            self.non_leaf_nodes.as_ref(),
             &self.node_hierarchy.as_container(),
             &self.styled_nodes.as_container(),
             &self.node_data.as_container(),
-            &self.get_css_property_cache(),
+            self.get_css_property_cache(),
         )
     }
 
@@ -2046,7 +2041,7 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
         //        - child of child 4 [7]
 
         // Write node into the arena here!
-        node_hierarchy[parent_node_id.index()] = node.clone();
+        node_hierarchy[parent_node_id.index()] = node;
 
         // MOVE the node's inline `style` AND its `extra` (NodeDataExt) box instead of relying on
         // copy_special's `self.style.clone()` / `self.extra.clone()`. Both derived Clones lower to
@@ -2223,7 +2218,7 @@ fn sort_children_by_position<'a>(
                     &nid,
                     &rectangles[nid].styled_node_state,
                 )
-                .and_then(|p| p.clone().get_property_or_default())
+                .and_then(|p| (*p).get_property_or_default())
                 .unwrap_or_default();
             let id = NodeHierarchyItemId::from_crate_internal(Some(nid));
             (id, position)
@@ -2265,7 +2260,7 @@ fn recursive_get_last_child(
     target: &mut Option<NodeId>,
 ) {
     match node_hierarchy[node_id.index()].last_child_id() {
-        None => return,
+        None => (),
         Some(s) => {
             *target = Some(s);
             recursive_get_last_child(s, node_hierarchy, target);

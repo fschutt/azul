@@ -678,7 +678,7 @@ fn invoke_viewport_changed(
 ) -> Update {
     match hook {
         OptionMapViewportChanged::Some(h) => {
-            (h.callback.cb)(h.refany.clone(), info.clone(), viewport)
+            (h.callback.cb)(h.refany.clone(), *info, viewport)
         }
         OptionMapViewportChanged::None => Update::DoNothing,
     }
@@ -713,7 +713,7 @@ azul_core::impl_managed_callback! {
 /// Invoke a map widget's optional `on_pin_tap` hook with the tapped coordinate.
 fn invoke_pin_tap(hook: &OptionMapPinTap, info: &CallbackInfo, coord: MapLatLon) -> Update {
     match hook {
-        OptionMapPinTap::Some(h) => (h.callback.cb)(h.refany.clone(), info.clone(), coord),
+        OptionMapPinTap::Some(h) => (h.callback.cb)(h.refany.clone(), *info, coord),
         OptionMapPinTap::None => Update::DoNothing,
     }
 }

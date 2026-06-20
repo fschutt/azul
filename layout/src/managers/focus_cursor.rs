@@ -294,7 +294,7 @@ impl<'a> FocusSearchContext<'a> {
     fn get_layout(&self, dom_id: &DomId) -> Result<&'a DomLayoutResult, UpdateFocusWarning> {
         self.layout_results
             .get(dom_id)
-            .ok_or_else(|| UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))
+            .ok_or_else(|| UpdateFocusWarning::FocusInvalidDomId(*dom_id))
     }
 
     /// Validate that a node exists in the given layout.
@@ -563,10 +563,10 @@ pub fn resolve_focus_target(
                 .unwrap_or(false);
 
             if is_valid {
-                Ok(Some(dom_node_id.clone()))
+                Ok(Some(*dom_node_id))
             } else {
                 Err(UpdateFocusWarning::FocusInvalidNodeId(
-                    dom_node_id.node.clone(),
+                    dom_node_id.node,
                 ))
             }
         }

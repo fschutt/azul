@@ -96,18 +96,15 @@ pub type ShapedGlyphVec = SmallVec<[ShapedGlyph; 1]>;
 /// `Px` is an already-resolved pixel value from an explicit CSS declaration
 /// (e.g. `line-height: 1.5` → `Px(fontSize * 1.5)`).
 #[derive(Debug, Clone, Copy)]
+#[derive(Default)]
 pub enum LineHeight {
     /// `line-height: normal` — resolve from font metrics at layout time
+    #[default]
     Normal,
     /// Pre-resolved pixel value (from CSS `line-height: <number|length|percentage>`)
     Px(f32),
 }
 
-impl Default for LineHeight {
-    fn default() -> Self {
-        LineHeight::Normal
-    }
-}
 
 impl LineHeight {
     /// Resolve to a pixel value, using font metrics when `Normal`.
@@ -347,7 +344,7 @@ impl FontChainKey {
         // must go through it so lookups match by construction.
         let mut font_families: Vec<String> = Vec::new();
         for sel in font_stack {
-            if sel.family.is_empty() || font_families.iter().any(|f| *f == sel.family) {
+            if sel.family.is_empty() || font_families.contains(&sel.family) {
                 continue;
             }
             font_families.push(sel.family.clone());
@@ -406,7 +403,7 @@ impl<T: ParsedFontTrait> LoadedFonts<T> {
     /// Insert a font with its FontId
     pub fn insert(&mut self, font_id: FontId, font: T) {
         let hash = font.get_hash();
-        self.hash_to_id.insert(hash, font_id.clone());
+        self.hash_to_id.insert(hash, font_id);
         self.fonts.insert(font_id, font);
     }
 
@@ -937,7 +934,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         let parsed = self.parsed_fonts.lock().unwrap();
         parsed
             .iter()
-            .map(|(id, font)| (id.clone(), font.shallow_clone()))
+            .map(|(id, font)| (*id, font.shallow_clone()))
             .collect()
     }
 
@@ -3189,21 +3186,13 @@ pub enum TextOrientation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default)]
 pub struct TextDecoration {
     pub underline: bool,
     pub strikethrough: bool,
     pub overline: bool,
 }
 
-impl Default for TextDecoration {
-    fn default() -> Self {
-        TextDecoration {
-            underline: false,
-            overline: false,
-            strikethrough: false,
-        }
-    }
-}
 
 impl TextDecoration {
     /// Convert from CSS StyleTextDecoration enum to our internal representation.
@@ -3508,7 +3497,9 @@ impl BidiDirection {
 /// paragraph direction from text content, instead of the HL1 override from
 /// the CSS `direction` property.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default)]
 pub enum UnicodeBidi {
+    #[default]
     Normal,
     Embed,
     Isolate,
@@ -3517,11 +3508,6 @@ pub enum UnicodeBidi {
     Plaintext,
 }
 
-impl Default for UnicodeBidi {
-    fn default() -> Self {
-        UnicodeBidi::Normal
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
 pub enum FontVariantCaps {
@@ -3692,7 +3678,7 @@ impl StyleProperties {
             new_style.font_size_px = val;
         }
         if let Some(val) = &partial.color {
-            new_style.color = val.clone();
+            new_style.color = *val;
         }
         if let Some(val) = partial.letter_spacing {
             new_style.letter_spacing = val;
@@ -4477,7 +4463,7 @@ impl UnifiedLayout {
         let current_item_pos = self.items.iter().position(|i| {
             i.item
                 .as_cluster()
-                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+                .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
         });
 
         let Some(current_pos) = current_item_pos else {
@@ -4578,7 +4564,7 @@ impl UnifiedLayout {
         let current_item_pos = self.items.iter().position(|i| {
             i.item
                 .as_cluster()
-                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+                .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
         });
 
         let Some(current_pos) = current_item_pos else {
@@ -4677,7 +4663,7 @@ impl UnifiedLayout {
         let Some(current_item) = self.items.iter().find(|i| {
             i.item
                 .as_cluster()
-                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+                .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
         }) else {
             if let Some(d) = debug {
                 d.push(format!(
@@ -4766,7 +4752,7 @@ impl UnifiedLayout {
         let Some(current_item) = self.items.iter().find(|i| {
             i.item
                 .as_cluster()
-                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+                .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
         }) else {
             if let Some(d) = debug {
                 d.push(format!(
@@ -4854,7 +4840,7 @@ impl UnifiedLayout {
         let Some(current_item) = self.items.iter().find(|i| {
             i.item
                 .as_cluster()
-                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+                .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
         }) else {
             if let Some(d) = debug {
                 d.push(format!(
@@ -4924,7 +4910,7 @@ impl UnifiedLayout {
         let Some(current_item) = self.items.iter().find(|i| {
             i.item
                 .as_cluster()
-                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+                .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
         }) else {
             if let Some(d) = debug {
                 d.push(format!(
@@ -5000,7 +4986,7 @@ impl UnifiedLayout {
         let current_pos = match self.items.iter().position(|i| {
             i.item
                 .as_cluster()
-                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+                .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
         }) {
             Some(pos) => pos,
             None => return cursor,
@@ -5085,7 +5071,7 @@ impl UnifiedLayout {
         let current_pos = match self.items.iter().position(|i| {
             i.item
                 .as_cluster()
-                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+                .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
         }) {
             Some(pos) => pos,
             None => return cursor,
@@ -5149,15 +5135,9 @@ fn get_baseline_for_item(item: &ShapedItem) -> Option<f32> {
         } => Some(*baseline_offset),
         // We have to get the clusters font from the last glyph
         ShapedItem::Cluster(ref cluster) => {
-            if let Some(last_glyph) = cluster.glyphs.last() {
-                Some(
-                    last_glyph
+            cluster.glyphs.last().map(|last_glyph| last_glyph
                         .font_metrics
-                        .baseline_scaled(last_glyph.style.font_size_px),
-                )
-            } else {
-                None
-            }
+                        .baseline_scaled(last_glyph.style.font_size_px))
         }
         ShapedItem::Break { source, break_info } => {
             // Breaks do not contribute to baseline
@@ -5366,7 +5346,7 @@ pub fn try_incremental_relayout(
         } else {
             // Overflows line — need to reflow from this line
             return IncrementalRelayoutResult::PartialReflow {
-                reflow_from_line: line_idx as usize,
+                reflow_from_line: line_idx,
             };
         }
     }
@@ -5442,15 +5422,15 @@ impl TextShapingCache {
     pub fn memory_report(&self) -> TextCacheMemoryReport {
         let mut r = TextCacheMemoryReport::default();
         r.logical_items_entries = self.logical_items.len();
-        for (_, arc) in &self.logical_items {
+        for arc in self.logical_items.values() {
             r.logical_items_bytes += arc.capacity() * core::mem::size_of::<LogicalItem>();
         }
         r.visual_items_entries = self.visual_items.len();
-        for (_, arc) in &self.visual_items {
+        for arc in self.visual_items.values() {
             r.visual_items_bytes += arc.capacity() * core::mem::size_of::<VisualItem>();
         }
         r.shaped_items_entries = self.shaped_items.len();
-        for (_, arc) in &self.shaped_items {
+        for arc in self.shaped_items.values() {
             r.shaped_items_bytes += arc.capacity() * core::mem::size_of::<ShapedItem>();
             for item in arc.iter() {
                 if let ShapedItem::Cluster(c) = item {
@@ -5460,7 +5440,7 @@ impl TextShapingCache {
             }
         }
         r.per_item_shaped_entries = self.per_item_shaped.len();
-        for (_, arc) in &self.per_item_shaped {
+        for arc in self.per_item_shaped.values() {
             r.per_item_shaped_bytes += arc.clusters.capacity() * core::mem::size_of::<ShapedItem>();
             for item in arc.clusters.iter() {
                 if let ShapedItem::Cluster(c) = item {
@@ -6664,7 +6644,7 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
                 loaded_fonts
                     .iter()
                     .find(|(_, font)| font.has_glyph(ch as u32))
-                    .map(|(id, _)| id.clone())
+                    .map(|(id, _)| *id)
             });
         if let Some(font_id) = font_id {
             match segments.last_mut() {
@@ -6723,13 +6703,13 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
         );
     }
 
-    unsafe { crate::az_mark((0x60850) as u32, (segments.len() as u32) as u32); } // [g123] segments count (split_text_by_font_coverage)
+    unsafe { crate::az_mark(0x60850_u32, (segments.len() as u32) as u32); } // [g123] segments count (split_text_by_font_coverage)
     if segments.len() <= 1 {
         // Fast path: all characters use the same font (common case)
         let (seg_start, seg_end, font_id) = match segments.first() {
-            Some(s) => { unsafe { crate::az_mark((0x60854) as u32, (0x00000001u32) as u32); } s }
+            Some(s) => { unsafe { crate::az_mark(0x60854_u32, 0x00000001u32); } s }
             None => {
-                unsafe { crate::az_mark((0x60854) as u32, (0x000000EEu32) as u32); } // [g123] split→0 segments (resolve_char failed all)
+                unsafe { crate::az_mark(0x60854_u32, 0x000000EEu32); } // [g123] split→0 segments (resolve_char failed all)
                 if dbg {
                     eprintln!("[FONT FALLBACK] no font could render any char in '{}'", text.chars().take(20).collect::<String>());
                 }
@@ -6737,9 +6717,9 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
             }
         };
         let font = match loaded_fonts.get(font_id) {
-            Some(f) => { unsafe { crate::az_mark((0x60858) as u32, (0x00000001u32) as u32); } f }
+            Some(f) => { unsafe { crate::az_mark(0x60858_u32, 0x00000001u32); } f }
             None => {
-                unsafe { crate::az_mark((0x60858) as u32, (0x000000EEu32) as u32); } // [g123] loaded_fonts.get MISS
+                unsafe { crate::az_mark(0x60858_u32, 0x000000EEu32); } // [g123] loaded_fonts.get MISS
                 if dbg {
                     eprintln!("[FONT FALLBACK] font {:?} not in loaded_fonts for '{}'", font_id, text.chars().take(20).collect::<String>());
                 }
@@ -6748,7 +6728,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
         };
         // If segment covers the full text (overwhelmingly common), skip substr+fixup
         if *seg_start == 0 && *seg_end == text.len() {
-            unsafe { crate::az_mark((0x60860) as u32, (0xC0DE0860u32) as u32); } // [g123] reached shape_text_correctly (full-text)
+            unsafe { crate::az_mark(0x60860_u32, 0xC0DE0860u32); } // [g123] reached shape_text_correctly (full-text)
             return shape_text_correctly(
                 text, script, language, direction,
                 font, style, source_index, source_node_id,
@@ -6976,7 +6956,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 // Shape text using either FontRef directly or fontconfig-resolved font
                 let shaped_clusters_result: Result<Vec<ShapedCluster>, LayoutError> = match &style.font_stack {
                     FontStack::Ref(font_ref) => {
-                        unsafe { crate::az_mark((0x60820) as u32, (0x00000001u32) as u32); } // [g121] Ref arm
+                        unsafe { crate::az_mark(0x60820_u32, 0x00000001u32); } // [g121] Ref arm
                         // For FontRef, use the font directly without fontconfig
                         if let Some(msgs) = debug_messages {
                             msgs.push(LayoutDebugMessage::info(format!(
@@ -6996,10 +6976,10 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         )
                     }
                     FontStack::Stack(selectors) => {
-                        unsafe { crate::az_mark((0x60820) as u32, (0x00000002u32) as u32); } // [g121] Stack arm
+                        unsafe { crate::az_mark(0x60820_u32, 0x00000002u32); } // [g121] Stack arm
                         // Build FontChainKey and resolve through fontconfig
                         let cache_key = FontChainKey::from_selectors(selectors);
-                        unsafe { crate::az_mark((0x60824) as u32, (font_chain_cache.len() as u32) as u32); } // [g121] chain map len
+                        unsafe { crate::az_mark(0x60824_u32, font_chain_cache.len() as u32); } // [g121] chain map len
 
                         // Look up the pre-resolved font chain. (2026-06-10: the g122
                         // by_find/by_only fallback chain is GONE — the historic miss was a
@@ -7157,7 +7137,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 let text = if text.chars().count() > 1 {
                     let converted: String = text.chars().map(|c| {
                         let cp = c as u32;
-                        if cp >= 0xFF01 && cp <= 0xFF5E {
+                        if (0xFF01..=0xFF5E).contains(&cp) {
                             // Reverse of text-transform: full-width
                             char::from_u32(cp - 0xFF01 + 0x0021).unwrap_or(c)
                         } else {
@@ -7334,7 +7314,7 @@ fn is_hanging_punctuation_char(c: char) -> bool {
 fn is_hanging_punctuation(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         if c.glyphs.len() == 1 {
-            c.text.chars().next().map_or(false, is_hanging_punctuation_char)
+            c.text.chars().next().is_some_and(is_hanging_punctuation_char)
         } else {
             false
         }
@@ -7353,9 +7333,9 @@ fn shape_text_correctly<T: ParsedFontTrait>(
     source_index: ContentIndex,
     source_node_id: Option<NodeId>,
 ) -> Result<Vec<ShapedCluster>, LayoutError> {
-    unsafe { crate::az_mark((0x60864) as u32, (0xC0DE0864u32) as u32); } // [g123] shape_text_correctly ENTERED
+    unsafe { crate::az_mark(0x60864_u32, 0xC0DE0864u32); } // [g123] shape_text_correctly ENTERED
     let glyphs = font.shape_text(text, script, language, direction, style.as_ref())?;
-    unsafe { crate::az_mark((0x60868) as u32, ((glyphs.len() as u32) | 0x80000000u32) as u32); } // [g123] font.shape_text returned (high bit set); low bits = glyph count
+    unsafe { crate::az_mark(0x60868_u32, (glyphs.len() as u32) | 0x80000000u32); } // [g123] font.shape_text returned (high bit set); low bits = glyph count
 
     if glyphs.is_empty() {
         return Ok(Vec::new());
@@ -9570,7 +9550,7 @@ pub fn is_collapsible_whitespace(item: &ShapedItem) -> bool {
 /// (Arabic, Syriac, Mongolian, N'Ko, Mandaic, Phags Pa, Hanifi Rohingya)
 /// per CSS Text 3 Appendix D. These scripts should not have letter-spacing applied.
 pub fn is_cursive_script_cluster(c: &ShapedCluster) -> bool {
-    c.text.chars().next().map_or(false, |ch| is_cursive_script_char(ch))
+    c.text.chars().next().is_some_and(is_cursive_script_char)
 }
 
 fn is_cursive_script_char(ch: char) -> bool {
@@ -9618,7 +9598,7 @@ fn cluster_is_word_boundary(cluster: &ShapedCluster) -> bool {
 // exclude punctuation and fixed-width spaces (U+3000, U+2000..U+200A)
 pub fn is_word_separator(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
-        c.text.chars().any(|g| is_word_separator_char(g))
+        c.text.chars().any(is_word_separator_char)
     } else {
         false
     }
@@ -9675,7 +9655,7 @@ pub fn is_zero_width_space(item: &ShapedItem) -> bool {
 /// Helper to identify if space can be added after an item.
 fn can_justify_after(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
-        c.text.chars().last().map_or(false, |g| {
+        c.text.chars().last().is_some_and(|g| {
             !g.is_whitespace() && classify_character(g as u32) != CharacterClass::Combining
         })
     } else {
@@ -10216,7 +10196,7 @@ fn is_break_opportunity(item: &ShapedItem) -> bool {
             return true;
         }
         // Break-forcing Unicode controls (LS, PS) create break opportunities
-        if c.text.chars().any(|ch| is_break_forcing_control(ch)) {
+        if c.text.chars().any(is_break_forcing_control) {
             return true;
         }
         // WJ (word joiner U+2060), ZWJ (U+200D), and GL (NBSP U+00A0) suppress breaks
@@ -10342,13 +10322,13 @@ impl<'a> BreakCursor<'a> {
             // Also suppress break if this item starts with a break-suppressing control
             // (WJ/ZWJ/ZWNBSP suppress breaks on both sides per Unicode line breaking)
             let starts_with_suppress = if let ShapedItem::Cluster(c) = item {
-                c.text.chars().next().map_or(false, |ch| is_break_suppressing_control(ch))
+                c.text.chars().next().is_some_and(is_break_suppressing_control)
             } else {
                 false
             };
             // If the item is a CJK cluster, check if the break is allowed by strictness
             let cjk_strictness_suppressed = if let ShapedItem::Cluster(c) = item {
-                c.text.chars().next().map_or(false, |ch| {
+                c.text.chars().next().is_some_and(|ch| {
                     !is_cjk_break_allowed_by_strictness(ch, None, self.line_break)
                 })
             } else {

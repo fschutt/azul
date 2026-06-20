@@ -136,7 +136,7 @@ impl JsonKeyValueVec {
             return Self::new();
         }
         let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
-        Self::from_vec(slice.iter().cloned().collect())
+        Self::from_vec(slice.to_vec())
     }
 }
 
@@ -155,7 +155,7 @@ impl JsonVec {
             return Self::new();
         }
         let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
-        Self::from_vec(slice.iter().cloned().collect())
+        Self::from_vec(slice.to_vec())
     }
 }
 

@@ -118,6 +118,12 @@ impl From<MsgBoxIcon> for MessageBoxIcon {
     }
 }
 
+impl Default for MsgBox {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MsgBox {
     /// Returns a zero-initialised namespace handle. The struct itself carries
     /// no state — instances exist only so the FFI layer can hang static
@@ -193,6 +199,12 @@ impl MsgBox {
     }
 }
 
+impl Default for ColorPickerDialog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ColorPickerDialog {
     /// Returns a zero-initialised namespace handle. Static-only — the struct
     /// is just a hook for the FFI layer.
@@ -250,6 +262,12 @@ fn apply_filter(mut dialog: tfd::FileDialog, filter: FileTypeList) -> tfd::FileD
     let patterns: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
     dialog = dialog.with_filter(&patterns, filter.document_descriptor.as_str());
     dialog
+}
+
+impl Default for FileDialog {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FileDialog {

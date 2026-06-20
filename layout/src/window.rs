@@ -284,18 +284,12 @@ pub use crate::managers::text_input::PendingTextEdit;
 /// Cached text layout constraints for a node
 /// These are the layout parameters that were used to shape the text
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct TextConstraintsCache {
     /// Map from (dom_id, node_id) to their layout constraints
     pub constraints: BTreeMap<(DomId, NodeId), UnifiedConstraints>,
 }
 
-impl Default for TextConstraintsCache {
-    fn default() -> Self {
-        Self {
-            constraints: BTreeMap::new(),
-        }
-    }
-}
 
 /// A text node that has been edited since the last full layout.
 /// This allows us to perform lightweight relayout without rebuilding the entire DOM.
@@ -732,13 +726,11 @@ impl LayoutWindow {
                     e
                 )));
             }
-        } else {
-            if let Some(msgs) = debug_messages.as_mut() {
-                msgs.push(LayoutDebugMessage::info(format!(
-                    "[layout_and_generate_display_list] Layout SUCCESS, layout_results count: {}",
-                    self.layout_results.len()
-                )));
-            }
+        } else if let Some(msgs) = debug_messages.as_mut() {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[layout_and_generate_display_list] Layout SUCCESS, layout_results count: {}",
+                self.layout_results.len()
+            )));
         }
 
         // After successful layout, update the accessibility tree
@@ -923,7 +915,7 @@ impl LayoutWindow {
                     )
                 };
                 // [g80] localize where font_chain_cache drops to 0: chains right after collect_and_resolve.
-                unsafe { crate::az_mark((0x60770) as u32, (chains.chains.len() as u32) as u32); }
+                unsafe { crate::az_mark(0x60770_u32, (chains.chains.len() as u32) as u32); }
                 // WEB-LIFT last resort (the DEFINITIVE spot — the layout's own `chains` that
                 // feed load_missing_for_chains below): the lifted font-query path can leave a
                 // chain with NO fonts even when a fallback IS registered (generic→OS-name +
@@ -945,7 +937,7 @@ impl LayoutWindow {
                     }
                 }
                 // [g80] chains after the window.rs last-resort loop (values_mut path).
-                unsafe { crate::az_mark((0x60774) as u32, (chains.chains.len() as u32) as u32); }
+                unsafe { crate::az_mark(0x60774_u32, (chains.chains.len() as u32) as u32); }
                 // [az-web-lift 2026-06-05] REMOVED a WASM-ONLY diagnostic probe that computed
                 // nchains/total_fonts/nreg here purely to write debug markers. Its
                 // `chains.chains.values().map(|c| …).sum()` closure-iterator chain (and/or the
@@ -996,13 +988,13 @@ impl LayoutWindow {
                 // an identical DOM skips the resolver entirely).
                 let fc_chains = chains.into_fontconfig_chains();
                 // [g80] fc_chains after into_fontconfig_chains (the BTreeMap rebuild) — does it drop them?
-                unsafe { crate::az_mark((0x60778) as u32, (fc_chains.len() as u32) as u32); }
+                unsafe { crate::az_mark(0x60778_u32, (fc_chains.len() as u32) as u32); }
                 self.font_manager.set_font_chain_cache_with_sig(
                     fc_chains,
                     font_stacks_sig,
                 );
                 // [g80] font_chain_cache right after set (does set_font_chain_cache_with_sig persist it?).
-                unsafe { crate::az_mark((0x6077C) as u32, (self.font_manager.font_chain_cache.len() as u32) as u32); }
+                unsafe { crate::az_mark(0x6077C_u32, ((self.font_manager.font_chain_cache.len() as u32))); }
             }
         }
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
@@ -1257,15 +1249,15 @@ impl LayoutWindow {
                             match hit_id {
                                 azul_core::hit_test::ScrollbarHitId::VerticalThumb(_, nid) => {
                                     let key = (dom_id, *nid);
-                                    if !gpu_cache.scrollbar_v_opacity_keys.contains_key(&key) {
-                                        gpu_cache.scrollbar_v_opacity_keys.insert(key, opacity_key);
+                                    if let std::collections::hash_map::Entry::Vacant(e) = gpu_cache.scrollbar_v_opacity_keys.entry(key) {
+                                        e.insert(opacity_key);
                                         gpu_cache.scrollbar_v_opacity_values.insert(key, initial_opacity);
                                     }
                                 }
                                 azul_core::hit_test::ScrollbarHitId::HorizontalThumb(_, nid) => {
                                     let key = (dom_id, *nid);
-                                    if !gpu_cache.scrollbar_h_opacity_keys.contains_key(&key) {
-                                        gpu_cache.scrollbar_h_opacity_keys.insert(key, opacity_key);
+                                    if let std::collections::hash_map::Entry::Vacant(e) = gpu_cache.scrollbar_h_opacity_keys.entry(key) {
+                                        e.insert(opacity_key);
                                         gpu_cache.scrollbar_h_opacity_values.insert(key, initial_opacity);
                                     }
                                 }
@@ -1520,7 +1512,7 @@ impl LayoutWindow {
         // We need to take ownership of the display list, so we replace it with an empty one
         self.layout_results
             .get_mut(&dom_id)
-            .map(|result| std::mem::replace(&mut result.display_list, DisplayList::default()))
+            .map(|result| std::mem::take(&mut result.display_list))
             .ok_or(solver3::LayoutError::InvalidTree)
     }
 
@@ -1855,10 +1847,7 @@ impl LayoutWindow {
             Some(n) => n,
             None => { return None; }
         };
-        match layout_node.used_size {
-            Some(s) => { Some(s) }
-            None => { None }
-        }
+        layout_node.used_size
     }
 
     /// Get the position of a laid-out node
@@ -1998,7 +1987,7 @@ impl LayoutWindow {
         use crate::solver3::display_list::DisplayListItem;
 
         let mut fonts = BTreeSet::new();
-        for (_dom_id, layout_result) in &self.layout_results {
+        for layout_result in self.layout_results.values() {
             for item in &layout_result.display_list.items {
                 let hash = match item {
                     DisplayListItem::Text { font_hash, .. } => font_hash.font_hash,
@@ -2026,7 +2015,7 @@ impl LayoutWindow {
         use crate::solver3::display_list::DisplayListItem;
 
         let mut images = BTreeSet::new();
-        for (_dom_id, layout_result) in &self.layout_results {
+        for layout_result in self.layout_results.values() {
             for item in &layout_result.display_list.items {
                 match item {
                     DisplayListItem::Image { image, .. } => {
@@ -2415,10 +2404,10 @@ impl LayoutWindow {
             if !timer_was_active {
                 // Need to start the timer
                 let timer = self.create_cursor_blink_timer(current_window_state);
-                return CursorBlinkTimerAction::Start(timer);
+                CursorBlinkTimerAction::Start(timer)
             } else {
                 // Timer already active, just continue
-                return CursorBlinkTimerAction::NoChange;
+                CursorBlinkTimerAction::NoChange
             }
         } else {
             // Focus is moving away from contenteditable or being cleared
@@ -2430,9 +2419,9 @@ impl LayoutWindow {
             if timer_was_active {
                 // Need to stop the timer
                 self.text_edit_manager.blink.set_blink_timer_active(false);
-                return CursorBlinkTimerAction::Stop;
+                CursorBlinkTimerAction::Stop
             } else {
-                return CursorBlinkTimerAction::NoChange;
+                CursorBlinkTimerAction::NoChange
             }
         }
     }
@@ -2930,11 +2919,7 @@ impl LayoutWindow {
         // Signal to the platform render loop that more frames are needed
         // to complete the scrollbar fade animation. The caller should
         // schedule a redraw while this flag is true.
-        if any_opacity_nonzero {
-            gpu_state_manager.scrollbar_fade_active = true;
-        } else {
-            gpu_state_manager.scrollbar_fade_active = false;
-        }
+        gpu_state_manager.scrollbar_fade_active = any_opacity_nonzero;
 
         events
     }
@@ -2969,7 +2954,7 @@ impl LayoutWindow {
                 .styled_nodes
                 .as_container()
                 .get(dom_node_id)
-                .map(|n| n.styled_node_state.clone())
+                .map(|n| n.styled_node_state)
                 .unwrap_or_default();
 
             // Check if this node has scroll overflow
@@ -3048,7 +3033,7 @@ impl LayoutWindow {
             .get();
 
         Some(LogicalRect::new(
-            LogicalPosition::new(calc_pos.x as f32, calc_pos.y as f32),
+            LogicalPosition::new(calc_pos.x, calc_pos.y),
             LogicalSize::new(
                 used_size.width / hidpi_factor,
                 used_size.height / hidpi_factor,
@@ -3120,12 +3105,9 @@ impl LayoutWindow {
             )
         }));
 
-        match a11y_result {
-            Ok(tree_update) => {
-                self.a11y_manager.last_tree_update = Some(tree_update);
-                self.a11y_manager.tree_initialized = true;
-            }
-            Err(_) => {}
+        if let Ok(tree_update) = a11y_result {
+            self.a11y_manager.last_tree_update = Some(tree_update);
+            self.a11y_manager.tree_initialized = true;
         }
     }
 
@@ -3182,7 +3164,7 @@ impl LayoutWindow {
 
         // Build the a11y node ID (same encoding as update_tree)
         let a11y_node_id = accesskit::NodeId(
-            ((dom_id.inner as u64) << 32) | (node_id.index() as u64) + 1,
+            ((dom_id.inner as u64) << 32) | ((node_id.index() as u64) + 1),
         );
 
         // Get the node data to determine role
@@ -3247,7 +3229,7 @@ impl LayoutWindow {
         let focus = self.focus_manager.get_focused_node().copied()
             .and_then(|dn| {
                 let idx = dn.node.into_crate_internal()?.index();
-                Some(accesskit::NodeId(((dn.dom.inner as u64) << 32) | (idx as u64) + 1))
+                Some(accesskit::NodeId(((dn.dom.inner as u64) << 32) | ((idx as u64) + 1)))
             })
             .unwrap_or(self.a11y_manager.root_id);
 
@@ -3288,8 +3270,8 @@ impl LayoutWindow {
         let calc_pos = self.layout_cache.calculated_positions.get(layout_idx)?;
 
         // Add layout position to cursor rect (both already in logical units)
-        cursor_rect.origin.x += calc_pos.x as f32;
-        cursor_rect.origin.y += calc_pos.y as f32;
+        cursor_rect.origin.x += calc_pos.x;
+        cursor_rect.origin.y += calc_pos.y;
 
         // Return ABSOLUTE position (no scroll correction)
         Some(cursor_rect)
@@ -3304,7 +3286,7 @@ impl LayoutWindow {
         // Collect Range selections
         let ranges: alloc::vec::Vec<_> = mc.selections.iter().filter_map(|s| {
             if let azul_core::selection::Selection::Range(ref r) = s.selection {
-                Some(r.clone())
+                Some(*r)
             } else {
                 None
             }
@@ -3332,8 +3314,8 @@ impl LayoutWindow {
         for range in &ranges {
             for rect in inline_layout.get_selection_rects(range) {
                 found_any = true;
-                let abs_x = rect.origin.x + calc_pos.x as f32;
-                let abs_y = rect.origin.y + calc_pos.y as f32;
+                let abs_x = rect.origin.x + calc_pos.x;
+                let abs_y = rect.origin.y + calc_pos.y;
                 min_x = min_x.min(abs_x);
                 min_y = min_y.min(abs_y);
                 max_x = max_x.max(abs_x + rect.size.width);
@@ -3373,7 +3355,7 @@ impl LayoutWindow {
 
         // Get primary selection text (or word at cursor)
         let primary = match mc.selections.first() {
-            Some(s) => s.clone(),
+            Some(s) => *s,
             None => return false,
         };
 
@@ -3381,7 +3363,7 @@ impl LayoutWindow {
             azul_core::selection::Selection::Range(r) => (*r, false),
             azul_core::selection::Selection::Cursor(c) => {
                 // Need to expand to word first
-                (azul_core::selection::SelectionRange { start: c.clone(), end: c.clone() }, true)
+                (azul_core::selection::SelectionRange { start: *c, end: *c }, true)
             }
         };
 
@@ -3429,9 +3411,9 @@ impl LayoutWindow {
         // Search forward from the end of the last selection
         let mc = self.text_edit_manager.multi_cursor.as_ref().unwrap();
         let last_end_byte = mc.selections.last()
-            .and_then(|s| match &s.selection {
-                azul_core::selection::Selection::Range(r) => Some(r.end.cluster_id.start_byte_in_run as usize),
-                azul_core::selection::Selection::Cursor(c) => Some(c.cluster_id.start_byte_in_run as usize),
+            .map(|s| match &s.selection {
+                azul_core::selection::Selection::Range(r) => r.end.cluster_id.start_byte_in_run as usize,
+                azul_core::selection::Selection::Cursor(c) => c.cluster_id.start_byte_in_run as usize,
             })
             .unwrap_or(0);
 
@@ -3810,7 +3792,7 @@ impl LayoutWindow {
                 new_target,
                 duration,
                 EasingFunction::Linear,
-                now.into(),
+                now,
             );
 
             true // Scrolled
@@ -5369,7 +5351,7 @@ impl LayoutWindow {
         let old_text = self.extract_text_from_inline_content(&content);
         let old_cursor = current_selection.first().and_then(|sel| {
             if let Selection::Cursor(c) = sel {
-                Some(c.clone())
+                Some(*c)
             } else {
                 None
             }
@@ -6213,7 +6195,7 @@ impl LayoutWindow {
                         .layout
                         .items
                         .iter()
-                        .zip(shaped_items.into_iter())
+                        .zip(shaped_items)
                         .map(|(old_positioned, new_shaped)| PositionedItem {
                             item: new_shaped,
                             position: old_positioned.position,
@@ -6240,7 +6222,7 @@ impl LayoutWindow {
                         .layout
                         .items
                         .iter()
-                        .zip(shaped_items.into_iter())
+                        .zip(shaped_items)
                         .enumerate()
                         .map(|(i, (old_positioned, new_shaped))| {
                             let mut position = old_positioned.position;
@@ -6311,8 +6293,8 @@ impl LayoutWindow {
 
         Some(LayoutRect {
             origin: azul_css::props::basic::LayoutPoint {
-                x: position.x as f32 as isize,
-                y: position.y as f32 as isize,
+                x: position.x as isize,
+                y: position.y as isize,
             },
             size: azul_css::props::basic::LayoutSize {
                 width: size.width as isize,
@@ -6470,10 +6452,10 @@ impl LayoutWindow {
         let viewport_height = ancestor_bounds.size.height as f32;
 
         // Check if cursor is visible
-        let cursor_visible_x = (cursor_abs_x as f32) >= viewport_x
-            && (cursor_abs_x as f32) <= viewport_x + viewport_width;
-        let cursor_visible_y = (cursor_abs_y as f32) >= viewport_y
-            && (cursor_abs_y as f32) <= viewport_y + viewport_height;
+        let cursor_visible_x = cursor_abs_x >= viewport_x
+            && cursor_abs_x <= viewport_x + viewport_width;
+        let cursor_visible_y = cursor_abs_y >= viewport_y
+            && cursor_abs_y <= viewport_y + viewport_height;
 
         if cursor_visible_x && cursor_visible_y {
             // Cursor is already visible
@@ -6485,18 +6467,18 @@ impl LayoutWindow {
         let mut target_scroll_y = current_scroll.y;
 
         // Adjust horizontal scroll if needed
-        if (cursor_abs_x as f32) < viewport_x {
-            target_scroll_x = cursor_abs_x as f32 - ancestor_bounds.origin.x as f32;
-        } else if (cursor_abs_x as f32) > viewport_x + viewport_width {
-            target_scroll_x = cursor_abs_x as f32 - ancestor_bounds.origin.x as f32 - viewport_width
+        if cursor_abs_x < viewport_x {
+            target_scroll_x = cursor_abs_x - ancestor_bounds.origin.x as f32;
+        } else if cursor_abs_x > viewport_x + viewport_width {
+            target_scroll_x = cursor_abs_x - ancestor_bounds.origin.x as f32 - viewport_width
                 + cursor_rect.size.width;
         }
 
         // Adjust vertical scroll if needed
-        if (cursor_abs_y as f32) < viewport_y {
-            target_scroll_y = cursor_abs_y as f32 - ancestor_bounds.origin.y as f32;
-        } else if (cursor_abs_y as f32) > viewport_y + viewport_height {
-            target_scroll_y = cursor_abs_y as f32 - ancestor_bounds.origin.y as f32 - viewport_height
+        if cursor_abs_y < viewport_y {
+            target_scroll_y = cursor_abs_y - ancestor_bounds.origin.y as f32;
+        } else if cursor_abs_y > viewport_y + viewport_height {
+            target_scroll_y = cursor_abs_y - ancestor_bounds.origin.y as f32 - viewport_height
                 + cursor_rect.size.height;
         }
 
@@ -6808,7 +6790,7 @@ impl LayoutWindow {
                     if let Some(cursor) = layout.hittest_cursor(local_pos) {
                         // Store selection with IFC root NodeId, not the hit text node
                         found_selection = Some((*dom_id, ifc_root_node_id, SelectionRange {
-                            start: cursor.clone(),
+                            start: cursor,
                             end: cursor,
                         }, local_pos));
                         break;
@@ -6880,7 +6862,7 @@ impl LayoutWindow {
                     // Hit-test the cursor in this text layout
                     if let Some(cursor) = layout.hittest_cursor(local_pos) {
                         found_selection = Some((*dom_id, node_id, SelectionRange {
-                            start: cursor.clone(),
+                            start: cursor,
                             end: cursor,
                         }, local_pos));
                         break;
@@ -7414,7 +7396,7 @@ impl LayoutWindow {
             // Queue the VirtualView for re-invocation in the next render pass
             self.pending_virtual_view_updates
                 .entry(dom_id)
-                .or_insert_with(FastBTreeSet::new)
+                .or_default()
                 .insert(node_id);
             true
         } else {
@@ -7490,7 +7472,7 @@ impl LayoutWindow {
         for (dom_id, node_ids) in vviews_to_update {
             self.pending_virtual_view_updates
                 .entry(dom_id)
-                .or_insert_with(FastBTreeSet::new)
+                .or_default()
                 .extend(node_ids);
         }
     }
@@ -7508,7 +7490,7 @@ impl LayoutWindow {
         for (dom_id, node_id) in self.virtual_view_manager.all_view_keys() {
             updates
                 .entry(dom_id)
-                .or_insert_with(FastBTreeSet::new)
+                .or_default()
                 .insert(node_id);
         }
         self.queue_virtual_view_updates(updates);
@@ -7591,7 +7573,7 @@ impl LayoutWindow {
 
         Some(LogicalRect::new(
             position,
-            LogicalSize::new(size.width as f32, size.height as f32),
+            LogicalSize::new(size.width, size.height),
         ))
     }
 }

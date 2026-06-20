@@ -791,7 +791,7 @@ impl GestureAndDragManager {
         barrel_roll_rad: f32,
         tool_id: u32,
     ) {
-        self.previous_pen_state = self.pen_state.clone();
+        self.previous_pen_state = self.pen_state;
         self.pen_state = Some(PenState {
             position,
             pressure,
@@ -812,7 +812,7 @@ impl GestureAndDragManager {
 
     /// Clear pen state (when pen leaves proximity)
     pub fn clear_pen_state(&mut self) {
-        self.previous_pen_state = self.pen_state.clone();
+        self.previous_pen_state = self.pen_state;
         self.pen_state = None;
         self.pen_event_pending = true;
     }

@@ -541,7 +541,9 @@ pub fn get_ua_property(
     use CssPropertyType as PT;
     use NodeType as NT;
 
-    let result = match (node_type, property_type) {
+    
+
+    match (node_type, property_type) {
         // Body Element - CRITICAL for preventing layout collapse
         (NT::Body, PT::Display) => Some(&DISPLAY_BLOCK),
         // NOTE: Body does NOT have width: 100% in standard UA CSS - it inherits from ICB
@@ -822,9 +824,7 @@ pub fn get_ua_property(
 
         // No default defined for other combinations
         _ => None,
-    };
-
-    result
+    }
 }
 
 // ============================================================================

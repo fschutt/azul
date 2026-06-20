@@ -212,7 +212,7 @@ impl core::hash::Hash for ThreadSenderInner {
 #[cfg(feature = "std")]
 impl PartialEq for ThreadSenderInner {
     fn eq(&self, other: &Self) -> bool {
-        (self.ptr.as_ref() as *const _ as usize) == (other.ptr.as_ref() as *const _ as usize)
+        std::ptr::eq(self.ptr.as_ref(), other.ptr.as_ref())
     }
 }
 
@@ -329,7 +329,7 @@ impl From<WriteBackCallbackType> for WriteBackCallback {
 
 impl PartialEq for WriteBackCallback {
     fn eq(&self, other: &Self) -> bool {
-        self.cb as *const () as usize == other.cb as *const () as usize
+        std::ptr::eq(self.cb as *const (), other.cb as *const ())
     }
 }
 
@@ -400,7 +400,7 @@ impl From<ThreadCallbackType> for ThreadCallback {
 
 impl PartialEq for ThreadCallback {
     fn eq(&self, other: &Self) -> bool {
-        self.cb as *const () as usize == other.cb as *const () as usize
+        std::ptr::eq(self.cb as *const (), other.cb as *const ())
     }
 }
 

@@ -515,8 +515,7 @@ impl NodeGraph {
         output_index: usize,
     ) -> Result<(), NodeGraphError> {
         // Verify that the node type of the connection matches
-        let _ =
-            self.verify_nodetype_match(output_node_id, output_index, input_node_id, input_index)?;
+        self.verify_nodetype_match(output_node_id, output_index, input_node_id, input_index)?;
 
         // connect input -> output
         if let Some(input_node) = self
@@ -639,7 +638,7 @@ impl NodeGraph {
             let output_index = *output_index;
 
             // verify that the node type of the connection matches
-            let _ = self.verify_nodetype_match(
+            self.verify_nodetype_match(
                 output_node_id,
                 output_index,
                 input_node_id,
@@ -735,7 +734,7 @@ impl NodeGraph {
             let input_index = *input_index;
 
             // verify that the node type of the connection matches
-            let _ = self.verify_nodetype_match(
+            self.verify_nodetype_match(
                 output_node_id,
                 output_index,
                 input_node_id,
@@ -908,7 +907,7 @@ impl NodeGraph {
 
                                 MenuItem::String(
                                     StringMenuItem::create(
-                                        node_type_info.node_type_name.clone().into(),
+                                        node_type_info.node_type_name.clone(),
                                     )
                                     .with_callback(
                                         context_menu_local_dataset,
@@ -2022,7 +2021,7 @@ fn render_node(
                 .find(|i| i.io_type_id == *io_id)?;
             Some((
                 io_info.io_info.data_type.clone(),
-                io_info.io_info.color.clone(),
+                io_info.io_info.color,
             ))
         })
         .collect::<Vec<_>>();
@@ -2041,7 +2040,7 @@ fn render_node(
                 .find(|i| i.io_type_id == *io_id)?;
             Some((
                 io_info.io_info.data_type.clone(),
-                io_info.io_info.color.clone(),
+                io_info.io_info.color,
             ))
         })
         .collect::<Vec<_>>();
@@ -2679,7 +2678,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                         .iter()
                         .find(|o| o.io_type_id == *output_type_id)
                     {
-                        Some(s) => s.io_info.color.clone(),
+                        Some(s) => s.io_info.color,
                         None => continue,
                     };
 
@@ -2700,7 +2699,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                             color: output_color,
                         };
 
-                        let (rect, swap_vert, swap_horz) = match get_rect(&node_graph, cld) {
+                        let (rect, swap_vert, swap_horz) = match get_rect(node_graph, cld) {
                             Some(s) => s,
                             None => continue,
                         };
@@ -2773,15 +2772,15 @@ extern "C" fn draw_connection(mut refany: RefAny, _info: ()) -> ImageRef {
         width: 100.0,
         height: 100.0,
     };
-    let invalid = ImageRef::null_image(
+    
+
+    // Cannot call draw_connection_inner without RenderImageCallbackInfo
+    ImageRef::null_image(
         size.width as usize,
         size.height as usize,
         RawImageFormat::R8,
         Vec::new(),
-    );
-
-    // Cannot call draw_connection_inner without RenderImageCallbackInfo
-    invalid
+    )
 }
 
 const NODE_WIDTH: f32 = 250.0;
@@ -2836,7 +2835,7 @@ fn get_rect(
 extern "C" fn nodegraph_set_active_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
     let data_clone = refany.clone();
     if let Some(mut refany) = refany.downcast_mut::<NodeLocalDataset>() {
-        let node_id = refany.node_id.clone();
+        let node_id = refany.node_id;
         if let Some(mut backref) = refany.backref.downcast_mut::<NodeGraphLocalDataset>() {
             backref.active_node_being_dragged = Some((node_id, data_clone));
         }
@@ -2888,7 +2887,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             let result = match refany.callbacks.on_node_dragged.as_ref() {
                 Some(OnNodeDragged { callback, refany }) => (callback.cb)(
                     refany.clone(),
-                    info.clone(),
+                    info,
                     node_graph_node_id,
                     NodeDragAmount { x: dx, y: dy },
                 ),
@@ -3027,7 +3026,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             let result = match refany.callbacks.on_node_graph_dragged.as_ref() {
                 Some(OnNodeGraphDragged { callback, refany }) => (callback.cb)(
                     refany.clone(),
-                    info.clone(),
+                    info,
                     GraphDragAmount { x: dx, y: dy },
                 ),
                 None => Update::DoNothing,
@@ -3190,7 +3189,7 @@ extern "C" fn nodegraph_delete_node(mut refany: RefAny, mut info: CallbackInfo) 
         None => return Update::DoNothing,
     };
 
-    let node_id = refany.node_id.clone();
+    let node_id = refany.node_id;
 
     let mut backref = match refany.backref.downcast_mut::<NodeGraphLocalDataset>() {
         Some(s) => s,
@@ -3213,7 +3212,7 @@ extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: Callbac
         None => return Update::DoNothing,
     };
 
-    let new_node_type = refany.node_type.clone();
+    let new_node_type = refany.node_type;
 
     let node_graph_wrapper_id = match info.get_node_id_of_root_dataset(refany.backref.clone()) {
         Some(s) => s,
@@ -3227,7 +3226,6 @@ extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: Callbac
 
     let node_wrapper_offset = info
         .get_node_position(node_graph_wrapper_id)
-        .map(|p| p)
         .map(|p| (p.x, p.y))
         .unwrap_or((0.0, 0.0));
 
@@ -3268,14 +3266,14 @@ extern "C" fn nodegraph_input_output_connect(mut refany: RefAny, mut info: Callb
         None => return Update::DoNothing,
     };
 
-    let io_id = refany.io_id.clone();
+    let io_id = refany.io_id;
 
     let mut backref = match refany.backref.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let node_id = backref.node_id.clone();
+    let node_id = backref.node_id;
 
     let mut backref = match backref.backref.downcast_mut::<NodeGraphLocalDataset>() {
         Some(s) => s,
@@ -3283,7 +3281,7 @@ extern "C" fn nodegraph_input_output_connect(mut refany: RefAny, mut info: Callb
     };
 
     let (input_node, input_index, output_node, output_index) =
-        match backref.last_input_or_output_clicked.clone() {
+        match backref.last_input_or_output_clicked {
             None => {
                 backref.last_input_or_output_clicked = Some((node_id, io_id));
                 return Update::DoNothing;
@@ -3343,14 +3341,14 @@ extern "C" fn nodegraph_input_output_disconnect(mut refany: RefAny, info: Callba
         None => return Update::DoNothing,
     };
 
-    let io_id = refany.io_id.clone();
+    let io_id = refany.io_id;
 
     let mut backref = match refany.backref.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let node_id = backref.node_id.clone();
+    let node_id = backref.node_id;
 
     let mut backref = match backref.backref.downcast_mut::<NodeGraphLocalDataset>() {
         Some(s) => s,

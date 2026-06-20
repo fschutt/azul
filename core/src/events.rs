@@ -70,8 +70,8 @@ impl CallbackToCall {
             .iter()
             .map(|(node_id, item)| CallbackToCall {
                 node_id: *node_id,
-                hit_test_item: Some(item.clone()),
-                event_filter: event_filter.clone(),
+                hit_test_item: Some(*item),
+                event_filter,
             })
             .collect()
     }
@@ -152,20 +152,17 @@ pub enum EventSource {
 /// - **Bubble**: Event travels from target back up to root (most common)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
+#[derive(Default)]
 pub enum EventPhase {
     /// Event travels from root down to target
     Capture,
     /// Event is at the target element
     Target,
     /// Event bubbles from target back up to root
+    #[default]
     Bubble,
 }
 
-impl Default for EventPhase {
-    fn default() -> Self {
-        EventPhase::Bubble
-    }
-}
 
 /// Mouse button identifier for mouse events.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -781,6 +778,7 @@ impl SyntheticEvent {
 
 /// Result of event propagation through DOM tree.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct PropagationResult {
     /// Callbacks that should be invoked, in order
     pub callbacks_to_invoke: Vec<(NodeId, EventFilter)>,
@@ -929,14 +927,6 @@ fn collect_matching_callbacks(
     result.callbacks_to_invoke.extend(matching);
 }
 
-impl Default for PropagationResult {
-    fn default() -> Self {
-        Self {
-            callbacks_to_invoke: Vec::new(),
-            default_prevented: false,
-        }
-    }
-}
 
 // =============================================================================
 // DEFAULT ACTIONS (W3C UI Events / HTML5 Activation Behavior)

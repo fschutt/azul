@@ -125,7 +125,7 @@ use xmlparser::Tokenizer;
 pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
     let error_css = Css::empty();
 
-    let parsed = match parse_xml_string(&xml) {
+    let parsed = match parse_xml_string(xml) {
         Ok(parsed) => parsed,
         Err(e) => {
             return DomXml {
@@ -955,13 +955,13 @@ fn translate_xmlparser_streamerror(e: xmlparser::StreamError) -> XmlStreamError 
         }
         xmlparser::StreamError::InvalidQuote(a, tp) => {
             XmlStreamError::InvalidQuote(InvalidQuoteError {
-                got: a.into(),
+                got: a,
                 pos: translate_xmlparser_textpos(tp),
             })
         }
         xmlparser::StreamError::InvalidSpace(a, tp) => {
             XmlStreamError::InvalidSpace(InvalidSpaceError {
-                got: a.into(),
+                got: a,
                 pos: translate_xmlparser_textpos(tp),
             })
         }

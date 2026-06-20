@@ -68,7 +68,7 @@ fn invoke_on_audio_frame(
     frame: AudioFrame,
 ) -> Update {
     match hook {
-        OptionOnAudioFrame::Some(h) => (h.callback.cb)(h.refany.clone(), info.clone(), frame),
+        OptionOnAudioFrame::Some(h) => (h.callback.cb)(h.refany.clone(), *info, frame),
         OptionOnAudioFrame::None => Update::DoNothing,
     }
 }
