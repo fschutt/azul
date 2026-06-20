@@ -294,7 +294,15 @@ fn set_system_clipboard(text: String) -> bool {
     }
     #[cfg(target_os = "linux")]
     {
-        crate::desktop::shell2::linux::x11::clipboard::write_to_clipboard(&text).is_ok()
+        // Route to the active session backend. This previously hardcoded the X11
+        // write, so copy never reached the clipboard under a Wayland session —
+        // and the Wayland write path was only reachable through the unwired
+        // `sync_clipboard`. Now both backends are wired here.
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            crate::desktop::shell2::linux::wayland::clipboard::write_to_clipboard(&text).is_ok()
+        } else {
+            crate::desktop::shell2::linux::x11::clipboard::write_to_clipboard(&text).is_ok()
+        }
     }
     #[cfg(not(any(
         target_os = "windows",
