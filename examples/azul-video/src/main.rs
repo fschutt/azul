@@ -27,7 +27,7 @@ struct VidApp {
 
 /// Timeline click → set the scrub position → RefreshDom (the widget's merge then
 /// seeks the worker). `get_cursor_relative_to_node` gives x within the fixed-width bar.
-extern "C" fn scrub_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn scrub_click(mut data: RefAny, info: CallbackInfo) -> Update {
     let frac = match info.get_cursor_relative_to_node().into_option() {
         Some(c) => (c.x / TIMELINE_W).clamp(0.0, 1.0),
         None => return Update::DoNothing,
@@ -47,12 +47,22 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let mut config = VideoConfig::default();
     // Parse into the typed `Url` when the parser is available, otherwise fall back
     // to an href-only `Url` (the decode worker only reads `Url::as_str()`).
-    config.source = VideoSource::Url(
-        Url::parse(BBB_URL).unwrap_or_else(|_| Url {
+    // `Url::parse` returns the C-ABI `ResultUrlUrlParseError` (not `std::Result`),
+    // so match its variants rather than calling `unwrap_or_else`. The result enum
+    // implements `Drop`, hence the `ref` + `clone()` to pull the parsed `Url` out;
+    // `Url` has no `Default`, hence the explicit href-only construction.
+    config.source = VideoSource::Url(match Url::parse(BBB_URL) {
+        ResultUrlUrlParseError::Ok(ref url) => url.clone(),
+        ResultUrlUrlParseError::Err(_) => Url {
             href: BBB_URL.into(),
-            ..Default::default()
-        }),
-    );
+            scheme: "".into(),
+            host: "".into(),
+            port: 0,
+            path: "".into(),
+            query: "".into(),
+            fragment: "".into(),
+        },
+    });
     config.timestamp = scrub;
 
     let frac_pct = ((scrub / DURATION_SECS).clamp(0.0, 1.0) * 100.0) as u32;
