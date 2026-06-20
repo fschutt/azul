@@ -5194,7 +5194,8 @@ fn main() {
             "#[allow(unused_imports)]\r\npub mod ui {{
 
     use azul::prelude::*;
-    use azul::dom::{{NodeType, TabIndex}};
+    use azul::dom::{{NodeType, TabIndex, SmallAriaInfo}};
+    use azul::str::String as AzString;
 
     pub fn render() -> Dom {{\r\n{}\r\n    }}\r\n}}",
             app_source
@@ -6595,8 +6596,14 @@ fn compile_node_to_rust_code_inner<'a>(
     // children (text + elements) in order, so the base node must stay childless.
     // Interactive/data tags (Button/Input/…) whose NodeType carries data fall
     // back to `div`, matching the C/C++/Python walkers (`safe_container_tag`).
-    let tag = safe_container_tag(&format!("{:?}", tag_to_node_type(&component_name)));
-    let mut dom_string = format!("{}Dom::create_node(NodeType::{})", t2, tag);
+    let ctor = analyze_node_ctor(&component_name, node);
+    let mut dom_string = match ctor.render_rust() {
+        Some(expr) => format!("{}{}", t2, expr),
+        None => {
+            let tag = safe_container_tag(&format!("{:?}", tag_to_node_type(&component_name)));
+            format!("{}Dom::create_node(NodeType::{})", t2, tag)
+        }
+    };
 
     matcher.path.push(node_type);
     let ids = node
@@ -6655,6 +6662,9 @@ fn compile_node_to_rust_code_inner<'a>(
         tabs,
     );
 
+    // Text folded into the ctor (Tier A/C) is skipped, as is a `<caption>`
+    // already injected by `create_table`.
+    let mut caption_skipped = false;
     let mut children_string = node
         .children
         .as_ref()
@@ -6662,6 +6672,13 @@ fn compile_node_to_rust_code_inner<'a>(
         .enumerate()
         .filter_map(|(child_idx, c)| match c {
             XmlNodeChild::Element(child_node) => {
+                if ctor.skip_caption()
+                    && !caption_skipped
+                    && child_node.node_type.as_str().eq_ignore_ascii_case("caption")
+                {
+                    caption_skipped = true;
+                    return None;
+                }
                 let mut matcher = matcher.clone();
                 matcher.path.push(CssPathSelector::Children);
                 matcher.indices_in_parent.push(child_idx);
@@ -6678,6 +6695,9 @@ fn compile_node_to_rust_code_inner<'a>(
                 ))
             }
             XmlNodeChild::Text(text) => {
+                if ctor.consumes_text() {
+                    return None;
+                }
                 let text = text.trim();
                 if text.is_empty() {
                     None
@@ -6735,6 +6755,427 @@ const SAFE_CONTAINER_TAGS: &[&str] = &[
 /// zero-arg creator, else `"Div"`.
 fn safe_container_tag(tag_dbg: &str) -> &'static str {
     SAFE_CONTAINER_TAGS.iter().copied().find(|t| *t == tag_dbg).unwrap_or("Div")
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Semantic / accessibility-aware constructor selection.
+//
+// Instead of mapping every element to a plain `div`, an exported live page
+// picks the *most specific* Azul constructor so the generated app keeps the
+// page's semantics + accessibility tree:
+//
+//   • Tier A  `create_<tag>_with_text(text)` — a tag with a single text child
+//             and no element children (P, Span, H1-H6, Li, Td, Code, …).
+//   • Tier B  aria-only / void widgets (Details, Summary, Form, Canvas, Area,
+//             …) — `create_<tag>(SmallAriaInfo::label(..))` when `aria-label`
+//             is present, else `create_<tag>_no_a11y()`.
+//   • Tier C  multi-arg widgets (Button, A, Label, Input, Select, Option,
+//             Optgroup, Textarea, Table) — args pulled from HTML attributes.
+//   • Tier D  scalar-driven widgets (Progress, Meter, Dialog) — the `*_no_a11y`
+//             form with extracted numeric args (the full aria structs are
+//             complex; the NoA11y form is simplest + correct).
+//
+// Every symbol emitted here is verified to exist in `target/codegen/azul.h` (C)
+// and `azul20.hpp` (C++); anything else falls back to `safe_container_tag`
+// (`div`). The four walkers share `analyze_node_ctor` and each renders the
+// result with its own surface tokens.
+// ───────────────────────────────────────────────────────────────────────────
+
+/// A single positional argument of a semantic constructor. String payloads are
+/// RAW — escaping happens at render time (matching the walkers).
+#[derive(Debug, Clone)]
+enum CtorArg {
+    /// Plain string literal (`AzString` / `String` / `"…"`).
+    Str(String),
+    /// `SmallAriaInfo` built from an accessible label.
+    Aria(String),
+    /// `f32` numeric literal.
+    Float(f32),
+    /// `OptionString::Some(text)`.
+    OptSome(String),
+    /// `OptionString::None`.
+    OptNone,
+}
+
+/// The constructor chosen for an element node.
+enum NodeCtor {
+    /// Plain container — keep each walker's existing `create_<tag>()` path.
+    Plain,
+    /// A specific semantic constructor.
+    Semantic {
+        /// Canonical CamelCase suffix after `create` / `AzDom_create`
+        /// (e.g. `Button`, `ButtonNoA11y`, `PWithText`, `A`, `ANoA11y`).
+        suffix: String,
+        args: Vec<CtorArg>,
+        /// The node's direct text is folded into the ctor — skip text children
+        /// in the walk so it isn't emitted twice.
+        consumes_text: bool,
+        /// The table aria form injects its own `<caption>` child — drop the
+        /// first literal `<caption>` element so it isn't duplicated.
+        skip_caption: bool,
+    },
+}
+
+/// Uppercase the first character (`button` → `Button`, `h1` → `H1`). HTML tags
+/// are single lowercase tokens, so this yields the exact `AzDom_create<Suffix>`
+/// spelling.
+fn cap_first(tag: &str) -> String {
+    let mut c = tag.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => String::new(),
+    }
+}
+
+/// CamelCase → snake_case for the C++/Python/Rust method names
+/// (`ButtonNoA11y` → `button_no_a11y`, `PWithText` → `p_with_text`,
+/// `ANoA11y` → `a_no_a11y`, `H1WithText` → `h1_with_text`).
+fn camel_to_snake(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::new();
+    for (i, &ch) in chars.iter().enumerate() {
+        if ch.is_ascii_uppercase() && i > 0 {
+            let prev = chars[i - 1];
+            let next_lower = chars.get(i + 1).map_or(false, |n| n.is_ascii_lowercase());
+            if prev.is_ascii_lowercase()
+                || prev.is_ascii_digit()
+                || (prev.is_ascii_uppercase() && next_lower)
+            {
+                out.push('_');
+            }
+        }
+        out.extend(ch.to_lowercase());
+    }
+    out
+}
+
+/// Escape `\` and `"` for a double-quoted string literal.
+fn esc_lit(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Format an `f32` as a valid float literal with a decimal point (`1` → `1.0`).
+fn fmt_f32_lit(f: f32) -> String {
+    let s = format!("{}", f);
+    if s.contains('.') || s.contains('e') || s.contains("inf") || s.contains("NaN") {
+        s
+    } else {
+        format!("{}.0", s)
+    }
+}
+
+/// Joined, trimmed text of a node's *direct* text children (`"  Go  "` → `"Go"`).
+fn node_direct_text(node: &XmlNode) -> String {
+    node.children
+        .as_ref()
+        .iter()
+        .filter_map(|c| match c {
+            XmlNodeChild::Text(t) => {
+                let t = t.trim();
+                if t.is_empty() { None } else { Some(t.to_string()) }
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Non-empty `aria-label` attribute value, if present.
+fn node_aria_label(node: &XmlNode) -> Option<String> {
+    node.attributes.get_key("aria-label").and_then(|v| {
+        let v = v.as_str().trim();
+        if v.is_empty() { None } else { Some(v.to_string()) }
+    })
+}
+
+/// Attribute value, or `default` when absent.
+fn node_attr_or(node: &XmlNode, key: &str, default: &str) -> String {
+    node.attributes
+        .get_key(key)
+        .map(|v| v.as_str().to_string())
+        .unwrap_or_else(|| default.to_string())
+}
+
+/// Attribute parsed as `f32`, or `default` when absent / unparsable.
+fn node_attr_f32(node: &XmlNode, key: &str, default: f32) -> f32 {
+    node.attributes
+        .get_key(key)
+        .and_then(|v| v.as_str().trim().parse::<f32>().ok())
+        .unwrap_or(default)
+}
+
+/// Text of the node's first `<caption>` element child, if any (non-empty).
+fn first_caption_text(node: &XmlNode) -> Option<String> {
+    node.children.as_ref().iter().find_map(|c| match c {
+        XmlNodeChild::Element(e) if e.node_type.as_str().eq_ignore_ascii_case("caption") => {
+            let t = e.get_text_content();
+            let t = t.trim();
+            if t.is_empty() { None } else { Some(t.to_string()) }
+        }
+        _ => None,
+    })
+}
+
+/// Tags with a single-arg `create_<tag>_with_text(text)` constructor (Tier A).
+const WITH_TEXT_TAGS: &[&str] = &[
+    "acronym", "b", "bdi", "bdo", "big", "blockquote", "cite", "code", "del",
+    "dfn", "em", "h1", "h2", "h3", "h4", "h5", "h6", "i", "ins", "kbd", "li",
+    "mark", "p", "pre", "rp", "rt", "s", "samp", "small", "span", "strong",
+    "style", "sub", "sup", "td", "th", "title", "u", "var",
+];
+
+/// Pick the semantic constructor for `tag` (lowercase HTML tag) + `node`.
+fn analyze_node_ctor(tag: &str, node: &XmlNode) -> NodeCtor {
+    // Helper for the common "no caption skip" case.
+    fn sem(suffix: impl Into<String>, args: Vec<CtorArg>, consumes_text: bool) -> NodeCtor {
+        NodeCtor::Semantic {
+            suffix: suffix.into(),
+            args,
+            consumes_text,
+            skip_caption: false,
+        }
+    }
+
+    let aria = node_aria_label(node);
+    let has_aria = aria.is_some();
+    let label = aria.unwrap_or_default();
+    // `has_only_text_children()` is also true for childless nodes; pair it with
+    // `has_text` so empty elements stay plain containers.
+    let pure_text = node.has_only_text_children();
+    let text = node_direct_text(node);
+    let has_text = !text.is_empty();
+    let cap = cap_first(tag);
+
+    // Tier A — *_with_text (single text child, no element children).
+    if WITH_TEXT_TAGS.contains(&tag) {
+        if pure_text && has_text {
+            return sem(format!("{}WithText", cap), vec![CtorArg::Str(text)], true);
+        }
+        return NodeCtor::Plain;
+    }
+
+    match tag {
+        // Tier B — aria-only / void widgets.
+        "details" | "form" | "fieldset" | "legend" | "menu" | "output"
+        | "datalist" | "canvas" | "audio" | "video" | "area" => {
+            if has_aria {
+                sem(cap, vec![CtorArg::Aria(label)], false)
+            } else {
+                sem(format!("{}NoA11y", cap), vec![], false)
+            }
+        }
+        // Summary is Tier B but also has a WithText form for a single text child.
+        "summary" => {
+            if pure_text && has_text {
+                if has_aria {
+                    sem("SummaryWithText", vec![CtorArg::Str(text), CtorArg::Aria(label)], true)
+                } else {
+                    sem("SummaryWithTextNoA11y", vec![CtorArg::Str(text)], true)
+                }
+            } else if has_aria {
+                sem("Summary", vec![CtorArg::Aria(label)], false)
+            } else {
+                sem("SummaryNoA11y", vec![], false)
+            }
+        }
+
+        // Tier C — multi-arg widgets (args from HTML attributes).
+        "button" => {
+            if has_aria {
+                sem("Button", vec![CtorArg::Str(text), CtorArg::Aria(label)], true)
+            } else {
+                sem("ButtonNoA11y", vec![CtorArg::Str(text)], true)
+            }
+        }
+        "a" => {
+            let href = node_attr_or(node, "href", "");
+            if has_aria {
+                sem("A", vec![CtorArg::Str(href), CtorArg::Str(text), CtorArg::Aria(label)], true)
+            } else {
+                let lbl = if has_text { CtorArg::OptSome(text) } else { CtorArg::OptNone };
+                sem("ANoA11y", vec![CtorArg::Str(href), lbl], true)
+            }
+        }
+        "label" => {
+            let for_id = node_attr_or(node, "for", "");
+            if has_aria {
+                sem("Label", vec![CtorArg::Str(for_id), CtorArg::Str(text), CtorArg::Aria(label)], true)
+            } else {
+                sem("LabelNoA11y", vec![CtorArg::Str(for_id), CtorArg::Str(text)], true)
+            }
+        }
+        "input" => {
+            let ty = node_attr_or(node, "type", "text");
+            let name = node_attr_or(node, "name", "");
+            if has_aria {
+                sem("Input", vec![CtorArg::Str(ty), CtorArg::Str(name), CtorArg::Str(label.clone()), CtorArg::Aria(label)], false)
+            } else {
+                sem("InputNoA11y", vec![CtorArg::Str(ty), CtorArg::Str(name), CtorArg::Str(label)], false)
+            }
+        }
+        "textarea" => {
+            let name = node_attr_or(node, "name", "");
+            if has_aria {
+                sem("Textarea", vec![CtorArg::Str(name), CtorArg::Str(label.clone()), CtorArg::Aria(label)], false)
+            } else {
+                sem("TextareaNoA11y", vec![CtorArg::Str(name), CtorArg::Str(label)], false)
+            }
+        }
+        "select" => {
+            let name = node_attr_or(node, "name", "");
+            if has_aria {
+                sem("Select", vec![CtorArg::Str(name), CtorArg::Str(label.clone()), CtorArg::Aria(label)], false)
+            } else {
+                sem("SelectNoA11y", vec![CtorArg::Str(name), CtorArg::Str(label)], false)
+            }
+        }
+        "option" => {
+            let value = node_attr_or(node, "value", "");
+            if has_aria {
+                sem("Option", vec![CtorArg::Str(value), CtorArg::Str(text), CtorArg::Aria(label)], true)
+            } else {
+                sem("OptionNoA11y", vec![CtorArg::Str(value), CtorArg::Str(text)], true)
+            }
+        }
+        "optgroup" => {
+            let lbl = node_attr_or(node, "label", "");
+            if has_aria {
+                sem("Optgroup", vec![CtorArg::Str(lbl), CtorArg::Aria(label)], false)
+            } else {
+                sem("OptgroupNoA11y", vec![CtorArg::Str(lbl)], false)
+            }
+        }
+        "table" => {
+            if has_aria {
+                // The aria form injects a caption child, so take the caption from
+                // the literal <caption> (or the aria label) and drop the literal.
+                let caption = first_caption_text(node).unwrap_or_else(|| label.clone());
+                NodeCtor::Semantic {
+                    suffix: "Table".to_string(),
+                    args: vec![CtorArg::Str(caption), CtorArg::Aria(label)],
+                    consumes_text: false,
+                    skip_caption: true,
+                }
+            } else {
+                sem("TableNoA11y", vec![], false)
+            }
+        }
+
+        // Tier D — scalar-driven widgets (NoA11y form with extracted numbers).
+        "progress" => sem(
+            "ProgressNoA11y",
+            vec![
+                CtorArg::Float(node_attr_f32(node, "value", 0.0)),
+                CtorArg::Float(node_attr_f32(node, "max", 1.0)),
+            ],
+            false,
+        ),
+        "meter" => sem(
+            "MeterNoA11y",
+            vec![
+                CtorArg::Float(node_attr_f32(node, "value", 0.0)),
+                CtorArg::Float(node_attr_f32(node, "min", 0.0)),
+                CtorArg::Float(node_attr_f32(node, "max", 1.0)),
+            ],
+            false,
+        ),
+        "dialog" => sem("DialogNoA11y", vec![], false),
+
+        _ => NodeCtor::Plain,
+    }
+}
+
+impl CtorArg {
+    /// Rust expression for this argument (`AzString::from(..)` works for both the
+    /// `Into<AzString>` and the concrete `AzString` parameter forms).
+    fn render_rust(&self) -> String {
+        match self {
+            CtorArg::Str(s) => format!("AzString::from(\"{}\")", esc_lit(s)),
+            CtorArg::Aria(s) => format!("SmallAriaInfo::label(AzString::from(\"{}\"))", esc_lit(s)),
+            CtorArg::Float(f) => fmt_f32_lit(*f),
+            CtorArg::OptSome(s) => format!("OptionString::Some(AzString::from(\"{}\"))", esc_lit(s)),
+            CtorArg::OptNone => "OptionString::None".to_string(),
+        }
+    }
+    fn render_c(&self) -> String {
+        match self {
+            CtorArg::Str(s) => format!("AZ_STR(\"{}\")", esc_lit(s)),
+            CtorArg::Aria(s) => format!("AzSmallAriaInfo_label(AZ_STR(\"{}\"))", esc_lit(s)),
+            CtorArg::Float(f) => format!("{}f", fmt_f32_lit(*f)),
+            CtorArg::OptSome(s) => format!("AzOptionString_some(AZ_STR(\"{}\"))", esc_lit(s)),
+            CtorArg::OptNone => "AzOptionString_none()".to_string(),
+        }
+    }
+    fn render_cpp(&self) -> String {
+        match self {
+            CtorArg::Str(s) => format!("String(\"{}\")", esc_lit(s)),
+            CtorArg::Aria(s) => format!("SmallAriaInfo::label(String(\"{}\"))", esc_lit(s)),
+            CtorArg::Float(f) => format!("{}f", fmt_f32_lit(*f)),
+            CtorArg::OptSome(s) => format!("OptionString::some(String(\"{}\"))", esc_lit(s)),
+            CtorArg::OptNone => "OptionString::none()".to_string(),
+        }
+    }
+    fn render_python(&self) -> String {
+        match self {
+            CtorArg::Str(s) => format!("\"{}\"", esc_lit(s)),
+            CtorArg::Aria(s) => format!("azul.SmallAriaInfo.label(\"{}\")", esc_lit(s)),
+            CtorArg::Float(f) => fmt_f32_lit(*f),
+            CtorArg::OptSome(s) => format!("azul.OptionString.some(\"{}\")", esc_lit(s)),
+            CtorArg::OptNone => "azul.OptionString.none()".to_string(),
+        }
+    }
+}
+
+impl NodeCtor {
+    fn consumes_text(&self) -> bool {
+        matches!(self, NodeCtor::Semantic { consumes_text: true, .. })
+    }
+    fn skip_caption(&self) -> bool {
+        matches!(self, NodeCtor::Semantic { skip_caption: true, .. })
+    }
+    /// `Dom::create_…(args)` for Rust, or `None` for a plain container.
+    fn render_rust(&self) -> Option<String> {
+        match self {
+            NodeCtor::Plain => None,
+            NodeCtor::Semantic { suffix, args, .. } => Some(format!(
+                "Dom::create_{}({})",
+                camel_to_snake(suffix),
+                args.iter().map(CtorArg::render_rust).collect::<Vec<_>>().join(", ")
+            )),
+        }
+    }
+    /// `AzDom_create…(args)` for C, or `None` for a plain container.
+    fn render_c(&self) -> Option<String> {
+        match self {
+            NodeCtor::Plain => None,
+            NodeCtor::Semantic { suffix, args, .. } => Some(format!(
+                "AzDom_create{}({})",
+                suffix,
+                args.iter().map(CtorArg::render_c).collect::<Vec<_>>().join(", ")
+            )),
+        }
+    }
+    /// Fluent `Dom::create_…` (C++) / `azul.Dom.create_…` (Python), or `None`.
+    fn render_fluent(&self, target: &CompileTarget) -> Option<String> {
+        match self {
+            NodeCtor::Plain => None,
+            NodeCtor::Semantic { suffix, args, .. } => {
+                let snake = camel_to_snake(suffix);
+                let (prefix, rendered) = match target {
+                    CompileTarget::Cpp => (
+                        format!("Dom::create_{}", snake),
+                        args.iter().map(CtorArg::render_cpp).collect::<Vec<_>>(),
+                    ),
+                    CompileTarget::Python => (
+                        format!("azul.Dom.create_{}", snake),
+                        args.iter().map(CtorArg::render_python).collect::<Vec<_>>(),
+                    ),
+                    _ => return None,
+                };
+                Some(format!("{}({})", prefix, rendered.join(", ")))
+            }
+        }
+    }
 }
 
 /// Per-language token hooks for the fluent walker. The `&str` args are already
@@ -6800,8 +7241,11 @@ fn compile_node_fluent<'a>(
     // C++/Python arms emit stale placeholder syntax (`Dom.div()` etc.).
     // Interactive/data tags (whose creators need args) fall back to `div`. Any
     // element text shows up as a Text child below and is handled there.
-    let _ = &syntax.target;
-    let mut s = (syntax.create_node)(safe_container_tag(&tag_dbg));
+    let ctor = analyze_node_ctor(&component_name, node);
+    let mut s = match ctor.render_fluent(&syntax.target) {
+        Some(expr) => expr,
+        None => (syntax.create_node)(safe_container_tag(&tag_dbg)),
+    };
 
     matcher.path.push(CssPathSelector::Type(node_type_tag));
     let ids: Vec<String> = node.attributes.get_key("id")
@@ -6829,10 +7273,19 @@ fn compile_node_fluent<'a>(
         s.push_str(&(syntax.with_class)(&class.replace('\\', "\\\\").replace('"', "\\\"")));
     }
 
-    // Children (chained `.with_child(..)`).
+    // Children (chained `.with_child(..)`). Text folded into the ctor (Tier A/C)
+    // is skipped here, as is a `<caption>` already injected by `create_table`.
+    let mut caption_skipped = false;
     for (child_idx, child) in node.children.as_ref().iter().enumerate() {
         match child {
             XmlNodeChild::Element(child_node) => {
+                if ctor.skip_caption()
+                    && !caption_skipped
+                    && child_node.node_type.as_str().eq_ignore_ascii_case("caption")
+                {
+                    caption_skipped = true;
+                    continue;
+                }
                 let mut m = matcher.clone();
                 m.path.push(CssPathSelector::Children);
                 m.indices_in_parent.push(child_idx);
@@ -6841,6 +7294,9 @@ fn compile_node_fluent<'a>(
                 s.push_str(&(syntax.with_child)(&child_src));
             }
             XmlNodeChild::Text(text) => {
+                if ctor.consumes_text() {
+                    continue;
+                }
                 let text = text.trim();
                 if !text.is_empty() {
                     let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
@@ -7012,11 +7468,15 @@ fn compile_node_c<'a>(
 
     let var = alloc::format!("n{}", *counter);
     *counter += 1;
-    out.push_str(&alloc::format!(
-        "    AzDom {} = AzDom_create{}();\n",
-        var,
-        c_creator_suffix(safe_container_tag(&tag_dbg))
-    ));
+    let ctor = analyze_node_ctor(&component_name, node);
+    match ctor.render_c() {
+        Some(expr) => out.push_str(&alloc::format!("    AzDom {} = {};\n", var, expr)),
+        None => out.push_str(&alloc::format!(
+            "    AzDom {} = AzDom_create{}();\n",
+            var,
+            c_creator_suffix(safe_container_tag(&tag_dbg))
+        )),
+    }
 
     matcher.path.push(CssPathSelector::Type(node_type_tag));
     let ids: Vec<String> = node.attributes.get_key("id")
@@ -7045,9 +7505,17 @@ fn compile_node_c<'a>(
         out.push_str(&alloc::format!("    {} = AzDom_withClass({}, AZ_STR(\"{}\"));\n", var, var, esc));
     }
 
+    let mut caption_skipped = false;
     for (child_idx, child) in node.children.as_ref().iter().enumerate() {
         match child {
             XmlNodeChild::Element(child_node) => {
+                if ctor.skip_caption()
+                    && !caption_skipped
+                    && child_node.node_type.as_str().eq_ignore_ascii_case("caption")
+                {
+                    caption_skipped = true;
+                    continue;
+                }
                 let mut m = matcher.clone();
                 m.path.push(CssPathSelector::Children);
                 m.indices_in_parent.push(child_idx);
@@ -7056,6 +7524,9 @@ fn compile_node_c<'a>(
                 out.push_str(&alloc::format!("    AzDom_addChild(&{}, {});\n", var, child_var));
             }
             XmlNodeChild::Text(text) => {
+                if ctor.consumes_text() {
+                    continue;
+                }
                 let text = text.trim();
                 if !text.is_empty() {
                     let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
