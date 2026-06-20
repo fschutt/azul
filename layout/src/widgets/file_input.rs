@@ -207,7 +207,10 @@ extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> 
     };
     let fileinputstatewrapper = &mut *fileinputstatewrapper;
 
-    #[cfg(feature = "extra")]
+    // `tfd` is desktop-only (target-gated in Cargo.toml to not(android|ios)); the
+    // `extra` feature does nothing on mobile, so gate the dialog block by the same
+    // target cfg to avoid referencing the unlinked `tfd` crate on iOS/Android.
+    #[cfg(all(feature = "extra", not(any(target_os = "android", target_os = "ios"))))]
     {
         let mut dialog = tfd::FileDialog::new(fileinputstatewrapper.file_dialog_title.as_str());
         if let Some(dir) = fileinputstatewrapper.default_dir.as_ref() {
