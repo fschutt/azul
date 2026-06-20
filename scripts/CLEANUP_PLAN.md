@@ -250,10 +250,12 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   desktop/material_icons.rs, debug_server/full.rs) — decode-only, for embedded compressed assets. No
   user-facing-compression demand signal; not adding an `AzBrotli`/`AzDeflate` handle. No change.
 
-- [ ] **App config — add `source_language` field** 🟡 — `core/src/resources.rs:454 AppConfig` has no
-  source-language field; `App` + `App::run` at `dll/src/desktop/app.rs:25/:128`. **Action:** add
-  `source_language: AppSourceLanguage` to `AppConfig` so the web backend can auto-ship the matching
-  runtime (java.wasm etc.). Consumed in `App::run`/`App::create`.
+- [ ] **App config — add `source_language` field** 🟡 — **DEFERRED w/ reasoning.** The consumer (web
+  backend auto-shipping `java.wasm` etc.) does **not exist yet**, so the `AppSourceLanguage` enum's
+  variant set + semantics are unconstrained guesses that would churn once that feature is built.
+  `AppConfig` is FFI-exported with multiple construction sites (api.json autofix + Default + create).
+  Adding unused speculative FFI surface now is an anti-pattern — better to co-design the enum WITH the
+  web-runtime-shipping feature. Add `source_language: AppSourceLanguage` to `AppConfig` then.
 
 ---
 
@@ -264,11 +266,15 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   `:156`, but no round-trip-vs-serde_json differential test. Pretty-print already exposed
   (`to_string_pretty`, api.json:90187). **Action:** add explicit round-trip + serde-parity tests.
 
-- [ ] **Swappable `<icon>` for menus/buttons** 🟡 — a swappable icon system already exists:
-  `core/src/icon.rs` (673 lines, `IconProviderHandle`, `Dom::create_icon("home")`). But
-  `MenuItemIcon` (`core/src/menu.rs:258`) only has `Checkbox`/`Image(ImageRef)`, and Button
-  (`widgets/button.rs:77`) uses raw `OptionImageRef`. **Action:** migrate menu + button icons to
-  reference the icon-provider system instead of raw `ImageRef`.
+- [ ] **Swappable `<icon>` for menus/buttons** 🟡 — **DEFERRED w/ reasoning + concrete plan.** The
+  Button side is tractable (add `OptionAzString icon_name`; when set, render a `Dom::create_icon(name)`
+  node — reuses the existing `resolve_icons_in_styled_dom` path). The **menu** side is the blocker:
+  desktop menus render via *platform-native* menus that need a concrete `ImageRef` bitmap, so a
+  `MenuItemIcon::Named(AzString)` must be resolved through the `SharedIconProvider` at menu-build time
+  — which means threading the provider into native-menu construction (dll shell2). That's an FFI +
+  cross-platform render change that's risky to do blind. Both are FFI (api.json autofix). Deferred to
+  avoid a half-migrated icon API on a working feature; do Button + menu together once the provider can
+  be threaded into menu building.
 
 - [ ] **Undo/redo system** 🔴 — only text-edit undo exists (`SystemChange::Undo/RedoTextEdit`,
   `events.rs:2511`); no general application-state undo. **Action:** build a generic undo stack on top
