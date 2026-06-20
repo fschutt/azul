@@ -1759,6 +1759,23 @@ impl Drop for CssPropertyCachePtr {
     }
 }
 
+/// Generates a mechanical `get_<name>` CSS-property accessor: resolve the property
+/// for `(node_data, node_id, node_state)` via `get_property`, then downcast it with
+/// the given `as_*` method. Covers the long run of one-line accessors below.
+macro_rules! impl_get_prop {
+    ($name:ident, $value_ty:ty, $variant:ident, $as_method:ident) => {
+        pub fn $name<'a>(
+            &'a self,
+            node_data: &'a NodeData,
+            node_id: &NodeId,
+            node_state: &StyledNodeState,
+        ) -> Option<&'a $value_ty> {
+            self.get_property(node_data, node_id, node_state, &CssPropertyType::$variant)
+                .and_then(|p| p.$as_method())
+        }
+    };
+}
+
 impl CssPropertyCache {
     pub fn empty(node_count: usize) -> Self {
         Self {
@@ -2338,713 +2355,105 @@ impl CssPropertyCache {
         false
     }
 
-    pub fn get_background_content<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBackgroundContentVecValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BackgroundContent,
-        )
-        .and_then(|p| p.as_background_content())
-    }
+    impl_get_prop!(get_background_content, StyleBackgroundContentVecValue, BackgroundContent, as_background_content);
 
-    /// Method for getting hyphens property
-    pub fn get_hyphens<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleHyphensValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Hyphens)
-            .and_then(|p| p.as_hyphens())
-    }
+    impl_get_prop!(get_hyphens, StyleHyphensValue, Hyphens, as_hyphens);
 
-    /// Method for getting word-break property
-    pub fn get_word_break<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleWordBreakValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::WordBreak)
-            .and_then(|p| p.as_word_break())
-    }
+    impl_get_prop!(get_word_break, StyleWordBreakValue, WordBreak, as_word_break);
 
-    /// Method for getting overflow-wrap property
-    pub fn get_overflow_wrap<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleOverflowWrapValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowWrap)
-            .and_then(|p| p.as_overflow_wrap())
-    }
+    impl_get_prop!(get_overflow_wrap, StyleOverflowWrapValue, OverflowWrap, as_overflow_wrap);
 
-    /// Method for getting line-break property
-    pub fn get_line_break<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleLineBreakValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::LineBreak)
-            .and_then(|p| p.as_line_break())
-    }
+    impl_get_prop!(get_line_break, StyleLineBreakValue, LineBreak, as_line_break);
 
-    /// Method for getting text-align-last property
-    pub fn get_text_align_last<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleTextAlignLastValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextAlignLast)
-            .and_then(|p| p.as_text_align_last())
-    }
+    impl_get_prop!(get_text_align_last, StyleTextAlignLastValue, TextAlignLast, as_text_align_last);
 
-    /// Method for getting object-fit property
-    pub fn get_object_fit<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleObjectFitValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ObjectFit)
-            .and_then(|p| p.as_object_fit())
-    }
+    impl_get_prop!(get_object_fit, StyleObjectFitValue, ObjectFit, as_object_fit);
 
-    /// Method for getting text-orientation property
-    pub fn get_text_orientation<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleTextOrientationValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextOrientation)
-            .and_then(|p| p.as_text_orientation())
-    }
+    impl_get_prop!(get_text_orientation, StyleTextOrientationValue, TextOrientation, as_text_orientation);
 
-    /// Method for getting object-position property
-    pub fn get_object_position<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleObjectPositionValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ObjectPosition)
-            .and_then(|p| p.as_object_position())
-    }
+    impl_get_prop!(get_object_position, StyleObjectPositionValue, ObjectPosition, as_object_position);
 
-    /// Method for getting aspect-ratio property
-    pub fn get_aspect_ratio<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleAspectRatioValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::AspectRatio)
-            .and_then(|p| p.as_aspect_ratio())
-    }
+    impl_get_prop!(get_aspect_ratio, StyleAspectRatioValue, AspectRatio, as_aspect_ratio);
 
-    /// Method for getting direction property
-    pub fn get_direction<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleDirectionValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Direction)
-            .and_then(|p| p.as_direction())
-    }
+    impl_get_prop!(get_direction, StyleDirectionValue, Direction, as_direction);
 
-    pub fn get_unicode_bidi<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleUnicodeBidiValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::UnicodeBidi)
-            .and_then(|p| p.as_unicode_bidi())
-    }
+    impl_get_prop!(get_unicode_bidi, StyleUnicodeBidiValue, UnicodeBidi, as_unicode_bidi);
 
-    pub fn get_text_box_trim<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleTextBoxTrimValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextBoxTrim)
-            .and_then(|p| p.as_text_box_trim())
-    }
+    impl_get_prop!(get_text_box_trim, StyleTextBoxTrimValue, TextBoxTrim, as_text_box_trim);
 
-    pub fn get_text_box_edge<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleTextBoxEdgeValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextBoxEdge)
-            .and_then(|p| p.as_text_box_edge())
-    }
+    impl_get_prop!(get_text_box_edge, StyleTextBoxEdgeValue, TextBoxEdge, as_text_box_edge);
 
-    pub fn get_dominant_baseline<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleDominantBaselineValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::DominantBaseline)
-            .and_then(|p| p.as_dominant_baseline())
-    }
+    impl_get_prop!(get_dominant_baseline, StyleDominantBaselineValue, DominantBaseline, as_dominant_baseline);
 
-    pub fn get_alignment_baseline<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleAlignmentBaselineValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::AlignmentBaseline)
-            .and_then(|p| p.as_alignment_baseline())
-    }
+    impl_get_prop!(get_alignment_baseline, StyleAlignmentBaselineValue, AlignmentBaseline, as_alignment_baseline);
 
-    pub fn get_initial_letter_align<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleInitialLetterAlignValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::InitialLetterAlign)
-            .and_then(|p| p.as_initial_letter_align())
-    }
+    impl_get_prop!(get_initial_letter_align, StyleInitialLetterAlignValue, InitialLetterAlign, as_initial_letter_align);
 
-    pub fn get_initial_letter_wrap<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleInitialLetterWrapValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::InitialLetterWrap)
-            .and_then(|p| p.as_initial_letter_wrap())
-    }
+    impl_get_prop!(get_initial_letter_wrap, StyleInitialLetterWrapValue, InitialLetterWrap, as_initial_letter_wrap);
 
-    pub fn get_scrollbar_gutter<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleScrollbarGutterValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ScrollbarGutter)
-            .and_then(|p| p.as_scrollbar_gutter())
-    }
+    impl_get_prop!(get_scrollbar_gutter, StyleScrollbarGutterValue, ScrollbarGutter, as_scrollbar_gutter);
 
-    pub fn get_overflow_clip_margin<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleOverflowClipMarginValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowClipMargin)
-            .and_then(|p| p.as_overflow_clip_margin())
-    }
+    impl_get_prop!(get_overflow_clip_margin, StyleOverflowClipMarginValue, OverflowClipMargin, as_overflow_clip_margin);
 
-    pub fn get_clip<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleClipRectValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Clip)
-            .and_then(|p| p.as_clip())
-    }
+    impl_get_prop!(get_clip, StyleClipRectValue, Clip, as_clip);
 
-    /// Method for getting white-space property
-    pub fn get_white_space<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleWhiteSpaceValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::WhiteSpace)
-            .and_then(|p| p.as_white_space())
-    }
-    pub fn get_background_position<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBackgroundPositionVecValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BackgroundPosition,
-        )
-        .and_then(|p| p.as_background_position())
-    }
-    pub fn get_background_size<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBackgroundSizeVecValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BackgroundSize,
-        )
-        .and_then(|p| p.as_background_size())
-    }
-    pub fn get_background_repeat<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBackgroundRepeatVecValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BackgroundRepeat,
-        )
-        .and_then(|p| p.as_background_repeat())
-    }
-    pub fn get_font_size<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleFontSizeValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::FontSize)
-            .and_then(|p| p.as_font_size())
-    }
-    pub fn get_font_family<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleFontFamilyVecValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::FontFamily)
-            .and_then(|p| p.as_font_family())
-    }
-    pub fn get_font_weight<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleFontWeightValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::FontWeight)
-            .and_then(|p| p.as_font_weight())
-    }
-    pub fn get_font_style<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleFontStyleValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::FontStyle)
-            .and_then(|p| p.as_font_style())
-    }
-    pub fn get_text_color<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleTextColorValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextColor)
-            .and_then(|p| p.as_text_color())
-    }
-    /// Method for getting text-indent property
-    pub fn get_text_indent<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleTextIndentValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextIndent)
-            .and_then(|p| p.as_text_indent())
-    }
-    /// Method for getting initial-letter property
-    pub fn get_initial_letter<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleInitialLetterValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::InitialLetter,
-        )
-        .and_then(|p| p.as_initial_letter())
-    }
-    /// Method for getting line-clamp property
-    pub fn get_line_clamp<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleLineClampValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::LineClamp)
-            .and_then(|p| p.as_line_clamp())
-    }
-    /// Method for getting hanging-punctuation property
-    pub fn get_hanging_punctuation<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleHangingPunctuationValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::HangingPunctuation,
-        )
-        .and_then(|p| p.as_hanging_punctuation())
-    }
-    /// Method for getting text-combine-upright property
-    pub fn get_text_combine_upright<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleTextCombineUprightValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::TextCombineUpright,
-        )
-        .and_then(|p| p.as_text_combine_upright())
-    }
-    /// Method for getting -azul-exclusion-margin property
-    pub fn get_exclusion_margin<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleExclusionMarginValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ExclusionMargin,
-        )
-        .and_then(|p| p.as_exclusion_margin())
-    }
-    /// Method for getting -azul-hyphenation-language property
-    pub fn get_hyphenation_language<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleHyphenationLanguageValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::HyphenationLanguage,
-        )
-        .and_then(|p| p.as_hyphenation_language())
-    }
-    /// Method for getting caret-color property
-    pub fn get_caret_color<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a CaretColorValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::CaretColor)
-            .and_then(|p| p.as_caret_color())
-    }
+    impl_get_prop!(get_white_space, StyleWhiteSpaceValue, WhiteSpace, as_white_space);
+    impl_get_prop!(get_background_position, StyleBackgroundPositionVecValue, BackgroundPosition, as_background_position);
+    impl_get_prop!(get_background_size, StyleBackgroundSizeVecValue, BackgroundSize, as_background_size);
+    impl_get_prop!(get_background_repeat, StyleBackgroundRepeatVecValue, BackgroundRepeat, as_background_repeat);
+    impl_get_prop!(get_font_size, StyleFontSizeValue, FontSize, as_font_size);
+    impl_get_prop!(get_font_family, StyleFontFamilyVecValue, FontFamily, as_font_family);
+    impl_get_prop!(get_font_weight, StyleFontWeightValue, FontWeight, as_font_weight);
+    impl_get_prop!(get_font_style, StyleFontStyleValue, FontStyle, as_font_style);
+    impl_get_prop!(get_text_color, StyleTextColorValue, TextColor, as_text_color);
+    impl_get_prop!(get_text_indent, StyleTextIndentValue, TextIndent, as_text_indent);
+    impl_get_prop!(get_initial_letter, StyleInitialLetterValue, InitialLetter, as_initial_letter);
+    impl_get_prop!(get_line_clamp, StyleLineClampValue, LineClamp, as_line_clamp);
+    impl_get_prop!(get_hanging_punctuation, StyleHangingPunctuationValue, HangingPunctuation, as_hanging_punctuation);
+    impl_get_prop!(get_text_combine_upright, StyleTextCombineUprightValue, TextCombineUpright, as_text_combine_upright);
+    impl_get_prop!(get_exclusion_margin, StyleExclusionMarginValue, ExclusionMargin, as_exclusion_margin);
+    impl_get_prop!(get_hyphenation_language, StyleHyphenationLanguageValue, HyphenationLanguage, as_hyphenation_language);
+    impl_get_prop!(get_caret_color, CaretColorValue, CaretColor, as_caret_color);
 
-    /// Method for getting -azul-caret-width property
-    pub fn get_caret_width<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a CaretWidthValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::CaretWidth)
-            .and_then(|p| p.as_caret_width())
-    }
+    impl_get_prop!(get_caret_width, CaretWidthValue, CaretWidth, as_caret_width);
 
-    /// Method for getting caret-animation-duration property
-    pub fn get_caret_animation_duration<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a CaretAnimationDurationValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::CaretAnimationDuration,
-        )
-        .and_then(|p| p.as_caret_animation_duration())
-    }
+    impl_get_prop!(get_caret_animation_duration, CaretAnimationDurationValue, CaretAnimationDuration, as_caret_animation_duration);
 
-    /// Method for getting selection-background-color property
-    pub fn get_selection_background_color<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a SelectionBackgroundColorValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::SelectionBackgroundColor,
-        )
-        .and_then(|p| p.as_selection_background_color())
-    }
+    impl_get_prop!(get_selection_background_color, SelectionBackgroundColorValue, SelectionBackgroundColor, as_selection_background_color);
 
-    /// Method for getting selection-color property
-    pub fn get_selection_color<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a SelectionColorValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::SelectionColor,
-        )
-        .and_then(|p| p.as_selection_color())
-    }
+    impl_get_prop!(get_selection_color, SelectionColorValue, SelectionColor, as_selection_color);
 
-    /// Method for getting -azul-selection-radius property
-    pub fn get_selection_radius<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a SelectionRadiusValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::SelectionRadius,
-        )
-        .and_then(|p| p.as_selection_radius())
-    }
+    impl_get_prop!(get_selection_radius, SelectionRadiusValue, SelectionRadius, as_selection_radius);
 
-    /// Method for getting text-justify property
-    pub fn get_text_justify<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutTextJustifyValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::TextJustify,
-        )
-        .and_then(|p| p.as_text_justify())
-    }
+    impl_get_prop!(get_text_justify, LayoutTextJustifyValue, TextJustify, as_text_justify);
 
-    /// Method for getting z-index property
-    pub fn get_z_index<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutZIndexValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ZIndex)
-            .and_then(|p| p.as_z_index())
-    }
+    impl_get_prop!(get_z_index, LayoutZIndexValue, ZIndex, as_z_index);
 
-    /// Method for getting flex-basis property
-    pub fn get_flex_basis<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutFlexBasisValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::FlexBasis)
-            .and_then(|p| p.as_flex_basis())
-    }
+    impl_get_prop!(get_flex_basis, LayoutFlexBasisValue, FlexBasis, as_flex_basis);
 
-    /// Method for getting column-gap property
-    pub fn get_column_gap<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutColumnGapValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ColumnGap)
-            .and_then(|p| p.as_column_gap())
-    }
+    impl_get_prop!(get_column_gap, LayoutColumnGapValue, ColumnGap, as_column_gap);
 
-    /// Method for getting row-gap property
-    pub fn get_row_gap<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutRowGapValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::RowGap)
-            .and_then(|p| p.as_row_gap())
-    }
+    impl_get_prop!(get_row_gap, LayoutRowGapValue, RowGap, as_row_gap);
 
-    /// Method for getting grid-template-columns property
-    pub fn get_grid_template_columns<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutGridTemplateColumnsValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::GridTemplateColumns,
-        )
-        .and_then(|p| p.as_grid_template_columns())
-    }
+    impl_get_prop!(get_grid_template_columns, LayoutGridTemplateColumnsValue, GridTemplateColumns, as_grid_template_columns);
 
-    /// Method for getting grid-template-rows property
-    pub fn get_grid_template_rows<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutGridTemplateRowsValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::GridTemplateRows,
-        )
-        .and_then(|p| p.as_grid_template_rows())
-    }
+    impl_get_prop!(get_grid_template_rows, LayoutGridTemplateRowsValue, GridTemplateRows, as_grid_template_rows);
 
-    /// Method for getting grid-auto-columns property
-    pub fn get_grid_auto_columns<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutGridAutoColumnsValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::GridAutoColumns,
-        )
-        .and_then(|p| p.as_grid_auto_columns())
-    }
+    impl_get_prop!(get_grid_auto_columns, LayoutGridAutoColumnsValue, GridAutoColumns, as_grid_auto_columns);
 
-    /// Method for getting grid-auto-rows property
-    pub fn get_grid_auto_rows<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutGridAutoRowsValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::GridAutoRows,
-        )
-        .and_then(|p| p.as_grid_auto_rows())
-    }
+    impl_get_prop!(get_grid_auto_rows, LayoutGridAutoRowsValue, GridAutoRows, as_grid_auto_rows);
 
-    /// Method for getting grid-column property
-    pub fn get_grid_column<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutGridColumnValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::GridColumn)
-            .and_then(|p| p.as_grid_column())
-    }
+    impl_get_prop!(get_grid_column, LayoutGridColumnValue, GridColumn, as_grid_column);
 
-    /// Method for getting grid-row property
-    pub fn get_grid_row<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutGridRowValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::GridRow)
-            .and_then(|p| p.as_grid_row())
-    }
+    impl_get_prop!(get_grid_row, LayoutGridRowValue, GridRow, as_grid_row);
 
-    /// Method for getting grid-auto-flow property
-    pub fn get_grid_auto_flow<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutGridAutoFlowValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::GridAutoFlow,
-        )
-        .and_then(|p| p.as_grid_auto_flow())
-    }
+    impl_get_prop!(get_grid_auto_flow, LayoutGridAutoFlowValue, GridAutoFlow, as_grid_auto_flow);
 
-    /// Method for getting justify-self property
-    pub fn get_justify_self<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutJustifySelfValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::JustifySelf,
-        )
-        .and_then(|p| p.as_justify_self())
-    }
+    impl_get_prop!(get_justify_self, LayoutJustifySelfValue, JustifySelf, as_justify_self);
 
-    /// Method for getting justify-items property
-    pub fn get_justify_items<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutJustifyItemsValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::JustifyItems,
-        )
-        .and_then(|p| p.as_justify_items())
-    }
+    impl_get_prop!(get_justify_items, LayoutJustifyItemsValue, JustifyItems, as_justify_items);
 
-    /// Method for getting gap property
-    pub fn get_gap<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutGapValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Gap)
-            .and_then(|p| p.as_gap())
-    }
+    impl_get_prop!(get_gap, LayoutGapValue, Gap, as_gap);
 
     /// Method for getting grid-gap property
     pub(crate) fn get_grid_gap<'a>(
@@ -3057,97 +2466,19 @@ impl CssPropertyCache {
             .and_then(|p| p.as_grid_gap())
     }
 
-    /// Method for getting align-self property
-    pub fn get_align_self<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutAlignSelfValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::AlignSelf)
-            .and_then(|p| p.as_align_self())
-    }
+    impl_get_prop!(get_align_self, LayoutAlignSelfValue, AlignSelf, as_align_self);
 
-    /// Method for getting font property
-    pub fn get_font<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleFontValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Font)
-            .and_then(|p| p.as_font())
-    }
+    impl_get_prop!(get_font, StyleFontValue, Font, as_font);
 
-    /// Method for getting writing-mode property
-    pub fn get_writing_mode<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutWritingModeValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::WritingMode,
-        )
-        .and_then(|p| p.as_writing_mode())
-    }
+    impl_get_prop!(get_writing_mode, LayoutWritingModeValue, WritingMode, as_writing_mode);
 
-    /// Method for getting clear property
-    pub fn get_clear<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutClearValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Clear)
-            .and_then(|p| p.as_clear())
-    }
+    impl_get_prop!(get_clear, LayoutClearValue, Clear, as_clear);
 
-    /// Method for getting shape-outside property
-    pub fn get_shape_outside<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ShapeOutsideValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ShapeOutside,
-        )
-        .and_then(|p| p.as_shape_outside())
-    }
+    impl_get_prop!(get_shape_outside, ShapeOutsideValue, ShapeOutside, as_shape_outside);
 
-    /// Method for getting shape-inside property
-    pub fn get_shape_inside<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ShapeInsideValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ShapeInside,
-        )
-        .and_then(|p| p.as_shape_inside())
-    }
+    impl_get_prop!(get_shape_inside, ShapeInsideValue, ShapeInside, as_shape_inside);
 
-    /// Method for getting clip-path property
-    pub fn get_clip_path<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ClipPathValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ClipPath)
-            .and_then(|p| p.as_clip_path())
-    }
+    impl_get_prop!(get_clip_path, ClipPathValue, ClipPath, as_clip_path);
 
     /// Method for getting scrollbar track background
     pub fn get_scrollbar_track<'a>(
@@ -3204,1299 +2535,137 @@ impl CssPropertyCache {
             .and_then(|p| p.as_scrollbar_resizer())
     }
 
-    /// Method for getting scrollbar-width property
-    pub fn get_scrollbar_width<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutScrollbarWidthValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ScrollbarWidth,
-        )
-        .and_then(|p| p.as_scrollbar_width())
-    }
+    impl_get_prop!(get_scrollbar_width, LayoutScrollbarWidthValue, ScrollbarWidth, as_scrollbar_width);
 
-    /// Method for getting scrollbar-color property
-    pub fn get_scrollbar_color<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleScrollbarColorValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ScrollbarColor,
-        )
-        .and_then(|p| p.as_scrollbar_color())
-    }
+    impl_get_prop!(get_scrollbar_color, StyleScrollbarColorValue, ScrollbarColor, as_scrollbar_color);
 
-    /// Method for getting -azul-scrollbar-visibility property
-    pub fn get_scrollbar_visibility<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ScrollbarVisibilityModeValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ScrollbarVisibility,
-        )
-        .and_then(|p| p.as_scrollbar_visibility())
-    }
+    impl_get_prop!(get_scrollbar_visibility, ScrollbarVisibilityModeValue, ScrollbarVisibility, as_scrollbar_visibility);
 
-    /// Method for getting -azul-scrollbar-fade-delay property
-    pub fn get_scrollbar_fade_delay<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ScrollbarFadeDelayValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ScrollbarFadeDelay,
-        )
-        .and_then(|p| p.as_scrollbar_fade_delay())
-    }
+    impl_get_prop!(get_scrollbar_fade_delay, ScrollbarFadeDelayValue, ScrollbarFadeDelay, as_scrollbar_fade_delay);
 
-    /// Method for getting -azul-scrollbar-fade-duration property
-    pub fn get_scrollbar_fade_duration<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ScrollbarFadeDurationValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ScrollbarFadeDuration,
-        )
-        .and_then(|p| p.as_scrollbar_fade_duration())
-    }
+    impl_get_prop!(get_scrollbar_fade_duration, ScrollbarFadeDurationValue, ScrollbarFadeDuration, as_scrollbar_fade_duration);
 
-    /// Method for getting visibility property
-    pub fn get_visibility<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleVisibilityValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Visibility)
-            .and_then(|p| p.as_visibility())
-    }
+    impl_get_prop!(get_visibility, StyleVisibilityValue, Visibility, as_visibility);
 
-    /// Method for getting break-before property
-    pub fn get_break_before<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a PageBreakValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BreakBefore,
-        )
-        .and_then(|p| p.as_break_before())
-    }
+    impl_get_prop!(get_break_before, PageBreakValue, BreakBefore, as_break_before);
 
-    /// Method for getting break-after property
-    pub fn get_break_after<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a PageBreakValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::BreakAfter)
-            .and_then(|p| p.as_break_after())
-    }
+    impl_get_prop!(get_break_after, PageBreakValue, BreakAfter, as_break_after);
 
-    /// Method for getting break-inside property
-    pub fn get_break_inside<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a BreakInsideValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BreakInside,
-        )
-        .and_then(|p| p.as_break_inside())
-    }
+    impl_get_prop!(get_break_inside, BreakInsideValue, BreakInside, as_break_inside);
 
-    /// Method for getting orphans property
-    pub fn get_orphans<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a OrphansValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Orphans)
-            .and_then(|p| p.as_orphans())
-    }
+    impl_get_prop!(get_orphans, OrphansValue, Orphans, as_orphans);
 
-    /// Method for getting widows property
-    pub fn get_widows<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a WidowsValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Widows)
-            .and_then(|p| p.as_widows())
-    }
+    impl_get_prop!(get_widows, WidowsValue, Widows, as_widows);
 
-    /// Method for getting box-decoration-break property
-    pub fn get_box_decoration_break<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a BoxDecorationBreakValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BoxDecorationBreak,
-        )
-        .and_then(|p| p.as_box_decoration_break())
-    }
+    impl_get_prop!(get_box_decoration_break, BoxDecorationBreakValue, BoxDecorationBreak, as_box_decoration_break);
 
-    /// Method for getting column-count property
-    pub fn get_column_count<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ColumnCountValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ColumnCount,
-        )
-        .and_then(|p| p.as_column_count())
-    }
+    impl_get_prop!(get_column_count, ColumnCountValue, ColumnCount, as_column_count);
 
-    /// Method for getting column-width property
-    pub fn get_column_width<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ColumnWidthValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ColumnWidth,
-        )
-        .and_then(|p| p.as_column_width())
-    }
+    impl_get_prop!(get_column_width, ColumnWidthValue, ColumnWidth, as_column_width);
 
-    /// Method for getting column-span property
-    pub fn get_column_span<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ColumnSpanValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ColumnSpan)
-            .and_then(|p| p.as_column_span())
-    }
+    impl_get_prop!(get_column_span, ColumnSpanValue, ColumnSpan, as_column_span);
 
-    /// Method for getting column-fill property
-    pub fn get_column_fill<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ColumnFillValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ColumnFill)
-            .and_then(|p| p.as_column_fill())
-    }
+    impl_get_prop!(get_column_fill, ColumnFillValue, ColumnFill, as_column_fill);
 
-    /// Method for getting column-rule-width property
-    pub fn get_column_rule_width<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ColumnRuleWidthValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ColumnRuleWidth,
-        )
-        .and_then(|p| p.as_column_rule_width())
-    }
+    impl_get_prop!(get_column_rule_width, ColumnRuleWidthValue, ColumnRuleWidth, as_column_rule_width);
 
-    /// Method for getting column-rule-style property
-    pub fn get_column_rule_style<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ColumnRuleStyleValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ColumnRuleStyle,
-        )
-        .and_then(|p| p.as_column_rule_style())
-    }
+    impl_get_prop!(get_column_rule_style, ColumnRuleStyleValue, ColumnRuleStyle, as_column_rule_style);
 
-    /// Method for getting column-rule-color property
-    pub fn get_column_rule_color<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ColumnRuleColorValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ColumnRuleColor,
-        )
-        .and_then(|p| p.as_column_rule_color())
-    }
+    impl_get_prop!(get_column_rule_color, ColumnRuleColorValue, ColumnRuleColor, as_column_rule_color);
 
-    /// Method for getting flow-into property
-    pub fn get_flow_into<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a FlowIntoValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::FlowInto)
-            .and_then(|p| p.as_flow_into())
-    }
+    impl_get_prop!(get_flow_into, FlowIntoValue, FlowInto, as_flow_into);
 
-    /// Method for getting flow-from property
-    pub fn get_flow_from<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a FlowFromValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::FlowFrom)
-            .and_then(|p| p.as_flow_from())
-    }
+    impl_get_prop!(get_flow_from, FlowFromValue, FlowFrom, as_flow_from);
 
-    /// Method for getting shape-margin property
-    pub fn get_shape_margin<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ShapeMarginValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ShapeMargin,
-        )
-        .and_then(|p| p.as_shape_margin())
-    }
+    impl_get_prop!(get_shape_margin, ShapeMarginValue, ShapeMargin, as_shape_margin);
 
-    /// Method for getting shape-image-threshold property
-    pub fn get_shape_image_threshold<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ShapeImageThresholdValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ShapeImageThreshold,
-        )
-        .and_then(|p| p.as_shape_image_threshold())
-    }
+    impl_get_prop!(get_shape_image_threshold, ShapeImageThresholdValue, ShapeImageThreshold, as_shape_image_threshold);
 
-    /// Method for getting content property
-    pub fn get_content<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ContentValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Content)
-            .and_then(|p| p.as_content())
-    }
+    impl_get_prop!(get_content, ContentValue, Content, as_content);
 
-    /// Method for getting counter-reset property
-    pub fn get_counter_reset<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a CounterResetValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::CounterReset,
-        )
-        .and_then(|p| p.as_counter_reset())
-    }
+    impl_get_prop!(get_counter_reset, CounterResetValue, CounterReset, as_counter_reset);
 
-    /// Method for getting counter-increment property
-    pub fn get_counter_increment<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a CounterIncrementValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::CounterIncrement,
-        )
-        .and_then(|p| p.as_counter_increment())
-    }
+    impl_get_prop!(get_counter_increment, CounterIncrementValue, CounterIncrement, as_counter_increment);
 
-    /// Method for getting string-set property
-    pub fn get_string_set<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StringSetValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::StringSet)
-            .and_then(|p| p.as_string_set())
-    }
-    pub fn get_text_align<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleTextAlignValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextAlign)
-            .and_then(|p| p.as_text_align())
-    }
-    pub fn get_user_select<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleUserSelectValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::UserSelect)
-            .and_then(|p| p.as_user_select())
-    }
-    pub fn get_text_decoration<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleTextDecorationValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::TextDecoration,
-        )
-        .and_then(|p| p.as_text_decoration())
-    }
-    pub fn get_vertical_align<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleVerticalAlignValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::VerticalAlign,
-        )
-        .and_then(|p| p.as_vertical_align())
-    }
-    pub fn get_line_height<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleLineHeightValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::LineHeight)
-            .and_then(|p| p.as_line_height())
-    }
-    pub fn get_letter_spacing<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleLetterSpacingValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::LetterSpacing,
-        )
-        .and_then(|p| p.as_letter_spacing())
-    }
-    pub fn get_word_spacing<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleWordSpacingValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::WordSpacing,
-        )
-        .and_then(|p| p.as_word_spacing())
-    }
-    pub fn get_tab_size<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleTabSizeValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::TabSize)
-            .and_then(|p| p.as_tab_size())
-    }
-    pub fn get_cursor<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleCursorValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Cursor)
-            .and_then(|p| p.as_cursor())
-    }
-    pub fn get_box_shadow_left<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBoxShadowValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BoxShadowLeft,
-        )
-        .and_then(|p| p.as_box_shadow_left())
-    }
-    pub fn get_box_shadow_right<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBoxShadowValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BoxShadowRight,
-        )
-        .and_then(|p| p.as_box_shadow_right())
-    }
-    pub fn get_box_shadow_top<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBoxShadowValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BoxShadowTop,
-        )
-        .and_then(|p| p.as_box_shadow_top())
-    }
-    pub fn get_box_shadow_bottom<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBoxShadowValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BoxShadowBottom,
-        )
-        .and_then(|p| p.as_box_shadow_bottom())
-    }
-    pub fn get_border_top_color<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBorderTopColorValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderTopColor,
-        )
-        .and_then(|p| p.as_border_top_color())
-    }
-    pub fn get_border_left_color<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBorderLeftColorValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderLeftColor,
-        )
-        .and_then(|p| p.as_border_left_color())
-    }
-    pub fn get_border_right_color<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBorderRightColorValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderRightColor,
-        )
-        .and_then(|p| p.as_border_right_color())
-    }
-    pub fn get_border_bottom_color<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBorderBottomColorValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderBottomColor,
-        )
-        .and_then(|p| p.as_border_bottom_color())
-    }
-    pub fn get_border_top_style<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBorderTopStyleValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderTopStyle,
-        )
-        .and_then(|p| p.as_border_top_style())
-    }
-    pub fn get_border_left_style<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBorderLeftStyleValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderLeftStyle,
-        )
-        .and_then(|p| p.as_border_left_style())
-    }
-    pub fn get_border_right_style<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBorderRightStyleValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderRightStyle,
-        )
-        .and_then(|p| p.as_border_right_style())
-    }
-    pub fn get_border_bottom_style<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBorderBottomStyleValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderBottomStyle,
-        )
-        .and_then(|p| p.as_border_bottom_style())
-    }
-    pub fn get_border_top_left_radius<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBorderTopLeftRadiusValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderTopLeftRadius,
-        )
-        .and_then(|p| p.as_border_top_left_radius())
-    }
-    pub fn get_border_top_right_radius<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBorderTopRightRadiusValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderTopRightRadius,
-        )
-        .and_then(|p| p.as_border_top_right_radius())
-    }
-    pub fn get_border_bottom_left_radius<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBorderBottomLeftRadiusValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderBottomLeftRadius,
-        )
-        .and_then(|p| p.as_border_bottom_left_radius())
-    }
-    pub fn get_border_bottom_right_radius<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBorderBottomRightRadiusValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderBottomRightRadius,
-        )
-        .and_then(|p| p.as_border_bottom_right_radius())
-    }
-    pub fn get_opacity<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleOpacityValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Opacity)
-            .and_then(|p| p.as_opacity())
-    }
-    pub fn get_transform<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleTransformVecValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Transform)
-            .and_then(|p| p.as_transform())
-    }
-    pub fn get_transform_origin<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleTransformOriginValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::TransformOrigin,
-        )
-        .and_then(|p| p.as_transform_origin())
-    }
-    pub fn get_perspective_origin<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StylePerspectiveOriginValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::PerspectiveOrigin,
-        )
-        .and_then(|p| p.as_perspective_origin())
-    }
-    pub fn get_backface_visibility<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBackfaceVisibilityValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BackfaceVisibility,
-        )
-        .and_then(|p| p.as_backface_visibility())
-    }
-    pub fn get_display<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutDisplayValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Display)
-            .and_then(|p| p.as_display())
-    }
-    pub fn get_float<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutFloatValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Float)
-            .and_then(|p| p.as_float())
-    }
-    pub fn get_box_sizing<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutBoxSizingValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::BoxSizing)
-            .and_then(|p| p.as_box_sizing())
-    }
-    pub fn get_width<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutWidthValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Width)
-            .and_then(|p| p.as_width())
-    }
-    pub fn get_height<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutHeightValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Height)
-            .and_then(|p| p.as_height())
-    }
-    pub fn get_min_width<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutMinWidthValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::MinWidth)
-            .and_then(|p| p.as_min_width())
-    }
-    pub fn get_min_height<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutMinHeightValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::MinHeight)
-            .and_then(|p| p.as_min_height())
-    }
-    pub fn get_max_width<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutMaxWidthValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::MaxWidth)
-            .and_then(|p| p.as_max_width())
-    }
-    pub fn get_max_height<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutMaxHeightValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::MaxHeight)
-            .and_then(|p| p.as_max_height())
-    }
-    pub fn get_position<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutPositionValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Position)
-            .and_then(|p| p.as_position())
-    }
-    pub fn get_top<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutTopValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Top)
-            .and_then(|p| p.as_top())
-    }
-    pub fn get_bottom<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutInsetBottomValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Bottom)
-            .and_then(|p| p.as_bottom())
-    }
-    pub fn get_right<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutRightValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Right)
-            .and_then(|p| p.as_right())
-    }
-    pub fn get_left<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutLeftValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Left)
-            .and_then(|p| p.as_left())
-    }
-    pub fn get_padding_top<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutPaddingTopValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::PaddingTop)
-            .and_then(|p| p.as_padding_top())
-    }
-    pub fn get_padding_bottom<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutPaddingBottomValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::PaddingBottom,
-        )
-        .and_then(|p| p.as_padding_bottom())
-    }
-    pub fn get_padding_left<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutPaddingLeftValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::PaddingLeft,
-        )
-        .and_then(|p| p.as_padding_left())
-    }
-    pub fn get_padding_right<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutPaddingRightValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::PaddingRight,
-        )
-        .and_then(|p| p.as_padding_right())
-    }
-    pub fn get_margin_top<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutMarginTopValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::MarginTop)
-            .and_then(|p| p.as_margin_top())
-    }
-    pub fn get_margin_bottom<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutMarginBottomValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::MarginBottom,
-        )
-        .and_then(|p| p.as_margin_bottom())
-    }
-    pub fn get_margin_left<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutMarginLeftValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::MarginLeft)
-            .and_then(|p| p.as_margin_left())
-    }
-    pub fn get_margin_right<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutMarginRightValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::MarginRight,
-        )
-        .and_then(|p| p.as_margin_right())
-    }
-    pub fn get_border_top_width<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutBorderTopWidthValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderTopWidth,
-        )
-        .and_then(|p| p.as_border_top_width())
-    }
-    pub fn get_border_left_width<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutBorderLeftWidthValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderLeftWidth,
-        )
-        .and_then(|p| p.as_border_left_width())
-    }
-    pub fn get_border_right_width<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutBorderRightWidthValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderRightWidth,
-        )
-        .and_then(|p| p.as_border_right_width())
-    }
-    pub fn get_border_bottom_width<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutBorderBottomWidthValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderBottomWidth,
-        )
-        .and_then(|p| p.as_border_bottom_width())
-    }
-    pub fn get_overflow_x<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutOverflowValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowX)
-            .and_then(|p| p.as_overflow_x())
-    }
-    pub fn get_overflow_y<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutOverflowValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowY)
-            .and_then(|p| p.as_overflow_y())
-    }
-    pub fn get_overflow_block<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutOverflowValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowBlock)
-            .and_then(|p| p.as_overflow_block())
-    }
-    pub fn get_overflow_inline<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutOverflowValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowInline)
-            .and_then(|p| p.as_overflow_inline())
-    }
-    pub fn get_flex_direction<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutFlexDirectionValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::FlexDirection,
-        )
-        .and_then(|p| p.as_flex_direction())
-    }
-    pub fn get_flex_wrap<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutFlexWrapValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::FlexWrap)
-            .and_then(|p| p.as_flex_wrap())
-    }
-    pub fn get_flex_grow<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutFlexGrowValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::FlexGrow)
-            .and_then(|p| p.as_flex_grow())
-    }
-    pub fn get_flex_shrink<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutFlexShrinkValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::FlexShrink)
-            .and_then(|p| p.as_flex_shrink())
-    }
-    pub fn get_justify_content<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutJustifyContentValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::JustifyContent,
-        )
-        .and_then(|p| p.as_justify_content())
-    }
-    pub fn get_align_items<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutAlignItemsValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::AlignItems)
-            .and_then(|p| p.as_align_items())
-    }
-    pub fn get_align_content<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutAlignContentValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::AlignContent,
-        )
-        .and_then(|p| p.as_align_content())
-    }
-    pub fn get_mix_blend_mode<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleMixBlendModeValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::MixBlendMode,
-        )
-        .and_then(|p| p.as_mix_blend_mode())
-    }
-    pub fn get_filter<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleFilterVecValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Filter)
-            .and_then(|p| p.as_filter())
-    }
-    pub fn get_backdrop_filter<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleFilterVecValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::BackdropFilter)
-            .and_then(|p| p.as_backdrop_filter())
-    }
-    pub fn get_text_shadow<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBoxShadowValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextShadow)
-            .and_then(|p| p.as_text_shadow())
-    }
-    pub fn get_list_style_type<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleListStyleTypeValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ListStyleType,
-        )
-        .and_then(|p| p.as_list_style_type())
-    }
-    pub fn get_list_style_position<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleListStylePositionValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ListStylePosition,
-        )
-        .and_then(|p| p.as_list_style_position())
-    }
-    pub fn get_table_layout<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutTableLayoutValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::TableLayout,
-        )
-        .and_then(|p| p.as_table_layout())
-    }
-    pub fn get_border_collapse<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleBorderCollapseValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderCollapse,
-        )
-        .and_then(|p| p.as_border_collapse())
-    }
-    pub fn get_border_spacing<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutBorderSpacingValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::BorderSpacing,
-        )
-        .and_then(|p| p.as_border_spacing())
-    }
-    pub fn get_caption_side<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleCaptionSideValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::CaptionSide,
-        )
-        .and_then(|p| p.as_caption_side())
-    }
-    pub fn get_empty_cells<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a StyleEmptyCellsValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::EmptyCells)
-            .and_then(|p| p.as_empty_cells())
-    }
+    impl_get_prop!(get_string_set, StringSetValue, StringSet, as_string_set);
+    impl_get_prop!(get_text_align, StyleTextAlignValue, TextAlign, as_text_align);
+    impl_get_prop!(get_user_select, StyleUserSelectValue, UserSelect, as_user_select);
+    impl_get_prop!(get_text_decoration, StyleTextDecorationValue, TextDecoration, as_text_decoration);
+    impl_get_prop!(get_vertical_align, StyleVerticalAlignValue, VerticalAlign, as_vertical_align);
+    impl_get_prop!(get_line_height, StyleLineHeightValue, LineHeight, as_line_height);
+    impl_get_prop!(get_letter_spacing, StyleLetterSpacingValue, LetterSpacing, as_letter_spacing);
+    impl_get_prop!(get_word_spacing, StyleWordSpacingValue, WordSpacing, as_word_spacing);
+    impl_get_prop!(get_tab_size, StyleTabSizeValue, TabSize, as_tab_size);
+    impl_get_prop!(get_cursor, StyleCursorValue, Cursor, as_cursor);
+    impl_get_prop!(get_box_shadow_left, StyleBoxShadowValue, BoxShadowLeft, as_box_shadow_left);
+    impl_get_prop!(get_box_shadow_right, StyleBoxShadowValue, BoxShadowRight, as_box_shadow_right);
+    impl_get_prop!(get_box_shadow_top, StyleBoxShadowValue, BoxShadowTop, as_box_shadow_top);
+    impl_get_prop!(get_box_shadow_bottom, StyleBoxShadowValue, BoxShadowBottom, as_box_shadow_bottom);
+    impl_get_prop!(get_border_top_color, StyleBorderTopColorValue, BorderTopColor, as_border_top_color);
+    impl_get_prop!(get_border_left_color, StyleBorderLeftColorValue, BorderLeftColor, as_border_left_color);
+    impl_get_prop!(get_border_right_color, StyleBorderRightColorValue, BorderRightColor, as_border_right_color);
+    impl_get_prop!(get_border_bottom_color, StyleBorderBottomColorValue, BorderBottomColor, as_border_bottom_color);
+    impl_get_prop!(get_border_top_style, StyleBorderTopStyleValue, BorderTopStyle, as_border_top_style);
+    impl_get_prop!(get_border_left_style, StyleBorderLeftStyleValue, BorderLeftStyle, as_border_left_style);
+    impl_get_prop!(get_border_right_style, StyleBorderRightStyleValue, BorderRightStyle, as_border_right_style);
+    impl_get_prop!(get_border_bottom_style, StyleBorderBottomStyleValue, BorderBottomStyle, as_border_bottom_style);
+    impl_get_prop!(get_border_top_left_radius, StyleBorderTopLeftRadiusValue, BorderTopLeftRadius, as_border_top_left_radius);
+    impl_get_prop!(get_border_top_right_radius, StyleBorderTopRightRadiusValue, BorderTopRightRadius, as_border_top_right_radius);
+    impl_get_prop!(get_border_bottom_left_radius, StyleBorderBottomLeftRadiusValue, BorderBottomLeftRadius, as_border_bottom_left_radius);
+    impl_get_prop!(get_border_bottom_right_radius, StyleBorderBottomRightRadiusValue, BorderBottomRightRadius, as_border_bottom_right_radius);
+    impl_get_prop!(get_opacity, StyleOpacityValue, Opacity, as_opacity);
+    impl_get_prop!(get_transform, StyleTransformVecValue, Transform, as_transform);
+    impl_get_prop!(get_transform_origin, StyleTransformOriginValue, TransformOrigin, as_transform_origin);
+    impl_get_prop!(get_perspective_origin, StylePerspectiveOriginValue, PerspectiveOrigin, as_perspective_origin);
+    impl_get_prop!(get_backface_visibility, StyleBackfaceVisibilityValue, BackfaceVisibility, as_backface_visibility);
+    impl_get_prop!(get_display, LayoutDisplayValue, Display, as_display);
+    impl_get_prop!(get_float, LayoutFloatValue, Float, as_float);
+    impl_get_prop!(get_box_sizing, LayoutBoxSizingValue, BoxSizing, as_box_sizing);
+    impl_get_prop!(get_width, LayoutWidthValue, Width, as_width);
+    impl_get_prop!(get_height, LayoutHeightValue, Height, as_height);
+    impl_get_prop!(get_min_width, LayoutMinWidthValue, MinWidth, as_min_width);
+    impl_get_prop!(get_min_height, LayoutMinHeightValue, MinHeight, as_min_height);
+    impl_get_prop!(get_max_width, LayoutMaxWidthValue, MaxWidth, as_max_width);
+    impl_get_prop!(get_max_height, LayoutMaxHeightValue, MaxHeight, as_max_height);
+    impl_get_prop!(get_position, LayoutPositionValue, Position, as_position);
+    impl_get_prop!(get_top, LayoutTopValue, Top, as_top);
+    impl_get_prop!(get_bottom, LayoutInsetBottomValue, Bottom, as_bottom);
+    impl_get_prop!(get_right, LayoutRightValue, Right, as_right);
+    impl_get_prop!(get_left, LayoutLeftValue, Left, as_left);
+    impl_get_prop!(get_padding_top, LayoutPaddingTopValue, PaddingTop, as_padding_top);
+    impl_get_prop!(get_padding_bottom, LayoutPaddingBottomValue, PaddingBottom, as_padding_bottom);
+    impl_get_prop!(get_padding_left, LayoutPaddingLeftValue, PaddingLeft, as_padding_left);
+    impl_get_prop!(get_padding_right, LayoutPaddingRightValue, PaddingRight, as_padding_right);
+    impl_get_prop!(get_margin_top, LayoutMarginTopValue, MarginTop, as_margin_top);
+    impl_get_prop!(get_margin_bottom, LayoutMarginBottomValue, MarginBottom, as_margin_bottom);
+    impl_get_prop!(get_margin_left, LayoutMarginLeftValue, MarginLeft, as_margin_left);
+    impl_get_prop!(get_margin_right, LayoutMarginRightValue, MarginRight, as_margin_right);
+    impl_get_prop!(get_border_top_width, LayoutBorderTopWidthValue, BorderTopWidth, as_border_top_width);
+    impl_get_prop!(get_border_left_width, LayoutBorderLeftWidthValue, BorderLeftWidth, as_border_left_width);
+    impl_get_prop!(get_border_right_width, LayoutBorderRightWidthValue, BorderRightWidth, as_border_right_width);
+    impl_get_prop!(get_border_bottom_width, LayoutBorderBottomWidthValue, BorderBottomWidth, as_border_bottom_width);
+    impl_get_prop!(get_overflow_x, LayoutOverflowValue, OverflowX, as_overflow_x);
+    impl_get_prop!(get_overflow_y, LayoutOverflowValue, OverflowY, as_overflow_y);
+    impl_get_prop!(get_overflow_block, LayoutOverflowValue, OverflowBlock, as_overflow_block);
+    impl_get_prop!(get_overflow_inline, LayoutOverflowValue, OverflowInline, as_overflow_inline);
+    impl_get_prop!(get_flex_direction, LayoutFlexDirectionValue, FlexDirection, as_flex_direction);
+    impl_get_prop!(get_flex_wrap, LayoutFlexWrapValue, FlexWrap, as_flex_wrap);
+    impl_get_prop!(get_flex_grow, LayoutFlexGrowValue, FlexGrow, as_flex_grow);
+    impl_get_prop!(get_flex_shrink, LayoutFlexShrinkValue, FlexShrink, as_flex_shrink);
+    impl_get_prop!(get_justify_content, LayoutJustifyContentValue, JustifyContent, as_justify_content);
+    impl_get_prop!(get_align_items, LayoutAlignItemsValue, AlignItems, as_align_items);
+    impl_get_prop!(get_align_content, LayoutAlignContentValue, AlignContent, as_align_content);
+    impl_get_prop!(get_mix_blend_mode, StyleMixBlendModeValue, MixBlendMode, as_mix_blend_mode);
+    impl_get_prop!(get_filter, StyleFilterVecValue, Filter, as_filter);
+    impl_get_prop!(get_backdrop_filter, StyleFilterVecValue, BackdropFilter, as_backdrop_filter);
+    impl_get_prop!(get_text_shadow, StyleBoxShadowValue, TextShadow, as_text_shadow);
+    impl_get_prop!(get_list_style_type, StyleListStyleTypeValue, ListStyleType, as_list_style_type);
+    impl_get_prop!(get_list_style_position, StyleListStylePositionValue, ListStylePosition, as_list_style_position);
+    impl_get_prop!(get_table_layout, LayoutTableLayoutValue, TableLayout, as_table_layout);
+    impl_get_prop!(get_border_collapse, StyleBorderCollapseValue, BorderCollapse, as_border_collapse);
+    impl_get_prop!(get_border_spacing, LayoutBorderSpacingValue, BorderSpacing, as_border_spacing);
+    impl_get_prop!(get_caption_side, StyleCaptionSideValue, CaptionSide, as_caption_side);
+    impl_get_prop!(get_empty_cells, StyleEmptyCellsValue, EmptyCells, as_empty_cells);
 
     // Width calculation methods
     pub fn calc_width(
