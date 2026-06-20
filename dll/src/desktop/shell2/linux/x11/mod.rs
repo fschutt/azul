@@ -2583,7 +2583,38 @@ impl X11Window {
         }
 
         // Step 1: Regenerate layout if needed, otherwise send lightweight transaction
-        let layout_was_regenerated = if self.common.frame_needs_regeneration {
+        let layout_was_regenerated = if self.common.frame_relayout_only {
+            // Restyle / runtime edit: the ShouldIncrementalRelayout arm in handle_event()
+            // already re-ran layout on the EXISTING StyledDom (incremental_relayout) AND
+            // regenerated the per-DOM display list into layout_results. SKIP the full
+            // regenerate_layout() (it would re-invoke the user's layout_callback). On the
+            // GPU path regenerate_layout() is what normally SENDS the full WebRender
+            // transaction (see Step 3.5's `!layout_was_regenerated` lightweight path) — so
+            // since we skip it, send the full transaction here, mirroring
+            // generate_frame_if_needed(). CPU mode has render_api = None (the block below
+            // no-ops) and renders straight from layout_results further down. Checked
+            // BEFORE frame_needs_regeneration (handle_event sets BOTH). Mirrors wayland's
+            // relayout-only generate_frame path.
+            self.common.frame_relayout_only = false;
+            self.common.frame_needs_regeneration = false;
+            if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
+                gl_context.make_current();
+            }
+            if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) = (
+                self.common.layout_window.as_mut(),
+                self.common.render_api.as_mut(),
+                self.common.document_id,
+            ) {
+                crate::desktop::shell2::common::layout::generate_frame(
+                    layout_window,
+                    render_api,
+                    document_id,
+                    &self.common.gl_context_ptr,
+                );
+                render_api.flush_scene_builder();
+            }
+            true
+        } else if self.common.frame_needs_regeneration {
             if let Err(e) = self.regenerate_layout() {
                 return Err(WindowError::PlatformError(format!("Layout failed: {}", e)));
             }
