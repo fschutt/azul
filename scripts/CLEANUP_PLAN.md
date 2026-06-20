@@ -41,9 +41,10 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   matches in either file. **Action:** account for CSS transforms in hit testing. Tracks with the
   "use CPU hit tester always" decoupling-from-WebRender goal.
 
-- [ ] **changeset.rs trailing comment** 🟢 — actually `layout/src/managers/changeset.rs` (not core).
-  6-line trailing comment explaining removed `create_*_changeset` stubs. Informative rationale;
-  **Action:** optional removal (mild keep value).
+- [x] **changeset.rs trailing comment** 🟢 — **DONE:** removed the trailing comment in
+  `layout/src/managers/changeset.rs`; the module-level docs (lines 8-11) already cover that the
+  `create_*_changeset` helpers were removed and that the payload types are retained/used by
+  `window.rs`/`undo_redo.rs`.
 
 - [ ] **CssPropertyCache — macro-generate accessors** 🟡 — `core/src/prop_cache.rs` (5482 lines):
   ~92 of 181 `pub fn get_*` match the mechanical pattern

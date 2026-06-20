@@ -272,10 +272,3 @@ impl TextChangeset {
         }
     }
 }
-
-// The `create_copy_changeset` / `create_cut_changeset` / `create_select_all_changeset`
-// / `create_delete_selection_changeset` constructors lived here. They had zero callers
-// (the live editing paths run through `common/event.rs`, see the module docs) and
-// contained unfinished stubs, so they were removed rather than wired up. The
-// `TextOperation` payload types above are retained — they are FFI-exported (api.json)
-// and used by `undo_redo.rs` / `window.rs` for the changeset/undo records.
