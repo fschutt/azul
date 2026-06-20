@@ -180,6 +180,9 @@ mod view_handlers {
                     EventProcessResult::RequestRedraw => {
                         macos_window.request_redraw();
                     }
+                    EventProcessResult::RegenerateLayoutIncremental => {
+                        macos_window.apply_incremental_relayout_result();
+                    }
                     _ => {}
                 }
                 macos_window.sync_window_state();
@@ -209,6 +212,9 @@ mod view_handlers {
                     EventProcessResult::RequestRedraw => {
                         macos_window.request_redraw();
                     }
+                    EventProcessResult::RegenerateLayoutIncremental => {
+                        macos_window.apply_incremental_relayout_result();
+                    }
                     _ => {}
                 }
                 macos_window.sync_window_state();
@@ -232,6 +238,9 @@ mod view_handlers {
                     }
                     EventProcessResult::RequestRedraw => {
                         macos_window.request_redraw();
+                    }
+                    EventProcessResult::RegenerateLayoutIncremental => {
+                        macos_window.apply_incremental_relayout_result();
                     }
                     _ => {}
                 }
@@ -257,6 +266,9 @@ mod view_handlers {
                     EventProcessResult::RequestRedraw => {
                         macos_window.request_redraw();
                     }
+                    EventProcessResult::RegenerateLayoutIncremental => {
+                        macos_window.apply_incremental_relayout_result();
+                    }
                     _ => {}
                 }
                 macos_window.sync_window_state();
@@ -280,6 +292,9 @@ mod view_handlers {
                     }
                     EventProcessResult::RequestRedraw => {
                         macos_window.request_redraw();
+                    }
+                    EventProcessResult::RegenerateLayoutIncremental => {
+                        macos_window.apply_incremental_relayout_result();
                     }
                     _ => {}
                 }
@@ -310,6 +325,9 @@ mod view_handlers {
                     EventProcessResult::RequestRedraw => {
                         macos_window.request_redraw();
                     }
+                    EventProcessResult::RegenerateLayoutIncremental => {
+                        macos_window.apply_incremental_relayout_result();
+                    }
                     _ => {}
                 }
             }
@@ -333,6 +351,9 @@ mod view_handlers {
                     }
                     EventProcessResult::RequestRedraw => {
                         macos_window.request_redraw();
+                    }
+                    EventProcessResult::RegenerateLayoutIncremental => {
+                        macos_window.apply_incremental_relayout_result();
                     }
                     _ => {}
                 }
@@ -358,6 +379,9 @@ mod view_handlers {
                     EventProcessResult::RequestRedraw => {
                         macos_window.request_redraw();
                     }
+                    EventProcessResult::RegenerateLayoutIncremental => {
+                        macos_window.apply_incremental_relayout_result();
+                    }
                     _ => {}
                 }
             }
@@ -380,6 +404,9 @@ mod view_handlers {
                     }
                     EventProcessResult::RequestRedraw => {
                         macos_window.request_redraw();
+                    }
+                    EventProcessResult::RegenerateLayoutIncremental => {
+                        macos_window.apply_incremental_relayout_result();
                     }
                     _ => {}
                 }
@@ -405,6 +432,9 @@ mod view_handlers {
                     EventProcessResult::RequestRedraw => {
                         macos_window.request_redraw();
                     }
+                    EventProcessResult::RegenerateLayoutIncremental => {
+                        macos_window.apply_incremental_relayout_result();
+                    }
                     _ => {}
                 }
                 macos_window.sync_window_state();
@@ -428,6 +458,9 @@ mod view_handlers {
                     }
                     EventProcessResult::RequestRedraw => {
                         macos_window.request_redraw();
+                    }
+                    EventProcessResult::RegenerateLayoutIncremental => {
+                        macos_window.apply_incremental_relayout_result();
                     }
                     _ => {} // DoNothing: no redraw needed for move within same node
                 }
@@ -649,6 +682,9 @@ define_class!(
                         }
                         EventProcessResult::RequestRedraw => {
                             macos_window.request_redraw();
+                        }
+                        EventProcessResult::RegenerateLayoutIncremental => {
+                            macos_window.apply_incremental_relayout_result();
                         }
                         _ => {}
                     }
@@ -1234,6 +1270,9 @@ define_class!(
                         }
                         EventProcessResult::RequestRedraw => {
                             macos_window.request_redraw();
+                        }
+                        EventProcessResult::RegenerateLayoutIncremental => {
+                            macos_window.apply_incremental_relayout_result();
                         }
                         _ => {}
                     }
@@ -1878,6 +1917,10 @@ define_class!(
                             EventProcessResult::RequestRedraw => {
                                 macos_window.surface_needs_update = true;
                                 macos_window.request_redraw();
+                            }
+                            EventProcessResult::RegenerateLayoutIncremental => {
+                                macos_window.surface_needs_update = true;
+                                macos_window.apply_incremental_relayout_result();
                             }
                             _ => {}
                         }
@@ -4132,6 +4175,36 @@ impl MacOSWindow {
         self.common.current_window_state.flags.close_requested
     }
 
+    /// Run an incremental relayout (restyle / runtime edit — hover/focus CSS,
+    /// `set_css_property`, `set_node_text`) on the EXISTING StyledDom and arm the
+    /// relayout-only fast path. The main-window mouse/key handlers call this from
+    /// their `EventProcessResult::RegenerateLayoutIncremental` arm so a restyle that
+    /// only needs re-layout does NOT force the full `regenerate_layout()` (which
+    /// would re-invoke the user's `layout_callback` and rebuild the StyledDom).
+    ///
+    /// Mirrors `process_close_event`'s `ShouldIncrementalRelayout` arm (identical
+    /// `incremental_relayout()` call + `log_warn`), but ALSO sets
+    /// `frame_relayout_only` so the drawRect path (`build_atomic_txn`) SKIPS
+    /// `regenerate_layout()` and only rebuilds + sends the WebRender transaction
+    /// from the layout `incremental_relayout()` already updated.
+    /// `request_redraw()` schedules the drawRect.
+    pub(crate) fn apply_incremental_relayout_result(&mut self) {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            let mut debug_messages = None;
+            if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
+                layout_window,
+                &self.common.current_window_state,
+                &mut self.common.renderer_resources,
+                &mut debug_messages,
+            ) {
+                log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
+            }
+        }
+        self.common.frame_relayout_only = true;
+        self.common.frame_needs_regeneration = true;
+        self.request_redraw();
+    }
+
     /// Handle windowShouldClose delegate callback
     ///
     /// Called synchronously when the user clicks the close button.
@@ -4950,6 +5023,8 @@ impl MacOSWindow {
                 let result = self.handle_key_down(event);
                 if matches!(result, EventProcessResult::RegenerateDisplayList) {
                     self.common.frame_needs_regeneration = true;
+                } else if matches!(result, EventProcessResult::RegenerateLayoutIncremental) {
+                    self.apply_incremental_relayout_result();
                 } else if matches!(result, EventProcessResult::RequestRedraw) {
                     self.request_redraw();
                 }
@@ -4959,6 +5034,8 @@ impl MacOSWindow {
                 let result = self.handle_key_up(event);
                 if matches!(result, EventProcessResult::RegenerateDisplayList) {
                     self.common.frame_needs_regeneration = true;
+                } else if matches!(result, EventProcessResult::RegenerateLayoutIncremental) {
+                    self.apply_incremental_relayout_result();
                 } else if matches!(result, EventProcessResult::RequestRedraw) {
                     self.request_redraw();
                 }
@@ -4968,6 +5045,8 @@ impl MacOSWindow {
                 let result = self.handle_flags_changed(event);
                 if matches!(result, EventProcessResult::RegenerateDisplayList) {
                     self.common.frame_needs_regeneration = true;
+                } else if matches!(result, EventProcessResult::RegenerateLayoutIncremental) {
+                    self.apply_incremental_relayout_result();
                 } else if matches!(result, EventProcessResult::RequestRedraw) {
                     self.request_redraw();
                 }
