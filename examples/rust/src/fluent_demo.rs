@@ -13,10 +13,10 @@
 // The Fluent localizer + format-arg types are exposed through azul's Rust API
 // re-exports: the localizer handle lives in `azul::fluent`, and the format-arg
 // types (`FmtArg`/`FmtValue`, used to fill `{ $name }`-style placeholders) in
-// `azul::misc`. The syntax checker and ZIP packaging helpers are free functions
+// `azul::fmt`. The syntax checker and ZIP packaging helpers are free functions
 // in the `azul::desktop::fluent` / `azul::desktop::zip` modules.
 use azul::fluent::FluentLocalizerHandle;
-use azul::misc::{FmtArg, FmtValue};
+use azul::fmt::{FmtArg, FmtValue};
 use azul::desktop::fluent::{check_fluent_syntax, create_fluent_zip, FluentSyntaxCheckResult};
 use azul::desktop::zip::ZipFileEntry;
 

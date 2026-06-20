@@ -26,13 +26,16 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use azul::dom::OnAudioFrameCallback;
-use azul::misc::{AudioConfig, CameraConfig, SensorKind};
+use azul::audio::AudioConfig;
+use azul::camera::CameraConfig;
+use azul::sensor::SensorKind;
 use azul::option::OptionRefAny;
 use azul::prelude::*;
 use azul::task::TerminateTimer;
 use azul::vec::U8Vec;
 use azul::widgets::{AudioFrame, CameraWidget, MicrophoneWidget};
-use azul::window::{AudioSink, PlatformCapability};
+use azul::audio::AudioSink;
+use azul::window::PlatformCapability;
 
 /// How long the windowed (event-loop) probe phase runs before auto-closing.
 const RUN_SECS: u64 = 4;

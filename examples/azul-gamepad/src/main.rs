@@ -14,10 +14,10 @@
 //! surface (P6.gamepad end-to-end).
 
 use azul::prelude::*;
-use azul::misc::GamepadState;
+use azul::gamepad::GamepadState;
 use azul::option::OptionRefAny;
 use azul::task::TerminateTimer;
-use azul::widgets::GamepadButton;
+use azul::gamepad::GamepadButton;
 
 /// The latest primary-controller snapshot, refreshed each Timer tick.
 struct PadState {

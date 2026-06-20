@@ -9,7 +9,8 @@
 
 use azul::prelude::*;
 use azul::widgets::VideoWidget;
-use azul::misc::{VideoConfig, VideoSource, Url};
+use azul::video::{VideoConfig, VideoSource};
+use azul::url::Url;
 use azul::desktop::extra::video_codec::VideoStartupCheck;
 
 /// Big Buck Bunny H.264/MP4, 360p, ~10s — fetched on the decode thread via a range request.

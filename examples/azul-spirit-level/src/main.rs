@@ -15,7 +15,7 @@
 //! arrives, so the UI sits in a graceful "waiting" state.
 
 use azul::prelude::*;
-use azul::misc::SensorKind;
+use azul::sensor::SensorKind;
 use azul::option::OptionRefAny;
 use azul::task::TerminateTimer;
 

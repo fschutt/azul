@@ -7,9 +7,9 @@
 //! 4. Use multiple translation sources (builtin, path, network)
 
 // The localizer handle is exposed via `azul::fluent`; the `{ $name }`-style
-// format-arg types (`FmtArg`/`FmtValue`) via `azul::misc`.
+// format-arg types (`FmtArg`/`FmtValue`) via `azul::fmt`.
 use azul::fluent::FluentLocalizerHandle;
-use azul::misc::{FmtArg, FmtValue};
+use azul::fmt::{FmtArg, FmtValue};
 // NOTE: the `azul::desktop::http` functions (download_bytes, etc.) are only
 // described in the print statements below (Examples 3 & 6 are simulated), not
 // called — so there is intentionally no `use` for them here.

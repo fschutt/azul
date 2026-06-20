@@ -14,8 +14,9 @@
 //! needs the `DbRows`/`DbValue` accessor methods exposed) are P4.4b.
 
 use azul::prelude::*;
-use azul::error::BiometricResult;
-use azul::misc::{BiometricPrompt, Db, DbValue};
+use azul::biometric::BiometricResult;
+use azul::biometric::BiometricPrompt;
+use azul::db::{Db, DbValue};
 
 struct VaultState {
     /// SQLite file path — the vault persists here across runs. Stored as a
