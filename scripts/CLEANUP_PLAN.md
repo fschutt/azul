@@ -29,7 +29,9 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
 
 - [ ] **events.rs — move tests out** 🟢 — `core/src/events.rs` is 3686 lines; `mod tests` spans
   3249-3686 (~437 lines, ~16 tests). **Action:** move to `events/tests.rs` (or `#[path]` include).
-  Cuts file ~12%.
+  Cuts file ~12%. **⚠ DEFERRED — user is handling this one manually (do NOT touch).** Approach if
+  needed: extract body lines 3250-3685 into `core/src/events/tests.rs`, replace the inline module
+  with `#[cfg(test)] #[path = "events/tests.rs"] mod tests;` (`use super::*` keeps resolving).
 
 - [ ] **gpu.rs — split `synchronize`** 🟡 — `GpuValueCache::synchronize` is `core/src/gpu.rs:99-347`
   (~248 lines). **Action:** split into per-property-category helpers/iterators.
@@ -85,9 +87,10 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   is data types only. Disjoint responsibilities; can't unify into core. Confusing names, but no
   action. (The real CPU-hit-tester correctness work is the transforms item under core.)
 
-- [ ] **headless.rs — trim diagram + verbose docs** 🟢 — `layout/src/headless.rs` (437 lines, ~37%
-  doc lines). Two ASCII box diagrams at `:14-23` and `:25-35` + comparison table; code starts at
-  line 86. **Action:** trim the `~8-85` doc block to ~15 lines.
+- [x] **headless.rs — trim diagram + verbose docs** 🟢 — **DONE:** replaced the two ASCII box
+  diagrams, the GPU/headless comparison table, and the font/image lifecycle ASCII with an ~11-line
+  prose summary (CPU path = `LayoutWindow → solver3 DisplayList → cpurender → PNG`; no GL/Renderer/
+  RenderApi; `CpuHitTester`; `AZUL_HEADLESS=1`). Doc block went from ~77 lines to ~17.
 
 - [x] **paged.rs — move to core** 🟢 — **DONE:** moved `FragmentationContext` + `PageMargins` to
   `core/src/paged.rs` (`use crate::geom::LogicalSize`), added `pub mod paged` to core lib, and

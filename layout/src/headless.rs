@@ -7,81 +7,15 @@
 //!
 //! # Architecture
 //!
-//! The headless backend replaces the WebRender GPU pipeline with a purely
-//! CPU-based approach. Here's how each resource type is managed:
+//! The headless path replaces the WebRender GPU pipeline with `cpurender`:
+//! `LayoutWindow → solver3 DisplayList → cpurender → PNG/Pixmap`. Compared to the
+//! GPU path there is no GL context, `webrender::Renderer`, or `RenderApi`; fonts
+//! and images are managed by `FontManager`/`ImageCache` and read directly by
+//! cpurender (no GPU texture atlas or upload), hit testing uses the layout-side
+//! `CpuHitTester` instead of WebRender's `AsyncHitTester`, and present/swap is a
+//! no-op.
 //!
-//! ```text
-//! ┌──────────────────────────────────────────────────────────┐
-//! │                    Normal (GPU) Path                     │
-//! │                                                          │
-//! │  LayoutWindow  ──→  DisplayList  ──→  WebRender  ──→  GL │
-//! │       │                                    │              │
-//! │       │              RenderApi   ←─── Renderer            │
-//! │       │            (font/image              │              │
-//! │       │             registration)     AsyncHitTester      │
-//! │       │                                                   │
-//! └──────────────────────────────────────────────────────────┘
-//!
-//! ┌──────────────────────────────────────────────────────────┐
-//! │                  Headless (CPU) Path                      │
-//! │                                                          │
-//! │  LayoutWindow  ──→  DisplayList  ──→  cpurender  ──→  PNG│
-//! │       │                                    │              │
-//! │       │         HeadlessResources    (agg-rust           │
-//! │       │         (font/image            Pixmap)            │
-//! │       │          management)                              │
-//! │       │                             CpuHitTester          │
-//! │       │                                                   │
-//! └──────────────────────────────────────────────────────────┘
-//! ```
-//!
-//! ## Key Differences from GPU Path
-//!
-//! | Concern             | GPU Path                | Headless Path          |
-//! |---------------------|-------------------------|------------------------|
-//! | Window              | NSWindow / HWND / X11   | HeadlessWindow (no-op) |
-//! | OpenGL              | GlContextPtr            | None                   |
-//! | Renderer            | webrender::Renderer     | None (skip)            |
-//! | RenderApi           | WrRenderApi             | None (skip)            |
-//! | Hit Testing         | AsyncHitTester (WR)     | CpuHitTester (layout)  |
-//! | Font Registration   | RenderApi::add_font()   | FontManager only       |
-//! | Image Registration  | RenderApi::add_image()  | ImageCache only        |
-//! | Frame Generation    | generate_frame() + WR   | generate_frame() only  |
-//! | Screenshot          | glReadPixels            | cpurender → Pixmap     |
-//! | Display List        | WR DisplayList          | solver3 DisplayList    |
-//! | Present/Swap        | swapBuffers             | no-op                  |
-//!
-//! ## Resource Lifecycle (Headless)
-//!
-//! Fonts and images are managed entirely through `LayoutWindow`:
-//!
-//! ```text
-//! Font Loading:
-//!   1. FcFontCache discovers system fonts (same as GPU path)
-//!   2. FontManager loads + caches parsed fonts
-//!   3. TextLayoutCache shapes text and caches glyph positions
-//!   4. cpurender reads glyph outlines directly from ParsedFont
-//!      (no GPU texture atlas needed)
-//!
-//! Image Loading:
-//!   1. ImageCache stores decoded images (same as GPU path)
-//!   2. cpurender blits pixels directly from DecodedImage
-//!      (no GPU texture upload needed)
-//! ```
-//!
-//! ## Usage
-//!
-//! The headless backend is activated by setting `AZUL_HEADLESS=1`:
-//!
-//! ```bash
-//! AZUL_HEADLESS=1 ./my_azul_app
-//! ```
-//!
-//! Or combined with the debug server for remote inspection:
-//!
-//! ```bash
-//! AZUL_HEADLESS=1 AZ_DEBUG=1 ./my_azul_app
-//! ```
+//! Activated with `AZUL_HEADLESS=1` (optionally `AZ_DEBUG=1` for the debug server).
 
 use std::collections::BTreeMap;
 
