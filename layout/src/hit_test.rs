@@ -52,7 +52,7 @@ impl CursorTypeHitTest {
     /// Finds the frontmost (lowest depth) node with a cursor property by checking
     /// cursor_hit_test_nodes (text runs) and regular_hit_test_nodes (DOM nodes).
     pub fn new(hit_test: &FullHitTest, layout_window: &LayoutWindow) -> Self {
-        use azul_core::hit_test_tag::CursorType;
+        use azul_core::hit_test::CursorType;
         
         let mut cursor_node = None;
         let mut cursor_icon = MouseCursorType::Default;
@@ -158,8 +158,8 @@ impl CursorTypeHitTest {
 }
 
 /// Translate CursorType (from hit-test tag) to MouseCursorType
-fn translate_cursor_type(cursor_type: azul_core::hit_test_tag::CursorType) -> MouseCursorType {
-    use azul_core::hit_test_tag::CursorType;
+fn translate_cursor_type(cursor_type: azul_core::hit_test::CursorType) -> MouseCursorType {
+    use azul_core::hit_test::CursorType;
     
     match cursor_type {
         CursorType::Default => MouseCursorType::Default,

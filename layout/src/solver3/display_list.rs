@@ -19,8 +19,7 @@ use azul_core::{
     dom::{DomId, FormattingContext, NodeId, NodeType, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     gpu::GpuValueCache,
-    hit_test::ScrollPosition,
-    hit_test_tag::{CursorType, TAG_TYPE_CURSOR, TAG_TYPE_DOM_NODE},
+    hit_test::{CursorType, ScrollPosition, TAG_TYPE_CURSOR, TAG_TYPE_DOM_NODE},
     resources::{
         IdNamespace, ImageRef, OpacityKey, RendererResources, TransformKey,
     },

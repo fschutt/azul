@@ -274,10 +274,9 @@ pub mod gl_fxaa;
 pub mod glconst;
 /// GPU value cache for CSS transforms and opacity.
 pub mod gpu;
-/// Hit-test results: which DOM nodes are under the cursor.
+/// Hit-test results (which DOM nodes are under the cursor) + the type-safe
+/// hit-test tag system for compositor integration (merged from `hit_test_tag`).
 pub mod hit_test;
-/// Type-safe hit-test tag system for compositor integration.
-pub mod hit_test_tag;
 /// Icon provider system for loading icons from fonts, images, or zip packs.
 pub mod icon;
 /// Arena-based node tree storage and hierarchy management.

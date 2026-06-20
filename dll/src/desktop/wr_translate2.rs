@@ -13,8 +13,7 @@ use std::{
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     geom::{LogicalPosition, LogicalRect},
-    hit_test::{DocumentId, PipelineId},
-    hit_test_tag::{TAG_TYPE_CURSOR, TAG_TYPE_DOM_NODE, TAG_TYPE_SCROLLBAR, TAG_TYPE_SCROLL_CONTAINER},
+    hit_test::{DocumentId, PipelineId, TAG_TYPE_CURSOR, TAG_TYPE_DOM_NODE, TAG_TYPE_SCROLLBAR, TAG_TYPE_SCROLL_CONTAINER},
     resources::{
         AddImage, ImageData as AzImageData, ImageDirtyRect, ImageKey, ImageRef, SyntheticItalics, UpdateImage,
     },
@@ -844,7 +843,7 @@ pub fn fullhittest_new_webrender(
                 
                 // Decode cursor type from lower byte of tag.1
                 let cursor_type_value = (i.tag.1 & 0x00FF) as u8;
-                let cursor_type = azul_core::hit_test_tag::CursorType::from_u8(cursor_type_value);
+                let cursor_type = azul_core::hit_test::CursorType::from_u8(cursor_type_value);
 
                 ret.hovered_nodes
                     .entry(*dom_id)

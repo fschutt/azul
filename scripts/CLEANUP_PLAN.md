@@ -39,9 +39,11 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   cache). Closure bodies untouched; `&self` compute / `&mut self` apply split avoids borrow
   conflicts.
 
-- [ ] **Merge hit_test.rs + hit_test_tag.rs** 🟡 — `core/src/hit_test.rs` (343) + `hit_test_tag.rs`
-  (541) are tightly coupled (hit_test imports `hit_test_tag::CursorType`; tag file is pure
-  encoding). **Action:** merge into one module (~884 lines).
+- [x] **Merge hit_test.rs + hit_test_tag.rs** 🟡 — **DONE:** merged `hit_test_tag.rs` (TAG_TYPE_*
+  consts, `ScrollbarComponent`, `HitTestTag`, `CursorType`) into `core/src/hit_test.rs` (~848 lines),
+  dropped `pub mod hit_test_tag`, and updated all 6 importers (`layout/hit_test.rs`,
+  `solver3/display_list.rs`, dll `wr_translate2.rs` ×2, `compositor2.rs`) from `hit_test_tag::` →
+  `hit_test::` (merging the duplicate `hit_test::` import groups). Not FFI-exported (0 api.json refs).
 - [ ] **⚠ CPU hit tester ignores CSS transforms** 🔴 (correctness, not cleanup) — zero `transform`
   matches in either file. **Action:** account for CSS transforms in hit testing. Tracks with the
   "use CPU hit tester always" decoupling-from-WebRender goal.
