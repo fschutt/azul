@@ -2734,7 +2734,7 @@ fn builtin_compile_fn(
         CompileTarget::Rust => {
             if let Some(text_str) = text {
                 Ok(format!(
-                    "Dom::create_node(NodeType::{}).with_children(vec![Dom::create_text(AzString::from_const_str(\"{}\"))].into())",
+                    "Dom::create_node(NodeType::{}).with_children(vec![Dom::create_text(\"{}\")])",
                     type_name,
                     text_str.as_str().replace("\\", "\\\\").replace("\"", "\\\"")
                 ).into())
@@ -5157,49 +5157,31 @@ pub fn str_to_rust_code<'a>(
         .collect::<Vec<String>>()
         .join("\r\n");
 
-    let t = "    ";
-    let css_blocks = css_blocks
-        .iter()
-        .map(|(k, v)| {
-            let v = v
-                .lines()
-                .map(|l| format!("{}{}{}", t, t, l))
-                .collect::<Vec<String>>()
-                .join("\r\n");
-
-            format!(
-                "    const {}_PROPERTIES: &[NodeDataInlineCssProperty] = \
-                 &[\r\n{}\r\n{}];\r\n{}const {}: NodeDataInlineCssPropertyVec = \
-                 NodeDataInlineCssPropertyVec::from_const_slice({}_PROPERTIES);",
-                k, v, t, t, k, k
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(&format!("{}\r\n\r\n", t));
-
-    let mut extra_block_string = extra_blocks.format(1);
+    // NOTE: `css_blocks` / `extra_blocks` are no longer emitted — per-node styles
+    // are now inlined as `.with_css("..")` strings (public API) rather than as
+    // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` blocks (that API was
+    // removed in 32d44ed8a). The maps stay in the signatures for compatibility.
+    let _ = (&css_blocks, &extra_blocks);
 
     let main_func = "
 
 use azul::{
-    app::{App, AppConfig, LayoutSolver},
-    css::Css,
+    app::{App, AppConfig},
     dom::Dom,
     callbacks::{RefAny, LayoutCallbackInfo},
-    window::{WindowCreateOptions, WindowFrame},
+    window::WindowCreateOptions,
 };
 
 struct Data { }
 
 extern \"C\" fn render(_: RefAny, _: LayoutCallbackInfo) -> Dom {
-    let dom = crate::ui::render();
-    dom.with_css(\"\") // per-node with_css attaches @scope-like component CSS
+    crate::ui::render()
 }
 
 fn main() {
-    let app = App::new(RefAny::new(Data { }), AppConfig::new(LayoutSolver::Default));
-    let mut window = WindowCreateOptions::new(render);
-    window.state.flags.frame = WindowFrame::Maximized;
+    let config = AppConfig::create();
+    let app = App::create(RefAny::new(Data { }), config);
+    let window = WindowCreateOptions::create(render);
     app.run(window);
 }";
 
@@ -5211,25 +5193,11 @@ fn main() {
         format!(
             "#[allow(unused_imports)]\r\npub mod ui {{
 
-    pub use crate::components::*;
-
-    use azul::css::*;
-    use azul::str::String as AzString;
-    use azul::vec::{{
-        DomVec, IdOrClassVec, NodeDataInlineCssPropertyVec,
-        StyleBackgroundSizeVec, StyleBackgroundRepeatVec,
-        StyleBackgroundContentVec, StyleTransformVec,
-        StyleFontFamilyVec, StyleBackgroundPositionVec,
-        NormalizedLinearColorStopVec, NormalizedRadialColorStopVec,
-    }};
-    use azul::dom::{{
-        Dom, IdOrClass, TabIndex,
-        IdOrClass::{{Id, Class}},
-        NodeDataInlineCssProperty,
-    }};\r\n\r\n{}\r\n\r\n{}
+    use azul::prelude::*;
+    use azul::dom::NodeType;
 
     pub fn render() -> Dom {{\r\n{}\r\n    }}\r\n}}",
-            extra_block_string, css_blocks, app_source
+            app_source
         ),
         main_func,
     );
@@ -5888,16 +5856,16 @@ fn set_stringified_attributes(
     let t0 = String::from("    ").repeat(tabs);
     let t = String::from("    ").repeat(tabs + 1);
 
-    // push ids and classes
-    let mut ids_and_classes = String::new();
-
+    // push ids and classes as chained `.with_id("..")` / `.with_class("..")`
+    // calls (public builder API; both take `Into<AzString>`, so bare &str works).
+    let _ = &t;
     for id in xml_attributes
         .get_key("id")
         .map(|s| s.split_whitespace().collect::<Vec<_>>())
         .unwrap_or_default()
     {
-        ids_and_classes.push_str(&format!(
-            "{}    Id(AzString::from_const_str(\"{}\")),\r\n",
+        dom_string.push_str(&format!(
+            "\r\n{}.with_id(\"{}\")",
             t0,
             format_args_dynamic(id, &filtered_xml_attributes)
         ));
@@ -5908,24 +5876,10 @@ fn set_stringified_attributes(
         .map(|s| s.split_whitespace().collect::<Vec<_>>())
         .unwrap_or_default()
     {
-        ids_and_classes.push_str(&format!(
-            "{}    Class(AzString::from_const_str(\"{}\")),\r\n",
+        dom_string.push_str(&format!(
+            "\r\n{}.with_class(\"{}\")",
             t0,
             format_args_dynamic(class, &filtered_xml_attributes)
-        ));
-    }
-
-    if !ids_and_classes.is_empty() {
-        use azul_css::codegen::format::GetHash;
-        let id = ids_and_classes.get_hash();
-        dom_string.push_str(&format!(
-            "\r\n{t0}.with_ids_and_classes({{\r\n{t}const IDS_AND_CLASSES_{id}: &[IdOrClass] = \
-             &[\r\n{t}{ids_and_classes}\r\n{t}];\r\\
-             n{t}IdOrClassVec::from_const_slice(IDS_AND_CLASSES_{id})\r\n{t0}}})",
-            t0 = t0,
-            t = t,
-            ids_and_classes = ids_and_classes,
-            id = id
         ));
     }
 
@@ -6424,63 +6378,33 @@ pub fn compile_body_node_to_rust_code<'a>(
     let matcher_hash = matcher.get_hash();
     let css_blocks_for_this_node = get_css_blocks(css, &matcher);
     if !css_blocks_for_this_node.is_empty() {
-        use azul_css::props::property::format_static_css_prop;
-
-        let css_strings = css_blocks_for_this_node
-            .iter()
-            .rev()
-            .map(|css_block| {
-                let wrapper = match css_block.ending {
-                    Some(CssPathPseudoSelector::Hover) => "Hover",
-                    Some(CssPathPseudoSelector::Active) => "Active",
-                    Some(CssPathPseudoSelector::Focus) => "Focus",
-                    _ => "Normal",
+        // Track property types for the helper-const machinery, then emit the
+        // matched declarations as an inline CSS string. (The old path emitted a
+        // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` + `.with_inline_css_props`,
+        // but that API was removed in 32d44ed8a; `.with_css(<str>)` is the
+        // current equivalent and parses pseudo blocks too.)
+        for css_block in css_blocks_for_this_node.iter() {
+            for declaration in css_block.block.declarations.as_ref().iter() {
+                let prop = match declaration {
+                    CssDeclaration::Static(s) => s,
+                    CssDeclaration::Dynamic(d) => &d.default_value,
                 };
+                extra_blocks.insert_from_css_property(prop);
+            }
+        }
 
-                for declaration in css_block.block.declarations.as_ref().iter() {
-                    let prop = match declaration {
-                        CssDeclaration::Static(s) => s,
-                        CssDeclaration::Dynamic(d) => &d.default_value,
-                    };
-                    extra_blocks.insert_from_css_property(prop);
-                }
-
-                let formatted = css_block
-                    .block
-                    .declarations
-                    .as_ref()
-                    .iter()
-                    .rev()
-                    .map(|s| match &s {
-                        CssDeclaration::Static(s) => format!(
-                            "NodeDataInlineCssProperty::{}({})",
-                            wrapper,
-                            format_static_css_prop(s, 1)
-                        ),
-                        CssDeclaration::Dynamic(d) => format!(
-                            "NodeDataInlineCssProperty::{}({})",
-                            wrapper,
-                            format_static_css_prop(&d.default_value, 1)
-                        ),
-                    })
-                    .collect::<Vec<String>>();
-
-                format!("// {}\r\n{}", css_block.block.path, formatted.join(",\r\n"))
-            })
-            .collect::<Vec<_>>()
-            .join(",\r\n");
-
-        css_blocks.insert(format!("CSS_MATCH_{:09}", matcher_hash), css_strings);
-        dom_string.push_str(&format!(
-            "\r\n{}.with_inline_css_props(CSS_MATCH_{:09})",
-            t2, matcher_hash
-        ));
+        let inline_css = css_blocks_to_inline_string(&css_blocks_for_this_node);
+        if !inline_css.is_empty() {
+            let escaped = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
+            dom_string.push_str(&format!("\r\n{}.with_css(\"{}\")", t2, escaped));
+        }
+        let _ = (&mut *css_blocks, matcher_hash); // retained for signature compat
     }
 
     if !body_node.children.as_ref().is_empty() {
         use azul_css::codegen::format::GetHash;
         let children_hash = body_node.children.as_ref().get_hash();
-        dom_string.push_str(&format!("\r\n.with_children(DomVec::from_vec(vec![\r\n"));
+        dom_string.push_str(&format!("\r\n.with_children(vec![\r\n"));
 
         for (child_idx, child) in body_node.children.as_ref().iter().enumerate() {
             match child {
@@ -6509,18 +6433,60 @@ pub fn compile_body_node_to_rust_code<'a>(
                     if !text.is_empty() {
                         let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
                         dom_string.push_str(&format!(
-                            "{}Dom::create_text(\"{}\".into()),\r\n",
+                            "{}Dom::create_text(\"{}\"),\r\n",
                             t, escaped
                         ));
                     }
                 }
             }
         }
-        dom_string.push_str(&format!("\r\n{}]))", t));
+        dom_string.push_str(&format!("\r\n{}])", t));
     }
 
     let dom_string = dom_string.trim();
     Ok(dom_string.to_string())
+}
+
+/// Serialize the CSS blocks matched for a node into one inline CSS string for
+/// `Dom::with_css(...)`. `with_css` parses via `Css::parse_inline`, which runs
+/// the full selector+nesting machinery, so `:hover`/`:active`/`:focus` are
+/// emitted as nested pseudo blocks and round-trip faithfully; plain rules are
+/// emitted flat as `key: value;` (via `CssProperty::key()` / `value()`).
+fn css_blocks_to_inline_string(blocks: &[CssBlock]) -> String {
+    fn decls_of(block: &CssBlock) -> Vec<String> {
+        block
+            .block
+            .declarations
+            .as_ref()
+            .iter()
+            .map(|d| {
+                let prop = match d {
+                    CssDeclaration::Static(s) => s,
+                    CssDeclaration::Dynamic(dy) => &dy.default_value,
+                };
+                format!("{}: {};", prop.key(), prop.value())
+            })
+            .collect()
+    }
+
+    let mut normal: Vec<String> = Vec::new();
+    let mut pseudo: Vec<String> = Vec::new();
+    for block in blocks.iter() {
+        let pseudo_sel = match block.ending {
+            Some(CssPathPseudoSelector::Hover) => Some(":hover"),
+            Some(CssPathPseudoSelector::Active) => Some(":active"),
+            Some(CssPathPseudoSelector::Focus) => Some(":focus"),
+            _ => None,
+        };
+        match pseudo_sel {
+            None => normal.extend(decls_of(block)),
+            Some(sel) => pseudo.push(format!("{} {{ {} }}", sel, decls_of(block).join(" "))),
+        }
+    }
+
+    let mut parts = normal;
+    parts.extend(pseudo);
+    parts.join(" ")
 }
 
 fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssBlock> {
@@ -6680,57 +6646,27 @@ fn compile_node_to_rust_code_inner<'a>(
     let matcher_hash = matcher.get_hash();
     let css_blocks_for_this_node = get_css_blocks(css, &matcher);
     if !css_blocks_for_this_node.is_empty() {
-        use azul_css::props::property::format_static_css_prop;
-
-        let css_strings = css_blocks_for_this_node
-            .iter()
-            .rev()
-            .map(|css_block| {
-                let wrapper = match css_block.ending {
-                    Some(CssPathPseudoSelector::Hover) => "Hover",
-                    Some(CssPathPseudoSelector::Active) => "Active",
-                    Some(CssPathPseudoSelector::Focus) => "Focus",
-                    _ => "Normal",
+        // Track property types for the helper-const machinery, then emit the
+        // matched declarations as an inline CSS string. (The old path emitted a
+        // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` + `.with_inline_css_props`,
+        // but that API was removed in 32d44ed8a; `.with_css(<str>)` is the
+        // current equivalent and parses pseudo blocks too.)
+        for css_block in css_blocks_for_this_node.iter() {
+            for declaration in css_block.block.declarations.as_ref().iter() {
+                let prop = match declaration {
+                    CssDeclaration::Static(s) => s,
+                    CssDeclaration::Dynamic(d) => &d.default_value,
                 };
+                extra_blocks.insert_from_css_property(prop);
+            }
+        }
 
-                for declaration in css_block.block.declarations.as_ref().iter() {
-                    let prop = match declaration {
-                        CssDeclaration::Static(s) => s,
-                        CssDeclaration::Dynamic(d) => &d.default_value,
-                    };
-                    extra_blocks.insert_from_css_property(prop);
-                }
-
-                let formatted = css_block
-                    .block
-                    .declarations
-                    .as_ref()
-                    .iter()
-                    .rev()
-                    .map(|s| match &s {
-                        CssDeclaration::Static(s) => format!(
-                            "NodeDataInlineCssProperty::{}({})",
-                            wrapper,
-                            format_static_css_prop(s, 1)
-                        ),
-                        CssDeclaration::Dynamic(d) => format!(
-                            "NodeDataInlineCssProperty::{}({})",
-                            wrapper,
-                            format_static_css_prop(&d.default_value, 1)
-                        ),
-                    })
-                    .collect::<Vec<String>>();
-
-                format!("// {}\r\n{}", css_block.block.path, formatted.join(",\r\n"))
-            })
-            .collect::<Vec<_>>()
-            .join(",\r\n");
-
-        css_blocks.insert(format!("CSS_MATCH_{:09}", matcher_hash), css_strings);
-        dom_string.push_str(&format!(
-            "\r\n{}.with_inline_css_props(CSS_MATCH_{:09})",
-            t2, matcher_hash
-        ));
+        let inline_css = css_blocks_to_inline_string(&css_blocks_for_this_node);
+        if !inline_css.is_empty() {
+            let escaped = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
+            dom_string.push_str(&format!("\r\n{}.with_css(\"{}\")", t2, escaped));
+        }
+        let _ = (&mut *css_blocks, matcher_hash); // retained for signature compat
     }
 
     set_stringified_attributes(
@@ -6770,7 +6706,7 @@ fn compile_node_to_rust_code_inner<'a>(
                     let t2 = String::from("    ").repeat(tabs);
                     let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
                     Some(Ok(format!(
-                        "{}Dom::create_text(\"{}\".into())",
+                        "{}Dom::create_text(\"{}\")",
                         t2, escaped
                     )))
                 }
@@ -6781,7 +6717,7 @@ fn compile_node_to_rust_code_inner<'a>(
 
     if !children_string.is_empty() {
         dom_string.push_str(&format!(
-            "\r\n{}.with_children(DomVec::from_vec(vec![\r\n{}\r\n{}]))",
+            "\r\n{}.with_children(vec![\r\n{}\r\n{}])",
             t2, children_string, t2
         ));
     }

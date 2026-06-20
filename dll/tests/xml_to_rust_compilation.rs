@@ -106,7 +106,7 @@ mod xml_compilation_tests {
         assert!(rust_code.contains("struct Data"));
         assert!(rust_code.contains("extern \"C\" fn render"));
         assert!(rust_code.contains("fn main()"));
-        assert!(rust_code.contains("App::new"));
+        assert!(rust_code.contains("App::create"));
 
         // Should contain the actual content
         assert!(rust_code.contains("Line 1"));
@@ -226,7 +226,7 @@ mod xml_compilation_tests {
 
         // Should be compilable Rust code structure
         assert!(rust_code.contains("use azul::"));
-        assert!(rust_code.contains("App::new"));
+        assert!(rust_code.contains("App::create"));
         assert!(rust_code.contains("WindowCreateOptions"));
     }
 }
