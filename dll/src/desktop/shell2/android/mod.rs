@@ -96,6 +96,7 @@ impl AndroidWindow {
         fc_cache: Arc<FcFontCache>,
         mut config: AppConfig,
         app_data: RefAny,
+        undo_manager: event::SharedUndoManager,
         font_registry: Option<Arc<FcFontRegistry>>,
     ) -> Result<Self, WindowError> {
         // `WindowCreateOptions::window_state` is already a `FullWindowState`,
@@ -123,6 +124,7 @@ impl AndroidWindow {
                 gl_context_ptr: azul_core::gl::OptionGlContextPtr::None,
                 system_style: Arc::new(azul_css::system::SystemStyle::default()),
                 app_data: Arc::new(RefCell::new(app_data)),
+                undo_manager,
                 scrollbar_drag_state: None,
                 hit_tester: None,
                 cpu_hit_tester: Some(azul_layout::headless::CpuHitTester::new()),
@@ -341,7 +343,7 @@ pub fn android_main(app: AndroidApp) {
     log_info!(LogCategory::EventLoop, "[Android] android_main entered");
 
     // Retrieve initial options stashed by `run()`
-    let (app_data, config, fc_cache, font_registry, root_window) = unsafe {
+    let (app_data, undo_manager, config, fc_cache, font_registry, root_window) = unsafe {
         match crate::desktop::shell2::run::ANDROID_INITIAL_OPTIONS.take() {
             Some(opts) => opts,
             None => {
@@ -356,7 +358,7 @@ pub fn android_main(app: AndroidApp) {
     };
 
     let mut window =
-        match AndroidWindow::new(root_window, fc_cache, config, app_data, font_registry) {
+        match AndroidWindow::new(root_window, fc_cache, config, app_data, undo_manager, font_registry) {
             Ok(w) => w,
             Err(e) => {
                 log_error!(

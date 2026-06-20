@@ -158,6 +158,9 @@ pub fn run_e2e_scenario(
     let mut window = HeadlessWindow::new(
         root_window,
         app_data_arc,
+        // The deterministic E2E scenario runner is single-window and not tied to
+        // an App; a fresh manager is sufficient (no cross-window undo sharing).
+        super::event::SharedUndoManager::new(),
         config,
         shared_icon_provider,
         fc_cache,

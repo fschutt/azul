@@ -35,6 +35,7 @@ use rust_fontconfig::registry::FcFontRegistry;
 
 use super::common::debug_server;
 use super::common::debug_server::LogCategory;
+use super::common::event::SharedUndoManager;
 use crate::{log_debug, log_error, log_info, log_trace};
 
 #[cfg(target_os = "macos")]
@@ -184,6 +185,7 @@ fn setup_e2e_runner(test_file: &str) {
 /// all work — but without a GPU context or native window handle.
 fn run_headless(
     app_data: RefAny,
+    undo_manager: SharedUndoManager,
     mut config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -205,7 +207,7 @@ fn run_headless(
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
 
     let app_data_arc = Arc::new(RefCell::new(app_data));
-    let mut window = HeadlessWindow::new(root_window, app_data_arc, config, shared_icon_provider, fc_cache, font_registry)?;
+    let mut window = HeadlessWindow::new(root_window, app_data_arc, undo_manager, config, shared_icon_provider, fc_cache, font_registry)?;
 
     // Register debug timer if debug/E2E is active
     if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {
@@ -286,6 +288,7 @@ fn setup_debug_and_e2e(
 #[cfg(target_os = "macos")]
 pub fn run(
     app_data: RefAny,
+    undo_manager: SharedUndoManager,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -327,7 +330,7 @@ pub fn run(
 
     // Headless mode — no native window, CPU rendering only
     if backend == super::AzBackend::Headless {
-        return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
 
     use azul_core::icon::SharedIconProvider;
@@ -371,7 +374,7 @@ pub fn run(
             None,
         );
         let mut window =
-            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), config.clone(), shared_icon_provider.clone(), fc_cache.clone(), font_registry.clone(), mtm)?;
+            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), undo_manager.clone(), config.clone(), shared_icon_provider.clone(), fc_cache.clone(), font_registry.clone(), mtm)?;
         debug_server::log(
             debug_server::LogLevel::Info,
             debug_server::LogCategory::Window,
@@ -561,6 +564,7 @@ pub fn run(
                                     match MacOSWindow::new_with_fc_cache(
                                         pending_create,
                                         app_data.clone(),
+                                        undo_manager.clone(),
                                         config.clone(),
                                         shared_icon_provider.clone(),
                                         fc_cache.clone(),
@@ -663,7 +667,7 @@ pub fn run(
 // Store initial options globally for the AppDelegate to retrieve.
 // Unsafe, but simple for this minimal example.
 #[cfg(target_os = "ios")]
-pub(super) static mut INITIAL_OPTIONS: Option<(RefAny, AppConfig, Arc<FcFontCache>, Option<Arc<FcFontRegistry>>, WindowCreateOptions)> =
+pub(super) static mut INITIAL_OPTIONS: Option<(RefAny, SharedUndoManager, AppConfig, Arc<FcFontCache>, Option<Arc<FcFontRegistry>>, WindowCreateOptions)> =
     None;
 
 // On iOS, the `run` function doesn't manage an event loop.
@@ -672,6 +676,7 @@ pub(super) static mut INITIAL_OPTIONS: Option<(RefAny, AppConfig, Arc<FcFontCach
 #[cfg(target_os = "ios")]
 pub fn run(
     app_data: RefAny,
+    undo_manager: SharedUndoManager,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -683,10 +688,10 @@ pub fn run(
         return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
-        return run_headless(app_data, config, fc_cache, font_registry, root_window, _debug_request_rx, _component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, _debug_request_rx, _component_map);
     }
     unsafe {
-        INITIAL_OPTIONS = Some((app_data, config, fc_cache, font_registry, root_window));
+        INITIAL_OPTIONS = Some((app_data, undo_manager, config, fc_cache, font_registry, root_window));
         crate::desktop::shell2::ios::launch_app();
         Ok(()) // Unreachable
     }
@@ -703,12 +708,13 @@ pub fn run(
 
 #[cfg(target_os = "android")]
 pub(super) static mut ANDROID_INITIAL_OPTIONS:
-    Option<(RefAny, AppConfig, Arc<FcFontCache>, Option<Arc<FcFontRegistry>>, WindowCreateOptions)> =
+    Option<(RefAny, SharedUndoManager, AppConfig, Arc<FcFontCache>, Option<Arc<FcFontRegistry>>, WindowCreateOptions)> =
     None;
 
 #[cfg(target_os = "android")]
 pub fn run(
     app_data: RefAny,
+    undo_manager: SharedUndoManager,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -717,13 +723,13 @@ pub fn run(
     let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         return run_headless(
-            app_data, config, fc_cache, font_registry, root_window,
+            app_data, undo_manager, config, fc_cache, font_registry, root_window,
             _debug_request_rx, _component_map,
         );
     }
     unsafe {
         ANDROID_INITIAL_OPTIONS =
-            Some((app_data, config, fc_cache, font_registry, root_window));
+            Some((app_data, undo_manager, config, fc_cache, font_registry, root_window));
     }
     Ok(())
 }
@@ -731,6 +737,7 @@ pub fn run(
 #[cfg(target_os = "windows")]
 pub fn run(
     app_data: RefAny,
+    undo_manager: SharedUndoManager,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -742,7 +749,7 @@ pub fn run(
         return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
-        return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
     log_trace!(LogCategory::Window, "[shell2::run] Windows run() called");
     crate::plog_info!(
@@ -769,7 +776,7 @@ pub fn run(
         LogCategory::Window,
         "[shell2::run] calling Win32Window::new"
     );
-    let mut window = Win32Window::new(root_window, config.clone(), fc_cache.clone(), font_registry.clone(), app_data_arc.clone())?;
+    let mut window = Win32Window::new(root_window, config.clone(), fc_cache.clone(), font_registry.clone(), app_data_arc.clone(), undo_manager.clone())?;
     log_trace!(
         LogCategory::Window,
         "[shell2::run] Win32Window::new returned successfully"
@@ -895,6 +902,7 @@ pub fn run(
                             window.common.fc_cache.clone(),
                             window.font_registry.clone(),
                             window.common.app_data.clone(),
+                            window.common.undo_manager.clone(),
                         ) {
                             Ok(new_window) => {
                                 // Box and leak for stable pointer
@@ -1015,6 +1023,7 @@ pub fn run(
 #[cfg(target_os = "linux")]
 pub fn run(
     app_data: RefAny,
+    undo_manager: SharedUndoManager,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -1055,7 +1064,7 @@ pub fn run(
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         crate::plog_info!("[Linux] backend resolved to Headless (AZ_BACKEND=headless)");
-        return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
     }
     use std::cell::RefCell;
 
@@ -1077,7 +1086,7 @@ pub fn run(
     // Create the root window — log a failure HERE (with the concrete error)
     // before propagating, so a window-creation failure is never silent even if
     // the caller discards the Result.
-    let mut window = match LinuxWindow::new_with_resources(root_window, app_data_arc, resources.clone()) {
+    let mut window = match LinuxWindow::new_with_resources(root_window, app_data_arc, undo_manager.clone(), resources.clone()) {
         Ok(w) => {
             crate::plog_info!("[Linux] root window created successfully");
             w

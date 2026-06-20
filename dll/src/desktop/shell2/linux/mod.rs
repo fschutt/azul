@@ -28,6 +28,7 @@ use azul_layout::window_state::WindowCreateOptions;
 pub use resources::AppResources;
 
 use super::common::WindowError;
+use super::common::event::SharedUndoManager;
 
 use super::common::debug_server::LogCategory;
 use crate::{log_info, log_warn};
@@ -116,11 +117,14 @@ impl LinuxWindow {
     pub fn new_with_resources(
         options: WindowCreateOptions,
         app_data: Arc<std::cell::RefCell<RefAny>>,
+        undo_manager: SharedUndoManager,
         resources: Arc<AppResources>,
     ) -> Result<Self, WindowError> {
-        // Clone resources and update app_data
+        // Clone resources and update app_data + undo_manager so every window
+        // created from these resources shares the App's owned manager.
         let mut updated = (*resources).clone();
         updated.app_data = app_data;
+        updated.undo_manager = undo_manager;
         let resources = Arc::new(updated);
 
         match Self::select_backend()? {

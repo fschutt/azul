@@ -183,6 +183,7 @@ impl Win32Window {
         fc_cache: Arc<FcFontCache>,
         font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
         app_data: Arc<std::cell::RefCell<RefAny>>,
+        undo_manager: event::SharedUndoManager,
     ) -> Result<Self, WindowError> {
         // If background_color is None and no material effect, use system window background
         // Note: When a material is set, the renderer will use transparent clear color automatically
@@ -547,6 +548,7 @@ impl Win32Window {
                 last_hovered_node: None,
                 scrollbar_drag_state: None,
                 app_data,
+                undo_manager,
                 fc_cache,
                 system_style,
             },

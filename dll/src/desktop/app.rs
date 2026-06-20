@@ -137,9 +137,10 @@ impl App {
         let config = self.ptr.config.clone();
         let fc_cache = (*self.ptr.fc_cache).clone();
         let font_registry = self.ptr.font_registry.clone();
+        let undo_manager = self.ptr.undo_manager.clone();
 
         // Use shell2 for the actual run loop
-        let err = crate::desktop::shell2::run(data, config, fc_cache, font_registry, root_window);
+        let err = crate::desktop::shell2::run(data, undo_manager, config, fc_cache, font_registry, root_window);
 
         if let Err(e) = err {
             // ALWAYS surface the error — to the log facade AND raw stderr — on
@@ -183,6 +184,10 @@ pub struct AppInternal {
     /// At layout time, `request_fonts()` blocks until the needed fonts are ready,
     /// then snapshots into `fc_cache`. This eliminates the ~700ms startup block.
     pub font_registry: Option<Arc<FcFontRegistry>>,
+    /// App-global undo/redo manager. Owned by the App; a shared clone is threaded
+    /// to every window so a callback's `undo_app_state` / `redo_app_state` /
+    /// `commit_undo_snapshot` operates on one shared history.
+    pub undo_manager: crate::desktop::shell2::common::event::SharedUndoManager,
 }
 
 impl AppInternal {
@@ -273,6 +278,7 @@ impl AppInternal {
             config: app_config,
             fc_cache: Box::new(fc_cache),
             font_registry,
+            undo_manager: crate::desktop::shell2::common::event::SharedUndoManager::new(),
         }
     }
 }

@@ -542,6 +542,14 @@ pub enum CallbackChange {
         /// Route parameters (e.g. `[("id", "42")]`)
         params: azul_core::window::StringPairVec,
     },
+
+    // App-global Undo / Redo
+    /// Commit a snapshot of the current app state into the undo history.
+    CommitUndoSnapshot,
+    /// Undo the last committed app-state change (restores previous snapshot).
+    UndoAppState,
+    /// Redo a previously undone app-state change.
+    RedoAppState,
 }
 
 /// Main callback type for UI event handling
@@ -841,6 +849,21 @@ impl CallbackInfo {
     #[cfg(not(feature = "std"))]
     pub fn push_change(&mut self, change: CallbackChange) {
         unsafe { (*self.changes).push(change) }
+    }
+
+    /// Snapshot the current app state into the undo history (mini-git commit).
+    pub fn commit_undo_snapshot(&mut self) {
+        self.push_change(CallbackChange::CommitUndoSnapshot);
+    }
+
+    /// Undo the last committed app-state change; relayouts all windows.
+    pub fn undo_app_state(&mut self) {
+        self.push_change(CallbackChange::UndoAppState);
+    }
+
+    /// Redo a previously undone app-state change; relayouts all windows.
+    pub fn redo_app_state(&mut self) {
+        self.push_change(CallbackChange::RedoAppState);
     }
 
     /// Debug helper to get the changes pointer for debugging

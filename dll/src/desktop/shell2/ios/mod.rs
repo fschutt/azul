@@ -839,7 +839,7 @@ extern "C" fn did_finish_launching(
     _opts: *mut Object,
 ) -> bool {
     unsafe {
-        let (app_data, config, fc_cache, font_registry, root_window) =
+        let (app_data, undo_manager, config, fc_cache, font_registry, root_window) =
             match super::run::INITIAL_OPTIONS.take() {
                 Some(opts) => opts,
                 None => {
@@ -853,7 +853,7 @@ extern "C" fn did_finish_launching(
             };
 
         let window =
-            match IOSWindow::new(root_window, fc_cache, config, app_data, font_registry) {
+            match IOSWindow::new(root_window, fc_cache, config, app_data, undo_manager, font_registry) {
                 Ok(w) => w,
                 Err(e) => {
                     log_error!(LogCategory::EventLoop, "[iOS] IOSWindow::new: {:?}", e);
@@ -1015,6 +1015,7 @@ impl IOSWindow {
         fc_cache: Arc<FcFontCache>,
         mut config: AppConfig,
         app_data: RefAny,
+        undo_manager: event::SharedUndoManager,
         font_registry: Option<Arc<FcFontRegistry>>,
     ) -> Result<Self, WindowError> {
         let mut full_window_state = options.window_state;
@@ -1093,6 +1094,7 @@ impl IOSWindow {
                 gl_context_ptr: OptionGlContextPtr::None,
                 system_style: Arc::new(azul_css::system::SystemStyle::default()),
                 app_data: Arc::new(RefCell::new(app_data)),
+                undo_manager,
                 scrollbar_drag_state: None,
                 hit_tester: None,
                 cpu_hit_tester: Some(azul_layout::headless::CpuHitTester::new()),
