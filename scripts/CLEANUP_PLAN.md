@@ -267,9 +267,10 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   `{ files_loaded, files_failed, errors: StringVec }` — stringly-typed failures. **Action:** replace
   `errors: StringVec` with a `Vec<FluentLoadError>` typed enum.
 
-- [ ] **Dockerfile — trim docs** 🟢 — `docker/Dockerfile` (210 lines, ~51% comments). **Action:**
-  cut the 100+ comment lines to a short summary; move detail to `docker/README.md` (already
-  referenced).
+- [x] **Dockerfile — trim docs** 🟢 — **DONE:** condensed the 44-line header to a ~12-line summary
+  (full design/extend/caveats already in `docker/README.md`) and trimmed the verbose per-stage
+  comment blocks to one/two-liners. All 53 directives and 4 stages untouched (comment-only edits).
+  210 → 161 lines; comment lines 108 → 59.
 
 - [ ] **URL — thread the typed `Url` through consumers** 🟢 — strongly-typed `azul_layout::url::Url`
   + `UrlParseError` already exposed (api.json:89649, impl `layout/src/url.rs:14`), but consumers
