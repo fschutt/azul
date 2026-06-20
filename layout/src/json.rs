@@ -149,112 +149,240 @@ pub fn json_deserialize_to_refany(json: Json, deserialize_fn: usize) -> ResultRe
 }
 
 // ============================================================================
-// Generic application-state undo/redo
+// Generic application-state undo/redo ("mini-git" with reversible JSON diffs)
 // ============================================================================
 
-/// A generic application-state undo/redo stack built on RefAny JSON snapshots.
+/// Reversible JSON diffing for the undo history. A diff is a flat list of leaf
+/// changes keyed by RFC-6901 JSON Pointer: objects diff per-key (recursively),
+/// while scalars / arrays / type-changes are whole-value leaf replacements.
+/// Each change records both `old` and `new`, so a diff applies forwards (redo)
+/// or backwards (undo).
+#[cfg(feature = "json")]
+mod jsondiff {
+    use alloc::{format, string::String, vec::Vec};
+
+    use serde_json::Value;
+
+    /// One reversible change at a JSON Pointer path. `old`/`new` are `None` when
+    /// the key is absent on that side (key added / removed).
+    #[derive(Debug, Clone)]
+    pub struct Change {
+        pub path: String,
+        pub old: Option<Value>,
+        pub new: Option<Value>,
+    }
+
+    /// Computes a reversible diff `old → new`.
+    pub fn diff(old: &Value, new: &Value) -> Vec<Change> {
+        let mut out = Vec::new();
+        diff_rec(old, new, String::new(), &mut out);
+        out
+    }
+
+    fn diff_rec(old: &Value, new: &Value, path: String, out: &mut Vec<Change>) {
+        if old == new {
+            return;
+        }
+        if let (Value::Object(o), Value::Object(n)) = (old, new) {
+            for (k, ov) in o {
+                let child = format!("{}/{}", path, esc(k));
+                match n.get(k) {
+                    Some(nv) => diff_rec(ov, nv, child, out),
+                    None => out.push(Change { path: child, old: Some(ov.clone()), new: None }),
+                }
+            }
+            for (k, nv) in n {
+                if !o.contains_key(k) {
+                    out.push(Change {
+                        path: format!("{}/{}", path, esc(k)),
+                        old: None,
+                        new: Some(nv.clone()),
+                    });
+                }
+            }
+        } else {
+            out.push(Change { path, old: Some(old.clone()), new: Some(new.clone()) });
+        }
+    }
+
+    /// Applies a diff to `base`. `forward = true` moves `old → new` (redo);
+    /// `forward = false` moves `new → old` (undo).
+    pub fn apply(base: &Value, diff: &[Change], forward: bool) -> Value {
+        let mut v = base.clone();
+        for ch in diff {
+            let target = if forward { &ch.new } else { &ch.old };
+            set_at(&mut v, &ch.path, target);
+        }
+        v
+    }
+
+    fn set_at(root: &mut Value, path: &str, val: &Option<Value>) {
+        if path.is_empty() {
+            if let Some(v) = val {
+                *root = v.clone();
+            }
+            return;
+        }
+        let split = path.rfind('/').unwrap_or(0);
+        let parent_ptr = &path[..split];
+        let last = unesc(&path[split + 1..]);
+        let parent = if parent_ptr.is_empty() {
+            root
+        } else {
+            match root.pointer_mut(parent_ptr) {
+                Some(p) => p,
+                None => return,
+            }
+        };
+        if let Some(obj) = parent.as_object_mut() {
+            match val {
+                Some(v) => {
+                    obj.insert(last, v.clone());
+                }
+                None => {
+                    obj.remove(&last);
+                }
+            }
+        }
+    }
+
+    fn esc(k: &str) -> String {
+        k.replace('~', "~0").replace('/', "~1")
+    }
+    fn unesc(s: &str) -> String {
+        s.replace("~1", "/").replace("~0", "~")
+    }
+}
+
+/// A generic application-state undo/redo history — a "mini-git" for the app's
+/// state `RefAny`, storing reversible **JSON diffs** between commits rather than
+/// full snapshots (memory-efficient for large models like a text document).
 ///
-/// Unlike the text-edit undo in `events.rs`, this snapshots the *whole* app
-/// state `RefAny` via its registered serialize fn (`RefAny::set_serialize_fn` /
-/// the `AZ_REFLECT_JSON` macro) and restores it via the deserialize fn +
-/// `RefAny::replace_contents`.
+/// Workflow: [`commit`](Self::commit) the current state at action / auto-save
+/// boundaries (e.g. from a timer callback, or driven by the RefAny `update_fn`
+/// hook marking the state dirty), then [`undo`](Self::undo) / [`redo`](Self::redo)
+/// walk the history. Like git, committing a new state *after* an undo discards
+/// the now-orphaned redo branch. Requires the state's JSON (de)serialize fns
+/// (`AZ_REFLECT_JSON`); all ops are no-ops returning `false` otherwise.
 ///
-/// Call [`snapshot`](Self::snapshot) at action boundaries (or drive it from the
-/// RefAny on-update hook, `RefAny::set_update_fn`), then [`undo`](Self::undo) /
-/// [`redo`](Self::redo). Snapshotting requires the state to support JSON
-/// serialization; if it does not, `snapshot` is a no-op returning `false`.
+/// Wired into `CallbackInfo` (`commit_undo_snapshot` / `undo` / `redo`) so a
+/// callback — including a timer callback — can manage history on the app model.
 #[cfg(feature = "json")]
 #[derive(Debug, Clone, Default)]
 pub struct RefAnyUndoManager {
-    /// Past states, oldest → newest; the top is the state just before the most
-    /// recent change.
-    undo_stack: alloc::vec::Vec<Json>,
-    /// States that were undone and can be re-applied.
-    redo_stack: alloc::vec::Vec<Json>,
-    /// Maximum undo depth (`0` = unlimited).
+    /// The last committed state (serde value): the base the next diff is computed
+    /// against and that undo/redo diffs are applied to. `None` until first commit.
+    head: Option<serde_json::Value>,
+    /// Reversible diffs, each from commit N-1 → N (top = most recent).
+    undo_diffs: alloc::vec::Vec<alloc::vec::Vec<jsondiff::Change>>,
+    /// Diffs of undone commits, available to redo.
+    redo_diffs: alloc::vec::Vec<alloc::vec::Vec<jsondiff::Change>>,
+    /// Maximum number of undo diffs retained (`0` = unlimited).
     capacity: usize,
 }
 
 #[cfg(feature = "json")]
 impl RefAnyUndoManager {
-    /// Creates an undo manager with a maximum depth (`0` = unlimited).
+    /// Creates a history with a maximum depth (`0` = unlimited).
     pub fn new(capacity: usize) -> Self {
         Self {
-            undo_stack: alloc::vec::Vec::new(),
-            redo_stack: alloc::vec::Vec::new(),
+            head: None,
+            undo_diffs: alloc::vec::Vec::new(),
+            redo_diffs: alloc::vec::Vec::new(),
             capacity,
         }
     }
 
-    /// Records the current `state` as an undo point. Call BEFORE mutating (or
-    /// from the on-update hook, which fires before the mutable borrow). Clears
-    /// the redo stack, since a new edit starts a new branch. Returns `false`
-    /// (no-op) if the state has no serialize fn registered.
-    pub fn snapshot(&mut self, state: &RefAny) -> bool {
-        match serialize_refany_to_json(state) {
-            Some(json) => {
-                self.undo_stack.push(json);
-                self.redo_stack.clear();
-                if self.capacity != 0 && self.undo_stack.len() > self.capacity {
-                    self.undo_stack.remove(0);
-                }
+    /// Commits `state` as a new history point, recording the reversible diff from
+    /// the previous commit. The first commit just seeds the base. A commit that
+    /// changed something discards the redo branch (git-like). Returns `true` if a
+    /// commit was recorded (JSON supported and, after the first, state changed).
+    pub fn commit(&mut self, state: &RefAny) -> bool {
+        let cur = match serialize_refany_to_json(state) {
+            Some(j) => j.to_serde_value(),
+            None => return false,
+        };
+        match self.head.take() {
+            None => {
+                self.head = Some(cur); // seed base, no diff yet
                 true
             }
-            None => false,
+            Some(prev) => {
+                let d = jsondiff::diff(&prev, &cur);
+                if d.is_empty() {
+                    self.head = Some(prev);
+                    return false; // nothing changed
+                }
+                self.undo_diffs.push(d);
+                self.redo_diffs.clear(); // new commit orphans the redo branch
+                if self.capacity != 0 && self.undo_diffs.len() > self.capacity {
+                    self.undo_diffs.remove(0);
+                }
+                self.head = Some(cur);
+                true
+            }
         }
     }
 
-    /// True if there is a snapshot to undo to.
+    /// True if there is a commit to undo.
     pub fn can_undo(&self) -> bool {
-        !self.undo_stack.is_empty()
+        !self.undo_diffs.is_empty()
     }
 
-    /// True if there is an undone snapshot to redo.
+    /// True if there is an undone commit to redo.
     pub fn can_redo(&self) -> bool {
-        !self.redo_stack.is_empty()
+        !self.redo_diffs.is_empty()
     }
 
-    /// Restores the most recent snapshot into `state`; the current state is
-    /// pushed onto the redo stack. Returns `false` if there is nothing to undo
-    /// or the state can't be (de)serialized.
+    /// Reverts the most recent commit, restoring the previous state into `state`.
     pub fn undo(&mut self, state: &mut RefAny) -> bool {
-        let prev = match self.undo_stack.pop() {
-            Some(p) => p,
+        let d = match self.undo_diffs.pop() {
+            Some(d) => d,
             None => return false,
         };
-        if let Some(current) = serialize_refany_to_json(state) {
-            self.redo_stack.push(current);
-        }
-        Self::restore(state, prev)
+        let head = match self.head.take() {
+            Some(h) => h,
+            None => return false,
+        };
+        let reverted = jsondiff::apply(&head, &d, false);
+        let ok = Self::restore(state, &reverted);
+        self.head = Some(reverted);
+        self.redo_diffs.push(d);
+        ok
     }
 
-    /// Re-applies the most recently undone snapshot; the current state is pushed
-    /// back onto the undo stack.
+    /// Re-applies the most recently undone commit.
     pub fn redo(&mut self, state: &mut RefAny) -> bool {
-        let next = match self.redo_stack.pop() {
-            Some(n) => n,
+        let d = match self.redo_diffs.pop() {
+            Some(d) => d,
             None => return false,
         };
-        if let Some(current) = serialize_refany_to_json(state) {
-            self.undo_stack.push(current);
-        }
-        Self::restore(state, next)
+        let head = match self.head.take() {
+            Some(h) => h,
+            None => return false,
+        };
+        let applied = jsondiff::apply(&head, &d, true);
+        let ok = Self::restore(state, &applied);
+        self.head = Some(applied);
+        self.undo_diffs.push(d);
+        ok
     }
 
     /// Drops all recorded history.
     pub fn clear(&mut self) {
-        self.undo_stack.clear();
-        self.redo_stack.clear();
+        self.head = None;
+        self.undo_diffs.clear();
+        self.redo_diffs.clear();
     }
 
-    fn restore(state: &mut RefAny, json: Json) -> bool {
+    fn restore(state: &mut RefAny, value: &serde_json::Value) -> bool {
         let deser_fn = state.get_deserialize_fn();
+        let json = Json::from_serde_value(value.clone());
         match deserialize_refany_from_json(json, deser_fn) {
             Ok(restored) => {
                 // `replace_contents` copies the (de)serialize/update fn-ptrs from
-                // `restored`, which a plain deserialize ctor leaves unset — so
-                // save and re-attach the live hooks across the swap, otherwise the
-                // next undo/redo would have no serializer.
+                // `restored`, which a plain deserialize ctor leaves unset — re-attach
+                // the live hooks so subsequent undo/redo still has a serializer.
                 let ser_fn = state.get_serialize_fn();
                 let upd_fn = state.get_update_fn();
                 let ok = state.replace_contents(restored);
@@ -383,14 +511,15 @@ mod tests {
         state.set_deserialize_fn(deser as usize);
 
         let mut undo = RefAnyUndoManager::new(0);
-        undo.snapshot(&state); // record 10
+        undo.commit(&state); // commit 10 (seeds base)
         if let Some(mut v) = state.downcast_mut::<i64>() {
             *v = 20;
         }
-        undo.snapshot(&state); // record 20
+        undo.commit(&state); // commit 20
         if let Some(mut v) = state.downcast_mut::<i64>() {
             *v = 30;
         }
+        undo.commit(&state); // commit 30
 
         assert!(undo.can_undo());
         assert!(undo.undo(&mut state));
@@ -399,6 +528,38 @@ mod tests {
         assert_eq!(*state.downcast_ref::<i64>().unwrap(), 10);
         assert!(undo.redo(&mut state));
         assert_eq!(*state.downcast_ref::<i64>().unwrap(), 20);
+
+        // mini-git branching: a new commit after an undo discards the orphaned
+        // redo branch ("do a -> undo -> do b clears a").
+        assert!(undo.can_redo()); // 30 is still redoable here
+        if let Some(mut v) = state.downcast_mut::<i64>() {
+            *v = 99;
+        }
+        undo.commit(&state); // branch from 20 -> 99
+        assert!(!undo.can_redo()); // the 30 branch is gone
+        assert!(undo.undo(&mut state));
+        assert_eq!(*state.downcast_ref::<i64>().unwrap(), 20);
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn test_json_diff_apply_reversible() {
+        // A word-editor-like model: text + cursor + nested meta. The reversible
+        // diff is the heart of the mini-git history, so it must round-trip both
+        // directions.
+        let a = Json::parse(r#"{"text":"hello","cursor":0,"meta":{"saved":true}}"#)
+            .unwrap()
+            .to_serde_value();
+        let b = Json::parse(
+            r#"{"text":"hello world","cursor":11,"meta":{"saved":false},"tags":[1,2]}"#,
+        )
+        .unwrap()
+        .to_serde_value();
+        let d = super::jsondiff::diff(&a, &b);
+        assert!(!d.is_empty());
+        assert_eq!(super::jsondiff::apply(&a, &d, true), b); // forward: a -> b
+        assert_eq!(super::jsondiff::apply(&b, &d, false), a); // backward: b -> a
+        assert!(super::jsondiff::diff(&a, &a).is_empty()); // unchanged -> empty diff
     }
 
     #[test]
