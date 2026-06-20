@@ -2745,7 +2745,7 @@ fn builtin_compile_fn(
         CompileTarget::C => {
             if let Some(text_str) = text {
                 Ok(format!(
-                    "AzDom_createText(AzString_fromConstStr(\"{}\"))",
+                    "AzDom_createText(AZ_STR(\"{}\"))",
                     text_str
                         .as_str()
                         .replace("\\", "\\\\")
@@ -2757,7 +2757,7 @@ fn builtin_compile_fn(
             }
         }
         CompileTarget::Cpp => Ok(format!("Dom::create_{}()", type_name.to_lowercase()).into()),
-        CompileTarget::Python => Ok(format!("Dom.{}()", type_name.to_lowercase()).into()),
+        CompileTarget::Python => Ok(format!("Dom.create_{}()", type_name.to_lowercase()).into()),
     };
     r.into()
 }
@@ -2970,14 +2970,14 @@ pub fn user_defined_compile_fn(
                     OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
                         let escaped = s.as_str().replace("\\", "\\\\").replace("\"", "\\\"");
                         lines.push(alloc::format!(
-                            "{}children.push(Dom::create_text(AzString::from_const_str(\"{}\")));",
+                            "{}children.push(Dom::create_text(\"{}\"));",
                             inner_indent,
                             escaped
                         ));
                     }
                     OptionComponentDefaultValue::Some(ComponentDefaultValue::Bool(b)) => {
                         lines.push(alloc::format!(
-                            "{}children.push(Dom::create_text(AzString::from(format!(\"{{}}: {{}}\", \"{}\", {}).as_str())));",
+                            "{}children.push(Dom::create_text(format!(\"{{}}: {{}}\", \"{}\", {}).as_str()));",
                             inner_indent, fname, b
                         ));
                     }
@@ -3026,7 +3026,7 @@ pub fn user_defined_compile_fn(
                     OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
                         let escaped = s.as_str().replace("\\", "\\\\").replace("\"", "\\\"");
                         lines.push(alloc::format!(
-                            "{}AzDom_addChild(&root, AzDom_createText(AzString_fromConstStr(\"{}\")));",
+                            "{}AzDom_addChild(&root, AzDom_createText(AZ_STR(\"{}\")));",
                             inner_indent, escaped
                         ));
                     }
@@ -3064,7 +3064,7 @@ pub fn user_defined_compile_fn(
                     OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
                         let escaped = s.as_str().replace("\\", "\\\\").replace("\"", "\\\"");
                         lines.push(alloc::format!(
-                            "{}root.add_child(Dom::create_text(\"{}\"));",
+                            "{}root.add_child(Dom::create_text(String(\"{}\")));",
                             inner_indent,
                             escaped
                         ));
@@ -3092,7 +3092,7 @@ pub fn user_defined_compile_fn(
         CompileTarget::Python => {
             let mut lines = Vec::new();
             lines.push(alloc::format!("{}# Component: {}", indent_str, tag));
-            lines.push(alloc::format!("{}root = Dom.div()", indent_str));
+            lines.push(alloc::format!("{}root = Dom.create_div()", indent_str));
 
             for field in data.fields.as_ref().iter() {
                 let fname = field.name.as_str();
@@ -3104,7 +3104,7 @@ pub fn user_defined_compile_fn(
                             .replace("\"", "\\\"")
                             .replace("'", "\\'");
                         lines.push(alloc::format!(
-                            "{}root.add_child(Dom.text('{}'))",
+                            "{}root = root.with_child(Dom.create_text(\"{}\"))",
                             inner_indent,
                             escaped
                         ));
@@ -3115,7 +3115,7 @@ pub fn user_defined_compile_fn(
                         let fn_name =
                             alloc::format!("render_{}", ci.component.as_str().replace("-", "_"));
                         lines.push(alloc::format!(
-                            "{}root.add_child({}())",
+                            "{}root = root.with_child({}())",
                             inner_indent,
                             fn_name
                         ));
@@ -4072,16 +4072,16 @@ fn builtin_if_compile_fn(
 ) -> ResultStringCompileError {
     match target {
         CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
-            "if data.condition {\n    // then branch\n    Dom::div()\n} else {\n    // else branch\n    Dom::div()\n}"
+            "if data.condition {\n    // then branch\n    Dom::create_div()\n} else {\n    // else branch\n    Dom::create_div()\n}"
         )),
         CompileTarget::C => ResultStringCompileError::Ok(AzString::from(
             "if (data.condition) {\n    // then branch\n    AzDom_createDiv();\n} else {\n    // else branch\n    AzDom_createDiv();\n}"
         )),
         CompileTarget::Cpp => ResultStringCompileError::Ok(AzString::from(
-            "if (data.condition) {\n    // then branch\n    Dom::div();\n} else {\n    // else branch\n    Dom::div();\n}"
+            "if (data.condition) {\n    // then branch\n    Dom::create_div();\n} else {\n    // else branch\n    Dom::create_div();\n}"
         )),
         CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
-            "if data.condition:\n    # then branch\n    Dom.div()\nelse:\n    # else branch\n    Dom.div()"
+            "if data.condition:\n    # then branch\n    Dom.create_div()\nelse:\n    # else branch\n    Dom.create_div()"
         )),
     }
 }
@@ -4150,16 +4150,16 @@ fn builtin_for_compile_fn(
 ) -> ResultStringCompileError {
     match target {
         CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
-            "let mut children = Vec::new();\nfor i in 0..data.count {\n    children.push(Dom::div());\n}\nDom::div().with_children(children)"
+            "let mut children = Vec::new();\nfor i in 0..data.count {\n    children.push(Dom::create_div());\n}\nDom::create_div().with_children(children)"
         )),
         CompileTarget::C => ResultStringCompileError::Ok(AzString::from(
             "AzDom container = AzDom_createDiv();\nfor (uint32_t i = 0; i < data.count; i++) {\n    AzDom_addChild(&container, AzDom_createDiv());\n}"
         )),
         CompileTarget::Cpp => ResultStringCompileError::Ok(AzString::from(
-            "auto container = Dom::div();\nfor (uint32_t i = 0; i < data.count; i++) {\n    container.add_child(Dom::div());\n}"
+            "auto container = Dom::create_div();\nfor (uint32_t i = 0; i < data.count; i++) {\n    container.add_child(Dom::create_div());\n}"
         )),
         CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
-            "container = Dom.div()\nfor i in range(data.count):\n    container.add_child(Dom.div())"
+            "container = Dom.create_div()\nfor i in range(data.count):\n    container = container.with_child(Dom.create_div())"
         )),
     }
 }
@@ -4228,16 +4228,16 @@ fn builtin_map_compile_fn(
 ) -> ResultStringCompileError {
     match target {
         CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
-            "let items: Vec<serde_json::Value> = serde_json::from_str(&data.data_json).unwrap_or_default();\nlet children: Vec<Dom> = items.iter().map(|item| {\n    Dom::div() // map template\n}).collect();\nDom::div().with_children(children)"
+            "let items: Vec<serde_json::Value> = serde_json::from_str(&data.data_json).unwrap_or_default();\nlet children: Vec<Dom> = items.iter().map(|item| {\n    Dom::create_div() // map template\n}).collect();\nDom::create_div().with_children(children)"
         )),
         CompileTarget::C => ResultStringCompileError::Ok(AzString::from(
             "// Parse data.data_json and map each item\nAzDom container = AzDom_createDiv();\n// TODO: iterate parsed JSON array"
         )),
         CompileTarget::Cpp => ResultStringCompileError::Ok(AzString::from(
-            "// Parse data.data_json and map each item\nauto container = Dom::div();\n// TODO: iterate parsed JSON array"
+            "// Parse data.data_json and map each item\nauto container = Dom::create_div();\n// TODO: iterate parsed JSON array"
         )),
         CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
-            "import json\nitems = json.loads(data.data_json)\ncontainer = Dom.div()\nfor item in items:\n    container.add_child(Dom.div())"
+            "import json\nitems = json.loads(data.data_json)\ncontainer = Dom.create_div()\nfor item in items:\n    container = container.with_child(Dom.create_div())"
         )),
     }
 }
