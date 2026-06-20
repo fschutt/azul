@@ -2319,9 +2319,12 @@ impl WaylandWindow {
         if self.common.scrollbar_drag_state.is_some() {
             use crate::desktop::shell2::common::event::PlatformWindow;
             let result = PlatformWindow::handle_scrollbar_drag(self, logical_pos);
-            if !matches!(result, ProcessEventResult::DoNothing) {
-                self.request_redraw();
-            }
+            // Route like every other pointer path: a scroll callback can restyle
+            // (ShouldIncrementalRelayout → incremental fast path) or rebuild the DOM
+            // (ShouldRegenerateDom* → frame_needs_regeneration). DoNothing stays a
+            // no-op and the redraw-only variants still request_redraw, so plain
+            // scrollbar drags behave exactly as before.
+            self.handle_process_event_result(result);
             return;
         }
 
@@ -2416,9 +2419,10 @@ impl WaylandWindow {
             {
                 let result =
                     PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
-                if !matches!(result, ProcessEventResult::DoNothing) {
-                    self.request_redraw();
-                }
+                // Route like every other pointer path (see handle_pointer_motion): a
+                // scroll callback can restyle / rebuild the DOM. DoNothing stays a
+                // no-op; the other variants still request_redraw.
+                self.handle_process_event_result(result);
                 return;
             }
 
