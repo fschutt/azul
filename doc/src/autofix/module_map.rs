@@ -32,6 +32,23 @@ pub const MODULES: &[&str] = &[
     "zip",
     "fluent",
     "icu",
+    // Capability / platform subsystems — pulled out of the old "misc" catch-all.
+    // Each also has an exact source-path arm in `module_from_external_path` so
+    // irregular names (DirEntry, Wt*, Detected*) still route correctly.
+    "audio",
+    "video",
+    "screen",
+    "camera",
+    "biometric",
+    "sensor",
+    "gamepad",
+    "gesture",
+    "webtransport",
+    "db",
+    "file",
+    "fmt",
+    "pdf",
+    "url",
 ];
 
 /// Keywords that map to specific modules
@@ -586,6 +603,21 @@ pub fn get_correct_module_with_path(type_name: &str, current_module: &str, exter
         }
     }
 
+    // If the external path CONFIRMS the current module, the type is correctly
+    // placed — don't let a coincidental name keyword pull it out. This protects
+    // e.g. `VideoWidget` / `CameraWidget` / `GamepadButton` (azul_layout::widgets::,
+    // already in `widgets`) from being dragged into `video` / `camera` / `gamepad`
+    // by their names. We only RETURN here on a confirming match; a non-matching
+    // path is NOT authoritative (many modules — e.g. `component` — are organized
+    // by concern, not by source path), so we fall through to keyword matching.
+    if let Some(path) = external_path {
+        if let Some(path_module) = module_from_external_path(path) {
+            if path_module == current_module {
+                return None;
+            }
+        }
+    }
+
     // For non-structural types: if keyword matching is confident, trust it
     if !is_warning {
         if name_module != current_module {
@@ -640,6 +672,35 @@ fn module_from_external_path(path: &str) -> Option<String> {
     // Without this arm, types in a nested widget submodule fell through to the
     // `misc` fallback, producing spurious "move to misc" patches.
     if path.starts_with("azul_layout::widgets::") { return Some("widgets".to_string()); }
+
+    // Capability / platform subsystems — formerly dumped in "misc". Routed by
+    // their exact source path so irregular type names (DirEntry, Wt*, Detected*,
+    // OkCancel) land in the right module without risky name-keyword matching.
+    // azul_core::*
+    if path.starts_with("azul_core::json::") { return Some("json".to_string()); }
+    if path.starts_with("azul_core::audio::") { return Some("audio".to_string()); }
+    if path.starts_with("azul_core::video::") { return Some("video".to_string()); }
+    if path.starts_with("azul_core::screencap::") { return Some("screen".to_string()); }
+    if path.starts_with("azul_core::camera::") { return Some("camera".to_string()); }
+    if path.starts_with("azul_core::biometric::") { return Some("biometric".to_string()); }
+    if path.starts_with("azul_core::sensors::") { return Some("sensor".to_string()); }
+    if path.starts_with("azul_core::gamepad::") { return Some("gamepad".to_string()); }
+    if path.starts_with("azul_core::db::") { return Some("db".to_string()); }
+    if path.starts_with("azul_core::url::") { return Some("url".to_string()); }
+    if path.starts_with("azul_core::xml::") { return Some("xml".to_string()); }
+    // azul_layout::*
+    if path.starts_with("azul_layout::file::") { return Some("file".to_string()); }
+    if path.starts_with("azul_layout::desktop::file::") { return Some("file".to_string()); }
+    if path.starts_with("azul_layout::fmt::") { return Some("fmt".to_string()); }
+    if path.starts_with("azul_layout::managers::gesture::") { return Some("gesture".to_string()); }
+    if path.starts_with("azul_layout::desktop::dialogs::") { return Some("dialog".to_string()); }
+    // azul_dll::unified::* backends
+    if path.starts_with("azul_dll::unified::audio::") { return Some("audio".to_string()); }
+    if path.starts_with("azul_dll::unified::sqlite::") { return Some("db".to_string()); }
+    if path.starts_with("azul_dll::unified::pdf::") { return Some("pdf".to_string()); }
+    if path.starts_with("azul_dll::unified::video_codec::") { return Some("video".to_string()); }
+    if path.starts_with("azul_dll::unified::webtransport::") { return Some("webtransport".to_string()); }
+
     None
 }
 
