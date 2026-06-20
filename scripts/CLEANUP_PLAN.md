@@ -57,9 +57,10 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   (~420 lines), format-dispatch over pixel layouts. **Action:** split per-`RawImageFormat` arm into
   helpers.
 
-- [ ] **udp_framing.rs → deprecate for WebTransport** 🟢 — `core/src/udp_framing.rs` (178 lines):
-  socket-free UDP chunked framing + reassembler, 5 tests, self-contained. **Action:** keep until
-  WebTransport (AzMeet) lands, then remove together with the dll `Udp` handle (see dll item).
+- [x] **udp_framing.rs → deprecate for WebTransport** 🟢 — **DONE (reviewed, keep):** self-contained
+  (178 lines, 5 tests) and explicitly conditioned on WebTransport/AzMeet, which is NOT part of this
+  cleanup. Removing it now would break the still-live dll `Udp` handle (FFI-exported). KEEP until
+  WebTransport lands; remove together with the dll item then. No change.
 
 - [x] ~~core video — duplicated in widget~~ → **KEEP** 🟢 — `core/src/video.rs` (116 lines) is POD
   config/frame types only; widget logic is `layout/src/widgets/video.rs`. Correct FFI layering, not
@@ -194,17 +195,17 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   unconditionally, and layout's `json` feature pulls `azul-core/serde-json` — exactly what gates
   `Json::object`/`to_string_pretty`.
 
-- [ ] **run_tool / wasm-ld — static-link question answered** 🟢/INVESTIGATE — `transpiler_remill.rs:9139
-  run_tool` spawns `remill-lift-17`/`llc`/`wasm-ld` as **subprocesses by default**; static linking
-  only behind `web-transpiler-static` + `AZ_NATIVE_REMILL=1` (non-default; in-process path is slow +
-  miscompiles). wasm-ld is always a subprocess. **Action:** decide whether to invest in making the
-  static/in-process path the default, or document subprocess as intentional.
+- [x] **run_tool / wasm-ld — static-link question answered** 🟢/INVESTIGATE — **DONE (decision):**
+  subprocess is the **intentional default** — the in-process/static path (`web-transpiler-static` +
+  `AZ_NATIVE_REMILL=1`) is slow and currently miscompiles the full library (per memory + use_native_remill
+  docs). `run_tool` is already well-documented (incl. the Windows transient-failure retry). No change;
+  not worth investing in making in-process the default.
 
 ### dll/ (non-web)
 
-- [ ] **Xargo.toml — verify still needed** 🟢 — `dll/Xargo.toml` (153 B) pins std/core with
-  `panic_immediate_abort` for the build-std rebuild path (wasm/size builds). **Action:** confirm
-  whether the project moved to Cargo `-Z build-std`; if so, this is vestigial — else keep.
+- [x] **Xargo.toml — verify still needed** 🟢 — **DONE (confirmed needed, keep):** `dllgen` asserts
+  its presence (`doc/src/dllgen/deploy.rs:632`, `doc/src/dllgen/build.rs:132`) and copies it into the
+  generated DLL build dir; no `-Z build-std` migration exists. Not vestigial. No change.
 
 - [ ] **desktop/extra/udp/ — remove for WebTransport** 🟡 — `dll/src/desktop/extra/udp/mod.rs`
   (~8 KB): C-ABI `Udp` handle over `std::net::UdpSocket` (`send_to`/`recv`/`send_chunked`/
@@ -229,10 +230,10 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   platform-gated modules rather than crate-global; also the `static_mut_refs` TODO → migrate to
   `OnceLock`.
 
-- [ ] **brotli/zlib — expose compression in api.json?** 🟢 — `brotli_decompressor::BrotliDecompress`
-  used internally only: `web/classify.rs:81`, `desktop/material_icons.rs:27`,
-  `debug_server/full.rs:2906`. **Action (optional):** if user-facing compression is wanted, add a
-  thin `AzBrotli`/`AzDeflate` handle to api.json; otherwise leave internal.
+- [x] **brotli/zlib — expose compression in api.json?** 🟢 — **DONE (decision, leave internal):**
+  confirmed `brotli_decompressor::BrotliDecompress` is internal-only (web/classify.rs,
+  desktop/material_icons.rs, debug_server/full.rs) — decode-only, for embedded compressed assets. No
+  user-facing-compression demand signal; not adding an `AzBrotli`/`AzDeflate` handle. No change.
 
 - [ ] **App config — add `source_language` field** 🟡 — `core/src/resources.rs:454 AppConfig` has no
   source-language field; `App` + `App::run` at `dll/src/desktop/app.rs:25/:128`. **Action:** add
@@ -276,10 +277,16 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   comment blocks to one/two-liners. All 53 directives and 4 stages untouched (comment-only edits).
   210 → 161 lines; comment lines 108 → 59.
 
-- [ ] **URL — thread the typed `Url` through consumers** 🟢 — strongly-typed `azul_layout::url::Url`
-  + `UrlParseError` already exposed (api.json:89649, impl `layout/src/url.rs:14`), but consumers
-  still take strings (e.g. `VideoSource::Url(AzString)`, `core/src/video.rs:24`). **Action:** migrate
-  string-URL consumers to the typed `Url`.
+- [ ] **URL — thread the typed `Url` through consumers** 🟡 (reclassified from 🟢) — **DEFERRED w/
+  analysis.** Blocked as a quick win: the plan's own example `VideoSource::Url(AzString)` is in
+  **core** (`core/src/video.rs:24`) and the `Url` type + its `url`-crate parsing live in **layout**
+  (`layout/src/url.rs`), so core consumers (video.rs, the many `url: AzString` in `core/src/xml.rs`)
+  can't reference `Url` without a core→layout cycle. Correct path (medium): move the POD `Url`/
+  `UrlParseError`/`ResultUrlUrlParseError` to `core/src/url.rs` and put the `url`-crate parsing in core
+  behind a feature (exactly the Json core+`serde-json` pattern), re-export from layout, then migrate
+  `VideoSource`/xml; update api.json `external` paths via autofix. NOTE: `widgets/map.rs` `url` is a
+  `{x}/{y}/{z}` tile **template**, not a parseable URL — leave it `AzString`. Font-source `Url(String)`
+  variants are internal pass-through — low value. Do in the medium phase with the other FFI moves.
 
 - [ ] **HashMap → BTreeMap** 🔴 — ~322 occurrences in src (core 20, **layout 188**, dll 114; dll
   concentrated in `web/symbol_table.rs` 38, `web/transpiler_remill.rs` 9). **Action:** prioritize
