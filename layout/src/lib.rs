@@ -125,8 +125,11 @@ pub use fluent::{
 };
 
 /// URL parsing (RFC 3986 compliant). Pure-Rust, always present (no TLS deps).
-pub mod url;
-pub use url::{Url, UrlParseError, ResultUrlUrlParseError};
+/// URL types live in `azul_core::url`; re-exported so `azul_layout::url::*`
+/// keeps resolving. `Url::parse`/`join` are enabled via the `http` feature
+/// (which turns on `azul-core/url`).
+pub use azul_core::url;
+pub use azul_core::url::{Url, UrlParseError, ResultUrlUrlParseError};
 
 /// File system operations (C-compatible wrappers for `std::fs`).
 pub mod file;

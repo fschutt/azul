@@ -1,15 +1,23 @@
-//! URL parsing module for C API
+//! URL types for the C API.
 //!
-//! Provides a C-compatible URL type based on the `url` crate.
-//! Key types: [`Url`], [`UrlParseError`], [`ResultUrlUrlParseError`].
-//! Re-exported from `layout/src/lib.rs`.
+//! Provides a C-compatible, parsed-URL type. Key types: [`Url`],
+//! [`UrlParseError`], [`ResultUrlUrlParseError`].
+//!
+//! The POD type and the cheap accessors live here in `azul-core` (so consumers
+//! like `crate::video::VideoSource` can hold a typed `Url` without an
+//! `azul-layout` dependency). `Url::parse` / `Url::join`, which rely on the
+//! `url` crate, are gated behind the `url` feature; `azul_layout`'s `http`
+//! feature enables it. Re-exported as `azul_layout::url`.
 
+#[cfg(not(feature = "std"))]
+use alloc::string::ToString;
 use alloc::string::String;
 use core::fmt;
-use azul_css::{AzString, impl_result, impl_result_inner};
+
+use azul_css::{impl_result, impl_result_inner, AzString};
 
 /// A parsed URL
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[repr(C)]
 pub struct Url {
     /// The full URL string
@@ -56,15 +64,14 @@ impl_result!(
 
 impl Url {
     /// Parse a URL from a string
-    #[cfg(feature = "http")]
+    #[cfg(feature = "url")]
     pub fn parse(s: &str) -> Result<Self, UrlParseError> {
         use ::url::Url as UrlParser;
-        
-        let parsed = UrlParser::parse(s)
-            .map_err(|e| UrlParseError {
-                message: AzString::from(e.to_string()),
-            })?;
-        
+
+        let parsed = UrlParser::parse(s).map_err(|e| UrlParseError {
+            message: AzString::from(e.to_string()),
+        })?;
+
         Ok(Self {
             href: AzString::from(parsed.as_str().to_string()),
             scheme: AzString::from(parsed.scheme().to_string()),
@@ -75,22 +82,20 @@ impl Url {
             fragment: AzString::from(parsed.fragment().unwrap_or("").to_string()),
         })
     }
-    
+
     /// Create a URL from components
-    pub fn from_parts(
-        scheme: &str,
-        host: &str,
-        port: u16,
-        path: &str,
-    ) -> Self {
-        let port_str = if port == 0 || (scheme == "http" && port == 80) || (scheme == "https" && port == 443) {
+    pub fn from_parts(scheme: &str, host: &str, port: u16, path: &str) -> Self {
+        let port_str = if port == 0
+            || (scheme == "http" && port == 80)
+            || (scheme == "https" && port == 443)
+        {
             String::new()
         } else {
-            format!(":{}", port)
+            alloc::format!(":{}", port)
         };
-        
-        let href = format!("{}://{}{}{}", scheme, host, port_str, path);
-        
+
+        let href = alloc::format!("{}://{}{}{}", scheme, host, port_str, path);
+
         Self {
             href: AzString::from(href),
             scheme: AzString::from(scheme.to_string()),
@@ -101,22 +106,22 @@ impl Url {
             fragment: AzString::from(String::new()),
         }
     }
-    
+
     /// Get the full URL as a string slice
     pub fn as_str(&self) -> &str {
         self.href.as_str()
     }
-    
+
     /// Check if this is an HTTPS URL
     pub fn is_https(&self) -> bool {
         self.scheme.as_str() == "https"
     }
-    
+
     /// Check if this is an HTTP URL
     pub fn is_http(&self) -> bool {
         self.scheme.as_str() == "http"
     }
-    
+
     /// Get the effective port (using default ports for http/https)
     pub fn effective_port(&self) -> u16 {
         if self.port != 0 {
@@ -129,38 +134,36 @@ impl Url {
             0
         }
     }
-    
+
     /// Join a relative path to this URL
-    #[cfg(feature = "http")]
+    #[cfg(feature = "url")]
     pub fn join(&self, path: &str) -> Result<Self, UrlParseError> {
         use ::url::Url as UrlParser;
-        
-        let base = UrlParser::parse(self.href.as_str())
-            .map_err(|e| UrlParseError {
-                message: AzString::from(e.to_string()),
-            })?;
-        
-        let joined = base.join(path)
-            .map_err(|e| UrlParseError {
-                message: AzString::from(e.to_string()),
-            })?;
+
+        let base = UrlParser::parse(self.href.as_str()).map_err(|e| UrlParseError {
+            message: AzString::from(e.to_string()),
+        })?;
+
+        let joined = base.join(path).map_err(|e| UrlParseError {
+            message: AzString::from(e.to_string()),
+        })?;
 
         Self::parse(joined.as_str())
     }
 
-    /// Stub: `http` feature disabled (the `url` crate is gated behind `http`).
-    #[cfg(not(feature = "http"))]
+    /// Stub: `url` feature disabled (the `url` crate is gated behind it).
+    #[cfg(not(feature = "url"))]
     pub fn parse(_s: &str) -> Result<Self, UrlParseError> {
         Err(UrlParseError {
-            message: AzString::from("http feature not enabled".to_string()),
+            message: AzString::from_const_str("url feature not enabled"),
         })
     }
 
-    /// Stub: `http` feature disabled (the `url` crate is gated behind `http`).
-    #[cfg(not(feature = "http"))]
+    /// Stub: `url` feature disabled (the `url` crate is gated behind it).
+    #[cfg(not(feature = "url"))]
     pub fn join(&self, _path: &str) -> Result<Self, UrlParseError> {
         Err(UrlParseError {
-            message: AzString::from("http feature not enabled".to_string()),
+            message: AzString::from_const_str("url feature not enabled"),
         })
     }
 }
@@ -174,9 +177,9 @@ impl fmt::Display for Url {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
-    #[cfg(feature = "http")]
+    #[cfg(feature = "url")]
     fn test_url_parse() {
         let url = Url::parse("https://example.com:8080/path?query=1#frag").unwrap();
         assert_eq!(url.scheme.as_str(), "https");
@@ -186,7 +189,7 @@ mod tests {
         assert_eq!(url.query.as_str(), "query=1");
         assert_eq!(url.fragment.as_str(), "frag");
     }
-    
+
     #[test]
     fn test_url_from_parts() {
         let url = Url::from_parts("https", "example.com", 443, "/api");

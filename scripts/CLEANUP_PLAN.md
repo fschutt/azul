@@ -277,16 +277,18 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   comment blocks to one/two-liners. All 53 directives and 4 stages untouched (comment-only edits).
   210 → 161 lines; comment lines 108 → 59.
 
-- [ ] **URL — thread the typed `Url` through consumers** 🟡 (reclassified from 🟢) — **DEFERRED w/
-  analysis.** Blocked as a quick win: the plan's own example `VideoSource::Url(AzString)` is in
-  **core** (`core/src/video.rs:24`) and the `Url` type + its `url`-crate parsing live in **layout**
-  (`layout/src/url.rs`), so core consumers (video.rs, the many `url: AzString` in `core/src/xml.rs`)
-  can't reference `Url` without a core→layout cycle. Correct path (medium): move the POD `Url`/
-  `UrlParseError`/`ResultUrlUrlParseError` to `core/src/url.rs` and put the `url`-crate parsing in core
-  behind a feature (exactly the Json core+`serde-json` pattern), re-export from layout, then migrate
-  `VideoSource`/xml; update api.json `external` paths via autofix. NOTE: `widgets/map.rs` `url` is a
-  `{x}/{y}/{z}` tile **template**, not a parseable URL — leave it `AzString`. Font-source `Url(String)`
-  variants are internal pass-through — low value. Do in the medium phase with the other FFI moves.
+- [x] **URL — thread the typed `Url` through consumers** 🟡 (was 🟢) — **DONE.** Moved the POD
+  `Url`/`UrlParseError`/`ResultUrlUrlParseError` from `layout/src/url.rs` to `core/src/url.rs`
+  (deriving `Default`), with the `url`-crate parsing (`parse`/`join`) gated behind a new core `url`
+  feature (`= ["dep:url", "std"]`) — exactly the Json core+`serde-json` pattern. Layout now re-exports
+  `azul_core::url` (so `azul_layout::url::*` keeps resolving) and its `http` feature enables
+  `azul-core/url` (dropped layout's own `url` dep). Migrated `VideoSource::Url(AzString)` →
+  `Url` (core/video.rs + the azul-video example; the dll consumer reads `u.as_str()`, unchanged).
+  api.json: updated the 3 `external` paths + 2 fn_bodies (`azul_layout::url` → `azul_core::url`) and
+  the `VideoSource.Url` field (`String` → `Url`); valid JSON re-verified. **Correctly left as
+  `AzString`:** `widgets/map.rs` (tile `{x}/{y}/{z}` template, not parseable) and `core/src/xml.rs`
+  attr URLs (relative/data-URI). Final build must run `azul-doc codegen all` to regenerate
+  `target/codegen/reexports.rs` from the updated api.json.
 
 - [ ] **HashMap → BTreeMap** 🔴 — ~322 occurrences in src (core 20, **layout 188**, dll 114; dll
   concentrated in `web/symbol_table.rs` 38, `web/transpiler_remill.rs` 9). **Action:** prioritize

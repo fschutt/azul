@@ -625,6 +625,7 @@ dependencies = [
  "rust-fontconfig",
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]
@@ -836,7 +837,6 @@ dependencies = [
  "unicode-normalization",
  "unicode-segmentation",
  "ureq",
- "url",
  "webpki-roots",
  "writeable",
  "xmlparser",

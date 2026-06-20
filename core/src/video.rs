@@ -12,6 +12,7 @@
 //! it's `Clone` but not `Copy`.
 
 use crate::resources::RawImageFormat;
+use crate::url::Url;
 use azul_css::{AzString, U8Vec};
 
 /// Where a video widget pulls its H.264/MP4 data from — strongly typed so the
@@ -21,7 +22,7 @@ use azul_css::{AzString, U8Vec};
 #[derive(Debug, Clone, PartialEq)]
 pub enum VideoSource {
     /// An HTTP(S) URL, fetched on the decode thread via an HTTP range request.
-    Url(AzString),
+    Url(Url),
     /// A local filesystem path.
     File(AzString),
     /// Raw MP4 bytes already in memory.
@@ -30,7 +31,7 @@ pub enum VideoSource {
 
 impl Default for VideoSource {
     fn default() -> Self {
-        VideoSource::Url(AzString::from_const_str(""))
+        VideoSource::Url(Url::default())
     }
 }
 

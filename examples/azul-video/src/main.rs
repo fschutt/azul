@@ -9,7 +9,7 @@
 
 use azul::prelude::*;
 use azul::widgets::VideoWidget;
-use azul::misc::{VideoConfig, VideoSource};
+use azul::misc::{VideoConfig, VideoSource, Url};
 use azul::desktop::extra::video_codec::VideoStartupCheck;
 
 /// Big Buck Bunny H.264/MP4, 360p, ~10s — fetched on the decode thread via a range request.
@@ -45,7 +45,14 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .unwrap_or(0.0);
 
     let mut config = VideoConfig::default();
-    config.source = VideoSource::Url(BBB_URL.into());
+    // Parse into the typed `Url` when the parser is available, otherwise fall back
+    // to an href-only `Url` (the decode worker only reads `Url::as_str()`).
+    config.source = VideoSource::Url(
+        Url::parse(BBB_URL).unwrap_or_else(|_| Url {
+            href: BBB_URL.into(),
+            ..Default::default()
+        }),
+    );
     config.timestamp = scrub;
 
     let frac_pct = ((scrub / DURATION_SECS).clamp(0.0, 1.0) * 100.0) as u32;

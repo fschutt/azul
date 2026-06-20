@@ -327,6 +327,8 @@ pub mod ua_css;
 pub mod udp_framing;
 /// Default font/text constants and small geometry helpers for layout.
 pub mod ui_solver;
+/// URL POD type (`Url`/`UrlParseError`); parsing gated behind the `url` feature.
+pub mod url;
 /// Video-playback POD types — `VideoConfig` (source URL + autoplay/loop).
 /// Same "dumb widget" architecture (`azul_layout::widgets::video`); decoded
 /// via vk-video into the shared GL texture.
