@@ -748,6 +748,36 @@ jobs:
           echo === clang-cl ===
           clang-cl /I . hello-world.c /Fe:hw-clang.exe /link /LIBPATH:..\..\target\debug azul.dll.lib || exit /b 1
 
+  export_code_e2e:
+    name: Export-Code E2E (rust/c/cpp/python)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Run Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install toolchains (clang/c++/python + headless GL deps)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libxext-dev python3
+
+      - name: Generate DLL API bindings (azul.h / azul20.hpp)
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Build azul-dll (release, with debug-server)
+        run: cargo build --release -p azul-dll --features build-dll,debug-server
+
+      - name: Run export-code E2E (export live page → compile 4 languages)
+        run: bash tests/e2e/test_export_code.sh
+
   build_binaries:
     name: Build Binaries (${{ matrix.os }})
     # Normal run ~30-55 min; a cold Windows prod-release build is the slowest.
