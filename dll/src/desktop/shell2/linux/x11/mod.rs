@@ -1865,8 +1865,25 @@ impl X11Window {
                     self.common.frame_needs_regeneration = true;
                     self.request_redraw();
                 }
+                ProcessEventResult::ShouldIncrementalRelayout => {
+                    // Re-run layout on the existing StyledDom (restyle / runtime
+                    // edit) instead of a full regenerate_layout(). Mirrors the
+                    // macOS backend's ShouldIncrementalRelayout arm.
+                    if let Some(layout_window) = self.common.layout_window.as_mut() {
+                        let mut debug_messages = None;
+                        if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
+                            layout_window,
+                            &self.common.current_window_state,
+                            &mut self.common.renderer_resources,
+                            &mut debug_messages,
+                        ) {
+                            log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
+                        }
+                    }
+                    self.common.frame_needs_regeneration = true;
+                    self.request_redraw();
+                }
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
-                | ProcessEventResult::ShouldIncrementalRelayout
                 | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                     self.common.frame_needs_regeneration = true;
                     self.request_redraw();
