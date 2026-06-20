@@ -1,4 +1,4 @@
-//! Paged media layout engine.
+//! Paged media layout primitives.
 //!
 //! Provides the [`FragmentationContext`] that the layout solver threads through to
 //! distinguish continuous (screen) from paged (print) media.
@@ -6,14 +6,14 @@
 //! For continuous media (screens), content flows into a single infinitely tall
 //! container. For paged media (print), content is laid out on a continuous canvas
 //! and afterwards sliced into fixed-size pages by the display-list slicer
-//! (`paginate_display_list_with_slicer_and_breaks` in `crate::solver3::display_list`).
+//! (`paginate_display_list_with_slicer_and_breaks` in `azul_layout::solver3::display_list`).
 //! This lets the layout engine make break decisions while respecting CSS properties
 //! like `break-before`, `break-after`, and `break-inside`.
 //!
 //! Page *decoration* (headers, footers, margin boxes, counters) lives in
-//! `crate::solver3::pagination`.
+//! `azul_layout::solver3::pagination`.
 
-use azul_core::geom::LogicalSize;
+use crate::geom::LogicalSize;
 
 /// Selects how content is fragmented during layout.
 ///

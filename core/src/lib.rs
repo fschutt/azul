@@ -289,6 +289,9 @@ pub mod json;
 pub mod keyring;
 /// Menu system: context menus, dropdown menus, and menu bars.
 pub mod menu;
+/// Paged-media primitives: the `FragmentationContext` (continuous vs. paged) and
+/// `PageMargins`. The pagination/slicing logic lives in `azul_layout::solver3`.
+pub mod paged;
 /// SVG `d=""` path data parser.
 pub mod path_parser;
 /// CSS property cache for efficient per-node style resolution.

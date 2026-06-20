@@ -89,9 +89,10 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   doc lines). Two ASCII box diagrams at `:14-23` and `:25-35` + comparison table; code starts at
   line 86. **Action:** trim the `~8-85` doc block to ~15 lines.
 
-- [ ] **paged.rs — move to core** 🟢 — `layout/src/paged.rs` (110 lines): `FragmentationContext` +
-  `PageMargins`, only depends on `LogicalSize` (azul_core). Real pagination logic lives in
-  `solver3::pagination`/`display_list`. **Action:** relocate to core (low effort).
+- [x] **paged.rs — move to core** 🟢 — **DONE:** moved `FragmentationContext` + `PageMargins` to
+  `core/src/paged.rs` (`use crate::geom::LogicalSize`), added `pub mod paged` to core lib, and
+  replaced layout's `pub mod paged` with `pub use azul_core::paged;` so existing
+  `azul_layout::paged::*` / `crate::paged::*` / `pub use paged::PageMargins` paths keep resolving.
 
 - [ ] **window_state.rs — small module review** 🟢 — `layout/src/window_state.rs` (161 lines:
   `WindowCreateOptions`, `FullWindowState`) vs `window.rs` (7605 lines). Placement (avoid

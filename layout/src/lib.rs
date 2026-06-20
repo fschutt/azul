@@ -233,7 +233,9 @@ pub use hyphenation;
 #[cfg(feature = "text_layout")]
 pub mod hit_test;
 /// Paged media: the `FragmentationContext` (continuous vs. paged) and page margins.
-pub mod paged;
+/// The primitive types live in `azul_core::paged`; re-exported here so existing
+/// `azul_layout::paged::*` / `crate::paged::*` paths keep resolving.
+pub use azul_core::paged;
 /// Text shaping, line breaking (Knuth-Plass), and inline formatting.
 #[cfg(feature = "text_layout")]
 pub mod text3;
