@@ -8,6 +8,41 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
 
 ---
 
+## Execution status (2026-06-20, this pass)
+
+**All 🟢 small items done** (except `events.rs` test-split, which the user is doing by hand) and
+**most 🟡 medium done** (animation fold, paged→core, extra fold, headless trim, eventloop M11,
+shard-manifest AzJson, gnome README, Dockerfile, FluentLoadError enum, URL→core wiring, gpu
+`synchronize` split, hit_test merge, **prop_cache accessor macro −1831 lines**, html_render head/title).
+Reasoned KEEP/DEFER decisions recorded inline for: window_state, udp_framing, run_tool, Xargo,
+brotli, az_mark (already gated), EVENT_PATCH_SCHEMA, desktop/extra/udp, video_codec H.265,
+source_language, icon migration.
+
+**Remaining (🔴 large + 2 🟡) — scoped for the compile/verify phase or as follow-ups**, because they
+need compile-feedback iteration, are multi-day features, or risk breaking foundational code if done
+blind (no compile). Each carries a concrete approach inline:
+- **clippy de-liberalization** (layout + dll) — MUST be done with the compiler open (remove the
+  blanket `allow`s, then fix the surfaced errors incrementally). Compile-phase work.
+- **HashMap→BTreeMap** (322 sites) — mechanical but needs compile to catch `Ord`-bound violations +
+  unused imports; the web/ codegen maps (symbol_table/transpiler_remill) are the priority for
+  reproducible lift output (careful: those files' comments discuss `std::HashMap`'s lifted-wasm
+  hasher — don't blind-replace prose).
+- **cpurender.rs split** — pure module reorg into `cpurender/{compositor,raster,svg,pixmap}.rs`;
+  best with the compiler to fix cross-module `pub(crate)`/`use` visibility.
+- **RefAny on-update hook → undo/redo + web-server state sync** — a 3-item cluster. Mechanism:
+  add `update_fn: usize` to `RefCountInner` (mirror the existing `serialize_fn`/`deserialize_fn`
+  pattern), a setter, and fire it on `downcast_mut`; then build the generic undo stack and rework
+  `WebServerState` to subscribe instead of holding a mutex. Multi-day; the bare hook is unused
+  without the consumers, so do the cluster together (foundational + critical core type → with compile).
+- **web server tokio rewrite**, **SVG DOM-path unification**, **CPU hit-test CSS transforms**,
+  **rich clipboard (typed content enum)** — genuine feature/architecture work (new deps / rendering /
+  transform math / FFI + Copy/Cut/Paste wiring); too large + high-risk to do blind. `rich clipboard`
+  also lives in `core/events.rs`, which the user is editing by hand (test split) — coordinate.
+- **AzJson + ICU parity tests** — additive test follow-ups (ICU's cross-backend parity is awkward
+  because the backends are mutually-exclusive features).
+
+---
+
 ## core/ crate
 
 - [x] **animation.rs — overpromising stub** 🟢 — **DONE:** `UpdateImageType` is not FFI-exported
