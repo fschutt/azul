@@ -605,6 +605,17 @@ pub struct CommonWindowState {
     pub renderer: Option<webrender::Renderer>,
     /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
     pub frame_needs_regeneration: bool,
+    /// When `true`, layout is ALREADY up to date — an `incremental_relayout()`
+    /// re-ran layout on the existing `StyledDom` (restyle / runtime edit) in the
+    /// event arm, so the frame-generation path must SKIP the full
+    /// `regenerate_layout()` (which would re-invoke the user's `layout_callback`
+    /// and rebuild the `StyledDom`) and only rebuild + send the WebRender
+    /// transaction. Set alongside `frame_needs_regeneration` by the
+    /// `ShouldIncrementalRelayout` arms on backends whose frame path runs the full
+    /// `regenerate_layout()` (windows / wayland); both flags are reset after the
+    /// frame is sent. macOS / x11 don't need it (their generate path is already
+    /// transaction-only), so it simply stays `false` there.
+    pub frame_relayout_only: bool,
     /// Reason tag the *next* `regenerate_layout()` call should pass to the
     /// user's `LayoutCallback` via `LayoutCallbackInfo::relayout_reason()`.
     /// Set by the resize / theme / route handlers right before they trigger

@@ -1164,6 +1164,7 @@ impl WaylandWindow {
                 scrollbar_drag_state: None,
                 last_hovered_node: None,
                 frame_needs_regeneration: false,
+                frame_relayout_only: false,
                 next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
                 display_list_initialized: false,
                 display_list_dirty: false,

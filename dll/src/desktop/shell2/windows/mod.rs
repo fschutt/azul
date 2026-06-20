@@ -535,6 +535,7 @@ impl Win32Window {
                 document_id,
                 id_namespace,
                 frame_needs_regeneration: true,
+                frame_relayout_only: false,
                 next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial, // Initial render deferred to WM_PAINT
                 display_list_initialized: false,
                 display_list_dirty: false,
