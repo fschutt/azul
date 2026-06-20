@@ -20,6 +20,7 @@ pub const MODULES: &[&str] = &[
     "font",
     "svg",
     "xml",
+    "json",
     "dialog",
     "time",
     "task",
