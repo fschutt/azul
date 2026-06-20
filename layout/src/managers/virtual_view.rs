@@ -52,6 +52,11 @@ struct VirtualViewState {
     nested_dom_id: DomId,
     /// Last known layout bounds of the VirtualView container
     last_bounds: LogicalRect,
+    /// Scroll offset captured at InitialRender. Edge-scroll callbacks only fire
+    /// once the user has scrolled away from this resting position — being at an
+    /// edge from the very start (e.g. the top/left edge at offset 0) is the
+    /// initial position, not a scroll-to-edge event.
+    initial_scroll_offset: LogicalPosition,
 }
 
 /// Flags indicating which scroll edges have been triggered
@@ -232,6 +237,11 @@ impl VirtualViewManager {
         });
 
         if !state.virtual_view_was_invoked {
+            // Remember where we started, so edge callbacks fire on scroll-to-edge,
+            // not for the edge we happen to rest on at the initial position.
+            state.initial_scroll_offset = scroll_manager
+                .get_current_offset(dom_id, node_id)
+                .unwrap_or_default();
             return Some(VirtualViewCallbackReason::InitialRender);
         }
 
@@ -304,6 +314,7 @@ impl VirtualViewState {
             last_edge_triggered: EdgeFlags::default(),
             nested_dom_id,
             last_bounds: LogicalRect::zero(),
+            initial_scroll_offset: LogicalPosition::zero(),
         }
     }
 
@@ -347,9 +358,14 @@ impl VirtualViewState {
                 && (scroll_size.width - container_size.width - current_offset.x) <= EDGE_THRESHOLD,
         };
 
+        // Only treat an edge as "scrolled to" once the user has actually moved
+        // from the resting position captured at InitialRender — sitting at the
+        // initial top/left edge from the start is not an edge-scroll event.
+        let has_scrolled = current_offset != self.initial_scroll_offset;
+
         // Trigger edge callback if near an edge that hasn't been triggered yet
         // Prioritize bottom/right edges (common infinite scroll directions)
-        if !self.invoked_for_current_edge && current_edges.any() {
+        if has_scrolled && !self.invoked_for_current_edge && current_edges.any() {
             if current_edges.bottom && !self.last_edge_triggered.bottom {
                 return Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom));
             }
