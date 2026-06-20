@@ -775,6 +775,9 @@ jobs:
       - name: Build azul-dll (release, with debug-server)
         run: cargo build --release -p azul-dll --features build-dll,debug-server
 
+      - name: Codegen unit tests (HTML→code, incl. mixed text+element children)
+        run: cargo test -p azul-dll --test xml_to_rust_compilation --test kitchen_sink_integration --features xml
+
       - name: Run export-code E2E (export live page → compile 4 languages)
         run: bash tests/e2e/test_export_code.sh
 

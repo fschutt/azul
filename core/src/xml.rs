@@ -6583,41 +6583,20 @@ fn compile_node_to_rust_code_inner<'a>(
 
     let component_name = normalize_casing(&node.node_type);
 
-    // Build the data model from XML attributes
-    let def = component_map.get_unqualified(&component_name);
-
     // Look up the CSS NodeTypeTag
     let node_type_tag = tag_to_node_type_tag(&component_name);
     let node_type = CssPathSelector::Type(node_type_tag);
 
-    // Generate DOM creation code using the component's compile_fn
-    let text_content = node.get_text_content();
-    let text_content_trimmed = text_content.trim();
-    let mut dom_string = if let Some(d) = def {
-        let data_model = xml_attrs_to_data_model(
-            &d.data_model,
-            &node.attributes,
-            if text_content_trimmed.is_empty() {
-                None
-            } else {
-                Some(text_content_trimmed)
-            },
-        );
-        match (d.compile_fn)(d, &CompileTarget::Rust, &data_model, tabs) {
-            ResultStringCompileError::Ok(s) => format!("{}{}", t2, s.as_str()),
-            ResultStringCompileError::Err(_) => {
-                // Fallback: generate basic DOM node
-                let node_type = tag_to_node_type(&component_name);
-                format!("{}Dom::create_node(NodeType::{:?})", t2, node_type)
-            }
-        }
-    } else {
-        // Unknown component, generate div fallback
-        format!(
-            "{}Dom::create_node(NodeType::Div) /* {} */",
-            t2, component_name
-        )
-    };
+    // Emit a plain `create_node(<Tag>)` for the base node. Do NOT route through
+    // the component `compile_fn`: its Rust arm bakes inline text into a
+    // `.with_children(..)`, which the child-walk below would then OVERWRITE with
+    // a second `.with_children(..)` — silently dropping the text on any node
+    // that has BOTH text and element children. The child-walk handles ALL
+    // children (text + elements) in order, so the base node must stay childless.
+    // Interactive/data tags (Button/Input/…) whose NodeType carries data fall
+    // back to `div`, matching the C/C++/Python walkers (`safe_container_tag`).
+    let tag = safe_container_tag(&format!("{:?}", tag_to_node_type(&component_name)));
+    let mut dom_string = format!("{}Dom::create_node(NodeType::{})", t2, tag);
 
     matcher.path.push(node_type);
     let ids = node

@@ -11,6 +11,41 @@ mod xml_compilation_tests {
 <html><head><style>.box { width: 100%; color: #222222; }</style></head>
 <body><div class="box"><p>Hello</p><div>A</div></div></body></html>"#;
 
+    // Regression: a node with BOTH text and element children must keep ALL of
+    // its text. The Rust walker used to bake inline text into the node via a
+    // compile_fn `.with_children(...)`, then the child-walk emitted a SECOND
+    // `.with_children(...)` that overwrote it — dropping the text.
+    const MIXED: &str = r#"<!DOCTYPE html>
+<html><head></head><body><p>Before <span>mid</span> after</p></body></html>"#;
+
+    fn count(hay: &str, needle: &str) -> usize { hay.matches(needle).count() }
+
+    #[test]
+    fn test_mixed_text_and_element_children_rust() {
+        let parsed = parse_xml_string(MIXED).expect("parse");
+        let cmap = ComponentMap::with_builtin();
+        let rust = str_to_rust_code(parsed.as_ref(), "", &cmap).expect("rust");
+        // All three text runs must survive, exactly once each.
+        assert_eq!(count(&rust, "Before"), 1, "lost leading text:\n{}", rust);
+        assert_eq!(count(&rust, "mid"), 1, "lost element text:\n{}", rust);
+        assert_eq!(count(&rust, "after"), 1, "lost trailing text:\n{}", rust);
+    }
+
+    #[test]
+    fn test_mixed_text_and_element_children_all_langs() {
+        let parsed = parse_xml_string(MIXED).expect("parse");
+        let cmap = ComponentMap::with_builtin();
+        for (name, out) in [
+            ("c", str_to_c_code(parsed.as_ref(), &cmap).unwrap()),
+            ("cpp", str_to_cpp_code(parsed.as_ref(), &cmap).unwrap()),
+            ("python", str_to_python_code(parsed.as_ref(), &cmap).unwrap()),
+        ] {
+            assert_eq!(count(&out, "Before"), 1, "{}: lost leading text:\n{}", name, out);
+            assert_eq!(count(&out, "mid"), 1, "{}: lost element text:\n{}", name, out);
+            assert_eq!(count(&out, "after"), 1, "{}: lost trailing text:\n{}", name, out);
+        }
+    }
+
     #[test]
     fn test_cpp_export_shape() {
         let parsed = parse_xml_string(SAMPLE).expect("parse");
