@@ -4,7 +4,7 @@
 
 #[cfg(feature = "xml")]
 mod xml_compilation_tests {
-    use azul_core::xml::{str_to_rust_code, str_to_cpp_code, str_to_python_code, ComponentMap};
+    use azul_core::xml::{str_to_rust_code, str_to_c_code, str_to_cpp_code, str_to_python_code, ComponentMap};
     use azul_layout::xml::parse_xml_string;
 
     const SAMPLE: &str = r#"<!DOCTYPE html>
@@ -27,6 +27,21 @@ mod xml_compilation_tests {
         // must NOT carry stale/internal API
         assert!(!cpp.contains("AzNodeType_"));
         assert!(!cpp.contains("from_const_str"));
+    }
+
+    #[test]
+    fn test_c_export_shape() {
+        let parsed = parse_xml_string(SAMPLE).expect("parse");
+        let cmap = ComponentMap::with_builtin();
+        let c = str_to_c_code(parsed.as_ref(), &cmap).expect("c");
+        assert!(c.contains("#include \"azul.h\""));
+        assert!(c.contains("#define AZ_STR"));
+        assert!(c.contains("AzDom n0 = AzDom_createBody();"));
+        assert!(c.contains("AzDom_createDiv();"));
+        assert!(c.contains("AzDom_withClass(n1, AZ_STR(\"box\"))"));
+        assert!(c.contains("AzDom_addChild(&"));
+        assert!(c.contains("AzDom_createText(AZ_STR(\"Hello\"))"));
+        assert!(c.contains("AzApp_run(&app, window)"));
     }
 
     #[test]

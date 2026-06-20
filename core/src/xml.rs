@@ -6973,6 +6973,169 @@ pub fn str_to_python_code<'a>(
     ))
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Imperative C emitter. C has no fluent builder: each node is a statement that
+// creates an `AzDom` local, applies css/class (by-value, returns), and pushes
+// children via `AzDom_addChild(&parent, child)`. A recursive walk emits the
+// statements bottom-up and returns the variable name holding each node.
+// ───────────────────────────────────────────────────────────────────────────
+
+/// C per-tag creator suffix: NodeTypeTag debug name with first char kept and
+/// the rest lowercased (`Div`->`Div`, `BlockQuote`->`Blockquote`, `H1`->`H1`),
+/// matching `AzDom_create<Suffix>` in azul.h.
+fn c_creator_suffix(tag_dbg: &str) -> String {
+    let mut chars = tag_dbg.chars();
+    match chars.next() {
+        Some(first) => {
+            let rest: String = chars.as_str().to_lowercase();
+            alloc::format!("{}{}", first, rest)
+        }
+        None => "Div".to_string(),
+    }
+}
+
+fn compile_node_c<'a>(
+    node: &XmlNode,
+    component_map: &'a ComponentMap,
+    css: &Css,
+    mut matcher: CssMatcher,
+    counter: &mut usize,
+    out: &mut String,
+) -> Result<String, CompileError> {
+    let _ = component_map;
+    let component_name = normalize_casing(&node.node_type);
+    let node_type_tag = tag_to_node_type_tag(&component_name);
+    let tag_dbg = alloc::format!("{:?}", tag_to_node_type(&component_name));
+
+    let var = alloc::format!("n{}", *counter);
+    *counter += 1;
+    out.push_str(&alloc::format!(
+        "    AzDom {} = AzDom_create{}();\n",
+        var,
+        c_creator_suffix(&tag_dbg)
+    ));
+
+    matcher.path.push(CssPathSelector::Type(node_type_tag));
+    let ids: Vec<String> = node.attributes.get_key("id")
+        .map(|v| v.split_whitespace().map(|x| x.to_string()).collect())
+        .unwrap_or_default();
+    matcher.path.extend(ids.iter().map(|id| CssPathSelector::Id(id.clone().into())));
+    let classes: Vec<String> = node.attributes.get_key("class")
+        .map(|v| v.split_whitespace().map(|x| x.to_string()).collect())
+        .unwrap_or_default();
+    matcher.path.extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
+
+    let blocks = get_css_blocks(css, &matcher);
+    if !blocks.is_empty() {
+        let inline_css = css_blocks_to_inline_string(&blocks);
+        if !inline_css.is_empty() {
+            let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
+            out.push_str(&alloc::format!("    {} = AzDom_withCss({}, AZ_STR(\"{}\"));\n", var, var, esc));
+        }
+    }
+    for id in &ids {
+        let esc = id.replace('\\', "\\\\").replace('"', "\\\"");
+        out.push_str(&alloc::format!("    {} = AzDom_withId({}, AZ_STR(\"{}\"));\n", var, var, esc));
+    }
+    for class in &classes {
+        let esc = class.replace('\\', "\\\\").replace('"', "\\\"");
+        out.push_str(&alloc::format!("    {} = AzDom_withClass({}, AZ_STR(\"{}\"));\n", var, var, esc));
+    }
+
+    for (child_idx, child) in node.children.as_ref().iter().enumerate() {
+        match child {
+            XmlNodeChild::Element(child_node) => {
+                let mut m = matcher.clone();
+                m.path.push(CssPathSelector::Children);
+                m.indices_in_parent.push(child_idx);
+                m.children_length.push(node.children.len());
+                let child_var = compile_node_c(child_node, component_map, css, m, counter, out)?;
+                out.push_str(&alloc::format!("    AzDom_addChild(&{}, {});\n", var, child_var));
+            }
+            XmlNodeChild::Text(text) => {
+                let text = text.trim();
+                if !text.is_empty() {
+                    let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
+                    out.push_str(&alloc::format!(
+                        "    AzDom_addChild(&{}, AzDom_createText(AZ_STR(\"{}\")));\n", var, esc
+                    ));
+                }
+            }
+        }
+    }
+    Ok(var)
+}
+
+/// Compile a full HTML page to a compilable **C** Azul app.
+pub fn str_to_c_code<'a>(
+    root_nodes: &'a [XmlNodeChild],
+    component_map: &'a ComponentMap,
+) -> Result<String, CompileError> {
+    let (global_style, body_node) = parse_page_style_and_body(root_nodes)?;
+    let mut body = String::new();
+    let mut counter = 0usize;
+
+    // Emit the body as the root node, then its children.
+    let root = alloc::format!("n{}", counter);
+    counter += 1;
+    body.push_str(&alloc::format!("    AzDom {} = AzDom_createBody();\n", root));
+
+    let mut matcher = body_matcher(body_node);
+    matcher.path.push(CssPathSelector::Type(NodeTypeTag::Body));
+    let classes: Vec<String> = body_node.attributes.get_key("class")
+        .map(|v| v.split_whitespace().map(|x| x.to_string()).collect())
+        .unwrap_or_default();
+    matcher.path.extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
+    let blocks = get_css_blocks(&global_style, &matcher);
+    if !blocks.is_empty() {
+        let inline_css = css_blocks_to_inline_string(&blocks);
+        if !inline_css.is_empty() {
+            let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
+            body.push_str(&alloc::format!("    {} = AzDom_withCss({}, AZ_STR(\"{}\"));\n", root, root, esc));
+        }
+    }
+    for (child_idx, child) in body_node.children.as_ref().iter().enumerate() {
+        match child {
+            XmlNodeChild::Element(child_node) => {
+                let mut m = matcher.clone();
+                m.path.push(CssPathSelector::Children);
+                m.indices_in_parent.push(child_idx);
+                m.children_length.push(body_node.children.len());
+                let child_var = compile_node_c(child_node, component_map, &global_style, m, &mut counter, &mut body)?;
+                body.push_str(&alloc::format!("    AzDom_addChild(&{}, {});\n", root, child_var));
+            }
+            XmlNodeChild::Text(text) => {
+                let text = text.trim();
+                if !text.is_empty() {
+                    let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
+                    body.push_str(&alloc::format!(
+                        "    AzDom_addChild(&{}, AzDom_createText(AZ_STR(\"{}\")));\n", root, esc
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(alloc::format!(
+        "/* Auto-generated UI source code (C). Build:\n\
+         *   clang -I <azul>/target/codegen main.c -lazul\n */\n\
+         #include \"azul.h\"\n\
+         #include <string.h>\n\
+         #define AZ_STR(s) AzString_copyFromBytes((const uint8_t*)(s), 0, strlen(s))\n\n\
+         AzDom render(AzRefAny data, AzLayoutCallbackInfo info) {{\n\
+         {}    return {};\n}}\n\n\
+         int main(void) {{\n    \
+         AzString data_type = AZ_STR(\"Data\");\n    \
+         AzRefAny data = AzRefAny_newC((AzGlVoidPtrConst){{ .ptr = NULL }}, 0, 1, 0, data_type, NULL, 0, 0);\n    \
+         AzApp app = AzApp_create(data, AzAppConfig_create());\n    \
+         AzWindowCreateOptions window = AzWindowCreateOptions_create(render);\n    \
+         AzApp_run(&app, window);\n    \
+         AzApp_delete(&app);\n    \
+         return 0;\n}}\n",
+        body, root
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
