@@ -95,9 +95,12 @@ blind (no compile). Each carries a concrete approach inline:
   (resolvers), the `*_or_default` accessors, `pub(crate) get_grid_gap`, and the 5 `get_scrollbar_*`
   fns (substantive docs). Spot-checked tuples byte-match the originals.
 
-- [ ] **RawImage::into_loaded_image_source — split** 🟡 — `core/src/resources.rs:1781-2202`
-  (~420 lines), format-dispatch over pixel layouts. **Action:** split per-`RawImageFormat` arm into
-  helpers.
+- [x] **RawImage::into_loaded_image_source — split** 🟡 — **DONE:** the ~420-line `match data_format`
+  is now a thin dispatch table; each of the 12 format arms is a private `load_<fmt>(pixels,
+  expected_len, [premultiplied_alpha]) -> Option<(U8Vec, bool /*is_opaque*/)>` helper, with
+  `premultiply_alpha`/`normalize_u16` + the BPP/channel consts hoisted to module scope. Conversion
+  math/bounds/premultiply/is_opaque preserved byte-for-byte; the match site sets `data_format`
+  (BGRA8 for converted formats, R8 stays R8). Public signature unchanged.
 
 - [x] **udp_framing.rs → deprecate for WebTransport** 🟢 — **DONE (reviewed, keep):** self-contained
   (178 lines, 5 tests) and explicitly conditioned on WebTransport/AzMeet, which is NOT part of this
