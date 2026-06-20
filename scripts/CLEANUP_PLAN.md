@@ -144,8 +144,10 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
 
 ### web/
 
-- [ ] **eventloop.rs — dangling "M11 plan" comments** 🟢 — `dll/src/web/eventloop.rs:260, 962, 1312`
-  cite a no-longer-present plan doc. **Action:** strip or replace with stable doc anchors.
+- [x] **eventloop.rs — dangling "M11 plan" comments** 🟢 — **DONE:** rewrote the three doc comments
+  that cited the missing M11 plan doc (`:260` Stage B.1 "high risk", `:962` Stage B.1, `:1312` "hard
+  direction #4") to be self-contained (kept the technical rationale, dropped the dangling doc
+  references). Left the descriptive "Sprint N" section markers as-is per the plan's scope.
 
 - [ ] **html_render.rs — head/title support** 🟡 — body assembled at `:158`; HTML template at
   `:207-230` hardcodes `<title>Azul Web App</title>` (:213) and `<html lang="en">` (:209).

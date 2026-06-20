@@ -257,8 +257,8 @@ pub struct EventloopState {
     /// canonical `StyledDom` value requires running the cascade
     /// (`StyledDom::create` → ~5000 LOC of selector matching, UA CSS
     /// application, computed-value inheritance). That code's
-    /// transitive deps don't survive lift today (per M11 plan's
-    /// "high risk" callout on Stage B.1). For Sprint 1 we
+    /// transitive deps don't survive the web-lift today (the cascade
+    /// is the highest-risk part of the backend to lift). For Sprint 1 we
     /// substitute a marker — the AzDom blob is the source of truth;
     /// Sprint 3's diff loop walks it directly without needing
     /// cascade-derived fields. Future work can promote this to a
@@ -958,10 +958,10 @@ pub unsafe extern "C" fn AzStartup_hitTest(
 //      dispatch / hit-test / diff calls can treat the blob as the
 //      authoritative wasm-side DOM.
 //
-// **Why a marker field instead of `Option<StyledDom>` here**: per
-// the M11 plan's Stage B.1, building a real `StyledDom` requires
-// running the cascade — that path's transitive lift complexity is
-// flagged as high-risk. For Sprint 1 we use the AzDom blob as the
+// **Why a marker field instead of `Option<StyledDom>` here**:
+// building a real `StyledDom` requires running the cascade — that
+// path's transitive lift complexity is the highest-risk part of the
+// web backend. For Sprint 1 we use the AzDom blob as the
 // authoritative representation. Sprint 3's diff loop walks it
 // directly via `reconcile_dom_with_changes`-shaped logic; cascade
 // derived fields aren't needed until we wire computed styles.
@@ -1308,8 +1308,7 @@ pub unsafe extern "C" fn AzStartup_getStyledDomPtr(state: u32) -> u32 {
 // follows once that gap is closed.
 
 /// Default auto-virtualize threshold: subtrees with more than this
-/// many direct children get auto-wrapped as `VirtualView`. Per the
-/// M11 plan's hard direction #4.
+/// many direct children get auto-wrapped as `VirtualView`.
 pub const AZ_AUTO_VIRTUALIZE_THRESHOLD: u32 = 500;
 
 /// Set the auto-virtualize threshold. `0` disables. Defaults to
