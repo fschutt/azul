@@ -4981,6 +4981,40 @@ fn parse_json_to_default_value(
     }
 }
 
+/// Generate a compilable app from the LIVE page (the current window's DOM+CSS).
+///
+/// Serializes the live `StyledDom` back to HTML (`get_html_string`), reparses it,
+/// and runs the per-language HTML→app code generator. Returns `(filename, source)`
+/// for the app's main entry file. This is the "Export → Code" of the live UI.
+#[cfg(feature = "std")]
+fn build_live_page_code(
+    language: &str,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> Result<(String, String), String> {
+    use azul_core::xml::{str_to_c_code, str_to_cpp_code, str_to_python_code, str_to_rust_code};
+
+    let layout_window = callback_info.get_layout_window();
+    let styled_dom = layout_window
+        .layout_results
+        .get(&ROOT_DOM_ID)
+        .map(|lr| &lr.styled_dom)
+        .ok_or_else(|| "no layout result for DOM 0".to_string())?;
+    let html = styled_dom.get_html_string("", "", true);
+    let nodes = azul_layout::xml::parse_xml_string(&html)
+        .map_err(|e| format!("parse live HTML: {:?}", e))?;
+    let cmap = azul_core::xml::ComponentMap::with_builtin();
+
+    let (fname, src) = match language {
+        "rust" => ("src/main.rs", str_to_rust_code(nodes.as_ref(), "", &cmap)),
+        "c" => ("main.c", str_to_c_code(nodes.as_ref(), &cmap)),
+        "cpp" | "c++" => ("main.cpp", str_to_cpp_code(nodes.as_ref(), &cmap)),
+        "python" | "py" => ("main.py", str_to_python_code(nodes.as_ref(), &cmap)),
+        other => return Err(format!("unsupported language: {}", other)),
+    };
+    let src = src.map_err(|e| format!("codegen: {}", e))?;
+    Ok((fname.to_string(), src))
+}
+
 /// Build exported code for all exportable component libraries.
 ///
 /// Uses `compile_fn` on each exportable component to generate source code
@@ -9342,15 +9376,27 @@ fn process_debug_event(
         }
 
         DebugEvent::ExportCode { language } => {
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
-            let result = build_exported_code(language, &map_guard);
-            drop(map_guard);
-            match result {
-                Ok(response) => {
+            // Primary: the live page compiled to a runnable app. Best-effort:
+            // also fold in any exportable component-library sources.
+            match build_live_page_code(language, callback_info) {
+                Ok((fname, src)) => {
+                    let mut files = std::collections::HashMap::new();
+                    files.insert(fname, src);
+                    let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Ok(comp) = build_exported_code(language, &map_guard) {
+                        for (k, v) in comp.files {
+                            files.entry(k).or_insert(v);
+                        }
+                    }
+                    drop(map_guard);
                     send_ok(
                         request,
                         None,
-                        Some(ResponseData::ExportedCode(response)),
+                        Some(ResponseData::ExportedCode(ExportedCodeResponse {
+                            language: language.clone(),
+                            files,
+                            warnings: Vec::new(),
+                        })),
                     );
                 }
                 Err(e) => {
@@ -9383,6 +9429,13 @@ fn process_debug_event(
                     // Build ZIP entries from exported files (scaffold already includes build config)
                     let mut zip_entries: Vec<(String, Vec<u8>)> = Vec::new();
                     let mut seen_paths = std::collections::HashSet::new();
+
+                    // The live page app is the primary artifact.
+                    if let Ok((fname, src)) = build_live_page_code(language, callback_info) {
+                        if seen_paths.insert(fname.clone()) {
+                            zip_entries.push((fname, src.into_bytes()));
+                        }
+                    }
 
                     // Add generated source files (from generate_scaffold — includes Cargo.toml etc.)
                     for (path, content) in &response.files {
