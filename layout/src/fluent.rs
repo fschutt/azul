@@ -51,7 +51,7 @@ use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::Mutex;
 use std::io::{Read, Write as IoWrite, Cursor, Seek};
 
-use azul_css::{AzString, U8Vec, StringVec, OptionStringVec};
+use azul_css::{AzString, U8Vec, StringVec, OptionStringVec, impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug};
 
 use fluent::{FluentResource, FluentValue, FluentArgs};
 use fluent::concurrent::FluentBundle;
@@ -122,6 +122,35 @@ pub struct FluentLanguageInfo {
 /// Vec of FluentLanguageInfo
 pub type FluentLanguageInfoVec = Vec<FluentLanguageInfo>;
 
+/// A single failure encountered while loading a Fluent language pack.
+///
+/// Each variant carries a human-readable detail message; the variant itself
+/// classifies *what* went wrong so callers can match on the category instead
+/// of parsing strings.
+#[derive(Debug, Clone)]
+#[repr(C, u8)]
+pub enum FluentLoadError {
+    /// The ZIP archive could not be opened.
+    OpenArchive(AzString),
+    /// An entry inside the ZIP archive could not be read.
+    ReadEntry(AzString),
+    /// The locale could not be determined from a file path/name.
+    UnknownLocale(AzString),
+    /// A file's contents could not be read.
+    ReadFile(AzString),
+    /// A `.fluent`/`.ftl` resource failed to parse.
+    Parse(AzString),
+    /// A file was not valid UTF-8.
+    InvalidUtf8(AzString),
+    /// The file extension was not recognized.
+    UnknownExtension(AzString),
+}
+
+impl_option!(FluentLoadError, OptionFluentLoadError, copy = false, [Debug, Clone]);
+impl_vec!(FluentLoadError, FluentLoadErrorVec, FluentLoadErrorVecDestructor, FluentLoadErrorVecDestructorType, FluentLoadErrorVecSlice, OptionFluentLoadError);
+impl_vec_clone!(FluentLoadError, FluentLoadErrorVec, FluentLoadErrorVecDestructor);
+impl_vec_debug!(FluentLoadError, FluentLoadErrorVec);
+
 /// Result of loading a ZIP language pack
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -130,8 +159,8 @@ pub struct FluentZipLoadResult {
     pub files_loaded: usize,
     /// Number of files that failed to load
     pub files_failed: usize,
-    /// Error messages for failed files
-    pub errors: StringVec,
+    /// Typed errors for failed files
+    pub errors: FluentLoadErrorVec,
 }
 
 /// A single Fluent bundle for one locale
@@ -442,20 +471,20 @@ impl FluentLocalizerHandle {
             Err(e) => return FluentZipLoadResult {
                 files_loaded: 0,
                 files_failed: 1,
-                errors: StringVec::from_vec(vec![AzString::from(format!("Failed to open ZIP: {}", e))]),
+                errors: FluentLoadErrorVec::from_vec(vec![FluentLoadError::OpenArchive(AzString::from(format!("Failed to open ZIP: {}", e)))]),
             },
         };
 
         let mut files_loaded = 0;
         let mut files_failed = 0;
-        let mut errors = Vec::new();
+        let mut errors: Vec<FluentLoadError> = Vec::new();
 
         for i in 0..archive.len() {
             let mut file = match archive.by_index(i) {
                 Ok(f) => f,
                 Err(e) => {
                     files_failed += 1;
-                    errors.push(AzString::from(format!("Failed to read file {}: {}", i, e)));
+                    errors.push(FluentLoadError::ReadEntry(AzString::from(format!("Failed to read file {}: {}", i, e))));
                     continue;
                 }
             };
@@ -475,7 +504,7 @@ impl FluentLocalizerHandle {
                         Some(l) => l,
                         None => {
                             files_failed += 1;
-                            errors.push(AzString::from(format!("Could not determine locale from path: {}", name)));
+                            errors.push(FluentLoadError::UnknownLocale(AzString::from(format!("Could not determine locale from path: {}", name))));
                             continue;
                         }
                     }
@@ -486,7 +515,7 @@ impl FluentLocalizerHandle {
             let mut content = String::new();
             if let Err(e) = file.read_to_string(&mut content) {
                 files_failed += 1;
-                errors.push(AzString::from(format!("Failed to read {}: {}", name, e)));
+                errors.push(FluentLoadError::ReadFile(AzString::from(format!("Failed to read {}: {}", name, e))));
                 continue;
             }
 
@@ -495,14 +524,14 @@ impl FluentLocalizerHandle {
                 files_loaded += 1;
             } else {
                 files_failed += 1;
-                errors.push(AzString::from(format!("Failed to parse {}", name)));
+                errors.push(FluentLoadError::Parse(AzString::from(format!("Failed to parse {}", name))));
             }
         }
 
         FluentZipLoadResult {
             files_loaded,
             files_failed,
-            errors: StringVec::from_vec(errors),
+            errors: FluentLoadErrorVec::from_vec(errors),
         }
     }
 
@@ -535,7 +564,7 @@ impl FluentLocalizerHandle {
             Err(e) => return FluentZipLoadResult {
                 files_loaded: 0,
                 files_failed: 1,
-                errors: StringVec::from_vec(vec![AzString::from(format!("Failed to read file '{}': {}", path, e))]),
+                errors: FluentLoadErrorVec::from_vec(vec![FluentLoadError::ReadFile(AzString::from(format!("Failed to read file '{}': {}", path, e)))]),
             },
         };
 
@@ -558,7 +587,7 @@ impl FluentLocalizerHandle {
                     None => return FluentZipLoadResult {
                         files_loaded: 0,
                         files_failed: 1,
-                        errors: StringVec::from_vec(vec![AzString::from(format!("Could not determine locale from filename: {}", path))]),
+                        errors: FluentLoadErrorVec::from_vec(vec![FluentLoadError::UnknownLocale(AzString::from(format!("Could not determine locale from filename: {}", path)))]),
                     },
                 };
 
@@ -568,27 +597,27 @@ impl FluentLocalizerHandle {
                             FluentZipLoadResult {
                                 files_loaded: 1,
                                 files_failed: 0,
-                                errors: StringVec::from_const_slice(&[]),
+                                errors: FluentLoadErrorVec::new(),
                             }
                         } else {
                             FluentZipLoadResult {
                                 files_loaded: 0,
                                 files_failed: 1,
-                                errors: StringVec::from_vec(vec![AzString::from(format!("Failed to parse {}", path))]),
+                                errors: FluentLoadErrorVec::from_vec(vec![FluentLoadError::Parse(AzString::from(format!("Failed to parse {}", path)))]),
                             }
                         }
                     }
                     Err(e) => FluentZipLoadResult {
                         files_loaded: 0,
                         files_failed: 1,
-                        errors: StringVec::from_vec(vec![AzString::from(format!("Invalid UTF-8 in {}: {}", path, e))]),
+                        errors: FluentLoadErrorVec::from_vec(vec![FluentLoadError::InvalidUtf8(AzString::from(format!("Invalid UTF-8 in {}: {}", path, e)))]),
                     },
                 }
             }
             _ => FluentZipLoadResult {
                 files_loaded: 0,
                 files_failed: 1,
-                errors: StringVec::from_vec(vec![AzString::from(format!("Unknown file extension: {} (expected .fluent, .ftl, or .zip)", extension))]),
+                errors: FluentLoadErrorVec::from_vec(vec![FluentLoadError::UnknownExtension(AzString::from(format!("Unknown file extension: {} (expected .fluent, .ftl, or .zip)", extension)))]),
             },
         }
     }

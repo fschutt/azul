@@ -119,7 +119,7 @@ pub mod fluent;
 pub use fluent::{
     check_fluent_syntax, check_fluent_syntax_bytes, create_fluent_zip,
     create_fluent_zip_from_strings, export_to_zip, FluentError,
-    FluentLanguageInfo, FluentLanguageInfoVec,
+    FluentLanguageInfo, FluentLanguageInfoVec, FluentLoadError, FluentLoadErrorVec,
     FluentLocalizerHandle, FluentSyntaxCheckResult,
     FluentZipLoadResult,
 };

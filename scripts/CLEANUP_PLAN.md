@@ -263,9 +263,13 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   open/save/directory; real C test `examples/c/file.c` (424 lines). No action (FileDialog
   interactive path untested, expected).
 
-- [ ] **FluentZipLoadResult — typed error enum** 🟢 — `layout/src/fluent.rs:128`:
-  `{ files_loaded, files_failed, errors: StringVec }` — stringly-typed failures. **Action:** replace
-  `errors: StringVec` with a `Vec<FluentLoadError>` typed enum.
+- [x] **FluentZipLoadResult — typed error enum** 🟢 — **DONE (source):** added a `#[repr(C, u8)]`
+  `FluentLoadError` enum (OpenArchive / ReadEntry / UnknownLocale / ReadFile / Parse / InvalidUtf8 /
+  UnknownExtension, each carrying the detail `AzString`) + FFI `impl_option!`/`impl_vec!` scaffolding,
+  changed `FluentZipLoadResult.errors` to `FluentLoadErrorVec`, converted all 8 construction sites,
+  and re-exported the new types from the layout lib. **⚠ api.json sync pending:** run
+  `azul-doc autofix` at the final build step to add `FluentLoadError`/`FluentLoadErrorVec`(+Destructor/
+  Option) and update the `errors` field type (do NOT hand-curate — use the tool).
 
 - [x] **Dockerfile — trim docs** 🟢 — **DONE:** condensed the 44-line header to a ~12-line summary
   (full design/extend/caveats already in `docker/README.md`) and trimmed the verbose per-stage
