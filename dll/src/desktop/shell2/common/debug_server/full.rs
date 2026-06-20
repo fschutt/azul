@@ -2413,6 +2413,10 @@ struct E2eContinuation {
     component_map: Arc<Mutex<azul_core::xml::ComponentMap>>,
     /// App data clone
     app_data: azul_core::refany::RefAny,
+    /// App-state undo/redo history (mini-git) for the `commit_undo_snapshot` /
+    /// `undo_app_state` / `redo_app_state` E2E step ops — exercises the same
+    /// `RefAnyUndoManager` the app-level wiring uses, from outside via E2E JSON.
+    undo_manager: azul_layout::json::RefAnyUndoManager,
 }
 
 // ==================== Debug Server Handle ====================
@@ -3975,6 +3979,33 @@ fn resume_e2e_continuation(
                         logs: vec![], screenshot: None, error: Some(error_msg), response: None,
                     });
                 }
+            } else if op == "commit_undo_snapshot" || op == "undo_app_state" || op == "redo_app_state" {
+                // App-state undo/redo history (mini-git) on the session's app_data,
+                // via the shared RefAnyUndoManager. Exposes the undo system to E2E
+                // JSON so it can be tested end-to-end from the outside.
+                let ok = match op {
+                    "commit_undo_snapshot" => cont.undo_manager.commit(&app_data),
+                    "undo_app_state" => cont.undo_manager.undo(&mut app_data),
+                    "redo_app_state" => cont.undo_manager.redo(&mut app_data),
+                    _ => false,
+                };
+                cont.current_step_results.push(E2eStepResult {
+                    step_index,
+                    op: op.to_string(),
+                    status: if ok { "pass".into() } else { "fail".into() },
+                    duration_ms: step_start.elapsed().as_millis() as u64,
+                    logs: vec![format!("{} -> {}", op, ok)],
+                    screenshot: None,
+                    error: if ok {
+                        None
+                    } else {
+                        Some(format!(
+                            "'{}' did nothing (no JSON serializer, or empty history)",
+                            op
+                        ))
+                    },
+                    response: None,
+                });
             } else {
                 // Regular debug command
                 let mut cmd = serde_json::Map::new();
@@ -9084,6 +9115,7 @@ fn process_debug_event(
                 test_start: std::time::Instant::now(),
                 component_map: component_map.clone(),
                 app_data: app_data.clone(),
+                undo_manager: azul_layout::json::RefAnyUndoManager::new(0),
             };
             let result = resume_e2e_continuation(cont, callback_info);
             if result { needs_update = true; }
