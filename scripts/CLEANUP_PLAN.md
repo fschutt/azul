@@ -347,6 +347,14 @@ Validated: `cargo check` on core(+url), layout(+fluent,+json), dll(web, web-tran
   4. Auto-save = a timer callback (which already gets a `CallbackInfo`) calling `commit_undo_snapshot`,
      optionally gated by a dirty flag set from the RefAny `update_fn` hook.
   (A global-static manager was tried and rejected — wrong shape. Reverted to clean.)
+  **E2E exposure DONE (compile-validated):** added `commit_undo_snapshot`/`undo_app_state`/
+  `redo_app_state` as E2E step ops in the debug server (a `RefAnyUndoManager` lives on
+  `E2eContinuation`, handled in the step loop on the session `app_data`), so the mini-git undo can be
+  driven + asserted from outside via E2E JSON. Test: `tests/e2e/undo_redo.json` (set→commit×3 →
+  undo/undo/redo + assert_app_state + a branch-discard check). **To RUN it** an app whose root model
+  is JSON-serializable via `AZ_REFLECT_JSON` is needed (all bundled test apps use plain `AZ_REFLECT`,
+  not serializable) — a serializable counter app (C `toJson`/`fromJson` + `AZ_REFLECT_JSON`) is the
+  one remaining piece to execute it end-to-end. Validated `--features build-dll,debug-server,json`.
   **UNIFIED with the AZ_DEBUG server's state save/restore:** extracted the common
   `restore_refany_from_json` (deserialize + `replace_contents` + re-attach the live hooks) into
   `layout/src/json.rs`; both `RefAnyUndoManager::restore` and the debug server's `set_app_state`
