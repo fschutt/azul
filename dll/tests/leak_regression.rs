@@ -126,6 +126,7 @@ fn regenerate_layout_does_not_leak_under_resize_stress() {
     let mut window = HeadlessWindow::new(
         options,
         app_data,
+        azul::desktop::shell2::common::event::SharedUndoManager::new(),
         config,
         shared_icon_provider,
         fc_cache,
