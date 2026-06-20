@@ -39,7 +39,6 @@ use azul_css::css::BoxOrStatic;
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
-    extra::coloru_from_str,
     widgets::{
         check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState},
         color_input::{ColorInput, ColorInputOnValueChangeCallbackType, ColorInputState},

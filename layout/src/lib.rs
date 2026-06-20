@@ -93,9 +93,6 @@ pub mod widgets;
 /// Desktop platform helpers (file dialogs, notifications).
 #[cfg(feature = "extra")]
 pub mod desktop;
-/// Color parsing, XML DOM construction, and misc utilities.
-#[cfg(feature = "extra")]
-pub mod extra;
 
 /// ICU internationalization: date/time formatting, plurals, list formatting.
 #[cfg(any(

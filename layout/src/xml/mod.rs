@@ -154,6 +154,19 @@ pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
     DomXml { parsed_dom }
 }
 
+/// Create a Dom (with CSS attached but not applied) from an already-parsed Xml structure.
+///
+/// Returns an unstyled `Dom` suitable for use in layout callbacks (which return `Dom`,
+/// not `StyledDom`). The CSS from `<style>` tags is attached to the `Dom.css` field
+/// and will be applied during the cascade pass.
+pub fn dom_from_parsed_xml(xml: Xml) -> Dom {
+    let component_map = ComponentMap::with_builtin();
+    match str_to_dom_unstyled(xml.root.as_ref(), &component_map) {
+        Ok(dom) => dom,
+        Err(e) => Dom::create_body().with_children(vec![Dom::create_text(format!("{}", e))].into()),
+    }
+}
+
 /// Fastest path: parse XML string directly into FastDom without intermediate XmlNode tree.
 /// Feeds XML tokenizer events directly into CompactDomBuilder, skipping both the
 /// XmlNode tree construction AND the Dom tree construction.

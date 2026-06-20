@@ -104,9 +104,13 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   rasterizer, SVG rasterizer (`render_svg_*` at 5247+), and test helpers. **Action:** split into
   `cpurender/{compositor,raster,svg,pixmap}.rs`.
 
-- [ ] **extra.rs — fold and delete** 🟢 — `layout/src/extra.rs` (43 lines): `coloru_from_str`
-  (wraps `azul_css::parse_css_color`) + `dom_from_parsed_xml`. **Action:** inline `coloru_from_str`
-  at call sites, move `dom_from_parsed_xml` into `xml/mod.rs`, delete file.
+- [x] **extra.rs — fold and delete** 🟢 — **DONE:** `coloru_from_str` was dead (only an unused
+  import in `node_graph.rs`) → removed the import and the fn. `dom_from_parsed_xml` (FFI-used via
+  api.json `Dom.create_from_parsed_xml`) intrinsically needs the `xml` feature, so it moved into
+  `xml/mod.rs` (gated by `feature = "xml"`, which the dll enables; `extra` does not) and the api.json
+  fn_body now reads `azul_layout::xml::dom_from_parsed_xml(xml)`. Dropped `pub mod extra` from the
+  layout lib and deleted `extra.rs`. The xml-off stub was unreachable (no internal caller; FFI codegen
+  targets xml-on builds) so it was dropped.
 
 - [ ] **ICU — add cross-backend CI parity tests** 🟡 — three backends: `icu.rs` (1850, ICU4X
   default), `icu_macos.rs` (339, Foundation), `icu_windows.rs` (488, Win32 NLS); selected via
