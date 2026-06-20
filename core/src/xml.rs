@@ -5194,7 +5194,7 @@ fn main() {
             "#[allow(unused_imports)]\r\npub mod ui {{
 
     use azul::prelude::*;
-    use azul::dom::NodeType;
+    use azul::dom::{{NodeType, TabIndex}};
 
     pub fn render() -> Dom {{\r\n{}\r\n    }}\r\n}}",
             app_source
@@ -6735,6 +6735,29 @@ fn compile_node_to_rust_code_inner<'a>(
 // walker (`compile_*_to_c_code`).
 // ───────────────────────────────────────────────────────────────────────────
 
+/// Tags with a zero-arg per-tag creator (`create_<tag>()` / `AzDom_create<Tag>()`
+/// / `create_node(NodeType::<Tag>)`). Interactive / data elements (Button, Input,
+/// Img, Select, Textarea, Label, A, Table, …) take constructor arguments, so an
+/// exported page maps them to a plain `div` container (structure preserved; the
+/// user re-wires behavior). Keep these CamelCase to match NodeTypeTag debug names.
+const SAFE_CONTAINER_TAGS: &[&str] = &[
+    "Abbr", "Acronym", "Address", "Article", "Aside", "B", "Bdi", "Bdo", "Big",
+    "Blockquote", "Body", "Br", "Caption", "Cite", "Code", "Colgroup", "Dd",
+    "Del", "Dfn", "Dir", "Div", "Dl", "Dt", "Em", "Embed", "Figcaption",
+    "Figure", "Footer", "H1", "H2", "H3", "H4", "H5", "H6", "Head", "Header",
+    "Hr", "Html", "I", "Ins", "Kbd", "Li", "Link", "Main", "Map", "Mark",
+    "Meta", "Nav", "Object", "Ol", "P", "Pre", "Q", "Rp", "Rt", "Rtc", "Ruby",
+    "S", "Samp", "Script", "Section", "Small", "Span", "Strong", "Style", "Sub",
+    "Sup", "Svg", "Tbody", "Td", "Tfoot", "Th", "Thead", "Title", "Tr", "U",
+    "Ul", "Var", "Wbr",
+];
+
+/// The CamelCase tag to actually emit a creator for: the tag itself if it has a
+/// zero-arg creator, else `"Div"`.
+fn safe_container_tag(tag_dbg: &str) -> &'static str {
+    SAFE_CONTAINER_TAGS.iter().copied().find(|t| *t == tag_dbg).unwrap_or("Div")
+}
+
 /// Per-language token hooks for the fluent walker. The `&str` args are already
 /// escaped for a double-quoted string literal.
 struct FluentSyntax {
@@ -6793,12 +6816,13 @@ fn compile_node_fluent<'a>(
     let tag_dbg = alloc::format!("{:?}", tag_to_node_type(&component_name));
 
     // Base create-expression. For an exported live page every node is a plain
-    // HTML element, so emit `create_node(<Tag>)` directly via the language hooks
+    // HTML element, so emit a per-tag creator directly via the language hooks
     // (universal + verified) rather than the per-component `compile_fn`, whose
-    // C++/Python arms emit stale placeholder syntax (`Dom.div()` etc.). Any
+    // C++/Python arms emit stale placeholder syntax (`Dom.div()` etc.).
+    // Interactive/data tags (whose creators need args) fall back to `div`. Any
     // element text shows up as a Text child below and is handled there.
     let _ = &syntax.target;
-    let mut s = (syntax.create_node)(&tag_dbg);
+    let mut s = (syntax.create_node)(safe_container_tag(&tag_dbg));
 
     matcher.path.push(CssPathSelector::Type(node_type_tag));
     let ids: Vec<String> = node.attributes.get_key("id")
@@ -7012,7 +7036,7 @@ fn compile_node_c<'a>(
     out.push_str(&alloc::format!(
         "    AzDom {} = AzDom_create{}();\n",
         var,
-        c_creator_suffix(&tag_dbg)
+        c_creator_suffix(safe_container_tag(&tag_dbg))
     ));
 
     matcher.path.push(CssPathSelector::Type(node_type_tag));
