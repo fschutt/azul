@@ -952,17 +952,22 @@ pub fn regenerate_layout(
 /// re-invoking the user's `layout_callback()` and rebuilding the StyledDom — when
 /// re-running layout on the existing StyledDom would suffice.
 ///
-/// To wire each backend, split `ShouldIncrementalRelayout` out of the combined
-/// arm and call `incremental_relayout(layout_window, &current_window_state,
-/// &mut renderer_resources, &mut debug_messages)` (mirroring `macos/mod.rs`),
-/// then set `frame_needs_regeneration = true`. These arms live in files owned by
-/// Group 7, so they cannot be edited here:
-///   - TODO(superplan): wire ShouldIncrementalRelayout in linux/x11/mod.rs
-///     (the `ShouldRegenerateDomCurrentWindow | ShouldIncrementalRelayout |
-///     UpdateHitTesterAndProcessAgain` arm, ~:1833).
-///   - TODO(superplan): wire ShouldIncrementalRelayout in windows/mod.rs (~:3540).
-///   - TODO(superplan): wire ShouldIncrementalRelayout in linux/wayland/mod.rs
-///     (the combined arms at ~:1951 and ~:2134).
+/// Wiring this per backend ONLY works when the backend's frame-generation path
+/// is transaction-only (rebuilds the WebRender transaction from the current
+/// StyledDom WITHOUT re-running layout) — i.e. its `generate_frame_if_needed`
+/// calls `generate_frame()`, like macOS. There, splitting `ShouldIncrementalRelayout`
+/// out and calling `incremental_relayout(layout_window, &current_window_state,
+/// &mut renderer_resources, &mut debug_messages)` + `frame_needs_regeneration = true`
+/// gives the cheap layout then a transaction-only present.
+///   - DONE: linux/x11/mod.rs (its `generate_frame_if_needed` is transaction-only).
+///   - TODO2(superplan): windows/mod.rs — its WM_PAINT path runs the FULL
+///     `regenerate_layout()` when `frame_needs_regeneration` is set, so an
+///     incremental pass here would just be overridden. Needs a separate
+///     `frame_needs_relayout_only` flag (re-layout existing StyledDom + rebuild
+///     transaction, skip the full regen). Deeper rendering-pipeline change.
+///   - TODO2(superplan): linux/wayland/mod.rs — same: its `generate_frame_if_needed`
+///     runs the FULL `regenerate_layout()` on `frame_needs_regeneration`; same
+///     separate-flag rework needed.
 pub fn incremental_relayout(
     layout_window: &mut LayoutWindow,
     current_window_state: &FullWindowState,
