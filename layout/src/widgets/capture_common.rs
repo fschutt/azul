@@ -12,7 +12,7 @@
 //! NOTE: GL code - compile-verified here; the actual texture rendering must be
 //! verified on a machine with a window + GPU.
 
-use azul_core::animation::UpdateImageType;
+use azul_core::resources::UpdateImageType;
 use azul_core::callbacks::Update;
 use azul_core::gl::gl::{RGBA, TEXTURE_2D, UNSIGNED_BYTE};
 use azul_core::gl::{GlContextPtr, OptionU8VecRef, Texture, U8VecRef};

@@ -54,6 +54,20 @@ use crate::{
     FastBTreeSet, OrderedMap,
 };
 
+/// Selects which image layer of an element a node-image update applies to.
+///
+/// Used by `CallbackInfo::change_node_image` to distinguish between replacing an
+/// element's CSS `background` image and replacing its main content image (e.g. an
+/// animated GL texture re-rendered on resize).
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub enum UpdateImageType {
+    /// The update targets the element's background.
+    Background,
+    /// The update targets the element's main content.
+    Content,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct DpiScaleFactor {

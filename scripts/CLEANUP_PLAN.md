@@ -1,0 +1,288 @@
+# Azul Cleanup Plan
+
+Investigation-backed checklist from the 2026-06-20 code-review pass. Each item carries the
+verified current state (file:line) and a recommended action. Categories:
+**REMOVE** / **REFACTOR** / **BUILD-OUT** / **KEEP** (no action, finding corrected) / **INVESTIGATE**.
+
+Effort: 🟢 small · 🟡 medium · 🔴 large.
+
+---
+
+## core/ crate
+
+- [x] **animation.rs — overpromising stub** 🟢 — **DONE:** `UpdateImageType` is not FFI-exported
+  (absent from api.json); folded it into `core/src/resources.rs` (the image domain, next to
+  `change_node_image` consumers) with an accurate doc, updated the 3 import sites
+  (`layout/callbacks.rs`, `window.rs`, `widgets/capture_common.rs`), dropped `pub mod animation` from
+  `core/src/lib.rs`, and deleted `core/src/animation.rs`.
+
+- [x] ~~ui_solver.rs — remove~~ → **KEEP** 🟢 — `core/src/ui_solver.rs` (53 lines) defines
+  `ResolvedOffsets` + `GlyphInstance`, used by `core/src/resources.rs:48`. Not dead. No action.
+
+- [x] ~~callbacks.rs 822-862 — duplicated docs~~ → **KEEP** 🟢 — Lines 822-834 / 836-854 document
+  *different* items (`CoreCallbackType` vs `CoreCallback`); the recurring "usize is actually a fn
+  ptr" note is intentional. No true duplication. No action.
+
+- [x] ~~db.rs — unusable~~ → **KEEP** 🟢 — `core/src/db.rs` (165 lines): engine-agnostic SQL POD
+  types (`DbValue`/`DbValueVec`/`DbRows`) deliberately in core; the `Db` handle lives in dll behind
+  `db-sqlite`. Has 3 tests. Consumers are in dll/FFI. No action.
+
+- [ ] **events.rs — move tests out** 🟢 — `core/src/events.rs` is 3686 lines; `mod tests` spans
+  3249-3686 (~437 lines, ~16 tests). **Action:** move to `events/tests.rs` (or `#[path]` include).
+  Cuts file ~12%.
+
+- [ ] **gpu.rs — split `synchronize`** 🟡 — `GpuValueCache::synchronize` is `core/src/gpu.rs:99-347`
+  (~248 lines). **Action:** split into per-property-category helpers/iterators.
+
+- [ ] **Merge hit_test.rs + hit_test_tag.rs** 🟡 — `core/src/hit_test.rs` (343) + `hit_test_tag.rs`
+  (541) are tightly coupled (hit_test imports `hit_test_tag::CursorType`; tag file is pure
+  encoding). **Action:** merge into one module (~884 lines).
+- [ ] **⚠ CPU hit tester ignores CSS transforms** 🔴 (correctness, not cleanup) — zero `transform`
+  matches in either file. **Action:** account for CSS transforms in hit testing. Tracks with the
+  "use CPU hit tester always" decoupling-from-WebRender goal.
+
+- [ ] **changeset.rs trailing comment** 🟢 — actually `layout/src/managers/changeset.rs` (not core).
+  6-line trailing comment explaining removed `create_*_changeset` stubs. Informative rationale;
+  **Action:** optional removal (mild keep value).
+
+- [ ] **CssPropertyCache — macro-generate accessors** 🟡 — `core/src/prop_cache.rs` (5482 lines):
+  ~92 of 181 `pub fn get_*` match the mechanical pattern
+  `get_xxx() -> Option<&XxxValue> { self.get_property(..., &CssPropertyType::Xxx).and_then(|p| p.as_xxx()) }`.
+  **Action:** `get_prop_accessor!(name, type, as_method, ValueType)` macro. Biggest LOC win.
+
+- [ ] **RawImage::into_loaded_image_source — split** 🟡 — `core/src/resources.rs:1781-2202`
+  (~420 lines), format-dispatch over pixel layouts. **Action:** split per-`RawImageFormat` arm into
+  helpers.
+
+- [ ] **udp_framing.rs → deprecate for WebTransport** 🟢 — `core/src/udp_framing.rs` (178 lines):
+  socket-free UDP chunked framing + reassembler, 5 tests, self-contained. **Action:** keep until
+  WebTransport (AzMeet) lands, then remove together with the dll `Udp` handle (see dll item).
+
+- [x] ~~core video — duplicated in widget~~ → **KEEP** 🟢 — `core/src/video.rs` (116 lines) is POD
+  config/frame types only; widget logic is `layout/src/widgets/video.rs`. Correct FFI layering, not
+  duplication. No action.
+
+- [x] ~~clipboard paste/copy flow — verify accuracy~~ → **ACCURATE** 🟢 — documented in
+  `layout/src/managers/clipboard.rs:1-27`; matches the stated Paste/Copy/Cut flows exactly. No
+  action.
+
+- [ ] **RefAny — add optional on-update / sync callback** 🔴 — `core/src/refany.rs` has no
+  observer/notify hook; `clone` is a shallow refcount bump. **Action:** add an optional on-update fn
+  on the RefAny inner box, fired on `downcast_mut`. Enables (a) client/server state sync on web and
+  (b) the undo/redo deep-copy/snapshot backup. Foundational for two other items below.
+
+---
+
+## layout/ crate
+
+- [x] ~~scroll_into_view.rs misplaced under "layout managers" / move to core~~ → **KEEP** 🟢 — it's
+  `layout/src/managers/scroll_into_view.rs` (511 lines), correctly with the other managers, has a
+  test file, and depends on `LayoutWindow` geometry (can't go to core). Not superseded. No action.
+
+- [x] ~~Unify layout/hit_test.rs into core CPU hit tester~~ → **KEEP** 🟢 — `layout/src/hit_test.rs`
+  (287 lines) is *cursor-type resolution* needing `LayoutWindow`/`StyleCursor`; `core/src/hit_test.rs`
+  is data types only. Disjoint responsibilities; can't unify into core. Confusing names, but no
+  action. (The real CPU-hit-tester correctness work is the transforms item under core.)
+
+- [ ] **headless.rs — trim diagram + verbose docs** 🟢 — `layout/src/headless.rs` (437 lines, ~37%
+  doc lines). Two ASCII box diagrams at `:14-23` and `:25-35` + comparison table; code starts at
+  line 86. **Action:** trim the `~8-85` doc block to ~15 lines.
+
+- [ ] **paged.rs — move to core** 🟢 — `layout/src/paged.rs` (110 lines): `FragmentationContext` +
+  `PageMargins`, only depends on `LogicalSize` (azul_core). Real pagination logic lives in
+  `solver3::pagination`/`display_list`. **Action:** relocate to core (low effort).
+
+- [ ] **window_state.rs — small module review** 🟢 — `layout/src/window_state.rs` (161 lines:
+  `WindowCreateOptions`, `FullWindowState`) vs `window.rs` (7605 lines). Placement (avoid
+  core→layout cycle) is documented and valid. **Action:** optional merge into window.rs for tidiness;
+  otherwise leave.
+
+- [ ] **cpurender.rs — split monolith** 🔴 — `layout/src/cpurender.rs` (6086 lines, 126 fns) mixes
+  compositor (`CompositorState`/`Layer`), scroll fast-path, `AzulPixmap` framebuffer, agg-rust
+  rasterizer, SVG rasterizer (`render_svg_*` at 5247+), and test helpers. **Action:** split into
+  `cpurender/{compositor,raster,svg,pixmap}.rs`.
+
+- [ ] **extra.rs — fold and delete** 🟢 — `layout/src/extra.rs` (43 lines): `coloru_from_str`
+  (wraps `azul_css::parse_css_color`) + `dom_from_parsed_xml`. **Action:** inline `coloru_from_str`
+  at call sites, move `dom_from_parsed_xml` into `xml/mod.rs`, delete file.
+
+- [ ] **ICU — add cross-backend CI parity tests** 🟡 — three backends: `icu.rs` (1850, ICU4X
+  default), `icu_macos.rs` (339, Foundation), `icu_windows.rs` (488, Win32 NLS); selected via
+  features in `lib.rs:102-112`. **No ICU tests exist anywhere.** **Action:** add a CI parity test
+  comparing macOS/Windows backend output against the ICU4X reference (number/date/list/plural).
+
+- [ ] **layout clippy — tighten lints** 🟡 — `layout/src/lib.rs:13-39` blanket-allows
+  `dead_code, unused_imports, unused_variables, unused_mut, unused_assignments` (+ more) crate-wide.
+  **Action:** remove those 5 worst offenders, let AI fix the resulting errors/warnings
+  incrementally.
+
+- [ ] **`az_mark` / `az_mark_read` markers — remove/gate** 🟡 — 123 web-lift volatile-store
+  diagnostic markers across the hot solver path (`window.rs`, `solver3/*`, `text3/cache.rs`),
+  defined at `lib.rs:53/:61`. web-lift class-B is resolved (per memory). **Action:** remove or
+  feature-gate them. (Also: 198 `unsafe` occurrences — heaviest in `callbacks.rs`, `solver3/fc.rs`,
+  `text3/cache.rs`; audit candidate.)
+
+- [ ] **SVG — unify on the DOM path** 🔴 — two divergent paths: DOM (`SvgNodeData::Path`) only
+  produces a clip mask (can't paint fill/stroke); the working renderer is the direct rasterizer
+  `cpurender.rs:5247 render_svg_to_png/_to_imageref/_group`. `widgets/map.rs:1001` documents the
+  workaround (rasterize → image node). Types in `core/src/svg.rs` (1464) + `xml/svg.rs` (2352).
+  **Action:** give `SvgNodeData::Path` real fill/stroke painting (or have the DOM display-list call
+  `render_svg_group`), then remove the map.rs rasterize-to-image workaround.
+
+---
+
+## dll/ crate
+
+### web/
+
+- [ ] **eventloop.rs — dangling "M11 plan" comments** 🟢 — `dll/src/web/eventloop.rs:260, 962, 1312`
+  cite a no-longer-present plan doc. **Action:** strip or replace with stable doc anchors.
+
+- [ ] **html_render.rs — head/title support** 🟡 — body assembled at `:158`; HTML template at
+  `:207-230` hardcodes `<title>Azul Web App</title>` (:213) and `<html lang="en">` (:209).
+  `NodeType::Head`/`Title`/`Body` are mapped in `node_type_to_html_tag` (:640) but never populate
+  the real `<head>` (body walk wraps everything in `<div id="az-body">`). **Action:** thread a
+  title+lang through `render_html` and honor `NodeType::Head`/`Title` if present in the DOM.
+
+- [ ] **html_render.rs:640 — incomplete head emission** 🟡 — tie-in with item above; `<head>` is
+  never populated from the DOM. **Action:** complete the head/title walk.
+
+- [x] ~~html_render.rs — disallow `_`~~ → **SKIP / low value** 🟢 — ~17 `_` usages are all legitimate
+  match wildcards / `Err(_)` over a ~80-variant `NodeType`; no `let _ =` discards. A blanket ban
+  would force full enumeration with little benefit. **Action:** none (revisit only if NodeType
+  exhaustiveness is independently wanted).
+
+- [ ] **EVENT_PATCH_SCHEMA — track deferred wiring** 🟡 — `dll/src/web/EVENT_PATCH_SCHEMA.md:149-167`
+  lists still-unwired (intentional): real CallbackInfo wasm-side (cbs calling `*_change_*` no-op on
+  web), MoveNode/ReplaceSubtree decoder, AddTimer/RemoveTimer, AddImageToCache/OpenMenu/ShowTooltip/
+  SetCopyContent/SetCutContent, AddThread/RemoveThread. **Action:** keep as a living TODO; prioritize
+  real CallbackInfo + timers when web sprint resumes.
+
+- [ ] **Web server — replace blocking loop with micro tokio runtime** 🔴 —
+  `dll/src/web/server.rs:98` `for stream in listener.incoming()` + thread-per-connection
+  `std::thread::spawn` (:103, `handle_connection` :119), hand-rolled HTTP parsing. **Action:** small
+  tokio runtime + HTTP parsing crate (httparse/hyper); add a "raw request → mock request" conversion
+  path. Fixes the unbounded thread model too.
+
+- [ ] **Web server state — sync via RefAny hook, not server-held mutex** 🔴 — `server.rs:46`
+  `WebServerState { app_data: Arc<Mutex<RefAny>>, window_state: FullWindowState }` (mirrored in
+  `headless.rs:38`). Client/server sync should be a mutation-fired sync-fn on RefAny (see core RefAny
+  item), not a server mutex + manual `re_render_body`. **Action:** depends on the RefAny on-update
+  hook; then rework server state to subscribe.
+
+- [x] ~~boundary_wasms~~ → **KEEP** 🟢 — `server.rs:73` `Vec<BoundaryWasm>` (type `web/mod.rs:181`,
+  built `:752-794`, served `/az/fn/`). Functional M10-D sharding; empty in legacy mode. No action.
+
+- [x] ~~auth_check — difficult on web~~ → **KEEP** 🟢 — `server.rs:524`: bearer-token strip +
+  `constant_time_eq`, tested. Fine as-is. No action.
+
+- [ ] **Shard manifest — use AzJson + pretty-print** 🟢 — `server.rs:628 build_manifest` hand-rolls
+  JSON via `format!` ("no serde_json dep here"). **Action:** rebuild with AzJson + the
+  `to_string_pretty` helper (already exposed in api.json:90187).
+
+- [ ] **run_tool / wasm-ld — static-link question answered** 🟢/INVESTIGATE — `transpiler_remill.rs:9139
+  run_tool` spawns `remill-lift-17`/`llc`/`wasm-ld` as **subprocesses by default**; static linking
+  only behind `web-transpiler-static` + `AZ_NATIVE_REMILL=1` (non-default; in-process path is slow +
+  miscompiles). wasm-ld is always a subprocess. **Action:** decide whether to invest in making the
+  static/in-process path the default, or document subprocess as intentional.
+
+### dll/ (non-web)
+
+- [ ] **Xargo.toml — verify still needed** 🟢 — `dll/Xargo.toml` (153 B) pins std/core with
+  `panic_immediate_abort` for the build-std rebuild path (wasm/size builds). **Action:** confirm
+  whether the project moved to Cargo `-Z build-std`; if so, this is vestigial — else keep.
+
+- [ ] **desktop/extra/udp/ — remove for WebTransport** 🟡 — `dll/src/desktop/extra/udp/mod.rs`
+  (~8 KB): C-ABI `Udp` handle over `std::net::UdpSocket` (`send_to`/`recv`/`send_chunked`/
+  `recv_chunked`), depends on `core::udp_framing`. **Action:** remove with WebTransport migration —
+  also clean api.json entries + callers + the core `udp_framing.rs`.
+
+- [ ] **video_codec — H.265 path incomplete / possible dup** 🟡 — `desktop/extra/video_codec/mod.rs:391`
+  `VideoDecoder::open` selects H.264/H.265; "H.265 decode isn't wired into the bytes-decoder path
+  yet." Backend logic spread across `decode_vulkan.rs`/`demux.rs`/`pipeline.rs`/`stream.rs`.
+  **Action:** review `open`/`backend()` vs vulkan/pipeline decoders for overlap; finish or remove the
+  H.265 path.
+
+- [ ] **gnome_menu/README.md — trim stale plan** 🟢 —
+  `dll/src/desktop/shell2/linux/gnome_menu/README.md` dated Oct 30 2025 with a completed "Week 2
+  Implementation Plan" + unchecked integration items. **Action:** drop the dated plan/summary, keep
+  protocol/API reference.
+
+- [ ] **dll clippy — scope the allows** 🟡 — `dll/src/lib.rs:30-53` blanket-allows
+  `unused_imports, unused_variables, dead_code, unused_mut, non_snake_case, deprecated,
+  unexpected_cfgs, static_mut_refs`. **Action:** move these to `#[allow]` on the generated/FFI/
+  platform-gated modules rather than crate-global; also the `static_mut_refs` TODO → migrate to
+  `OnceLock`.
+
+- [ ] **brotli/zlib — expose compression in api.json?** 🟢 — `brotli_decompressor::BrotliDecompress`
+  used internally only: `web/classify.rs:81`, `desktop/material_icons.rs:27`,
+  `debug_server/full.rs:2906`. **Action (optional):** if user-facing compression is wanted, add a
+  thin `AzBrotli`/`AzDeflate` handle to api.json; otherwise leave internal.
+
+- [ ] **App config — add `source_language` field** 🟡 — `core/src/resources.rs:454 AppConfig` has no
+  source-language field; `App` + `App::run` at `dll/src/desktop/app.rs:25/:128`. **Action:** add
+  `source_language: AppSourceLanguage` to `AppConfig` so the web backend can auto-ship the matching
+  runtime (java.wasm etc.). Consumed in `App::run`/`App::create`.
+
+---
+
+## Cross-cutting
+
+- [ ] **AzJson — serde-parity differential tests** 🟡 — types in `core/src/json.rs` (689); logic in
+  `layout/src/json.rs` (`json_parse`/`json_stringify`/`serialize_refany_to_json`). 8 basic tests at
+  `:156`, but no round-trip-vs-serde_json differential test. Pretty-print already exposed
+  (`to_string_pretty`, api.json:90187). **Action:** add explicit round-trip + serde-parity tests.
+
+- [ ] **Swappable `<icon>` for menus/buttons** 🟡 — a swappable icon system already exists:
+  `core/src/icon.rs` (673 lines, `IconProviderHandle`, `Dom::create_icon("home")`). But
+  `MenuItemIcon` (`core/src/menu.rs:258`) only has `Checkbox`/`Image(ImageRef)`, and Button
+  (`widgets/button.rs:77`) uses raw `OptionImageRef`. **Action:** migrate menu + button icons to
+  reference the icon-provider system instead of raw `ImageRef`.
+
+- [ ] **Undo/redo system** 🔴 — only text-edit undo exists (`SystemChange::Undo/RedoTextEdit`,
+  `events.rs:2511`); no general application-state undo. **Action:** build a generic undo stack on top
+  of the RefAny deep-clone/snapshot callback (depends on the RefAny on-update/deep-copy item).
+
+- [x] ~~File API — home dirs / C test~~ → **GOOD** 🟢 — `azul_layout::file::FilePath` exposes
+  `get_home_dir`/`get_temp_dir`/`get_cache_dir`/etc. (api.json:59789); `FileDialog`
+  open/save/directory; real C test `examples/c/file.c` (424 lines). No action (FileDialog
+  interactive path untested, expected).
+
+- [ ] **FluentZipLoadResult — typed error enum** 🟢 — `layout/src/fluent.rs:128`:
+  `{ files_loaded, files_failed, errors: StringVec }` — stringly-typed failures. **Action:** replace
+  `errors: StringVec` with a `Vec<FluentLoadError>` typed enum.
+
+- [ ] **Dockerfile — trim docs** 🟢 — `docker/Dockerfile` (210 lines, ~51% comments). **Action:**
+  cut the 100+ comment lines to a short summary; move detail to `docker/README.md` (already
+  referenced).
+
+- [ ] **URL — thread the typed `Url` through consumers** 🟢 — strongly-typed `azul_layout::url::Url`
+  + `UrlParseError` already exposed (api.json:89649, impl `layout/src/url.rs:14`), but consumers
+  still take strings (e.g. `VideoSource::Url(AzString)`, `core/src/video.rs:24`). **Action:** migrate
+  string-URL consumers to the typed `Url`.
+
+- [ ] **HashMap → BTreeMap** 🔴 — ~322 occurrences in src (core 20, **layout 188**, dll 114; dll
+  concentrated in `web/symbol_table.rs` 38, `web/transpiler_remill.rs` 9). **Action:** prioritize
+  codegen/lift maps in `web/` where deterministic iteration affects output reproducibility; do the
+  rest mechanically. Bulk is in layout, not dll.
+
+- [ ] **Clipboard rich text / images** 🔴 — `ClipboardEventData` (`core/src/events.rs:410`) is
+  `content: Option<String>` — plain text only. **Action:** replace with a typed clipboard-content
+  enum (text/html/image) and wire through Copy/Cut/Paste.
+
+---
+
+## Suggested ordering
+
+1. **Quick wins (🟢):** events.rs tests split, headless.rs diagram trim, eventloop.rs comment strip,
+   gnome README trim, Dockerfile trim, changeset.rs comment, extra.rs fold, shard-manifest AzJson,
+   paged.rs → core, FluentZipLoadResult enum.
+2. **Lint tightening (🟡):** layout + dll clippy de-liberalization (then AI fixes errors); remove
+   `az_mark` markers.
+3. **Mechanical refactors (🟡):** prop_cache accessor macro, gpu `synchronize` split,
+   `into_loaded_image_source` split, hit_test merge, menu/button `<icon>` migration, html_render
+   head/title.
+4. **Foundational (🔴):** RefAny on-update/deep-copy hook → unblocks web state sync + undo/redo.
+5. **Big architectural (🔴):** CPU hit-test transforms (+ WebRender decouple), SVG DOM unification,
+   cpurender.rs split, web server tokio rewrite, HashMap→BTreeMap sweep, rich clipboard, WebTransport
+   migration (removes udp + udp_framing).

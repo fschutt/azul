@@ -16,7 +16,7 @@ use alloc::{
 use std::sync::Mutex;
 
 use azul_core::{
-    animation::UpdateImageType,
+    resources::UpdateImageType,
     callbacks::{CoreCallback, FocusTarget, FocusTargetPath, HidpiAdjustedBounds, Update},
     dom::{DomId, DomIdVec, DomNodeId, IdOrClass, NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, OptionCursorNodePosition, OptionScreenPosition, OptionDragDelta, CursorNodePosition, ScreenPosition, DragDelta},

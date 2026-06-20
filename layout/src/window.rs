@@ -27,7 +27,7 @@ use std::{
 };
 
 use azul_core::{
-    animation::UpdateImageType,
+    resources::UpdateImageType,
     callbacks::{FocusTarget, HidpiAdjustedBounds, VirtualViewCallbackReason, Update},
     dom::{
         AccessibilityAction, AttributeType, Dom, DomId, DomIdVec, DomNodeId, NodeId, NodeType, On,

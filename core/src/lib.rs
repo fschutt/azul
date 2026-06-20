@@ -236,8 +236,6 @@ pub mod callbacks;
 pub mod host_invoker;
 /// Accessibility types for screen-reader integration (AccessKit).
 pub mod a11y;
-/// CSS animation and transition configuration.
-pub mod animation;
 /// Audio POD types — `AudioConfig` (stream format) + `AudioFrame` (interleaved
 /// f32 samples). The unit captured from the mic, played back, and (P8) shared
 /// over UDP. Backend (rodio / cpal / AVAudioEngine / AAudio) lives dll-side.
