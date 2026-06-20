@@ -53,10 +53,12 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   `create_*_changeset` helpers were removed and that the payload types are retained/used by
   `window.rs`/`undo_redo.rs`.
 
-- [ ] **CssPropertyCache — macro-generate accessors** 🟡 — `core/src/prop_cache.rs` (5482 lines):
-  ~92 of 181 `pub fn get_*` match the mechanical pattern
-  `get_xxx() -> Option<&XxxValue> { self.get_property(..., &CssPropertyType::Xxx).and_then(|p| p.as_xxx()) }`.
-  **Action:** `get_prop_accessor!(name, type, as_method, ValueType)` macro. Biggest LOC win.
+- [x] **CssPropertyCache — macro-generate accessors** 🟡 — **DONE:** added an `impl_get_prop!(name,
+  ValueType, Variant, as_method)` macro and collapsed **170** mechanical accessors to one-liners
+  (more than the estimated ~92 matched the exact shape). `core/src/prop_cache.rs` shrank 5482 → 3651
+  lines (-1831). Left untouched: `get_property`/`get_property_slow`/`get_property_with_context`
+  (resolvers), the `*_or_default` accessors, `pub(crate) get_grid_gap`, and the 5 `get_scrollbar_*`
+  fns (substantive docs). Spot-checked tuples byte-match the originals.
 
 - [ ] **RawImage::into_loaded_image_source — split** 🟡 — `core/src/resources.rs:1781-2202`
   (~420 lines), format-dispatch over pixel layouts. **Action:** split per-`RawImageFormat` arm into
@@ -174,11 +176,11 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   would force full enumeration with little benefit. **Action:** none (revisit only if NodeType
   exhaustiveness is independently wanted).
 
-- [ ] **EVENT_PATCH_SCHEMA — track deferred wiring** 🟡 — `dll/src/web/EVENT_PATCH_SCHEMA.md:149-167`
-  lists still-unwired (intentional): real CallbackInfo wasm-side (cbs calling `*_change_*` no-op on
-  web), MoveNode/ReplaceSubtree decoder, AddTimer/RemoveTimer, AddImageToCache/OpenMenu/ShowTooltip/
-  SetCopyContent/SetCutContent, AddThread/RemoveThread. **Action:** keep as a living TODO; prioritize
-  real CallbackInfo + timers when web sprint resumes.
+- [x] **EVENT_PATCH_SCHEMA — track deferred wiring** 🟡 — **DONE (reviewed, keep):** the
+  `## What's NOT yet wired (intentional)` section is already an accurate, well-maintained living TODO
+  (real CallbackInfo wasm-side, MoveNode/ReplaceSubtree decoder, AddTimer/RemoveTimer, image-cache/
+  menu/tooltip/clipboard, threads). No change — it's serving its purpose; the listed items are web
+  sprint work, not cleanup.
 
 - [ ] **Web server — replace blocking loop with micro tokio runtime** 🔴 —
   `dll/src/web/server.rs:98` `for stream in listener.incoming()` + thread-per-connection
@@ -217,16 +219,19 @@ Effort: 🟢 small · 🟡 medium · 🔴 large.
   its presence (`doc/src/dllgen/deploy.rs:632`, `doc/src/dllgen/build.rs:132`) and copies it into the
   generated DLL build dir; no `-Z build-std` migration exists. Not vestigial. No change.
 
-- [ ] **desktop/extra/udp/ — remove for WebTransport** 🟡 — `dll/src/desktop/extra/udp/mod.rs`
-  (~8 KB): C-ABI `Udp` handle over `std::net::UdpSocket` (`send_to`/`recv`/`send_chunked`/
-  `recv_chunked`), depends on `core::udp_framing`. **Action:** remove with WebTransport migration —
-  also clean api.json entries + callers + the core `udp_framing.rs`.
+- [x] **desktop/extra/udp/ — remove for WebTransport** 🟡 — **DONE (reviewed, defer):** the `Udp`
+  handle is FFI-exported (present in api.json) and explicitly conditioned on the WebTransport/AzMeet
+  migration, which is NOT part of this cleanup. Removing it now would break the live FFI surface.
+  Defer; remove together with `core::udp_framing` + api.json entries when WebTransport lands (pairs
+  with the udp_framing.rs item above).
 
-- [ ] **video_codec — H.265 path incomplete / possible dup** 🟡 — `desktop/extra/video_codec/mod.rs:391`
-  `VideoDecoder::open` selects H.264/H.265; "H.265 decode isn't wired into the bytes-decoder path
-  yet." Backend logic spread across `decode_vulkan.rs`/`demux.rs`/`pipeline.rs`/`stream.rs`.
-  **Action:** review `open`/`backend()` vs vulkan/pipeline decoders for overlap; finish or remove the
-  H.265 path.
+- [x] **video_codec — H.265 path incomplete / possible dup** 🟡 — **DONE (reviewed):** no
+  duplication — `VideoDecoder::open` layers cleanly on `decode_vulkan::VulkanVideoDecoder::open_h264`.
+  The H.265 **decode** path is an intentional, clearly-documented stub (`backend: None` with a "not
+  wired into the bytes-decoder path yet; demos are H.264" comment), while the **encoder** + the
+  `open(h265)` API do support H.265. Finishing decode = implementing a Vulkan-Video H.265 decoder +
+  test content — that's feature work, out of cleanup scope; removing it would drop encoder H.265
+  support. Left as the documented stub. (Tracked as a feature follow-up, not cleanup.)
 
 - [x] **gnome_menu/README.md — trim stale plan** 🟢 — **DONE:** dropped the "Implementation Status"
   checklist (stale unchecked integration items), the dated "Week 2 Implementation Summary
