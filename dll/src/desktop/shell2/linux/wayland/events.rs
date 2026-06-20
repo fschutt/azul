@@ -1320,22 +1320,14 @@ pub(super) extern "C" fn text_input_done_handler(
     }
 
     if needs_process {
-        use azul_core::events::ProcessEventResult;
-        match window.process_window_events(0) {
-            ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
-                if let Err(e) = window.regenerate_layout() {
-                    log_error!(
-                        LogCategory::Layout,
-                        "[Wayland] IME layout regeneration error: {}",
-                        e
-                    );
-                }
-            }
-            ProcessEventResult::ShouldReRenderCurrentWindow => {
-                window.request_redraw();
-            }
-            _ => {}
-        }
+        // Route through the SHARED result handler (same as the pointer / keyboard
+        // paths) so ShouldIncrementalRelayout and ShouldUpdateDisplayList aren't
+        // swallowed by a `_ => {}` arm, and a redraw is always requested after a DOM
+        // regen. The old inline match called regenerate_layout() directly, which on
+        // Wayland does NOT build/send the WebRender transaction — so committed IME
+        // text only became visible on the next event (e.g. a mouse click).
+        let result = window.process_window_events(0);
+        window.handle_process_event_result(result);
     }
 
     // Step 3: Update preedit display + request redraw
