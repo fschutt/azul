@@ -22,7 +22,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PORT=8801
 HELLO_BIN="$ROOT/target/release/hello-world-undo"
 TEST_JSON="$ROOT/tests/e2e/undo_redo.json"
