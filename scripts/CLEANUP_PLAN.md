@@ -301,10 +301,11 @@ blind (no compile). Each carries a concrete approach inline:
 
 ## Cross-cutting
 
-- [ ] **AzJson — serde-parity differential tests** 🟡 — types in `core/src/json.rs` (689); logic in
-  `layout/src/json.rs` (`json_parse`/`json_stringify`/`serialize_refany_to_json`). 8 basic tests at
-  `:156`, but no round-trip-vs-serde_json differential test. Pretty-print already exposed
-  (`to_string_pretty`, api.json:90187). **Action:** add explicit round-trip + serde-parity tests.
+- [x] **AzJson — serde-parity differential tests** 🟡 — **DONE:** added `test_roundtrip_serde_parity`
+  (nested value → `to_string_pretty` → re-parse → equal) and **fixed 9 pre-existing broken assertions**
+  in the existing parse tests that compared azul `OptionBool`/`OptionF64`/`OptionI64`/`OptionString`
+  to std `Option` (E0308 — they never compiled under `cargo test`; added `.into_option()`). All 10
+  `json::tests` pass under `cargo test -p azul-layout --features json --lib`.
 
 - [ ] **Swappable `<icon>` for menus/buttons** 🟡 — **DEFERRED w/ reasoning + concrete plan.** The
   Button side is tractable (add `OptionAzString icon_name`; when set, render a `Dom::create_icon(name)`
@@ -316,9 +317,14 @@ blind (no compile). Each carries a concrete approach inline:
   avoid a half-migrated icon API on a working feature; do Button + menu together once the provider can
   be threaded into menu building.
 
-- [ ] **Undo/redo system** 🔴 — only text-edit undo exists (`SystemChange::Undo/RedoTextEdit`,
-  `events.rs:2511`); no general application-state undo. **Action:** build a generic undo stack on top
-  of the RefAny deep-clone/snapshot callback (depends on the RefAny on-update/deep-copy item).
+- [x] **Undo/redo system** 🔴 — **DONE (core building block):** added `RefAnyUndoManager` in
+  `layout/src/json.rs` — a generic application-state undo/redo stack that snapshots the whole app
+  `RefAny` via its serialize fn (JSON) and restores via deserialize + `replace_contents`
+  (`snapshot`/`undo`/`redo`/`can_undo`/`can_redo`/`clear`, bounded depth). Drive it manually at
+  action boundaries or from the new RefAny `update_fn` hook. **Fixed a real bug found while testing:**
+  `replace_contents` copies the *new* value's (de)serialize fns, so `restore` now re-attaches the
+  live serialize/deserialize/update hooks across the swap. Validated by `test_undo_manager_roundtrip`.
+  (Wiring it into the desktop event loop's command palette is a separate app-level step.)
 
 - [x] ~~File API — home dirs / C test~~ → **GOOD** 🟢 — `azul_layout::file::FilePath` exposes
   `get_home_dir`/`get_temp_dir`/`get_cache_dir`/etc. (api.json:59789); `FileDialog`
