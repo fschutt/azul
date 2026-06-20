@@ -5293,7 +5293,24 @@ impl MacOSWindow {
 
         // CRITICAL: Regenerate layout FIRST if needed
         // Layout must be current before building display lists
-        let display_list_needs_rebuild = if self.common.frame_needs_regeneration {
+        let display_list_needs_rebuild = if self.common.frame_relayout_only {
+            // Restyle / runtime edit: the RegenerateLayoutIncremental input arm already
+            // re-ran layout on the EXISTING StyledDom (incremental_relayout) AND
+            // regenerated the per-DOM display list into layout_results. SKIP the full
+            // regenerate_layout() — re-running it would discard that work and re-invoke
+            // the user's layout_callback. Just force a WebRender display-list rebuild
+            // from the already-updated layout so the restyle reaches the screen.
+            // Checked BEFORE frame_needs_regeneration (the input arm sets BOTH flags).
+            // Mirrors wayland generate_frame_if_needed's relayout-only path.
+            log_trace!(
+                LogCategory::Layout,
+                "[build_atomic_txn] Relayout-only: skipping regenerate_layout()"
+            );
+            self.common.frame_relayout_only = false;
+            self.common.frame_needs_regeneration = false;
+            self.common.display_list_dirty = false;
+            true
+        } else if self.common.frame_needs_regeneration {
             log_trace!(
                 LogCategory::Layout,
                 "[build_atomic_txn] Regenerating layout"
