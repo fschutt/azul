@@ -49,7 +49,8 @@ use objc2::{
 use objc2_app_kit::{
     NSAppKitVersionNumber, NSAppKitVersionNumber10_12, NSApplication,
     NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType, NSBitmapImageRep,
-    NSColor, NSCompositingOperation, NSEvent, NSEventMask, NSEventType, NSImage, NSMenu,
+    NSColor, NSCompositingOperation, NSDragOperation, NSDraggingInfo, NSEvent, NSEventMask,
+    NSEventType, NSFilenamesPboardType, NSImage, NSMenu,
     NSMenuItem, NSOpenGLContext, NSOpenGLPixelFormat, NSOpenGLPixelFormatAttribute, NSOpenGLView,
     NSResponder, NSScreen, NSTextInputClient, NSTrackingArea, NSTrackingAreaOptions, NSView,
     NSVisualEffectView, NSWindow, NSWindowDelegate, NSWindowStyleMask, NSWindowTitleVisibility,
@@ -488,6 +489,107 @@ mod view_handlers {
             }
         }
     }
+
+    // File drag-and-drop (NSDraggingDestination)
+    //
+    // The view's `define_class!` registers `NSFilenamesPboardType` via
+    // `registerForDraggedTypes:` at creation; these shared handlers extract the
+    // dragged file paths from the pasteboard and forward to the
+    // `handle_file_*` methods on `MacOSWindow`, which own all `FileDropManager`
+    // mutation + one-shot clearing (mirrors the Windows `WM_DROPFILES` path).
+
+    /// Read the dragged file paths from the drag operation's pasteboard.
+    fn extract_dragged_paths(info: &ProtocolObject<dyn NSDraggingInfo>) -> Vec<String> {
+        let pasteboard = info.draggingPasteboard();
+        let mut paths = Vec::new();
+        unsafe {
+            // `NSFilenamesPboardType` yields an `NSArray` of `NSString` file paths.
+            // Downcast to the base array (the generic `NSArray<NSString>` is not a
+            // `DowncastTarget`), then downcast each element individually.
+            if let Some(plist) = pasteboard.propertyListForType(NSFilenamesPboardType) {
+                if let Ok(array) = plist.downcast::<objc2_foundation::NSArray>() {
+                    for element in array.iter() {
+                        if let Ok(s) = element.downcast::<objc2_foundation::NSString>() {
+                            paths.push(s.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        paths
+    }
+
+    /// Route an `EventProcessResult` to the appropriate redraw/relayout, matching
+    /// the inline handling in the mouse/key handlers above.
+    unsafe fn route_result(macos_window: &mut MacOSWindow, result: EventProcessResult) {
+        match result {
+            EventProcessResult::RegenerateDisplayList => {
+                macos_window.common.frame_needs_regeneration = true;
+                macos_window.request_redraw();
+            }
+            EventProcessResult::UpdateDisplayList => {
+                macos_window.common.display_list_dirty = true;
+                macos_window.request_redraw();
+            }
+            EventProcessResult::RequestRedraw => {
+                macos_window.request_redraw();
+            }
+            EventProcessResult::RegenerateLayoutIncremental => {
+                macos_window.apply_incremental_relayout_result();
+            }
+            _ => {}
+        }
+    }
+
+    pub(super) fn dragging_entered(
+        window_ptr: Option<*mut std::ffi::c_void>,
+        info: &ProtocolObject<dyn NSDraggingInfo>,
+    ) -> NSDragOperation {
+        let paths = extract_dragged_paths(info);
+        if paths.is_empty() {
+            return NSDragOperation::None;
+        }
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_file_drag_entered(paths);
+                route_result(macos_window, result);
+                macos_window.sync_window_state();
+            }
+        }
+        NSDragOperation::Copy
+    }
+
+    pub(super) fn dragging_exited(window_ptr: Option<*mut std::ffi::c_void>) {
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_file_drag_exited();
+                route_result(macos_window, result);
+                macos_window.sync_window_state();
+            }
+        }
+    }
+
+    pub(super) fn perform_drag(
+        window_ptr: Option<*mut std::ffi::c_void>,
+        info: &ProtocolObject<dyn NSDraggingInfo>,
+    ) -> bool {
+        let paths = extract_dragged_paths(info);
+        if paths.is_empty() {
+            return false;
+        }
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_file_drop(paths);
+                route_result(macos_window, result);
+                macos_window.sync_window_state();
+            }
+            return true;
+        }
+        false
+    }
 }
 
 // GLView - OpenGL rendering view
@@ -614,6 +716,28 @@ define_class!(
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
             view_handlers::scroll_wheel(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        // NSDraggingDestination — file drag-and-drop
+
+        #[unsafe(method(draggingEntered:))]
+        fn dragging_entered(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
+            view_handlers::dragging_entered(*self.ivars().window_ptr.borrow(), info)
+        }
+
+        #[unsafe(method(draggingUpdated:))]
+        fn dragging_updated(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
+            view_handlers::dragging_entered(*self.ivars().window_ptr.borrow(), info)
+        }
+
+        #[unsafe(method(draggingExited:))]
+        fn dragging_exited(&self, _info: Option<&ProtocolObject<dyn NSDraggingInfo>>) {
+            view_handlers::dragging_exited(*self.ivars().window_ptr.borrow());
+        }
+
+        #[unsafe(method(performDragOperation:))]
+        fn perform_drag_operation(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> bool {
+            view_handlers::perform_drag(*self.ivars().window_ptr.borrow(), info)
         }
 
         #[unsafe(method(keyDown:))]
@@ -1202,6 +1326,28 @@ define_class!(
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
             view_handlers::scroll_wheel(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        // NSDraggingDestination — file drag-and-drop
+
+        #[unsafe(method(draggingEntered:))]
+        fn dragging_entered(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
+            view_handlers::dragging_entered(*self.ivars().window_ptr.borrow(), info)
+        }
+
+        #[unsafe(method(draggingUpdated:))]
+        fn dragging_updated(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
+            view_handlers::dragging_entered(*self.ivars().window_ptr.borrow(), info)
+        }
+
+        #[unsafe(method(draggingExited:))]
+        fn dragging_exited(&self, _info: Option<&ProtocolObject<dyn NSDraggingInfo>>) {
+            view_handlers::dragging_exited(*self.ivars().window_ptr.borrow());
+        }
+
+        #[unsafe(method(performDragOperation:))]
+        fn perform_drag_operation(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> bool {
+            view_handlers::perform_drag(*self.ivars().window_ptr.borrow(), info)
         }
 
         #[unsafe(method(keyDown:))]
@@ -2463,6 +2609,13 @@ impl MacOSWindow {
             let _: () = unsafe { msg_send![&*gl_view, setWantsLayer: YES] };
         }
 
+        // Register for file drag-and-drop so the NSDraggingDestination methods fire.
+        unsafe {
+            let types =
+                objc2_foundation::NSArray::from_slice(&[NSFilenamesPboardType]);
+            gl_view.registerForDraggedTypes(&types);
+        }
+
         // Get OpenGL context
         let gl_context =
             unsafe { gl_view.openGLContext() }.ok_or(WindowError::ContextCreationFailed)?;
@@ -2478,7 +2631,14 @@ impl MacOSWindow {
     fn create_cpu_view(frame: NSRect, mtm: MainThreadMarker) -> Retained<CPUView> {
         let view: Option<Retained<CPUView>> =
             unsafe { msg_send_id![CPUView::alloc(mtm), initWithFrame: frame] };
-        view.expect("Failed to create CPUView")
+        let view = view.expect("Failed to create CPUView");
+        // Register for file drag-and-drop so the NSDraggingDestination methods fire.
+        unsafe {
+            let types =
+                objc2_foundation::NSArray::from_slice(&[NSFilenamesPboardType]);
+            view.registerForDraggedTypes(&types);
+        }
+        view
     }
 
     /// Configure VSync on an OpenGL context

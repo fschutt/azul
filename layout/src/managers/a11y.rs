@@ -65,6 +65,7 @@ impl Default for A11yManager {
     }
 }
 
+#[cfg(feature = "a11y")]
 impl A11yManager {
     /// Creates a new `A11yManager` with an empty tree containing only a root window node.
     pub fn new() -> Self {

@@ -14,7 +14,7 @@ clear message; verify before marking done.
 
 | # | Item | Subsystem | Status |
 |---|------|-----------|--------|
-| 1 | macOS file-drop end-to-end | dll macOS shell + file_drop mgr | TODO |
+| 1 | macOS file-drop end-to-end | dll macOS shell + file_drop mgr | DONE |
 | 2 | display_list pagination text no-op | layout solver3 display_list | TODO |
 | 3 | cpurender backdrop-filter + text-shadow | layout cpurender | TODO |
 | 4 | Wayland tooltip text shaping | dll wayland shell | TODO |
@@ -27,16 +27,24 @@ Files: `dll/src/desktop/shell2/macos/events.rs`, `dll/src/desktop/shell2/macos/m
 `layout/src/managers/file_drop.rs`, `layout/src/event_determination.rs:~641`.
 Gap (audit): file-drag-hover is entirely non-functional on macOS. Windows also lacks
 modern `IDropTarget` hover (it uses legacy `WM_DROPFILES` drop-only).
-- [ ] `handle_file_drop` (macos/events.rs:~789) has **no caller** — wire it.
-- [ ] Add an `NSDraggingDestination` delegate to the macOS view(s) in mod.rs
+- [x] `handle_file_drop` (macos/events.rs:~827) now has a caller (`performDragOperation:`).
+- [x] Added `NSDraggingDestination` methods to BOTH macOS views (GLView + CPUView) in mod.rs
       (`draggingEntered`/`draggingUpdated`/`draggingExited`/`performDragOperation`),
-      registering dragged types (file URLs). Windows already wires `file_drop_manager`.
-- [ ] Wire `FileDropManager::set_hovered_file` from `draggingEntered`/`draggingExited`
-      (and Windows OLE `IDropTarget` `DragEnter`/`DragLeave`) so the
-      `FileHover`/`FileHoverCancel` path (event_determination.rs:641) can fire.
-- [ ] (cleanup) drop the macOS-only lossy `EventProcessResult` vs core `ProcessEventResult`.
-- Verify: `cargo check -p azul-dll --features build-dll` (host=macOS compiles the
-  objc2 delegate); manual drag-file-onto-window if a demo is handy.
+      registering `NSFilenamesPboardType` via `registerForDraggedTypes:` at view creation.
+      Shared `view_handlers::{dragging_entered,dragging_exited,perform_drag}` + pasteboard
+      path extraction, mirroring the Windows `WM_DROPFILES` `file_drop_manager` flow.
+- [x] `FileDropManager::set_hovered_file` driven from `draggingEntered`/`draggingUpdated`
+      (Some) and `draggingExited` (None) so `FileHover`/`FileHoverCancel`
+      (event_determination.rs:641) fire. (Windows OLE `IDropTarget` hover NOT added —
+      out of scope for the macOS item; Windows keeps its legacy drop-only path.)
+- [ ] (cleanup) macOS-only lossy `EventProcessResult` vs core `ProcessEventResult` — SKIPPED
+      (would widen scope; result routing matches the existing mouse/key handlers exactly).
+- Verify: `cargo check -p azul-dll --features build-dll` PASSES (host=macOS).
+  Manual drag-file-onto-window still needs a GUI session (can't run headless).
+- Side fix (verification blocker): `layout/src/managers/a11y.rs` `impl A11yManager` was
+  missing `#[cfg(feature = "a11y")]` (the struct + a `not(a11y)` stub impl were gated but
+  the real impl wasn't) → any no-a11y build (azul-doc codegen) failed with 187 errors.
+  Added the gate; behavior-preserving (a11y builds unchanged).
 
 ## Item 2 — display_list pagination text no-op  (REGRESSION-ish)
 File: `layout/src/solver3/display_list.rs` (text path ~6027; `generate_text_display_items`).

@@ -368,6 +368,8 @@ objc2-app-kit = { version = "0.3.0", default-features = true, optional = true, f
     "NSWindow",
     "NSOpenGL",
     "NSOpenGLView",
+    "NSDragging",
+    "NSPasteboard",
 ] }
 # Biometric auth (P4.1) — LAContext / evaluatePolicy / biometryType.
 objc2-local-authentication = { version = "0.3.2", default-features = true, optional = true, features = [
