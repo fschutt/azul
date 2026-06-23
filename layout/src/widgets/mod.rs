@@ -225,5 +225,8 @@ pub mod popover;
 /// of options (drop_down's select + text_input's editable field); see
 /// `combobox.rs`.
 pub mod combobox;
+/// Modal / dialog widget — an in-app overlay dialog (backdrop + centred panel +
+/// arbitrary content), shown/hidden via state toggle; see `modal.rs`.
+pub mod modal;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
