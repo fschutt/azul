@@ -4,6 +4,7 @@
 //! `src/main.rs` skeleton suitable for `cargo build` against `azul`.
 
 use alloc::{format, string::String, string::ToString, vec, vec::Vec};
+use core::fmt::Write;
 
 use super::{CodegenBackend, GeneratedFile};
 use crate::{
@@ -65,21 +66,21 @@ impl CodegenBackend for RustBackend {
 
     for block in css.rules.iter() {
         output.push_str("\t\tCssRuleBlock {\r\n");
-        output.push_str(&format!(
+        let _ = write!(output,
             "\t\t\tpath: {},\r\n",
             print_block_path(&block.path, 3)
-        ));
-        output.push_str(&format!(
+        );
+        let _ = write!(output,
             "\t\t\tpriority: {},\r\n",
             block.priority,
-        ));
+        );
 
         output.push_str("\t\t\tdeclarations: [\r\n");
         for declaration in block.declarations.iter() {
-            output.push_str(&format!(
+            let _ = write!(output,
                 "\t\t\t\t{},\r\n",
                 print_declaration(declaration, 4)
-            ));
+            );
         }
         output.push_str("\t\t\t]\r\n");
 
