@@ -787,6 +787,35 @@ pub(crate) fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u3
     snap
 }
 
+/// Overwrite (direct copy, no alpha blending) a `w`×`h` RGBA region of `dst` at
+/// `(x, y)` with the pixels in `src`. Out-of-bounds pixels are skipped. This is
+/// the inverse of [`snapshot_region`] and is used to write a filtered backdrop
+/// copy back into the output buffer for `backdrop-filter`.
+pub(crate) fn write_region(dst: &mut AzulPixmap, src: &[u8], w: u32, h: u32, x: i32, y: i32) {
+    let dw = dst.width as i32;
+    let dh = dst.height as i32;
+    for py in 0..h as i32 {
+        let dy = y + py;
+        if dy < 0 || dy >= dh {
+            continue;
+        }
+        for px in 0..w as i32 {
+            let dx = x + px;
+            if dx < 0 || dx >= dw {
+                continue;
+            }
+            let si = ((py as u32 * w + px as u32) * 4) as usize;
+            let di = ((dy as u32 * dst.width + dx as u32) * 4) as usize;
+            if si + 3 < src.len() && di + 3 < dst.data.len() {
+                dst.data[di] = src[si];
+                dst.data[di + 1] = src[si + 1];
+                dst.data[di + 2] = src[si + 2];
+                dst.data[di + 3] = src[si + 3];
+            }
+        }
+    }
+}
+
 pub fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
     let x = a.origin.x.min(b.origin.x);
     let y = a.origin.y.min(b.origin.y);

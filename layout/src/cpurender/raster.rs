@@ -7,6 +7,7 @@ use azul_core::ui_solver::GlyphInstance;
 use azul_css::props::basic::{ColorOrSystem, ColorU, FontRef};
 use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
 use azul_css::props::style::filter::StyleFilter;
+use azul_css::props::style::box_shadow::StyleBoxShadow;
 use agg_rust::basics::{FillingRule, PATH_FLAGS_NONE};
 use agg_rust::blur::stack_blur_rgba32;
 use agg_rust::color::Rgba8;
@@ -915,6 +916,7 @@ fn render_display_list_with_state(
     // Items inside a scroll frame have their bounds shifted by the
     // accumulated offset before rendering.
     let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+    let mut text_shadow_stack: Vec<StyleBoxShadow> = Vec::new();
 
     let _p_loop = crate::probe::Probe::span("raster_loop");
     for item in &display_list.items {
@@ -930,6 +932,7 @@ fn render_display_list_with_state(
             &mut clip_stack,
             &mut mask_stack,
             &mut scroll_offset_stack,
+            &mut text_shadow_stack,
             render_state,
         )?;
     }
@@ -1036,6 +1039,7 @@ pub fn render_display_list_damaged(
     let mut clip_stack: Vec<Option<AzRect>> = vec![base_clip];
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
     let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+    let mut text_shadow_stack: Vec<StyleBoxShadow> = Vec::new();
 
     for item in display_list.items.iter() {
         // Always process state-management items (Push/Pop) regardless of bounds,
@@ -1081,6 +1085,7 @@ pub fn render_display_list_damaged(
             &mut clip_stack,
             &mut mask_stack,
             &mut scroll_offset_stack,
+            &mut text_shadow_stack,
             render_state,
         )?;
     }
@@ -1099,6 +1104,7 @@ pub(crate) fn render_single_item(
     clip_stack: &mut Vec<Option<AzRect>>,
     mask_stack: &mut Vec<MaskEntry>,
     scroll_offset_stack: &mut Vec<(f32, f32)>,
+    text_shadow_stack: &mut Vec<StyleBoxShadow>,
     render_state: &CpuRenderState,
 ) -> Result<(), String> {
     // Current accumulated scroll offset — applied to all item bounds.
@@ -1370,13 +1376,34 @@ pub(crate) fn render_single_item(
             ..
         } => {
             let clip = *clip_stack.last().unwrap();
+            let text_clip = scroll_rect(clip_rect.inner());
+            // Paint text-shadows behind the real glyphs, back-to-front (the
+            // outermost / first-pushed shadow is painted first so later ones
+            // layer on top). Reuses the glyph rasterizer + the same stack-blur
+            // used by `box-shadow`/`filter`.
+            for shadow in text_shadow_stack.iter() {
+                render_text_shadow(
+                    shadow,
+                    glyphs,
+                    *font_hash,
+                    *font_size_px,
+                    pixmap,
+                    &text_clip,
+                    clip,
+                    renderer_resources,
+                    font_manager,
+                    dpi_factor,
+                    glyph_cache,
+                    (scroll_dx, scroll_dy),
+                )?;
+            }
             render_text(
                 glyphs,
                 *font_hash,
                 *font_size_px,
                 *color,
                 pixmap,
-                &scroll_rect(clip_rect.inner()),
+                &text_clip,
                 clip,
                 renderer_resources,
                 font_manager,
@@ -1634,6 +1661,7 @@ pub(crate) fn render_single_item(
                         clip_stack,
                         mask_stack,
                         scroll_offset_stack,
+                        text_shadow_stack,
                         render_state,
                     )?;
                 }
@@ -1838,19 +1866,18 @@ pub(crate) fn render_single_item(
         DisplayListItem::PushBackdropFilter { .. } => {}
         DisplayListItem::PopBackdropFilter => {}
 
-        // TODO(superplan g4): `text-shadow` is unimplemented in the CPU renderer.
-        // Correct impl: thread a `text_shadow_stack: &mut Vec<StyleBoxShadow>`
-        // into this function (pushed/popped by these markers), and in the
-        // `DisplayListItem::Text` / `TextLayout` arms, when the stack is
-        // non-empty, first rasterize the glyph run offset by `shadow.offset`,
-        // tinted with `shadow.color`, blurred by `shadow.blur_radius` (reuse the
-        // box-blur used by `StyleFilter::Blur` in `apply_layer_filters`, which
-        // needs an offscreen buffer), then draw the real glyphs on top. A
-        // shadow-less / blur-less shortcut would mis-render the common
-        // `text-shadow: Xpx Ypx Zpx` case, so this is documented as a known
-        // limitation rather than half-implemented.
-        DisplayListItem::PushTextShadow { .. } => {}
-        DisplayListItem::PopTextShadow => {}
+        // `text-shadow` (superplan g4): the shadow is applied in the `Text` arm
+        // (above) by `render_text_shadow`, which rasterizes the glyph run offset
+        // by `shadow.offset`, tinted with `shadow.color`, blurred by
+        // `shadow.blur_radius` (reusing the same `stack_blur_rgba32` used by
+        // `box-shadow`/`filter`), then draws the real glyphs on top. These
+        // markers just maintain the active-shadow stack.
+        DisplayListItem::PushTextShadow { shadow } => {
+            text_shadow_stack.push(*shadow);
+        }
+        DisplayListItem::PopTextShadow => {
+            text_shadow_stack.pop();
+        }
 
         DisplayListItem::PushImageMaskClip {
             bounds,
@@ -2103,6 +2130,110 @@ fn render_text(
     // Single render pass for all glyphs in this text run
     let mut sl = ScanlineU8::new();
     render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
+
+    Ok(())
+}
+
+/// Paint a single `text-shadow` for a glyph run.
+///
+/// Renders the glyphs (offset by the shadow's logical offset, tinted with the
+/// shadow colour) into a transparent offscreen buffer, blurs that buffer by the
+/// shadow's blur radius using the same `stack_blur_rgba32` the box-shadow/filter
+/// paths use, then alpha-composites it onto `pixmap` (below where the real
+/// glyphs are subsequently drawn).
+///
+/// The offscreen is full-pixmap-sized so the blur is never clipped at a tight
+/// glyph bbox and so the existing `blit_buffer` (premultiplied-alpha) compositor
+/// can be reused directly. Text-shadows are uncommon, so the extra full-frame
+/// allocation/blit is acceptable for correctness.
+fn render_text_shadow(
+    shadow: &StyleBoxShadow,
+    glyphs: &[GlyphInstance],
+    font_hash: FontHash,
+    font_size_px: f32,
+    pixmap: &mut AzulPixmap,
+    clip_rect: &LogicalRect,
+    clip: Option<AzRect>,
+    renderer_resources: &RendererResources,
+    font_manager: Option<&FontManager<FontRef>>,
+    dpi_factor: f32,
+    glyph_cache: &mut GlyphCache,
+    scroll_offset: (f32, f32),
+) -> Result<(), String> {
+    let color = shadow.color;
+    if color.a == 0 || glyphs.is_empty() {
+        return Ok(());
+    }
+
+    // Logical offsets (render_text applies dpi_factor internally).
+    let off_x = shadow
+        .offset_x
+        .inner
+        .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    let off_y = shadow
+        .offset_y
+        .inner
+        .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    let blur_logical = shadow
+        .blur_radius
+        .inner
+        .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+        .max(0.0);
+
+    // Offscreen, transparent, same size as the target (so blur has room).
+    let mut tmp = match AzulPixmap::new(pixmap.width, pixmap.height) {
+        Some(p) => p,
+        None => return Ok(()),
+    };
+    tmp.fill(0, 0, 0, 0);
+
+    // Shift glyphs by the (logical) shadow offset.
+    let shifted: Vec<GlyphInstance> = glyphs
+        .iter()
+        .map(|g| {
+            let mut g = *g;
+            g.point.x += off_x;
+            g.point.y += off_y;
+            g
+        })
+        .collect();
+
+    // Rasterize the offset glyph run in the shadow colour into the offscreen.
+    let shadow_clip_rect = LogicalRect {
+        origin: LogicalPosition {
+            x: clip_rect.origin.x + off_x,
+            y: clip_rect.origin.y + off_y,
+        },
+        size: clip_rect.size,
+    };
+    render_text(
+        &shifted,
+        font_hash,
+        font_size_px,
+        color,
+        &mut tmp,
+        &shadow_clip_rect,
+        clip,
+        renderer_resources,
+        font_manager,
+        dpi_factor,
+        glyph_cache,
+        scroll_offset,
+    )?;
+
+    // Blur the offscreen (in device pixels).
+    let blur_px = blur_logical * dpi_factor;
+    if blur_px > 0.5 {
+        let radius = (blur_px.ceil() as u32).min(254);
+        let w = tmp.width;
+        let h = tmp.height;
+        let stride = (w * 4) as i32;
+        let mut ra = unsafe { RowAccessor::new_with_buf(tmp.data.as_mut_ptr(), w, h, stride) };
+        stack_blur_rgba32(&mut ra, radius, radius);
+    }
+
+    // Composite the (premultiplied) shadow buffer onto the target.
+    blit_buffer(pixmap, &tmp.data, tmp.width, tmp.height, 0, 0);
 
     Ok(())
 }
@@ -2934,3 +3065,229 @@ pub fn render_dom_to_image(
 // Direct SVG-to-image renderer (bypasses CSS layout)
 // ============================================================================
 
+
+#[cfg(all(test, feature = "std"))]
+mod text_shadow_tests {
+    use super::*;
+    use crate::font::parsed::ParsedFont;
+    use crate::solver3::display_list::{DisplayList, WindowLogicalRect};
+    use azul_core::resources::{FontKey, IdNamespace};
+    use azul_css::props::basic::pixel::{PixelValue, PixelValueNoPercent};
+    use azul_css::props::style::box_shadow::StyleBoxShadow;
+
+    fn load_test_font() -> Option<ParsedFont> {
+        let candidates = [
+            "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+        ];
+        for path in candidates {
+            if let Ok(bytes) = std::fs::read(path) {
+                let arc = std::sync::Arc::new(rust_fontconfig::FontBytes::Owned(
+                    std::sync::Arc::from(bytes.as_slice()),
+                ));
+                if let Some(font) = ParsedFont::from_bytes(&bytes, 0, &mut Vec::new())
+                    .map(|f| f.with_source_bytes(arc))
+                {
+                    return Some(font);
+                }
+            }
+        }
+        None
+    }
+
+    fn renderer_resources_with(font: &ParsedFont) -> (RendererResources, FontHash) {
+        let mut rr = RendererResources::default();
+        let font_ref = crate::parsed_font_to_font_ref(font.clone());
+        let key = FontKey::unique(IdNamespace(0));
+        let hash = crate::font_ref_to_parsed_font(&font_ref).hash;
+        rr.font_hash_map.insert(hash, key);
+        rr.currently_registered_fonts
+            .insert(key, (font_ref, Default::default()));
+        (rr, FontHash { font_hash: hash })
+    }
+
+    /// Shape a string into glyph instances with a baseline at (x, y).
+    fn shape(parsed: &ParsedFont, text: &str, font_size: f32, x: f32, y: f32) -> Vec<GlyphInstance> {
+        let upm = parsed.font_metrics.units_per_em as f32;
+        let scale = font_size / upm;
+        let mut pen_x = x;
+        let mut out = Vec::new();
+        for c in text.chars() {
+            let gid = parsed.lookup_glyph_index(c as u32).unwrap_or(0);
+            let advance = parsed.get_horizontal_advance(gid) as f32 * scale;
+            out.push(GlyphInstance {
+                index: gid as u32,
+                point: LogicalPosition { x: pen_x, y },
+                size: LogicalSize {
+                    width: advance,
+                    height: font_size,
+                },
+            });
+            pen_x += advance;
+        }
+        out
+    }
+
+    fn count_red(pixmap: &AzulPixmap) -> usize {
+        pixmap
+            .data()
+            .chunks_exact(4)
+            .filter(|p| p[0] > 150 && p[1] < 100 && p[2] < 100)
+            .count()
+    }
+
+    /// A `text-shadow` must actually paint shadow-coloured pixels, offset from
+    /// the glyphs, where the no-shadow render shows only the white background.
+    #[test]
+    fn text_shadow_paints_offset_colored_pixels() {
+        let Some(font) = load_test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let (rr, font_hash) = renderer_resources_with(&font);
+
+        let w = 200u32;
+        let h = 60u32;
+        let font_size = 32.0;
+        // Black glyphs, baseline near the vertical middle.
+        let glyphs = shape(&font, "Hi", font_size, 10.0, 40.0);
+        let clip_rect: WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: w as f32, height: h as f32 },
+        }
+        .into();
+
+        let text_item = DisplayListItem::Text {
+            glyphs: glyphs.clone(),
+            font_hash,
+            font_size_px: font_size,
+            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            clip_rect: clip_rect.clone(),
+            source_node_index: None,
+        };
+
+        // Render WITHOUT a shadow: only black glyphs on white -> no red pixels.
+        let mut gc = GlyphCache::new();
+        let mut no_shadow = AzulPixmap::new(w, h).unwrap();
+        no_shadow.fill(255, 255, 255, 255);
+        let dl_plain = DisplayList {
+            items: vec![text_item.clone()],
+            ..Default::default()
+        };
+        render_display_list(&dl_plain, &mut no_shadow, 1.0, &rr, None, &mut gc).unwrap();
+        let red_plain = count_red(&no_shadow);
+        assert_eq!(red_plain, 0, "baseline render should have no red pixels");
+
+        // Render WITH a red shadow offset +24px right, no blur.
+        let shadow = StyleBoxShadow {
+            offset_x: PixelValueNoPercent { inner: PixelValue::px(24.0) },
+            offset_y: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+            blur_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+            spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+            color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+            clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
+        };
+        let mut with_shadow = AzulPixmap::new(w, h).unwrap();
+        with_shadow.fill(255, 255, 255, 255);
+        let dl_shadow = DisplayList {
+            items: vec![
+                DisplayListItem::PushTextShadow { shadow },
+                text_item,
+                DisplayListItem::PopTextShadow,
+            ],
+            ..Default::default()
+        };
+        let mut gc2 = GlyphCache::new();
+        render_display_list(&dl_shadow, &mut with_shadow, 1.0, &rr, None, &mut gc2).unwrap();
+        let red_shadow = count_red(&with_shadow);
+
+        assert!(
+            red_shadow > 20,
+            "text-shadow must paint red shadow pixels (got {red_shadow})"
+        );
+
+        // The shadow must be OFFSET to the right of the glyphs: there must be red
+        // pixels in the right portion of the canvas that are absent in the plain
+        // render (i.e. to the right of where the glyphs themselves sit).
+        let right_red = with_shadow
+            .data()
+            .chunks_exact(4)
+            .enumerate()
+            .filter(|(i, p)| {
+                let x = (*i as u32) % w;
+                x > 30 && p[0] > 150 && p[1] < 100 && p[2] < 100
+            })
+            .count();
+        assert!(
+            right_red > 0,
+            "shadow should appear offset to the right of the glyphs"
+        );
+    }
+
+    /// With a blurred shadow, the shadow region should be larger (blur spreads
+    /// coverage) than with a hard-edged shadow.
+    #[test]
+    fn text_shadow_blur_spreads_coverage() {
+        let Some(font) = load_test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let (rr, font_hash) = renderer_resources_with(&font);
+        let w = 200u32;
+        let h = 80u32;
+        let font_size = 32.0;
+        let glyphs = shape(&font, "Hi", font_size, 40.0, 50.0);
+        let clip_rect: WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: w as f32, height: h as f32 },
+        }
+        .into();
+
+        let make = |blur: f32| -> usize {
+            let shadow = StyleBoxShadow {
+                offset_x: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+                offset_y: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+                blur_radius: PixelValueNoPercent { inner: PixelValue::px(blur) },
+                spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+                color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
+            };
+            let text_item = DisplayListItem::Text {
+                glyphs: glyphs.clone(),
+                font_hash,
+                font_size_px: font_size,
+                color: ColorU { r: 0, g: 0, b: 0, a: 0 }, // transparent text: isolate shadow
+                clip_rect: clip_rect.clone(),
+                source_node_index: None,
+            };
+            let dl = DisplayList {
+                items: vec![
+                    DisplayListItem::PushTextShadow { shadow },
+                    text_item,
+                    DisplayListItem::PopTextShadow,
+                ],
+                ..Default::default()
+            };
+            let mut pm = AzulPixmap::new(w, h).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let mut gc = GlyphCache::new();
+            render_display_list(&dl, &mut pm, 1.0, &rr, None, &mut gc).unwrap();
+            // count any non-white pixel (shadow coverage)
+            pm.data()
+                .chunks_exact(4)
+                .filter(|p| p[0] != 255 || p[1] != 255 || p[2] != 255)
+                .count()
+        };
+
+        let hard = make(0.0);
+        let blurred = make(6.0);
+        assert!(hard > 0, "hard shadow should paint");
+        assert!(
+            blurred > hard,
+            "blurred shadow ({blurred}) should cover more pixels than hard ({hard})"
+        );
+    }
+}

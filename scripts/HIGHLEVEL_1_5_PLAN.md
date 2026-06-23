@@ -16,7 +16,7 @@ clear message; verify before marking done.
 |---|------|-----------|--------|
 | 1 | macOS file-drop end-to-end | dll macOS shell + file_drop mgr | DONE |
 | 2 | display_list pagination text no-op | layout solver3 display_list | DONE |
-| 3 | cpurender backdrop-filter + text-shadow | layout cpurender | TODO |
+| 3 | cpurender backdrop-filter + text-shadow | layout cpurender | DONE (both) |
 | 4 | Wayland tooltip text shaping | dll wayland shell | TODO |
 | 5 | shape-outside path() + ruby shaping | layout text3 | TODO |
 
@@ -74,11 +74,36 @@ garbage-glyph stub). Needs real font/`renderer_resources` threading to shape + e
 Files: `layout/src/cpurender/compositor.rs` (~backdrop-filter), `layout/src/cpurender/raster.rs` (~text-shadow).
 Note: cpurender is now a directory (post-split). `filter` is already wired; these two are
 still complete no-ops in the compositor layer path (allocate_layers + composite_frame).
-- [ ] Implement `text-shadow` (offset+blur+color behind glyphs) in the raster path.
-- [ ] Implement `backdrop-filter` (sample+filter the backdrop under the layer) in the
-      compositor path — OR, if too heavy, document as a known limitation (conservative
-      on rendering per maintainer; prefer a reftest if implementing).
-- Verify: `cargo check -p azul-layout`; add/extend a reftest (none exist for these yet).
+- [x] Implemented `text-shadow` (offset+blur+color behind glyphs) in the raster path.
+      Threaded a `text_shadow_stack: &mut Vec<StyleBoxShadow>` through `render_single_item`
+      (Push/PopTextShadow now maintain it; was a no-op). In the `Text` arm, each active
+      shadow is painted back-to-front by new `render_text_shadow`: rasterizes the glyph
+      run (via the existing `render_text`) offset by the shadow offset into a transparent
+      offscreen, blurs it with the SAME `stack_blur_rgba32` used by box-shadow/filter,
+      then alpha-composites (existing `blit_buffer`) below the real glyphs. Multiple
+      stacked shadows supported. All 4 `render_single_item` call sites updated (two
+      top-level loops seed a fresh stack; the VirtualView recursion + compositor pass it
+      through).
+- [x] Implemented `backdrop-filter` in the compositor path. `allocate_layers_from_display_list`
+      now allocates a layer for `PushBackdropFilter` (mirroring `PushFilter`) tagged
+      `is_backdrop_filter`; `MatchKind::BackdropFilter` + `find_matching_pop` arm added.
+      In `composite_layer_recursive`, a backdrop-filter layer snapshots the already-
+      composited `output` region under its bounds (`snapshot_region`), runs the existing
+      `apply_layer_filters` on it, writes it back (new `write_region` direct-copy helper),
+      THEN blits the layer's own (unfiltered) content over it — exactly the design the old
+      TODO described. Bottom-up compositing means the backdrop is already in `output`, so
+      no restructuring was needed. Bug fixed along the way: an empty backdrop-filter
+      element (empty display-list range) kept the Layer::new opaque-white pixbuf (render
+      skips empty ranges) which would wipe the filtered backdrop — backdrop-filter pixbufs
+      are now cleared transparent at allocation.
+- Verify: `cargo check -p azul-layout` clean; `cargo test -p azul-layout --lib` = 128 ok.
+  Three new proof-tests (render to in-memory `AzulPixmap`, assert real pixels):
+  `text_shadow_paints_offset_colored_pixels` (red shadow offset +24px appears where the
+  no-shadow render has zero red pixels), `text_shadow_blur_spreads_coverage` (blurred
+  shadow covers strictly more pixels than hard-edged), and
+  `backdrop_filter_inverts_backdrop_region` (blue backdrop under the element inverts to
+  yellow; pixels outside the element box stay blue). The glyph tests skip gracefully if no
+  system font is found (still real-assert when one is, e.g. CI/macOS/Linux).
 
 ## Item 4 — Wayland tooltip text shaping
 File: `dll/src/desktop/shell2/linux/wayland/tooltip.rs:~279` (`render_tooltip_content`).

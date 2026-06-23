@@ -54,8 +54,14 @@ pub struct Layer {
     pub scroll_offset: (f32, f32),
     /// Layer opacity (1.0 = fully opaque).
     pub opacity: f32,
-    /// CSS filters applied at composite time.
+    /// CSS filters applied at composite time. For a normal filter layer these
+    /// are applied to the layer's OWN content; for a `backdrop-filter` layer
+    /// (see `is_backdrop_filter`) they are instead applied to the already-
+    /// composited backdrop pixels under the layer's bounds.
     pub filters: Vec<StyleFilter>,
+    /// If true, `filters` apply to the backdrop (parent + earlier siblings
+    /// already in `output`), not to this layer's own content.
+    pub is_backdrop_filter: bool,
     /// CSS transform for this layer.
     pub transform: TransAffine,
     /// Range of display list items [start, end) that render into this layer.
@@ -280,17 +286,53 @@ impl CompositorState {
                         }
                     }
                 }
-                // TODO(superplan g4): allocate a layer for `backdrop-filter` here
-                // (mirror the PushFilter arm above), but tag it so the compositor
-                // knows to filter the *backdrop* rather than the layer's own
-                // content. The compositing side then reads back the parent
-                // `output` region under the bounds in
-                // `composite_layer_recursive` and runs `apply_layer_filters` on
-                // it before blitting the content. Left unallocated for now — see
-                // the matching known-limitation TODO in `render_single_item`.
+                // `backdrop-filter` (superplan g4): allocate a layer mirroring
+                // PushFilter, but tagged `is_backdrop_filter` so the compositor
+                // applies the filter to the *backdrop* (parent + earlier siblings
+                // already in `output`) rather than to the layer's own content.
+                // The compositing side reads back the `output` region under the
+                // layer bounds and runs `apply_layer_filters` on it before
+                // blitting the content (see `composite_layer_recursive`).
+                DisplayListItem::PushBackdropFilter { bounds, filters } => {
+                    let b = *bounds.inner();
+                    let pw = (b.size.width * dpi_factor).ceil() as u32;
+                    let ph = (b.size.height * dpi_factor).ceil() as u32;
+                    if pw > 0 && ph > 0 && !filters.is_empty() {
+                        let new_id = self.alloc_layer_id();
+                        let mut layer = Layer::new(new_id, b, pw, ph);
+                        layer.filters = filters.clone();
+                        layer.is_backdrop_filter = true;
+                        // The layer's OWN content may be empty (e.g. an empty
+                        // div with only `backdrop-filter`). render_layers skips
+                        // empty display-list ranges, leaving the Layer::new
+                        // opaque-white pixbuf, which would then be blitted over
+                        // (and wipe) the filtered backdrop. Start transparent so
+                        // an empty backdrop-filter element shows the backdrop.
+                        layer.pixbuf.fill(0, 0, 0, 0);
+                        let end =
+                            find_matching_pop(&display_list.items, i, MatchKind::BackdropFilter);
+                        layer.display_list_range = (i + 1, end);
+                        self.layers.insert(new_id, layer);
+                        let parent_id = *layer_stack.last().unwrap();
+                        if let Some(parent) = self.layers.get_mut(&parent_id) {
+                            parent.children.push(new_id);
+                        }
+                        layer_stack.push(new_id);
+                    }
+                }
+                DisplayListItem::PopBackdropFilter => {
+                    if layer_stack.len() > 1 {
+                        let top_id = *layer_stack.last().unwrap();
+                        if let Some(layer) = self.layers.get(&top_id) {
+                            if layer.is_backdrop_filter {
+                                layer_stack.pop();
+                            }
+                        }
+                    }
+                }
                 // `text-shadow` (Push/PopTextShadow) is a text-rasterization
-                // concern, not a layer boundary, so it is handled (currently as a
-                // documented no-op) in `render_single_item`, not here.
+                // concern, not a layer boundary, so it is handled in
+                // `render_single_item`, not here.
                 _ => {}
             }
             i += 1;
@@ -460,19 +502,39 @@ impl CompositorState {
         if layer_id == self.root_layer {
             blit_pixmap(&layer.pixbuf, output, 0, 0, 1.0);
         } else {
-            // Apply filters at composite time
-            let src = if !layer.filters.is_empty() {
-                let mut filtered = layer.pixbuf.clone_pixmap();
-                apply_layer_filters(&mut filtered, &layer.filters, dpi_factor);
-                Some(filtered)
-            } else {
-                None
-            };
-
-            let src_pixbuf = src.as_ref().unwrap_or(&layer.pixbuf);
             let px_x = (abs_x * dpi_factor) as i32;
             let px_y = (abs_y * dpi_factor) as i32;
-            blit_pixmap(src_pixbuf, output, px_x, px_y, layer.opacity);
+
+            if layer.is_backdrop_filter && !layer.filters.is_empty() {
+                // `backdrop-filter`: the backdrop (parent + earlier siblings) is
+                // ALREADY composited into `output` at this point (bottom-up
+                // order). Snapshot the region under the layer's bounds, run the
+                // filter on that copy, write it back, THEN blit the layer's own
+                // (unfiltered) content on top.
+                let w = layer.pixbuf.width;
+                let h = layer.pixbuf.height;
+                let snap = snapshot_region(output, px_x, px_y, w, h);
+                let mut backdrop = AzulPixmap {
+                    data: snap,
+                    width: w,
+                    height: h,
+                };
+                apply_layer_filters(&mut backdrop, &layer.filters, dpi_factor);
+                write_region(output, &backdrop.data, w, h, px_x, px_y);
+                blit_pixmap(&layer.pixbuf, output, px_x, px_y, layer.opacity);
+            } else {
+                // Apply filters at composite time (to the layer's own content).
+                let src = if !layer.filters.is_empty() {
+                    let mut filtered = layer.pixbuf.clone_pixmap();
+                    apply_layer_filters(&mut filtered, &layer.filters, dpi_factor);
+                    Some(filtered)
+                } else {
+                    None
+                };
+
+                let src_pixbuf = src.as_ref().unwrap_or(&layer.pixbuf);
+                blit_pixmap(src_pixbuf, output, px_x, px_y, layer.opacity);
+            }
         }
 
         // Composite children in z-order
@@ -599,6 +661,7 @@ impl Layer {
             scroll_offset: (0.0, 0.0),
             opacity: 1.0,
             filters: Vec::new(),
+            is_backdrop_filter: false,
             transform: TransAffine::new(),
             display_list_range: (0, 0),
             scroll_id: None,
@@ -617,6 +680,7 @@ enum MatchKind {
     ScrollFrame,
     Opacity,
     Filter,
+    BackdropFilter,
     ReferenceFrame,
 }
 
@@ -641,6 +705,13 @@ fn find_matching_pop(items: &[DisplayListItem], start: usize, kind: MatchKind) -
             }
             (DisplayListItem::PushFilter { .. }, MatchKind::Filter) => depth += 1,
             (DisplayListItem::PopFilter, MatchKind::Filter) => {
+                depth -= 1;
+                if depth == 0 {
+                    return i;
+                }
+            }
+            (DisplayListItem::PushBackdropFilter { .. }, MatchKind::BackdropFilter) => depth += 1,
+            (DisplayListItem::PopBackdropFilter, MatchKind::BackdropFilter) => {
                 depth -= 1;
                 if depth == 0 {
                     return i;
@@ -1269,6 +1340,7 @@ fn render_display_list_range(
     // ignored, so child layers were double-offset (content drawn at absolute
     // coords then composited at +origin) — text fell to the bottom of the box.
     let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(offset_x, offset_y)];
+    let mut text_shadow_stack: Vec<azul_css::props::style::box_shadow::StyleBoxShadow> = Vec::new();
 
     for i in start..end {
         // Skip items rendered by a child layer (see skip_ranges doc above).
@@ -1287,6 +1359,7 @@ fn render_display_list_range(
             &mut clip_stack,
             &mut mask_stack,
             &mut scroll_offset_stack,
+            &mut text_shadow_stack,
             render_state,
         )?;
     }
@@ -1753,5 +1826,87 @@ mod scroll_shift_tests {
         ));
         // Empty → not covered.
         assert!(!rect_covered_by(&target, &[]));
+    }
+}
+
+#[cfg(test)]
+mod backdrop_filter_tests {
+    use super::*;
+    use azul_core::resources::RendererResources;
+    use azul_css::props::basic::ColorU;
+    use azul_css::props::style::filter::StyleFilter;
+    use azul_css::props::basic::length::PercentageValue;
+    use crate::solver3::display_list::DisplayList;
+    use crate::cpurender::{CpuRenderState, ScrollOffsetMap};
+
+    fn lrect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition::new(x, y),
+            size: LogicalSize::new(w, h),
+        }
+    }
+    fn px(p: &AzulPixmap, x: u32, y: u32) -> [u8; 4] {
+        let w = p.width();
+        let d = p.data();
+        let i = ((y * w + x) * 4) as usize;
+        [d[i], d[i + 1], d[i + 2], d[i + 3]]
+    }
+
+    /// A `backdrop-filter: invert(100%)` must invert the already-composited
+    /// backdrop under the element, while leaving pixels outside the element box
+    /// untouched.
+    #[test]
+    fn backdrop_filter_inverts_backdrop_region() {
+        let w = 100u32;
+        let h = 100u32;
+
+        // Background: a solid blue rect over the whole canvas (root layer).
+        // Then a backdrop-filter:invert region over the right half (no own
+        // content), so its backdrop (blue) becomes inverted (yellow).
+        let blue = ColorU { r: 0, g: 0, b: 255, a: 255 };
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::Rect {
+                    bounds: lrect(0.0, 0.0, 100.0, 100.0).into(),
+                    color: blue,
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PushBackdropFilter {
+                    bounds: lrect(50.0, 0.0, 50.0, 100.0).into(),
+                    filters: vec![StyleFilter::Invert(PercentageValue::new(100.0))],
+                },
+                DisplayListItem::PopBackdropFilter,
+            ],
+            ..Default::default()
+        };
+
+        let mut comp = CompositorState::new(w, h);
+        comp.allocate_layers_from_display_list(&dl, 1.0);
+
+        // A backdrop-filter layer must have been allocated.
+        assert!(
+            comp.layers.values().any(|l| l.is_backdrop_filter),
+            "no backdrop-filter layer allocated"
+        );
+
+        let rr = RendererResources::default();
+        let mut gc = GlyphCache::new();
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        comp.render_layers(&dl, 1.0, &rr, None, &mut gc, &state).unwrap();
+
+        let mut out = AzulPixmap::new(w, h).unwrap();
+        out.fill(0, 0, 0, 255);
+        comp.composite_frame(&mut out, 1.0);
+
+        // Left half: untouched blue backdrop.
+        let left = px(&out, 10, 50);
+        assert_eq!(left, [0, 0, 255, 255], "left half should stay blue");
+
+        // Right half: blue inverted -> (255,255,0).
+        let right = px(&out, 75, 50);
+        assert!(
+            right[0] > 200 && right[1] > 200 && right[2] < 60,
+            "right half backdrop should be inverted to yellow, got {right:?}"
+        );
     }
 }
