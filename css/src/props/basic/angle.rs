@@ -186,7 +186,7 @@ impl AngleValue {
         match self.metric {
             AngleMetric::Degree => self.number.get(),
             AngleMetric::Grad => self.number.get() / 400.0 * 360.0,
-            AngleMetric::Radians => self.number.get() * 180.0 / core::f32::consts::PI,
+            AngleMetric::Radians => self.number.get().to_degrees(),
             AngleMetric::Turn => self.number.get() * 360.0,
             AngleMetric::Percent => self.number.get() / 100.0 * 360.0,
         }

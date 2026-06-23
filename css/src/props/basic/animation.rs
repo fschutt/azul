@@ -175,6 +175,10 @@ impl SvgRect {
 const STEP_SIZE: usize = 20;
 const STEP_SIZE_F64: f64 = 0.05;
 
+// Bézier sampling keeps the explicit `a*b + c` forms rather than `mul_add`:
+// `f32::mul_add` lowers to a software `fmaf` call (slower) on targets without
+// `+fma`, and changes results bit-for-bit. (clippy::suboptimal_flops)
+#[allow(clippy::suboptimal_flops)]
 impl SvgCubicCurve {
     /// Creates a new `SvgCubicCurve` from start, two control points, and end point
     #[inline]
@@ -384,6 +388,8 @@ impl SvgVector {
     }
 }
 
+// Explicit FP math (mul_add is slower without `+fma`); see SvgCubicCurve.
+#[allow(clippy::suboptimal_flops)]
 impl SvgQuadraticCurve {
     /// Creates a new `SvgQuadraticCurve` from start, control, and end points
     #[inline]
