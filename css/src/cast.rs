@@ -40,3 +40,21 @@ pub(crate) const fn i32_to_f32(v: i32) -> f32 {
 pub(crate) const fn f32_to_isize(v: f32) -> isize {
     v as isize
 }
+
+/// `f32` → `i32` (truncating). `as` saturates NaN→0 and out-of-range to `i32`
+/// bounds; callers that want rounding `.round()` first.
+#[inline]
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) const fn f32_to_i32(v: f32) -> i32 {
+    v as i32
+}
+
+/// `f32` → `u32` (truncating, sign-dropping). `as` saturates NaN→0, negatives→0,
+/// out-of-range→`u32::MAX`; callers validate non-negative / `.round()` first.
+#[inline]
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub(crate) const fn f32_to_u32(v: f32) -> u32 {
+    v as u32
+}

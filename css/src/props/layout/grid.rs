@@ -450,7 +450,7 @@ fn parse_grid_track_owned(input: &str) -> Result<GridTrackSizing, ()> {
             if scaled.is_nan() || scaled < crate::cast::i32_to_f32(i32::MIN) || scaled > crate::cast::i32_to_f32(i32::MAX) {
                 return Err(());
             }
-            return Ok(GridTrackSizing::Fr(scaled as i32));
+            return Ok(GridTrackSizing::Fr(crate::cast::f32_to_i32(scaled)));
         }
         return Err(());
     }

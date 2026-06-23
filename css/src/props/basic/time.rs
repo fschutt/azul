@@ -86,7 +86,7 @@ pub fn parse_duration(input: &str) -> Result<CssDuration, DurationParseError<'_>
         if ms < 0.0 {
             return Err(DurationParseError::InvalidValue(input));
         }
-        Ok(CssDuration { inner: ms as u32 })
+        Ok(CssDuration { inner: crate::cast::f32_to_u32(ms) })
     } else if let Some(num_str) = trimmed.strip_suffix('s') {
         let s = num_str
             .parse::<f32>()
@@ -95,7 +95,7 @@ pub fn parse_duration(input: &str) -> Result<CssDuration, DurationParseError<'_>
             return Err(DurationParseError::InvalidValue(input));
         }
         Ok(CssDuration {
-            inner: (s * 1000.0) as u32,
+            inner: crate::cast::f32_to_u32(s * 1000.0),
         })
     } else {
         Err(DurationParseError::InvalidValue(input))

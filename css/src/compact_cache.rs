@@ -1055,7 +1055,7 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 /// Range: -3276.8 ..= +3276.3 px at 0.1px precision.
 #[inline]
 #[must_use] pub fn encode_resolved_px_i16(px: f32) -> i16 {
-    let scaled = (px * 10.0).round() as i32;
+    let scaled = crate::cast::f32_to_i32((px * 10.0).round());
     if scaled < -32768 || scaled > i32::from(I16_SENTINEL_THRESHOLD) - 1 {
         return I16_SENTINEL; // overflow or too large → tier 3
     }
@@ -1075,7 +1075,7 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 /// Range: 0.00 ..= 655.27 at 0.01 precision.
 #[inline]
 #[must_use] pub fn encode_flex_u16(value: f32) -> u16 {
-    let scaled = (value * 100.0).round() as i32;
+    let scaled = crate::cast::f32_to_i32((value * 100.0).round());
     if scaled < 0 || scaled >= i32::from(U16_SENTINEL_THRESHOLD) {
         return U16_SENTINEL;
     }
