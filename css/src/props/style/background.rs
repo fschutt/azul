@@ -1058,7 +1058,7 @@ pub mod parser {
     }
 
     impl GradientType {
-        pub(crate) const fn get_extend_mode(&self) -> ExtendMode {
+        pub(crate) const fn get_extend_mode(self) -> ExtendMode {
             match self {
                 Self::LinearGradient | Self::RadialGradient | Self::ConicGradient => {
                     ExtendMode::Clamp

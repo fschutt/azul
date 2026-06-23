@@ -1179,7 +1179,7 @@ impl SystemFontType {
         }
     }
     
-    fn macos_fallback_chain(&self) -> Vec<&'static str> {
+    fn macos_fallback_chain(self) -> Vec<&'static str> {
         match self {
             // For Normal weight, try System Font first, then Helvetica Neue
             Self::Ui => vec![
@@ -1231,7 +1231,7 @@ impl SystemFontType {
         }
     }
     
-    fn windows_fallback_chain(&self) -> Vec<&'static str> {
+    fn windows_fallback_chain(self) -> Vec<&'static str> {
         match self {
             Self::Ui | Self::UiBold => vec![
                 windows_fonts::SEGOE_UI_VARIABLE_TEXT,
@@ -1264,7 +1264,7 @@ impl SystemFontType {
         }
     }
     
-    fn linux_fallback_chain(&self) -> Vec<&'static str> {
+    fn linux_fallback_chain(self) -> Vec<&'static str> {
         match self {
             Self::Ui | Self::UiBold => vec![
                 linux_fonts::CANTARELL,
@@ -1306,7 +1306,7 @@ impl SystemFontType {
         }
     }
     
-    fn android_fallback_chain(&self) -> Vec<&'static str> {
+    fn android_fallback_chain(self) -> Vec<&'static str> {
         match self {
             Self::Ui | Self::UiBold => vec!["Roboto", "Noto Sans"],
             Self::Monospace | Self::MonospaceBold | Self::MonospaceItalic => {
@@ -1319,7 +1319,7 @@ impl SystemFontType {
         }
     }
     
-    fn generic_fallback_chain(&self) -> Vec<&'static str> {
+    fn generic_fallback_chain(self) -> Vec<&'static str> {
         match self {
             Self::Ui | Self::UiBold => vec!["sans-serif"],
             Self::Monospace | Self::MonospaceBold | Self::MonospaceItalic => {
