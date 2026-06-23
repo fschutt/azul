@@ -1282,17 +1282,7 @@ impl SystemFontType {
                 linux_fonts::LIBERATION_MONO,
                 linux_fonts::MONOSPACE,
             ],
-            Self::Title | Self::TitleBold => vec![
-                linux_fonts::CANTARELL,
-                linux_fonts::UBUNTU,
-                linux_fonts::NOTO_SANS,
-            ],
-            Self::Menu => vec![
-                linux_fonts::CANTARELL,
-                linux_fonts::UBUNTU,
-                linux_fonts::NOTO_SANS,
-            ],
-            Self::Small => vec![
+            Self::Title | Self::TitleBold | Self::Menu | Self::Small => vec![
                 linux_fonts::CANTARELL,
                 linux_fonts::UBUNTU,
                 linux_fonts::NOTO_SANS,
@@ -1308,26 +1298,23 @@ impl SystemFontType {
     
     fn android_fallback_chain(self) -> Vec<&'static str> {
         match self {
-            Self::Ui | Self::UiBold => vec!["Roboto", "Noto Sans"],
+            Self::Ui | Self::UiBold | Self::Title | Self::TitleBold => vec!["Roboto", "Noto Sans"],
             Self::Monospace | Self::MonospaceBold | Self::MonospaceItalic => {
                 vec!["Roboto Mono", "Droid Sans Mono", "monospace"]
             }
-            Self::Title | Self::TitleBold => vec!["Roboto", "Noto Sans"],
-            Self::Menu => vec!["Roboto"],
-            Self::Small => vec!["Roboto"],
+            Self::Menu | Self::Small => vec!["Roboto"],
             Self::Serif | Self::SerifBold => vec!["Noto Serif", "Droid Serif", "serif"],
         }
     }
     
     fn generic_fallback_chain(self) -> Vec<&'static str> {
         match self {
-            Self::Ui | Self::UiBold => vec!["sans-serif"],
+            Self::Ui | Self::UiBold | Self::Title | Self::TitleBold | Self::Menu | Self::Small => {
+                vec!["sans-serif"]
+            }
             Self::Monospace | Self::MonospaceBold | Self::MonospaceItalic => {
                 vec!["monospace"]
             }
-            Self::Title | Self::TitleBold => vec!["sans-serif"],
-            Self::Menu => vec!["sans-serif"],
-            Self::Small => vec!["sans-serif"],
             Self::Serif | Self::SerifBold => vec!["serif"],
         }
     }
