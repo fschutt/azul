@@ -248,5 +248,10 @@ pub mod stepper;
 /// frame two-box layout + the map/slider pointer-drag state machine); see
 /// `split_pane.rs`.
 pub mod split_pane;
+/// Time picker widget — two clamped numeric up/down spinners (hour + minute)
+/// side by side with an optional AM/PM toggle for 12-hour mode (the
+/// number_input clamp/retext path + segmented's clickable-cell navigation);
+/// see `time_picker.rs`.
+pub mod time_picker;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
