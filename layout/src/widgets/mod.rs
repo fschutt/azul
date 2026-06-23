@@ -239,5 +239,9 @@ pub mod breadcrumb;
 /// Pagination widget — a `Prev` / page-numbers / `Next` page navigator with an
 /// active-page restyle (segmented-style); see `pagination.rs`.
 pub mod pagination;
+/// Stepper / wizard widget — a horizontal numbered-step progress indicator with
+/// connector lines and an accent/muted restyle on step change (segmented-style +
+/// progressbar-style filled connector); see `stepper.rs`.
+pub mod stepper;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
