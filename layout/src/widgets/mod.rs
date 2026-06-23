@@ -202,5 +202,7 @@ pub mod segmented;
 pub mod radio_group;
 /// Tooltip widget — shows a small text popup near an anchor on hover; see `tooltip.rs`.
 pub mod tooltip;
+/// Multi-line text input (text area) widget; see `text_area.rs`.
+pub mod text_area;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
