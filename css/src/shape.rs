@@ -219,6 +219,10 @@ impl PartialOrd for CssShape {
 }
 
 impl Ord for CssShape {
+    // The tie-break arms `(Self::X(_), _) => Less` / `(_, Self::X(_)) => Greater`
+    // share bodies but are ORDER-DEPENDENT: they encode the variant ordering, so
+    // merging them (clippy::match_same_arms) would change the comparison result.
+    #[allow(clippy::match_same_arms)]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match (self, other) {
             (Self::Circle(a), Self::Circle(b)) => a.cmp(b),
