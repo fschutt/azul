@@ -43,6 +43,7 @@ use crate::{
 };
 
 use crate::dynamic_selector::{BoolCondition, OsVersion};
+use core::fmt::Write;
 
 // --- End-user customization mode ---
 
@@ -1667,42 +1668,42 @@ r#"{{
             .unwrap_or_else(|| "4px".to_string());
 
         // Titlebar container
-        css.push_str(&format!(
+        let _ = write!(css,
             ".csd-titlebar {{ width: 100%; height: 32px; background: rgb({}, {}, {}); \
              border-bottom: 1px solid rgb({}, {}, {}); display: flex; flex-direction: row; \
              align-items: center; justify-content: space-between; padding: 0 8px; \
              cursor: grab; user-select: none; }} ",
             bg_color.r, bg_color.g, bg_color.b, border_color.r, border_color.g, border_color.b,
-        ));
+        );
 
         // Title text
-        css.push_str(&format!(
+        let _ = write!(css,
             ".csd-title {{ color: rgb({}, {}, {}); font-size: 13px; flex-grow: 1; text-align: \
              center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \
              user-select: none; }} ",
             text_color.r, text_color.g, text_color.b,
-        ));
+        );
 
         // Button container
         css.push_str(".csd-buttons { display: flex; flex-direction: row; gap: 4px; } ");
 
         // Buttons
-        css.push_str(&format!(
+        let _ = write!(css,
             ".csd-button {{ width: 32px; height: 24px; border-radius: {}; background: \
              transparent; color: rgb({}, {}, {}); font-size: 16px; line-height: 24px; text-align: \
              center; cursor: pointer; user-select: none; }} ",
             corner_radius, text_color.r, text_color.g, text_color.b,
-        ));
+        );
 
         // Button hover state
         let hover_color = match self.theme {
             Theme::Dark => ColorU::new_rgb(60, 60, 60),
             Theme::Light => ColorU::new_rgb(220, 220, 220),
         };
-        css.push_str(&format!(
+        let _ = write!(css,
             ".csd-button:hover {{ background: rgb({}, {}, {}); }} ",
             hover_color.r, hover_color.g, hover_color.b,
-        ));
+        );
 
         // Close button hover (red on all platforms)
         css.push_str(
