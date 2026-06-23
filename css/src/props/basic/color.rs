@@ -422,14 +422,6 @@ impl ColorU {
     /// The sign indicates polarity (negative = light text on dark bg).
     /// For most purposes, use the absolute value.
     #[must_use] pub fn apca_contrast(&self, background: &Self) -> f32 {
-        // Convert to Y (luminance) using sRGB TRC
-        let text_y = self.relative_luminance();
-        let bg_y = background.relative_luminance();
-        
-        // Soft clamp
-        let text_y = if text_y < 0.0 { 0.0 } else { text_y };
-        let bg_y = if bg_y < 0.0 { 0.0 } else { bg_y };
-        
         // APCA 0.0.98G constants
         const NORMBLKTXT: f32 = 0.56;
         const NORMWHT: f32 = 0.57;
@@ -438,6 +430,15 @@ impl ColorU {
         const BLKTHRS: f32 = 0.022;
         const SCALEBLKT: f32 = 1.414;
         const SCALEWHT: f32 = 1.14;
+
+        // Convert to Y (luminance) using sRGB TRC
+        let text_y = self.relative_luminance();
+        let bg_y = background.relative_luminance();
+        
+        // Soft clamp
+        let text_y = if text_y < 0.0 { 0.0 } else { text_y };
+        let bg_y = if bg_y < 0.0 { 0.0 } else { bg_y };
+        
         
         // Clamp black levels
         let txt_clamp = if text_y < BLKTHRS { 
