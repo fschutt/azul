@@ -343,7 +343,7 @@ macro_rules! impl_display {
     // For a type with a lifetime
     ($enum:ident<$lt:lifetime>, {$($variant:pat => $fmt_string:expr),+$(,)* }) => {
 
-        impl<$lt> ::core::fmt::Display for $enum<$lt> {
+        impl ::core::fmt::Display for $enum<'_> {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 use self::$enum::*;
                 match &self {
@@ -379,7 +379,7 @@ macro_rules! impl_display {
 macro_rules! impl_debug_as_display {
     // For a type with a lifetime
     ($enum:ident < $lt:lifetime >) => {
-        impl<$lt> ::core::fmt::Debug for $enum<$lt> {
+        impl ::core::fmt::Debug for $enum<'_> {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}", self)
             }
