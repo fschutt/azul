@@ -1099,6 +1099,7 @@ pub fn render_single_item(
     scroll_offset_stack: &mut Vec<(f32, f32)>,
     render_state: &CpuRenderState,
 ) -> Result<(), String> {
+    use azul_css::props::style::border::BorderStyle;
     // Current accumulated scroll offset — applied to all item bounds.
     // Negative because scrolling down (positive offset) moves content up.
     let (scroll_dx, scroll_dy) = *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0));
@@ -1222,7 +1223,6 @@ pub fn render_single_item(
                 .and_then(|c| c.get_property().copied())
                 .map_or(default_color, |c| c.inner);
 
-            use azul_css::props::style::border::BorderStyle;
             let s_top = styles
                 .top
                 .and_then(|s| s.get_property().copied())

@@ -1175,6 +1175,7 @@ impl GestureAndDragManager {
     /// Returns Some if two touch points are rotating around center.
     /// Positive angle = clockwise, negative = counterclockwise.
     #[must_use] pub fn detect_rotation(&self) -> Option<DetectedRotation> {
+        const PI: f32 = core::f32::consts::PI;
         if let Some(NativeGestureEvent::Rotation(r)) = self.native_gesture {
             return Some(r);
         }
@@ -1220,7 +1221,6 @@ impl GestureAndDragManager {
         let mut angle_diff = current_angle - initial_angle;
 
         // Normalize angle to -π to π range
-        const PI: f32 = core::f32::consts::PI;
         while angle_diff > PI {
             angle_diff -= 2.0 * PI;
         }

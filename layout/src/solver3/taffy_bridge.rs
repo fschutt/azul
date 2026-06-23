@@ -1095,7 +1095,6 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             use azul_css::compact_cache::*;
             let bits = ((cc.tier1_enums[id.index()] >> ALIGN_SELF_SHIFT) & ALIGN_SELF_MASK) as u8;
             let val = layout_align_self_from_u8(bits);
-            use azul_css::props::layout::flex::LayoutAlignSelf;
             match val {
                 LayoutAlignSelf::Auto => None,
                 LayoutAlignSelf::Start => Some(AlignSelf::FlexStart),
@@ -1268,6 +1267,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 
     /// Helper to get children that participate in layout (i.e., not `display: none`).
     fn get_layout_children(&self, node_idx: usize) -> Vec<usize> {
+        use crate::solver3::getters::{get_display_property, MultiValue};
         let Some(node) = self.tree.get(node_idx) else {
             return Vec::new();
         };
@@ -1283,7 +1283,6 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 };
 
                 // Check if child has display: none
-                use crate::solver3::getters::{get_display_property, MultiValue};
                 let display = get_display_property(self.ctx.styled_dom, Some(child_dom_id));
                 let is_display_none = matches!(display, MultiValue::Exact(LayoutDisplay::None));
 

@@ -141,6 +141,10 @@ where
         usize,
     ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
+    use crate::solver3::display_list::{
+        generate_display_list, paginate_display_list_with_slicer_and_breaks, SlicerConfig,
+    };
+
     // Font Resolution And Loading
     {
         use crate::solver3::getters::{
@@ -216,7 +220,6 @@ where
             get_system_time_fn,
         };
 
-        use crate::solver3::display_list::generate_display_list;
         let display_list = generate_display_list(
             &mut ctx,
             tree,
@@ -300,11 +303,6 @@ where
     // - Headers/footers with page numbers are automatically generated
     // - CSS fragmentation properties are respected
 
-    use crate::solver3::display_list::{
-        generate_display_list, paginate_display_list_with_slicer_and_breaks,
-        SlicerConfig,
-    };
-
     // Step 1: Generate ONE complete display list (infinite canvas)
     let full_display_list = generate_display_list(
         &mut ctx,
@@ -381,6 +379,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     _print_timing: bool,
 ) -> Result<()> {
     use crate::solver3::cache;
+    use crate::window::LayoutWindow;
 
     // Create temporary context without counters for tree generation
     let mut counter_values = std::collections::HashMap::new();
@@ -466,7 +465,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         debug_log!(ctx, "No changes, layout cache is clean");
         let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
 
-        use crate::window::LayoutWindow;
         let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(tree, new_dom);
         cache.scroll_ids = scroll_ids;
         cache.scroll_id_to_node_id = scroll_id_to_node_id;
@@ -580,7 +578,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     );
 
     // --- Step 3.75: Compute Stable Scroll IDs ---
-    use crate::window::LayoutWindow;
     let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(&new_tree, new_dom);
 
     // --- Step 4: Update Cache ---

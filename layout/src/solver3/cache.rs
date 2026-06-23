@@ -971,6 +971,12 @@ pub fn reconcile_recursive(
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<usize> {
+    // Cache the env check in a `OnceLock<bool>`: this branch
+    // fires once per dirty node (hundreds on cold layout),
+    // and a direct `env::var` is a mutex + hashmap lookup
+    // on macOS (~100 ns/call) even when the env var is unset.
+    static FP_DUMP_ENABLED: std::sync::OnceLock<bool> =
+        std::sync::OnceLock::new();
     let node_data = &styled_dom.node_data.as_container()[new_dom_id];
 
     let old_cold = old_tree.and_then(|t| old_tree_idx.and_then(|idx| t.cold(idx)));
@@ -1000,12 +1006,6 @@ pub fn reconcile_recursive(
             let change_set = old_c.node_data_fingerprint.diff(&new_fingerprint);
             if change_set.needs_layout() {
                 drop(crate::probe::Probe::span("fp_needs_layout"));
-                // Cache the env check in a `OnceLock<bool>`: this branch
-                // fires once per dirty node (hundreds on cold layout),
-                // and a direct `env::var` is a mutex + hashmap lookup
-                // on macOS (~100 ns/call) even when the env var is unset.
-                static FP_DUMP_ENABLED: std::sync::OnceLock<bool> =
-                    std::sync::OnceLock::new();
                 let enabled = *FP_DUMP_ENABLED.get_or_init(|| {
                     std::env::var_os("AZ_FP_DUMP").is_some()
                 });

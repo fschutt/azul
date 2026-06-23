@@ -861,6 +861,11 @@ pub mod parsed {
             defer_loca_glyf: bool,
         ) -> Option<Self> {
             use allsorts::{binary::read::ReadScope, font_data::FontData};
+            fn provider_err(font_index: usize, e: impl fmt::Display) -> FontParseWarning {
+                FontParseWarning::error(format!(
+                    "Failed to get table provider for font index {font_index}: {e}"
+                ))
+            }
 
             let scope = ReadScope::new(font_bytes);
             let font_file = match scope.read::<FontData<'_>>() {
@@ -882,11 +887,6 @@ pub mod parsed {
             // parse returns None → text measures height 0. A concrete provider makes every
             // `table_data` a DIRECT (monomorphized) call, which lifts correctly. Woff/Woff2
             // keep the dyn path (they're not used on the web backend's embedded TTF).
-            fn provider_err(font_index: usize, e: impl fmt::Display) -> FontParseWarning {
-                FontParseWarning::error(format!(
-                    "Failed to get table provider for font index {font_index}: {e}"
-                ))
-            }
             match font_file {
                 FontData::OpenType(otf) => {
                     // Prefer the hand-rolled provider (reads font_bytes directly) over
@@ -1395,6 +1395,11 @@ pub mod parsed {
         /// `None` when the font has no usable loca+glyf (CFF fonts
         /// or parse failures).
         fn resolve_loca_glyf(&self) -> Option<Arc<std::sync::Mutex<LocaGlyf>>> {
+            use allsorts::{
+                binary::read::ReadScope,
+                font_data::FontData,
+                tables::FontTableProvider,
+            };
             match &self.loca_glyf {
                 LocaGlyfState::Loaded(inner) => inner.clone(),
                 LocaGlyfState::Deferred { bytes, font_index, loaded } => {
@@ -1411,11 +1416,6 @@ pub mod parsed {
                     // millisecond or two on a fresh load). Re-check
                     // after acquiring the write lock so a parallel
                     // decoder doesn't double-load.
-                    use allsorts::{
-                        binary::read::ReadScope,
-                        font_data::FontData,
-                        tables::FontTableProvider,
-                    };
                     let scope = ReadScope::new(bytes.as_slice());
                     let font_data = scope.read::<FontData<'_>>().ok()?;
                     let provider = font_data.table_provider(*font_index).ok()?;
@@ -1976,6 +1976,7 @@ pub mod parsed {
             }
             #[cfg(not(feature = "web_lift"))]
             {
+            use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
             let glyph = self.get_or_decode_glyph(glyph_index)?;
 
             let upem = self.font_metrics.units_per_em;
@@ -1986,7 +1987,6 @@ pub mod parsed {
             // Check if we even have a hint instance
             let _hint_mutex = self.hint_instance.as_ref()?;
 
-            use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
             let scale = compute_scale(ppem, upem);
             let adv_f26dot6 = F26Dot6::from_funits(i32::from(glyph.horz_advance), scale);
 

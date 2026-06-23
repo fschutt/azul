@@ -2138,6 +2138,25 @@ fn get_inline_border_info(
 ) -> Option<crate::text3::cache::InlineBorderInfo> {
     use crate::text3::cache::InlineBorderInfo;
 
+    // Fetch padding values for inline elements. Viewport units (vw/vh/...) resolve
+    // against the real viewport instead of being treated as raw pixels.
+    fn resolve_padding(
+        mv: MultiValue<PixelValue>,
+        viewport: PhysicalSize,
+    ) -> f32 {
+        match mv {
+            MultiValue::Exact(pv) => super::calc::resolve_pixel_value_with_viewport(
+                &pv,
+                0.0,
+                DEFAULT_FONT_SIZE,
+                DEFAULT_FONT_SIZE,
+                viewport.width,
+                viewport.height,
+            ),
+            _ => 0.0,
+        }
+    }
+
     macro_rules! border_width_px {
         ($field:expr) => {
             $field
@@ -2211,25 +2230,6 @@ fn get_inline_border_info(
     let right = border_width_px!(&border_info.widths.right);
     let bottom = border_width_px!(&border_info.widths.bottom);
     let left = border_width_px!(&border_info.widths.left);
-
-    // Fetch padding values for inline elements. Viewport units (vw/vh/...) resolve
-    // against the real viewport instead of being treated as raw pixels.
-    fn resolve_padding(
-        mv: MultiValue<PixelValue>,
-        viewport: PhysicalSize,
-    ) -> f32 {
-        match mv {
-            MultiValue::Exact(pv) => super::calc::resolve_pixel_value_with_viewport(
-                &pv,
-                0.0,
-                DEFAULT_FONT_SIZE,
-                DEFAULT_FONT_SIZE,
-                viewport.width,
-                viewport.height,
-            ),
-            _ => 0.0,
-        }
-    }
 
     let p_top = resolve_padding(get_css_padding_top(styled_dom, node_id, node_state), viewport);
     let p_right = resolve_padding(get_css_padding_right(styled_dom, node_id, node_state), viewport);
@@ -2587,8 +2587,6 @@ pub fn get_style_properties(
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let cache = &styled_dom.css_property_cache.ptr;
 
-    use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec};
-
     // Fast path: use compact cache reverse map (works for inherited values on text nodes).
     // Slow path: only for non-normal pseudo states (:hover, :focus, etc.)
     let font_families = if node_state.is_normal() {
@@ -2751,7 +2749,6 @@ pub fn get_style_properties(
     // here called `cache.get_display(..)` (the 3-arg convenience method on
     // CssPropertyCache) which routes through `get_property_slow` — 1485 slow
     // walks per cold excel.html layout. Replaced 2026-04-17.
-    use azul_css::props::layout::LayoutDisplay;
     let display = match get_display_property(styled_dom, Some(dom_id)) {
         MultiValue::Exact(v) => v,
         _ => LayoutDisplay::Inline,

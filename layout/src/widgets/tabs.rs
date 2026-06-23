@@ -1245,6 +1245,36 @@ impl TabHeader {
     #[must_use] pub fn dom(self) -> Dom {
         use azul_core::callbacks::CoreCallbackDataVec;
 
+        // classes for previous tab
+        const IDS_AND_CLASSES_5117007530891373979: &[IdOrClass] = &[
+            Class(AzString::from_const_str(
+                "__azul-native-tabs-tab-norightborder",
+            )),
+            Class(AzString::from_const_str(
+                "__azul-native-tabs-tab-not-active",
+            )),
+        ]; // CSS_MATCH_4415083954137121609
+
+        // classes for current tab
+        const IDS_AND_CLASSES_15002865554973741556: &[IdOrClass] = &[Class(
+            AzString::from_const_str("__azul-native-tabs-tab-active"),
+        )];
+
+        // classes for next tab
+        const IDS_AND_CLASSES_16877793354714897051: &[IdOrClass] = &[
+            Class(AzString::from_const_str(
+                "__azul-native-tabs-tab-noleftborder",
+            )),
+            Class(AzString::from_const_str(
+                "__azul-native-tabs-tab-not-active",
+            )),
+        ];
+
+        // classes for default inactive tab
+        const IDS_AND_CLASSES_INACTIVE: &[IdOrClass] = &[Class(
+            AzString::from_const_str("__azul-native-tabs-tab-not-active"),
+        )];
+
         let on_click_is_some = self.on_click.is_some();
 
         Dom::create_div()
@@ -1278,36 +1308,6 @@ impl TabHeader {
                     };
 
                     let tab_is_active = self.active_tab == tab_idx;
-
-                    // classes for previous tab
-                    const IDS_AND_CLASSES_5117007530891373979: &[IdOrClass] = &[
-                        Class(AzString::from_const_str(
-                            "__azul-native-tabs-tab-norightborder",
-                        )),
-                        Class(AzString::from_const_str(
-                            "__azul-native-tabs-tab-not-active",
-                        )),
-                    ]; // CSS_MATCH_4415083954137121609
-
-                    // classes for current tab
-                    const IDS_AND_CLASSES_15002865554973741556: &[IdOrClass] = &[Class(
-                        AzString::from_const_str("__azul-native-tabs-tab-active"),
-                    )];
-
-                    // classes for next tab
-                    const IDS_AND_CLASSES_16877793354714897051: &[IdOrClass] = &[
-                        Class(AzString::from_const_str(
-                            "__azul-native-tabs-tab-noleftborder",
-                        )),
-                        Class(AzString::from_const_str(
-                            "__azul-native-tabs-tab-not-active",
-                        )),
-                    ];
-
-                    // classes for default inactive tab
-                    const IDS_AND_CLASSES_INACTIVE: &[IdOrClass] = &[Class(
-                        AzString::from_const_str("__azul-native-tabs-tab-not-active"),
-                    )];
 
                     let (ids_and_classes, css_props) = if tab_is_active {
                         (

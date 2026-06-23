@@ -255,11 +255,11 @@ impl TreeView {
 
     /// Renders the tree view into a [`Dom`] subtree.
     #[must_use] pub fn dom(self) -> Dom {
-        let on_node_click = self.on_node_click;
-        let root = self.root;
-
         const TREE_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-tree-view"))];
+
+        let on_node_click = self.on_node_click;
+        let root = self.root;
 
         let mut children = Vec::new();
         let mut index: usize = 0;

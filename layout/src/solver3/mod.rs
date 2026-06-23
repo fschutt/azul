@@ -394,6 +394,31 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
 ) -> Result<DisplayList> {
+    use crate::window::LayoutWindow;
+
+    // Secondary mapping: anonymous wrappers (dom_node_id == None)
+    // by (parent_new_idx, ordinal-among-anon-siblings). An
+    // unchanged DOM produces the same anon wrappers in the same
+    // order under the same parent — matching by position here
+    // preserves their cache slots too. Without this, anon
+    // wrappers re-allocate empty every reconcile and invalidate
+    // their ancestors via `mark_dirty`.
+    fn collect_anon_children_by_parent(
+        tree: &LayoutTree,
+    ) -> HashMap<usize, Vec<usize>> {
+        let mut map: HashMap<usize, Vec<usize>> =
+            HashMap::new();
+        for (idx, node) in tree.nodes.iter().enumerate() {
+            if node.dom_node_id.is_some() {
+                continue;
+            }
+            if let Some(parent) = node.parent {
+                map.entry(parent).or_default().push(idx);
+            }
+        }
+        map
+    }
+
     // Reset IFC ID counter at the start of each layout pass
     // This ensures IFCs get consistent IDs across frames when the DOM structure is stable
     layout_tree::IfcId::reset_counter();
@@ -553,29 +578,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 remapped.entries[new_layout_idx] =
                     core::mem::take(&mut cache_map.entries[old_layout_idx]);
             }
-        }
-
-        // Secondary mapping: anonymous wrappers (dom_node_id == None)
-        // by (parent_new_idx, ordinal-among-anon-siblings). An
-        // unchanged DOM produces the same anon wrappers in the same
-        // order under the same parent — matching by position here
-        // preserves their cache slots too. Without this, anon
-        // wrappers re-allocate empty every reconcile and invalidate
-        // their ancestors via `mark_dirty`.
-        fn collect_anon_children_by_parent(
-            tree: &LayoutTree,
-        ) -> HashMap<usize, Vec<usize>> {
-            let mut map: HashMap<usize, Vec<usize>> =
-                HashMap::new();
-            for (idx, node) in tree.nodes.iter().enumerate() {
-                if node.dom_node_id.is_some() {
-                    continue;
-                }
-                if let Some(parent) = node.parent {
-                    map.entry(parent).or_default().push(idx);
-                }
-            }
-            map
         }
 
         // Build old-parent → [old_anon_indices] and
@@ -986,7 +988,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     // --- Step 3.75: Compute Stable Scroll IDs ---
     // This must be done AFTER layout but BEFORE display list generation
-    use crate::window::LayoutWindow;
     let (scroll_ids, scroll_id_to_node_id) = {
         let _p = crate::probe::Probe::span("compute_scroll_ids");
         LayoutWindow::compute_scroll_ids(&new_tree, new_dom)

@@ -2359,6 +2359,7 @@ fn collect_box_props(
 ) -> CollectedBoxProps {
     use crate::solver3::geometry::{UnresolvedBoxProps, UnresolvedEdge, UnresolvedMargin};
     use crate::solver3::getters::*;
+    use azul_css::props::style::border::BorderStyle;
     // before create_node step A is the diverging call.
     { let _ = (0xC0_000001u32); } // entered
 
@@ -2463,8 +2464,6 @@ fn collect_box_props(
     // +spec:box-model:17c0e0 - computed border-width is 0 if border-style is none or hidden
     // +spec:box-model:5d2b66 - border-style none/hidden means no border
     // CSS 2.2 §8.5.1: "Computed value: absolute length; '0' if the border style is 'none' or 'hidden'"
-    use azul_css::props::style::border::BorderStyle;
-
     let style_zeroes_width = |s: BorderStyle| matches!(s, BorderStyle::None | BorderStyle::Hidden);
 
     // Read border styles to check if widths should be zeroed.

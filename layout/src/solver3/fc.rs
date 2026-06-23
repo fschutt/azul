@@ -1034,7 +1034,6 @@ fn layout_bfc<T: ParsedFontTrait>(
                 .unwrap_or_default();
             let overflow_y =
                 get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
-            use azul_css::props::layout::LayoutOverflow;
             match overflow_y.unwrap_or_default() {
                 LayoutOverflow::Scroll => {
                     crate::solver3::getters::get_layout_scrollbar_width_px(ctx, dom_id, &styled_node_state)
@@ -3159,11 +3158,6 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     styled_dom: &StyledDom,
     dom_id: NodeId,
 ) -> UnifiedConstraints {
-    unsafe { crate::az_mark(0x60704_u32, (0x30u32)); }
-    // DOM-level declared flags: if a bit is clear, no node in this DOM
-    // declared the corresponding property → cascade walks always return
-    // None, and we use the default value directly. All flags default to
-    // "set" when there is no compact cache (paranoid fallback).
     use azul_css::compact_cache::{
         DOM_HAS_SHAPE_INSIDE, DOM_HAS_SHAPE_OUTSIDE, DOM_HAS_TEXT_JUSTIFY,
         DOM_HAS_TEXT_INDENT, DOM_HAS_COLUMN_COUNT, DOM_HAS_COLUMN_GAP,
@@ -3176,6 +3170,11 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         DOM_HAS_HYPHENS, DOM_HAS_WORD_BREAK, DOM_HAS_OVERFLOW_WRAP,
         DOM_HAS_LINE_BREAK, DOM_HAS_TEXT_ALIGN_LAST, DOM_HAS_LINE_HEIGHT,
     };
+    unsafe { crate::az_mark(0x60704_u32, (0x30u32)); }
+    // DOM-level declared flags: if a bit is clear, no node in this DOM
+    // declared the corresponding property → cascade walks always return
+    // None, and we use the default value directly. All flags default to
+    // "set" when there is no compact cache (paranoid fallback).
     let dom_declared = styled_dom
         .css_property_cache
         .ptr
@@ -6386,7 +6385,6 @@ fn position_table_cells<T: ParsedFontTrait>(
         let vertical_align_adjustment = if let Some(warm_node) = tree.warm(cell_info.node_index) {
             if let Some(ref cached_layout) = warm_node.inline_layout_result {
                 let inline_result = &cached_layout.layout;
-                use StyleVerticalAlign;
 
                 // Get vertical-align property from styled_dom
                 let vertical_align = if let Some(dom_id) = cell_dom_node_id {
@@ -8738,6 +8736,15 @@ fn apply_text_transform(text: &str, transform: text3::cache::TextTransform) -> S
     content_box_width: f32,
     line_height: f32,
 ) -> (f32, f32) {
+    // Estimate the letter width using a typical Latin capital letter aspect ratio.
+    // The advance width of a capital letter is approximately 0.7x the cap height.
+    // This is a heuristic; a full implementation would measure the actual glyph(s).
+    const CAP_WIDTH_RATIO: f32 = 0.7;
+
+    // Add a small gap between the letter box and the adjacent inline content.
+    // CSS Inline Level 3 section 3.5: browsers typically add ~4px padding.
+    const LETTER_GAP: f32 = 4.0;
+
     // Guard against degenerate values
     if initial_letter_size <= 0.0 || line_height <= 0.0 || content_box_width <= 0.0 {
         return (0.0, 0.0);
@@ -8748,15 +8755,8 @@ fn apply_text_transform(text: &str, transform: text3::cache::TextTransform) -> S
     // CSS Inline Level 3 section 3.3: The initial letter box height spans `size` lines.
     let letter_height = initial_letter_size * line_height;
 
-    // Estimate the letter width using a typical Latin capital letter aspect ratio.
-    // The advance width of a capital letter is approximately 0.7x the cap height.
-    // This is a heuristic; a full implementation would measure the actual glyph(s).
-    const CAP_WIDTH_RATIO: f32 = 0.7;
     let letter_width_raw = letter_height * CAP_WIDTH_RATIO;
 
-    // Add a small gap between the letter box and the adjacent inline content.
-    // CSS Inline Level 3 section 3.5: browsers typically add ~4px padding.
-    const LETTER_GAP: f32 = 4.0;
     let letter_width = (letter_width_raw + LETTER_GAP).min(content_box_width);
 
     // +spec:containing-block:67fd99 - block-axis positioning: size >= sink shifts by (sink-1)*line_height toward block-end

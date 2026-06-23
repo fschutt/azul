@@ -270,6 +270,9 @@ impl DropDown {
 
     /// Builds the DOM tree for this drop-down widget.
     #[must_use] pub fn dom(self) -> Dom {
+        const DROPDOWN_CLASS: &[IdOrClass] =
+            &[Class(AzString::from_const_str("__azul-native-dropdown"))];
+
         let selected_text = self.choices
             .as_slice()
             .get(self.selected)
@@ -277,9 +280,6 @@ impl DropDown {
             .unwrap_or_else(|| AzString::from_const_str(""));
 
         let refany = RefAny::new(self);
-
-        const DROPDOWN_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-dropdown"))];
 
         // Wrapper: focusable trigger that opens popup on focus
         

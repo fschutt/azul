@@ -279,6 +279,28 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
     use azul_core::dom::{NodeData, NodeType, IdOrClass, TabIndex};
     use azul_core::xml::CompactDomBuilder;
 
+    const ESTIMATED_BYTES_PER_NODE: usize = 20;
+
+    const VOID_ELEMENTS: &[&str] = &[
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+        "param", "source", "track", "wbr",
+    ];
+
+    // Lowercase `src` into `dst`, reusing `dst`'s existing capacity.
+    // Zero-alloc when dst's capacity is already ≥ src.len() AND no uppercase
+    // conversion is needed (the happy path for HTML5 where tags are lowercase).
+    fn lowercase_into(dst: &mut String, src: &str) {
+        dst.clear();
+        if src.bytes().all(|b| !b.is_ascii_uppercase()) {
+            dst.push_str(src);
+        } else {
+            dst.reserve(src.len());
+            for b in src.bytes() {
+                dst.push(b.to_ascii_lowercase() as char);
+            }
+        }
+    }
+
     // Strip BOM
     let xml = xml.strip_prefix('\u{FEFF}').unwrap_or(xml);
     let mut xml = xml.trim();
@@ -305,7 +327,6 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
 
     let tokenizer = Tokenizer::from_fragment(xml, 0..xml.len());
 
-    const ESTIMATED_BYTES_PER_NODE: usize = 20;
     let estimated_nodes = xml.len() / ESTIMATED_BYTES_PER_NODE;
     let mut builder = CompactDomBuilder::with_capacity(estimated_nodes);
     let mut collected_css: Vec<Css> = Vec::new();
@@ -319,11 +340,6 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
     let mut current_tag: String = String::new();
     let mut current_attrs: Vec<(String, String)> = Vec::new();
     let mut pending_open = false;
-
-    const VOID_ELEMENTS: &[&str] = &[
-        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
-        "param", "source", "track", "wbr",
-    ];
 
     // Pre-compute the CSS key map once (used for style= attribute parsing)
     let css_key_map = azul_css::props::property::get_css_key_map();
@@ -417,21 +433,6 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
 
     let mut last_was_void = false;
     let mut tag_stack: Vec<String> = Vec::new(); // for matching close tags
-
-    // Lowercase `src` into `dst`, reusing `dst`'s existing capacity.
-    // Zero-alloc when dst's capacity is already ≥ src.len() AND no uppercase
-    // conversion is needed (the happy path for HTML5 where tags are lowercase).
-    fn lowercase_into(dst: &mut String, src: &str) {
-        dst.clear();
-        if src.bytes().all(|b| !b.is_ascii_uppercase()) {
-            dst.push_str(src);
-        } else {
-            dst.reserve(src.len());
-            for b in src.bytes() {
-                dst.push(b.to_ascii_lowercase() as char);
-            }
-        }
-    }
 
     for token in tokenizer {
         let token = token.map_err(|e| XmlError::ParserError(translate_xmlparser_error(e)))?;
@@ -642,50 +643,6 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
 
     use self::XmlParseError::*;
 
-    let mut root_node = XmlNode::default();
-
-    // Strip UTF-8 BOM if present (some W3C test files have it)
-    let xml = xml.strip_prefix('\u{FEFF}').unwrap_or(xml);
-
-    // Search for "<?xml" and "?>" tags and delete them from the XML
-    let mut xml = xml.trim();
-    if xml.starts_with("<?") {
-        let pos = xml.find("?>").ok_or(XmlError::MalformedHierarchy(
-            MalformedHierarchyError {
-                expected: "<?xml".into(),
-                got: "?>".into(),
-            },
-        ))?;
-        xml = &xml[(pos + 2)..];
-    }
-
-    // Delete <!DOCTYPE ...> if necessary (case-insensitive)
-    let mut xml = xml.trim();
-    if xml.len() > 9 && xml[..9].to_ascii_lowercase().starts_with("<!doctype") {
-        let pos = xml.find('>').ok_or(XmlError::MalformedHierarchy(
-            MalformedHierarchyError {
-                expected: "<!DOCTYPE".into(),
-                got: ">".into(),
-            },
-        ))?;
-        xml = &xml[(pos + 1)..];
-    } else if xml.starts_with("<!--") {
-        // Skip HTML comments at the start
-        if let Some(end) = xml.find("-->") {
-            xml = &xml[(end + 3)..];
-            xml = xml.trim();
-        }
-    }
-
-    let tokenizer = Tokenizer::from_fragment(xml, 0..xml.len());
-
-    // OPTIMIZED: Use a stack of raw pointers to avoid O(n*d) traversal on every token.
-    // This is safe because:
-    // 1. All pointers point into `root_node` which is owned and not moved
-    // 2. We never hold multiple mutable references simultaneously
-    // 3. The stack is only used within this function
-    let mut node_stack: Vec<*mut XmlNode> = vec![&raw mut root_node];
-
     // HTML5-lite parser: List of void elements that should auto-close
     // See: https://developer.mozilla.org/en-US/docs/Glossary/Void_element
     const VOID_ELEMENTS: &[&str] = &[
@@ -740,6 +697,50 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
         ("dd", &["dd", "dt"]),
         ("dt", &["dd", "dt"]),
     ];
+
+    let mut root_node = XmlNode::default();
+
+    // Strip UTF-8 BOM if present (some W3C test files have it)
+    let xml = xml.strip_prefix('\u{FEFF}').unwrap_or(xml);
+
+    // Search for "<?xml" and "?>" tags and delete them from the XML
+    let mut xml = xml.trim();
+    if xml.starts_with("<?") {
+        let pos = xml.find("?>").ok_or(XmlError::MalformedHierarchy(
+            MalformedHierarchyError {
+                expected: "<?xml".into(),
+                got: "?>".into(),
+            },
+        ))?;
+        xml = &xml[(pos + 2)..];
+    }
+
+    // Delete <!DOCTYPE ...> if necessary (case-insensitive)
+    let mut xml = xml.trim();
+    if xml.len() > 9 && xml[..9].to_ascii_lowercase().starts_with("<!doctype") {
+        let pos = xml.find('>').ok_or(XmlError::MalformedHierarchy(
+            MalformedHierarchyError {
+                expected: "<!DOCTYPE".into(),
+                got: ">".into(),
+            },
+        ))?;
+        xml = &xml[(pos + 1)..];
+    } else if xml.starts_with("<!--") {
+        // Skip HTML comments at the start
+        if let Some(end) = xml.find("-->") {
+            xml = &xml[(end + 3)..];
+            xml = xml.trim();
+        }
+    }
+
+    let tokenizer = Tokenizer::from_fragment(xml, 0..xml.len());
+
+    // OPTIMIZED: Use a stack of raw pointers to avoid O(n*d) traversal on every token.
+    // This is safe because:
+    // 1. All pointers point into `root_node` which is owned and not moved
+    // 2. We never hold multiple mutable references simultaneously
+    // 3. The stack is only used within this function
+    let mut node_stack: Vec<*mut XmlNode> = vec![&raw mut root_node];
 
     // Track which hierarchy level is a void element (shouldn't be pushed to hierarchy)
     let mut last_was_void = false;

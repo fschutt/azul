@@ -141,6 +141,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     calculated_positions: &mut super::PositionVec,
     viewport: LogicalRect,
 ) {
+    use azul_css::props::style::StyleDirection;
     // Returns `()` (not Result<()>): inner fallible calls use skip-on-err (see above), so this fn
     // never propagates Err. Avoids the lift-fragile Result<(),LayoutError> Ok-niche read.
     for node_index in 0..tree.nodes.len() {
@@ -443,7 +444,6 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 let right_is_auto = right_val.is_none();
 
                 // Get direction of containing block for over-constrained resolution
-                use azul_css::props::style::StyleDirection;
                 let cb_direction = {
                     let cb_dom_id = if position_type == LayoutPosition::Fixed {
                         None // viewport CB, default LTR
@@ -668,6 +668,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
     calculated_positions: &mut super::PositionVec,
     viewport: LogicalRect, // The viewport is needed if the root element is relative.
 ) {
+    use azul_css::props::style::StyleDirection;
     // NOTE: returns `()` (not `Result<()>`). This fn is Ok-always — its only `?` are on `Option`
     // inside `.and_then` closures, never propagating to the fn body. The previous `Result<(),
     // LayoutError>` return forced the `?` at the call site to read an Ok-niche discriminant, which
@@ -766,7 +767,6 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         // +spec:positioning:1732e8 - left/right for relatively positioned elements determined by 9.4.3 rules
         // Spec: "If the 'direction' property of the containing block is 'ltr', the value of 'left' wins"
         // Get the direction of the containing block (parent), not the element itself
-        use azul_css::props::style::StyleDirection;
         let cb_direction = node.parent
             .and_then(|parent_idx| tree.get(parent_idx))
             .and_then(|parent_node| {

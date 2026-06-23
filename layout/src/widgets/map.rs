@@ -1280,6 +1280,10 @@ extern "C" fn map_widget_render(
     data: RefAny,
     info: VirtualViewCallbackInfo,
 ) -> VirtualViewReturn {
+    enum TileDisplay {
+        Glyph(&'static str),
+        Svg(AzString),
+    }
     let mut data = data;
     let bounds = info.get_bounds();
     let bounds_logical = bounds.get_logical_size();
@@ -1369,10 +1373,6 @@ extern "C" fn map_widget_render(
     // render loop can parse it into a DOM child; the rest carry a glyph
     // (`…` Pending / `⟳` Fetching / `✗` Failed) so the fetch path stays
     // observable.
-    enum TileDisplay {
-        Glyph(&'static str),
-        Svg(AzString),
-    }
     let states: BTreeMap<MapTileId, TileDisplay> = match data.downcast_ref::<MapTileCache>() {
         Some(c) => c
             .tiles

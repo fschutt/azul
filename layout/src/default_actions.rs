@@ -210,6 +210,7 @@ fn is_element_activatable(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, 
 
 /// Check if an element is a text input (where Space should insert text, not activate).
 fn is_text_input(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, DomLayoutResult>) -> bool {
+    use azul_core::events::{EventFilter, FocusEventFilter};
     let Some(layout) = layout_results.get(&node_id.dom) else {
         return false;
     };
@@ -223,7 +224,6 @@ fn is_text_input(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, DomLayout
 
     // Check if this node has a TextInput callback (FocusEventFilter::TextInput)
     // which indicates it's a text input field
-    use azul_core::events::{EventFilter, FocusEventFilter};
     node.get_callbacks()
         .iter()
         .any(|cb| matches!(cb.event, EventFilter::Focus(FocusEventFilter::TextInput)))

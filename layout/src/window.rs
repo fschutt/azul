@@ -803,6 +803,21 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<(), solver3::LayoutError> {
+        // Optional memory-breakdown print for the CSS property cache.
+        // Gated on AZ_MEM_BREAKDOWN=1; off costs one env-var read on
+        // the first call (`OnceLock`-cached) and nothing after.
+        static MEM_BREAKDOWN_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        // Optional AZ_PROFILE=cpu dump: per-phase wall-clock timings from
+        // `Probe::span` spans (layout, style, cascade, paint, text-shape,
+        // callbacks, …). Drains the thread-local buffer once per pass so
+        // the printout reflects ONE layout/relayout frame — which makes it
+        // easy to see which phase spiked during a stuttering frame.
+        static CPU_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        // Optional AZ_PROFILE=cascade dump: top-N CSS properties by
+        // cascade-walk count per layout pass. Narrow diagnostic for
+        // prop-cache triage — not a general CPU profile.
+        static CASCADE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
         let dom_id = if styled_dom.dom_id.inner == 0 {
             DomId::ROOT_ID
         } else {
@@ -1088,11 +1103,6 @@ impl LayoutWindow {
             return Ok(());
         }
 
-        // Optional memory-breakdown print for the CSS property cache.
-        // Gated on AZ_MEM_BREAKDOWN=1; off costs one env-var read on
-        // the first call (`OnceLock`-cached) and nothing after.
-        static MEM_BREAKDOWN_ENABLED: std::sync::OnceLock<bool> =
-            std::sync::OnceLock::new();
         if *MEM_BREAKDOWN_ENABLED.get_or_init(azul_core::profile::memory_enabled) {
             let sr = styled_dom.memory_report();
             eprintln!("[MEM] StyledDom ({} nodes) total={} KiB", sr.node_count, sr.total_bytes() / 1024);
@@ -1159,21 +1169,11 @@ impl LayoutWindow {
             }
         }
 
-        // Optional AZ_PROFILE=cpu dump: per-phase wall-clock timings from
-        // `Probe::span` spans (layout, style, cascade, paint, text-shape,
-        // callbacks, …). Drains the thread-local buffer once per pass so
-        // the printout reflects ONE layout/relayout frame — which makes it
-        // easy to see which phase spiked during a stuttering frame.
-        static CPU_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         if *CPU_ENABLED.get_or_init(azul_core::profile::cpu_enabled) {
             let events = crate::probe::Probe::drain();
             crate::probe::print_drained_events("layout pass", &events);
         }
 
-        // Optional AZ_PROFILE=cascade dump: top-N CSS properties by
-        // cascade-walk count per layout pass. Narrow diagnostic for
-        // prop-cache triage — not a general CPU profile.
-        static CASCADE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         if *CASCADE_ENABLED.get_or_init(azul_core::profile::cascade_enabled) {
             let counts = azul_core::prop_cache::drain_css_prop_counts();
             let total: usize = counts.iter().map(|(_, n)| *n).sum();
@@ -5200,6 +5200,10 @@ impl LayoutWindow {
     /// Returns the nodes that need to be marked dirty for re-layout,
     /// and whether a full re-layout is needed (text size changed).
     pub fn apply_text_changeset(&mut self) -> TextChangesetResult {
+        use crate::managers::changeset::{TextChangeset, TextOpInsertText, TextOperation};
+        use crate::text3::edit::{edit_text, TextEdit};
+        static CHANGESET_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
         // Get the changeset from TextInputManager
         let empty = TextChangesetResult { dirty_nodes: Vec::new(), needs_relayout: false };
 
@@ -5297,7 +5301,6 @@ impl LayoutWindow {
         };
 
         // Apply the edit using text3::edit - this is a pure function
-        use crate::text3::edit::{edit_text, TextEdit};
         let text_edit = TextEdit::Insert(changeset.inserted_text.as_str().to_string());
         let (new_content, new_selections) = edit_text(&content, &current_selection, &text_edit);
 
@@ -5311,8 +5314,6 @@ impl LayoutWindow {
         self.update_text_cache_after_edit(dom_id, node_id, new_content);
 
         // Record this operation to the undo/redo manager AFTER successful mutation
-
-        use crate::managers::changeset::{TextChangeset, TextOpInsertText, TextOperation};
 
         // Get the new cursor position after edit using the layout's cursor rect
         let new_cursor = self
@@ -5331,8 +5332,6 @@ impl LayoutWindow {
             });
 
         // Generate a unique changeset ID
-        static CHANGESET_COUNTER: AtomicUsize =
-            AtomicUsize::new(0);
         let changeset_id = CHANGESET_COUNTER.fetch_add(1, Ordering::SeqCst);
 
         let undo_changeset = TextChangeset {
@@ -7106,6 +7105,7 @@ impl LayoutWindow {
         gl_context: &OptionGlContextPtr,
     ) -> Vec<(DomId, NodeId, azul_core::gl::Texture)> {
         use crate::callbacks::{RenderImageCallback, RenderImageCallbackInfo};
+        use std::panic;
 
         let mut updated_textures = Vec::new();
 
@@ -7201,7 +7201,6 @@ impl LayoutWindow {
                                                 } else {
                                                     let callback = RenderImageCallback::from_core(&core_callback.callback);
                                                     let refany_clone = core_callback.refany.clone();
-                                                    use std::panic;
                                                     let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
                                                         (callback.cb)(refany_clone, gl_callback_info)
                                                     }));

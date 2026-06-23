@@ -6489,6 +6489,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
     loaded_fonts: &LoadedFonts<T>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<Vec<ShapedItem>, LayoutError> {
+    use std::hash::{Hash, Hasher};
     // Delegate to the existing shaping logic, but for each coalesce group,
     // check the per-item cache first.
     //
@@ -6543,7 +6544,6 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
 
         // Compute per-group cache key
         let mut hasher = DefaultHasher::new();
-        use std::hash::{Hash, Hasher};
         for j in idx..coalesce_end {
             visual_items[j].text.hash(&mut hasher);
         }
@@ -7784,6 +7784,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
 ) -> Result<UnifiedLayout, LayoutError> {
+    const MAX_EMPTY_SEGMENTS: usize = 1000; // Maximum allowed consecutive empty segments
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(
             "\n--- Entering perform_fragment_layout ---".to_string(),
@@ -7914,7 +7915,6 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         let mut line_index = 0;
         let mut empty_segment_count = 0; // Failsafe counter for infinite loops
         let mut is_after_forced_break = false;
-        const MAX_EMPTY_SEGMENTS: usize = 1000; // Maximum allowed consecutive empty segments
 
         // [g147 az-web-lift] Hard total-iteration cap on the line-build loop. On the remill lift,
         // `cursor.is_done()` (or the empty-segment failsafe) mis-lifts for the NESTED IFC (content.len

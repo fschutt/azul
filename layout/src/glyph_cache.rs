@@ -164,13 +164,12 @@ impl GlyphCache {
             let path_key = GlyphPathKey { font_hash, glyph_id, ppem };
             let path_entry = self.paths.get(&path_key);
             let cached_cells = path_entry.and_then(|entry| {
-                let (path, _) = entry.as_ref()?;
-                let frac_x = f64::from(subpx_x) * 0.25;
-                let frac_y = f64::from(subpx_y) * 0.25;
-
                 use agg_rust::trans_affine::TransAffine;
                 use agg_rust::basics::FillingRule;
                 use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
+                let (path, _) = entry.as_ref()?;
+                let frac_x = f64::from(subpx_x) * 0.25;
+                let frac_y = f64::from(subpx_y) * 0.25;
 
                 let mut ras = RasterizerScanlineAa::new();
                 ras.filling_rule(FillingRule::NonZero);
@@ -205,6 +204,7 @@ fn build_hinted_path(
     parsed_font: &ParsedFont,
     ppem: u16,
 ) -> Option<PathStorage> {
+    use allsorts::hinting::f26dot6::F26Dot6;
     let raw_points = glyph.raw_points.as_ref()?;
     let raw_on_curve = glyph.raw_on_curve.as_ref()?;
     let raw_contour_ends = glyph.raw_contour_ends.as_ref()?;
@@ -229,7 +229,6 @@ fn build_hinted_path(
 
     // Scale raw points from font units to F26Dot6
     let scale = allsorts::hinting::f26dot6::compute_scale(ppem, upem);
-    use allsorts::hinting::f26dot6::F26Dot6;
 
     let points_f26dot6: Vec<(i32, i32)> = raw_points
         .iter()

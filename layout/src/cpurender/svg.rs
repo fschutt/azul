@@ -324,6 +324,7 @@ fn render_svg_group_with_style(
 /// Build an agg `PathStorage` from an SVG shape element's attributes.
 #[cfg(all(feature = "std", feature = "xml"))]
 fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
+    const KAPPA: f64 = 0.552_284_749_8;
     let tag = node.node_type.as_str().to_lowercase();
     match tag.as_str() {
         "path" => {
@@ -382,7 +383,6 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
             let mut ps = svg_multi_polygon_to_path_storage(&multi);
             // Scale ellipse: we'll just build it directly instead
             let mut path = PathStorage::new();
-            const KAPPA: f64 = 0.552_284_749_8;
             let kx = rx * KAPPA;
             let ky = ry * KAPPA;
             path.move_to(cx, cy - ry);

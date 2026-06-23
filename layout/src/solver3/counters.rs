@@ -73,10 +73,10 @@ pub(crate) fn to_alphabetic(mut num: usize, uppercase: bool) -> String {
 ///
 /// This implements the CSS `lower-roman` and `upper-roman` counter styles.
 pub(crate) fn to_roman(mut num: usize, uppercase: bool) -> String {
+    const MAX_ROMAN: usize = 3999;
     if num == 0 {
         return "0".to_string();
     }
-    const MAX_ROMAN: usize = 3999;
     if num > MAX_ROMAN {
         // Roman numerals traditionally don't go beyond 3999
         return num.to_string();
