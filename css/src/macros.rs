@@ -265,7 +265,7 @@ macro_rules! impl_vec {
                         if !self.ptr.is_null() && self.cap != 0 {
                             let _ = unsafe {
                                 alloc::vec::Vec::from_raw_parts(
-                                    self.ptr as *mut $struct_type,
+                                    self.ptr.cast_mut(),
                                     self.len,
                                     self.cap,
                                 )
@@ -428,7 +428,7 @@ macro_rules! impl_vec_mut {
     ($struct_type:ident, $struct_name:ident) => {
         impl AsMut<[$struct_type]> for $struct_name {
             fn as_mut(&mut self) -> &mut [$struct_type] {
-                unsafe { core::slice::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len) }
+                unsafe { core::slice::from_raw_parts_mut(self.ptr.cast_mut(), self.len) }
             }
         }
 
@@ -450,7 +450,7 @@ macro_rules! impl_vec_mut {
         impl $struct_name {
             #[inline]
             pub const fn as_mut_ptr(&mut self) -> *mut $struct_type {
-                self.ptr as *mut $struct_type
+                self.ptr.cast_mut()
             }
 
             #[inline]
@@ -613,7 +613,7 @@ macro_rules! impl_vec_mut {
                 let res = unsafe {
                     match self.current_layout() {
                         Some(layout) => {
-                            alloc::alloc::realloc(self.ptr as *mut u8, layout, new_layout.size())
+                            alloc::alloc::realloc(self.ptr.cast::<u8>().cast_mut(), layout, new_layout.size())
                         }
                         None => alloc::alloc::alloc(new_layout),
                     }
@@ -818,7 +818,7 @@ macro_rules! impl_vec_clone {
                     $destructor_name::DefaultRust => {
                         let v = unsafe {
                             alloc::vec::Vec::from_raw_parts(
-                                self.ptr as *mut $struct_type,
+                                self.ptr.cast_mut(),
                                 self.len,
                                 self.cap,
                             )
