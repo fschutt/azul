@@ -1342,6 +1342,8 @@ impl_option!(
 /// macOS-specific window options (reserved for future use)
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
+// `_`-prefixed fields are C-ABI/api.json names; cannot rename.
+#[allow(clippy::pub_underscore_fields)]
 pub struct MacWindowOptions {
     // empty for now, single field must be present for ABI compat - always set to 0
     pub _reserved: u8,
@@ -1350,6 +1352,8 @@ pub struct MacWindowOptions {
 /// WASM/web-specific window options (reserved for future use)
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
+// `_`-prefixed fields are C-ABI/api.json names; cannot rename.
+#[allow(clippy::pub_underscore_fields)]
 pub struct WasmWindowOptions {
     // empty for now, single field must be present for ABI compat - always set to 0
     pub _reserved: u8,

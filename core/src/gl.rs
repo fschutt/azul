@@ -652,6 +652,8 @@ impl From<GlContextGlType> for GlType {
 // (U8Vec, u32)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot rename.
+#[allow(clippy::pub_underscore_fields)]
 pub struct GetProgramBinaryReturn {
     pub _0: U8Vec,
     pub _1: u32,
@@ -660,6 +662,8 @@ pub struct GetProgramBinaryReturn {
 // (i32, u32, AzString)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot rename.
+#[allow(clippy::pub_underscore_fields)]
 pub struct GetActiveAttribReturn {
     pub _0: i32,
     pub _1: u32,
@@ -669,6 +673,8 @@ pub struct GetActiveAttribReturn {
 // (i32, u32, AzString)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot rename.
+#[allow(clippy::pub_underscore_fields)]
 pub struct GetActiveUniformReturn {
     pub _0: i32,
     pub _1: u32,
@@ -850,6 +856,8 @@ pub fn gl_textures_clear_opengl_cache() {
 /// For .`get_gl_precision_format()`, but ABI-safe - returning an array or a tuple is not ABI-safe
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
+// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot rename.
+#[allow(clippy::pub_underscore_fields)]
 pub struct GlShaderPrecisionFormatReturn {
     pub _0: GLint,
     pub _1: GLint,

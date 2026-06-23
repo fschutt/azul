@@ -35,6 +35,8 @@ use crate::props::basic::ColorU;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
+// `_reserved` is a deliberate padding-field name (C-ABI / api.json); cannot rename.
+#[allow(clippy::pub_underscore_fields)]
 pub struct EmptyStruct {
     /// Reserved byte to ensure the struct has non-zero size.
     /// Always initialized to 0.

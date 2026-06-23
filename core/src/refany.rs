@@ -67,6 +67,9 @@ pub type RefAnyDestructorType = extern "C" fn(*mut c_void);
 /// observe inconsistent states (e.g., both seeing count=1 during final drop).
 #[derive(Debug)]
 #[repr(C)]
+// `_internal_*` are C-ABI field names exposed in api.json; the `_` prefix is the
+// intentional "internal" convention and cannot be renamed without breaking the ABI.
+#[allow(clippy::pub_underscore_fields)]
 pub struct RefCountInner {
     /// Type-erased pointer to heap-allocated data.
     ///
