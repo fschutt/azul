@@ -197,7 +197,8 @@ pub mod badge;
 pub mod slider;
 /// Segmented control widget — joined row of mutually-exclusive buttons; see `segmented.rs`.
 pub mod segmented;
+/// Radio-group widget — vertical/horizontal group of mutually-exclusive options
+/// (exactly one selected) with a circular indicator; see `radio_group.rs`.
+pub mod radio_group;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
-// /// Multi-line text input
-// pub mod text_edit;
