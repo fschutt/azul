@@ -71,9 +71,8 @@ pub enum RicingMode {
 /// Anything we don't recognise falls through to `Default` so a typo
 /// degrades gracefully instead of disabling the feature silently.
 #[must_use] pub fn ricing_mode() -> RicingMode {
-    let raw = match std::env::var("AZ_RICING") {
-        Ok(s) => s,
-        Err(_) => return RicingMode::Default,
+    let Ok(raw) = std::env::var("AZ_RICING") else {
+        return RicingMode::Default;
     };
     match raw.trim().to_ascii_lowercase().as_str() {
         "off" | "disabled" | "none" | "0" | "false" => RicingMode::Off,

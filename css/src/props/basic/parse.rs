@@ -51,11 +51,11 @@ fn split_string_by_char(input: &str, target_char: char) -> Vec<&str> {
     let mut current_input = input;
 
     'outer: loop {
-        let (skip_next_braces_result, character_was_found) =
-            match skip_next_braces(current_input, target_char) {
-                Some(s) => s,
-                None => break 'outer,
-            };
+        let Some((skip_next_braces_result, character_was_found)) =
+            skip_next_braces(current_input, target_char)
+        else {
+            break 'outer;
+        };
         if character_was_found {
             comma_separated_items.push(&current_input[..skip_next_braces_result]);
             current_input = &current_input[(skip_next_braces_result + 1)..];
