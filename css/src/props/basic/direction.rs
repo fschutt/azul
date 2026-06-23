@@ -161,8 +161,8 @@ impl Direction {
                 // Normalize to [0, 360) so negative angles and angles >= 360 fall
                 // into the same quadrant branches below (rem_euclid is always >= 0).
                 let deg = (-angle_value.to_degrees()).rem_euclid(360.0);
-                let width_half = rect.size.width as f32 / 2.0;
-                let height_half = rect.size.height as f32 / 2.0;
+                let width_half = crate::cast::isize_to_f32(rect.size.width) / 2.0;
+                let height_half = crate::cast::isize_to_f32(rect.size.height) / 2.0;
                 let hypotenuse_len = libm::hypotf(width_half, height_half);
                 let angle_to_corner = libm::atanf(height_half / width_half).to_degrees();
                 let corner_angle = if deg < 90.0 {
@@ -180,12 +180,12 @@ impl Direction {
                 let dy = libm::cosf(deg.to_radians()) * line_length;
                 (
                     LayoutPoint::new(
-                        libm::roundf(width_half - dx) as isize,
-                        libm::roundf(height_half + dy) as isize,
+                        crate::cast::f32_to_isize(libm::roundf(width_half - dx)),
+                        crate::cast::f32_to_isize(libm::roundf(height_half + dy)),
                     ),
                     LayoutPoint::new(
-                        libm::roundf(width_half + dx) as isize,
-                        libm::roundf(height_half - dy) as isize,
+                        crate::cast::f32_to_isize(libm::roundf(width_half + dx)),
+                        crate::cast::f32_to_isize(libm::roundf(height_half - dy)),
                     ),
                 )
             }

@@ -12,7 +12,7 @@ use crate::corety::AzString;
 /// hash-able: Css has a relatively low precision here, roughly 3 digits, i.e
 /// `1.001 == 1.0`
 pub const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
-const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
+const FP_PRECISION_MULTIPLIER_CONST: isize = crate::cast::f32_to_isize(FP_PRECISION_MULTIPLIER);
 
 /// Wrapper around `FloatValue`, represents a percentage instead
 /// of just being a regular floating-point value, i.e `5` = `5%`
@@ -208,13 +208,13 @@ impl FloatValue {
     #[inline]
     #[must_use] pub fn new(value: f32) -> Self {
         Self {
-            number: (value * FP_PRECISION_MULTIPLIER) as isize,
+            number: crate::cast::f32_to_isize(value * FP_PRECISION_MULTIPLIER),
         }
     }
 
     #[inline]
     #[must_use] pub fn get(&self) -> f32 {
-        self.number as f32 / FP_PRECISION_MULTIPLIER
+        crate::cast::isize_to_f32(self.number) / FP_PRECISION_MULTIPLIER
     }
 
     /// Returns the raw encoded `isize` (the f32 value scaled by

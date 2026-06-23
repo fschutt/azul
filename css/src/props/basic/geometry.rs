@@ -76,8 +76,8 @@ impl LayoutSize {
     #[inline]
     #[must_use] pub fn round(width: f32, height: f32) -> Self {
         Self {
-            width: libm::roundf(width) as isize,
-            height: libm::roundf(height) as isize,
+            width: crate::cast::f32_to_isize(libm::roundf(width)),
+            height: crate::cast::f32_to_isize(libm::roundf(height)),
         }
     }
 }

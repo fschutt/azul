@@ -31,3 +31,12 @@ pub(crate) const fn usize_to_f32(v: usize) -> f32 {
 pub(crate) const fn i32_to_f32(v: i32) -> f32 {
     v as f32
 }
+
+/// `f32` → `isize` (truncating). `as` saturates NaN→0 and out-of-range to the
+/// `isize` bounds; callers that want rounding `.round()`/`.floor()` first.
+#[inline]
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) const fn f32_to_isize(v: f32) -> isize {
+    v as isize
+}
