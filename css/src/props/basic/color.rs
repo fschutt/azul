@@ -19,6 +19,16 @@ use crate::{
     },
 };
 
+/// Round-saturating `f32` → `u8` for colour channels. Rust's `as u8` already
+/// saturates a float (NaN→0, negatives→0, >255→255, otherwise truncates toward
+/// zero), so this is behaviour-preserving; it just names the intent and isolates
+/// the one unavoidable float→int cast (there is no infallible `f32`→`u8` in std).
+#[inline]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn channel_to_u8(v: f32) -> u8 {
+    v as u8
+}
+
 /// u8-based color, range 0 to 255 (similar to webrenders `ColorU`)
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 #[repr(C)]
@@ -203,10 +213,10 @@ impl ColorU {
     /// `t = 0.0` returns `self`, `t = 1.0` returns `other`.
     #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
-            r: libm::roundf(f32::from(self.r) + (f32::from(other.r) - f32::from(self.r)) * t) as u8,
-            g: libm::roundf(f32::from(self.g) + (f32::from(other.g) - f32::from(self.g)) * t) as u8,
-            b: libm::roundf(f32::from(self.b) + (f32::from(other.b) - f32::from(self.b)) * t) as u8,
-            a: libm::roundf(f32::from(self.a) + (f32::from(other.a) - f32::from(self.a)) * t) as u8,
+            r: channel_to_u8(libm::roundf(f32::from(self.r) + (f32::from(other.r) - f32::from(self.r)) * t)),
+            g: channel_to_u8(libm::roundf(f32::from(self.g) + (f32::from(other.g) - f32::from(self.g)) * t)),
+            b: channel_to_u8(libm::roundf(f32::from(self.b) + (f32::from(other.b) - f32::from(self.b)) * t)),
+            a: channel_to_u8(libm::roundf(f32::from(self.a) + (f32::from(other.a) - f32::from(self.a)) * t)),
         }
     }
     
@@ -467,7 +477,7 @@ impl ColorU {
     
     /// Set the alpha as a float (0.0 to 1.0).
     #[must_use] pub fn with_alpha_f32(&self, a: f32) -> Self {
-        self.with_alpha((a.clamp(0.0, 1.0) * 255.0) as u8)
+        self.with_alpha(channel_to_u8(a.clamp(0.0, 1.0) * 255.0))
     }
     
     /// Invert the color (keeping alpha).
@@ -482,7 +492,7 @@ impl ColorU {
     
     /// Convert to grayscale using luminance weights.
     #[must_use] pub fn to_grayscale(&self) -> Self {
-        let gray = (0.299 * f32::from(self.r) + 0.587 * f32::from(self.g) + 0.114 * f32::from(self.b)) as u8;
+        let gray = channel_to_u8(0.299 * f32::from(self.r) + 0.587 * f32::from(self.g) + 0.114 * f32::from(self.b));
         Self { r: gray, g: gray, b: gray, a: self.a }
     }
 
@@ -804,10 +814,10 @@ impl From<ColorU> for ColorF {
 impl From<ColorF> for ColorU {
     fn from(input: ColorF) -> Self {
         Self {
-            r: (input.r.min(1.0) * 255.0) as u8,
-            g: (input.g.min(1.0) * 255.0) as u8,
-            b: (input.b.min(1.0) * 255.0) as u8,
-            a: (input.a.min(1.0) * 255.0) as u8,
+            r: channel_to_u8(input.r.min(1.0) * 255.0),
+            g: channel_to_u8(input.g.min(1.0) * 255.0),
+            b: channel_to_u8(input.b.min(1.0) * 255.0),
+            a: channel_to_u8(input.a.min(1.0) * 255.0),
         }
     }
 }
@@ -1355,9 +1365,9 @@ fn parse_color_hsl_components<'a>(
         };
         let m = l - c / 2.0;
         (
-            ((r1 + m) * 255.0) as u8,
-            ((g1 + m) * 255.0) as u8,
-            ((b1 + m) * 255.0) as u8,
+            channel_to_u8((r1 + m) * 255.0),
+            channel_to_u8((g1 + m) * 255.0),
+            channel_to_u8((b1 + m) * 255.0),
         )
     }
 
@@ -1389,7 +1399,7 @@ fn parse_alpha_component<'a>(
     if !(0.0..=1.0).contains(&a) {
         return Err(CssColorParseError::FloatValueOutOfRange(a));
     }
-    Ok((a * 255.0).round() as u8)
+    Ok(channel_to_u8((a * 255.0).round()))
 }
 
 #[cfg(feature = "parser")]
