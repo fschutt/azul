@@ -195,9 +195,9 @@ env — NOT global, which leaks into host build scripts). FileDropManager hooks:
 | # | Item | Subsystem | Status |
 |---|------|-----------|--------|
 | 6 | macOS global menu bar + context menu (NSMenu) — missing (azul-paint demo) | dll macOS shell + core Menu API | DONE |
-| 7 | Windows file DnD hover+drop (OLE IDropTarget; today legacy WM_DROPFILES drop-only) | dll windows shell | BLOCKED→research |
-| 8 | X11 file DnD (XDND protocol) — none today | dll x11 shell | BLOCKED→research |
-| 9 | Wayland file DnD (wl_data_device) — none today | dll wayland shell | BLOCKED→research |
+| 7 | Windows file DnD hover+drop (OLE IDropTarget; today legacy WM_DROPFILES drop-only) | dll windows shell | TODO (research done; recipe B) |
+| 8 | X11 file DnD (XDND protocol) — none today | dll x11 shell | TODO (research done; see recipe) |
+| 9 | Wayland file DnD (wl_data_device) — none today | dll wayland shell | TODO (research done; see recipe) |
 
 ## Item 6 — macOS global menu bar + context menu  (DONE)
 Files: `dll/src/desktop/shell2/macos/menu.rs`, `dll/src/desktop/shell2/macos/mod.rs`.
