@@ -10,7 +10,7 @@ file, following existing patterns); link the showcase on the releases page.
 | # | Item | Status |
 |---|------|--------|
 | W1 | Paint HiDPI click fix | DONE (ebd19c71a) |
-| W2 | Maps jumbled-tiles fix | TODO (cron item 1; prior agents died on transient API 500) |
+| W2 | Maps jumbled-tiles fix | DONE — fractional-zoom contiguous tile sizing (map.rs) + f32→f64 MVT projection (mvt.rs); see W2 note |
 | W3 | Widget gap research | DONE (→ scripts/WIDGETS_RESEARCH.md) |
 | W4 | Build new widgets (queue below; one file each) | TODO (cron churns one/fire) |
 | W5 | `azul-widgets` showcase demo crate (from widgets.c) | TODO (after W4) |
@@ -27,6 +27,26 @@ tiles tile contiguously (each at `left = col*tile_px - offset_x`, `top = row*til
 `tile_px`). Likely culprits: tile index used directly instead of `index*tile_size`, missing viewport
 offset, x/y swap, wrong tile size, or tile nodes not `position:absolute` in a positioned container.
 Verify `cargo build -p azul-maps`. (Runtime needs a GUI + live tiles — compile-only here.)
+
+**RESOLUTION (this session).** Traced the whole pipeline (map.rs grid math → MVT decode → SVG
+project → cpurender VirtualView composite). The *classic* slippy-map bugs the brief lists are all
+ABSENT: `screen = (col − centre)*tile_px + span/2` is correct, viewport offset present, x/y not
+swapped, tiles are `position:absolute` inside the positioned `position:absolute` grid. At the demo's
+default **integer** zoom (z2) the grid is provably pixel-perfect (consecutive origins differ by exactly
+256 and `size=256`), which is why commit 1315bf619 verified coherent continents. The two real,
+zoom-dependent defects that fracture the map into a disconnected jumble:
+- **map.rs `map_widget_render` — fractional-zoom seams.** Tile *size* was a fixed `tile_px.round()`
+  while each tile *origin* is rounded independently; once `tile_px` isn't a whole number (any non-integer
+  zoom — every scroll-wheel notch is 0.5), the fixed size drifts out of step with the rounded origins →
+  gaps/overlaps. FIX: derive each tile's box from `round(next_origin) − round(this_origin)` per axis, so
+  neighbours always share an exact edge at every zoom (identical to the old size at integer zoom).
+- **mvt.rs `tile_pixel_to_lat_lng` — f32 precision.** Global pixel coord is `2^z * 4096` (≈6.7e7 at z14,
+  max_zoom), past f32's exact-integer ceiling (2^24≈1.6e7), so tile-boundary multiples + per-pixel terms
+  snap to a coarse grid and adjacent tiles' shared edges stop aligning → coastlines/borders fracture at
+  street zooms. FIX: compute + return in f64 (the downstream SVG projection is already f64).
+Both compile (`cargo build -p azul-maps` ✓, `cargo check -p azul-layout` ✓) and all map+MVT unit tests
+pass (19 + 7). RUNTIME CAVEAT: not GUI-verified here. If a *first-load (z2)* jumble persists, the cause
+is NOT the grid math (proven correct) — chase the cpurender VirtualView child-DOM composite instead.
 
 ## W4 — widget build queue (recipe + per-widget detail in scripts/WIDGETS_RESEARCH.md)
 Each = its own file in `layout/src/widgets/`; follow the recipe (struct → callbacks via

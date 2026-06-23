@@ -1445,11 +1445,21 @@ extern "C" fn map_widget_render(
                 x: wrap_tile_x(x, tile_count),
                 y: y as u32,
             };
-            let screen_x =
-                ((x as f32 - centre_x) * tile_px + width_px * 0.5).round() as i32;
-            let screen_y =
-                ((y as f32 - centre_y) * tile_px + height_px * 0.5).round() as i32;
-            let size_px = tile_px.round().max(1.0) as i32;
+            // Derive each tile's on-screen box from the ROUNDED origins of THIS
+            // tile and the NEXT one along each axis, so neighbours always share an
+            // exact edge — no gaps, no overlaps — at fractional zoom too. A fixed
+            // `tile_px.round()` size drifts out of step with the per-tile rounded
+            // origin the moment `tile_px` isn't a whole number (any non-integer
+            // zoom, e.g. a scroll-wheel notch), scattering the tiles into a
+            // disconnected grid. At integer zoom `tile_px` is exactly 256, so each
+            // span is exactly 256 and this is identical to the previous behaviour.
+            let proj = |coord: f32, centre: f32, span_px: f32| {
+                ((coord - centre) * tile_px + span_px * 0.5).round() as i32
+            };
+            let screen_x = proj(x as f32, centre_x, width_px);
+            let screen_y = proj(y as f32, centre_y, height_px);
+            let size_w = (proj(x as f32 + 1.0, centre_x, width_px) - screen_x).max(1);
+            let size_h = (proj(y as f32 + 1.0, centre_y, height_px) - screen_y).max(1);
 
             // Placeholder (still-loading) tiles show the loading grid — a grey
             // background + 1px border — so fetch state is visible. A LOADED tile
@@ -1465,7 +1475,7 @@ extern "C" fn map_widget_render(
             let style = alloc::format!(
                 "position: absolute; left: {}px; top: {}px; \
                  width: {}px; height: {}px; {}",
-                screen_x, screen_y, size_px, size_px, chrome
+                screen_x, screen_y, size_w, size_h, chrome
             );
 
             let mut tile_div = Dom::create_div().with_css(style.as_str());
