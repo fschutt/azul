@@ -675,9 +675,8 @@ impl DragContext {
             Some(dt) if dt.dom == dom_id => dt,
             _ => return,
         };
-        let old_nid = match dt.node.into_crate_internal() {
-            Some(nid) => nid,
-            None => return,
+        let Some(old_nid) = dt.node.into_crate_internal() else {
+            return;
         };
         if let Some(&new_nid) = node_id_map.get(&old_nid) {
             *target = Some(DomNodeId {

@@ -797,9 +797,8 @@ pub struct PropagationResult {
     target_node: NodeHierarchyItemId,
 ) -> Vec<NodeId> {
     let mut path = Vec::new();
-    let target_node_id = match target_node.into_crate_internal() {
-        Some(id) => id,
-        None => return path,
+    let Some(target_node_id) = target_node.into_crate_internal() else {
+        return path;
     };
 
     let hier_ref = node_hierarchy.as_ref();

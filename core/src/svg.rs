@@ -340,13 +340,11 @@ impl SvgPath {
 
     /// Closes the path by appending a line from the last point to the first point, if needed.
     pub fn close(&mut self) {
-        let first = match self.items.as_ref().first() {
-            Some(s) => s,
-            None => return,
+        let Some(first) = self.items.as_ref().first() else {
+            return;
         };
-        let last = match self.items.as_ref().last() {
-            Some(s) => s,
-            None => return,
+        let Some(last) = self.items.as_ref().last() else {
+            return;
         };
         if first.get_start() != last.get_end() {
             let mut elements = self.items.as_slice().to_vec();
@@ -458,14 +456,13 @@ impl SvgMultiPolygon {
 
     /// Returns the axis-aligned bounding rectangle of all rings in this multi-polygon.
     #[must_use] pub fn get_bounds(&self) -> SvgRect {
-        let mut first_bounds = match self
+        let Some(mut first_bounds) = self
             .rings
             .get(0)
             .and_then(|b| b.items.get(0).map(SvgPathElement::get_bounds))
-        {
-            Some(s) => s,
+        else {
             // Empty polygon has zero-sized bounds at origin
-            None => return SvgRect::default(),
+            return SvgRect::default();
         };
 
         for ring in self.rings.iter() {

@@ -409,9 +409,8 @@ impl SharedIconProvider {
         system_style: &SystemStyle,
     ) -> StyledDom {
         let (resolver, lookup_result) = {
-            let guard = match self.inner.lock() {
-                Ok(g) => g,
-                Err(_) => return StyledDom::default(),
+            let Ok(guard) = self.inner.lock() else {
+                return StyledDom::default();
             };
             
             let resolver = guard.resolver;

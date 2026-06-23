@@ -774,9 +774,8 @@ pub fn transfer_states(
         }
 
         // 1. Check if the NEW node has requested a merge callback
-        let merge_callback = match new_node_data[new_idx].get_merge_callback() {
-            Some(cb) => cb,
-            None => continue, // No merge callback, skip
+        let Some(merge_callback) = new_node_data[new_idx].get_merge_callback() else {
+            continue; // No merge callback, skip
         };
 
         // 2. Check if BOTH nodes have datasets

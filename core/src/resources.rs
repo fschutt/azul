@@ -3019,9 +3019,8 @@ pub fn build_add_font_resource_updates(
                         StyleFontFamily::Ref(r) => r.clone(), // Clone the FontRef
                         other => {
                             // Load and parse the font
-                            let font_data = match (font_source_load_fn)(other, fc_cache) {
-                                Some(s) => s,
-                                None => continue 'inner,
+                            let Some(font_data) = (font_source_load_fn)(other, fc_cache) else {
+                                continue 'inner;
                             };
 
                             

@@ -807,9 +807,8 @@ impl ThreadReceiver {
     /// Receives a message from the main thread, if available.
     #[cfg(feature = "std")]
     pub fn recv(&mut self) -> OptionThreadSendMsg {
-        let ts = match self.ptr.lock().ok() {
-            Some(s) => s,
-            None => return None.into(),
+        let Some(ts) = self.ptr.lock().ok() else {
+            return None.into();
         };
         (ts.recv_fn.cb)(std::ptr::from_ref(ts.ptr.as_ref()) as *const c_void)
     }

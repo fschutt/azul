@@ -769,14 +769,12 @@ pub fn insert_into_active_gl_textures(
 pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: Epoch) {
     // TODO: Handle overflow of Epochs correctly (low priority)
     unsafe {
-        let active_textures = match ACTIVE_GL_TEXTURES.as_mut() {
-            Some(s) => s,
-            None => return,
+        let Some(active_textures) = ACTIVE_GL_TEXTURES.as_mut() else {
+            return;
         };
 
-        let active_epochs = match active_textures.get_mut(document_id) {
-            Some(s) => s,
-            None => return,
+        let Some(active_epochs) = active_textures.get_mut(document_id) else {
+            return;
         };
 
         // NOTE: original code used retain() but that
@@ -811,9 +809,8 @@ pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: 
 /// Removes a `DocumentId` from the active epochs
 pub fn gl_textures_remove_active_pipeline(document_id: &DocumentId) {
     unsafe {
-        let active_textures = match ACTIVE_GL_TEXTURES.as_mut() {
-            Some(s) => s,
-            None => return,
+        let Some(active_textures) = ACTIVE_GL_TEXTURES.as_mut() else {
+            return;
         };
         active_textures.remove(document_id);
     }

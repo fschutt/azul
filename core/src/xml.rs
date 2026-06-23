@@ -4966,9 +4966,8 @@ fn find_node_by_type<'a>(root_nodes: &'a [XmlNodeChild], node_type: &str) -> Opt
 pub fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a mut XmlNode> {
     let mut hierarchy = hierarchy.to_vec();
     hierarchy.reverse();
-    let item = match hierarchy.pop() {
-        Some(s) => s,
-        None => return Some(root_node),
+    let Some(item) = hierarchy.pop() else {
+        return Some(root_node);
     };
     let child = root_node.children.as_mut().get_mut(item)?;
     match child {
@@ -4984,9 +4983,8 @@ fn get_item_internal<'a>(
     if hierarchy.is_empty() {
         return Some(root_node);
     }
-    let cur_item = match hierarchy.pop() {
-        Some(s) => s,
-        None => return Some(root_node),
+    let Some(cur_item) = hierarchy.pop() else {
+        return Some(root_node);
     };
     let child = root_node.children.as_mut().get_mut(cur_item)?;
     match child {
@@ -5410,13 +5408,11 @@ fn apply_xml_node_attributes(
         let mut attributes = Vec::new();
         for s in style.as_str().split(';') {
             let mut s = s.split(':');
-            let key = match s.next() {
-                Some(s) => s,
-                None => continue,
+            let Some(key) = s.next() else {
+                continue;
             };
-            let value = match s.next() {
-                Some(s) => s,
-                None => continue,
+            let Some(value) = s.next() else {
+                continue;
             };
             let _ = azul_css::parser2::parse_css_declaration(
                 key.trim(),

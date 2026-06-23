@@ -1210,9 +1210,8 @@ impl CssPropertyCache {
         // Inheritance: Inherit all values of the parent to the children, but
         // only if the property is inheritable and isn't yet set
         for ParentWithNodeDepth { depth: _, node_id } in non_leaf_nodes.iter() {
-            let parent_id = match node_id.into_crate_internal() {
-                Some(s) => s,
-                None => continue,
+            let Some(parent_id) = node_id.into_crate_internal() else {
+                continue;
             };
 
             use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
