@@ -212,5 +212,8 @@ pub mod alert;
 pub mod accordion;
 /// Avatar widget — a circular image/initials badge (stateless); see `avatar.rs`.
 pub mod avatar;
+/// Chip / tag widget — a compact rounded pill with a label + optional removable
+/// "×" (stateful when removable, mirrors alert's dismiss); see `chip.rs`.
+pub mod chip;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
