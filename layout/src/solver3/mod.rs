@@ -500,7 +500,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // [az-diag g54 REVERT] 0x40740 = new_tree.nodes.len() RIGHT AFTER reconcile. If 0 → reconcile
     // built an empty LayoutTree (the bug is in reconcile_recursive/create_node_from_dom). If 2 →
     // reconcile is fine and the tree gets emptied/mis-lifted downstream (check 0x40744 at the loop).
-    unsafe { crate::az_mark(0x60740_u32, ((new_tree.nodes.len() as u32))); }
+    unsafe { crate::az_mark(0x60740_u32, (new_tree.nodes.len() as u32)); }
     crate::probe::sample_peak_rss("rss:after_reconcile");
     crate::probe::sample_phase_peak("rss:peak_during_reconcile");
 
@@ -712,8 +712,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Vec::clone MIS-LIFTS (drops a node) → the full MOVE-based cache.tree refactor avoids it (do it).
     // If src=1=clone → corruption already reached line 758 (heisenbug) → move won't help.
     unsafe {
-        crate::az_mark(0x607C0_u32, ((new_tree.nodes.len() as u32)));
-        crate::az_mark(0x607C4_u32, ((cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32)));
+        crate::az_mark(0x607C0_u32, (new_tree.nodes.len() as u32));
+        crate::az_mark(0x607C4_u32, (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32));
     }
 
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
@@ -731,16 +731,16 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.calculated_positions.clone()
         };
         // [az-diag g70 RELIABLE free-band] 0x60780 = nodes.len AFTER the in-loop calculated_positions.clone().
-        unsafe { crate::az_mark(0x60780_u32, ((new_tree.nodes.len() as u32))); }
+        unsafe { crate::az_mark(0x60780_u32, (new_tree.nodes.len() as u32)); }
         let mut reflow_needed_for_scrollbars = false;
 
         {
             crate::probe::reset_peak();
             // [az-diag g70 RELIABLE free-band] 0x60784 = nodes.len AFTER reset_peak (before the calc Span).
-            unsafe { crate::az_mark(0x60784_u32, ((new_tree.nodes.len() as u32))); }
+            unsafe { crate::az_mark(0x60784_u32, (new_tree.nodes.len() as u32)); }
             let _p = crate::probe::Probe::span("calc_intrinsic_sizes");
             // [az-diag g70 RELIABLE free-band] 0x60788 = nodes.len AFTER the calc_intrinsic_sizes Span.
-            unsafe { crate::az_mark(0x60788_u32, ((new_tree.nodes.len() as u32))); }
+            unsafe { crate::az_mark(0x60788_u32, (new_tree.nodes.len() as u32)); }
             // [az-diag g72 FIX] REMOVED the g48 `#[cfg(feature="web_lift")] panic!(...)` that lived
             // here. web-transpiler => azul-layout?/web_lift IS enabled (dll/Cargo.toml:651), so this
             // panic WAS compiled in, and with `-Z build-std-features=panic_immediate_abort` it lowered
@@ -753,8 +753,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // [az-diag g65 PATH-B VALIDATION] 0x40748 = stack new_tree.nodes.len() (expect 0),
             // 0x4074C = HEAP cache.tree.nodes.len() (expect 2 if path B sidesteps the corruption).
             unsafe {
-                crate::az_mark(0x60748_u32, ((new_tree.nodes.len() as u32)));
-                crate::az_mark(0x6074C_u32, ((cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32)));
+                crate::az_mark(0x60748_u32, (new_tree.nodes.len() as u32));
+                crate::az_mark(0x6074C_u32, (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32));
             }
             calculate_intrinsic_sizes(
                 &mut ctx,

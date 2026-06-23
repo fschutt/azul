@@ -156,7 +156,7 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // is in 121-142. compute_dirty_ancestor_closure RETURNS a HashSet by sret — prime suspect:
     // sret-slot overlapping new_tree, or the hashbrown empty-map bug. 0x407B4 (post-compute_dirty)
     // isolates compute_dirty vs calculator-creation.
-    unsafe { crate::az_mark(0x607B0_u32, ((tree.nodes.len() as u32))); }
+    unsafe { crate::az_mark(0x607B0_u32, (tree.nodes.len() as u32)); }
     if dirty_nodes.is_empty() {
         return Ok(());
     }
@@ -171,7 +171,7 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // excel.html even when only 3 nodes were actually dirty.
     let dirty_closure = compute_dirty_ancestor_closure(tree, dirty_nodes);
     // [az-diag g59 REVERT] 0x407B4 = nodes.len AFTER compute_dirty_ancestor_closure (its HashSet sret).
-    unsafe { crate::az_mark(0x607B4_u32, ((tree.nodes.len() as u32))); }
+    unsafe { crate::az_mark(0x607B4_u32, (tree.nodes.len() as u32)); }
 
     let mut calculator = IntrinsicSizeCalculator::new(ctx, text_cache);
     calculator.dirty_closure = Some(dirty_closure);
@@ -193,12 +193,12 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // tree.get(root)=None (0x40738=0) or nodes.len()=0 (0x40734), the InvalidTree@229 is
     // because RECONCILE produced a broken tree — root cause is reconcile, not sizing.
     unsafe {
-        crate::az_mark(0x60730_u32, ((tree.root as u32)));
-        crate::az_mark(0x60734_u32, ((tree.nodes.len() as u32)));
+        crate::az_mark(0x60730_u32, (tree.root as u32));
+        crate::az_mark(0x60734_u32, (tree.nodes.len() as u32));
         crate::az_mark(0x60738_u32, u32::from(tree.get(tree.root).is_some()));
         // [az-diag g55] 0x4075C = the `tree` ptr the CALLEE sees. Compare with 0x40748
         // (caller's &new_tree). Same → nodes-field-offset mis-lift; differ → &mut arg mis-passed.
-        crate::az_mark(0x6075C_u32, (((std::ptr::from_ref::<LayoutTree>(tree) as usize) as u32)));
+        crate::az_mark(0x6075C_u32, ((std::ptr::from_ref::<LayoutTree>(tree) as usize) as u32));
     }
     calculator.calculate_intrinsic_recursive(tree, tree.root, false)?;
     debug_log!(ctx, "Finished intrinsic size calculation");
@@ -256,7 +256,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
     ) -> Result<IntrinsicSizes> {
         // [az-diag g52 REVERT] 0x40720 = node_index entering calculate_intrinsic_recursive
         // (last value after the run = the node that InvalidTree'd or the stray child).
-        unsafe { crate::az_mark(0x60720_u32, ((node_index as u32))); }
+        unsafe { crate::az_mark(0x60720_u32, (node_index as u32)); }
         // Fast path: if this subtree has no dirty nodes AND we
         // already have a cached intrinsic, return the cached value
         // and skip the whole descent. Caller is the ancestor-closure
@@ -341,7 +341,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let mut child_intrinsics = Vec::with_capacity(n);
         for &child_index in children {
             // [az-diag g52 REVERT] 0x40728 = child_index about to recurse (last = the stray).
-            unsafe { crate::az_mark(0x60728_u32, ((child_index as u32))); }
+            unsafe { crate::az_mark(0x60728_u32, (child_index as u32)); }
             // [g52 FIX] Defensive: reconcile can mis-list a stray/out-of-range child_index
             // (a Text node mis-listed as a layout child, or a lift artifact in the children
             // array). The unguarded recursion would hit `tree.get(child_index).ok_or(InvalidTree)`
@@ -629,7 +629,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         unsafe {
             let c = crate::az_mark_read(0x60758).wrapping_add(1);
             crate::az_mark(0x60758_u32, (c));
-            crate::az_mark(0x6075C_u32, ((node_index as u32)));
+            crate::az_mark(0x6075C_u32, (node_index as u32));
         }
         // Collect all inline content from this IFC root and its inline descendants
         // [g76] EXPLICIT match (was `?`): the g75 markers showed collect_inline_content reaching its
@@ -1098,7 +1098,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     // FAILURE distinctly (inline-phase=0xBAD) so a node_index that fails HERE (before B1) is
     // visible even though a PRIOR successful call already wrote B8. This is the suspected
     // InvalidTree site (phase stuck at 0xA0 + B8 reached ⇒ a 2nd IFC call fails at this get).
-    unsafe { crate::az_mark(0x60754_u32, ((node_index as u32))); }
+    unsafe { crate::az_mark(0x60754_u32, (node_index as u32)); }
     let Some(node) = tree.get(node_index) else {
         unsafe { crate::az_mark(0x6071C_u32, (0xBADu32)); }
         return Err(LayoutError::InvalidTree);
@@ -1170,11 +1170,11 @@ fn process_layout_children<T: ParsedFontTrait>(
     use azul_css::props::layout::{LayoutHeight, LayoutWidth};
 
     // [g73] PLC entry: 0x60708 = 0xC0<<24 | node_index (which node's children we process).
-    unsafe { crate::az_mark(0x60708_u32, ((0xC000_0000_u32 | (node_index as u32 & 0x00FF_FFFF)))); }
+    unsafe { crate::az_mark(0x60708_u32, (0xC000_0000_u32 | (node_index as u32 & 0x00FF_FFFF))); }
     // Process layout tree children (these are elements with layout properties)
     for &child_index in tree.children(node_index) {
         // [g73] PLC loop: 0x6070C = current child_index being processed.
-        unsafe { crate::az_mark(0x6070C_u32, ((child_index as u32))); }
+        unsafe { crate::az_mark(0x6070C_u32, (child_index as u32)); }
         // 2026-06-02: was `.ok_or(LayoutError::InvalidTree)?` — a stray/invalid child_index in
         // tree.children (likely a Text node mis-listed during reconcile, since Text is INLINE
         // content not a layout-tree node) aborted the WHOLE intrinsic-sizing pass with

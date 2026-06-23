@@ -605,7 +605,7 @@ const fn style_text_align_to_fc(text_align: StyleTextAlign) -> fc::TextAlign {
         // parent → 0xC0000000 marker @0x40540+parent*4. REVERT before commit.
         unsafe {
             let pi = parent_dom_id.index();
-            if pi < 8 { crate::az_mark(((0x40540 + pi * 4)) as u32, (0xC000_0000u32)); }
+            if pi < 8 { crate::az_mark((0x40540 + pi * 4) as u32, (0xC000_0000u32)); }
         }
         return children;
     };
@@ -631,7 +631,7 @@ const fn style_text_align_to_fc(text_align: StyleTextAlign) -> fc::TextAlign {
     unsafe {
         let pi = parent_dom_id.index();
         if pi < 8 {
-            crate::az_mark(((0x40540 + pi * 4)) as u32, ((0xCC00_0000u32 | (children.len() as u32 & 0xffff))));
+            crate::az_mark((0x40540 + pi * 4) as u32, (0xCC00_0000u32 | (children.len() as u32 & 0xffff)));
         }
     }
     children

@@ -2000,7 +2000,7 @@ impl LayoutTreeBuilder {
             let c = crate::az_mark_read(0x40500);
             crate::az_mark(0x60500_u32, (c.wrapping_add(1)));
             if (c as usize) < 14 {
-                crate::az_mark(((0x40504 + (c as usize) * 4)) as u32, ((0xDD00_0000 | (dom_id.index() as u32 & 0xffff))));
+                crate::az_mark((0x40504 + (c as usize) * 4) as u32, (0xDD00_0000 | (dom_id.index() as u32 & 0xffff)));
             }
         }
         index

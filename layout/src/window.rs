@@ -1004,7 +1004,7 @@ impl LayoutWindow {
                     font_stacks_sig,
                 );
                 // [g80] font_chain_cache right after set (does set_font_chain_cache_with_sig persist it?).
-                unsafe { crate::az_mark(0x6077C_u32, ((self.font_manager.font_chain_cache.len() as u32))); }
+                unsafe { crate::az_mark(0x6077C_u32, (self.font_manager.font_chain_cache.len() as u32)); }
             }
         }
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);

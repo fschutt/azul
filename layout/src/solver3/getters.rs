@@ -3536,8 +3536,8 @@ impl ResolvedFontChains {
         }
         unsafe {
             crate::az_mark(0x606C0_u32, (0x5E5E_0003_u32));
-            crate::az_mark(0x606C4_u32, ((node_count as u32)));
-            crate::az_mark(0x606C8_u32, ((unique_font_keys.len() as u32)));
+            crate::az_mark(0x606C4_u32, (node_count as u32));
+            crate::az_mark(0x606C8_u32, (unique_font_keys.len() as u32));
             crate::az_mark(0x606CC_u32, (raw_text));
         }
     }
