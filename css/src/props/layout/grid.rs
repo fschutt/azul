@@ -1315,10 +1315,10 @@ pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
     for (name, (min_row, max_row, min_col, max_col)) in area_map {
         areas.push(GridAreaDefinition {
             name: name.into(),
-            row_start: (min_row + 1) as u16,
-            row_end: (max_row + 2) as u16,   // end line is one past the last cell
-            column_start: (min_col + 1) as u16,
-            column_end: (max_col + 2) as u16,
+            row_start: u16::try_from(min_row + 1).unwrap_or(u16::MAX),
+            row_end: u16::try_from(max_row + 2).unwrap_or(u16::MAX), // end line is one past the last cell
+            column_start: u16::try_from(min_col + 1).unwrap_or(u16::MAX),
+            column_end: u16::try_from(max_col + 2).unwrap_or(u16::MAX),
         });
     }
 

@@ -353,7 +353,7 @@ pub mod parser {
                 if val < 0 {
                     return Err($error_name::NegativeValue(trimmed));
                 }
-                Ok($struct_name { inner: val as u32 })
+                Ok($struct_name { inner: u32::try_from(val).unwrap_or(0) })
             }
         };
     }

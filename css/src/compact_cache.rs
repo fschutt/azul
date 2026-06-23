@@ -1031,7 +1031,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
         return U32_SENTINEL; // overflow → tier 3
     }
     // Pack: low 4 bits = metric, upper 28 bits = value (as unsigned offset)
-    let value_bits = ((raw as i32) as u32) << 4;
+    // raw is range-checked to 28 bits above; reinterpret its low 32 bits for packing.
+    let value_bits = i32::try_from(raw).unwrap_or(0).cast_unsigned() << 4;
     value_bits | metric
 }
 
@@ -1043,7 +1044,7 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
     }
     let metric = size_metric_from_u8((encoded & 0xF) as u8);
     // Cast to i32 FIRST, then arithmetic right-shift to preserve sign bit
-    let value_bits = (encoded as i32) >> 4;
+    let value_bits = encoded.cast_signed() >> 4;
     let raw = value_bits as isize; // × 1000
     Some(PixelValue {
         metric,
@@ -1059,7 +1060,7 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
     if scaled < -32768 || scaled > i32::from(I16_SENTINEL_THRESHOLD) - 1 {
         return I16_SENTINEL; // overflow or too large → tier 3
     }
-    scaled as i16
+    i16::try_from(scaled).unwrap_or(I16_SENTINEL)
 }
 
 /// Decode an i16 back to resolved px. Returns None for sentinel values.
@@ -1079,7 +1080,7 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
     if scaled < 0 || scaled >= i32::from(U16_SENTINEL_THRESHOLD) {
         return U16_SENTINEL;
     }
-    scaled as u16
+    u16::try_from(scaled).unwrap_or(U16_SENTINEL)
 }
 
 /// Decode a u16 flex value back to f32. Returns None for sentinel values.
