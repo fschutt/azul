@@ -627,8 +627,8 @@ impl Xml {
             let after_import = &remaining[pos + 7..];
             let trimmed = after_import.trim_start();
 
-            if trimmed.starts_with("url(") {
-                if let Some(url) = Self::extract_url_value(&trimmed[4..]) {
+            if let Some(after_url) = trimmed.strip_prefix("url(") {
+                if let Some(url) = Self::extract_url_value(after_url) {
                     resources.push(ExternalResource {
                         url: AzString::from(url),
                         kind: ExternalResourceKind::Stylesheet,
@@ -656,9 +656,9 @@ impl Xml {
         let trimmed = s.trim_start();
         if trimmed.starts_with('"') {
             Self::extract_quoted_string(trimmed)
-        } else if trimmed.starts_with('\'') {
-            let end = trimmed[1..].find('\'')?;
-            Some(trimmed[1..=end].to_string())
+        } else if let Some(rest) = trimmed.strip_prefix('\'') {
+            let end = rest.find('\'')?;
+            Some(rest[..end].to_string())
         } else {
             let end = trimmed.find(')')?;
             Some(trimmed[..end].trim().to_string())
@@ -667,12 +667,12 @@ impl Xml {
 
     /// Extract a quoted string value
     fn extract_quoted_string(s: &str) -> Option<String> {
-        if s.starts_with('"') {
-            let end = s[1..].find('"')?;
-            Some(s[1..=end].to_string())
-        } else if s.starts_with('\'') {
-            let end = s[1..].find('\'')?;
-            Some(s[1..=end].to_string())
+        if let Some(rest) = s.strip_prefix('"') {
+            let end = rest.find('"')?;
+            Some(rest[..end].to_string())
+        } else if let Some(rest) = s.strip_prefix('\'') {
+            let end = rest.find('\'')?;
+            Some(rest[..end].to_string())
         } else {
             None
         }
