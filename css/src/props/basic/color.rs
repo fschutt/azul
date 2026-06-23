@@ -1047,10 +1047,10 @@ impl CssColorParseError<'_> {
                 CssColorParseErrorOwned::InvalidColorComponent(*n)
             }
             CssColorParseError::IntValueParseErr(e) => {
-                CssColorParseErrorOwned::IntValueParseErr((*e))
+                CssColorParseErrorOwned::IntValueParseErr(*e)
             }
             CssColorParseError::FloatValueParseErr(e) => {
-                CssColorParseErrorOwned::FloatValueParseErr((*e))
+                CssColorParseErrorOwned::FloatValueParseErr(*e)
             }
             CssColorParseError::FloatValueOutOfRange(n) => {
                 CssColorParseErrorOwned::FloatValueOutOfRange(*n)
