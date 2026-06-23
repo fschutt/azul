@@ -6,7 +6,9 @@ use std::num::ParseFloatError;
 
 use crate::corety::AzString;
 
-/// Multiplier for floating point accuracy. Elements such as px or %
+/// Multiplier for floating point accuracy.
+///
+/// Elements such as px or %
 /// are only accurate until a certain number of decimal points, therefore
 /// they have to be casted to isizes in order to make the f32 values
 /// hash-able: Css has a relatively low precision here, roughly 3 digits, i.e

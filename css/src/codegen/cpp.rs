@@ -1,4 +1,6 @@
-//! C++ backend stub. Returns a single placeholder source file noting that the
+//! C++ backend stub.
+//!
+//! Returns a single placeholder source file noting that the
 //! emitter is not implemented; the dispatch path in [`super::backend_for`] is
 //! still wired so `?lang=cpp` produces a structured response instead of a 404.
 

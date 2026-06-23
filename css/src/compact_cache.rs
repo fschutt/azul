@@ -154,7 +154,9 @@ pub const GRID_AUTO_FLOW_MASK: u64 = 0x03; // 2 bits (row/col × dense)
 pub const JUSTIFY_ITEMS_MASK: u64 = 0x03;  // 2 bits (start/center/end/stretch)
 
 /// Special value stored in the spare bits [63:51] to indicate this node has
-/// NO tier-1 data (i.e., all defaults). 0 is a valid all-defaults encoding,
+/// NO tier-1 data (i.e., all defaults).
+///
+/// 0 is a valid all-defaults encoding,
 /// so we use bit 63 as a "tier1 populated" flag. If bit 63 is 0 and all other
 /// bits are 0, it means "all defaults" (`Display::Block`, `Position::Static`, etc.).
 /// We set bit 63 = 1 to mark that the node HAS been populated.

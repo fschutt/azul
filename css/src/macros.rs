@@ -1,5 +1,7 @@
 //! Macros for generating C-ABI-compatible collection types (`Vec`, `Option`, `Result`)
-//! used throughout the codebase for FFI interop. Each macro produces `#[repr(C)]` types
+//! used throughout the codebase for FFI interop.
+//!
+//! Each macro produces `#[repr(C)]` types
 //! with a destructor model: `DefaultRust` (library-owned), `NoDestructor` (`&'static`),
 //! `External` (caller-provided destructor fn), and `AlreadyDestroyed` (post-drop guard).
 

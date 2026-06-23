@@ -1,4 +1,6 @@
-//! CSS string parsing utilities: parenthesized expressions, quote stripping,
+//! CSS string parsing utilities.
+//!
+//! Parenthesized expressions, quote stripping,
 //! comma/whitespace-aware splitting that respects nesting depth, and CSS
 //! image/url path parsing.
 

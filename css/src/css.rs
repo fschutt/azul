@@ -261,7 +261,9 @@ pub struct DynamicCssProperty {
 }
 
 /// A value that is either heap-allocated (parsed at runtime) or a compile-time
-/// static reference. Used to reduce enum size for large CSS property payloads
+/// static reference.
+///
+/// Used to reduce enum size for large CSS property payloads
 /// by storing them behind a pointer instead of inline.
 ///
 /// - Size: 1 (tag) + 7 (padding) + 8 (pointer) = **16 bytes** on 64-bit
@@ -592,7 +594,9 @@ pub mod rule_priority {
     /// inline storage into the same Vec.
     pub const INLINE: u8 = 30;
 
-    /// Reserved for direct-rule runtime overrides. Today the
+    /// Reserved for direct-rule runtime overrides.
+    ///
+    /// Today the
     /// `prop_cache` handles runtime overrides via
     /// `user_overridden_properties`; this slot is reserved so a
     /// future "push a `CssRuleBlock` at runtime" path stays above
@@ -1552,7 +1556,9 @@ impl fmt::Debug for CssPath {
 
 /// Inclusive range of flat `NodeId`s describing a node's subtree `[start, end]`
 /// (`end = start + estimated_total_children`, since the flat arena lays subtrees
-/// out contiguously). Carried by [`CssPathSelector::Root`] to scope inline css to
+/// out contiguously).
+///
+/// Carried by [`CssPathSelector::Root`] to scope inline css to
 /// a subtree, and is the unit of future parallel per-subtree cascading.
 /// `repr(C)` for FFI / api.json codegen.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

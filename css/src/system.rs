@@ -1837,7 +1837,9 @@ r#"{{
 
 pub mod defaults {
     //! A collection of hard-coded system style defaults that mimic the appearance
-    //! of various operating systems and desktop environments. These are used as a
+    //! of various operating systems and desktop environments.
+    //!
+    //! These are used as a
     //! fallback when the "io" feature is disabled, ensuring deterministic styles
     //! for testing and environments where system calls are not desired.
 
