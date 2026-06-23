@@ -916,6 +916,70 @@ impl X11Window {
         }
     }
 
+    /// XDND drag entering / moving over the window (emits `EventType::FileHover`).
+    /// `position` is window-local (translated from the XDND root coords); XDND
+    /// does not expose file paths until the drop, so `paths` is a placeholder
+    /// marker so the hover transition fires. Mirrors the macOS
+    /// `handle_file_drag_entered`.
+    pub fn handle_file_drag_entered(
+        &mut self,
+        position: LogicalPosition,
+        paths: Vec<String>,
+    ) -> ProcessEventResult {
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.common.current_window_state.mouse_state.cursor_position =
+            CursorPosition::InWindow(position);
+        if let Some(first_path) = paths.first() {
+            if let Some(layout_window) = self.common.layout_window.as_mut() {
+                layout_window
+                    .file_drop_manager
+                    .set_hovered_file(Some(first_path.clone().into()));
+            }
+        }
+        self.update_hit_test(position);
+        self.process_window_events(0)
+    }
+
+    /// XDND drag leaving the window without a drop (emits
+    /// `EventType::FileHoverCancel`). Mirrors the macOS `handle_file_drag_exited`.
+    pub fn handle_file_drag_exited(&mut self) -> ProcessEventResult {
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window.file_drop_manager.set_hovered_file(None);
+        }
+        let result = self.process_window_events(0);
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window.file_drop_manager.clear_hover_cancelled();
+        }
+        result
+    }
+
+    /// XDND drop completed: the real file paths (parsed from `text/uri-list`)
+    /// dropped at window-local `position` (emits `EventType::FileDrop`). Mirrors
+    /// the macOS `handle_file_drop`.
+    pub fn handle_file_drop(
+        &mut self,
+        position: LogicalPosition,
+        paths: Vec<String>,
+    ) -> ProcessEventResult {
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.common.current_window_state.mouse_state.cursor_position =
+            CursorPosition::InWindow(position);
+        if let Some(first_path) = paths.first() {
+            if let Some(layout_window) = self.common.layout_window.as_mut() {
+                layout_window
+                    .file_drop_manager
+                    .set_dropped_file(Some(first_path.clone().into()));
+            }
+        }
+        self.update_hit_test(position);
+        let result = self.process_window_events(0);
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window.file_drop_manager.set_dropped_file(None);
+        }
+        result
+    }
+
     /// Get the first hovered node from current hit test
     fn get_first_hovered_node(&self) -> Option<HitTestNode> {
         self.common.layout_window

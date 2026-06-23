@@ -34,6 +34,7 @@ pub union XEvent {
     pub expose: XExposeEvent,
     pub configure: XConfigureEvent,
     pub client_message: XClientMessageEvent,
+    pub selection: XSelectionEvent,
     pub xcookie: XGenericEventCookie,
     pad: [c_long; 24],
 }
@@ -198,6 +199,23 @@ pub struct XClientMessageEvent {
     pub format: c_int,
     pub data: XClientMessageData,
 }
+/// `SelectionNotify` event (reply to `XConvertSelection`); used by the XDND
+/// drop path to learn that the requested `text/uri-list` data has been written
+/// into `property` (or `None` = the conversion failed).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XSelectionEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: c_int,
+    pub display: *mut Display,
+    pub requestor: Window,
+    pub selection: Atom,
+    pub target: Atom,
+    pub property: Atom,
+    pub time: Time,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct XSetWindowAttributes {
@@ -262,6 +280,7 @@ pub const Expose: c_int = 12;
 pub const UnmapNotify: c_int = 18;
 pub const MapNotify: c_int = 19;
 pub const ConfigureNotify: c_int = 22;
+pub const SelectionNotify: c_int = 31;
 pub const ClientMessage: c_int = 33;
 
 // Window classes and attributes
@@ -280,6 +299,8 @@ pub const PropModeAppend: c_int = 2;
 
 // Predefined atoms
 pub const XA_ATOM: Atom = 4;
+/// `AnyPropertyType` wildcard for `XGetWindowProperty` (accept any type).
+pub const AnyPropertyType: Atom = 0;
 
 // Keysyms
 pub const XK_BackSpace: u32 = 0xFF08;
@@ -716,6 +737,12 @@ pub type XGetWindowProperty = unsafe extern "C" fn(
     *mut c_ulong,
     *mut *mut c_uchar,
 ) -> c_int;
+/// XConvertSelection(display, selection, target, property, requestor, time).
+/// Asynchronously requests the selection owner to write the `target`-typed data
+/// into `property` on the `requestor` window; the data arrives later as a
+/// `SelectionNotify` event (used by the XDND drop path for `text/uri-list`).
+pub type XConvertSelection =
+    unsafe extern "C" fn(*mut Display, Atom, Atom, Atom, Window, Time) -> c_int;
 pub type XFree = unsafe extern "C" fn(*mut c_void) -> c_int;
 pub type XDefineCursor = unsafe extern "C" fn(*mut Display, Window, Cursor) -> c_int;
 pub type XCreateFontCursor = unsafe extern "C" fn(*mut Display, c_uint) -> Cursor;

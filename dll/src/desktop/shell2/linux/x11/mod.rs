@@ -26,7 +26,7 @@ pub mod tooltip;
 use std::{
     cell::RefCell,
     ffi::{c_void, CStr, CString},
-    os::raw::{c_char, c_int},
+    os::raw::{c_char, c_int, c_long, c_ulong},
     rc::Rc,
     sync::{Arc, Condvar, Mutex},
 };
@@ -35,7 +35,7 @@ use azul_core::{
     callbacks::LayoutCallbackInfo,
     dom::DomId,
     events::{MouseButton, ProcessEventResult},
-    geom::{LogicalSize, PhysicalSize},
+    geom::{LogicalPosition, LogicalSize, PhysicalSize},
     gl::{GlContextPtr, OptionGlContextPtr},
     hit_test::DocumentId,
     refany::RefAny,
@@ -409,11 +409,66 @@ fn x11_event_name(t: i32) -> &'static str {
         21 => "ReparentNotify",
         22 => "ConfigureNotify",
         28 => "PropertyNotify",
+        31 => "SelectionNotify",
         33 => "ClientMessage",
         34 => "MappingNotify",
         35 => "GenericEvent",
         _ => "Other",
     }
+}
+
+/// Parse an XDND `text/uri-list` payload into local filesystem paths.
+///
+/// Per RFC 2483 the list is CRLF-separated; lines starting with `#` are
+/// comments. Each URI is expected to be a `file://[host]/path` URI, which we
+/// strip to its path component and percent-decode. Non-`file://` URIs are
+/// skipped (we are a file drop target).
+fn parse_uri_list(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for raw in text.split("\r\n").flat_map(|l| l.split('\n')) {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let path = if let Some(rest) = line.strip_prefix("file://") {
+            // file://host/path — drop the (optional) host authority by taking
+            // from the first '/' onward.
+            match rest.find('/') {
+                Some(idx) => &rest[idx..],
+                None => continue,
+            }
+        } else if line.starts_with('/') {
+            // Some sources send a bare absolute path.
+            line
+        } else {
+            // Non-file URI (http://, etc.) — not a droppable file.
+            continue;
+        };
+        out.push(percent_decode(path));
+    }
+    out
+}
+
+/// Minimal percent-decoder for `%XX` sequences in a URI path. Invalid escapes
+/// are passed through unchanged.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(h), Some(l)) = (hi, lo) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Handle an XI2 GenericEvent.
@@ -566,6 +621,66 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) -> ProcessEve
     result
 }
 
+/// XDND (X Drag-and-Drop) drop-target state for one window.
+///
+/// Holds the interned protocol atoms plus the live drag-session fields. The
+/// window advertises support by setting the `XdndAware` property (= version 5)
+/// at creation; the handshake itself is driven from the `ClientMessage` /
+/// `SelectionNotify` arms of `handle_event`. See the XDND spec:
+/// <https://www.freedesktop.org/wiki/Specifications/XDND/>.
+struct XdndState {
+    aware: Atom,
+    enter: Atom,
+    position: Atom,
+    status: Atom,
+    leave: Atom,
+    drop: Atom,
+    finished: Atom,
+    selection: Atom,
+    action_copy: Atom,
+    type_list: Atom,
+    /// `text/uri-list` — the only target type we accept.
+    uri_list: Atom,
+    /// Private property the dropped `text/uri-list` data is written into by
+    /// `XConvertSelection` and read back on `SelectionNotify`.
+    drop_property: Atom,
+    /// Source window XID of the in-progress drag (0 = no active drag).
+    source: Window,
+    /// XDND protocol version advertised by the source (from `XdndEnter`).
+    source_version: c_long,
+    /// True once the source has been confirmed to offer `text/uri-list`.
+    type_ok: bool,
+    /// Last hover position in WINDOW-LOCAL coordinates (from `XdndPosition`),
+    /// reused as the drop point because `XdndDrop` carries no coordinates.
+    last_pos: LogicalPosition,
+}
+
+impl XdndState {
+    fn new(xlib: &Xlib, display: *mut Display) -> Self {
+        let intern = |name: &[u8]| -> Atom {
+            unsafe { (xlib.XInternAtom)(display, name.as_ptr() as *const c_char, 0) }
+        };
+        Self {
+            aware: intern(b"XdndAware\0"),
+            enter: intern(b"XdndEnter\0"),
+            position: intern(b"XdndPosition\0"),
+            status: intern(b"XdndStatus\0"),
+            leave: intern(b"XdndLeave\0"),
+            drop: intern(b"XdndDrop\0"),
+            finished: intern(b"XdndFinished\0"),
+            selection: intern(b"XdndSelection\0"),
+            action_copy: intern(b"XdndActionCopy\0"),
+            type_list: intern(b"XdndTypeList\0"),
+            uri_list: intern(b"text/uri-list\0"),
+            drop_property: intern(b"AzulXdndDrop\0"),
+            source: 0,
+            source_version: 0,
+            type_ok: false,
+            last_pos: LogicalPosition::new(0.0, 0.0),
+        }
+    }
+}
+
 pub struct X11Window {
     pub xlib: Rc<Xlib>,
     pub egl: Rc<Egl>,
@@ -583,6 +698,8 @@ pub struct X11Window {
     pub window: Window,
     pub is_open: bool,
     wm_delete_window_atom: Atom,
+    /// XDND drop-target protocol state (atoms + live drag session).
+    xdnd: XdndState,
     ime_manager: Option<events::ImeManager>,
     render_mode: RenderMode,
     tooltip: Option<tooltip::TooltipWindow>,
@@ -1214,6 +1331,25 @@ impl X11Window {
             }
         }
 
+        // XDND: intern the protocol atoms and advertise drop-target support by
+        // setting the `XdndAware` property (= protocol version 5, type XA_ATOM)
+        // on the top-level window. Without this property no source will start a
+        // drag onto us. The handshake is driven from `handle_event`.
+        let xdnd = XdndState::new(&xlib, display);
+        unsafe {
+            let version: std::os::raw::c_long = 5;
+            (xlib.XChangeProperty)(
+                display,
+                window_handle,
+                xdnd.aware,
+                defines::XA_ATOM,
+                32,
+                defines::PropModeReplace,
+                &version as *const std::os::raw::c_long as *const u8,
+                1,
+            );
+        }
+
         let ime_manager = events::ImeManager::new(&xlib, display, window_handle);
 
         // Honor an explicit CPU-render request (AZ_BACKEND=cpu / HwAcceleration::Disabled):
@@ -1396,6 +1532,7 @@ impl X11Window {
             window: window_handle,
             is_open: true,
             wm_delete_window_atom,
+            xdnd,
             ime_manager,
             render_mode,
             tooltip: None,
@@ -2070,11 +2207,14 @@ impl X11Window {
                 ProcessEventResult::DoNothing
             }
             defines::ClientMessage => {
-                let msg_atom = unsafe { event.client_message.data.l[0] } as Atom;
+                let cm = unsafe { event.client_message };
+                let msg_atom = unsafe { cm.data.l[0] } as Atom;
+                let mtype = cm.message_type;
                 log_debug!(
                     LogCategory::Window,
-                    "[X11] handle_event: ClientMessage msg_atom={}, wm_delete_atom={}",
+                    "[X11] handle_event: ClientMessage msg_atom={}, message_type={}, wm_delete_atom={}",
                     msg_atom,
+                    mtype,
                     self.wm_delete_window_atom
                 );
                 if msg_atom == self.wm_delete_window_atom {
@@ -2083,8 +2223,21 @@ impl X11Window {
                         "[X11] handle_event: WM_DELETE_WINDOW - closing window"
                     );
                     self.is_open = false;
+                    ProcessEventResult::DoNothing
+                } else if mtype == self.xdnd.enter
+                    || mtype == self.xdnd.position
+                    || mtype == self.xdnd.leave
+                    || mtype == self.xdnd.drop
+                {
+                    // XDND handshake (dispatch on message_type, NOT data.l[0] —
+                    // for XDND that slot is the SOURCE window XID).
+                    self.handle_xdnd_client_message(&cm)
+                } else {
+                    ProcessEventResult::DoNothing
                 }
-                ProcessEventResult::DoNothing
+            }
+            defines::SelectionNotify => {
+                self.handle_xdnd_selection_notify(unsafe { &event.selection })
             }
             defines::ButtonPress | defines::ButtonRelease => {
                 self.handle_mouse_button(unsafe { &event.button })
@@ -2282,6 +2435,219 @@ impl X11Window {
         if result != ProcessEventResult::DoNothing {
             self.request_redraw();
         }
+    }
+
+    // ===================== XDND (drag-and-drop drop target) =====================
+
+    /// Translate an XDND ROOT-relative coordinate to window-local logical pixels.
+    ///
+    /// XDND `XdndPosition` reports the pointer in root-window coordinates. We
+    /// subtract the window's tracked top-left origin (maintained by
+    /// `ConfigureNotify`). This is approximate if the WM hasn't yet reported the
+    /// final position, but is correct for the steady-state hover/drop case.
+    fn xdnd_root_to_local(&self, root_x: i32, root_y: i32) -> LogicalPosition {
+        let (ox, oy) = match self.common.current_window_state.position {
+            azul_core::window::WindowPosition::Initialized(p) => (p.x, p.y),
+            _ => (0, 0),
+        };
+        LogicalPosition::new((root_x - ox) as f32, (root_y - oy) as f32)
+    }
+
+    /// Send a ClientMessage to the XDND source window.
+    fn xdnd_send(&self, target: Window, message_type: Atom, data: [c_long; 5]) {
+        let mut ev: XEvent = unsafe { std::mem::zeroed() };
+        unsafe {
+            ev.client_message = XClientMessageEvent {
+                type_: defines::ClientMessage,
+                serial: 0,
+                send_event: 1,
+                display: self.display,
+                window: target,
+                message_type,
+                format: 32,
+                data: XClientMessageData { l: data },
+            };
+            (self.xlib.XSendEvent)(self.display, target, 0, 0, &mut ev as *mut XEvent);
+            (self.xlib.XFlush)(self.display);
+        }
+    }
+
+    /// Handle an XDND `ClientMessage` (Enter / Position / Leave / Drop).
+    fn handle_xdnd_client_message(
+        &mut self,
+        cm: &XClientMessageEvent,
+    ) -> ProcessEventResult {
+        let data = unsafe { cm.data.l };
+        let mtype = cm.message_type;
+
+        if mtype == self.xdnd.enter {
+            // data.l[0] = source XID, data.l[1] bit0 = >3 types (use XdndTypeList),
+            // data.l[1]>>24 = protocol version, data.l[2..4] = first 3 types.
+            let source = data[0] as Window;
+            let more_than_three = (data[1] & 1) != 0;
+            let version = (data[1] >> 24) & 0xFF;
+            let mut type_ok = false;
+            if more_than_three {
+                // TODO2: read the full XdndTypeList property for sources offering
+                // >3 types. Most file managers list <=3 types (text/uri-list is
+                // usually first), so the common case is covered by the inline
+                // l[2..5] scan below; the long-list path is left unimplemented.
+                for i in 2..5 {
+                    if data[i] as Atom == self.xdnd.uri_list {
+                        type_ok = true;
+                    }
+                }
+            } else {
+                for i in 2..5 {
+                    if data[i] as Atom == self.xdnd.uri_list {
+                        type_ok = true;
+                    }
+                }
+            }
+            self.xdnd.source = source;
+            self.xdnd.source_version = version;
+            self.xdnd.type_ok = type_ok;
+            log_debug!(
+                LogCategory::Window,
+                "[X11 XDND] Enter from 0x{:x} version={} uri_list_supported={}",
+                source,
+                version,
+                type_ok
+            );
+            ProcessEventResult::DoNothing
+        } else if mtype == self.xdnd.position {
+            // data.l[0] = source, data.l[2] = (x<<16)|y root coords,
+            // data.l[3] = timestamp, data.l[4] = requested action.
+            let source = data[0] as Window;
+            let root_x = ((data[2] >> 16) & 0xFFFF) as i32;
+            let root_y = (data[2] & 0xFFFF) as i32;
+            let local = self.xdnd_root_to_local(root_x, root_y);
+            self.xdnd.last_pos = local;
+
+            // Reply with XdndStatus — MANDATORY: without an accept reply the
+            // source will never send XdndDrop. accept-bit = data.l[1] bit0.
+            let accept = self.xdnd.type_ok;
+            let status: [c_long; 5] = [
+                self.window as c_long,
+                if accept { 1 } else { 0 },
+                0, // empty rect (x<<16|y) -> ask for a new XdndPosition on any move
+                0, // empty rect (w<<16|h)
+                self.xdnd.action_copy as c_long,
+            ];
+            self.xdnd_send(source, self.xdnd.status, status);
+
+            if !accept {
+                return ProcessEventResult::DoNothing;
+            }
+
+            // Drive the hover (FileHover). XDND does not expose paths until the
+            // drop, so we hover a placeholder marker so FileHover fires.
+            self.handle_file_drag_entered(local, vec!["<file>".to_string()])
+        } else if mtype == self.xdnd.leave {
+            self.xdnd.source = 0;
+            self.xdnd.type_ok = false;
+            self.handle_file_drag_exited()
+        } else if mtype == self.xdnd.drop {
+            // data.l[0] = source, data.l[2] = timestamp.
+            let source = data[0] as Window;
+            let time = data[2] as Time;
+            if self.xdnd.type_ok {
+                // Ask the source to write text/uri-list into our drop property.
+                // Do NOT read the property now — wait for SelectionNotify.
+                unsafe {
+                    (self.xlib.XConvertSelection)(
+                        self.display,
+                        self.xdnd.selection,
+                        self.xdnd.uri_list,
+                        self.xdnd.drop_property,
+                        self.window,
+                        time,
+                    );
+                    (self.xlib.XFlush)(self.display);
+                }
+                // XdndFinished is sent after we receive + parse the data.
+            } else {
+                // Nothing we can accept — tell the source we are done.
+                let finished: [c_long; 5] =
+                    [self.window as c_long, 0, 0, 0, 0];
+                self.xdnd_send(source, self.xdnd.finished, finished);
+            }
+            ProcessEventResult::DoNothing
+        } else {
+            ProcessEventResult::DoNothing
+        }
+    }
+
+    /// Handle the `SelectionNotify` that delivers the dropped `text/uri-list`.
+    fn handle_xdnd_selection_notify(
+        &mut self,
+        sel: &XSelectionEvent,
+    ) -> ProcessEventResult {
+        // Only react to our own XDND drop conversion.
+        if sel.selection != self.xdnd.selection || sel.property == 0 {
+            return ProcessEventResult::DoNothing;
+        }
+
+        let paths = self.xdnd_read_uri_list(sel.property);
+
+        // Notify the source we finished (accepted = data.l[1] bit0).
+        let source = self.xdnd.source;
+        if source != 0 {
+            let accepted = !paths.is_empty();
+            let finished: [c_long; 5] = [
+                self.window as c_long,
+                if accepted { 1 } else { 0 },
+                if accepted { self.xdnd.action_copy as c_long } else { 0 },
+                0,
+                0,
+            ];
+            self.xdnd_send(source, self.xdnd.finished, finished);
+        }
+        self.xdnd.source = 0;
+        self.xdnd.type_ok = false;
+
+        if paths.is_empty() {
+            return ProcessEventResult::DoNothing;
+        }
+        let pos = self.xdnd.last_pos;
+        self.handle_file_drop(pos, paths)
+    }
+
+    /// Read + parse the `text/uri-list` data from `property` into file paths.
+    fn xdnd_read_uri_list(&self, property: Atom) -> Vec<String> {
+        let mut paths = Vec::new();
+        unsafe {
+            let mut actual_type: Atom = 0;
+            let mut actual_format: c_int = 0;
+            let mut nitems: c_ulong = 0;
+            let mut bytes_after: c_ulong = 0;
+            let mut prop_data: *mut u8 = std::ptr::null_mut();
+            // Request a generous length (up to 64 KiB of paths).
+            let status = (self.xlib.XGetWindowProperty)(
+                self.display,
+                self.window,
+                property,
+                0,
+                0x4000,
+                0, // delete = false
+                defines::AnyPropertyType,
+                &mut actual_type,
+                &mut actual_format,
+                &mut nitems,
+                &mut bytes_after,
+                &mut prop_data,
+            );
+            if status == 0 && !prop_data.is_null() && nitems > 0 {
+                let bytes = std::slice::from_raw_parts(prop_data, nitems as usize);
+                if let Ok(text) = std::str::from_utf8(bytes) {
+                    paths = parse_uri_list(text);
+                }
+            }
+            if !prop_data.is_null() {
+                (self.xlib.XFree)(prop_data as *mut c_void);
+            }
+        }
+        paths
     }
 
     /// One-time `size_to_content`: lay the DOM out at a tiny viewport so the
