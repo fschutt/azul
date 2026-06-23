@@ -25,7 +25,7 @@ pub enum ShapeParseError {
 }
 
 impl core::fmt::Display for ShapeParseError {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::UnknownFunction(func) => {
                 write!(f, "Unknown shape function: {func}")

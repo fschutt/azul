@@ -54,7 +54,7 @@ impl PrintAsCssValue for StyleExclusionMargin {
 }
 
 impl FormatAsCssValue for StyleExclusionMargin {
-    fn format_as_css_value(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn format_as_css_value(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner.get())
     }
 }
@@ -163,7 +163,7 @@ impl PrintAsCssValue for StyleHyphenationLanguage {
 }
 
 impl FormatAsCssValue for StyleHyphenationLanguage {
-    fn format_as_css_value(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn format_as_css_value(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "\"{}\"", self.inner.as_str())
     }
 }

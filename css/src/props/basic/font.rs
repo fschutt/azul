@@ -185,7 +185,7 @@ pub struct FontRef {
 }
 
 impl fmt::Debug for FontRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "FontRef(0x{:x}", self.parsed as usize)?;
         if let Some(c) = unsafe { self.copies.as_ref() } {
             write!(f, ", copies: {})", c.load(AtomicOrdering::SeqCst))?;

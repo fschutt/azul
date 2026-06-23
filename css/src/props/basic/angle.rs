@@ -23,7 +23,7 @@ pub enum AngleMetric {
 
 
 impl fmt::Display for AngleMetric {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::AngleMetric::{Degree, Radians, Grad, Turn, Percent};
         match self {
             Degree => write!(f, "deg"),
@@ -50,13 +50,13 @@ impl_option!(
 );
 
 impl fmt::Debug for AngleValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
 }
 
 impl fmt::Display for AngleValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}", self.number, self.metric)
     }
 }

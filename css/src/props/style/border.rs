@@ -41,7 +41,7 @@ pub enum BorderStyle {
 
 
 impl fmt::Display for BorderStyle {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -77,7 +77,7 @@ macro_rules! define_border_side_property {
             pub inner: $inner_type,
         }
         impl ::core::fmt::Debug for $struct_name {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}", self.inner)
             }
         }
@@ -95,7 +95,7 @@ macro_rules! define_border_side_property {
             pub inner: ColorU,
         }
         impl ::core::fmt::Debug for $struct_name {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}", self.inner.to_hash())
             }
         }

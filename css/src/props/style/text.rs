@@ -34,7 +34,7 @@ pub struct StyleTextColor {
 }
 
 impl fmt::Debug for StyleTextColor {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }
@@ -97,7 +97,7 @@ pub struct StyleLetterSpacing {
 }
 
 impl fmt::Debug for StyleLetterSpacing {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.inner)
     }
 }
@@ -130,7 +130,7 @@ pub struct StyleWordSpacing {
 }
 
 impl fmt::Debug for StyleWordSpacing {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.inner)
     }
 }
@@ -185,7 +185,7 @@ pub struct StyleTabSize {
 }
 
 impl fmt::Debug for StyleTabSize {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.inner)
     }
 }
@@ -782,7 +782,7 @@ pub struct StyleTextIndent {
 }
 
 impl fmt::Debug for StyleTextIndent {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }
@@ -1012,7 +1012,7 @@ impl StyleInitialLetterParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl From<StyleInitialLetterParseError<'_>> for StyleInitialLetterParseErrorOwned {
-    fn from(e: StyleInitialLetterParseError) -> Self {
+    fn from(e: StyleInitialLetterParseError<'_>) -> Self {
         match e {
             StyleInitialLetterParseError::InvalidFormat(s) => {
                 Self::InvalidFormat(s.to_string().into())
@@ -1131,7 +1131,7 @@ impl StyleLineClampParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl From<StyleLineClampParseError<'_>> for StyleLineClampParseErrorOwned {
-    fn from(e: StyleLineClampParseError) -> Self {
+    fn from(e: StyleLineClampParseError<'_>) -> Self {
         e.to_contained()
     }
 }
@@ -1239,7 +1239,7 @@ impl StyleHangingPunctuationParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl From<StyleHangingPunctuationParseError<'_>> for StyleHangingPunctuationParseErrorOwned {
-    fn from(e: StyleHangingPunctuationParseError) -> Self {
+    fn from(e: StyleHangingPunctuationParseError<'_>) -> Self {
         e.to_contained()
     }
 }
@@ -1357,7 +1357,7 @@ impl StyleTextCombineUprightParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl From<StyleTextCombineUprightParseError<'_>> for StyleTextCombineUprightParseErrorOwned {
-    fn from(e: StyleTextCombineUprightParseError) -> Self {
+    fn from(e: StyleTextCombineUprightParseError<'_>) -> Self {
         e.to_contained()
     }
 }

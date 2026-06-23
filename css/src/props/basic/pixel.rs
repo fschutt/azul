@@ -71,7 +71,7 @@ impl NormalizedPercentage {
 }
 
 impl fmt::Display for NormalizedPercentage {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}%", self.0 * 100.0)
     }
 }
@@ -240,7 +240,7 @@ impl PixelValue {
 }
 
 impl FormatAsCssValue for PixelValue {
-    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}", self.number, self.metric)
     }
 }
@@ -263,13 +263,13 @@ impl crate::codegen::format::FormatAsRustCode for PixelValue {
 
 // Manual Debug implementation, because the auto-generated one is nearly unreadable
 impl fmt::Debug for PixelValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}", self.number, self.metric)
     }
 }
 
 impl fmt::Display for PixelValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}", self.number, self.metric)
     }
 }
@@ -641,13 +641,13 @@ impl_option!(
 );
 
 impl fmt::Display for PixelValueNoPercent {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.inner)
     }
 }
 
 impl ::core::fmt::Debug for PixelValueNoPercent {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "{self}")
     }
 }
@@ -941,13 +941,13 @@ impl SystemMetricRef {
 }
 
 impl fmt::Display for SystemMetricRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_css_str())
     }
 }
 
 impl FormatAsCssValue for SystemMetricRef {
-    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_css_str())
     }
 }
@@ -1000,7 +1000,7 @@ impl PixelValueOrSystem {
 }
 
 impl fmt::Display for PixelValueOrSystem {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Value(v) => write!(f, "{v}"),
             Self::System(s) => write!(f, "{s}"),
@@ -1009,7 +1009,7 @@ impl fmt::Display for PixelValueOrSystem {
 }
 
 impl FormatAsCssValue for PixelValueOrSystem {
-    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Value(v) => v.format_as_css_value(f),
             Self::System(s) => s.format_as_css_value(f),

@@ -29,7 +29,7 @@ impl_option!(
 );
 
 impl fmt::Display for PercentageValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}%", self.normalized() * 100.0)
     }
 }
@@ -93,13 +93,13 @@ pub struct FloatValue {
 }
 
 impl fmt::Display for FloatValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.get())
     }
 }
 
 impl ::core::fmt::Debug for FloatValue {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "{self}")
     }
 }
@@ -268,7 +268,7 @@ pub enum SizeMetric {
 
 
 impl fmt::Display for SizeMetric {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::SizeMetric::{Px, Pt, Em, Rem, In, Cm, Mm, Percent, Vw, Vh, Vmin, Vmax};
         match self {
             Px => write!(f, "px"),

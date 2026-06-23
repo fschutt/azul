@@ -25,7 +25,7 @@ use crate::{
 macro_rules! impl_spacing_type_impls {
     ($name:ident) => {
         impl ::core::fmt::Debug for $name {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}", self.inner)
             }
         }
@@ -354,7 +354,7 @@ macro_rules! typed_pixel_value_parser {
         }
 
         impl crate::props::formatter::FormatAsCssValue for $return {
-            fn format_as_css_value(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn format_as_css_value(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 self.inner.format_as_css_value(f)
             }
         }

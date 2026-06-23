@@ -45,13 +45,13 @@ impl LayoutWritingMode {
 }
 
 impl core::fmt::Debug for LayoutWritingMode {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }
 
 impl core::fmt::Display for LayoutWritingMode {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }
@@ -142,13 +142,13 @@ pub enum LayoutClear {
 
 
 impl core::fmt::Debug for LayoutClear {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }
 
 impl core::fmt::Display for LayoutClear {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }

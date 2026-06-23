@@ -345,13 +345,13 @@ impl<T: Clone> Clone for BoxOrStatic<T> {
 }
 
 impl<T: fmt::Debug> fmt::Debug for BoxOrStatic<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_ref().fmt(f)
     }
 }
 
 impl<T: fmt::Display> fmt::Display for BoxOrStatic<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_ref().fmt(f)
     }
 }
@@ -447,7 +447,7 @@ impl<T: PrintAsCssValue> CssPropertyValue<T> {
 }
 
 impl<T: fmt::Display> fmt::Display for CssPropertyValue<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::CssPropertyValue::{Auto, None, Initial, Inherit, Revert, Unset, Exact};
         match self {
             Auto => write!(f, "auto"),
@@ -980,7 +980,7 @@ pub enum NodeTypeTagParseError<'a> {
 }
 
 impl fmt::Display for NodeTypeTagParseError<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             NodeTypeTagParseError::Invalid(e) => write!(f, "Invalid node type: {e}"),
         }
@@ -1243,7 +1243,7 @@ impl NodeTypeTag {
 }
 
 impl fmt::Display for NodeTypeTag {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             // Document structure
             Self::Html => write!(f, "html"),
@@ -1536,7 +1536,7 @@ impl CssPath {
 }
 
 impl fmt::Display for CssPath {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for selector in self.selectors.as_ref() {
             write!(f, "{selector}")?;
         }
@@ -1545,7 +1545,7 @@ impl fmt::Display for CssPath {
 }
 
 impl fmt::Debug for CssPath {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
 }
@@ -1659,7 +1659,7 @@ impl_option!(
 
 
 impl fmt::Display for CssPathSelector {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::CssPathSelector::{Global, Root, Type, Class, Id, PseudoSelector, Attribute, DirectChildren, Children, AdjacentSibling, GeneralSibling};
         match &self {
             Global => write!(f, "*"),
@@ -1678,7 +1678,7 @@ impl fmt::Display for CssPathSelector {
 }
 
 impl fmt::Display for CssAttributeSelector {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match (&self.op, self.value.as_ref()) {
             (AttributeMatchOp::Exists, _) => write!(f, "[{}]", self.name),
             (op, Some(v)) => write!(f, "[{}{}=\"{}\"]", self.name, op.symbol_prefix(), v),
@@ -1747,7 +1747,7 @@ pub struct CssNthChildPattern {
 }
 
 impl fmt::Display for CssNthChildSelector {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::CssNthChildSelector::{Number, Even, Odd, Pattern};
         match &self {
             Number(u) => write!(f, "{u}"),
@@ -1759,7 +1759,7 @@ impl fmt::Display for CssNthChildSelector {
 }
 
 impl fmt::Display for CssPathPseudoSelector {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::CssPathPseudoSelector::{First, Last, NthChild, Hover, Active, Focus, Lang, Backdrop, Dragging, DragOver};
         match &self {
             First => write!(f, "first"),

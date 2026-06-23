@@ -206,13 +206,13 @@ impl AsRef<str> for AzString {
 }
 
 impl core::fmt::Debug for AzString {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.as_str().fmt(f)
     }
 }
 
 impl core::fmt::Display for AzString {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.as_str().fmt(f)
     }
 }

@@ -27,7 +27,7 @@ pub struct LayoutFlexGrow {
 }
 
 impl core::fmt::Debug for LayoutFlexGrow {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.inner.get())
     }
 }
@@ -145,7 +145,7 @@ pub struct LayoutFlexShrink {
 }
 
 impl core::fmt::Debug for LayoutFlexShrink {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.inner.get())
     }
 }
@@ -789,7 +789,7 @@ pub enum LayoutFlexBasis {
 }
 
 impl core::fmt::Debug for LayoutFlexBasis {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }

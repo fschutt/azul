@@ -526,7 +526,7 @@ pub enum CombinedCssPropertyType {
 }
 
 impl fmt::Display for CombinedCssPropertyType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let key = COMBINED_CSS_PROPERTIES_KEY_MAP
             .iter()
             .find(|(v, _)| *v == *self)
@@ -1195,13 +1195,13 @@ impl CssPropertyType {
 }
 
 impl fmt::Debug for CssPropertyType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_str())
     }
 }
 
 impl fmt::Display for CssPropertyType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_str())
     }
 }

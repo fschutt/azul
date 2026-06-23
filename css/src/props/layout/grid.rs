@@ -25,7 +25,7 @@ pub struct GridMinMax {
 }
 
 impl core::fmt::Debug for GridMinMax {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "minmax({}, {})",
@@ -66,7 +66,7 @@ impl_option!(
 );
 
 impl core::fmt::Debug for GridTrackSizing {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }
@@ -117,7 +117,7 @@ pub struct GridTemplate {
 }
 
 impl core::fmt::Debug for GridTemplate {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }
@@ -156,7 +156,7 @@ pub struct GridAutoTracks {
 }
 
 impl core::fmt::Debug for GridAutoTracks {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }
@@ -237,7 +237,7 @@ pub enum GridLine {
 }
 
 impl core::fmt::Debug for GridLine {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }
@@ -269,7 +269,7 @@ pub struct GridPlacement {
 }
 
 impl core::fmt::Debug for GridPlacement {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }
@@ -764,7 +764,7 @@ pub struct LayoutGap {
 }
 
 impl core::fmt::Debug for LayoutGap {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.inner)
     }
 }

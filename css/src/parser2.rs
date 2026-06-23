@@ -633,7 +633,7 @@ impl ErrorLocation {
 }
 
 impl fmt::Display for CssParseError<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let start_location = self.location.start.get_line_column_from_error(self.css_string);
         let end_location = self.location.end.get_line_column_from_error(self.css_string);
         write!(
@@ -674,7 +674,7 @@ impl fmt::Display for CssParseError<'_> {
 }
 
 /// Returns the location of where the parser is currently in the document
-fn get_error_location(tokenizer: &Tokenizer) -> ErrorLocation {
+fn get_error_location(tokenizer: &Tokenizer<'_>) -> ErrorLocation {
     ErrorLocation {
         original_pos: tokenizer.pos(),
     }

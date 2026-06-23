@@ -18,12 +18,12 @@ pub struct LayoutPoint {
 }
 
 impl fmt::Debug for LayoutPoint {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
 }
 impl fmt::Display for LayoutPoint {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "({}, {})", self.x, self.y)
     }
 }
@@ -54,12 +54,12 @@ pub struct LayoutSize {
 }
 
 impl fmt::Debug for LayoutSize {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
 }
 impl fmt::Display for LayoutSize {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}x{}", self.width, self.height)
     }
 }
@@ -109,12 +109,12 @@ impl_vec_partialeq!(LayoutRect, LayoutRectVec);
 impl_vec_partialord!(LayoutRect, LayoutRectVec);
 
 impl fmt::Debug for LayoutRect {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
 }
 impl fmt::Display for LayoutRect {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} @ {}", self.size, self.origin)
     }
 }

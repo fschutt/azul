@@ -73,7 +73,7 @@ impl FormatAsRustCode for StyleListStyleType {
 }
 
 impl fmt::Display for StyleListStyleType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }
@@ -115,7 +115,7 @@ impl FormatAsRustCode for StyleListStylePosition {
 }
 
 impl fmt::Display for StyleListStylePosition {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }

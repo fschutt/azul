@@ -344,7 +344,7 @@ macro_rules! impl_display {
     ($enum:ident<$lt:lifetime>, {$($variant:pat => $fmt_string:expr),+$(,)* }) => {
 
         impl<$lt> ::core::fmt::Display for $enum<$lt> {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 use self::$enum::*;
                 match &self {
                     $(
@@ -360,7 +360,7 @@ macro_rules! impl_display {
     ($enum:ident, {$($variant:pat => $fmt_string:expr),+$(,)* }) => {
 
         impl ::core::fmt::Display for $enum {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 use self::$enum::*;
                 match &self {
                     $(
@@ -380,7 +380,7 @@ macro_rules! impl_debug_as_display {
     // For a type with a lifetime
     ($enum:ident < $lt:lifetime >) => {
         impl<$lt> ::core::fmt::Debug for $enum<$lt> {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}", self)
             }
         }
@@ -389,7 +389,7 @@ macro_rules! impl_debug_as_display {
     // For a type without a lifetime
     ($enum:ident) => {
         impl ::core::fmt::Debug for $enum {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}", self)
             }
         }
@@ -722,7 +722,7 @@ macro_rules! impl_vec_mut {
 macro_rules! impl_vec_debug {
     ($struct_type:ident, $struct_name:ident) => {
         impl core::fmt::Debug for $struct_name {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 self.as_ref().fmt(f)
             }
         }

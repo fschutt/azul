@@ -22,7 +22,7 @@ use crate::props::{
 /// Unlike `PrintAsCssValue` (which returns a `String`), this trait writes
 /// directly into a formatter and is suitable for `Display` impl delegation.
 pub trait FormatAsCssValue {
-    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result;
+    fn format_as_css_value(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
 macro_rules! impl_print_as_css_display {

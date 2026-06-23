@@ -52,7 +52,7 @@ impl Default for ColorU {
 }
 
 impl fmt::Display for ColorU {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "rgba({}, {}, {}, {})",
@@ -765,7 +765,7 @@ impl Default for ColorF {
 }
 
 impl fmt::Display for ColorF {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "rgba({}, {}, {}, {})",

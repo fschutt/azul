@@ -126,13 +126,13 @@ macro_rules! impl_pixel_value {
 macro_rules! impl_percentage_value {
     ($struct:ident) => {
         impl ::core::fmt::Display for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}%", self.inner.normalized() * 100.0)
             }
         }
 
         impl ::core::fmt::Debug for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}%", self.inner.normalized() * 100.0)
             }
         }
