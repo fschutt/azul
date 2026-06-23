@@ -236,5 +236,8 @@ pub mod toast;
 /// Breadcrumb widget — a horizontal trail of clickable crumb links separated by
 /// "/", ending in the current (non-clickable) page; see `breadcrumb.rs`.
 pub mod breadcrumb;
+/// Pagination widget — a `Prev` / page-numbers / `Next` page navigator with an
+/// active-page restyle (segmented-style); see `pagination.rs`.
+pub mod pagination;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
