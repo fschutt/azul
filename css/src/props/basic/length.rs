@@ -227,6 +227,7 @@ impl FloatValue {
     }
 
     #[inline]
+    #[allow(clippy::suboptimal_flops)] // explicit FP; mul_add slower without +fma
     #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         let self_val_f32 = self.get();
         let other_val_f32 = other.get();

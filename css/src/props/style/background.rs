@@ -1518,6 +1518,7 @@ pub mod parser {
             pos_to_f32 = $pos_to_f32:expr,
             output_field = $out_field:ident,
         ) => {
+            #[allow(clippy::suboptimal_flops)] // explicit FP; mul_add slower without +fma
             fn $fn_name(stops: &[$input_stop]) -> Vec<$output_stop> {
                 if stops.is_empty() {
                     return Vec::new();

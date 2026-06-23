@@ -428,6 +428,7 @@ impl PixelValue {
     }
 
     #[inline]
+    #[allow(clippy::suboptimal_flops)] // explicit FP; mul_add slower without +fma
     #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         if self.metric == other.metric {
             Self {

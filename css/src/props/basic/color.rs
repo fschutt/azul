@@ -64,6 +64,9 @@ impl fmt::Display for ColorU {
     }
 }
 
+// Colour math keeps explicit `a*b + c` rather than `mul_add`: the latter is a
+// software `fmaf` (slower) without target `+fma` and changes results bit-for-bit.
+#[allow(clippy::suboptimal_flops)]
 impl ColorU {
     pub const ALPHA_TRANSPARENT: u8 = 0;
     pub const ALPHA_OPAQUE: u8 = 255;
@@ -1344,6 +1347,7 @@ fn parse_color_hsl_components<'a>(
     }
 
     #[inline]
+    #[allow(clippy::suboptimal_flops)] // explicit FP; mul_add slower without +fma
     fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
         let s = s / 100.0;
         let l = l / 100.0;
