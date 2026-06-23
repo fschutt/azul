@@ -2182,6 +2182,10 @@ impl CallbackInfo {
     ///
     /// Returns the attribute value if found, None otherwise.
     /// This searches the strongly-typed `AttributeVec` on the node.
+    // Cross-type AttributeType payload dispatch: each `(attr_name, AttributeType::X(v))`
+    // arm binds a differently-typed `v`, so the same-bodied arms can't be merged into
+    // one or-pattern (won't type-check) — they are intentionally one-per-attribute.
+    #[allow(clippy::match_same_arms)]
     #[must_use] pub fn get_node_attribute(&self, node_id: DomNodeId, attr_name: &str) -> Option<AzString> {
         use azul_core::dom::AttributeType;
 

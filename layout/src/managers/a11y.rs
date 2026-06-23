@@ -541,6 +541,9 @@ impl A11yManager {
     /// `GenericContainer` or `TextRun`) or `VoiceOver` will skip the node entirely.
     /// Use `Group` for structural containers, `Paragraph` for text blocks, `Label`
     /// for inline text, and semantic roles for everything else.
+    // Exhaustive NodeType -> accessibility Role mapping table; many node types share
+    // a Role, but one-arm-per-NodeType is intentional for readability/maintainability.
+    #[allow(clippy::match_same_arms)]
     const fn node_type_to_role(node_type: &NodeType) -> Role {
         match node_type {
             // === Text content ===
@@ -644,6 +647,8 @@ impl A11yManager {
     }
 
     /// Maps Azul's `AccessibilityRole` to accesskit's Role.
+    // Exhaustive AccessibilityRole -> AccessKit Role mapping table (see node_type_to_role).
+    #[allow(clippy::match_same_arms)]
     const fn map_role(role: &AccessibilityRole) -> Role {
         match role {
             AccessibilityRole::TitleBar => Role::TitleBar,
