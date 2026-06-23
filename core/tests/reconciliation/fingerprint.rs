@@ -90,8 +90,7 @@ fn div_to_text_changes_content_hash() {
 fn hover_change_detected_by_state_hash() {
     let node = NodeData::create_div();
     let state_a = StyledNodeState::default();
-    let mut state_b = StyledNodeState::default();
-    state_b.hover = true;
+    let state_b = StyledNodeState { hover: true, ..StyledNodeState::default() };
 
     let fa = NodeDataFingerprint::compute(&node, Some(&state_a));
     let fb = NodeDataFingerprint::compute(&node, Some(&state_b));
@@ -105,8 +104,7 @@ fn hover_change_detected_by_state_hash() {
 fn focus_change_detected_by_state_hash() {
     let node = NodeData::create_div();
     let state_a = StyledNodeState::default();
-    let mut state_b = StyledNodeState::default();
-    state_b.focused = true;
+    let state_b = StyledNodeState { focused: true, ..StyledNodeState::default() };
 
     let fa = NodeDataFingerprint::compute(&node, Some(&state_a));
     let fb = NodeDataFingerprint::compute(&node, Some(&state_b));
@@ -258,8 +256,7 @@ fn might_affect_layout_class_change() {
 fn might_affect_visuals_hover() {
     let node = NodeData::create_div();
     let state_a = StyledNodeState::default();
-    let mut state_b = StyledNodeState::default();
-    state_b.hover = true;
+    let state_b = StyledNodeState { hover: true, ..StyledNodeState::default() };
     let fa = NodeDataFingerprint::compute(&node, Some(&state_a));
     let fb = NodeDataFingerprint::compute(&node, Some(&state_b));
     assert!(fa.might_affect_visuals(&fb));

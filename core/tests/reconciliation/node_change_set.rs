@@ -214,8 +214,7 @@ fn hover_change_sets_styled_state_flag() {
     let a = NodeData::create_div();
     let b = NodeData::create_div();
     let state_a = StyledNodeState::default();
-    let mut state_b = StyledNodeState::default();
-    state_b.hover = true;
+    let state_b = StyledNodeState { hover: true, ..StyledNodeState::default() };
     let cs = compute_node_changes(&a, &b, Some(&state_a), Some(&state_b));
     assert!(cs.contains(NodeChangeSet::STYLED_STATE),
         "hover change should set STYLED_STATE flag");
@@ -226,8 +225,7 @@ fn focus_change_sets_styled_state_flag() {
     let a = NodeData::create_div();
     let b = NodeData::create_div();
     let state_a = StyledNodeState::default();
-    let mut state_b = StyledNodeState::default();
-    state_b.focused = true;
+    let state_b = StyledNodeState { focused: true, ..StyledNodeState::default() };
     let cs = compute_node_changes(&a, &b, Some(&state_a), Some(&state_b));
     assert!(cs.contains(NodeChangeSet::STYLED_STATE));
 }

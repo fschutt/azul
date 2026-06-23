@@ -1631,8 +1631,11 @@ impl StyledDom {
         active_changes: Option<ActiveChange>,
     ) -> RestyleResult {
         
-        let mut result = RestyleResult::default();
-        result.gpu_only_changes = true; // Start with GPU-only assumption
+        // Start with GPU-only assumption; refined below as changes are analyzed.
+        let mut result = RestyleResult {
+            gpu_only_changes: true,
+            ..RestyleResult::default()
+        };
 
         // Helper closure to merge changes and analyze property categories
         let mut process_changes = |changes: RestyleNodes| {

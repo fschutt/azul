@@ -3285,10 +3285,11 @@ mod tests {
     }
 
     fn make_keyboard_state(vk: VirtualKeyCode) -> KeyboardState {
-        let mut ks = KeyboardState::default();
-        ks.current_virtual_keycode = OptionVirtualKeyCode::Some(vk);
-        ks.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(vec![vk]);
-        ks
+        KeyboardState {
+            current_virtual_keycode: OptionVirtualKeyCode::Some(vk),
+            pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(vec![vk]),
+            ..KeyboardState::default()
+        }
     }
 
     fn make_keydown_event(target: DomNodeId) -> SyntheticEvent {
@@ -3585,9 +3586,11 @@ mod tests {
 
     #[test]
     fn mouse_button_state_round_trips_from_mouse_state() {
-        let mut ms = MouseState::default();
-        ms.left_down = true;
-        ms.middle_down = true;
+        let ms = MouseState {
+            left_down: true,
+            middle_down: true,
+            ..MouseState::default()
+        };
         let bs: MouseButtonState = (&ms).into();
         assert!(bs.left_down);
         assert!(!bs.right_down);
