@@ -1493,7 +1493,7 @@ impl CssPropertyWithConditionsVec {
         }
 
         // Tokenize into segments: properties, pseudo-selectors, and @-rules
-        let mut chars = style.chars().peekable();
+        let chars = style.chars();
         let mut current_segment = String::new();
         let mut brace_depth = 0;
         

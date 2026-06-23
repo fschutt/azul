@@ -303,8 +303,9 @@ pub fn parse_angle_value(input: &str) -> Result<AngleValue, CssAngleValueParseEr
 
 #[cfg(all(test, feature = "parser"))]
 mod tests {
-    // Tests assert that parsed values equal the exact source literals.
-    #![allow(clippy::float_cmp)]
+    // Tests assert parsed values equal the exact source literals; the rad inputs
+    // (1.57, 3.14) are literal test data, not approximations of FRAC_PI_2/PI.
+    #![allow(clippy::float_cmp, clippy::approx_constant)]
     use super::*;
 
     #[test]

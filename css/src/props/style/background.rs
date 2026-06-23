@@ -2158,9 +2158,10 @@ mod tests {
         let accent_stop = &stops[1];
         assert!(matches!(accent_stop.color, ColorOrSystem::System(_)));
 
-        let mut populated = SystemColors::default();
-        populated.accent =
-            crate::props::basic::color::OptionColorU::Some(ColorU::new_rgb(0, 122, 255));
+        let populated = SystemColors {
+            accent: crate::props::basic::color::OptionColorU::Some(ColorU::new_rgb(0, 122, 255)),
+            ..SystemColors::default()
+        };
 
         let resolved = accent_stop.resolve(&populated, ColorU::TRANSPARENT);
         assert_eq!(resolved, ColorU::new_rgb(0, 122, 255));
