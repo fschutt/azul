@@ -127,7 +127,7 @@ use core::{
 use azul_css::props::layout::LayoutWritingMode;
 
 /// A 2D position in logical (DPI-independent) coordinates.
-#[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Default, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct LogicalPosition {
     pub x: f32,
@@ -202,6 +202,13 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
 );
 
+// PartialOrd delegates to the quantized Ord (the derived field-wise PartialOrd
+// compared raw f32 and diverged from this quantized order — a latent bug).
+impl PartialOrd for LogicalPosition {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 impl Ord for LogicalPosition {
     fn cmp(&self, other: &Self) -> Ordering {
         let self_x = (self.x * DECIMAL_MULTIPLIER) as isize;
@@ -253,7 +260,7 @@ impl LogicalPosition {
 }
 
 /// A 2D size in logical (DPI-independent) coordinates.
-#[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Default, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct LogicalSize {
     pub width: f32,
@@ -304,6 +311,13 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
 );
 
+// PartialOrd delegates to the quantized Ord (the derived field-wise PartialOrd
+// compared raw f32 and diverged from this quantized order — a latent bug).
+impl PartialOrd for LogicalSize {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 impl Ord for LogicalSize {
     fn cmp(&self, other: &Self) -> Ordering {
         let self_width = (self.width * DECIMAL_MULTIPLIER) as isize;

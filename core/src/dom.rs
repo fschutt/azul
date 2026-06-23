@@ -1689,6 +1689,10 @@ pub enum SvgNodeData {
 
 impl Eq for SvgNodeData {}
 
+// SvgNodeData contains f32 (svg coords) so Ord can't be derived; this Ord is
+// defined *in terms of* the derived field-wise PartialOrd (unwrap_or Equal), so
+// the two cannot disagree — the derive_ord_xor_partial_ord concern doesn't apply.
+#[allow(clippy::derive_ord_xor_partial_ord)]
 impl Ord for SvgNodeData {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.partial_cmp(other).unwrap_or(core::cmp::Ordering::Equal)
@@ -3322,7 +3326,7 @@ impl DomNodeId {
 /// This is the "slow" tree-based DOM. For bulk construction (XML parsing),
 /// use `FastDom` which builds flat arenas directly and skips the tree→arena conversion.
 #[repr(C)]
-#[derive(PartialEq, Clone, PartialOrd)]
+#[derive(PartialEq, Clone)]
 pub struct Dom {
     /// The data for the root node of this DOM (or sub-DOM).
     pub root: NodeData,
@@ -3388,6 +3392,12 @@ impl Hash for Dom {
     }
 }
 
+// PartialOrd delegates to the field-wise Ord so the two never diverge.
+impl PartialOrd for Dom {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
 impl Ord for Dom {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.root.cmp(&other.root)
