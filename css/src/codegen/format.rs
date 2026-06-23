@@ -8,6 +8,7 @@
 //! Primary consumer: `core::xml` uses this for CSS-to-Rust code generation.
 
 use alloc::{collections::btree_map::BTreeMap, format, string::String, string::ToString, vec::Vec};
+use core::fmt::Write;
 use core::hash::Hash;
 
 use crate::{
@@ -68,11 +69,11 @@ impl VecContents {
         let t2 = "    ".repeat(tabs + 1);
 
         for (key, item) in &self.strings {
-            result.push_str(&format!(
+            let _ = write!(result,
                 "\r\n    const STRING_{}: AzString = AzString::from_const_str(\"{}\");",
                 key,
                 item.as_str()
-            ));
+            );
         }
 
         for (key, item) in &self.style_filters {
@@ -82,9 +83,9 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{t}"));
 
-            result.push_str(&format!(
+            let _ = write!(result,
                 "\r\n    const STYLE_FILTER_{key}_ITEMS: &[StyleFilter] = &[\r\n{t2}{val}\r\n{t}];"
-            ));
+            );
         }
 
         for (key, item) in &self.style_background_sizes {
@@ -94,10 +95,10 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{t}"));
 
-            result.push_str(&format!(
+            let _ = write!(result,
                 "\r\n    const STYLE_BACKGROUND_SIZE_{key}_ITEMS: &[StyleBackgroundSize] = \
                  &[\r\n{t2}{val}\r\n{t}];"
-            ));
+            );
         }
 
         for (key, item) in &self.style_background_repeats {
@@ -107,10 +108,10 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{t}"));
 
-            result.push_str(&format!(
+            let _ = write!(result,
                 "\r\n    const STYLE_BACKGROUND_REPEAT_{key}_ITEMS: &[StyleBackgroundRepeat] = \
                  &[\r\n{t2}{val}\r\n{t}];"
-            ));
+            );
         }
 
         for (key, item) in &self.style_background_contents {
@@ -120,10 +121,10 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{t}"));
 
-            result.push_str(&format!(
+            let _ = write!(result,
                 "\r\n    const STYLE_BACKGROUND_CONTENT_{key}_ITEMS: &[StyleBackgroundContent] = \
                  &[\r\n{t2}{val}\r\n{t}];"
-            ));
+            );
         }
 
         for (key, item) in &self.style_background_positions {
@@ -133,44 +134,44 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{t}"));
 
-            result.push_str(&format!(
+            let _ = write!(result,
                 "\r\n    const STYLE_BACKGROUND_POSITION_{key}_ITEMS: &[StyleBackgroundPosition] = \
                  &[\r\n{t2}{val}\r\n{t}];"
-            ));
+            );
         }
 
         for (key, item) in &self.style_transforms {
             let val = format_style_transforms(item.as_ref(), tabs + 1);
 
-            result.push_str(&format!(
+            let _ = write!(result,
                 "\r\n    const STYLE_TRANSFORM_{key}_ITEMS: &[StyleTransform] = &[\r\n{t2}{val}\r\n{t}];"
-            ));
+            );
         }
 
         for (key, item) in &self.font_families {
             let val = format_font_ids(item.as_ref(), tabs + 1);
 
-            result.push_str(&format!(
+            let _ = write!(result,
                 "\r\n    const STYLE_FONT_FAMILY_{key}_ITEMS: &[StyleFontFamily] = &[\r\n{t2}{val}\r\n{t}];"
-            ));
+            );
         }
 
         for (key, item) in &self.linear_color_stops {
             let val = format_linear_color_stops(item.as_ref(), 1);
 
-            result.push_str(&format!(
+            let _ = write!(result,
                 "\r\n    const LINEAR_COLOR_STOP_{key}_ITEMS: &[NormalizedLinearColorStop] = \
                  &[\r\n{t2}{val}\r\n{t}];"
-            ));
+            );
         }
 
         for (key, item) in &self.radial_color_stops {
             let val = format_radial_color_stops(item.as_ref(), tabs);
 
-            result.push_str(&format!(
+            let _ = write!(result,
                 "\r\n    const RADIAL_COLOR_STOP_{key}_ITEMS: &[NormalizedRadialColorStop] = \
                  &[\r\n{t2}{val}\r\n{t}];"
-            ));
+            );
         }
 
         result
