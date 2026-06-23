@@ -912,6 +912,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "azul-widgets"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "ctor",
+]
+
+[[package]]
 name = "azul-writer"
 version = "0.1.0"
 dependencies = [

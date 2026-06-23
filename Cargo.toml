@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "examples/rust", # Rust examples - depends on azul-dll
     "examples/azul-paint", # AzulPaint demo (SUPER_PLAN_2 P2 goal app)
+    "examples/azul-widgets", # AzulWidgets demo (showcase of all widgets; W5 release demo)
     "examples/azul-maps", # AzulMaps demo (SUPER_PLAN_2 P3 goal app)
     "examples/azul-vault", # AzulVault demo (SUPER_PLAN_2 P4 goal app)
     "examples/azul-writer", # AzulWriter demo (SUPER_PLAN_2 P5 goal app; bin azul-doc-demo)

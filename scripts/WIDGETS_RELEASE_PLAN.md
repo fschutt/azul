@@ -14,7 +14,7 @@ file, following existing patterns); link the showcase on the releases page.
 | W3 | Widget gap research | DONE (→ scripts/WIDGETS_RESEARCH.md) |
 | W4 | Build new widgets (queue below; one file each) | DONE — 24/24 widget queue complete (date_picker + time_picker finish Tier3) |
 | WX | API-quality gate + api.json export of 24 widgets | DONE — APIs already exceed gold standard (repr(C)/Default/docs/config/callbacks); 145 types exported additions-only (210e4729d tool fix + e3f16d209 export); build-dll clean |
-| W5 | `azul-widgets` showcase demo crate (from widgets.c) | TODO (UNBLOCKED — widgets now in `azul::widgets`) |
+| W5 | `azul-widgets` showcase demo crate (from widgets.c) | DONE — `examples/azul-widgets/` mirrors azul-paint (bin+lib+Dockerfile); showcases all 24 new widgets + 7 existing in 7 labelled sections; `cargo build -p azul-widgets` green |
 | W6 | Release-page swap: remove spirit-level, add azul-widgets | TODO (after W5) |
 
 ## ✅ BLOCKER RESOLVED (2026-06-23) — widgets exported to api.json (was: W5/W6 need export)

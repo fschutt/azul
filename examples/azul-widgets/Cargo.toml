@@ -1,0 +1,35 @@
+[package]
+name = "azul-widgets"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzulWidgets — a showcase of every built-in Azul widget. Demos the
+    existing widgets (Button, CheckBox, ProgressBar, TextInput, NumberInput,
+    ColorInput, DropDown) plus the 24 high-level widgets (Switch, Divider,
+    Card, Badge, Slider, Segmented, RadioGroup, Tooltip, TextArea, Alert,
+    Accordion, Avatar, Chip, Spinner, Popover, ComboBox, Modal, Toast,
+    Breadcrumb, Pagination, Stepper, SplitPane, DatePicker, TimePicker).
+    Replaces azul-spirit-level as the widgets demo on the release page.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "a11y"] }
+
+# Android: build as a NativeActivity cdylib — link android-activity into libazul
+# and use `ctor` for the load-time constructor that stashes the window options.
+[target.'cfg(target_os = "android")'.dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "android-activity"] }
+ctor = "0.2"
+
+# rlib = what the desktop/iOS bin links; cdylib = the Android NativeActivity lib.
+[lib]
+name = "azul_widgets"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "azul-widgets"
+path = "src/main.rs"
