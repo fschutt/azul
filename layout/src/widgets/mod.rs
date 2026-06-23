@@ -204,5 +204,8 @@ pub mod radio_group;
 pub mod tooltip;
 /// Multi-line text input (text area) widget; see `text_area.rs`.
 pub mod text_area;
+/// Alert / banner widget — a coloured inline message box with an optional
+/// dismissible close button; see `alert.rs`.
+pub mod alert;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
