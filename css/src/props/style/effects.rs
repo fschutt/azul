@@ -974,7 +974,7 @@ impl StyleAspectRatioParseErrorOwned {
 #[cfg(feature = "parser")]
 #[inline]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn aspect_f32_to_u32(v: f32) -> u32 {
+const fn aspect_f32_to_u32(v: f32) -> u32 {
     v as u32
 }
 

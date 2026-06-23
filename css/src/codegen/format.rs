@@ -295,7 +295,7 @@ impl VecContents {
 /// float→int cast behind a documented attribute. Behaviour-preserving.
 #[inline]
 #[allow(clippy::cast_possible_truncation)]
-fn f32_to_isize(v: f32) -> isize {
+const fn f32_to_isize(v: f32) -> isize {
     v as isize
 }
 

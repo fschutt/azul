@@ -25,7 +25,7 @@ use crate::{
 /// the one unavoidable float→int cast (there is no infallible `f32`→`u8` in std).
 #[inline]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn channel_to_u8(v: f32) -> u8 {
+const fn channel_to_u8(v: f32) -> u8 {
     v as u8
 }
 

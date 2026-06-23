@@ -7,7 +7,7 @@ use crate::impl_option;
 /// isolated here behind a documented attribute.
 #[inline]
 #[allow(clippy::cast_precision_loss)]
-fn idx_to_f64(v: usize) -> f64 {
+const fn idx_to_f64(v: usize) -> f64 {
     v as f64
 }
 
@@ -15,7 +15,7 @@ fn idx_to_f64(v: usize) -> f64 {
 /// (`as f32` rounds to the nearest representable value); isolates the narrowing.
 #[inline]
 #[allow(clippy::cast_possible_truncation)]
-fn f64_to_f32(v: f64) -> f32 {
+const fn f64_to_f32(v: f64) -> f32 {
     v as f32
 }
 
