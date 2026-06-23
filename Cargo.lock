@@ -891,13 +891,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8259ebd5ee48a37fd8931116405456fd67efbb5435b4789e45bdbccf5d7dea7e"
 
 [[package]]
-name = "azul-spirit-level"
-version = "0.1.0"
-dependencies = [
- "azul-dll",
-]
-
-[[package]]
 name = "azul-vault"
 version = "0.1.0"
 dependencies = [

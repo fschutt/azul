@@ -1299,7 +1299,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
+          for demo in azul-paint azul-widgets azul-maps azul-vault azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
             echo "=== Building $demo on ${{ matrix.os }} ==="
             cargo build --release -p "$demo" || echo "::warning::$demo failed to build on ${{ matrix.os }} (likely missing platform deps) — skipping"
           done
@@ -1310,7 +1310,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p demos-staging
-          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
+          for demo in azul-paint azul-widgets azul-maps azul-vault azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
             src="target/release/${demo}${{ matrix.bin_ext }}"
             if [ -f "$src" ]; then
               dst="demos-staging/${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
@@ -1770,7 +1770,7 @@ jobs:
           # needs signing to install on a phone) and the simulator slice
           # (aarch64-apple-ios-sim → <demo>-ios-sim.app.zip, runs UNSIGNED in the
           # iOS Simulator via `xcrun simctl install`).
-          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
+          for demo in azul-paint azul-widgets azul-maps azul-vault azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
             for tgt in aarch64-apple-ios aarch64-apple-ios-sim; do
               echo "=== iOS .app: $demo ($tgt) ==="
               suffix="ios"; [ "$tgt" = "aarch64-apple-ios-sim" ] && suffix="ios-sim"
@@ -1842,7 +1842,7 @@ jobs:
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDKBIN/aarch64-linux-android24-clang"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
           mkdir -p mobile-apps
-          for demo in azul-maps azul-paint azul-self-test; do
+          for demo in azul-maps azul-paint azul-widgets azul-self-test; do
             echo "=== Android APK: $demo ==="
             AZ_ANDROID_NO_DEPLOY=1 AZ_ANDROID_NO_JAVA=1 \
               bash scripts/build-android.sh aarch64-linux-android "$demo" "com.azul.${demo//-/_}" "$demo" \

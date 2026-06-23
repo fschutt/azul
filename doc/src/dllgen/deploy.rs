@@ -1541,13 +1541,9 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // vanishing. (crate, friendly name, one-line description.)
     const DEMO_APPS: &[(&str, &str, &str)] = &[
         ("azul-paint", "AzulPaint", "a small raster paint / drawing app"),
+        ("azul-widgets", "AzWidgets", "a showcase of all Azul widgets"),
         ("azul-maps", "AzulMaps", "a slippy-map tile viewer"),
         ("azul-vault", "AzulVault", "an encrypted SQLite-backed password vault"),
-        (
-            "azul-spirit-level",
-            "AzSpiritLevel",
-            "a motion-sensor spirit level (accelerometer)",
-        ),
         ("azul-gamepad", "AzGamepad", "a live gamepad / controller input tester"),
         ("azul-camera-app", "AzCamera", "a webcam capture & preview widget demo"),
         (
@@ -1577,7 +1573,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // Grouped by OS: each OS is a heading with a sub-list of "Name: what it is",
     // so the OS and filename aren't repeated on every line. .apk = the demos set
     // up as a NativeActivity cdylib; every demo ships an installable iOS .app.
-    const ANDROID_READY: &[&str] = &["azul-maps", "azul-paint", "azul-self-test"];
+    const ANDROID_READY: &[&str] = &["azul-maps", "azul-paint", "azul-widgets", "azul-self-test"];
     // (os heading, path template with {c}=crate). Desktop = demos/<crate>-<os>[.exe];
     // mobile = mobile-apps/<crate>-{ios.app.zip,android.apk} (Pages-hosted).
     let os_groups: &[(&str, &str, fn(&str) -> bool)] = &[
