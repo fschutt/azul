@@ -6993,6 +6993,9 @@ impl CssProperty {
     }
 }
 
+// Cross-type dispatch over CssProperty variants; identical format! bodies bind
+// different value types and can't merge (clippy::match_same_arms false positive).
+#[allow(clippy::match_same_arms)]
 #[must_use] pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
     match prop {
         CssProperty::CaretColor(p) => format!(

@@ -144,6 +144,9 @@ impl PartialOrd for DynamicSelector {
 }
 
 impl Ord for DynamicSelector {
+    // Order-dependent tie-break arms with identical bodies can't merge without
+    // changing the ordering (clippy::match_same_arms false positive).
+    #[allow(clippy::match_same_arms)]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         use core::cmp::Ordering;
         match self.variant_tag().cmp(&other.variant_tag()) {
@@ -180,6 +183,9 @@ impl Ord for DynamicSelector {
 }
 
 impl core::hash::Hash for DynamicSelector {
+    // Per-variant dispatch: each `x` is a different type, so the identical
+    // `x.hash(state)` bodies can't merge (clippy::match_same_arms false positive).
+    #[allow(clippy::match_same_arms)]
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.variant_tag().hash(state);
         match self {

@@ -178,6 +178,9 @@ impl VecContents {
     }
 
     // given a CSS property, clones all the necessary strings (see class documentation)
+    // Cross-type dispatch over CssProperty variants; identical-looking arm bodies
+    // bind different value types and can't merge (clippy::match_same_arms FP).
+    #[allow(clippy::match_same_arms)]
     pub fn insert_from_css_property(&mut self, prop: &CssProperty) {
         match prop {
             CssProperty::FontFamily(CssPropertyValue::Exact(v)) => {
