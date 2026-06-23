@@ -472,14 +472,14 @@ impl A11yManager {
             let pad_right = bp.padding.right + bp.border.right;
             let pad_bottom = bp.padding.bottom + bp.border.bottom;
 
-            let s = hidpi_factor as f64;
-            let ww = window_size.width as f64 * s;
-            let wh = window_size.height as f64 * s;
+            let s = f64::from(hidpi_factor);
+            let ww = f64::from(window_size.width) * s;
+            let wh = f64::from(window_size.height) * s;
 
-            let x0 = ((pos.x + pad_left) as f64 * s).max(0.0).min(ww);
-            let y0 = ((pos.y + pad_top) as f64 * s).max(0.0).min(wh);
-            let x1 = ((pos.x + size.width - pad_right) as f64 * s).max(0.0).min(ww);
-            let y1 = ((pos.y + size.height - pad_bottom) as f64 * s).max(0.0).min(wh);
+            let x0 = (f64::from(pos.x + pad_left) * s).max(0.0).min(ww);
+            let y0 = (f64::from(pos.y + pad_top) * s).max(0.0).min(wh);
+            let x1 = (f64::from(pos.x + size.width - pad_right) * s).max(0.0).min(ww);
+            let y1 = (f64::from(pos.y + size.height - pad_bottom) * s).max(0.0).min(wh);
 
             if x1 > x0 && y1 > y0 {
                 builder.set_bounds(Rect { x0, y0, x1, y1 });

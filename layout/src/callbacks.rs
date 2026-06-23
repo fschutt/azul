@@ -2937,7 +2937,7 @@ impl CallbackInfo {
                 LoadedFont {
                     font_hash: parsed.hash,
                     family_name,
-                    num_glyphs: parsed.num_glyphs as u32,
+                    num_glyphs: u32::from(parsed.num_glyphs),
                     has_bytes: parsed.source_bytes_for_subset().is_some(),
                 }
             })

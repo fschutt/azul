@@ -351,7 +351,7 @@ impl ParsedFont {
 
     fn get_glyph_size(&self, glyph_id: u16, font_size_px: f32) -> Option<LogicalSize> {
         self.get_or_decode_glyph(glyph_id).map(|record| {
-            let units_per_em = self.font_metrics.units_per_em as f32;
+            let units_per_em = f32::from(self.font_metrics.units_per_em);
             let scale_factor = if units_per_em > 0.0 {
                 font_size_px / units_per_em
             } else {
@@ -362,8 +362,8 @@ impl ParsedFont {
             let bbox = &record.bounding_box;
 
             LogicalSize {
-                width: (bbox.max_x - bbox.min_x) as f32 * scale_factor,
-                height: (bbox.max_y - bbox.min_y) as f32 * scale_factor,
+                width: f32::from(bbox.max_x - bbox.min_x) * scale_factor,
+                height: f32::from(bbox.max_y - bbox.min_y) * scale_factor,
             }
         })
     }
@@ -372,11 +372,11 @@ impl ParsedFont {
         let glyph_id = self.lookup_glyph_index('-' as u32)?;
         let advance_units = self.get_horizontal_advance(glyph_id);
         let scale_factor = if self.font_metrics.units_per_em > 0 {
-            font_size / (self.font_metrics.units_per_em as f32)
+            font_size / f32::from(self.font_metrics.units_per_em)
         } else {
             return None;
         };
-        let scaled_advance = advance_units as f32 * scale_factor;
+        let scaled_advance = f32::from(advance_units) * scale_factor;
         Some((glyph_id, scaled_advance))
     }
 
@@ -385,11 +385,11 @@ impl ParsedFont {
         let glyph_id = self.lookup_glyph_index('\u{0640}' as u32)?;
         let advance_units = self.get_horizontal_advance(glyph_id);
         let scale_factor = if self.font_metrics.units_per_em > 0 {
-            font_size / (self.font_metrics.units_per_em as f32)
+            font_size / f32::from(self.font_metrics.units_per_em)
         } else {
             return None;
         };
-        let scaled_advance = advance_units as f32 * scale_factor;
+        let scaled_advance = f32::from(advance_units) * scale_factor;
         Some((glyph_id, scaled_advance))
     }
 }
@@ -822,7 +822,7 @@ fn shape_text_internal(
 
     let font_size = style.font_size_px;
     let scale_factor = if parsed_font.font_metrics.units_per_em > 0 {
-        font_size / (parsed_font.font_metrics.units_per_em as f32)
+        font_size / f32::from(parsed_font.font_metrics.units_per_em)
     } else {
         FALLBACK_SCALE
     };
@@ -841,7 +841,7 @@ fn shape_text_internal(
 
     let mut shaped_glyphs = Vec::new();
     for info in &infos {
-        let cluster = info.glyph.liga_component_pos as u32;
+        let cluster = u32::from(info.glyph.liga_component_pos);
         let source_char = text
             .get(cluster as usize..)
             .and_then(|s| s.chars().next())
@@ -852,8 +852,8 @@ fn shape_text_internal(
         let ppem = font_size.round() as u16;
         let advance = parsed_font
             .get_hinted_advance_px(info.glyph.glyph_index, ppem)
-            .unwrap_or(base_advance as f32 * scale_factor);
-        let kerning = info.kerning as f32 * scale_factor;
+            .unwrap_or(f32::from(base_advance) * scale_factor);
+        let kerning = f32::from(info.kerning) * scale_factor;
 
         let (offset_x_units, offset_y_units) =
             if let gpos::Placement::Distance(x, y) = info.placement {

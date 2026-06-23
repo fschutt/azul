@@ -1934,7 +1934,7 @@ impl LayoutTreeBuilder {
             parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context.clone()));
         // this is reached but step A is NOT, collect_box_props diverges; if this is
         // NOT reached, the parent Option discriminant mis-lifts (None→Some garbage).
-        { let _ = (0xCD00_0001u32 | ((parent_fc.is_some() as u32) << 8)); }
+        { let _ = (0xCD00_0001u32 | (u32::from(parent_fc.is_some()) << 8)); }
         let collected = collect_box_props(styled_dom, dom_id, debug_messages, self.viewport_size);
         { let _ = (0xCA00_0001u32); }
         self.nodes.push(LayoutNode {

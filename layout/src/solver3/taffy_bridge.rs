@@ -783,7 +783,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
                     LengthPercentage::length(0.0)
                 } else {
-                    LengthPercentage::length(raw as f32 / 10.0)
+                    LengthPercentage::length(f32::from(raw) / 10.0)
                 }
             };
             Size {

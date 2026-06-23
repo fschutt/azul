@@ -726,7 +726,7 @@ impl MonitorId {
             fn write(&mut self, bytes: &[u8]) {
                 const FNV_PRIME: u64 = 0x100000001b3;
                 for &byte in bytes {
-                    self.0 ^= byte as u64;
+                    self.0 ^= u64::from(byte);
                     self.0 = self.0.wrapping_mul(FNV_PRIME);
                 }
             }

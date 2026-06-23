@@ -80,7 +80,7 @@ impl ClipboardContent {
                 run.color.r,
                 run.color.g,
                 run.color.b,
-                run.color.a as f32 / 255.0
+                f32::from(run.color.a) / 255.0
             ));
             if run.is_bold {
                 html.push_str("font-weight: bold; ");

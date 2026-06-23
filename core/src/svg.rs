@@ -124,27 +124,27 @@ impl SvgLine {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
         SvgVector {
-            x: dx as f64,
-            y: dy as f64,
+            x: f64::from(dx),
+            y: f64::from(dy),
         }
         .normalize()
     }
 
     /// Returns the X coordinate at parametric position `t` (0.0 = start, 1.0 = end).
     #[must_use] pub fn get_x_at_t(&self, t: f64) -> f64 {
-        self.start.x as f64 + (self.end.x as f64 - self.start.x as f64) * t
+        f64::from(self.start.x) + (f64::from(self.end.x) - f64::from(self.start.x)) * t
     }
 
     /// Returns the Y coordinate at parametric position `t` (0.0 = start, 1.0 = end).
     #[must_use] pub fn get_y_at_t(&self, t: f64) -> f64 {
-        self.start.y as f64 + (self.end.y as f64 - self.start.y as f64) * t
+        f64::from(self.start.y) + (f64::from(self.end.y) - f64::from(self.start.y)) * t
     }
 
     /// Returns the Euclidean length of the line segment.
     #[must_use] pub fn get_length(&self) -> f64 {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
-        libm::hypotf(dx, dy) as f64
+        f64::from(libm::hypotf(dx, dy))
     }
 
     /// Returns the axis-aligned bounding rectangle of this line segment.

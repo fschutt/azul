@@ -4293,7 +4293,7 @@ fn get_border_info<T: ParsedFontTrait>(
             if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
                 0.0 // sentinel → fall back to 0
             } else {
-                raw as f32 / 10.0
+                f32::from(raw) / 10.0
             }
         };
 
@@ -4498,8 +4498,8 @@ fn get_border_spacing_property<T: ParsedFontTrait>(
                 && v_raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD
             {
                 return LayoutBorderSpacing::new_separate(
-                    azul_css::props::basic::pixel::PixelValue::px(h_raw as f32 / 10.0),
-                    azul_css::props::basic::pixel::PixelValue::px(v_raw as f32 / 10.0),
+                    azul_css::props::basic::pixel::PixelValue::px(f32::from(h_raw) / 10.0),
+                    azul_css::props::basic::pixel::PixelValue::px(f32::from(v_raw) / 10.0),
                 );
             }
             // sentinel → fall through to slow path

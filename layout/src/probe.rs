@@ -257,7 +257,7 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
         .map(|(name, mut ns)| {
             ns.sort_unstable();
             let n = ns.len();
-            let total: u128 = ns.iter().map(|&x| x as u128).sum();
+            let total: u128 = ns.iter().map(|&x| u128::from(x)).sum();
             let avg = (total / n.max(1) as u128) as u64;
             let p99 = ns[(n.saturating_sub(1) * 99) / 100];
             let max = *ns.last().unwrap();
@@ -288,7 +288,7 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
         for (lbl, bytes) in &rss_marks {
             let delta = prev
                 .map(|p| {
-                    let diff = *bytes as i128 - p as i128;
+                    let diff = i128::from(*bytes) - i128::from(p);
                     if diff >= 0 {
                         format!("  (Δ +{:.2} MiB)", diff as f64 / 1048576.0)
                     } else {

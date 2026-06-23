@@ -875,6 +875,10 @@ impl DisplayListItem {
     /// Compare two display list items for visual equality (same appearance when rendered).
     /// Used by damage computation to detect content changes within the same bounds.
     /// Conservative: returns `false` (assumes different) for complex types like Arc<dyn Any>.
+    // Exact float equality is intentional: this is frame-to-frame damage detection,
+    // so any bit-level change in a coordinate/color/thickness SHOULD force a redraw.
+    // An epsilon comparison would wrongly skip sub-epsilon visual updates.
+    #[allow(clippy::float_cmp)]
     #[must_use] pub fn is_visually_equal(&self, other: &Self) -> bool {
         if std::mem::discriminant(self) != std::mem::discriminant(other) {
             return false;
@@ -6436,46 +6440,46 @@ fn rasterize_svg_clip_to_r8(
                 azul_core::svg::SvgPathElement::Line(l) => {
                     if first {
                         path.move_to(
-                            (l.start.x - paint_rect.origin.x) as f64,
-                            (l.start.y - paint_rect.origin.y) as f64,
+                            f64::from(l.start.x - paint_rect.origin.x),
+                            f64::from(l.start.y - paint_rect.origin.y),
                         );
                         first = false;
                     }
                     path.line_to(
-                        (l.end.x - paint_rect.origin.x) as f64,
-                        (l.end.y - paint_rect.origin.y) as f64,
+                        f64::from(l.end.x - paint_rect.origin.x),
+                        f64::from(l.end.y - paint_rect.origin.y),
                     );
                 }
                 azul_core::svg::SvgPathElement::QuadraticCurve(q) => {
                     if first {
                         path.move_to(
-                            (q.start.x - paint_rect.origin.x) as f64,
-                            (q.start.y - paint_rect.origin.y) as f64,
+                            f64::from(q.start.x - paint_rect.origin.x),
+                            f64::from(q.start.y - paint_rect.origin.y),
                         );
                         first = false;
                     }
                     path.curve3(
-                        (q.ctrl.x - paint_rect.origin.x) as f64,
-                        (q.ctrl.y - paint_rect.origin.y) as f64,
-                        (q.end.x - paint_rect.origin.x) as f64,
-                        (q.end.y - paint_rect.origin.y) as f64,
+                        f64::from(q.ctrl.x - paint_rect.origin.x),
+                        f64::from(q.ctrl.y - paint_rect.origin.y),
+                        f64::from(q.end.x - paint_rect.origin.x),
+                        f64::from(q.end.y - paint_rect.origin.y),
                     );
                 }
                 azul_core::svg::SvgPathElement::CubicCurve(c) => {
                     if first {
                         path.move_to(
-                            (c.start.x - paint_rect.origin.x) as f64,
-                            (c.start.y - paint_rect.origin.y) as f64,
+                            f64::from(c.start.x - paint_rect.origin.x),
+                            f64::from(c.start.y - paint_rect.origin.y),
                         );
                         first = false;
                     }
                     path.curve4(
-                        (c.ctrl_1.x - paint_rect.origin.x) as f64,
-                        (c.ctrl_1.y - paint_rect.origin.y) as f64,
-                        (c.ctrl_2.x - paint_rect.origin.x) as f64,
-                        (c.ctrl_2.y - paint_rect.origin.y) as f64,
-                        (c.end.x - paint_rect.origin.x) as f64,
-                        (c.end.y - paint_rect.origin.y) as f64,
+                        f64::from(c.ctrl_1.x - paint_rect.origin.x),
+                        f64::from(c.ctrl_1.y - paint_rect.origin.y),
+                        f64::from(c.ctrl_2.x - paint_rect.origin.x),
+                        f64::from(c.ctrl_2.y - paint_rect.origin.y),
+                        f64::from(c.end.x - paint_rect.origin.x),
+                        f64::from(c.end.y - paint_rect.origin.y),
                     );
                 }
             }

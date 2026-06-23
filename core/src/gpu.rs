@@ -274,7 +274,7 @@ impl GpuValueCache {
                             self.current_opacity_values.get(&node_id)?;
                             None
                         } else {
-                            Some((raw as f32) / 254.0)
+                            Some(f32::from(raw) / 254.0)
                         };
                     }
                 }

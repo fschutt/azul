@@ -46,10 +46,10 @@ pub fn render_svg_to_png(
     // Parse viewBox for coordinate mapping
     let vb = parse_viewbox(svg_node);
     let (vb_x, vb_y, vb_w, vb_h) =
-        vb.unwrap_or((0.0, 0.0, target_width as f64, target_height as f64));
+        vb.unwrap_or((0.0, 0.0, f64::from(target_width), f64::from(target_height)));
 
-    let sx = target_width as f64 / vb_w;
-    let sy = target_height as f64 / vb_h;
+    let sx = f64::from(target_width) / vb_w;
+    let sy = f64::from(target_height) / vb_h;
     let scale = sx.min(sy);
 
     let root_transform =
@@ -99,8 +99,8 @@ pub fn render_svg_to_imageref(
 
     let vb = parse_viewbox(svg_node);
     let (vb_x, vb_y, vb_w, vb_h) =
-        vb.unwrap_or((0.0, 0.0, target_width as f64, target_height as f64));
-    let scale = (target_width as f64 / vb_w).min(target_height as f64 / vb_h);
+        vb.unwrap_or((0.0, 0.0, f64::from(target_width), f64::from(target_height)));
+    let scale = (f64::from(target_width) / vb_w).min(f64::from(target_height) / vb_h);
     let root_transform =
         TransAffine::new_custom(scale, 0.0, 0.0, scale, -vb_x * scale, -vb_y * scale);
 
@@ -264,7 +264,7 @@ fn render_svg_group_with_style(
                     .unwrap_or(1.0);
 
                 if let Some(mut color) = fill_color {
-                    color.a = ((color.a as f64) * fill_opacity * opacity).min(255.0) as u8;
+                    color.a = (f64::from(color.a) * fill_opacity * opacity).min(255.0) as u8;
 
                     let fill_rule_str = child_node
                         .attributes
@@ -296,7 +296,7 @@ fn render_svg_group_with_style(
                         .get_key("stroke-opacity")
                         .and_then(|s| s.as_str().parse::<f64>().ok())
                         .unwrap_or(1.0);
-                    color.a = ((color.a as f64) * stroke_opacity * opacity).min(255.0) as u8;
+                    color.a = (f64::from(color.a) * stroke_opacity * opacity).min(255.0) as u8;
 
                     let stroke_width = child_node
                         .attributes
@@ -448,35 +448,35 @@ fn svg_multi_polygon_to_path_storage(mp: &azul_core::svg::SvgMultiPolygon) -> Pa
             match item {
                 azul_core::svg::SvgPathElement::Line(l) => {
                     if first {
-                        path.move_to(l.start.x as f64, l.start.y as f64);
+                        path.move_to(f64::from(l.start.x), f64::from(l.start.y));
                         first = false;
                     }
-                    path.line_to(l.end.x as f64, l.end.y as f64);
+                    path.line_to(f64::from(l.end.x), f64::from(l.end.y));
                 }
                 azul_core::svg::SvgPathElement::QuadraticCurve(q) => {
                     if first {
-                        path.move_to(q.start.x as f64, q.start.y as f64);
+                        path.move_to(f64::from(q.start.x), f64::from(q.start.y));
                         first = false;
                     }
                     path.curve3(
-                        q.ctrl.x as f64,
-                        q.ctrl.y as f64,
-                        q.end.x as f64,
-                        q.end.y as f64,
+                        f64::from(q.ctrl.x),
+                        f64::from(q.ctrl.y),
+                        f64::from(q.end.x),
+                        f64::from(q.end.y),
                     );
                 }
                 azul_core::svg::SvgPathElement::CubicCurve(c) => {
                     if first {
-                        path.move_to(c.start.x as f64, c.start.y as f64);
+                        path.move_to(f64::from(c.start.x), f64::from(c.start.y));
                         first = false;
                     }
                     path.curve4(
-                        c.ctrl_1.x as f64,
-                        c.ctrl_1.y as f64,
-                        c.ctrl_2.x as f64,
-                        c.ctrl_2.y as f64,
-                        c.end.x as f64,
-                        c.end.y as f64,
+                        f64::from(c.ctrl_1.x),
+                        f64::from(c.ctrl_1.y),
+                        f64::from(c.ctrl_2.x),
+                        f64::from(c.ctrl_2.y),
+                        f64::from(c.end.x),
+                        f64::from(c.end.y),
                     );
                 }
             }

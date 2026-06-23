@@ -1678,11 +1678,11 @@ impl RawImage {
             RawImageData::U8(ref mut v) => v.as_mut(),
             _ => return,
         };
-        let flow = brush.flow.max(0.0).min(1.0) * (brush.color.a as f32 / 255.0);
+        let flow = brush.flow.max(0.0).min(1.0) * (f32::from(brush.color.a) / 255.0);
         let (cr, cg, cb) = (
-            brush.color.r as f32,
-            brush.color.g as f32,
-            brush.color.b as f32,
+            f32::from(brush.color.r),
+            f32::from(brush.color.g),
+            f32::from(brush.color.b),
         );
         let x0 = (cx - r).floor().max(0.0) as i32;
         let y0 = (cy - r).floor().max(0.0) as i32;
@@ -1707,11 +1707,11 @@ impl RawImage {
                     (idx, idx + 1, idx + 2, idx + 3)
                 };
                 let inv = 1.0 - a;
-                buf[ri] = (cr * a + buf[ri] as f32 * inv).round().max(0.0).min(255.0) as u8;
-                buf[gi] = (cg * a + buf[gi] as f32 * inv).round().max(0.0).min(255.0) as u8;
-                buf[bi] = (cb * a + buf[bi] as f32 * inv).round().max(0.0).min(255.0) as u8;
+                buf[ri] = (cr * a + f32::from(buf[ri]) * inv).round().max(0.0).min(255.0) as u8;
+                buf[gi] = (cg * a + f32::from(buf[gi]) * inv).round().max(0.0).min(255.0) as u8;
+                buf[bi] = (cb * a + f32::from(buf[bi]) * inv).round().max(0.0).min(255.0) as u8;
                 buf[ai] =
-                    ((a + (buf[ai] as f32 / 255.0) * inv) * 255.0).round().max(0.0).min(255.0) as u8;
+                    ((a + (f32::from(buf[ai]) / 255.0) * inv) * 255.0).round().max(0.0).min(255.0) as u8;
             }
         }
     }
@@ -1746,14 +1746,14 @@ fn premultiply_alpha(array: &mut [u8]) {
         return;
     }
     let a = u32::from(array[3]);
-    array[0] = (((array[0] as u32 * a) + 128) / 255) as u8;
-    array[1] = (((array[1] as u32 * a) + 128) / 255) as u8;
-    array[2] = (((array[2] as u32 * a) + 128) / 255) as u8;
+    array[0] = (((u32::from(array[0]) * a) + 128) / 255) as u8;
+    array[1] = (((u32::from(array[1]) * a) + 128) / 255) as u8;
+    array[2] = (((u32::from(array[2]) * a) + 128) / 255) as u8;
 }
 
 #[inline]
 fn normalize_u16(i: u16) -> u8 {
-    ((core::u16::MAX as f32 / i as f32) * core::u8::MAX as f32) as u8
+    ((f32::from(core::u16::MAX) / f32::from(i)) * f32::from(core::u8::MAX)) as u8
 }
 
 const FOUR_BPP: usize = 4;

@@ -507,7 +507,7 @@ macro_rules! get_css_property_pixel {
                     }
                     if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
                         // Valid value: decode i16 ×10 → px
-                        return MultiValue::Exact(PixelValue::px(raw as f32 / 10.0));
+                        return MultiValue::Exact(PixelValue::px(f32::from(raw) / 10.0));
                     }
                     // I16_SENTINEL or I16_INHERIT → fall through to slow path
                 }
@@ -1519,7 +1519,7 @@ get_css_property!(
                 if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
                     PixelValue::px(0.0)
                 } else {
-                    PixelValue::px(raw as f32 / 10.0)
+                    PixelValue::px(f32::from(raw) / 10.0)
                 }
             };
             return StyleBorderRadius {
@@ -1602,7 +1602,7 @@ get_css_property!(
                 if raw >= thresh {
                     0.0
                 } else {
-                    raw as f32 / 10.0
+                    f32::from(raw) / 10.0
                 }
             };
             return BorderRadius {
@@ -1705,7 +1705,7 @@ get_css_property!(
                 return 0;
             }
             if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
-                return raw as i32;
+                return i32::from(raw);
             }
             // I16_SENTINEL → fall through to slow path
         }
@@ -1982,7 +1982,7 @@ pub struct BorderInfo {
                 {
                     None
                 } else {
-                    Some(PixelValue::px(raw as f32 / 10.0))
+                    Some(PixelValue::px(f32::from(raw) / 10.0))
                 }
             };
             let widths = StyleBorderWidths {
@@ -2915,7 +2915,7 @@ pub fn get_style_properties(
             if let Some(ref cc) = cache.compact_cache {
                 let raw = cc.get_tab_size_raw(dom_id.index());
                 if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
-                    fast_tab = Some(raw as f32 / 10.0);
+                    fast_tab = Some(f32::from(raw) / 10.0);
                 } else {
                     // Sentinel / Inherit / Initial → spec default is 8.
                     fast_tab = Some(8.0);
@@ -3496,11 +3496,11 @@ impl ResolvedFontChains {
         let p1 = (&raw const node_data.internal[1].node_type).cast::<u8>();
         let p0 = (&raw const node_data.internal[0].node_type).cast::<u8>();
         unsafe {
-            crate::az_mark(0x606D0_u32, ((core::ptr::read(p1) as u32)));
-            crate::az_mark(0x606D4_u32, ((core::ptr::read(p1.add(1)) as u32)));
-            crate::az_mark(0x606D8_u32, ((core::ptr::read(p1.add(2)) as u32)));
-            crate::az_mark(0x606DC_u32, ((core::ptr::read(p1.add(4)) as u32)));
-            crate::az_mark(0x606E0_u32, ((core::ptr::read(p0) as u32)));
+            crate::az_mark(0x606D0_u32, u32::from(core::ptr::read(p1)));
+            crate::az_mark(0x606D4_u32, u32::from(core::ptr::read(p1.add(1))));
+            crate::az_mark(0x606D8_u32, u32::from(core::ptr::read(p1.add(2))));
+            crate::az_mark(0x606DC_u32, u32::from(core::ptr::read(p1.add(4))));
+            crate::az_mark(0x606E0_u32, u32::from(core::ptr::read(p0)));
         }
     }
     for i in 0..node_count {
@@ -5173,8 +5173,8 @@ get_css_property!(
                 && v_raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD
             {
                 return azul_css::props::layout::table::LayoutBorderSpacing {
-                    horizontal: PixelValue::px(h_raw as f32 / 10.0),
-                    vertical: PixelValue::px(v_raw as f32 / 10.0),
+                    horizontal: PixelValue::px(f32::from(h_raw) / 10.0),
+                    vertical: PixelValue::px(f32::from(v_raw) / 10.0),
                 };
             }
         }
@@ -5204,7 +5204,7 @@ get_css_property!(
             if raw == azul_css::compact_cache::OPACITY_SENTINEL {
                 return 1.0;
             }
-            return (raw as f32) / 254.0;
+            return f32::from(raw) / 254.0;
         }
     }
     // SLOW PATH: fall back to cascade walk (state != normal, or no compact cache)

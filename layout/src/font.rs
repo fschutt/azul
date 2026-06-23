@@ -573,7 +573,7 @@ pub mod parsed {
                 .filter_map(|c| {
                     self.glyph_mapping.values().find_map(|(ngid, ch)| {
                         if *ch == c {
-                            char::from_u32(*ngid as u32)
+                            char::from_u32(u32::from(*ngid))
                         } else {
                             None
                         }
@@ -708,14 +708,14 @@ pub mod parsed {
     // num_tables=15 from these same `font_bytes`) — and reads the slice directly. KEEP.
     #[inline]
     fn manual_be16(d: &[u8], o: usize) -> u32 {
-        ((d[o] as u32) << 8) | (d[o + 1] as u32)
+        (u32::from(d[o]) << 8) | u32::from(d[o + 1])
     }
     #[inline]
     fn manual_be32(d: &[u8], o: usize) -> u32 {
-        ((d[o] as u32) << 24)
-            | ((d[o + 1] as u32) << 16)
-            | ((d[o + 2] as u32) << 8)
-            | (d[o + 3] as u32)
+        (u32::from(d[o]) << 24)
+            | (u32::from(d[o + 1]) << 16)
+            | (u32::from(d[o + 2]) << 8)
+            | u32::from(d[o + 3])
     }
 
     struct ManualTableProvider<'a> {
@@ -977,8 +977,8 @@ pub mod parsed {
                     // HeadTable::read mis-lifts) or WRONG bytes (directory offset mis-lift)?
                     let bb = head_cow.as_ref();
                     let magic = if bb.len() >= 16 {
-                        ((bb[12] as u32) << 24) | ((bb[13] as u32) << 16)
-                            | ((bb[14] as u32) << 8) | (bb[15] as u32)
+                        (u32::from(bb[12]) << 24) | (u32::from(bb[13]) << 16)
+                            | (u32::from(bb[14]) << 8) | u32::from(bb[15])
                     } else { 0 };
                     if let Ok(h) = ReadScope::new(&head_cow).read::<HeadTable>() { h } else {
                         // DIAG: surface the sliced offset (how wrong) as hex — "HO" + 8 hex
@@ -1033,12 +1033,12 @@ pub mod parsed {
                     // (deep data-mirror gap) → table data is simply absent. local@93596 (=0x16f9c,
                     // head TABLE data start) further maps the mirror: 'he'/nonzero vs 0.
                     let loc124 = if font_bytes.len() >= 126 {
-                        ((font_bytes[124] as u32) << 8) | (font_bytes[125] as u32)
+                        (u32::from(font_bytes[124]) << 8) | u32::from(font_bytes[125])
                     } else {
                         0xEEEE
                     };
                     let loc_head = if font_bytes.len() >= 93598 {
-                        ((font_bytes[93596] as u32) << 8) | (font_bytes[93597] as u32)
+                        (u32::from(font_bytes[93596]) << 8) | u32::from(font_bytes[93597])
                     } else {
                         0xEEEE
                     };
@@ -1126,9 +1126,9 @@ pub mod parsed {
                 } else {
                     head_table.units_per_em
                 },
-                ascent: hhea_table.ascender as f32,
-                descent: hhea_table.descender as f32,
-                line_gap: hhea_table.line_gap as f32,
+                ascent: f32::from(hhea_table.ascender),
+                descent: f32::from(hhea_table.descender),
+                line_gap: f32::from(hhea_table.line_gap),
                 x_height: None, // will be populated from OS/2 table via from_font_metrics if available
                 cap_height: None,
             };
@@ -1988,7 +1988,7 @@ pub mod parsed {
 
             use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
             let scale = compute_scale(ppem, upem);
-            let adv_f26dot6 = F26Dot6::from_funits(glyph.horz_advance as i32, scale);
+            let adv_f26dot6 = F26Dot6::from_funits(i32::from(glyph.horz_advance), scale);
 
             // For glyphs with outline data, run bytecode hinting
             if let (Some(raw_points), Some(raw_on_curve), Some(raw_contour_ends)) = (
@@ -1998,13 +1998,13 @@ pub mod parsed {
             ) {
                 let instructions = glyph.instructions.as_deref().unwrap_or(&[]);
                 let mut hint = _hint_mutex.lock().ok()?;
-                hint.set_ppem(ppem, ppem as f64).ok()?;
+                hint.set_ppem(ppem, f64::from(ppem)).ok()?;
 
                 let points_f26dot6: Vec<(i32, i32)> = raw_points
                     .iter()
                     .map(|&(x, y)| {
-                        let sx = F26Dot6::from_funits(x as i32, scale);
-                        let sy = F26Dot6::from_funits(y as i32, scale);
+                        let sx = F26Dot6::from_funits(i32::from(x), scale);
+                        let sy = F26Dot6::from_funits(i32::from(y), scale);
                         (sx.to_bits(), sy.to_bits())
                     })
                     .collect();
@@ -2047,11 +2047,11 @@ pub mod parsed {
             if self.vmtx_range.1 == 0 {
                 return None;
             }
-            let vert_advance = allsorts::glyph_info::advance(
+            let vert_advance = f32::from(allsorts::glyph_info::advance(
                 &self.maxp_table, vhea, self.vmtx_bytes(), glyph_id,
-            ).ok()? as f32;
+            ).ok()?);
 
-            let units_per_em = self.font_metrics.units_per_em as f32;
+            let units_per_em = f32::from(self.font_metrics.units_per_em);
             let scale = if units_per_em > 0.0 { 1.0 / units_per_em } else { 0.001 };
 
             // Vertical bearing: approximate from glyph bbox if available
@@ -2060,8 +2060,8 @@ pub mod parsed {
                     let bbox = &g.bounding_box;
                     // tsb (top side bearing): origin_y - max_y
                     // lsb for vertical: center the glyph horizontally
-                    let width = (bbox.max_x - bbox.min_x) as f32;
-                    (-(width / 2.0) * scale, (vert_advance * scale) - (bbox.max_y as f32 * scale))
+                    let width = f32::from(bbox.max_x - bbox.min_x);
+                    (-(width / 2.0) * scale, (vert_advance * scale) - (f32::from(bbox.max_y) * scale))
                 });
 
             Some(crate::text3::cache::VerticalMetrics {
@@ -2228,8 +2228,8 @@ pub mod parsed {
         /// Returns (width, height) in font units
         pub fn get_glyph_bbox_size(&self, glyph_index: u16) -> Option<(i32, i32)> {
             let g = self.get_or_decode_glyph(glyph_index)?;
-            let glyph_width = g.horz_advance as i32;
-            let glyph_height = g.bounding_box.max_y as i32 - g.bounding_box.min_y as i32;
+            let glyph_width = i32::from(g.horz_advance);
+            let glyph_height = i32::from(g.bounding_box.max_y) - i32::from(g.bounding_box.min_y);
             Some((glyph_width, glyph_height))
         }
     }
@@ -2332,7 +2332,7 @@ pub mod parsed {
             font_size_px: f32,
         ) -> Option<azul_core::geom::LogicalSize> {
             self.get_or_decode_glyph(glyph_id).map(|record| {
-                let units_per_em = self.font_metrics.units_per_em as f32;
+                let units_per_em = f32::from(self.font_metrics.units_per_em);
                 let scale_factor = if units_per_em > 0.0 {
                     font_size_px / units_per_em
                 } else {
@@ -2340,8 +2340,8 @@ pub mod parsed {
                 };
                 let bbox = &record.bounding_box;
                 azul_core::geom::LogicalSize {
-                    width: (bbox.max_x - bbox.min_x) as f32 * scale_factor,
-                    height: (bbox.max_y - bbox.min_y) as f32 * scale_factor,
+                    width: f32::from(bbox.max_x - bbox.min_x) * scale_factor,
+                    height: f32::from(bbox.max_y - bbox.min_y) * scale_factor,
                 }
             })
         }
@@ -2350,11 +2350,11 @@ pub mod parsed {
             let glyph_id = self.lookup_glyph_index('-' as u32)?;
             let advance_units = self.get_horizontal_advance(glyph_id);
             let scale_factor = if self.font_metrics.units_per_em > 0 {
-                font_size / (self.font_metrics.units_per_em as f32)
+                font_size / f32::from(self.font_metrics.units_per_em)
             } else {
                 return None;
             };
-            let scaled_advance = advance_units as f32 * scale_factor;
+            let scaled_advance = f32::from(advance_units) * scale_factor;
             Some((glyph_id, scaled_advance))
         }
 
@@ -2362,11 +2362,11 @@ pub mod parsed {
             let glyph_id = self.lookup_glyph_index('\u{0640}' as u32)?;
             let advance_units = self.get_horizontal_advance(glyph_id);
             let scale_factor = if self.font_metrics.units_per_em > 0 {
-                font_size / (self.font_metrics.units_per_em as f32)
+                font_size / f32::from(self.font_metrics.units_per_em)
             } else {
                 return None;
             };
-            let scaled_advance = advance_units as f32 * scale_factor;
+            let scaled_advance = f32::from(advance_units) * scale_factor;
             Some((glyph_id, scaled_advance))
         }
 
@@ -2409,26 +2409,26 @@ pub mod parsed {
                 has_ops = true;
                 match op {
                     GlyphOutlineOperation::MoveTo(OutlineMoveTo { x, y }) => {
-                        path.move_to(*x as f64, -(*y as f64));
+                        path.move_to(f64::from(*x), -f64::from(*y));
                     }
                     GlyphOutlineOperation::LineTo(OutlineLineTo { x, y }) => {
-                        path.line_to(*x as f64, -(*y as f64));
+                        path.line_to(f64::from(*x), -f64::from(*y));
                     }
                     GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo {
                         ctrl_1_x, ctrl_1_y, end_x, end_y,
                     }) => {
                         path.curve3(
-                            *ctrl_1_x as f64, -(*ctrl_1_y as f64),
-                            *end_x as f64, -(*end_y as f64),
+                            f64::from(*ctrl_1_x), -f64::from(*ctrl_1_y),
+                            f64::from(*end_x), -f64::from(*end_y),
                         );
                     }
                     GlyphOutlineOperation::CubicCurveTo(OutlineCubicTo {
                         ctrl_1_x, ctrl_1_y, ctrl_2_x, ctrl_2_y, end_x, end_y,
                     }) => {
                         path.curve4(
-                            *ctrl_1_x as f64, -(*ctrl_1_y as f64),
-                            *ctrl_2_x as f64, -(*ctrl_2_y as f64),
-                            *end_x as f64, -(*end_y as f64),
+                            f64::from(*ctrl_1_x), -f64::from(*ctrl_1_y),
+                            f64::from(*ctrl_2_x), -f64::from(*ctrl_2_y),
+                            f64::from(*end_x), -f64::from(*end_y),
                         );
                     }
                     GlyphOutlineOperation::ClosePath => {

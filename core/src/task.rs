@@ -634,7 +634,7 @@ impl SystemTimeDiff {
         self.as_secs_f64() / other.as_secs_f64()
     }
     fn as_secs_f64(&self) -> f64 {
-        (self.secs as f64) + ((self.nanos as f64) / (NANOS_PER_SEC as f64))
+        (self.secs as f64) + (f64::from(self.nanos) / f64::from(NANOS_PER_SEC))
     }
 }
 

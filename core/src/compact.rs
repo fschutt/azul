@@ -275,7 +275,7 @@ impl CssPropertyCache {
                     match exact {
                         LayoutZIndex::Auto => result.tier2_cold[i].z_index = I16_AUTO,
                         LayoutZIndex::Integer(z) => {
-                            if *z >= I16_SENTINEL_THRESHOLD as i32 {
+                            if *z >= i32::from(I16_SENTINEL_THRESHOLD) {
                                 result.tier2_cold[i].z_index = I16_SENTINEL;
                             } else {
                                 result.tier2_cold[i].z_index = *z as i16;
@@ -355,7 +355,7 @@ impl CssPropertyCache {
                 if let Some(color) = val.get_property() {
                     let c = &color.inner;
                     result.tier2b_text[i].text_color =
-                        ((c.r as u32) << 24) | ((c.g as u32) << 16) | ((c.b as u32) << 8) | (c.a as u32);
+                        (u32::from(c.r) << 24) | (u32::from(c.g) << 16) | (u32::from(c.b) << 8) | u32::from(c.a);
                 }
             }
 
@@ -378,7 +378,7 @@ impl CssPropertyCache {
                     // Internal number = percentage × 1000 (e.g. 120% → 120_000).
                     // We store percentage × 10 as i16 (e.g. 120% → 1200).
                     let pct_x10 = (lh.inner.normalized() * 1000.0).round() as i32;
-                    if pct_x10 >= -32768 && pct_x10 < I16_SENTINEL_THRESHOLD as i32 {
+                    if pct_x10 >= -32768 && pct_x10 < i32::from(I16_SENTINEL_THRESHOLD) {
                         result.tier2b_text[i].line_height = pct_x10 as i16;
                     } else {
                         result.tier2b_text[i].line_height = I16_SENTINEL;
@@ -470,7 +470,7 @@ impl CssPropertyCache {
                     ($variant:ident, $shift:ident, $mask:ident, $encoder:ident) => {
                         if let CssProperty::$variant(v) = prop {
                             if let Some(exact) = v.get_property() {
-                                let encoded = $encoder(*exact) as u64;
+                                let encoded = u64::from($encoder(*exact));
                                 let shifted_mask = $mask << $shift;
                                 global_tier1 = (global_tier1 & !shifted_mask) | ((encoded & $mask) << $shift);
                             }
@@ -692,7 +692,7 @@ impl CssPropertyCache {
                     }
                 } else if let CssProperty::Display(v) = prop {
                     if let Some(e) = v.get_property() {
-                        let enc = layout_display_to_u8(*e) as u64;
+                        let enc = u64::from(layout_display_to_u8(*e));
                         let m = DISPLAY_MASK;
                         let s = DISPLAY_SHIFT;
                         result.tier1_enums[i] = (result.tier1_enums[i] & !(m << s)) | ((enc & m) << s);
@@ -845,7 +845,7 @@ fn apply_css_property_to_compact(
     macro_rules! set_tier1 {
         ($v:expr, $shift:expr, $mask:expr, $encoder:ident) => {
             if let Some(exact) = $v.get_property() {
-                let encoded = $encoder(*exact) as u64;
+                let encoded = u64::from($encoder(*exact));
                 let shifted_mask = $mask << $shift;
                 *tier1 = (*tier1 & !shifted_mask) | ((encoded & $mask) << $shift);
             }
@@ -960,32 +960,32 @@ fn apply_css_property_to_compact(
                 match exact {
                     LayoutZIndex::Auto => cold.z_index = I16_AUTO,
                     LayoutZIndex::Integer(z) => {
-                        cold.z_index = if *z >= I16_SENTINEL_THRESHOLD as i32 { I16_SENTINEL } else { *z as i16 };
+                        cold.z_index = if *z >= i32::from(I16_SENTINEL_THRESHOLD) { I16_SENTINEL } else { *z as i16 };
                     }
                 }
             }
         }
         CssProperty::BorderTopStyle(v) => {
             if let Some(exact) = v.get_property() {
-                let bs = border_style_to_u8(exact.inner) as u16;
+                let bs = u16::from(border_style_to_u8(exact.inner));
                 cold.border_styles_packed = (cold.border_styles_packed & !0x000F) | bs;
             }
         }
         CssProperty::BorderRightStyle(v) => {
             if let Some(exact) = v.get_property() {
-                let bs = border_style_to_u8(exact.inner) as u16;
+                let bs = u16::from(border_style_to_u8(exact.inner));
                 cold.border_styles_packed = (cold.border_styles_packed & !0x00F0) | (bs << 4);
             }
         }
         CssProperty::BorderBottomStyle(v) => {
             if let Some(exact) = v.get_property() {
-                let bs = border_style_to_u8(exact.inner) as u16;
+                let bs = u16::from(border_style_to_u8(exact.inner));
                 cold.border_styles_packed = (cold.border_styles_packed & !0x0F00) | (bs << 8);
             }
         }
         CssProperty::BorderLeftStyle(v) => {
             if let Some(exact) = v.get_property() {
-                let bs = border_style_to_u8(exact.inner) as u16;
+                let bs = u16::from(border_style_to_u8(exact.inner));
                 cold.border_styles_packed = (cold.border_styles_packed & !0xF000) | (bs << 12);
             }
         }
@@ -1017,7 +1017,7 @@ fn apply_css_property_to_compact(
         CssProperty::TextColor(v) => {
             if let Some(color) = v.get_property() {
                 let c = &color.inner;
-                text.text_color = ((c.r as u32) << 24) | ((c.g as u32) << 16) | ((c.b as u32) << 8) | (c.a as u32);
+                text.text_color = (u32::from(c.r) << 24) | (u32::from(c.g) << 16) | (u32::from(c.b) << 8) | u32::from(c.a);
             }
         }
         CssProperty::FontFamily(v) => {
@@ -1033,7 +1033,7 @@ fn apply_css_property_to_compact(
         CssProperty::LineHeight(v) => {
             if let Some(lh) = v.get_property() {
                 let pct_x10 = (lh.inner.normalized() * 1000.0).round() as i32;
-                if pct_x10 >= -32768 && pct_x10 < I16_SENTINEL_THRESHOLD as i32 {
+                if pct_x10 >= -32768 && pct_x10 < i32::from(I16_SENTINEL_THRESHOLD) {
                     text.line_height = pct_x10 as i16;
                 } else {
                     text.line_height = I16_SENTINEL;

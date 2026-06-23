@@ -247,9 +247,9 @@ impl MapWidget {
         px: azul_core::geom::LogicalPosition,
         container: azul_core::geom::LogicalSize,
     ) -> MapLatLon {
-        let world = 256.0_f64 * 2.0_f64.powf(viewport.zoom as f64);
-        let dx = (px.x - container.width * 0.5) as f64;
-        let dy = (px.y - container.height * 0.5) as f64;
+        let world = 256.0_f64 * 2.0_f64.powf(f64::from(viewport.zoom));
+        let dx = f64::from(px.x - container.width * 0.5);
+        let dy = f64::from(px.y - container.height * 0.5);
         let lon = (viewport.centre_lon_deg + dx * 360.0 / world).clamp(-180.0, 180.0);
         let cos_lat = viewport.centre_lat_deg.to_radians().cos();
         let lat = (viewport.centre_lat_deg - dy * 360.0 / world * cos_lat).clamp(-85.0, 85.0);
@@ -266,11 +266,11 @@ impl MapWidget {
         coord: MapLatLon,
         container: azul_core::geom::LogicalSize,
     ) -> azul_core::geom::LogicalPosition {
-        let world = 256.0_f64 * 2.0_f64.powf(viewport.zoom as f64);
+        let world = 256.0_f64 * 2.0_f64.powf(f64::from(viewport.zoom));
         let cos_lat = viewport.centre_lat_deg.to_radians().cos();
-        let px = container.width as f64 * 0.5
+        let px = f64::from(container.width) * 0.5
             + (coord.lon_deg - viewport.centre_lon_deg) * world / 360.0;
-        let py = container.height as f64 * 0.5
+        let py = f64::from(container.height) * 0.5
             - (coord.lat_deg - viewport.centre_lat_deg) * world / (360.0 * cos_lat);
         azul_core::geom::LogicalPosition::new(px as f32, py as f32)
     }
@@ -508,21 +508,21 @@ impl MapTileCache {
         }
 
         let z = (self.viewport.zoom.floor() as i32)
-            .clamp(self.layer.min_zoom as i32, self.layer.max_zoom as i32)
+            .clamp(i32::from(self.layer.min_zoom), i32::from(self.layer.max_zoom))
             as u8;
-        let tile_count = 1u32 << z as u32;
-        let cx = lon_to_tile_x(self.viewport.centre_lon_deg, tile_count as f64);
-        let cy = lat_to_tile_y(self.viewport.centre_lat_deg, tile_count as f64);
+        let tile_count = 1u32 << u32::from(z);
+        let cx = lon_to_tile_x(self.viewport.centre_lon_deg, f64::from(tile_count));
+        let cy = lat_to_tile_y(self.viewport.centre_lat_deg, f64::from(tile_count));
 
         // Higher score = evict sooner.
         let score = |id: &MapTileId| -> f64 {
-            let zt_count = 1u32 << id.z as u32;
+            let zt_count = 1u32 << u32::from(id.z);
             // Project the tile's centre into the CURRENT zoom's tile space so
             // distances across zoom levels are comparable.
-            let scale = tile_count as f64 / zt_count as f64;
-            let tx = (id.x as f64 + 0.5) * scale;
-            let ty = (id.y as f64 + 0.5) * scale;
-            let dz = (id.z as i32 - z as i32).abs() as f64;
+            let scale = f64::from(tile_count) / f64::from(zt_count);
+            let tx = (f64::from(id.x) + 0.5) * scale;
+            let ty = (f64::from(id.y) + 0.5) * scale;
+            let dz = (i32::from(id.z) - i32::from(z)).abs() as f64;
             let dx = tx - cx;
             let dy = ty - cy;
             dz * 10_000.0 + dx * dx + dy * dy
@@ -764,8 +764,8 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         let anchor = *cache.pinch_anchor.get_or_insert(pinch.current_distance);
         if anchor > 1.0 && pinch.current_distance > 1.0 {
             let dz = (pinch.current_distance / anchor).log2();
-            let min = cache.layer.min_zoom as f32;
-            let max = cache.layer.max_zoom as f32;
+            let min = f32::from(cache.layer.min_zoom);
+            let max = f32::from(cache.layer.max_zoom);
             cache.viewport.zoom = (cache.viewport.zoom + dz).clamp(min, max);
         }
         cache.pinch_anchor = Some(pinch.current_distance);
@@ -796,8 +796,8 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         None => return Update::DoNothing, // no active drag
     };
 
-    let dx_px = (pos.x - anchor.x) as f64;
-    let dy_px = (pos.y - anchor.y) as f64;
+    let dx_px = f64::from(pos.x - anchor.x);
+    let dy_px = f64::from(pos.y - anchor.y);
     if dx_px.abs() < 0.5 && dy_px.abs() < 0.5 {
         return Update::DoNothing;
     }
@@ -805,7 +805,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
     let (new_lon, new_lat) = pan_viewport(
         cache_guard.viewport.centre_lat_deg,
         cache_guard.viewport.centre_lon_deg,
-        cache_guard.viewport.zoom as f64,
+        f64::from(cache_guard.viewport.zoom),
         dx_px,
         dy_px,
     );
@@ -848,8 +848,8 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
     // A press + release at ~the same point (no pan/pinch) is a tap: project it
     // to lat/lon and fire the user's on_pin_tap hook.
     if let (Some(origin), Some(up)) = (press, up_pos) {
-        let dx = (up.x - origin.x) as f64;
-        let dy = (up.y - origin.y) as f64;
+        let dx = f64::from(up.x - origin.x);
+        let dy = f64::from(up.y - origin.y);
         if dx * dx + dy * dy < 36.0 {
             let coord = MapWidget::latlon_at_px(viewport, up, container);
             invoke_pin_tap(&hook, &info, coord);
@@ -897,8 +897,8 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
             Some(c) => c,
             None => return Update::DoNothing,
         };
-        let min = cache.layer.min_zoom as f32;
-        let max = cache.layer.max_zoom as f32;
+        let min = f32::from(cache.layer.min_zoom);
+        let max = f32::from(cache.layer.max_zoom);
         // ~0.5 zoom levels per wheel notch. X11 delivers wheel-up as dy > 0;
         // wheel-up zooms IN, wheel-down zooms OUT (Leaflet / Google-Maps).
         let dz = dy.signum() * 0.5;
@@ -1255,12 +1255,12 @@ fn map_visible_tiles(
     layer: &MapTileLayer,
 ) -> Vec<MapTileId> {
     let z_int =
-        (viewport.zoom.floor() as i32).clamp(layer.min_zoom as i32, layer.max_zoom as i32) as u8;
-    let tile_count = 1u32 << z_int as u32;
-    let frac_zoom = viewport.zoom - z_int as f32;
+        (viewport.zoom.floor() as i32).clamp(i32::from(layer.min_zoom), i32::from(layer.max_zoom)) as u8;
+    let tile_count = 1u32 << u32::from(z_int);
+    let frac_zoom = viewport.zoom - f32::from(z_int);
     let zoom_scale = 2.0_f32.powf(frac_zoom);
-    let centre_x = lon_to_tile_x(viewport.centre_lon_deg, tile_count as f64) as f32;
-    let centre_y = lat_to_tile_y(viewport.centre_lat_deg, tile_count as f64) as f32;
+    let centre_x = lon_to_tile_x(viewport.centre_lon_deg, f64::from(tile_count)) as f32;
+    let centre_y = lat_to_tile_y(viewport.centre_lat_deg, f64::from(tile_count)) as f32;
     let (x_min, x_max, y_min, y_max) =
         visible_tile_range(centre_x, centre_y, bounds.width, bounds.height, zoom_scale, tile_count);
     let mut tiles = Vec::new();
@@ -1317,16 +1317,16 @@ extern "C" fn map_widget_render(
     // Round the requested fractional zoom down to the nearest integer
     // tile zoom the layer supports.
     let z_int = (viewport.zoom.floor() as i32)
-        .clamp(layer.min_zoom as i32, layer.max_zoom as i32)
+        .clamp(i32::from(layer.min_zoom), i32::from(layer.max_zoom))
         as u8;
-    let tile_count = 1u32 << z_int as u32;
-    let frac_zoom = viewport.zoom - z_int as f32;
+    let tile_count = 1u32 << u32::from(z_int);
+    let frac_zoom = viewport.zoom - f32::from(z_int);
     let zoom_scale = 2.0_f32.powf(frac_zoom);
 
     // Convert WGS-84 → Web-Mercator-XYZ tile-space via the shared
     // projection helpers (the single source of truth, unit-tested below).
-    let centre_x = lon_to_tile_x(viewport.centre_lon_deg, tile_count as f64) as f32;
-    let centre_y = lat_to_tile_y(viewport.centre_lat_deg, tile_count as f64) as f32;
+    let centre_x = lon_to_tile_x(viewport.centre_lon_deg, f64::from(tile_count)) as f32;
+    let centre_y = lat_to_tile_y(viewport.centre_lat_deg, f64::from(tile_count)) as f32;
 
     // 256 is the Mercator tile pixel size at integer zoom; tile_px is also
     // used below to position each tile div.
@@ -1698,7 +1698,7 @@ mod tests {
             merge_map_tile_cache(RefAny::new(new_cache), RefAny::new(old_cache));
         let g = merged.downcast_ref::<MapTileCache>().unwrap();
         // The build's viewport wins…
-        approx(g.viewport.zoom as f64, viewport_at(2.0).zoom as f64, 1e-6);
+        approx(f64::from(g.viewport.zoom), f64::from(viewport_at(2.0).zoom), 1e-6);
         // …while the fetched tiles survive in the same allocation.
         assert!(
             g.tiles.contains_key(&tile),

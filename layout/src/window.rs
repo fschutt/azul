@@ -2250,7 +2250,7 @@ impl LayoutWindow {
             run_count: 0,
             last_run: azul_core::task::OptionInstant::None,
             delay: azul_core::task::OptionDuration::Some(Duration::System(
-                SystemTimeDiff::from_millis(hover_time_ms as u64),
+                SystemTimeDiff::from_millis(u64::from(hover_time_ms)),
             )),
             interval: azul_core::task::OptionDuration::None,
             timeout: azul_core::task::OptionDuration::None,
@@ -5101,7 +5101,7 @@ impl LayoutWindow {
                 let nodes = self.edit_text_node(
                     dom_id,
                     node_id,
-                    TextEditType::SetNumericValue(value.get() as f64),
+                    TextEditType::SetNumericValue(f64::from(value.get())),
                 );
                 for node in nodes {
                     affected_nodes.insert(node, (Vec::new(), true));

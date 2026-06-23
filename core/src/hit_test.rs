@@ -604,7 +604,7 @@ impl HitTestTag {
                 debug_assert!(container_node_id.index() <= 0xFFFF_FFFF, "Selection tag: NodeId {} exceeds 32-bit range", container_node_id.index());
                 let tag_value = ((dom_id.inner as u64) << 48)
                     | ((container_node_id.index() as u64) << 16)
-                    | (*text_run_index as u64);
+                    | u64::from(*text_run_index);
                 (tag_value, TAG_TYPE_SELECTION)
             }
         }

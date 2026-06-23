@@ -49,7 +49,7 @@ impl fmt::Display for ColorU {
             self.r,
             self.g,
             self.b,
-            self.a as f32 / 255.0
+            f32::from(self.a) / 255.0
         )
     }
 }
@@ -203,10 +203,10 @@ impl ColorU {
     /// `t = 0.0` returns `self`, `t = 1.0` returns `other`.
     #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
-            r: libm::roundf(self.r as f32 + (other.r as f32 - self.r as f32) * t) as u8,
-            g: libm::roundf(self.g as f32 + (other.g as f32 - self.g as f32) * t) as u8,
-            b: libm::roundf(self.b as f32 + (other.b as f32 - self.b as f32) * t) as u8,
-            a: libm::roundf(self.a as f32 + (other.a as f32 - self.a as f32) * t) as u8,
+            r: libm::roundf(f32::from(self.r) + (f32::from(other.r) - f32::from(self.r)) * t) as u8,
+            g: libm::roundf(f32::from(self.g) + (f32::from(other.g) - f32::from(self.g)) * t) as u8,
+            b: libm::roundf(f32::from(self.b) + (f32::from(other.b) - f32::from(self.b)) * t) as u8,
+            a: libm::roundf(f32::from(self.a) + (f32::from(other.a) - f32::from(self.a)) * t) as u8,
         }
     }
     
@@ -259,9 +259,9 @@ impl ColorU {
     /// values without linearizing first, so it is only an approximation.
     /// For accurate results (e.g. WCAG contrast checks), use [`relative_luminance()`].
     #[must_use] pub fn luminance(&self) -> f32 {
-        let r = (self.r as f32) / 255.0;
-        let g = (self.g as f32) / 255.0;
-        let b = (self.b as f32) / 255.0;
+        let r = f32::from(self.r) / 255.0;
+        let g = f32::from(self.g) / 255.0;
+        let b = f32::from(self.b) / 255.0;
         0.2126 * r + 0.7152 * g + 0.0722 * b
     }
 
@@ -289,9 +289,9 @@ impl ColorU {
     /// Returns a value between 0.0 (darkest) and 1.0 (lightest).
     /// Uses the sRGB to linear conversion for accurate results.
     #[must_use] pub fn relative_luminance(&self) -> f32 {
-        let r = Self::srgb_to_linear((self.r as f32) / 255.0);
-        let g = Self::srgb_to_linear((self.g as f32) / 255.0);
-        let b = Self::srgb_to_linear((self.b as f32) / 255.0);
+        let r = Self::srgb_to_linear(f32::from(self.r) / 255.0);
+        let g = Self::srgb_to_linear(f32::from(self.g) / 255.0);
+        let b = Self::srgb_to_linear(f32::from(self.b) / 255.0);
         0.2126 * r + 0.7152 * g + 0.0722 * b
     }
     
@@ -482,7 +482,7 @@ impl ColorU {
     
     /// Convert to grayscale using luminance weights.
     #[must_use] pub fn to_grayscale(&self) -> Self {
-        let gray = (0.299 * self.r as f32 + 0.587 * self.g as f32 + 0.114 * self.b as f32) as u8;
+        let gray = (0.299 * f32::from(self.r) + 0.587 * f32::from(self.g) + 0.114 * f32::from(self.b)) as u8;
         Self { r: gray, g: gray, b: gray, a: self.a }
     }
 
@@ -793,10 +793,10 @@ impl ColorF {
 impl From<ColorU> for ColorF {
     fn from(input: ColorU) -> Self {
         Self {
-            r: (input.r as f32) / 255.0,
-            g: (input.g as f32) / 255.0,
-            b: (input.b as f32) / 255.0,
-            a: (input.a as f32) / 255.0,
+            r: f32::from(input.r) / 255.0,
+            g: f32::from(input.g) / 255.0,
+            b: f32::from(input.b) / 255.0,
+            a: f32::from(input.a) / 255.0,
         }
     }
 }

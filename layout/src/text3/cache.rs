@@ -118,7 +118,7 @@ impl LineHeight {
                 if units_per_em == 0 {
                     return font_size_px * 1.2; // fallback
                 }
-                let scale = font_size_px / units_per_em as f32;
+                let scale = font_size_px / f32::from(units_per_em);
                 (ascent - descent + line_gap) * scale
             }
         }
@@ -1574,14 +1574,14 @@ impl LayoutFontMetrics {
     // +spec:font-metrics:910c0a - dominant-baseline: auto resolves to alphabetic for horizontal text
     // +spec:writing-modes:098958 - baseline is along the inline axis, used to align glyphs
     #[must_use] pub fn baseline_scaled(&self, font_size: f32) -> f32 {
-        let scale = font_size / self.units_per_em as f32;
+        let scale = font_size / f32::from(self.units_per_em);
         self.ascent * scale
     }
 
     /// Returns the x-height scaled to the given font size in px.
     /// Falls back to 0.5em when the font doesn't provide sxHeight.
     #[must_use] pub fn x_height_scaled(&self, font_size: f32) -> f32 {
-        let scale = font_size / self.units_per_em as f32;
+        let scale = font_size / f32::from(self.units_per_em);
         match self.x_height {
             Some(xh) => xh * scale,
             None => font_size * 0.5,
@@ -1591,7 +1591,7 @@ impl LayoutFontMetrics {
     /// Returns the cap height scaled to the given font size in px.
     /// Falls back to ascent when the font doesn't provide sCapHeight.
     #[must_use] pub fn cap_height_scaled(&self, font_size: f32) -> f32 {
-        let scale = font_size / self.units_per_em as f32;
+        let scale = font_size / f32::from(self.units_per_em);
         self.cap_height.unwrap_or(self.ascent) * scale
     }
 
@@ -1617,22 +1617,22 @@ impl LayoutFontMetrics {
     #[must_use] pub fn from_font_metrics(metrics: &azul_css::props::basic::FontMetrics) -> Self {
         let ascent = metrics.s_typo_ascender
             .as_option()
-            .map_or(metrics.ascender as f32, |v| *v as f32);
+            .map_or(f32::from(metrics.ascender), |v| f32::from(*v));
         let descent = metrics.s_typo_descender
             .as_option()
-            .map_or(metrics.descender as f32, |v| *v as f32);
+            .map_or(f32::from(metrics.descender), |v| f32::from(*v));
         // UAs must floor the line gap metric at zero (css-inline-3 §3.2.2)
         // Spec: "UAs must floor the line gap metric at zero."
         let line_gap = metrics.s_typo_line_gap
             .as_option()
-            .map_or(metrics.line_gap as f32, |v| *v as f32)
+            .map_or(f32::from(metrics.line_gap), |v| f32::from(*v))
             .max(0.0);
         let x_height = metrics.sx_height
             .as_option()
-            .map(|v| *v as f32);
+            .map(|v| f32::from(*v));
         let cap_height = metrics.s_cap_height
             .as_option()
-            .map(|v| *v as f32);
+            .map(|v| f32::from(*v));
         Self {
             ascent,
             descent,
@@ -1649,14 +1649,14 @@ impl LayoutFontMetrics {
     /// Central baseline is synthesized as midpoint of ascent and descent.
     #[must_use] pub fn em_over(&self) -> f32 {
         let central = self.central_baseline();
-        central + (self.units_per_em as f32 / 2.0)
+        central + (f32::from(self.units_per_em) / 2.0)
     }
 
     /// Synthesize em-under baseline offset (in font units).
     /// Per CSS Inline 3 Appendix A.1: em-under = central baseline - 0.5em.
     #[must_use] pub fn em_under(&self) -> f32 {
         let central = self.central_baseline();
-        central - (self.units_per_em as f32 / 2.0)
+        central - (f32::from(self.units_per_em) / 2.0)
     }
 
     /// Synthesize central baseline (in font units).
@@ -4027,7 +4027,7 @@ impl ShapedGlyph {
         };
 
         GlyphInstance {
-            index: self.glyph_id as u32,
+            index: u32::from(self.glyph_id),
             point: position,
             size,
         }
@@ -4047,7 +4047,7 @@ impl ShapedGlyph {
             .unwrap_or_default();
 
         GlyphInstance {
-            index: self.glyph_id as u32,
+            index: u32::from(self.glyph_id),
             point: absolute_position,
             size,
         }
@@ -4064,7 +4064,7 @@ impl ShapedGlyph {
         // Use font metrics to estimate size, or default to zero
         // The actual rendering will use the font directly
         GlyphInstance {
-            index: self.glyph_id as u32,
+            index: u32::from(self.glyph_id),
             point: absolute_position,
             size: LogicalSize::default(),
         }
@@ -7565,7 +7565,7 @@ const fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
                     if metrics.units_per_em == 0 {
                         return (max_asc, max_desc);
                     }
-                    let scale = glyph.style.font_size_px / metrics.units_per_em as f32;
+                    let scale = glyph.style.font_size_px / f32::from(metrics.units_per_em);
                     let font_ascent = metrics.ascent * scale;
                     let font_descent = (-metrics.descent * scale).max(0.0);
                     let ad = font_ascent + font_descent;
@@ -7639,7 +7639,7 @@ const fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
                     if metrics.units_per_em == 0 {
                         return (max_asc, max_desc);
                     }
-                    let scale = glyph.style.font_size_px / metrics.units_per_em as f32;
+                    let scale = glyph.style.font_size_px / f32::from(metrics.units_per_em);
                     let a = metrics.ascent * scale;
                     // Descent in OpenType is typically negative, so we negate it to get a positive
                     // distance.

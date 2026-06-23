@@ -252,12 +252,12 @@ impl CompositorState {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
                         layer.transform = TransAffine::new_custom(
-                            m[0][0] as f64,
-                            m[0][1] as f64,
-                            m[1][0] as f64,
-                            m[1][1] as f64,
-                            m[3][0] as f64,
-                            m[3][1] as f64,
+                            f64::from(m[0][0]),
+                            f64::from(m[0][1]),
+                            f64::from(m[1][0]),
+                            f64::from(m[1][1]),
+                            f64::from(m[3][0]),
+                            f64::from(m[3][1]),
                         );
                         let end =
                             find_matching_pop(&display_list.items, i, MatchKind::ReferenceFrame);
@@ -1139,15 +1139,15 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
             StyleFilter::Opacity(pct) => {
                 let op = (pct.normalized() * 255.0).clamp(0.0, 255.0) as u32;
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    chunk[3] = ((chunk[3] as u32 * op) / 255) as u8;
+                    chunk[3] = ((u32::from(chunk[3]) * op) / 255) as u8;
                 }
             }
             StyleFilter::Grayscale(pct) => {
                 let amount = pct.normalized().clamp(0.0, 1.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    let r = chunk[0] as f32;
-                    let g = chunk[1] as f32;
-                    let b = chunk[2] as f32;
+                    let r = f32::from(chunk[0]);
+                    let g = f32::from(chunk[1]);
+                    let b = f32::from(chunk[2]);
                     let gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
                     chunk[0] = (r + (gray - r) * amount).clamp(0.0, 255.0) as u8;
                     chunk[1] = (g + (gray - g) * amount).clamp(0.0, 255.0) as u8;
@@ -1157,39 +1157,39 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
             StyleFilter::Brightness(pct) => {
                 let factor = pct.normalized().max(0.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    chunk[0] = (chunk[0] as f32 * factor).clamp(0.0, 255.0) as u8;
-                    chunk[1] = (chunk[1] as f32 * factor).clamp(0.0, 255.0) as u8;
-                    chunk[2] = (chunk[2] as f32 * factor).clamp(0.0, 255.0) as u8;
+                    chunk[0] = (f32::from(chunk[0]) * factor).clamp(0.0, 255.0) as u8;
+                    chunk[1] = (f32::from(chunk[1]) * factor).clamp(0.0, 255.0) as u8;
+                    chunk[2] = (f32::from(chunk[2]) * factor).clamp(0.0, 255.0) as u8;
                 }
             }
             StyleFilter::Contrast(pct) => {
                 let factor = pct.normalized().max(0.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    chunk[0] = ((((chunk[0] as f32 / 255.0) - 0.5) * factor + 0.5) * 255.0)
+                    chunk[0] = ((((f32::from(chunk[0]) / 255.0) - 0.5) * factor + 0.5) * 255.0)
                         .clamp(0.0, 255.0) as u8;
-                    chunk[1] = ((((chunk[1] as f32 / 255.0) - 0.5) * factor + 0.5) * 255.0)
+                    chunk[1] = ((((f32::from(chunk[1]) / 255.0) - 0.5) * factor + 0.5) * 255.0)
                         .clamp(0.0, 255.0) as u8;
-                    chunk[2] = ((((chunk[2] as f32 / 255.0) - 0.5) * factor + 0.5) * 255.0)
+                    chunk[2] = ((((f32::from(chunk[2]) / 255.0) - 0.5) * factor + 0.5) * 255.0)
                         .clamp(0.0, 255.0) as u8;
                 }
             }
             StyleFilter::Invert(pct) => {
                 let amount = pct.normalized().clamp(0.0, 1.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    chunk[0] = (chunk[0] as f32 + (255.0 - 2.0 * chunk[0] as f32) * amount)
+                    chunk[0] = (f32::from(chunk[0]) + (255.0 - 2.0 * f32::from(chunk[0])) * amount)
                         .clamp(0.0, 255.0) as u8;
-                    chunk[1] = (chunk[1] as f32 + (255.0 - 2.0 * chunk[1] as f32) * amount)
+                    chunk[1] = (f32::from(chunk[1]) + (255.0 - 2.0 * f32::from(chunk[1])) * amount)
                         .clamp(0.0, 255.0) as u8;
-                    chunk[2] = (chunk[2] as f32 + (255.0 - 2.0 * chunk[2] as f32) * amount)
+                    chunk[2] = (f32::from(chunk[2]) + (255.0 - 2.0 * f32::from(chunk[2])) * amount)
                         .clamp(0.0, 255.0) as u8;
                 }
             }
             StyleFilter::Sepia(pct) => {
                 let amount = pct.normalized().clamp(0.0, 1.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    let r = chunk[0] as f32;
-                    let g = chunk[1] as f32;
-                    let b = chunk[2] as f32;
+                    let r = f32::from(chunk[0]);
+                    let g = f32::from(chunk[1]);
+                    let b = f32::from(chunk[2]);
                     let sr = (0.393 * r + 0.769 * g + 0.189 * b).min(255.0);
                     let sg = (0.349 * r + 0.686 * g + 0.168 * b).min(255.0);
                     let sb = (0.272 * r + 0.534 * g + 0.131 * b).min(255.0);
@@ -1201,9 +1201,9 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
             StyleFilter::Saturate(pct) => {
                 let s = pct.normalized().max(0.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    let r = chunk[0] as f32;
-                    let g = chunk[1] as f32;
-                    let b = chunk[2] as f32;
+                    let r = f32::from(chunk[0]);
+                    let g = f32::from(chunk[1]);
+                    let b = f32::from(chunk[2]);
                     let gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
                     chunk[0] = (gray + (r - gray) * s).clamp(0.0, 255.0) as u8;
                     chunk[1] = (gray + (g - gray) * s).clamp(0.0, 255.0) as u8;
@@ -1215,9 +1215,9 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
                 let cos_a = rad.cos();
                 let sin_a = rad.sin();
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    let r = chunk[0] as f32;
-                    let g = chunk[1] as f32;
-                    let b = chunk[2] as f32;
+                    let r = f32::from(chunk[0]);
+                    let g = f32::from(chunk[1]);
+                    let b = f32::from(chunk[2]);
                     let nr = (0.213 + 0.787 * cos_a - 0.213 * sin_a) * r
                         + (0.715 - 0.715 * cos_a - 0.715 * sin_a) * g
                         + (0.072 - 0.072 * cos_a + 0.928 * sin_a) * b;
@@ -1500,9 +1500,9 @@ fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
             if ai + 3 >= a.data.len() || bi + 3 >= b.data.len() {
                 continue;
             }
-            let dr = (a.data[ai] as i16 - b.data[bi] as i16).unsigned_abs() as u8;
-            let dg = (a.data[ai + 1] as i16 - b.data[bi + 1] as i16).unsigned_abs() as u8;
-            let db = (a.data[ai + 2] as i16 - b.data[bi + 2] as i16).unsigned_abs() as u8;
+            let dr = (i16::from(a.data[ai]) - i16::from(b.data[bi])).unsigned_abs() as u8;
+            let dg = (i16::from(a.data[ai + 1]) - i16::from(b.data[bi + 1])).unsigned_abs() as u8;
+            let db = (i16::from(a.data[ai + 2]) - i16::from(b.data[bi + 2])).unsigned_abs() as u8;
             if dr > threshold || dg > threshold || db > threshold {
                 diff_count += 1;
             }

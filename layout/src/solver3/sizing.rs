@@ -195,7 +195,7 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     unsafe {
         crate::az_mark(0x60730_u32, ((tree.root as u32)));
         crate::az_mark(0x60734_u32, ((tree.nodes.len() as u32)));
-        crate::az_mark(0x60738_u32, ((tree.get(tree.root).is_some() as u32)));
+        crate::az_mark(0x60738_u32, u32::from(tree.get(tree.root).is_some()));
         // [az-diag g55] 0x4075C = the `tree` ptr the CALLEE sees. Compare with 0x40748
         // (caller's &new_tree). Same → nodes-field-offset mis-lift; differ → &mut arg mis-passed.
         crate::az_mark(0x6075C_u32, (((std::ptr::from_ref::<LayoutTree>(tree) as usize) as u32)));

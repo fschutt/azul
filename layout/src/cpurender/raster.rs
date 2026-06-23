@@ -75,11 +75,11 @@ fn build_gradient_lut_linear(
         return lut;
     }
     for stop in stops_slice {
-        let offset = stop.offset.normalized() as f64; // 0.0..1.0
+        let offset = f64::from(stop.offset.normalized()); // 0.0..1.0
         let c = resolve_color(&stop.color, system_colors);
         lut.add_color(
             offset,
-            Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32),
+            Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a)),
         );
     }
     lut.build_lut();
@@ -101,11 +101,11 @@ fn build_gradient_lut_radial(
     }
     for stop in stops_slice {
         // Conic stops use angle — normalize to 0..1 fraction of full circle
-        let offset = (stop.angle.to_degrees() / 360.0).clamp(0.0, 1.0) as f64;
+        let offset = f64::from((stop.angle.to_degrees() / 360.0).clamp(0.0, 1.0));
         let c = resolve_color(&stop.color, system_colors);
         lut.add_color(
             offset,
-            Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32),
+            Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a)),
         );
     }
     lut.build_lut();
@@ -185,10 +185,10 @@ fn render_linear_gradient(
     let (from_pt, to_pt) = gradient.direction.to_points(&layout_rect);
 
     // Pixel-space start/end
-    let x1 = rect.x as f64 + from_pt.x as f64;
-    let y1 = rect.y as f64 + from_pt.y as f64;
-    let x2 = rect.x as f64 + to_pt.x as f64;
-    let y2 = rect.y as f64 + to_pt.y as f64;
+    let x1 = f64::from(rect.x) + from_pt.x as f64;
+    let y1 = f64::from(rect.y) + from_pt.y as f64;
+    let x2 = f64::from(rect.x) + to_pt.x as f64;
+    let y2 = f64::from(rect.y) + to_pt.y as f64;
 
     let dx = x2 - x1;
     let dy = y2 - y1;
@@ -239,41 +239,41 @@ fn render_radial_gradient(
 
     let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
 
-    let w = rect.width as f64;
-    let h = rect.height as f64;
+    let w = f64::from(rect.width);
+    let h = f64::from(rect.height);
 
     // Compute center from position
     let (cx_frac, cy_frac) =
         resolve_background_position(&gradient.position, rect.width, rect.height);
-    let cx = rect.x as f64 + cx_frac as f64 * w;
-    let cy = rect.y as f64 + cy_frac as f64 * h;
+    let cx = f64::from(rect.x) + f64::from(cx_frac) * w;
+    let cy = f64::from(rect.y) + f64::from(cy_frac) * h;
 
     // Compute radius based on shape and size
     let radius = match gradient.size {
         RadialGradientSize::ClosestSide => {
-            let dx = (cx_frac as f64 * w).min((1.0 - cx_frac as f64) * w);
-            let dy = (cy_frac as f64 * h).min((1.0 - cy_frac as f64) * h);
+            let dx = (f64::from(cx_frac) * w).min((1.0 - f64::from(cx_frac)) * w);
+            let dy = (f64::from(cy_frac) * h).min((1.0 - f64::from(cy_frac)) * h);
             match gradient.shape {
                 Shape::Circle => dx.min(dy),
                 Shape::Ellipse => dx.min(dy), // simplified
             }
         }
         RadialGradientSize::FarthestSide => {
-            let dx = (cx_frac as f64 * w).max((1.0 - cx_frac as f64) * w);
-            let dy = (cy_frac as f64 * h).max((1.0 - cy_frac as f64) * h);
+            let dx = (f64::from(cx_frac) * w).max((1.0 - f64::from(cx_frac)) * w);
+            let dy = (f64::from(cy_frac) * h).max((1.0 - f64::from(cy_frac)) * h);
             match gradient.shape {
                 Shape::Circle => dx.max(dy),
                 Shape::Ellipse => dx.max(dy),
             }
         }
         RadialGradientSize::ClosestCorner => {
-            let dx = (cx_frac as f64 * w).min((1.0 - cx_frac as f64) * w);
-            let dy = (cy_frac as f64 * h).min((1.0 - cy_frac as f64) * h);
+            let dx = (f64::from(cx_frac) * w).min((1.0 - f64::from(cx_frac)) * w);
+            let dy = (f64::from(cy_frac) * h).min((1.0 - f64::from(cy_frac)) * h);
             dx.hypot(dy)
         }
         RadialGradientSize::FarthestCorner => {
-            let dx = (cx_frac as f64 * w).max((1.0 - cx_frac as f64) * w);
-            let dy = (cy_frac as f64 * h).max((1.0 - cy_frac as f64) * h);
+            let dx = (f64::from(cx_frac) * w).max((1.0 - f64::from(cx_frac)) * w);
+            let dy = (f64::from(cy_frac) * h).max((1.0 - f64::from(cy_frac)) * h);
             dx.hypot(dy)
         }
     };
@@ -329,17 +329,17 @@ fn render_conic_gradient(
 
     let lut = build_gradient_lut_radial(&gradient.stops, system_colors);
 
-    let w = rect.width as f64;
-    let h = rect.height as f64;
+    let w = f64::from(rect.width);
+    let h = f64::from(rect.height);
 
     // Compute center
     let (cx_frac, cy_frac) = resolve_background_position(&gradient.center, rect.width, rect.height);
-    let cx = rect.x as f64 + cx_frac as f64 * w;
-    let cy = rect.y as f64 + cy_frac as f64 * h;
+    let cx = f64::from(rect.x) + f64::from(cx_frac) * w;
+    let cy = f64::from(rect.y) + f64::from(cy_frac) * h;
 
     // Start angle (CSS conic gradients start at 12 o'clock = -90deg in math coords)
     let start_angle_deg = gradient.angle.to_degrees();
-    let start_angle_rad = ((start_angle_deg - 90.0) as f64).to_radians();
+    let start_angle_rad = f64::from(start_angle_deg - 90.0).to_radians();
 
     // Forward: gradient angle θ → pixel rotated by start_angle around (cx, cy).
     // Build as T * R so rotation is applied before translation (rotate() pre-multiplies,
@@ -451,10 +451,10 @@ fn render_box_shadow(
     };
 
     let agg_color = Rgba8::new(
-        color.r as u32,
-        color.g as u32,
-        color.b as u32,
-        color.a as u32,
+        u32::from(color.r),
+        u32::from(color.g),
+        u32::from(color.b),
+        u32::from(color.a),
     );
     if border_radius.is_zero() {
         let mut path = build_rect_path(&shape_rect);
@@ -595,7 +595,7 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
             }
 
             let mi = (py as u32 * width + px as u32) as usize;
-            let mask_val = mask_data.get(mi).copied().unwrap_or(0) as u32;
+            let mask_val = u32::from(mask_data.get(mi).copied().unwrap_or(0));
 
             let pi = ((dy as u32 * pixmap.width + dx as u32) * 4) as usize;
             let si = ((py as u32 * width + px as u32) * 4) as usize;
@@ -608,8 +608,8 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
             // mask_val 255 = fully visible (keep current), 0 = fully clipped (restore snapshot)
             let inv_mask = 255 - mask_val;
             for c in 0..4 {
-                let snap_c = snapshot[si + c] as u32;
-                let cur_c = pixmap.data[pi + c] as u32;
+                let snap_c = u32::from(snapshot[si + c]);
+                let cur_c = u32::from(pixmap.data[pi + c]);
                 pixmap.data[pi + c] = ((cur_c * mask_val + snap_c * inv_mask) / 255) as u8;
             }
         }
@@ -1751,8 +1751,8 @@ pub fn render_single_item(
                         let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
                         let inv_op = 255 - op;
                         for c in 0..4 {
-                            let snap_c = snapshot[si + c] as u32;
-                            let cur_c = pixmap.data[pi + c] as u32;
+                            let snap_c = u32::from(snapshot[si + c]);
+                            let cur_c = u32::from(pixmap.data[pi + c]);
                             pixmap.data[pi + c] = ((cur_c * op + snap_c * inv_op) / 255) as u8;
                         }
                     }
@@ -1776,12 +1776,12 @@ pub fn render_single_item(
                 None => &initial_transform.m,
             };
             let tf = TransAffine::new_custom(
-                m[0][0] as f64,
-                m[0][1] as f64, // sx, shy
-                m[1][0] as f64,
-                m[1][1] as f64, // shx, sy
-                m[3][0] as f64,
-                m[3][1] as f64, // tx, ty
+                f64::from(m[0][0]),
+                f64::from(m[0][1]), // sx, shy
+                f64::from(m[1][0]),
+                f64::from(m[1][1]), // shx, sy
+                f64::from(m[3][0]),
+                f64::from(m[3][1]), // tx, ty
             );
             let current = transform_stack
                 .last()
@@ -1900,10 +1900,10 @@ fn render_rect(
     }
 
     let agg_color = Rgba8::new(
-        color.r as u32,
-        color.g as u32,
-        color.b as u32,
-        color.a as u32,
+        u32::from(color.r),
+        u32::from(color.g),
+        u32::from(color.b),
+        u32::from(color.a),
     );
 
     if border_radius.is_zero() {
@@ -1971,10 +1971,10 @@ fn render_text(
     }
 
     let agg_color = Rgba8::new(
-        color.r as u32,
-        color.g as u32,
-        color.b as u32,
-        color.a as u32,
+        u32::from(color.r),
+        u32::from(color.g),
+        u32::from(color.b),
+        u32::from(color.a),
     );
 
     // Try to get the parsed font
@@ -2006,7 +2006,7 @@ fn render_text(
         unsafe { &*font_ref.get_parsed().cast::<ParsedFont>() }
     };
 
-    let units_per_em = parsed_font.font_metrics.units_per_em as f32;
+    let units_per_em = f32::from(parsed_font.font_metrics.units_per_em);
     if units_per_em <= 0.0 {
         return Ok(());
     }
@@ -2119,20 +2119,20 @@ fn render_border(
 
     let scaled_width = width * dpi_factor;
     let agg_color = Rgba8::new(
-        color.r as u32,
-        color.g as u32,
-        color.b as u32,
-        color.a as u32,
+        u32::from(color.r),
+        u32::from(color.g),
+        u32::from(color.b),
+        u32::from(color.a),
     );
 
     // 1. Build outer path (rounded rect at the nominal border radii)
     let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
 
-    let x = rect.x as f64;
-    let y = rect.y as f64;
-    let w = rect.width as f64;
-    let h = rect.height as f64;
-    let sw = scaled_width as f64;
+    let x = f64::from(rect.x);
+    let y = f64::from(rect.y);
+    let w = f64::from(rect.width);
+    let h = f64::from(rect.height);
+    let sw = f64::from(scaled_width);
 
     // 2. Add inner path with shrunk radii so EvenOdd fill carves the stroke
     let ir = AzRect::from_xywh(
@@ -2237,16 +2237,16 @@ fn render_border_sides(
     };
 
     // Outer corners
-    let ox = rect.x as f64;
-    let oy = rect.y as f64;
-    let ow = rect.width as f64;
-    let oh = rect.height as f64;
+    let ox = f64::from(rect.x);
+    let oy = f64::from(rect.y);
+    let ow = f64::from(rect.width);
+    let oh = f64::from(rect.height);
 
     // Inner corners (inset by per-side widths)
-    let wt = (widths[0] * dpi_factor) as f64;
-    let wr = (widths[1] * dpi_factor) as f64;
-    let wb = (widths[2] * dpi_factor) as f64;
-    let wl = (widths[3] * dpi_factor) as f64;
+    let wt = f64::from(widths[0] * dpi_factor);
+    let wr = f64::from(widths[1] * dpi_factor);
+    let wb = f64::from(widths[2] * dpi_factor);
+    let wl = f64::from(widths[3] * dpi_factor);
 
     let ix = ox + wl;
     let iy = oy + wt;
@@ -2333,7 +2333,7 @@ fn render_border_sides(
         // Top: full width, height = wt
         if widths[0] > 0.0 && colors[0].a > 0 {
             let c = colors[0];
-            let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
+            let ac = Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a));
             rb.blend_bar(
                 ox as i32,
                 oy as i32,
@@ -2346,7 +2346,7 @@ fn render_border_sides(
         // Bottom
         if widths[2] > 0.0 && colors[2].a > 0 {
             let c = colors[2];
-            let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
+            let ac = Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a));
             rb.blend_bar(
                 ox as i32,
                 (iy + ih) as i32,
@@ -2359,7 +2359,7 @@ fn render_border_sides(
         // Left: between top and bottom
         if widths[3] > 0.0 && colors[3].a > 0 {
             let c = colors[3];
-            let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
+            let ac = Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a));
             rb.blend_bar(
                 ox as i32,
                 iy as i32,
@@ -2372,7 +2372,7 @@ fn render_border_sides(
         // Right
         if widths[1] > 0.0 && colors[1].a > 0 {
             let c = colors[1];
-            let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
+            let ac = Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a));
             rb.blend_bar(
                 (ix + iw) as i32,
                 iy as i32,
@@ -2397,10 +2397,10 @@ fn render_border_sides(
             path.close_polygon(PATH_FLAGS_NONE);
 
             let agg_color = Rgba8::new(
-                color.r as u32,
-                color.g as u32,
-                color.b as u32,
-                color.a as u32,
+                u32::from(color.r),
+                u32::from(color.g),
+                u32::from(color.b),
+                u32::from(color.a),
             );
             agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
         }
@@ -2527,7 +2527,7 @@ fn render_image(
             let di = ((ty as u32 * pw + tx as u32) * 4) as usize;
 
             if si + 3 < src_rgba.len() && di + 3 < pixmap.data.len() {
-                let sa = src_rgba[si + 3] as u32;
+                let sa = u32::from(src_rgba[si + 3]);
                 if sa == 255 {
                     pixmap.data[di] = src_rgba[si];
                     pixmap.data[di + 1] = src_rgba[si + 1];
@@ -2537,15 +2537,15 @@ fn render_image(
                     // Alpha blend: dst = src * sa + dst * (255 - sa)
                     let da = 255 - sa;
                     pixmap.data[di] =
-                        ((src_rgba[si] as u32 * sa + pixmap.data[di] as u32 * da) / 255) as u8;
-                    pixmap.data[di + 1] = ((src_rgba[si + 1] as u32 * sa
-                        + pixmap.data[di + 1] as u32 * da)
+                        ((u32::from(src_rgba[si]) * sa + u32::from(pixmap.data[di]) * da) / 255) as u8;
+                    pixmap.data[di + 1] = ((u32::from(src_rgba[si + 1]) * sa
+                        + u32::from(pixmap.data[di + 1]) * da)
                         / 255) as u8;
-                    pixmap.data[di + 2] = ((src_rgba[si + 2] as u32 * sa
-                        + pixmap.data[di + 2] as u32 * da)
+                    pixmap.data[di + 2] = ((u32::from(src_rgba[si + 2]) * sa
+                        + u32::from(pixmap.data[di + 2]) * da)
                         / 255) as u8;
                     pixmap.data[di + 3] =
-                        ((sa + pixmap.data[di + 3] as u32 * da / 255).min(255)) as u8;
+                        ((sa + u32::from(pixmap.data[di + 3]) * da / 255).min(255)) as u8;
                 }
             }
         }
@@ -2556,10 +2556,10 @@ fn render_image(
 
 fn build_rect_path(rect: &AzRect) -> PathStorage {
     let mut path = PathStorage::new();
-    let x = rect.x as f64;
-    let y = rect.y as f64;
-    let w = rect.width as f64;
-    let h = rect.height as f64;
+    let x = f64::from(rect.x);
+    let y = f64::from(rect.y);
+    let w = f64::from(rect.width);
+    let h = f64::from(rect.height);
     path.move_to(x, y);
     path.line_to(x + w, y);
     path.line_to(x + w, y + h);
@@ -2575,15 +2575,15 @@ fn build_rounded_rect_path(
 ) -> PathStorage {
     let mut path = PathStorage::new();
 
-    let x = rect.x as f64;
-    let y = rect.y as f64;
-    let w = rect.width as f64;
-    let h = rect.height as f64;
+    let x = f64::from(rect.x);
+    let y = f64::from(rect.y);
+    let w = f64::from(rect.width);
+    let h = f64::from(rect.height);
 
-    let tl = (border_radius.top_left * dpi_factor) as f64;
-    let tr = (border_radius.top_right * dpi_factor) as f64;
-    let br = (border_radius.bottom_right * dpi_factor) as f64;
-    let bl = (border_radius.bottom_left * dpi_factor) as f64;
+    let tl = f64::from(border_radius.top_left * dpi_factor);
+    let tr = f64::from(border_radius.top_right * dpi_factor);
+    let br = f64::from(border_radius.bottom_right * dpi_factor);
+    let bl = f64::from(border_radius.bottom_left * dpi_factor);
 
     if tl <= 0.0 && tr <= 0.0 && br <= 0.0 && bl <= 0.0 {
         path.move_to(x, y);
@@ -2609,7 +2609,7 @@ fn build_rounded_rect_path(
     rr.rect(x, y, x + w, y + h);
     rr.radius_all(tl, tl, tr, tr, br, br, bl, bl);
     rr.normalize_radius();
-    rr.set_approximation_scale(dpi_factor.max(1.0) as f64);
+    rr.set_approximation_scale(f64::from(dpi_factor.max(1.0)));
 
     path.concat_path(&mut rr, 0);
     path

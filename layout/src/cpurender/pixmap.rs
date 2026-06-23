@@ -62,10 +62,10 @@ pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32,
                 continue;
             }
 
-            let sr = src.data[si] as u32;
-            let sg = src.data[si + 1] as u32;
-            let sb = src.data[si + 2] as u32;
-            let sa = (src.data[si + 3] as u32 * op) / 255;
+            let sr = u32::from(src.data[si]);
+            let sg = u32::from(src.data[si + 1]);
+            let sb = u32::from(src.data[si + 2]);
+            let sa = (u32::from(src.data[si + 3]) * op) / 255;
 
             if sa == 0 {
                 continue;
@@ -77,10 +77,10 @@ pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32,
                 dst.data[di + 3] = 255;
             } else {
                 let inv_sa = 255 - sa;
-                dst.data[di] = ((sr * sa + dst.data[di] as u32 * inv_sa) / 255) as u8;
-                dst.data[di + 1] = ((sg * sa + dst.data[di + 1] as u32 * inv_sa) / 255) as u8;
-                dst.data[di + 2] = ((sb * sa + dst.data[di + 2] as u32 * inv_sa) / 255) as u8;
-                dst.data[di + 3] = ((sa + dst.data[di + 3] as u32 * inv_sa / 255).min(255)) as u8;
+                dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
+                dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
+                dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
+                dst.data[di + 3] = ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
             }
         }
     }
@@ -455,7 +455,7 @@ impl PixelDiffResult {
         };
     }
 
-    let total_pixels = (reference.width as u64) * (reference.height as u64);
+    let total_pixels = u64::from(reference.width) * u64::from(reference.height);
     let mut diff_count = 0u64;
     let mut max_delta = 0u8;
 
@@ -466,7 +466,7 @@ impl PixelDiffResult {
     {
         let mut pixel_differs = false;
         for c in 0..4 {
-            let delta = (ref_chunk[c] as i16 - test_chunk[c] as i16).unsigned_abs() as u8;
+            let delta = (i16::from(ref_chunk[c]) - i16::from(test_chunk[c])).unsigned_abs() as u8;
             if delta > threshold {
                 pixel_differs = true;
             }
@@ -730,7 +730,7 @@ pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx:
                 continue;
             }
 
-            let sa = src[si + 3] as u32;
+            let sa = u32::from(src[si + 3]);
             if sa == 0 {
                 continue;
             }
@@ -743,12 +743,12 @@ pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx:
                 // Premultiplied-alpha compositing: src RGB already premultiplied by AGG
                 let inv_sa = 255 - sa;
                 dst.data[di] =
-                    ((src[si] as u32 + dst.data[di] as u32 * inv_sa / 255).min(255)) as u8;
+                    ((u32::from(src[si]) + u32::from(dst.data[di]) * inv_sa / 255).min(255)) as u8;
                 dst.data[di + 1] =
-                    ((src[si + 1] as u32 + dst.data[di + 1] as u32 * inv_sa / 255).min(255)) as u8;
+                    ((u32::from(src[si + 1]) + u32::from(dst.data[di + 1]) * inv_sa / 255).min(255)) as u8;
                 dst.data[di + 2] =
-                    ((src[si + 2] as u32 + dst.data[di + 2] as u32 * inv_sa / 255).min(255)) as u8;
-                dst.data[di + 3] = ((sa + dst.data[di + 3] as u32 * inv_sa / 255).min(255)) as u8;
+                    ((u32::from(src[si + 2]) + u32::from(dst.data[di + 2]) * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 3] = ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
             }
         }
     }

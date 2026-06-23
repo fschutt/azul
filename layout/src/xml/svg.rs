@@ -1754,24 +1754,24 @@ pub fn render_node_clipmask_cpu(
                 }
 
                 let start = $p.items.as_ref()[0].get_start();
-                $path.move_to(start.x as f64, start.y as f64);
+                $path.move_to(f64::from(start.x), f64::from(start.y));
 
                 for path_element in $p.items.as_ref() {
                     match path_element {
                         SvgPathElement::Line(l) => {
-                            $path.line_to(l.end.x as f64, l.end.y as f64);
+                            $path.line_to(f64::from(l.end.x), f64::from(l.end.y));
                         }
                         SvgPathElement::QuadraticCurve(qc) => {
                             $path.curve3(
-                                qc.ctrl.x as f64, qc.ctrl.y as f64,
-                                qc.end.x as f64, qc.end.y as f64,
+                                f64::from(qc.ctrl.x), f64::from(qc.ctrl.y),
+                                f64::from(qc.end.x), f64::from(qc.end.y),
                             );
                         }
                         SvgPathElement::CubicCurve(cc) => {
                             $path.curve4(
-                                cc.ctrl_1.x as f64, cc.ctrl_1.y as f64,
-                                cc.ctrl_2.x as f64, cc.ctrl_2.y as f64,
-                                cc.end.x as f64, cc.end.y as f64,
+                                f64::from(cc.ctrl_1.x), f64::from(cc.ctrl_1.y),
+                                f64::from(cc.ctrl_2.x), f64::from(cc.ctrl_2.y),
+                                f64::from(cc.end.x), f64::from(cc.end.y),
                             );
                         }
                     }
@@ -1802,9 +1802,9 @@ pub fn render_node_clipmask_cpu(
             }
             SvgNode::Circle(c) => {
                 // Approximate circle with 4 cubic beziers
-                let cx = c.center_x as f64;
-                let cy = c.center_y as f64;
-                let r = c.radius as f64;
+                let cx = f64::from(c.center_x);
+                let cy = f64::from(c.center_y);
+                let r = f64::from(c.radius);
                 let k = CIRCLE_BEZIER_KAPPA;
                 let kr = k * r;
                 path.move_to(cx + r, cy);
@@ -1815,10 +1815,10 @@ pub fn render_node_clipmask_cpu(
                 path.close_polygon(PATH_FLAGS_NONE);
             }
             SvgNode::Rect(r) => {
-                let x = r.x as f64;
-                let y = r.y as f64;
-                let w = r.width as f64;
-                let h = r.height as f64;
+                let x = f64::from(r.x);
+                let y = f64::from(r.y);
+                let w = f64::from(r.width);
+                let h = f64::from(r.height);
                 path.move_to(x, y);
                 path.line_to(x + w, y);
                 path.line_to(x + w, y + h);
@@ -1832,10 +1832,10 @@ pub fn render_node_clipmask_cpu(
                             build_path!(path, p);
                         }
                         SvgSimpleNode::Rect(r) => {
-                            let x = r.x as f64;
-                            let y = r.y as f64;
-                            let w = r.width as f64;
-                            let h = r.height as f64;
+                            let x = f64::from(r.x);
+                            let y = f64::from(r.y);
+                            let w = f64::from(r.width);
+                            let h = f64::from(r.height);
                             path.move_to(x, y);
                             path.line_to(x + w, y);
                             path.line_to(x + w, y + h);
@@ -1843,9 +1843,9 @@ pub fn render_node_clipmask_cpu(
                             path.close_polygon(PATH_FLAGS_NONE);
                         }
                         SvgSimpleNode::Circle(c) | SvgSimpleNode::CircleHole(c) => {
-                            let cx = c.center_x as f64;
-                            let cy = c.center_y as f64;
-                            let r = c.radius as f64;
+                            let cx = f64::from(c.center_x);
+                            let cy = f64::from(c.center_y);
+                            let r = f64::from(c.radius);
                             let k = CIRCLE_BEZIER_KAPPA;
                             let kr = k * r;
                             path.move_to(cx + r, cy);
@@ -1856,10 +1856,10 @@ pub fn render_node_clipmask_cpu(
                             path.close_polygon(PATH_FLAGS_NONE);
                         }
                         SvgSimpleNode::RectHole(r) => {
-                            let x = r.x as f64;
-                            let y = r.y as f64;
-                            let w = r.width as f64;
-                            let h = r.height as f64;
+                            let x = f64::from(r.x);
+                            let y = f64::from(r.y);
+                            let w = f64::from(r.width);
+                            let h = f64::from(r.height);
                             path.move_to(x, y);
                             path.line_to(x + w, y);
                             path.line_to(x + w, y + h);
@@ -1884,12 +1884,12 @@ pub fn render_node_clipmask_cpu(
 
     let transform_data = style.get_transform();
     let transform = TransAffine::new_custom(
-        transform_data.sx as f64,
-        transform_data.ky as f64,
-        transform_data.kx as f64,
-        transform_data.sy as f64,
-        transform_data.tx as f64,
-        transform_data.ty as f64,
+        f64::from(transform_data.sx),
+        f64::from(transform_data.ky),
+        f64::from(transform_data.kx),
+        f64::from(transform_data.sy),
+        f64::from(transform_data.tx),
+        f64::from(transform_data.ty),
     );
 
     let mut agg_path = agg_translate_node(node)?;
@@ -1920,8 +1920,8 @@ pub fn render_node_clipmask_cpu(
         }
         SvgStyle::Stroke(ss) => {
             let mut stroke = ConvStroke::new(agg_path);
-            stroke.set_width(ss.line_width as f64);
-            stroke.set_miter_limit(ss.miter_limit as f64);
+            stroke.set_width(f64::from(ss.line_width));
+            stroke.set_miter_limit(f64::from(ss.miter_limit));
             stroke.set_line_cap(match ss.start_cap {
                 SvgLineCap::Butt => LineCap::Butt,
                 SvgLineCap::Square => LineCap::Square,
@@ -1986,27 +1986,27 @@ fn rasterize_multi_polygon(mp: &SvgMultiPolygon) -> agg_rust::rasterizer_scanlin
             match item {
                 SvgPathElement::Line(l) => {
                     if first {
-                        path.move_to(l.start.x as f64, l.start.y as f64);
+                        path.move_to(f64::from(l.start.x), f64::from(l.start.y));
                         first = false;
                     }
-                    path.line_to(l.end.x as f64, l.end.y as f64);
+                    path.line_to(f64::from(l.end.x), f64::from(l.end.y));
                 }
                 SvgPathElement::QuadraticCurve(q) => {
                     if first {
-                        path.move_to(q.start.x as f64, q.start.y as f64);
+                        path.move_to(f64::from(q.start.x), f64::from(q.start.y));
                         first = false;
                     }
-                    path.curve3(q.ctrl.x as f64, q.ctrl.y as f64, q.end.x as f64, q.end.y as f64);
+                    path.curve3(f64::from(q.ctrl.x), f64::from(q.ctrl.y), f64::from(q.end.x), f64::from(q.end.y));
                 }
                 SvgPathElement::CubicCurve(c) => {
                     if first {
-                        path.move_to(c.start.x as f64, c.start.y as f64);
+                        path.move_to(f64::from(c.start.x), f64::from(c.start.y));
                         first = false;
                     }
                     path.curve4(
-                        c.ctrl_1.x as f64, c.ctrl_1.y as f64,
-                        c.ctrl_2.x as f64, c.ctrl_2.y as f64,
-                        c.end.x as f64, c.end.y as f64,
+                        f64::from(c.ctrl_1.x), f64::from(c.ctrl_1.y),
+                        f64::from(c.ctrl_2.x), f64::from(c.ctrl_2.y),
+                        f64::from(c.end.x), f64::from(c.end.y),
                     );
                 }
             }

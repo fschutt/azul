@@ -991,7 +991,7 @@ impl RefAny {
             .iter()
             .enumerate()
             .take(8) // Only use first 8 bytes (64 bits fit in u64)
-            .map(|(s_pos, s)| (*s as u64) << (s_pos * 8))
+            .map(|(s_pos, s)| u64::from(*s) << (s_pos * 8))
             .sum()
     }
 

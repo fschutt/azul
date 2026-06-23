@@ -92,7 +92,7 @@ impl SvgPoint {
     #[must_use] pub fn distance(&self, other: Self) -> f64 {
         let dx = other.x - self.x;
         let dy = other.y - self.y;
-        libm::hypotf(dx, dy) as f64
+        f64::from(libm::hypotf(dx, dy))
     }
 }
 
@@ -182,20 +182,20 @@ impl SvgCubicCurve {
 
     /// Evaluates the x coordinate of the curve at parameter `t` in [0, 1].
     #[must_use] pub fn get_x_at_t(&self, t: f64) -> f64 {
-        let c_x = 3.0 * (self.ctrl_1.x as f64 - self.start.x as f64);
-        let b_x = 3.0 * (self.ctrl_2.x as f64 - self.ctrl_1.x as f64) - c_x;
-        let a_x = self.end.x as f64 - self.start.x as f64 - c_x - b_x;
+        let c_x = 3.0 * (f64::from(self.ctrl_1.x) - f64::from(self.start.x));
+        let b_x = 3.0 * (f64::from(self.ctrl_2.x) - f64::from(self.ctrl_1.x)) - c_x;
+        let a_x = f64::from(self.end.x) - f64::from(self.start.x) - c_x - b_x;
 
-        (a_x * t * t * t) + (b_x * t * t) + (c_x * t) + self.start.x as f64
+        (a_x * t * t * t) + (b_x * t * t) + (c_x * t) + f64::from(self.start.x)
     }
 
     /// Evaluates the y coordinate of the curve at parameter `t` in [0, 1].
     #[must_use] pub fn get_y_at_t(&self, t: f64) -> f64 {
-        let c_y = 3.0 * (self.ctrl_1.y as f64 - self.start.y as f64);
-        let b_y = 3.0 * (self.ctrl_2.y as f64 - self.ctrl_1.y as f64) - c_y;
-        let a_y = self.end.y as f64 - self.start.y as f64 - c_y - b_y;
+        let c_y = 3.0 * (f64::from(self.ctrl_1.y) - f64::from(self.start.y));
+        let b_y = 3.0 * (f64::from(self.ctrl_2.y) - f64::from(self.ctrl_1.y)) - c_y;
+        let a_y = f64::from(self.end.y) - f64::from(self.start.y) - c_y - b_y;
 
-        (a_y * t * t * t) + (b_y * t * t) + (c_y * t) + self.start.y as f64
+        (a_y * t * t * t) + (b_y * t * t) + (c_y * t) + f64::from(self.start.y)
     }
 
     /// Returns the approximate arc length of the curve using linear sampling.
@@ -409,17 +409,17 @@ impl SvgQuadraticCurve {
     /// Evaluates the x coordinate of the curve at parameter `t` in [0, 1].
     #[must_use] pub fn get_x_at_t(&self, t: f64) -> f64 {
         let one_minus = 1.0 - t;
-        one_minus * one_minus * self.start.x as f64
-            + 2.0 * one_minus * t * self.ctrl.x as f64
-            + t * t * self.end.x as f64
+        one_minus * one_minus * f64::from(self.start.x)
+            + 2.0 * one_minus * t * f64::from(self.ctrl.x)
+            + t * t * f64::from(self.end.x)
     }
 
     /// Evaluates the y coordinate of the curve at parameter `t` in [0, 1].
     #[must_use] pub fn get_y_at_t(&self, t: f64) -> f64 {
         let one_minus = 1.0 - t;
-        one_minus * one_minus * self.start.y as f64
-            + 2.0 * one_minus * t * self.ctrl.y as f64
-            + t * t * self.end.y as f64
+        one_minus * one_minus * f64::from(self.start.y)
+            + 2.0 * one_minus * t * f64::from(self.ctrl.y)
+            + t * t * f64::from(self.end.y)
     }
 
     /// Returns the approximate arc length by converting to a cubic curve.

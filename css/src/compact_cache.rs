@@ -1024,7 +1024,7 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 /// Encode a `PixelValue` into u32 with `SizeMetric`. Returns `U32_SENTINEL` if out of range.
 #[inline]
 #[must_use] pub fn encode_pixel_value_u32(pv: &PixelValue) -> u32 {
-    let metric = size_metric_to_u8(pv.metric) as u32;
+    let metric = u32::from(size_metric_to_u8(pv.metric));
     let raw = pv.number.number; // already × 1000 (FloatValue internal repr)
     // 28-bit signed range: -134_217_728 ..= +134_217_727
     if !(-134_217_728..=134_217_727).contains(&raw) {
@@ -1056,7 +1056,7 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 #[inline]
 #[must_use] pub fn encode_resolved_px_i16(px: f32) -> i16 {
     let scaled = (px * 10.0).round() as i32;
-    if scaled < -32768 || scaled > I16_SENTINEL_THRESHOLD as i32 - 1 {
+    if scaled < -32768 || scaled > i32::from(I16_SENTINEL_THRESHOLD) - 1 {
         return I16_SENTINEL; // overflow or too large → tier 3
     }
     scaled as i16
@@ -1068,7 +1068,7 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
     if v >= I16_SENTINEL_THRESHOLD {
         return None;
     }
-    Some(v as f32 / 10.0)
+    Some(f32::from(v) / 10.0)
 }
 
 /// Encode a u16 flex value (×100). Returns `U16_SENTINEL` if out of range.
@@ -1076,7 +1076,7 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 #[inline]
 #[must_use] pub fn encode_flex_u16(value: f32) -> u16 {
     let scaled = (value * 100.0).round() as i32;
-    if scaled < 0 || scaled >= U16_SENTINEL_THRESHOLD as i32 {
+    if scaled < 0 || scaled >= i32::from(U16_SENTINEL_THRESHOLD) {
         return U16_SENTINEL;
     }
     scaled as u16
@@ -1088,7 +1088,7 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
     if v >= U16_SENTINEL_THRESHOLD {
         return None;
     }
-    Some(v as f32 / 100.0)
+    Some(f32::from(v) / 100.0)
 }
 
 /// `SizeMetric` → u8 (4 bits, 12 variants)
@@ -2471,7 +2471,7 @@ mod tests {
     fn test_encoded_u8_fits_in_tier1_mask() {
         fn assert_fits(name: &str, val: u8, mask: u64) {
             assert!(
-                (val as u64) & !mask == 0,
+                u64::from(val) & !mask == 0,
                 "{name}: encoded u8 {val} overflows mask {mask:b}",
             );
         }

@@ -1345,18 +1345,21 @@ impl CssPropertyCache {
 
                 let mut need_tag = false;
 
-                loop {
+                // Single-pass guard block: each check `break`s out early once it
+                // decides `need_tag`. Labeled block (not `loop`) makes the
+                // never-iterating control flow explicit (clippy::never_loop).
+                'compute_need_tag: {
                     // display:none check — read directly from compact tier1 (fast u64 read)
                     if let Some(cc) = compact_cache.as_ref() {
                         let t1 = cc.tier1_enums[node_idx];
                         let display_val = ((t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
-                        if display_val == 4 { break; } // 4 = LayoutDisplay::None (new encoding)
+                        if display_val == 4 { break 'compute_need_tag; } // 4 = LayoutDisplay::None (new encoding)
                     }
 
                     if node_data.has_context_menu() || node_data.get_context_menu().is_some() {
-                        need_tag = true; break;
+                        need_tag = true; break 'compute_need_tag;
                     }
-                    if tab_index.is_some() { need_tag = true; break; }
+                    if tab_index.is_some() { need_tag = true; break 'compute_need_tag; }
 
                     // Pseudo-state property checks (hover/active/focus/dragging/drag-over)
                     {
@@ -1375,14 +1378,14 @@ impl CssPropertyCache {
                             || has_pseudo(PseudoStateType::Dragging)
                             || has_pseudo(PseudoStateType::DragOver)
                         {
-                            need_tag = true; break;
+                            need_tag = true; break 'compute_need_tag;
                         }
                     }
 
                     // Non-window callbacks
                     let has_non_window_cb = !node_data.get_callbacks().is_empty()
                         && !node_data.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
-                    if has_non_window_cb { need_tag = true; break; }
+                    if has_non_window_cb { need_tag = true; break 'compute_need_tag; }
 
                     // Cursor check — read from cached css_props or inline style.
                     if self.css_props.get_slice(node_idx).iter().any(|p|
@@ -1391,7 +1394,7 @@ impl CssPropertyCache {
                     ) || node_data.style.iter_inline_properties().any(|(p, _)|
                         p.get_type() == CssPropertyType::Cursor
                     ) {
-                        need_tag = true; break;
+                        need_tag = true; break 'compute_need_tag;
                     }
 
                     // Overflow scroll check — read from compact tier1
@@ -1401,7 +1404,7 @@ impl CssPropertyCache {
                         let oy = ((t1 >> OVERFLOW_Y_SHIFT) & OVERFLOW_MASK) as u8;
                         // 2 = Scroll, 3 = Auto in layout_overflow_to_u8 (new encoding)
                         if ox == 2 || ox == 3 || oy == 2 || oy == 3 {
-                            need_tag = true; break;
+                            need_tag = true; break 'compute_need_tag;
                         }
                     }
 
@@ -1419,10 +1422,10 @@ impl CssPropertyCache {
                                 child_id = node_hierarchy.as_container()[cid].next_sibling_id();
                             }
                         }
-                        if has_text { need_tag = true; break; }
+                        if has_text { need_tag = true; break 'compute_need_tag; }
                     }
 
-                    break;
+                    break 'compute_need_tag;
                 }
 
                 if need_tag {

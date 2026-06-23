@@ -411,7 +411,7 @@ impl ZipFile {
         
         let options = SimpleFileOptions::default()
             .compression_method(compression)
-            .compression_level(Some(config.compression_level as i64))
+            .compression_level(Some(i64::from(config.compression_level)))
             .unix_permissions(config.unix_permissions);
         
         for entry in &self.entries {

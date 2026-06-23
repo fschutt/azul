@@ -4559,7 +4559,7 @@ impl CssProperty {
         }
 
         // Map from linear interpolation function to Easing curve
-        let t: f32 = interpolate_resolver.interpolate_func.evaluate(t as f64);
+        let t: f32 = interpolate_resolver.interpolate_func.evaluate(f64::from(t));
 
         let t = t.max(0.0).min(1.0);
 

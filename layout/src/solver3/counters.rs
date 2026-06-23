@@ -42,7 +42,7 @@ pub fn format_counter(value: i32, style: StyleListStyleType) -> String {
 /// `lower-roman` formats as `-iii` instead of wrapping to a huge unsigned value.
 fn with_sign<F: Fn(usize) -> String>(value: i32, format: F) -> String {
     if value < 0 {
-        let magnitude = (value as i64).unsigned_abs() as usize;
+        let magnitude = i64::from(value).unsigned_abs() as usize;
         format!("-{}", format(magnitude))
     } else {
         format(value as usize)

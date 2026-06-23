@@ -489,10 +489,10 @@ impl PackedBoxProps {
     #[inline]
     fn unpack_edge(e: &[i16; 4]) -> EdgeSizes {
         EdgeSizes {
-            top: e[0] as f32 * 0.1,
-            right: e[1] as f32 * 0.1,
-            bottom: e[2] as f32 * 0.1,
-            left: e[3] as f32 * 0.1,
+            top: f32::from(e[0]) * 0.1,
+            right: f32::from(e[1]) * 0.1,
+            bottom: f32::from(e[2]) * 0.1,
+            left: f32::from(e[3]) * 0.1,
         }
     }
 }

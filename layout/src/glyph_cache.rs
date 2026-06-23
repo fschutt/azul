@@ -165,8 +165,8 @@ impl GlyphCache {
             let path_entry = self.paths.get(&path_key);
             let cached_cells = path_entry.and_then(|entry| {
                 let (path, _) = entry.as_ref()?;
-                let frac_x = (subpx_x as f64) * 0.25;
-                let frac_y = (subpx_y as f64) * 0.25;
+                let frac_x = f64::from(subpx_x) * 0.25;
+                let frac_y = f64::from(subpx_y) * 0.25;
 
                 use agg_rust::trans_affine::TransAffine;
                 use agg_rust::basics::FillingRule;
@@ -178,7 +178,7 @@ impl GlyphCache {
                 let transform = if is_hinted {
                     TransAffine::new_translation(frac_x, frac_y)
                 } else {
-                    let mut t = TransAffine::new_scaling_uniform(scale as f64);
+                    let mut t = TransAffine::new_scaling_uniform(f64::from(scale));
                     t.multiply(&TransAffine::new_translation(frac_x, frac_y));
                     t
                 };
@@ -223,7 +223,7 @@ fn build_hinted_path(
     }
 
     // Set up hinting for this ppem (scales CVT, runs prep)
-    if hint.set_ppem(ppem, ppem as f64).is_err() {
+    if hint.set_ppem(ppem, f64::from(ppem)).is_err() {
         return None;
     }
 
@@ -234,14 +234,14 @@ fn build_hinted_path(
     let points_f26dot6: Vec<(i32, i32)> = raw_points
         .iter()
         .map(|&(x, y)| {
-            let sx = F26Dot6::from_funits(x as i32, scale);
-            let sy = F26Dot6::from_funits(y as i32, scale);
+            let sx = F26Dot6::from_funits(i32::from(x), scale);
+            let sy = F26Dot6::from_funits(i32::from(y), scale);
             (sx.to_bits(), sy.to_bits())
         })
         .collect();
 
     // Scale advance width to F26Dot6 for phantom points
-    let adv_f26dot6 = F26Dot6::from_funits(glyph.horz_advance as i32, scale).to_bits();
+    let adv_f26dot6 = F26Dot6::from_funits(i32::from(glyph.horz_advance), scale).to_bits();
 
     // Run hinting with unscaled orus for precise IUP interpolation
     let hinted = match hint.hint_glyph_with_orus(
@@ -296,7 +296,7 @@ fn build_hinted_path(
 
         // Helper: get point as (f64, f64) with Y negated
         let px = |i: usize| -> (f64, f64) {
-            (f26_to_px(pts[i].0) as f64, -f26_to_px(pts[i].1) as f64)
+            (f64::from(f26_to_px(pts[i].0)), f64::from(-f26_to_px(pts[i].1)))
         };
         let mid = |a: (f64, f64), b: (f64, f64)| -> (f64, f64) {
             ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5)
