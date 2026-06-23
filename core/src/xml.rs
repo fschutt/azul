@@ -705,6 +705,9 @@ impl Xml {
     }
 
     /// Guess the resource kind from URL based on file extension.
+    // `url` is lowercased into `path` below, so these literal `.ext` checks are
+    // already case-insensitive — the lint can't see the runtime lowercasing.
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
     fn guess_kind_from_url(url: &str) -> ExternalResourceKind {
         let lower = url.to_lowercase();
         // Strip query string before checking extension
