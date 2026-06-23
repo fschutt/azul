@@ -189,6 +189,8 @@ pub mod tree_view;
 pub mod switch;
 /// Divider / separator rule widget (horizontal or vertical); see `divider.rs`.
 pub mod divider;
+/// Card container widget — elevated/bordered content box (no title); see `card.rs`.
+pub mod card;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 // /// Slider widget
