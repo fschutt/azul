@@ -3151,14 +3151,9 @@ pub fn build_add_image_resource_updates(
                         }),
                     ))
                 }
-                DecodedImage::NullImage {
-                    width: _,
-                    height: _,
-                    format: _,
-                    tag: _,
-                } => None,
-                DecodedImage::Callback(_) => None, /* Texture callbacks are handled after layout
-                                                    * is done */
+                // NullImage has nothing to upload; texture callbacks are handled after
+                // layout is done.
+                DecodedImage::NullImage { .. } | DecodedImage::Callback(_) => None,
             }
         })
         .collect()

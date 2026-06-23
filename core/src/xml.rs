@@ -263,8 +263,7 @@ impl MimeTypeHint {
             // Stylesheets
             "css" => "text/css",
             // Scripts
-            "js" => "application/javascript",
-            "mjs" => "application/javascript",
+            "js" | "mjs" => "application/javascript",
             // Video
             "mp4" => "video/mp4",
             "webm" => "video/webm",
@@ -1506,8 +1505,7 @@ impl ComponentFieldType {
             }
             Self::OptionType(inner) => format!("Option<{}>", inner.as_ref().format()),
             Self::VecType(inner) => format!("Vec<{}>", inner.as_ref().format()),
-            Self::StructRef(name) => name.as_str().to_string(),
-            Self::EnumRef(name) => name.as_str().to_string(),
+            Self::StructRef(name) | Self::EnumRef(name) => name.as_str().to_string(),
         }
     }
 }
@@ -6241,10 +6239,10 @@ fn group_matches(
     for selector in a {
         match selector {
             // always matches
-            Global => {}
-            PseudoSelector(CssPathPseudoSelector::Hover) => {}
-            PseudoSelector(CssPathPseudoSelector::Active) => {}
-            PseudoSelector(CssPathPseudoSelector::Focus) => {}
+            Global
+            | PseudoSelector(CssPathPseudoSelector::Hover)
+            | PseudoSelector(CssPathPseudoSelector::Active)
+            | PseudoSelector(CssPathPseudoSelector::Focus) => {}
 
             Type(tag) => {
                 if !b.iter().any(|t| **t == Type(*tag)) {

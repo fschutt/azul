@@ -3118,11 +3118,14 @@ impl CssPropertyCache {
             SizeMetric::In => reference_pixel_value.number.get() * IN_TO_PX,
             SizeMetric::Cm => reference_pixel_value.number.get() * CM_TO_PX,
             SizeMetric::Mm => reference_pixel_value.number.get() * MM_TO_PX,
-            SizeMetric::Em => return None, // Reference can't be relative
-            SizeMetric::Rem => return None, // Reference can't be relative
-            SizeMetric::Percent => return None, // Reference can't be relative
-            // Reference can't be viewport-relative
-            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None,
+            // Reference can't be relative (em/rem/%) or viewport-relative.
+            SizeMetric::Em
+            | SizeMetric::Rem
+            | SizeMetric::Percent
+            | SizeMetric::Vw
+            | SizeMetric::Vh
+            | SizeMetric::Vmin
+            | SizeMetric::Vmax => return None,
         };
 
         // Resolve target based on reference
@@ -3132,9 +3135,8 @@ impl CssPropertyCache {
             SizeMetric::In => target_pixel_value.number.get() * IN_TO_PX,
             SizeMetric::Cm => target_pixel_value.number.get() * CM_TO_PX,
             SizeMetric::Mm => target_pixel_value.number.get() * MM_TO_PX,
-            SizeMetric::Em => target_pixel_value.number.get() * reference_px,
-            // Use reference as root font-size
-            SizeMetric::Rem => target_pixel_value.number.get() * reference_px,
+            // em/rem both scale by reference (rem uses reference as root font-size).
+            SizeMetric::Em | SizeMetric::Rem => target_pixel_value.number.get() * reference_px,
             SizeMetric::Percent => target_pixel_value.number.get() / 100.0 * reference_px,
             // Need viewport context
             SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None,

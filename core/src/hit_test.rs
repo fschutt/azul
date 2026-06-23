@@ -537,6 +537,9 @@ pub enum CursorType {
 
 impl CursorType {
     /// Convert from raw u8 value
+    // Explicit u8 -> variant table documenting every discriminant; `0 => Default`
+    // intentionally mirrors the `_ => Default` fallback (the `#[default]` is 0).
+    #[allow(clippy::match_same_arms)]
     #[must_use] pub const fn from_u8(value: u8) -> Self {
         match value {
             0 => Self::Default,

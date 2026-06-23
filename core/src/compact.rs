@@ -836,6 +836,12 @@ fn resolve_font_size_to_px(
 /// Apply a single `CssProperty` directly to the compact representation.
 /// Called once per property per node — replaces the old 56+ getter approach.
 #[inline]
+// The scrollbar-* and counter-* arms have identical bodies
+// (`if v.get_property().is_some() { flags |= … }`) but each variant wraps a
+// DIFFERENT value type (StyleBackgroundContentValue, LayoutScrollbarWidthValue,
+// StyleScrollbarColorValue, CounterResetValue, CounterIncrementValue, …), so an
+// or-pattern binding `v` cannot be expressed across them.
+#[allow(clippy::match_same_arms)]
 fn apply_css_property_to_compact(
     prop: &CssProperty,
     tier1: &mut u64,
@@ -1094,16 +1100,12 @@ fn apply_css_property_to_compact(
         CssProperty::TransformOrigin(v) => {
             if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_TRANSFORM_ORIGIN; }
         }
-        CssProperty::BoxShadowTop(v) => {
-            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_BOX_SHADOW; }
-        }
-        CssProperty::BoxShadowBottom(v) => {
-            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_BOX_SHADOW; }
-        }
-        CssProperty::BoxShadowLeft(v) => {
-            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_BOX_SHADOW; }
-        }
-        CssProperty::BoxShadowRight(v) => {
+        // All four shadow sides wrap the same StyleBoxShadowValue and set the
+        // single has-box-shadow bit.
+        CssProperty::BoxShadowTop(v)
+        | CssProperty::BoxShadowBottom(v)
+        | CssProperty::BoxShadowLeft(v)
+        | CssProperty::BoxShadowRight(v) => {
             if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_BOX_SHADOW; }
         }
         CssProperty::TextDecoration(v) => {
@@ -1166,10 +1168,8 @@ fn apply_css_property_to_compact(
         CssProperty::CounterIncrement(v) => {
             if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_COUNTER; }
         }
-        CssProperty::BreakBefore(v) => {
-            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_BREAK; }
-        }
-        CssProperty::BreakAfter(v) => {
+        // Both break-before/after wrap PageBreakValue and set the has-break bit.
+        CssProperty::BreakBefore(v) | CssProperty::BreakAfter(v) => {
             if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_BREAK; }
         }
         CssProperty::TextOrientation(v) => {
@@ -1279,8 +1279,8 @@ impl LayoutWidthLike for LayoutWidth {
             Self::Px(pv) => encode_pixel_value_u32(pv),
             Self::MinContent => U32_MIN_CONTENT,
             Self::MaxContent => U32_MAX_CONTENT,
-            Self::FitContent(_) => U32_SENTINEL,
-            Self::Calc(_) => U32_SENTINEL, // Calc → overflow to tier 3
+            // FitContent/Calc are not compact-encodable → overflow to tier 3.
+            Self::FitContent(_) | Self::Calc(_) => U32_SENTINEL,
         }
     }
 }
@@ -1292,8 +1292,8 @@ impl LayoutWidthLike for LayoutHeight {
             Self::Px(pv) => encode_pixel_value_u32(pv),
             Self::MinContent => U32_MIN_CONTENT,
             Self::MaxContent => U32_MAX_CONTENT,
-            Self::FitContent(_) => U32_SENTINEL,
-            Self::Calc(_) => U32_SENTINEL,
+            // FitContent/Calc are not compact-encodable → overflow to tier 3.
+            Self::FitContent(_) | Self::Calc(_) => U32_SENTINEL,
         }
     }
 }

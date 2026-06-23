@@ -530,6 +530,9 @@ impl_vec_partialord!(SvgSimpleNode, SvgSimpleNodeVec);
 
 impl SvgSimpleNode {
     /// Returns the axis-aligned bounding rectangle of this node.
+    // Same-body arms dispatch on differently-typed bindings (SvgPath vs SvgCircle),
+    // so the identical `a.get_bounds()` bodies cannot be combined into one or-pattern.
+    #[allow(clippy::match_same_arms)]
     #[must_use] pub fn get_bounds(&self) -> SvgRect {
         match self {
             Self::Path(a) => a.get_bounds(),
@@ -543,10 +546,7 @@ impl SvgSimpleNode {
     #[must_use] pub fn is_closed(&self) -> bool {
         match self {
             Self::Path(a) => a.is_closed(),
-            Self::Circle(_) => true,
-            Self::Rect(_) => true,
-            Self::CircleHole(_) => true,
-            Self::RectHole(_) => true,
+            Self::Circle(_) | Self::Rect(_) | Self::CircleHole(_) | Self::RectHole(_) => true,
         }
     }
 }
@@ -618,8 +618,7 @@ impl SvgNode {
                 true
             }
             Self::Path(a) => a.is_closed(),
-            Self::Circle(_) => true,
-            Self::Rect(_) => true,
+            Self::Circle(_) | Self::Rect(_) => true,
         }
     }
 }

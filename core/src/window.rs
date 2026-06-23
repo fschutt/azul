@@ -1798,8 +1798,8 @@ impl_option!(
 impl WindowIcon {
     #[must_use] pub const fn get_key(&self) -> IconKey {
         match &self {
-            Self::Small(SmallWindowIconBytes { key, .. }) => *key,
-            Self::Large(LargeWindowIconBytes { key, .. }) => *key,
+            Self::Small(SmallWindowIconBytes { key, .. })
+            | Self::Large(LargeWindowIconBytes { key, .. }) => *key,
         }
     }
 }

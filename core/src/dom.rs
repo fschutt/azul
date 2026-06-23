@@ -1410,8 +1410,10 @@ impl AttributeType {
             Self::AriaLabelledBy(_) => "aria-labelledby",
             Self::AriaDescribedBy(_) => "aria-describedby",
             Self::AriaRole(_) => "role",
-            Self::AriaState(nv) => nv.attr_name.as_str(),
-            Self::AriaProperty(nv) => nv.attr_name.as_str(),
+            Self::AriaState(nv)
+            | Self::AriaProperty(nv)
+            | Self::Data(nv)
+            | Self::Custom(nv) => nv.attr_name.as_str(),
             Self::Href(_) => "href",
             Self::Rel(_) => "rel",
             Self::Target(_) => "target",
@@ -1425,8 +1427,7 @@ impl AttributeType {
             Self::Required => "required",
             Self::Disabled => "disabled",
             Self::Readonly => "readonly",
-            Self::CheckedTrue => "checked",
-            Self::CheckedFalse => "checked",
+            Self::CheckedTrue | Self::CheckedFalse => "checked",
             Self::Selected => "selected",
             Self::Max(_) => "max",
             Self::Min(_) => "min",
@@ -1438,15 +1439,12 @@ impl AttributeType {
             Self::Scope(_) => "scope",
             Self::ColSpan(_) => "colspan",
             Self::RowSpan(_) => "rowspan",
-            Self::TabIndex(_) => "tabindex",
-            Self::Focusable => "tabindex",
+            Self::TabIndex(_) | Self::Focusable => "tabindex",
             Self::Lang(_) => "lang",
             Self::Dir(_) => "dir",
             Self::ContentEditable(_) => "contenteditable",
             Self::Draggable(_) => "draggable",
             Self::Hidden => "hidden",
-            Self::Data(nv) => nv.attr_name.as_str(),
-            Self::Custom(nv) => nv.attr_name.as_str(),
         }
     }
 
