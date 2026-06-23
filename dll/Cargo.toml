@@ -318,7 +318,17 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_Foundation",
     "Win32_System_WinRT",
     "Win32_System_Com",
+    # File drag-and-drop via OLE IDropTarget (windows/dnd.rs).
+    "Win32_System_Ole",
+    "Win32_System_SystemServices",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Shell",
 ] }
+# Direct windows-core dep so the `#[implement(IDropTarget)]` macro's
+# `::windows_core::` paths (windows/dnd.rs) resolve to 0.62, not the 0.54
+# that cpal pulls in transitively (two windows-core versions otherwise clash).
+windows-core = { version = "0.62", optional = true }
 # WinRT IAsyncOperation lives in windows-future (0.62 split); pollster blocks on it.
 windows-future = { version = "0.3", optional = true }
 pollster = { version = "0.4", optional = true }
@@ -643,6 +653,7 @@ _internal_deps = [
     "libc",
     "winapi",
     "windows",
+    "windows-core",
     "windows-future",
     "pollster",
 ]

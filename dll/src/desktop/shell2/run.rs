@@ -814,6 +814,10 @@ pub fn run(
         registry::register_window(hwnd, window_ptr);
         log_trace!(LogCategory::Window, "[shell2::run] window registered");
 
+        // Register the OLE drop target now that the window pointer is in the
+        // registry (the COM callbacks resolve the Win32Window from the HWND).
+        (*window_ptr).register_drag_drop();
+
         // NOTE: Window is NOT shown here! It will be shown automatically by
         // render_and_present() after the first SwapBuffers completes.
         // This ensures the window appears with content, not a black/white flash.
@@ -919,6 +923,9 @@ pub fn run(
 
                                 // Register in global registry
                                 registry::register_window(new_hwnd, new_window_ptr);
+
+                                // Register the OLE drop target (after registry).
+                                (*new_window_ptr).register_drag_drop();
 
                                 log_debug!(
                                     debug_server::LogCategory::Window,

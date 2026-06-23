@@ -20,6 +20,7 @@ use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 pub mod accessibility;
 pub mod clipboard;
 pub mod dlopen;
+pub mod dnd;
 mod dpi;
 pub mod win_event;
 mod gl;
@@ -482,12 +483,10 @@ impl Win32Window {
         );
         timing_log!("Position window");
 
-        // Enable drag-and-drop if shell32.dll is available
-        if let Some(ref shell32) = win32.shell32 {
-            unsafe {
-                (shell32.DragAcceptFiles)(hwnd, 1); // 1 = TRUE (enable drag-drop)
-            }
-        }
+        // File drag-and-drop is enabled via OLE `RegisterDragDrop` (modern
+        // hover + drop) in `register_drag_drop()`, called from the run loop
+        // AFTER the window pointer is in the global registry (the legacy
+        // `DragAcceptFiles`/`WM_DROPFILES` drop-only path has been removed).
 
         // Get current window state
         let current_window_state = layout_window.current_window_state.clone();
@@ -1434,6 +1433,98 @@ impl Win32Window {
                 // No action needed (matches the old `!DoNothing` no-op).
             }
         }
+    }
+
+    // --- File drag-and-drop (OLE IDropTarget) ------------------------------
+    //
+    // These three handlers mirror the macOS `NSDraggingDestination` flow
+    // (`macos/events.rs` `handle_file_drag_entered`/`handle_file_drag_exited`/
+    // `handle_file_drop`): save-prev-state -> mutate the `FileDropManager` ->
+    // refresh the hit test at the cached cursor -> `process_window_events(0)`.
+    // `FileHover`/`FileHoverCancel`/`FileDrop` are DERIVED from the manager
+    // state in `event_determination.rs`. The OLE `IDropTarget` COM object in
+    // `windows::dnd` forwards `DragEnter`/`DragOver` -> entered,
+    // `DragLeave` -> exited, `Drop` -> drop, then routes the returned
+    // `ProcessEventResult` via `route_main_window_result`.
+
+    /// Refresh the hit test at the cached cursor position (OLE drags do not
+    /// deliver `WM_MOUSEMOVE`, so the cached position is the best available —
+    /// same approach as the macOS backend, which reuses its cached cursor).
+    fn update_file_drag_hit_test(&mut self) {
+        use azul_core::window::CursorPosition;
+        if let CursorPosition::InWindow(pos) =
+            self.common.current_window_state.mouse_state.cursor_position
+        {
+            self.update_hit_test_at(pos);
+        }
+    }
+
+    /// Process a file drag entering / moving over the window (emits
+    /// `EventType::FileHover`).
+    pub fn handle_file_drag_entered(&mut self, paths: Vec<String>) -> ProcessEventResult {
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+
+        if let Some(first_path) = paths.first() {
+            if let Some(layout_window) = self.common.layout_window.as_mut() {
+                layout_window
+                    .file_drop_manager
+                    .set_hovered_file(Some(first_path.clone().into()));
+            }
+        }
+
+        self.update_file_drag_hit_test();
+        self.process_window_events(0)
+    }
+
+    /// Process a file drag leaving the window without a drop (emits
+    /// `EventType::FileHoverCancel`).
+    pub fn handle_file_drag_exited(&mut self) -> ProcessEventResult {
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+
+        // The Some -> None transition latches the one-shot hover-cancel flag.
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window.file_drop_manager.set_hovered_file(None);
+        }
+
+        let result = self.process_window_events(0);
+
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window.file_drop_manager.clear_hover_cancelled();
+        }
+
+        result
+    }
+
+    /// Process a file drop (the user released the dragged files over the
+    /// window — emits `EventType::FileDrop`).
+    pub fn handle_file_drop(&mut self, paths: Vec<String>) -> ProcessEventResult {
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+
+        if let Some(first_path) = paths.first() {
+            if let Some(layout_window) = self.common.layout_window.as_mut() {
+                layout_window
+                    .file_drop_manager
+                    .set_dropped_file(Some(first_path.clone().into()));
+            }
+        }
+
+        self.update_file_drag_hit_test();
+        let result = self.process_window_events(0);
+
+        // Clear dropped file after processing (one-shot event).
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window.file_drop_manager.set_dropped_file(None);
+        }
+
+        result
+    }
+
+    /// Register this window as an OLE drop target (modern hover + drop).
+    /// Replaces the legacy `DragAcceptFiles`/`WM_DROPFILES` (drop-only) path.
+    /// Must be called AFTER the window pointer is in the global registry, so
+    /// the COM callbacks can resolve `Win32Window` from the HWND.
+    pub fn register_drag_drop(&self) {
+        dnd::register_drag_drop(self.hwnd);
     }
 
     /// Update ime_position in window state from focused text cursor
@@ -2463,6 +2554,10 @@ unsafe extern "system" fn window_proc(
 
         WM_DESTROY => {
             log_debug!(LogCategory::Window, "[Win32] WM_DESTROY - Window destroyed");
+            // Revoke the OLE drop target BEFORE the HWND dies (releases the
+            // COM ref held by RegisterDragDrop). Must happen here, not in the
+            // registry cleanup, because RevokeDragDrop needs a live HWND.
+            dnd::revoke_drag_drop(hwnd);
             // Window destroyed - unregister from global registry
             window.is_open = false;
             registry::unregister_window(hwnd);
@@ -3776,72 +3871,11 @@ unsafe extern "system" fn window_proc(
             0
         }
 
-        WM_DROPFILES => {
-            // File drag-and-drop
-            let hdrop = wparam as dlopen::HDROP;
-
-            // Only process if shell32.dll is available
-            if let Some(ref shell32) = window.win32.shell32 {
-                unsafe {
-                    // Get drop point
-                    let mut pt = dlopen::POINT { x: 0, y: 0 };
-                    (shell32.DragQueryPoint)(hdrop, &mut pt);
-
-                    // Get number of files
-                    let file_count =
-                        (shell32.DragQueryFileW)(hdrop, 0xFFFFFFFF, ptr::null_mut(), 0);
-
-                    let mut dropped_files = Vec::new();
-
-                    for i in 0..file_count {
-                        // Get required buffer size
-                        let len = (shell32.DragQueryFileW)(hdrop, i, ptr::null_mut(), 0);
-
-                        if len > 0 {
-                            // Allocate buffer (+1 for null terminator)
-                            let mut buffer = vec![0u16; (len + 1) as usize];
-
-                            // Get file path
-                            (shell32.DragQueryFileW)(hdrop, i, buffer.as_mut_ptr(), len + 1);
-
-                            // Convert to Rust String
-                            let path_str = String::from_utf16_lossy(&buffer[..len as usize]);
-                            dropped_files.push(path_str);
-                        }
-                    }
-
-                    (shell32.DragFinish)(hdrop);
-
-                    // Update window state with dropped files
-                    if !dropped_files.is_empty() {
-                        window.common.previous_window_state = Some(window.common.current_window_state.clone());
-
-                        // Store first file in cursor_manager (API limitation)
-                        if let Some(ref mut layout_window) = window.common.layout_window {
-                            if let Some(first_file) = dropped_files.first() {
-                                layout_window
-                                    .file_drop_manager
-                                    .set_dropped_file(Some(first_file.clone().into()));
-                            }
-                        }
-
-                        // Process window events to trigger FileDrop callbacks.
-                        // A FileDrop callback can restyle / rebuild the DOM — route the
-                        // result so that takes the incremental fast path / repaints
-                        // (previously the result was dropped and nothing repainted).
-                        let result = window.process_window_events(0);
-                        window.route_main_window_result(hwnd, result);
-
-                        // Clear dropped file after processing
-                        if let Some(ref mut layout_window) = window.common.layout_window {
-                            layout_window.file_drop_manager.set_dropped_file(None);
-                        }
-                    }
-                }
-            }
-
-            0
-        }
+        // NOTE: the legacy `WM_DROPFILES` (drop-only) arm has been removed —
+        // file drag-and-drop now goes through the OLE `IDropTarget` COM object
+        // (`windows::dnd`), which delivers hover (`DragEnter`/`DragOver`),
+        // leave (`DragLeave`) AND drop (`Drop`). OLE supersedes `WM_DROPFILES`;
+        // keeping both would double-fire the drop.
 
         WM_DISPLAYCHANGE => {
             // Monitor topology changed (monitor added/removed/resolution changed)
