@@ -560,22 +560,15 @@ fn parse_windows_version(s: &str) -> Option<OsVersion> {
     // This collapses "11", "win11", "win-11", "windows11", "windows-11", "windows_11" to "11".
     let core = strip_os_prefix(s, &["windows", "win"]);
     match core {
-        "2000" => Some(OsVersion::WIN_2000),
-        "xp" => Some(OsVersion::WIN_XP),
-        "vista" => Some(OsVersion::WIN_VISTA),
-        "7" => Some(OsVersion::WIN_7),
-        "8" => Some(OsVersion::WIN_8),
-        "8.1" | "8-1" => Some(OsVersion::WIN_8_1),
-        "10" => Some(OsVersion::WIN_10),
+        // Each version groups its named alias with the numeric NT version.
+        "2000" | "5.0" | "nt5.0" => Some(OsVersion::WIN_2000),
+        "xp" | "5.1" | "nt5.1" => Some(OsVersion::WIN_XP),
+        "vista" | "6.0" | "nt6.0" => Some(OsVersion::WIN_VISTA),
+        "7" | "6.1" | "nt6.1" => Some(OsVersion::WIN_7),
+        "8" | "6.2" | "nt6.2" => Some(OsVersion::WIN_8),
+        "8.1" | "8-1" | "6.3" | "nt6.3" => Some(OsVersion::WIN_8_1),
+        "10" | "10.0" | "nt10.0" => Some(OsVersion::WIN_10),
         "11" => Some(OsVersion::WIN_11),
-        // Numeric NT versions
-        "5.0" | "nt5.0" => Some(OsVersion::WIN_2000),
-        "5.1" | "nt5.1" => Some(OsVersion::WIN_XP),
-        "6.0" | "nt6.0" => Some(OsVersion::WIN_VISTA),
-        "6.1" | "nt6.1" => Some(OsVersion::WIN_7),
-        "6.2" | "nt6.2" => Some(OsVersion::WIN_8),
-        "6.3" | "nt6.3" => Some(OsVersion::WIN_8_1),
-        "10.0" | "nt10.0" => Some(OsVersion::WIN_10),
         _ => None,
     }
 }
