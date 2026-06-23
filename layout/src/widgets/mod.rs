@@ -185,6 +185,8 @@ pub mod text_input;
 pub mod titlebar;
 /// Tree view widget
 pub mod tree_view;
+/// Switch / toggle widget — boolean on/off with a sliding knob; see `switch.rs`.
+pub mod switch;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 // /// Slider widget
