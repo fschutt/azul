@@ -210,5 +210,7 @@ pub mod alert;
 /// Accordion / expander widget — one or more collapsible titled sections; see
 /// `accordion.rs`.
 pub mod accordion;
+/// Avatar widget — a circular image/initials badge (stateless); see `avatar.rs`.
+pub mod avatar;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
