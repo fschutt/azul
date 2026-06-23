@@ -51,7 +51,7 @@ azul_core::impl_managed_callback! {
 }
 
 /// A toggleable checkbox widget with customizable styling and toggle callback.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct CheckBox {
     pub check_box_state: CheckBoxStateWrapper,
@@ -61,17 +61,17 @@ pub struct CheckBox {
     pub content_style: CssPropertyWithConditionsVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct CheckBoxStateWrapper {
-    /// Content (image or text) of this CheckBox, centered by default
+    /// Content (image or text) of this `CheckBox`, centered by default
     pub inner: CheckBoxState,
-    /// Optional: Function to call when the CheckBox is toggled
+    /// Optional: Function to call when the `CheckBox` is toggled
     pub on_toggle: OptionCheckBoxOnToggle,
 }
 
 /// The checked/unchecked state of a [`CheckBox`].
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct CheckBoxState {
     pub checked: bool,
@@ -181,7 +181,7 @@ static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[CssPropertyWithConditions] = 
 ];
 
 impl CheckBox {
-    pub fn create(checked: bool) -> Self {
+    #[must_use] pub fn create(checked: bool) -> Self {
         Self {
             check_box_state: CheckBoxStateWrapper {
                 inner: CheckBoxState { checked },
@@ -229,7 +229,7 @@ impl CheckBox {
     }
 
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::{CoreCallback, CoreCallbackData},
             dom::{Dom, EventFilter, HoverEventFilter},
@@ -242,7 +242,7 @@ impl CheckBox {
                 vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                     callback: CoreCallback {
-                        cb: self::input::default_on_checkbox_clicked as usize,
+                        cb: input::default_on_checkbox_clicked as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
                     },
                     refany: RefAny::new(self.check_box_state),
@@ -316,7 +316,7 @@ mod input {
 }
 
 impl From<CheckBox> for Dom {
-    fn from(b: CheckBox) -> Dom {
+    fn from(b: CheckBox) -> Self {
         b.dom()
     }
 }

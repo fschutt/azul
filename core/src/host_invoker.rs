@@ -47,9 +47,9 @@ use azul_css::AzString;
 
 use crate::refany::RefAny;
 
-/// RTTI id stamped into every RefAny created via [`host_handle_to_refany`].
+/// RTTI id stamped into every `RefAny` created via [`host_handle_to_refany`].
 ///
-/// Hosts must not reuse this id for their own user-data RefAnys, otherwise
+/// Hosts must not reuse this id for their own user-data `RefAnys`, otherwise
 /// `refany_to_host_handle` would mis-identify their data as a host handle
 /// and the destructor would call the registered releaser with a bogus id.
 /// The high 32 bits are reserved for azul-internal RTTI ids; the low 32
@@ -76,7 +76,7 @@ pub struct InvokerSlot {
 impl InvokerSlot {
     /// Create an empty slot. `const` so it can be used to declare `static`
     /// per-kind slots in `impl_managed_callback!` expansions.
-    pub const fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         Self {
             fn_ptr: AtomicUsize::new(0),
         }
@@ -202,16 +202,16 @@ extern "C" fn host_handle_destructor(ptr: *mut c_void) {
 /// Wrap a host-language `u64` handle in a [`RefAny`] suitable for storing
 /// in a callback wrapper's `ctx` field.
 ///
-/// The returned RefAny's destructor calls back through the registered
+/// The returned `RefAny`'s destructor calls back through the registered
 /// host releaser when the last clone is dropped, giving the host an
 /// opportunity to release whatever its `id` was keying.
 pub fn host_handle_to_refany(id: u64) -> RefAny {
     let payload = HostHandlePayload { id };
     let type_name: AzString = "AzHostHandle".into();
     RefAny::new_c(
-        &payload as *const HostHandlePayload as *const c_void,
-        core::mem::size_of::<HostHandlePayload>(),
-        core::mem::align_of::<HostHandlePayload>(),
+        &raw const payload as *const c_void,
+        size_of::<HostHandlePayload>(),
+        align_of::<HostHandlePayload>(),
         AZ_HOST_HANDLE_RTTI_ID,
         type_name,
         host_handle_destructor,
@@ -221,10 +221,10 @@ pub fn host_handle_to_refany(id: u64) -> RefAny {
 }
 
 /// Read the host-language id back out of a [`RefAny`] previously created
-/// via [`host_handle_to_refany`]. Returns `None` for any other RefAny, so
+/// via [`host_handle_to_refany`]. Returns `None` for any other `RefAny`, so
 /// a static thunk that mistakenly receives a non-host-handle ctx falls
 /// back to the kind's default value rather than reading random bytes.
-pub fn refany_to_host_handle(refany: &RefAny) -> Option<u64> {
+#[must_use] pub fn refany_to_host_handle(refany: &RefAny) -> Option<u64> {
     if !refany.is_type(AZ_HOST_HANDLE_RTTI_ID) {
         return None;
     }
@@ -240,7 +240,7 @@ pub fn refany_to_host_handle(refany: &RefAny) -> Option<u64> {
 /// bindings use the same machinery for user data that callbacks already use
 /// — one releaser, one id-keyed table, one lifetime story.
 ///
-/// The returned RefAny's destructor fires the releaser registered via
+/// The returned `RefAny`'s destructor fires the releaser registered via
 /// [`AzApp_setHostHandleReleaser`] once the last clone drops, so the host
 /// can drop its `id → value` entry.
 #[no_mangle]
@@ -454,7 +454,7 @@ macro_rules! impl_managed_callback {
             /// language is responsible for keeping its id→callable table
             /// in sync with the releaser registered via
             /// `AzApp_setHostHandleReleaser`.
-            pub fn create_from_host_handle(handle: u64) -> Self {
+            #[must_use] pub fn create_from_host_handle(handle: u64) -> Self {
                 Self {
                     cb: $thunk_fn,
                     ctx: $crate::refany::OptionRefAny::Some(

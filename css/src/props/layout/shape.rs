@@ -34,7 +34,7 @@ impl Eq for ShapeOutside {}
 impl core::hash::Hash for ShapeOutside {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         core::mem::discriminant(self).hash(state);
-        if let ShapeOutside::Shape(s) = self {
+        if let Self::Shape(s) = self {
             s.hash(state);
         }
     }
@@ -47,10 +47,10 @@ impl PartialOrd for ShapeOutside {
 impl Ord for ShapeOutside {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match (self, other) {
-            (ShapeOutside::None, ShapeOutside::None) => core::cmp::Ordering::Equal,
-            (ShapeOutside::None, ShapeOutside::Shape(_)) => core::cmp::Ordering::Less,
-            (ShapeOutside::Shape(_), ShapeOutside::None) => core::cmp::Ordering::Greater,
-            (ShapeOutside::Shape(a), ShapeOutside::Shape(b)) => a.cmp(b),
+            (Self::None, Self::None) => core::cmp::Ordering::Equal,
+            (Self::None, Self::Shape(_)) => core::cmp::Ordering::Less,
+            (Self::Shape(_), Self::None) => core::cmp::Ordering::Greater,
+            (Self::Shape(a), Self::Shape(b)) => a.cmp(b),
         }
     }
 }
@@ -79,7 +79,7 @@ impl Eq for ShapeInside {}
 impl core::hash::Hash for ShapeInside {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         core::mem::discriminant(self).hash(state);
-        if let ShapeInside::Shape(s) = self {
+        if let Self::Shape(s) = self {
             s.hash(state);
         }
     }
@@ -92,10 +92,10 @@ impl PartialOrd for ShapeInside {
 impl Ord for ShapeInside {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match (self, other) {
-            (ShapeInside::None, ShapeInside::None) => core::cmp::Ordering::Equal,
-            (ShapeInside::None, ShapeInside::Shape(_)) => core::cmp::Ordering::Less,
-            (ShapeInside::Shape(_), ShapeInside::None) => core::cmp::Ordering::Greater,
-            (ShapeInside::Shape(a), ShapeInside::Shape(b)) => a.cmp(b),
+            (Self::None, Self::None) => core::cmp::Ordering::Equal,
+            (Self::None, Self::Shape(_)) => core::cmp::Ordering::Less,
+            (Self::Shape(_), Self::None) => core::cmp::Ordering::Greater,
+            (Self::Shape(a), Self::Shape(b)) => a.cmp(b),
         }
     }
 }
@@ -124,7 +124,7 @@ impl Eq for ClipPath {}
 impl core::hash::Hash for ClipPath {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         core::mem::discriminant(self).hash(state);
-        if let ClipPath::Shape(s) = self {
+        if let Self::Shape(s) = self {
             s.hash(state);
         }
     }
@@ -137,10 +137,10 @@ impl PartialOrd for ClipPath {
 impl Ord for ClipPath {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match (self, other) {
-            (ClipPath::None, ClipPath::None) => core::cmp::Ordering::Equal,
-            (ClipPath::None, ClipPath::Shape(_)) => core::cmp::Ordering::Less,
-            (ClipPath::Shape(_), ClipPath::None) => core::cmp::Ordering::Greater,
-            (ClipPath::Shape(a), ClipPath::Shape(b)) => a.cmp(b),
+            (Self::None, Self::None) => core::cmp::Ordering::Equal,
+            (Self::None, Self::Shape(_)) => core::cmp::Ordering::Less,
+            (Self::Shape(_), Self::None) => core::cmp::Ordering::Greater,
+            (Self::Shape(a), Self::Shape(b)) => a.cmp(b),
         }
     }
 }
@@ -201,8 +201,8 @@ impl PrintAsCssValue for ShapeImageThreshold {
 impl crate::codegen::format::FormatAsRustCode for ShapeOutside {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            ShapeOutside::None => String::from("ShapeOutside::None"),
-            ShapeOutside::Shape(s) => {
+            Self::None => String::from("ShapeOutside::None"),
+            Self::Shape(s) => {
                 let mut r = String::from("ShapeOutside::Shape(");
                 r.push_str(&s.format_as_rust_code());
                 r.push(')');
@@ -215,8 +215,8 @@ impl crate::codegen::format::FormatAsRustCode for ShapeOutside {
 impl crate::codegen::format::FormatAsRustCode for ShapeInside {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            ShapeInside::None => String::from("ShapeInside::None"),
-            ShapeInside::Shape(s) => {
+            Self::None => String::from("ShapeInside::None"),
+            Self::Shape(s) => {
                 let mut r = String::from("ShapeInside::Shape(");
                 r.push_str(&s.format_as_rust_code());
                 r.push(')');
@@ -229,8 +229,8 @@ impl crate::codegen::format::FormatAsRustCode for ShapeInside {
 impl crate::codegen::format::FormatAsRustCode for ClipPath {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            ClipPath::None => String::from("ClipPath::None"),
-            ClipPath::Shape(s) => {
+            Self::None => String::from("ClipPath::None"),
+            Self::Shape(s) => {
                 let mut r = String::from("ClipPath::Shape(");
                 r.push_str(&s.format_as_rust_code());
                 r.push(')');

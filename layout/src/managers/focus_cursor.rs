@@ -19,7 +19,7 @@ use crate::window::DomLayoutResult;
 /// after layout is complete (W3C "flag and defer" pattern).
 ///
 /// This is set during focus event handling and consumed after layout pass.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingContentEditableFocus {
     /// The DOM where the contenteditable element is
     pub dom_id: DomId,
@@ -49,7 +49,7 @@ pub struct PendingContentEditableFocus {
 ///
 /// This is necessary because cursor positioning requires text layout information,
 /// which isn't available during the focus event handling phase.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FocusManager {
     /// Currently focused node (if any)
     pub focused_node: Option<DomNodeId>,
@@ -72,7 +72,7 @@ impl Default for FocusManager {
 
 impl FocusManager {
     /// Create a new focus manager
-    pub fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         Self {
             focused_node: None,
             pending_focus_request: None,
@@ -82,7 +82,7 @@ impl FocusManager {
     }
 
     /// Get the currently focused node
-    pub fn get_focused_node(&self) -> Option<&DomNodeId> {
+    #[must_use] pub const fn get_focused_node(&self) -> Option<&DomNodeId> {
         self.focused_node.as_ref()
     }
 
@@ -91,7 +91,7 @@ impl FocusManager {
     /// Note: Cursor initialization/clearing is now handled by `CursorManager`.
     /// The event system should check if the newly focused node is contenteditable
     /// and call `CursorManager::initialize_cursor_at_end()` if needed.
-    pub fn set_focused_node(&mut self, node: Option<DomNodeId>) {
+    pub const fn set_focused_node(&mut self, node: Option<DomNodeId>) {
         self.focused_node = node;
     }
 
@@ -101,17 +101,17 @@ impl FocusManager {
     }
 
     /// Take the pending focus request (one-shot)
-    pub fn take_focus_request(&mut self) -> Option<FocusTarget> {
+    pub const fn take_focus_request(&mut self) -> Option<FocusTarget> {
         self.pending_focus_request.take()
     }
 
     /// Clear focus
-    pub fn clear_focus(&mut self) {
+    pub const fn clear_focus(&mut self) {
         self.focused_node = None;
     }
 
     /// Check if a specific node has focus
-    pub fn has_focus(&self, node: &DomNodeId) -> bool {
+    #[must_use] pub fn has_focus(&self, node: &DomNodeId) -> bool {
         self.focused_node.as_ref() == Some(node)
     }
     
@@ -130,7 +130,7 @@ impl FocusManager {
     /// 3. The Selection's anchorNode/focusNode point to the child text node
     ///
     /// Since we need layout information to position the cursor, we defer step 2+3.
-    pub fn set_pending_contenteditable_focus(
+    pub const fn set_pending_contenteditable_focus(
         &mut self,
         dom_id: DomId,
         container_node_id: NodeId,
@@ -145,7 +145,7 @@ impl FocusManager {
     }
     
     /// Clear the pending contenteditable focus (when focus moves away or is cleared).
-    pub fn clear_pending_contenteditable_focus(&mut self) {
+    pub const fn clear_pending_contenteditable_focus(&mut self) {
         self.cursor_needs_initialization = false;
         self.pending_contenteditable_focus = None;
     }
@@ -154,7 +154,7 @@ impl FocusManager {
     ///
     /// Returns `Some(info)` if cursor initialization is pending, `None` otherwise.
     /// After calling this, `cursor_needs_initialization` is set to `false`.
-    pub fn take_pending_contenteditable_focus(&mut self) -> Option<PendingContentEditableFocus> {
+    pub const fn take_pending_contenteditable_focus(&mut self) -> Option<PendingContentEditableFocus> {
         if self.cursor_needs_initialization {
             self.cursor_needs_initialization = false;
             self.pending_contenteditable_focus.take()
@@ -164,11 +164,11 @@ impl FocusManager {
     }
     
     /// Check if cursor initialization is pending.
-    pub fn needs_cursor_initialization(&self) -> bool {
+    #[must_use] pub const fn needs_cursor_initialization(&self) -> bool {
         self.cursor_needs_initialization
     }
 
-    /// Remap NodeIds in pending contenteditable focus after DOM reconciliation.
+    /// Remap `NodeIds` in pending contenteditable focus after DOM reconciliation.
     ///
     /// This handles the edge case where a DOM rebuild happens between setting
     /// pending focus and consuming it after layout.
@@ -181,20 +181,14 @@ impl FocusManager {
             if pending.dom_id != dom_id {
                 return;
             }
-            match node_id_map.get(&pending.container_node_id) {
-                Some(&new_id) => pending.container_node_id = new_id,
-                None => {
-                    self.pending_contenteditable_focus = None;
-                    self.cursor_needs_initialization = false;
-                    return;
-                }
+            if let Some(&new_id) = node_id_map.get(&pending.container_node_id) { pending.container_node_id = new_id } else {
+                self.pending_contenteditable_focus = None;
+                self.cursor_needs_initialization = false;
+                return;
             }
-            match node_id_map.get(&pending.text_node_id) {
-                Some(&new_id) => pending.text_node_id = new_id,
-                None => {
-                    self.pending_contenteditable_focus = None;
-                    self.cursor_needs_initialization = false;
-                }
+            if let Some(&new_id) = node_id_map.get(&pending.text_node_id) { pending.text_node_id = new_id } else {
+                self.pending_contenteditable_focus = None;
+                self.cursor_needs_initialization = false;
             }
         }
     }
@@ -216,7 +210,7 @@ impl SearchDirection {
     /// Compute the next node index in this direction.
     ///
     /// Uses saturating arithmetic to avoid overflow/underflow.
-    fn step_node(&self, index: usize) -> usize {
+    const fn step_node(&self, index: usize) -> usize {
         match self {
             Self::Forward => index.saturating_add(1),
             Self::Backward => index.saturating_sub(1),
@@ -224,7 +218,7 @@ impl SearchDirection {
     }
 
     /// Advance the DOM ID in this direction (mutates in place).
-    fn step_dom(&self, dom_id: &mut DomId) {
+    const fn step_dom(&self, dom_id: &mut DomId) {
         match self {
             Self::Forward => dom_id.inner += 1,
             Self::Backward => dom_id.inner -= 1,
@@ -256,7 +250,7 @@ impl SearchDirection {
     ///
     /// - Forward: start at first node (index 0)
     /// - Backward: start at last node
-    fn initial_node_for_next_dom(&self, layout: &DomLayoutResult) -> NodeId {
+    const fn initial_node_for_next_dom(&self, layout: &DomLayoutResult) -> NodeId {
         match self {
             Self::Forward => NodeId::ZERO,
             Self::Backward => NodeId::new(layout.styled_dom.node_data.len() - 1),
@@ -321,7 +315,7 @@ impl<'a> FocusSearchContext<'a> {
     }
 
     /// Get the valid node ID range for a layout: `(min, max)`.
-    fn node_bounds(&self, layout: &DomLayoutResult) -> (NodeId, NodeId) {
+    const fn node_bounds(&self, layout: &DomLayoutResult) -> (NodeId, NodeId) {
         (
             NodeId::ZERO,
             NodeId::new(layout.styled_dom.node_data.len() - 1),
@@ -334,7 +328,7 @@ impl<'a> FocusSearchContext<'a> {
     }
 
     /// Construct a `DomNodeId` from DOM and node IDs.
-    fn make_dom_node_id(&self, dom_id: DomId, node_id: NodeId) -> DomNodeId {
+    const fn make_dom_node_id(&self, dom_id: DomId, node_id: NodeId) -> DomNodeId {
         DomNodeId {
             dom: dom_id,
             node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
@@ -534,13 +528,13 @@ fn find_first_matching_focusable_node(
     }))
 }
 
-/// Resolve a FocusTarget to an actual DomNodeId
+/// Resolve a `FocusTarget` to an actual `DomNodeId`
 pub fn resolve_focus_target(
     focus_target: &FocusTarget,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     current_focus: Option<DomNodeId>,
 ) -> Result<Option<DomNodeId>, UpdateFocusWarning> {
-    use azul_core::callbacks::FocusTarget::*;
+    use azul_core::callbacks::FocusTarget::{Path, Id, Previous, Next, First, Last, NoFocus};
 
     if layout_results.is_empty() {
         return Ok(None);
@@ -559,8 +553,7 @@ pub fn resolve_focus_target(
             let is_valid = dom_node_id
                 .node
                 .into_crate_internal()
-                .map(|n| layout.styled_dom.node_data.as_container().get(n).is_some())
-                .unwrap_or(false);
+                .is_some_and(|n| layout.styled_dom.node_data.as_container().get(n).is_some());
 
             if is_valid {
                 Ok(Some(*dom_node_id))
@@ -635,7 +628,7 @@ pub fn resolve_focus_target(
 // Trait Implementations for Event Filtering
 
 impl azul_core::events::FocusManagerQuery for FocusManager {
-    fn get_focused_node_id(&self) -> Option<azul_core::dom::DomNodeId> {
+    fn get_focused_node_id(&self) -> Option<DomNodeId> {
         self.focused_node
     }
 }

@@ -80,8 +80,8 @@ impl Default for NodeGraph {
 }
 
 impl NodeGraph {
-    /// Generates a new NodeId that is unique in the graph
-    pub fn generate_unique_node_id(&self) -> NodeGraphNodeId {
+    /// Generates a new `NodeId` that is unique in the graph
+    #[must_use] pub fn generate_unique_node_id(&self) -> NodeGraphNodeId {
         NodeGraphNodeId {
             inner: self
                 .nodes
@@ -388,7 +388,7 @@ impl_vec_debug!(OutputConnection, OutputConnectionVec);
 impl_vec_mut!(OutputConnection, OutputConnectionVec);
 
 /// Reference to a specific input port on a node.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct InputNodeAndIndex {
     pub node_id: NodeGraphNodeId,
@@ -456,7 +456,7 @@ pub enum NodeGraphError {
 
 impl fmt::Display for NodeGraphError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::NodeGraphError::*;
+        use self::NodeGraphError::{NodeMimeTypeMismatch, NodeInvalidIndex, NodeInvalidNode, NoRootNode};
         match self {
             NodeMimeTypeMismatch => write!(f, "MIME type mismatch"),
             NodeInvalidIndex => write!(f, "Invalid node index"),
@@ -493,10 +493,10 @@ impl NodeGraph {
     ///
     /// ## Inputs
     ///
-    /// - `output_node_id`: The ID of the output node (index in the NodeGraphs internal BTree)
+    /// - `output_node_id`: The ID of the output node (index in the `NodeGraphs` internal `BTree`)
     /// - `output_index`: The index of the output *on the output node*
-    /// - `input_node_id`: Same as output_node_id, but for the input node
-    /// - `input_index`: Same as output_index, but for the input node
+    /// - `input_node_id`: Same as `output_node_id`, but for the input node
+    /// - `input_index`: Same as `output_index`, but for the input node
     ///
     /// ## Returns
     ///
@@ -545,7 +545,7 @@ impl NodeGraph {
                         output_index,
                     }]
                     .into(),
-                })
+                });
             }
         } else {
             return Err(NodeGraphError::NodeInvalidNode);
@@ -579,7 +579,7 @@ impl NodeGraph {
                         input_index,
                     }]
                     .into(),
-                })
+                });
             }
         } else {
             return Err(NodeGraphError::NodeInvalidNode);
@@ -592,7 +592,7 @@ impl NodeGraph {
     ///
     /// # Inputs
     ///
-    /// - `input_node_id`: The ID of the input node (index in the NodeGraphs internal BTree)
+    /// - `input_node_id`: The ID of the input node (index in the `NodeGraphs` internal `BTree`)
     /// - `input_index`: The index of the input *on the input node*
     ///
     /// # Returns
@@ -632,7 +632,7 @@ impl NodeGraph {
         for OutputNodeAndIndex {
             node_id,
             output_index,
-        } in output_connections.as_ref().iter()
+        } in output_connections.as_ref()
         {
             let output_node_id = *node_id;
             let output_index = *output_index;
@@ -691,7 +691,7 @@ impl NodeGraph {
     ///
     /// # Inputs
     ///
-    /// - `output_node_id`: The ID of the output node (index in the NodeGraphs internal BTree)
+    /// - `output_node_id`: The ID of the output node (index in the `NodeGraphs` internal `BTree`)
     /// - `output_index`: The index of the output *on the output node*
     ///
     /// # Returns
@@ -837,7 +837,7 @@ impl NodeGraph {
         Ok(())
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         static NODEGRAPH_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("nodegraph"))];
 
         static NODEGRAPH_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::Image(
@@ -2268,15 +2268,15 @@ fn render_node(
                }),
            )),
            CssPropertyWithConditions::simple(CssProperty::Transform(StyleTransformVecValue::Exact(
-               if scale_factor != 1.0 {
+               if scale_factor == 1.0 {
+                    vec![
+                         StyleTransform::Translate(node_transform)
+                    ]
+               } else {
                     vec![
                          StyleTransform::Translate(node_transform),
                          StyleTransform::ScaleX(PercentageValue::new(scale_factor * 100.0)),
                          StyleTransform::ScaleY(PercentageValue::new(scale_factor * 100.0)),
-                    ]
-               } else {
-                    vec![
-                         StyleTransform::Translate(node_transform)
                     ]
                }.into()
            ))),
@@ -2340,7 +2340,7 @@ fn render_node(
                                .into_iter()
                                .enumerate()
                                .map(|(io_id, (input_label, input_color))| {
-                                   use self::InputOrOutput::*;
+                                   use self::InputOrOutput::Input;
 
                                    Dom::create_div()
                                        .with_css_props(CSS_MATCH_9863994880298313101)
@@ -2369,7 +2369,7 @@ fn render_node(
                                                    )
                                                })
                                                .with_children(DomVec::from_vec(vec![Dom::create_text(
-                                                   input_label.clone(),
+                                                   input_label,
                                                )
                                                .with_css_props(
                                                    CSS_MATCH_11452431279102104133,
@@ -2532,7 +2532,7 @@ fn render_node(
                                .into_iter()
                                .enumerate()
                                .map(|(io_id, (output_label, output_color))| {
-                                   use self::InputOrOutput::*;
+                                   use self::InputOrOutput::Output;
                                    Dom::create_div()
                                        .with_css_props(CSS_MATCH_12400244273289328300)
                                        .with_ids_and_classes({
@@ -2607,7 +2607,7 @@ fn render_node(
                                                    )
                                                })
                                                .with_children(DomVec::from_vec(vec![Dom::create_text(
-                                                   output_label.clone(),
+                                                   output_label,
                                                )
                                                .with_css_props(
                                                    CSS_MATCH_2008162367868363199,
@@ -2652,7 +2652,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
         .with_children({
             let mut children = Vec::new();
 
-            for NodeIdNodeMap { node_id, node } in node_graph.nodes.as_ref().iter() {
+            for NodeIdNodeMap { node_id, node } in node_graph.nodes.as_ref() {
                 let out_node_id = node_id;
                 let node_type_info = match node_graph
                     .node_types
@@ -2666,7 +2666,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                 for OutputConnection {
                     output_index,
                     connects_to,
-                } in node.connect_out.as_ref().iter()
+                } in node.connect_out.as_ref()
                 {
                     let output_type_id = match node_type_info.outputs.get(*output_index) {
                         Some(s) => s,
@@ -2685,7 +2685,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                     for InputNodeAndIndex {
                         node_id,
                         input_index,
-                    } in connects_to.as_ref().iter()
+                    } in connects_to.as_ref()
                     {
                         let in_node_id = node_id;
 
@@ -2768,7 +2768,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
 extern "C" fn draw_connection(mut refany: RefAny, _info: ()) -> ImageRef {
     // RenderImageCallbackInfo not available in memtest
     // let size = info.get_bounds().get_physical_size();
-    let size = azul_core::geom::LogicalSize {
+    let size = LogicalSize {
         width: 100.0,
         height: 100.0,
     };
@@ -2922,7 +2922,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             info.set_css_property(
                 visual_node_id,
                 CssProperty::transform(
-                    if refany.node_graph.scale_factor != 1.0 {
+                    if refany.node_graph.scale_factor == 1.0 {
+                        vec![StyleTransform::Translate(node_transform)]
+                    } else {
                         vec![
                             StyleTransform::Translate(node_transform),
                             StyleTransform::ScaleX(PercentageValue::new(
@@ -2932,8 +2934,6 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                                 refany.node_graph.scale_factor * 100.0,
                             )),
                         ]
-                    } else {
-                        vec![StyleTransform::Translate(node_transform)]
                     }
                     .into(),
                 ),
@@ -2988,7 +2988,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 info.set_css_property(
                     first_child,
                     CssProperty::transform(
-                        if refany.node_graph.scale_factor != 1.0 {
+                        if refany.node_graph.scale_factor == 1.0 {
+                            vec![StyleTransform::Translate(node_transform)]
+                        } else {
                             vec![
                                 StyleTransform::Translate(node_transform),
                                 StyleTransform::ScaleX(PercentageValue::new(
@@ -2998,8 +3000,6 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                                     refany.node_graph.scale_factor * 100.0,
                                 )),
                             ]
-                        } else {
-                            vec![StyleTransform::Translate(node_transform)]
                         }
                         .into(),
                     ),
@@ -3088,7 +3088,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 info.set_css_property(
                     node_first_child,
                     CssProperty::transform(
-                        if refany.node_graph.scale_factor != 1.0 {
+                        if refany.node_graph.scale_factor == 1.0 {
+                            vec![StyleTransform::Translate(node_transform)]
+                        } else {
                             vec![
                                 StyleTransform::Translate(node_transform),
                                 StyleTransform::ScaleX(PercentageValue::new(
@@ -3098,8 +3100,6 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                                     refany.node_graph.scale_factor * 100.0,
                                 )),
                             ]
-                        } else {
-                            vec![StyleTransform::Translate(node_transform)]
                         }
                         .into(),
                     ),
@@ -3226,11 +3226,10 @@ extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: Callbac
 
     let node_wrapper_offset = info
         .get_node_position(node_graph_wrapper_id)
-        .map(|p| (p.x, p.y))
-        .unwrap_or((0.0, 0.0));
+        .map_or((0.0, 0.0), |p| (p.x, p.y));
 
     let cursor_in_viewport = match info.get_current_mouse_state().cursor_position {
-        CursorPosition::InWindow(i) => i,
+        InWindow(i) => i,
         CursorPosition::OutOfWindow(i) => i,
         _ => LogicalPosition::zero(),
     };
@@ -3259,7 +3258,7 @@ extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: Callbac
 }
 
 extern "C" fn nodegraph_input_output_connect(mut refany: RefAny, mut info: CallbackInfo) -> Update {
-    use self::InputOrOutput::*;
+    use self::InputOrOutput::{Input, Output};
 
     let mut refany = match refany.downcast_mut::<NodeInputOutputLocalDataset>() {
         Some(s) => s,
@@ -3306,9 +3305,9 @@ extern "C" fn nodegraph_input_output_connect(mut refany: RefAny, mut info: Callb
         output_node,
         output_index,
     ) {
-        Ok(_) => {}
+        Ok(()) => {}
         Err(e) => {
-            eprintln!("{:?}", e);
+            eprintln!("{e:?}");
             backref.last_input_or_output_clicked = None;
             return Update::DoNothing;
         }
@@ -3334,7 +3333,7 @@ extern "C" fn nodegraph_input_output_connect(mut refany: RefAny, mut info: Callb
 }
 
 extern "C" fn nodegraph_input_output_disconnect(mut refany: RefAny, info: CallbackInfo) -> Update {
-    use self::InputOrOutput::*;
+    use self::InputOrOutput::{Input, Output};
 
     let mut refany = match refany.downcast_mut::<NodeInputOutputLocalDataset>() {
         Some(s) => s,
@@ -3377,7 +3376,7 @@ extern "C" fn nodegraph_input_output_disconnect(mut refany: RefAny, info: Callba
                 },
             );
         }
-    };
+    }
 
     result
 }
@@ -3633,7 +3632,7 @@ extern "C" fn nodegraph_on_fileinput_button_clicked(
             node_id,
             field_idx,
             node_type,
-            NodeTypeFieldValue::FileInput(file.path.clone()),
+            NodeTypeFieldValue::FileInput(file.path),
         ),
         None => return Update::DoNothing,
     };

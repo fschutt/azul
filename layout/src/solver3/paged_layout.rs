@@ -3,8 +3,8 @@
 //! This module provides functionality for laying out documents with pagination,
 //! such as for PDF generation. It uses the new integrated architecture where:
 //!
-//! 1. page_index is assigned to nodes DURING layout based on Y position
-//! 2. generate_display_lists_paged() creates per-page DisplayLists by filtering
+//! 1. `page_index` is assigned to nodes DURING layout based on Y position
+//! 2. `generate_display_lists_paged()` creates per-page `DisplayLists` by filtering
 //! 3. No post-hoc fragmentation is needed
 //!
 //! **Note**: Full CSS `@page` rule parsing is not yet implemented. The `FakePageConfig`
@@ -34,7 +34,7 @@ use crate::{
     },
 };
 
-/// Layout a document with integrated pagination, returning one DisplayList per page.
+/// Layout a document with integrated pagination, returning one `DisplayList` per page.
 ///
 /// +spec:positioning:a4936a - Absolutely positioned elements positioned relative to containing block ignoring page breaks
 /// Layout is performed on a continuous document; pages are split afterward by Y position,
@@ -43,9 +43,9 @@ use crate::{
 /// This function performs CSS Paged Media layout with fragmentation integrated
 /// into the layout process itself, using the new architecture where:
 ///
-/// 1. The FragmentationContext is passed to layout_document via LayoutContext
-/// 2. Nodes get their page_index assigned during layout based on absolute Y position
-/// 3. DisplayLists are generated per-page by filtering items based on page bounds
+/// 1. The `FragmentationContext` is passed to `layout_document` via `LayoutContext`
+/// 2. Nodes get their `page_index` assigned during layout based on absolute Y position
+/// 3. `DisplayLists` are generated per-page by filtering items based on page bounds
 ///
 /// Uses default page header/footer configuration (page numbers in footer).
 /// For custom headers/footers, use `layout_document_paged_with_config`.
@@ -55,7 +55,7 @@ use crate::{
 /// * Other arguments same as `layout_document()`
 ///
 /// # Returns
-/// A vector of DisplayLists, one per page. Each DisplayList contains the
+/// A vector of `DisplayLists`, one per page. Each `DisplayList` contains the
 /// elements that fit on that page, with Y-coordinates relative to the page origin.
 #[cfg(feature = "text_layout")]
 pub fn layout_document_paged<T, F>(
@@ -167,8 +167,7 @@ where
             for (font_id, error) in &load_result.failed {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::warning(format!(
-                        "[FontLoading] Failed to load font {:?}: {}",
-                        font_id, error
+                        "[FontLoading] Failed to load font {font_id:?}: {error}"
                     )));
                 }
             }
@@ -256,8 +255,7 @@ where
     // Debug: log page layout info
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "[PagedLayout] Page content height: {}",
-            page_content_height
+            "[PagedLayout] Page content height: {page_content_height}"
         )));
     }
 

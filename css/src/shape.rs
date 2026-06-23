@@ -21,15 +21,15 @@ pub struct ShapePoint {
 impl_option!(
     ShapePoint,
     OptionShapePoint,
-    [Debug, Copy, Clone, PartialEq, PartialOrd]
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
 );
 
 impl ShapePoint {
-    pub const fn new(x: f32, y: f32) -> Self {
+    #[must_use] pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
 
-    pub const fn zero() -> Self {
+    #[must_use] pub const fn zero() -> Self {
         Self { x: 0.0, y: 0.0 }
     }
 }
@@ -203,11 +203,11 @@ impl core::hash::Hash for CssShape {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         core::mem::discriminant(self).hash(state);
         match self {
-            CssShape::Circle(c) => c.hash(state),
-            CssShape::Ellipse(e) => e.hash(state),
-            CssShape::Polygon(p) => p.hash(state),
-            CssShape::Inset(i) => i.hash(state),
-            CssShape::Path(p) => p.hash(state),
+            Self::Circle(c) => c.hash(state),
+            Self::Ellipse(e) => e.hash(state),
+            Self::Polygon(p) => p.hash(state),
+            Self::Inset(i) => i.hash(state),
+            Self::Path(p) => p.hash(state),
         }
     }
 }
@@ -221,33 +221,33 @@ impl PartialOrd for CssShape {
 impl Ord for CssShape {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match (self, other) {
-            (CssShape::Circle(a), CssShape::Circle(b)) => a.cmp(b),
-            (CssShape::Ellipse(a), CssShape::Ellipse(b)) => a.cmp(b),
-            (CssShape::Polygon(a), CssShape::Polygon(b)) => a.cmp(b),
-            (CssShape::Inset(a), CssShape::Inset(b)) => a.cmp(b),
-            (CssShape::Path(a), CssShape::Path(b)) => a.cmp(b),
+            (Self::Circle(a), Self::Circle(b)) => a.cmp(b),
+            (Self::Ellipse(a), Self::Ellipse(b)) => a.cmp(b),
+            (Self::Polygon(a), Self::Polygon(b)) => a.cmp(b),
+            (Self::Inset(a), Self::Inset(b)) => a.cmp(b),
+            (Self::Path(a), Self::Path(b)) => a.cmp(b),
             // Different variants: use discriminant ordering
-            (CssShape::Circle(_), _) => core::cmp::Ordering::Less,
-            (_, CssShape::Circle(_)) => core::cmp::Ordering::Greater,
-            (CssShape::Ellipse(_), _) => core::cmp::Ordering::Less,
-            (_, CssShape::Ellipse(_)) => core::cmp::Ordering::Greater,
-            (CssShape::Polygon(_), _) => core::cmp::Ordering::Less,
-            (_, CssShape::Polygon(_)) => core::cmp::Ordering::Greater,
-            (CssShape::Inset(_), CssShape::Path(_)) => core::cmp::Ordering::Less,
-            (CssShape::Path(_), CssShape::Inset(_)) => core::cmp::Ordering::Greater,
+            (Self::Circle(_), _) => core::cmp::Ordering::Less,
+            (_, Self::Circle(_)) => core::cmp::Ordering::Greater,
+            (Self::Ellipse(_), _) => core::cmp::Ordering::Less,
+            (_, Self::Ellipse(_)) => core::cmp::Ordering::Greater,
+            (Self::Polygon(_), _) => core::cmp::Ordering::Less,
+            (_, Self::Polygon(_)) => core::cmp::Ordering::Greater,
+            (Self::Inset(_), Self::Path(_)) => core::cmp::Ordering::Less,
+            (Self::Path(_), Self::Inset(_)) => core::cmp::Ordering::Greater,
         }
     }
 }
 
 impl CssShape {
     /// Creates a circle shape at the given position with the given radius
-    pub fn circle(center: ShapePoint, radius: f32) -> Self {
-        CssShape::Circle(ShapeCircle { center, radius })
+    #[must_use] pub const fn circle(center: ShapePoint, radius: f32) -> Self {
+        Self::Circle(ShapeCircle { center, radius })
     }
 
     /// Creates an ellipse shape
-    pub fn ellipse(center: ShapePoint, radius_x: f32, radius_y: f32) -> Self {
-        CssShape::Ellipse(ShapeEllipse {
+    #[must_use] pub const fn ellipse(center: ShapePoint, radius_x: f32, radius_y: f32) -> Self {
+        Self::Ellipse(ShapeEllipse {
             center,
             radius_x,
             radius_y,
@@ -255,13 +255,13 @@ impl CssShape {
     }
 
     /// Creates a polygon from a list of points
-    pub fn polygon(points: ShapePointVec) -> Self {
-        CssShape::Polygon(ShapePolygon { points })
+    #[must_use] pub const fn polygon(points: ShapePointVec) -> Self {
+        Self::Polygon(ShapePolygon { points })
     }
 
     /// Creates an inset rectangle
-    pub fn inset(top: f32, right: f32, bottom: f32, left: f32) -> Self {
-        CssShape::Inset(ShapeInset {
+    #[must_use] pub const fn inset(top: f32, right: f32, bottom: f32, left: f32) -> Self {
+        Self::Inset(ShapeInset {
             inset_top: top,
             inset_right: right,
             inset_bottom: bottom,
@@ -271,8 +271,8 @@ impl CssShape {
     }
 
     /// Creates an inset rectangle with rounded corners
-    pub fn inset_rounded(top: f32, right: f32, bottom: f32, left: f32, radius: f32) -> Self {
-        CssShape::Inset(ShapeInset {
+    #[must_use] pub const fn inset_rounded(top: f32, right: f32, bottom: f32, left: f32, radius: f32) -> Self {
+        Self::Inset(ShapeInset {
             inset_top: top,
             inset_right: right,
             inset_bottom: bottom,
@@ -281,66 +281,65 @@ impl CssShape {
         })
     }
 
-    pub fn print_as_css_value(&self) -> String {
+    #[must_use] pub fn print_as_css_value(&self) -> String {
         use alloc::format;
         match self {
-            CssShape::Circle(ShapeCircle { center, radius }) => {
+            Self::Circle(ShapeCircle { center, radius }) => {
                 format!("circle({}px at {}px {}px)", radius, center.x, center.y)
             }
-            CssShape::Ellipse(ShapeEllipse { center, radius_x, radius_y }) => {
+            Self::Ellipse(ShapeEllipse { center, radius_x, radius_y }) => {
                 format!("ellipse({}px {}px at {}px {}px)", radius_x, radius_y, center.x, center.y)
             }
-            CssShape::Polygon(ShapePolygon { points }) => {
-                let pts: alloc::vec::Vec<String> = points.as_ref().iter()
+            Self::Polygon(ShapePolygon { points }) => {
+                let pts: Vec<String> = points.as_ref().iter()
                     .map(|p| format!("{}px {}px", p.x, p.y))
                     .collect();
                 format!("polygon({})", pts.join(", "))
             }
-            CssShape::Inset(ShapeInset { inset_top, inset_right, inset_bottom, inset_left, border_radius }) => {
-                let base = format!("inset({}px {}px {}px {}px", inset_top, inset_right, inset_bottom, inset_left);
+            Self::Inset(ShapeInset { inset_top, inset_right, inset_bottom, inset_left, border_radius }) => {
+                let base = format!("inset({inset_top}px {inset_right}px {inset_bottom}px {inset_left}px");
                 match border_radius {
-                    OptionF32::Some(r) => format!("{} round {}px)", base, r),
-                    OptionF32::None => format!("{})", base),
+                    OptionF32::Some(r) => format!("{base} round {r}px)"),
+                    OptionF32::None => format!("{base})"),
                 }
             }
-            CssShape::Path(ShapePath { data }) => {
+            Self::Path(ShapePath { data }) => {
                 format!("path(\"{}\")", data.as_str())
             }
         }
     }
 
-    pub fn format_as_rust_code(&self) -> String {
+    #[must_use] pub fn format_as_rust_code(&self) -> String {
         use alloc::format;
         match self {
-            CssShape::Circle(ShapeCircle { center, radius }) => {
+            Self::Circle(ShapeCircle { center, radius }) => {
                 format!(
                     "CssShape::Circle(ShapeCircle {{ center: ShapePoint::new({}_f32, {}_f32), radius: {}_f32 }})",
                     center.x, center.y, radius
                 )
             }
-            CssShape::Ellipse(ShapeEllipse { center, radius_x, radius_y }) => {
+            Self::Ellipse(ShapeEllipse { center, radius_x, radius_y }) => {
                 format!(
                     "CssShape::Ellipse(ShapeEllipse {{ center: ShapePoint::new({}_f32, {}_f32), radius_x: {}_f32, radius_y: {}_f32 }})",
                     center.x, center.y, radius_x, radius_y
                 )
             }
-            CssShape::Polygon(ShapePolygon { points }) => {
-                let pts: alloc::vec::Vec<String> = points.as_ref().iter()
+            Self::Polygon(ShapePolygon { points }) => {
+                let pts: Vec<String> = points.as_ref().iter()
                     .map(|p| format!("ShapePoint::new({}_f32, {}_f32)", p.x, p.y))
                     .collect();
                 format!("CssShape::Polygon(ShapePolygon {{ points: vec![{}].into() }})", pts.join(", "))
             }
-            CssShape::Inset(ShapeInset { inset_top, inset_right, inset_bottom, inset_left, border_radius }) => {
+            Self::Inset(ShapeInset { inset_top, inset_right, inset_bottom, inset_left, border_radius }) => {
                 let br = match border_radius {
-                    OptionF32::Some(r) => format!("OptionF32::Some({}_f32)", r),
+                    OptionF32::Some(r) => format!("OptionF32::Some({r}_f32)"),
                     OptionF32::None => String::from("OptionF32::None"),
                 };
                 format!(
-                    "CssShape::Inset(ShapeInset {{ inset_top: {}_f32, inset_right: {}_f32, inset_bottom: {}_f32, inset_left: {}_f32, border_radius: {} }})",
-                    inset_top, inset_right, inset_bottom, inset_left, br
+                    "CssShape::Inset(ShapeInset {{ inset_top: {inset_top}_f32, inset_right: {inset_right}_f32, inset_bottom: {inset_bottom}_f32, inset_left: {inset_left}_f32, border_radius: {br} }})"
                 )
             }
-            CssShape::Path(ShapePath { data }) => {
+            Self::Path(ShapePath { data }) => {
                 format!("CssShape::Path(ShapePath {{ data: AzString::from_const_str(\"{}\") }})", data.as_str())
             }
         }
@@ -351,6 +350,6 @@ impl_option!(
     CssShape,
     OptionCssShape,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 

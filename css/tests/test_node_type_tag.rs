@@ -145,7 +145,7 @@ const NON_HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
 fn test_node_type_tag_from_str_roundtrip() {
     for &tag in HTML_ELEMENT_TAGS {
         // Convert tag to string
-        let tag_str = format!("{}", tag);
+        let tag_str = format!("{tag}");
 
         // Parse the string back to tag
         let parsed = NodeTypeTag::from_str(&tag_str);
@@ -153,16 +153,13 @@ fn test_node_type_tag_from_str_roundtrip() {
         // Verify round-trip works
         assert!(
             parsed.is_ok(),
-            "NodeTypeTag::from_str failed for '{}' (from {:?})",
-            tag_str,
-            tag
+            "NodeTypeTag::from_str failed for '{tag_str}' (from {tag:?})"
         );
 
         let parsed_tag = parsed.unwrap();
         assert_eq!(
             tag, parsed_tag,
-            "Round-trip failed: {:?} -> '{}' -> {:?}",
-            tag, tag_str, parsed_tag
+            "Round-trip failed: {tag:?} -> '{tag_str}' -> {parsed_tag:?}"
         );
     }
 }
@@ -176,11 +173,10 @@ fn test_node_type_tag_non_html_elements() {
 
     // Just verify they can be formatted without panicking
     for &tag in NON_HTML_ELEMENT_TAGS {
-        let tag_str = format!("{}", tag);
+        let tag_str = format!("{tag}");
         assert!(
             !tag_str.is_empty(),
-            "Tag {:?} formatted to empty string",
-            tag
+            "Tag {tag:?} formatted to empty string"
         );
     }
 }
@@ -214,12 +210,11 @@ fn test_node_type_tag_common_tags() {
 
     for (tag_str, expected) in test_cases {
         let result = NodeTypeTag::from_str(tag_str);
-        assert!(result.is_ok(), "Failed to parse common tag: '{}'", tag_str);
+        assert!(result.is_ok(), "Failed to parse common tag: '{tag_str}'");
         assert_eq!(
             result.unwrap(),
             expected,
-            "Wrong result for tag: '{}'",
-            tag_str
+            "Wrong result for tag: '{tag_str}'"
         );
     }
 }
@@ -236,9 +231,7 @@ fn test_node_type_tag_invalid() {
         let result = NodeTypeTag::from_str(tag_str);
         assert!(
             result.is_err(),
-            "Expected error for invalid tag '{}', but got {:?}",
-            tag_str,
-            result
+            "Expected error for invalid tag '{tag_str}', but got {result:?}"
         );
     }
 }
@@ -262,14 +255,12 @@ fn test_node_type_tag_pseudo_elements() {
         let result = NodeTypeTag::from_str(tag_str);
         assert!(
             result.is_ok(),
-            "Failed to parse pseudo-element: '{}'",
-            tag_str
+            "Failed to parse pseudo-element: '{tag_str}'"
         );
         assert_eq!(
             result.unwrap(),
             expected,
-            "Wrong result for pseudo-element: '{}'",
-            tag_str
+            "Wrong result for pseudo-element: '{tag_str}'"
         );
     }
 }

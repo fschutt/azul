@@ -1,7 +1,7 @@
 //! CSS Counter Support
 //!
 //! Implements CSS counters for ordered lists and generated content as per CSS spec.
-//! Counters are cached per-node in the LayoutCache and computed during layout traversal.
+//! Counters are cached per-node in the `LayoutCache` and computed during layout traversal.
 //!
 //! This module is the single canonical home for numbering-system formatting
 //! (decimal, roman, alphabetic, greek). The low-level converters
@@ -24,7 +24,7 @@ pub fn format_counter(value: i32, style: StyleListStyleType) -> String {
         StyleListStyleType::Circle => "◦".to_string(),
         StyleListStyleType::Square => "▪".to_string(),
         StyleListStyleType::Decimal => value.to_string(),
-        StyleListStyleType::DecimalLeadingZero => format!("{:02}", value),
+        StyleListStyleType::DecimalLeadingZero => format!("{value:02}"),
         StyleListStyleType::LowerAlpha => with_sign(value, |n| to_alphabetic(n, false)),
         StyleListStyleType::UpperAlpha => with_sign(value, |n| to_alphabetic(n, true)),
         StyleListStyleType::LowerRoman => with_sign(value, |n| to_roman(n, false)),

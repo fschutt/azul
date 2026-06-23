@@ -46,7 +46,7 @@ use std::collections::BTreeMap;
 
 /// Determine the default action for a keyboard event based on the
 /// current key, focused element, and whether `prevent_default()` was called.
-pub fn determine_keyboard_default_action(
+#[must_use] pub fn determine_keyboard_default_action(
     keyboard_state: &KeyboardState,
     focused_node: Option<DomNodeId>,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
@@ -138,13 +138,13 @@ pub fn determine_keyboard_default_action(
                 _ => ScrollDirection::Right,
             };
             if let Some(ref focus) = focused_node {
-                if !is_text_input(focus, layout_results) {
+                if is_text_input(focus, layout_results) {
+                    DefaultAction::None
+                } else {
                     DefaultAction::ScrollFocusedContainer {
                         direction,
                         amount: ScrollAmount::Line,
                     }
-                } else {
-                    DefaultAction::None
                 }
             } else {
                 DefaultAction::None
@@ -206,8 +206,7 @@ fn is_element_activatable(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, 
     };
     layout.styled_dom.node_data.as_container()
         .get(internal_id)
-        .map(|node| node.is_activatable())
-        .unwrap_or(false)
+        .is_some_and(azul_core::dom::NodeData::is_activatable)
 }
 
 /// Check if an element is a text input (where Space should insert text, not activate).
@@ -231,11 +230,11 @@ fn is_text_input(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, DomLayout
         .any(|cb| matches!(cb.event, EventFilter::Focus(FocusEventFilter::TextInput)))
 }
 
-/// Convert a DefaultAction to a FocusTarget for the focus manager.
+/// Convert a `DefaultAction` to a `FocusTarget` for the focus manager.
 ///
-/// This bridges the gap between the abstract DefaultAction and the
-/// concrete FocusTarget that the FocusManager understands.
-pub fn default_action_to_focus_target(action: &DefaultAction) -> Option<FocusTarget> {
+/// This bridges the gap between the abstract `DefaultAction` and the
+/// concrete `FocusTarget` that the `FocusManager` understands.
+#[must_use] pub const fn default_action_to_focus_target(action: &DefaultAction) -> Option<FocusTarget> {
     match action {
         DefaultAction::FocusNext => Some(FocusTarget::Next),
         DefaultAction::FocusPrevious => Some(FocusTarget::Previous),

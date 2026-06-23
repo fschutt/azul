@@ -22,7 +22,7 @@ fn identical_divs_produce_empty_changeset() {
     let a = NodeData::create_div();
     let b = NodeData::create_div();
     let cs = compute_node_changes(&a, &b, None, None);
-    assert!(cs.is_empty(), "identical divs should have empty changeset, got {:?}", cs);
+    assert!(cs.is_empty(), "identical divs should have empty changeset, got {cs:?}");
 }
 
 #[test]
@@ -180,7 +180,7 @@ fn adding_layout_css_sets_inline_style_layout_flag() {
     assert!(
         cs.contains(NodeChangeSet::INLINE_STYLE_LAYOUT)
             || cs.contains(NodeChangeSet::INLINE_STYLE_PAINT),
-        "adding inline CSS should set an inline style flag, got {:?}", cs
+        "adding inline CSS should set an inline style flag, got {cs:?}"
     );
 }
 
@@ -291,7 +291,7 @@ fn affects_layout_mask_includes_all_layout_flags() {
         NodeChangeSet::CONTENTEDITABLE,
     ];
     for &flag in &layout_flags {
-        assert!(ncs(flag).needs_layout(), "flag 0x{:x} should be layout-affecting", flag);
+        assert!(ncs(flag).needs_layout(), "flag 0x{flag:x} should be layout-affecting");
     }
 }
 

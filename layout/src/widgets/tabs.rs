@@ -1202,7 +1202,7 @@ azul_core::impl_managed_callback! {
 }
 
 impl TabHeader {
-    pub fn create(tabs: StringVec) -> Self {
+    #[must_use] pub fn create(tabs: StringVec) -> Self {
         Self {
             tabs,
             active_tab: 0,
@@ -1216,11 +1216,11 @@ impl TabHeader {
         default
     }
 
-    pub fn set_active_tab(&mut self, active_tab: usize) {
+    pub const fn set_active_tab(&mut self, active_tab: usize) {
         self.active_tab = active_tab;
     }
 
-    pub fn with_active_tab(mut self, active_tab: usize) -> Self {
+    #[must_use] pub const fn with_active_tab(mut self, active_tab: usize) -> Self {
         self.set_active_tab(active_tab);
         self
     }
@@ -1242,7 +1242,7 @@ impl TabHeader {
         self
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::callbacks::CoreCallbackDataVec;
 
         let on_click_is_some = self.on_click.is_some();
@@ -1392,7 +1392,7 @@ impl Default for TabContent {
 }
 
 impl TabContent {
-    pub fn new(content: Dom) -> Self {
+    #[must_use] pub const fn new(content: Dom) -> Self {
         Self {
             content,
             has_padding: true,
@@ -1405,16 +1405,16 @@ impl TabContent {
         default
     }
 
-    pub fn with_padding(mut self, padding: bool) -> Self {
+    #[must_use] pub const fn with_padding(mut self, padding: bool) -> Self {
         self.set_padding(padding);
         self
     }
 
-    pub fn set_padding(&mut self, padding: bool) {
+    pub const fn set_padding(&mut self, padding: bool) {
         self.has_padding = padding;
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         const IDS_AND_CLASSES_2989815829020816222: &[IdOrClass] = &[Class(
             AzString::from_const_str("__azul-native-tabs-content"),
         )];

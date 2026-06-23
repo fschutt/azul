@@ -104,7 +104,7 @@ fn test_real_menubar_widget_not_clipped() {
         for m in msgs.iter() {
             let s = format!("{:?}", m.message);
             if s.contains("TAFFY OUTPUT") || s.contains("TAFFY CHILD RESULT") || s.contains("set_unrounded") {
-                println!("{}", s);
+                println!("{s}");
             }
         }
     }
@@ -119,9 +119,9 @@ fn test_real_menubar_widget_not_clipped() {
             }
         }
     }
-    println!("\nReal widget item flex widths: {:?}", item_widths);
+    println!("\nReal widget item flex widths: {item_widths:?}");
     for (idx, w) in &item_widths {
-        assert!(*w > 30.0, "real menubar item node {} clipped to {} (bug #11)", idx, w);
+        assert!(*w > 30.0, "real menubar item node {idx} clipped to {w} (bug #11)");
     }
 }
 
@@ -173,7 +173,7 @@ fn test_app_path_menubar_not_clipped() {
     let already = font_manager.get_loaded_font_ids();
     let to_load = compute_fonts_to_load(&required, &already);
     if !to_load.is_empty() {
-        let r = load_fonts_from_disk(&to_load, &font_manager.fc_cache, &font_loader);
+        let r = load_fonts_from_disk(&to_load, &font_manager.fc_cache, font_loader);
         font_manager.insert_fonts(r.loaded);
     }
     font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
@@ -216,7 +216,7 @@ fn test_app_path_menubar_not_clipped() {
         }
     }
     assert_eq!(label_glyph_counts, vec![4, 4, 4],
-        "menubar labels File/Edit/View must each emit 4 glyphs, got {:?}", label_glyph_counts);
+        "menubar labels File/Edit/View must each emit 4 glyphs, got {label_glyph_counts:?}");
 
     let tree = layout_cache.tree.as_ref().expect("tree");
     println!("\n=== APP-PATH TREE (system_style=Some, Linux) ===");
@@ -238,11 +238,11 @@ fn test_app_path_menubar_not_clipped() {
             }
         }
     }
-    println!("App-path item flex widths: {:?}", item_widths);
+    println!("App-path item flex widths: {item_widths:?}");
     for (idx, w) in &item_widths {
-        assert!(*w > 30.0, "APP PATH: menubar item node {} clipped to {} — bug is in the app, not just paged", idx, w);
+        assert!(*w > 30.0, "APP PATH: menubar item node {idx} clipped to {w} — bug is in the app, not just paged");
     }
-    assert_eq!(item_widths.len(), 3, "expected 3 items, got {:?}", item_widths);
+    assert_eq!(item_widths.len(), 3, "expected 3 items, got {item_widths:?}");
 }
 
 /// Probe many words through the REAL menubar widget + app layout path, dump the
@@ -288,7 +288,7 @@ fn test_probe_words_glyph_counts() {
     let already = font_manager.get_loaded_font_ids();
     let to_load = compute_fonts_to_load(&required, &already);
     if !to_load.is_empty() {
-        let r = load_fonts_from_disk(&to_load, &font_manager.fc_cache, &font_loader);
+        let r = load_fonts_from_disk(&to_load, &font_manager.fc_cache, font_loader);
         font_manager.insert_fonts(r.loaded);
     }
     font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
@@ -427,7 +427,7 @@ fn test_menubar_item_text_not_clipped() {
         for m in msgs.iter() {
             let s = format!("{:?}", m.message);
             if s.contains("TAFFY") {
-                println!("{}", s);
+                println!("{s}");
             }
         }
     }
@@ -446,16 +446,15 @@ fn test_menubar_item_text_not_clipped() {
             }
         }
     }
-    println!("\nItem flex widths: {:?}", item_widths);
+    println!("\nItem flex widths: {item_widths:?}");
 
     // Each item holds a 4-char word + 20px padding. Must be well above the 26px
     // cross-axis height (the bug clamps it to ~26).
     for (idx, w) in &item_widths {
         assert!(
             *w > 30.0,
-            "menubar item node {} width {} is clipped to ~cross-axis-height (bug #11); expected >30",
-            idx, w
+            "menubar item node {idx} width {w} is clipped to ~cross-axis-height (bug #11); expected >30"
         );
     }
-    assert_eq!(item_widths.len(), 3, "expected 3 menubar items, got {:?}", item_widths);
+    assert_eq!(item_widths.len(), 3, "expected 3 menubar items, got {item_widths:?}");
 }

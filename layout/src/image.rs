@@ -28,18 +28,18 @@ pub mod decode {
     impl fmt::Display for DecodeImageError {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             match self {
-                DecodeImageError::InsufficientMemory => write!(
+                Self::InsufficientMemory => write!(
                     f,
                     "Error decoding image: Not enough memory available to perform encoding \
                      operation"
                 ),
-                DecodeImageError::DimensionError => {
+                Self::DimensionError => {
                     write!(f, "Error decoding image: Wrong dimensions")
                 }
-                DecodeImageError::UnsupportedImageFormat => {
+                Self::UnsupportedImageFormat => {
                     write!(f, "Error decoding image: Invalid data format")
                 }
-                DecodeImageError::Unknown => write!(f, "Error decoding image: Unknown error"),
+                Self::Unknown => write!(f, "Error decoding image: Unknown error"),
             }
         }
     }
@@ -67,7 +67,7 @@ pub mod decode {
     ///
     /// The image format is guessed from the byte contents. Returns the decoded
     /// pixel data along with dimensions and format information.
-    pub fn decode_raw_image_from_any_bytes(image_bytes: &[u8]) -> ResultRawImageDecodeImageError {
+    #[must_use] pub fn decode_raw_image_from_any_bytes(image_bytes: &[u8]) -> ResultRawImageDecodeImageError {
         use azul_core::resources::RawImageData;
 
         let image_format = match image::guess_format(image_bytes) {
@@ -188,7 +188,7 @@ pub mod encode {
 
     impl fmt::Display for EncodeImageError {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            use self::EncodeImageError::*;
+            use self::EncodeImageError::{EncoderNotAvailable, InsufficientMemory, DimensionError, InvalidData, Unknown};
             match self {
                 EncoderNotAvailable => write!(
                     f,
@@ -301,7 +301,7 @@ pub mod encode {
             }
 
             #[cfg(not(feature = $feature))]
-            pub fn $func(image: &RawImage) -> ResultU8VecEncodeImageError {
+            #[must_use] pub const fn $func(image: &RawImage) -> ResultU8VecEncodeImageError {
                 ResultU8VecEncodeImageError::Err(EncodeImageError::EncoderNotAvailable)
             }
         };
@@ -358,7 +358,7 @@ pub mod encode {
     }
 
     #[cfg(not(feature = "png"))]
-    pub fn encode_png(image: &RawImage) -> ResultU8VecEncodeImageError {
+    #[must_use] pub const fn encode_png(image: &RawImage) -> ResultU8VecEncodeImageError {
         ResultU8VecEncodeImageError::Err(EncodeImageError::EncoderNotAvailable)
     }
 
@@ -401,7 +401,7 @@ pub mod encode {
     }
 
     #[cfg(not(feature = "jpeg"))]
-    pub fn encode_jpeg(image: &RawImage, quality: u8) -> ResultU8VecEncodeImageError {
+    #[must_use] pub const fn encode_jpeg(image: &RawImage, quality: u8) -> ResultU8VecEncodeImageError {
         ResultU8VecEncodeImageError::Err(EncodeImageError::EncoderNotAvailable)
     }
 }

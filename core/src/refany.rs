@@ -40,8 +40,8 @@ use core::{
 
 use azul_css::AzString;
 
-/// C-compatible destructor function type for RefAny.
-/// Called when the last reference to a RefAny is dropped.
+/// C-compatible destructor function type for `RefAny`.
+/// Called when the last reference to a `RefAny` is dropped.
 pub type RefAnyDestructorType = extern "C" fn(*mut c_void);
 
 // NOTE: JSON serialization/deserialization callback types are defined in azul_layout::json
@@ -73,7 +73,7 @@ pub struct RefCountInner {
     /// SAFETY: Must be properly aligned for the stored type (guaranteed by
     /// `Layout::from_size_align` in `new_c`). Never null for non-ZST types.
     ///
-    /// This pointer is shared by all RefAny clones, so replace_contents
+    /// This pointer is shared by all `RefAny` clones, so `replace_contents`
     /// updates are visible to all clones.
     pub _internal_ptr: *const c_void,
 
@@ -103,21 +103,21 @@ pub struct RefCountInner {
     /// Used to prevent invalid downcasts.
     pub type_id: u64,
 
-    /// Human-readable type name (e.g., "MyStruct") for debugging.
+    /// Human-readable type name (e.g., "`MyStruct`") for debugging.
     pub type_name: AzString,
 
     /// Function pointer to correctly drop the type-erased data.
     /// SAFETY: Must be called with a pointer to data of the correct type.
     pub custom_destructor: extern "C" fn(*mut c_void),
 
-    /// Function pointer to serialize RefAny to JSON (0 = not set).
-    /// Cast to RefAnySerializeFnType (defined in azul_layout::json) when called.
+    /// Function pointer to serialize `RefAny` to JSON (0 = not set).
+    /// Cast to `RefAnySerializeFnType` (defined in `azul_layout::json`) when called.
     /// Type: extern "C" fn(RefAny) -> Json
     pub serialize_fn: usize,
 
-    /// Function pointer to deserialize JSON to new RefAny (0 = not set).
-    /// Cast to RefAnyDeserializeFnType (defined in azul_layout::json) when called.
-    /// Type: extern "C" fn(Json) -> ResultRefAnyString
+    /// Function pointer to deserialize JSON to new `RefAny` (0 = not set).
+    /// Cast to `RefAnyDeserializeFnType` (defined in `azul_layout::json`) when called.
+    /// Type: extern "C" fn(Json) -> `ResultRefAnyString`
     pub deserialize_fn: usize,
 
     /// Function pointer to an on-update observer (0 = not set).
@@ -133,9 +133,9 @@ pub struct RefCountInner {
 /// This is the shared metadata that all `RefAny` clones point to.
 /// The `RefCount` is responsible for all memory management:
 ///
-/// - `RefCount::clone()` increments `num_copies` in RefCountInner
+/// - `RefCount::clone()` increments `num_copies` in `RefCountInner`
 /// - `RefCount::drop()` decrements `num_copies` and, if it reaches 0:
-///   1. Frees the RefCountInner
+///   1. Frees the `RefCountInner`
 ///   2. Calls the custom destructor on the data
 ///   3. Deallocates the data memory
 ///
@@ -160,14 +160,14 @@ impl fmt::Debug for RefCount {
 }
 
 impl Clone for RefCount {
-    /// Clones the RefCount and increments the reference count.
+    /// Clones the `RefCount` and increments the reference count.
     ///
     /// # Safety
     ///
     /// This is safe because:
-    /// - The ptr is valid (created from Box::into_raw)
-    /// - num_copies is atomically incremented with SeqCst ordering
-    /// - This ensures the RefCountInner is not freed while clones exist
+    /// - The ptr is valid (created from `Box::into_raw`)
+    /// - `num_copies` is atomically incremented with `SeqCst` ordering
+    /// - This ensures the `RefCountInner` is not freed while clones exist
     fn clone(&self) -> Self {
         // CRITICAL: Must increment num_copies so the RefCountInner is not freed
         // while this clone exists. The C macros (AZ_REFLECT) use AzRefCount_clone
@@ -185,10 +185,10 @@ impl Clone for RefCount {
 }
 
 impl Drop for RefCount {
-    /// Decrements the reference count when a RefCount clone is dropped.
+    /// Decrements the reference count when a `RefCount` clone is dropped.
     ///
-    /// If this was the last reference (num_copies reaches 0), this will also
-    /// free the RefCountInner and call the custom destructor.
+    /// If this was the last reference (`num_copies` reaches 0), this will also
+    /// free the `RefCountInner` and call the custom destructor.
     fn drop(&mut self) {
         // Only decrement if run_destructor is true (meaning this is a clone)
         // and the pointer is valid
@@ -209,7 +209,7 @@ impl Drop for RefCount {
 
         // We're the last reference! Clean up.
         // SAFETY: ptr came from Box::into_raw, and we're the last reference
-        let sharing_info = unsafe { Box::from_raw(self.ptr as *mut RefCountInner) };
+        let sharing_info = unsafe { Box::from_raw(self.ptr.cast_mut()) };
         let sharing_info = *sharing_info; // Box deallocates RefCountInner here
 
         // Get the data pointer
@@ -233,7 +233,7 @@ impl Drop for RefCount {
             };
 
             // Phase 1: Run the custom destructor
-            (sharing_info.custom_destructor)(data_ptr as *mut c_void);
+            (sharing_info.custom_destructor)(data_ptr.cast_mut());
 
             // Phase 2: Deallocate the memory
             unsafe {
@@ -269,7 +269,7 @@ impl RefCount {
     /// Safe because we're creating a new allocation with `Box::new`,
     /// then immediately leaking it with `into_raw` to get a stable pointer.
     fn new(ref_count: RefCountInner) -> Self {
-        RefCount {
+        Self {
             ptr: Box::into_raw(Box::new(ref_count)),
             run_destructor: true,
         }
@@ -284,9 +284,7 @@ impl RefCount {
     /// - The lifetime is tied to `&self`, ensuring the pointer is still alive
     /// - Reference counting ensures the data isn't freed while references exist
     fn downcast(&self) -> &RefCountInner {
-        if self.ptr.is_null() {
-            panic!("[RefCount::downcast] FATAL: self.ptr is null!");
-        }
+        assert!(!self.ptr.is_null(), "[RefCount::downcast] FATAL: self.ptr is null!");
         unsafe { &*self.ptr }
     }
 
@@ -319,7 +317,7 @@ impl RefCount {
     ///
     /// Uses `SeqCst` to ensure we see the most recent state from all threads.
     /// If another thread just released a mutable borrow, we'll see it.
-    pub fn can_be_shared(&self) -> bool {
+    #[must_use] pub fn can_be_shared(&self) -> bool {
         self.downcast()
             .num_mutable_refs
             .load(AtomicOrdering::SeqCst)
@@ -335,7 +333,7 @@ impl RefCount {
     ///
     /// Uses `SeqCst` to ensure we see all recent borrows from all threads.
     /// Both counters must be checked atomically to prevent races.
-    pub fn can_be_shared_mut(&self) -> bool {
+    #[must_use] pub fn can_be_shared_mut(&self) -> bool {
         let info = self.downcast();
         info.num_mutable_refs.load(AtomicOrdering::SeqCst) == 0
             && info.num_refs.load(AtomicOrdering::SeqCst) == 0
@@ -414,7 +412,7 @@ pub struct Ref<'a, T> {
     sharing_info: RefCount,
 }
 
-impl<'a, T> Drop for Ref<'a, T> {
+impl<T> Drop for Ref<'_, T> {
     /// Automatically releases the shared borrow when the guard goes out of scope.
     ///
     /// # Safety
@@ -426,7 +424,7 @@ impl<'a, T> Drop for Ref<'a, T> {
     }
 }
 
-impl<'a, T> core::ops::Deref for Ref<'a, T> {
+impl<T> core::ops::Deref for Ref<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -439,7 +437,7 @@ impl<'a, T> core::ops::Deref for Ref<'a, T> {
 /// Similar to `std::cell::RefMut`, this automatically decrements the mutable
 /// borrow counter when dropped, releasing exclusive access.
 ///
-/// # Deref / DerefMut
+/// # Deref / `DerefMut`
 ///
 /// Implements both `Deref` and `DerefMut` so you can use it like `&mut T`.
 #[derive(Debug)]
@@ -449,7 +447,7 @@ pub struct RefMut<'a, T> {
     sharing_info: RefCount,
 }
 
-impl<'a, T> Drop for RefMut<'a, T> {
+impl<T> Drop for RefMut<'_, T> {
     /// Automatically releases the mutable borrow when the guard goes out of scope.
     ///
     /// # Safety
@@ -461,7 +459,7 @@ impl<'a, T> Drop for RefMut<'a, T> {
     }
 }
 
-impl<'a, T> core::ops::Deref for RefMut<'a, T> {
+impl<T> core::ops::Deref for RefMut<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -469,7 +467,7 @@ impl<'a, T> core::ops::Deref for RefMut<'a, T> {
     }
 }
 
-impl<'a, T> core::ops::DerefMut for RefMut<'a, T> {
+impl<T> core::ops::DerefMut for RefMut<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.ptr
     }
@@ -516,11 +514,11 @@ pub struct RefAny {
     /// Shared metadata: reference counts, type info, destructor, AND data pointer.
     ///
     /// All `RefAny` clones point to the same `RefCountInner` via this field.
-    /// The data pointer is stored in RefCountInner so all clones see the same
-    /// pointer, even after replace_contents() is called.
+    /// The data pointer is stored in `RefCountInner` so all clones see the same
+    /// pointer, even after `replace_contents()` is called.
     ///
     /// The `run_destructor` flag on `RefCount` controls whether dropping this
-    /// RefAny should decrement the reference count and potentially free memory.
+    /// `RefAny` should decrement the reference count and potentially free memory.
     pub sharing_info: RefCount,
 
     /// Unique ID for this specific clone (root = 0, subsequent clones increment).
@@ -628,7 +626,7 @@ impl RefAny {
 
                 // Take ownership and run the destructor
                 let stack_mem = stack_mem.assume_init();
-                mem::drop(stack_mem); // Runs U's Drop implementation
+                drop(stack_mem); // Runs U's Drop implementation
             }
         }
 
@@ -637,7 +635,7 @@ impl RefAny {
 
         let st = AzString::from_const_str(type_name);
         let s = Self::new_c(
-            (&value as *const T) as *const c_void,
+            (&raw const value) as *const c_void,
             ::core::mem::size_of::<T>(),
             ::core::mem::align_of::<T>(), // CRITICAL: Pass alignment to prevent UB
             type_id,
@@ -702,14 +700,12 @@ impl RefAny {
 
         // CRITICAL: Validate input pointer for non-ZST types
         // A NULL pointer for a non-zero-sized type would cause UB when copying
-        if len > 0 && ptr.is_null() {
-            panic!(
+        assert!(!(len > 0 && ptr.is_null()), 
                 "RefAny::new_c: NULL pointer passed for non-ZST type (size={}). \
                 This would cause undefined behavior. Type: {:?}",
                 len,
                 type_name.as_str()
             );
-        }
 
         // Special case: Zero-sized types
         //
@@ -768,7 +764,7 @@ impl RefAny {
 
     /// Returns the raw data pointer for FFI downcasting.
     ///
-    /// This is used by the AZ_REFLECT macros in C/C++ to access the
+    /// This is used by the `AZ_REFLECT` macros in C/C++ to access the
     /// type-erased data pointer for downcasting operations.
     ///
     /// # Safety
@@ -776,14 +772,14 @@ impl RefAny {
     /// The returned pointer must only be dereferenced after verifying
     /// the type ID matches the expected type. Callers are responsible
     /// for proper type safety checks.
-    pub fn get_data_ptr(&self) -> *const c_void {
+    #[must_use] pub fn get_data_ptr(&self) -> *const c_void {
         self.sharing_info.downcast()._internal_ptr
     }
 
     /// Returns the byte length of the type-erased payload behind
     /// [`Self::get_data_ptr`] (`size_of::<T>()` of the stored type;
     /// `0` for ZSTs).
-    pub fn get_data_len(&self) -> usize {
+    #[must_use] pub fn get_data_len(&self) -> usize {
         self.sharing_info.downcast()._internal_len
     }
 
@@ -852,7 +848,7 @@ impl RefAny {
     /// Clones of the `RefAny` can call this independently (they share data
     /// but have separate runtime borrow tracking).
     #[inline]
-    pub fn downcast_ref<'a, U: 'static>(&'a mut self) -> Option<Ref<'a, U>> {
+    pub fn downcast_ref<U: 'static>(&mut self) -> Option<Ref<'_, U>> {
         // Runtime type check: prevent downcasting to wrong type
         let stored_type_id = self.get_type_id();
         let target_type_id = Self::get_type_id_static::<U>();
@@ -918,7 +914,7 @@ impl RefAny {
     /// The `increase_refmut()` uses `SeqCst`, ensuring other threads see
     /// this mutable borrow before they try to acquire any borrow.
     #[inline]
-    pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<RefMut<'a, U>> {
+    pub fn downcast_mut<U: 'static>(&mut self) -> Option<RefMut<'_, U>> {
         // Runtime type check
         let is_same_type = self.get_type_id() == Self::get_type_id_static::<U>();
         if !is_same_type {
@@ -985,8 +981,8 @@ impl RefAny {
         // SAFETY: TypeId is a valid type, we're only reading it
         let struct_as_bytes = unsafe {
             core::slice::from_raw_parts(
-                (&t_id as *const TypeId) as *const u8,
-                mem::size_of::<TypeId>(),
+                (&raw const t_id) as *const u8,
+                size_of::<TypeId>(),
             )
         };
 
@@ -1000,24 +996,24 @@ impl RefAny {
     }
 
     /// Checks if the stored type matches the given type ID.
-    pub fn is_type(&self, type_id: u64) -> bool {
+    #[must_use] pub fn is_type(&self, type_id: u64) -> bool {
         self.sharing_info.downcast().type_id == type_id
     }
 
     /// Returns the stored type ID.
-    pub fn get_type_id(&self) -> u64 {
+    #[must_use] pub fn get_type_id(&self) -> u64 {
         self.sharing_info.downcast().type_id
     }
 
     /// Returns the human-readable type name for debugging.
-    pub fn get_type_name(&self) -> AzString {
+    #[must_use] pub fn get_type_name(&self) -> AzString {
         self.sharing_info.downcast().type_name.clone()
     }
 
     /// Returns the current reference count (number of `RefAny` clones sharing this data).
     ///
     /// This is useful for debugging and metadata purposes.
-    pub fn get_ref_count(&self) -> usize {
+    #[must_use] pub fn get_ref_count(&self) -> usize {
         self.sharing_info
             .downcast()
             .num_copies
@@ -1026,15 +1022,15 @@ impl RefAny {
 
     /// Returns the serialize function pointer (0 = not set).
     /// 
-    /// This is used for JSON serialization of RefAny contents.
-    pub fn get_serialize_fn(&self) -> usize {
+    /// This is used for JSON serialization of `RefAny` contents.
+    #[must_use] pub fn get_serialize_fn(&self) -> usize {
         self.sharing_info.downcast().serialize_fn
     }
 
     /// Returns the deserialize function pointer (0 = not set).
     /// 
-    /// This is used for JSON deserialization to create a new RefAny.
-    pub fn get_deserialize_fn(&self) -> usize {
+    /// This is used for JSON deserialization to create a new `RefAny`.
+    #[must_use] pub fn get_deserialize_fn(&self) -> usize {
         self.sharing_info.downcast().deserialize_fn
     }
 
@@ -1051,7 +1047,7 @@ impl RefAny {
     pub fn set_serialize_fn(&mut self, serialize_fn: usize) {
         // FIXME: &mut self is exclusive to this clone only, not to the shared
         // RefCountInner — concurrent calls via different clones are a data race.
-        let inner = self.sharing_info.ptr as *mut RefCountInner;
+        let inner = self.sharing_info.ptr.cast_mut();
         unsafe {
             (*inner).serialize_fn = serialize_fn;
         }
@@ -1070,7 +1066,7 @@ impl RefAny {
     pub fn set_deserialize_fn(&mut self, deserialize_fn: usize) {
         // FIXME: &mut self is exclusive to this clone only, not to the shared
         // RefCountInner — concurrent calls via different clones are a data race.
-        let inner = self.sharing_info.ptr as *mut RefCountInner;
+        let inner = self.sharing_info.ptr.cast_mut();
         unsafe {
             (*inner).deserialize_fn = deserialize_fn;
         }
@@ -1087,40 +1083,40 @@ impl RefAny {
     /// Same shared-`RefCountInner` caveat as [`Self::set_serialize_fn`]: `&mut self`
     /// is exclusive to this clone, not to the shared inner.
     pub fn set_update_fn(&mut self, update_fn: usize) {
-        let inner = self.sharing_info.ptr as *mut RefCountInner;
+        let inner = self.sharing_info.ptr.cast_mut();
         unsafe {
             (*inner).update_fn = update_fn;
         }
     }
 
     /// Returns the registered on-update observer fn pointer (`0` = unset).
-    pub fn get_update_fn(&self) -> usize {
+    #[must_use] pub fn get_update_fn(&self) -> usize {
         self.sharing_info.downcast().update_fn
     }
 
-    /// Returns true if this RefAny supports JSON serialization.
-    pub fn can_serialize(&self) -> bool {
+    /// Returns true if this `RefAny` supports JSON serialization.
+    #[must_use] pub fn can_serialize(&self) -> bool {
         self.get_serialize_fn() != 0
     }
 
-    /// Returns true if this RefAny type supports JSON deserialization.
-    pub fn can_deserialize(&self) -> bool {
+    /// Returns true if this `RefAny` type supports JSON deserialization.
+    #[must_use] pub fn can_deserialize(&self) -> bool {
         self.get_deserialize_fn() != 0
     }
 
-    /// Replaces the contents of this RefAny with a new value from another RefAny.
+    /// Replaces the contents of this `RefAny` with a new value from another `RefAny`.
     ///
     /// This method:
-    /// 1. Atomically acquires a mutable "lock" via compare_exchange
+    /// 1. Atomically acquires a mutable "lock" via `compare_exchange`
     /// 2. Calls the destructor on the old value
     /// 3. Deallocates the old memory
     /// 4. Copies the new value's memory
-    /// 5. Updates metadata (type_id, type_name, destructor, serialize/deserialize fns)
-    /// 6. Updates the shared _internal_ptr so ALL clones see the new data
+    /// 5. Updates metadata (`type_id`, `type_name`, destructor, serialize/deserialize fns)
+    /// 6. Updates the shared _`internal_ptr` so ALL clones see the new data
     /// 7. Releases the lock
     ///
-    /// Since all clones of a RefAny share the same `RefCountInner`, this change
-    /// will be visible to ALL clones of this RefAny.
+    /// Since all clones of a `RefAny` share the same `RefCountInner`, this change
+    /// will be visible to ALL clones of this `RefAny`.
     ///
     /// # Returns
     ///
@@ -1129,7 +1125,7 @@ impl RefAny {
     ///
     /// # Thread Safety
     ///
-    /// Uses compare_exchange to atomically acquire exclusive access, preventing
+    /// Uses `compare_exchange` to atomically acquire exclusive access, preventing
     /// any race condition between checking for borrows and modifying the data.
     ///
     /// # Safety
@@ -1139,10 +1135,10 @@ impl RefAny {
     /// - The old destructor is called before deallocation
     /// - Memory is properly allocated with correct alignment
     /// - All metadata is updated while holding the lock
-    pub fn replace_contents(&mut self, new_value: RefAny) -> bool {
+    pub fn replace_contents(&mut self, new_value: Self) -> bool {
         use core::ptr;
 
-        let inner = self.sharing_info.ptr as *mut RefCountInner;
+        let inner = self.sharing_info.ptr.cast_mut();
         
         // Atomically acquire exclusive access by setting num_mutable_refs to 1.
         // This uses compare_exchange to ensure no race condition:
@@ -1183,7 +1179,7 @@ impl RefAny {
 
             // Step 1: Call destructor on old value (if non-ZST)
             if old_len > 0 && !old_ptr.is_null() {
-                old_destructor(old_ptr as *mut c_void);
+                old_destructor(old_ptr.cast_mut());
             }
 
             // Step 2: Deallocate old memory (if non-ZST)
@@ -1265,10 +1261,10 @@ impl Clone for RefAny {
     ///
     /// The `fetch_add` followed by `load` both use `SeqCst`:
     /// - `fetch_add`: Ensures the increment is visible to all threads
-    /// - `load`: Gets the updated value for the instance_id
+    /// - `load`: Gets the updated value for the `instance_id`
     ///
     /// This prevents race conditions where two threads clone simultaneously
-    /// and both see the same instance_id.
+    /// and both see the same `instance_id`.
     ///
     /// # Safety
     ///

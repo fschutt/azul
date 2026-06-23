@@ -116,7 +116,7 @@ macro_rules! impl_callback_traits {
 ///
 /// For callbacks with only a `.cb` field (no `.ctx`), use [`impl_callback_simple!`] instead.
 ///
-/// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
+/// This is necessary to work around for <https://github.com/rust-lang/rust/issues/54508>
 #[macro_export]
 macro_rules! impl_callback {
     // Version with callable field (for UI callbacks that need FFI support)

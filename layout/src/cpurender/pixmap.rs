@@ -17,10 +17,10 @@ use agg_rust::span_gradient::{GradientFunction, SpanGradient};
 use agg_rust::span_interpolator_linear::SpanInterpolatorLinear;
 use agg_rust::trans_affine::TransAffine;
 
-pub(crate) const IDENTITY_EPSILON_F64: f64 = 0.0001;
+pub const IDENTITY_EPSILON_F64: f64 = 0.0001;
 
 /// Compute the intersection of two logical rects.
-pub(crate) fn rect_intersection(a: &LogicalRect, b: &LogicalRect) -> Option<LogicalRect> {
+#[must_use] pub fn rect_intersection(a: &LogicalRect, b: &LogicalRect) -> Option<LogicalRect> {
     let x1 = a.origin.x.max(b.origin.x);
     let y1 = a.origin.y.max(b.origin.y);
     let x2 = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
@@ -38,8 +38,8 @@ pub(crate) fn rect_intersection(a: &LogicalRect, b: &LogicalRect) -> Option<Logi
     }
 }
 
-/// Blit `src` onto `dst` at pixel position (px_x, px_y) with opacity.
-pub(crate) fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32, opacity: f32) {
+/// Blit `src` onto `dst` at pixel position (`px_x`, `px_y`) with opacity.
+pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32, opacity: f32) {
     let sw = src.width as i32;
     let sh = src.height as i32;
     let dw = dst.width as i32;
@@ -87,7 +87,7 @@ pub(crate) fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_
 }
 
 /// Shift pixel data in a pixmap by (dx, dy) pixels, clearing exposed regions.
-pub(crate) fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
+pub fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
     let w = pixmap.width as i32;
     let h = pixmap.height as i32;
     if dx.abs() >= w || dy.abs() >= h {
@@ -148,7 +148,7 @@ pub(crate) fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
     }
 }
 
-/// A simple RGBA pixel buffer. Replaces tiny_skia::Pixmap.
+/// A simple RGBA pixel buffer. Replaces `tiny_skia::Pixmap`.
 pub struct AzulPixmap {
     pub(crate) data: Vec<u8>,
     pub(crate) width: u32,
@@ -157,7 +157,7 @@ pub struct AzulPixmap {
 
 impl AzulPixmap {
     /// Create a new pixmap filled with opaque white.
-    pub fn new(width: u32, height: u32) -> Option<Self> {
+    #[must_use] pub fn new(width: u32, height: u32) -> Option<Self> {
         if width == 0 || height == 0 {
             return None;
         }
@@ -205,7 +205,7 @@ impl AzulPixmap {
     }
 
     /// Raw RGBA pixel data.
-    pub fn data(&self) -> &[u8] {
+    #[must_use] pub fn data(&self) -> &[u8] {
         &self.data
     }
 
@@ -215,17 +215,17 @@ impl AzulPixmap {
     }
 
     /// Width in pixels.
-    pub fn width(&self) -> u32 {
+    #[must_use] pub const fn width(&self) -> u32 {
         self.width
     }
 
     /// Height in pixels.
-    pub fn height(&self) -> u32 {
+    #[must_use] pub const fn height(&self) -> u32 {
         self.height
     }
 
     /// Create a clone of this pixmap (for filter application).
-    pub fn clone_pixmap(&self) -> Self {
+    #[must_use] pub fn clone_pixmap(&self) -> Self {
         Self {
             data: self.data.clone(),
             width: self.width,
@@ -337,27 +337,27 @@ impl AzulPixmap {
             encoder.set_depth(png::BitDepth::Eight);
             let mut writer = encoder
                 .write_header()
-                .map_err(|e| format!("PNG header error: {}", e))?;
+                .map_err(|e| format!("PNG header error: {e}"))?;
             writer
                 .write_image_data(&self.data)
-                .map_err(|e| format!("PNG write error: {}", e))?;
+                .map_err(|e| format!("PNG write error: {e}"))?;
         }
         Ok(buf)
     }
 
-    /// Decode a PNG byte slice into an AzulPixmap.
+    /// Decode a PNG byte slice into an `AzulPixmap`.
     pub fn decode_png(png_bytes: &[u8]) -> Result<Self, String> {
         let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
         let mut reader = decoder
             .read_info()
-            .map_err(|e| format!("PNG decode error: {}", e))?;
+            .map_err(|e| format!("PNG decode error: {e}"))?;
         let buf_size = reader
             .output_buffer_size()
             .ok_or_else(|| "PNG: unknown output buffer size".to_string())?;
         let mut buf = vec![0u8; buf_size];
         let info = reader
             .next_frame(&mut buf)
-            .map_err(|e| format!("PNG frame error: {}", e))?;
+            .map_err(|e| format!("PNG frame error: {e}"))?;
         let width = info.width;
         let height = info.height;
 
@@ -384,7 +384,7 @@ impl AzulPixmap {
                 }
                 rgba
             }
-            other => return Err(format!("Unsupported PNG color type: {:?}", other)),
+            other => return Err(format!("Unsupported PNG color type: {other:?}")),
         };
 
         Ok(Self {
@@ -422,12 +422,12 @@ pub struct PixelDiffResult {
 
 impl PixelDiffResult {
     /// True if the images are identical within tolerance.
-    pub fn is_match(&self) -> bool {
+    #[must_use] pub const fn is_match(&self) -> bool {
         self.dimensions_match && self.diff_count == 0
     }
 
     /// Fraction of pixels that differ (0.0 = identical, 1.0 = all different).
-    pub fn diff_ratio(&self) -> f64 {
+    #[must_use] pub fn diff_ratio(&self) -> f64 {
         if self.total_pixels == 0 {
             0.0
         } else {
@@ -440,7 +440,7 @@ impl PixelDiffResult {
 ///
 /// `threshold` is the maximum allowed per-channel difference (0 = exact match,
 /// 2-3 = anti-aliasing tolerance, 10+ = loose match).
-pub fn pixel_diff(reference: &AzulPixmap, test: &AzulPixmap, threshold: u8) -> PixelDiffResult {
+#[must_use] pub fn pixel_diff(reference: &AzulPixmap, test: &AzulPixmap, threshold: u8) -> PixelDiffResult {
     let dimensions_match = reference.width == test.width && reference.height == test.height;
     if !dimensions_match {
         return PixelDiffResult {
@@ -501,7 +501,7 @@ pub fn compare_against_reference(
     threshold: u8,
 ) -> Result<PixelDiffResult, String> {
     let ref_bytes = std::fs::read(reference_png_path)
-        .map_err(|e| format!("Cannot read reference image {}: {}", reference_png_path, e))?;
+        .map_err(|e| format!("Cannot read reference image {reference_png_path}: {e}"))?;
     let reference = AzulPixmap::decode_png(&ref_bytes)?;
     Ok(pixel_diff(&reference, rendered, threshold))
 }
@@ -511,7 +511,7 @@ pub fn compare_against_reference(
 // ============================================================================
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct AzRect {
+pub struct AzRect {
     pub(crate) x: f32,
     pub(crate) y: f32,
     pub(crate) width: f32,
@@ -522,7 +522,7 @@ pub(crate) struct AzRect {
 /// means "no clip". An EMPTY intersection clips everything (zero-area rect) —
 /// it must NOT degrade to `None`/unclipped, or nested clips could escape
 /// their parents.
-pub(crate) fn intersect_clips(current: Option<AzRect>, new: Option<AzRect>) -> Option<AzRect> {
+#[must_use] pub fn intersect_clips(current: Option<AzRect>, new: Option<AzRect>) -> Option<AzRect> {
     match (current, new) {
         (Some(cur), Some(new)) => {
             let x0 = cur.x.max(new.x);
@@ -561,13 +561,13 @@ impl AzRect {
     }
 
     /// Intersect this rect with a clip rect. Returns None if fully clipped.
-    pub(crate) fn clip(&self, clip: &AzRect) -> Option<AzRect> {
+    pub(crate) fn clip(&self, clip: &Self) -> Option<Self> {
         let x1 = self.x.max(clip.x);
         let y1 = self.y.max(clip.y);
         let x2 = (self.x + self.width).min(clip.x + clip.width);
         let y2 = (self.y + self.height).min(clip.y + clip.height);
         if x2 > x1 && y2 > y1 {
-            Some(AzRect {
+            Some(Self {
                 x: x1,
                 y: y1,
                 width: x2 - x1,
@@ -583,7 +583,7 @@ impl AzRect {
 // AGG helper: fill a PathStorage with a solid color into an AzulPixmap
 // ============================================================================
 
-pub(crate) fn agg_fill_path(
+pub fn agg_fill_path(
     pixmap: &mut AzulPixmap,
     path: &mut dyn VertexSource,
     color: &Rgba8,
@@ -598,7 +598,7 @@ pub(crate) fn agg_fill_path(
 /// scanline output to the clip region.  This handles scroll-frame clips,
 /// border-radius is TODO (would need a mask), transforms are handled by
 /// transforming the clip box through the inverse transform before setting it.
-pub(crate) fn agg_fill_path_clipped(
+pub fn agg_fill_path_clipped(
     pixmap: &mut AzulPixmap,
     path: &mut dyn VertexSource,
     color: &Rgba8,
@@ -668,7 +668,7 @@ fn agg_fill_gradient<G: GradientFunction>(
     agg_fill_gradient_clipped(pixmap, path, lut, gradient_fn, transform, d1, d2, None);
 }
 
-pub(crate) fn agg_fill_gradient_clipped<G: GradientFunction>(
+pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     pixmap: &mut AzulPixmap,
     path: &mut dyn VertexSource,
     lut: &GradientLut,
@@ -708,7 +708,7 @@ pub(crate) fn agg_fill_gradient_clipped<G: GradientFunction>(
 // ============================================================================
 
 /// Alpha-blend one premultiplied-alpha RGBA buffer onto another at (dx, dy).
-pub(crate) fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx: i32, dy: i32) {
+pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx: i32, dy: i32) {
     let dw = dst.width as i32;
     let dh = dst.height as i32;
 
@@ -759,7 +759,7 @@ pub(crate) fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u
 // ============================================================================
 
 /// Take a snapshot of a rectangular region of the pixmap.
-pub(crate) fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> Vec<u8> {
+#[must_use] pub fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> Vec<u8> {
     let pw = pixmap.width as i32;
     let ph = pixmap.height as i32;
     let mut snap = vec![0u8; (w as usize) * (h as usize) * 4];
@@ -787,7 +787,7 @@ pub(crate) fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u3
     snap
 }
 
-pub fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
+#[must_use] pub fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
     let x = a.origin.x.min(b.origin.x);
     let y = a.origin.y.min(b.origin.y);
     let right = (a.origin.x + a.size.width).max(b.origin.x + b.size.width);
@@ -801,7 +801,7 @@ pub fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
     }
 }
 
-pub(crate) fn logical_rect_to_az_rect(bounds: &LogicalRect, dpi_factor: f32) -> Option<AzRect> {
+#[must_use] pub fn logical_rect_to_az_rect(bounds: &LogicalRect, dpi_factor: f32) -> Option<AzRect> {
     let x = bounds.origin.x * dpi_factor;
     let y = bounds.origin.y * dpi_factor;
     let width = bounds.size.width * dpi_factor;

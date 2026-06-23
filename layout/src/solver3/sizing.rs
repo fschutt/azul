@@ -107,7 +107,7 @@ fn resolve_px_with_box_model(
 // +spec:containing-block:8ad6f4 - Percentage resolution against containing block (editorial note: transferred percentages)
 // +spec:containing-block:257f3b - Block-axis percentages resolve against containing block size
 // +spec:containing-block:f1344e - percentage min/max-width resolved against containing block width; negative CB width yields zero
-pub fn resolve_percentage_with_box_model(
+#[must_use] pub fn resolve_percentage_with_box_model(
     containing_block_dimension: f32,
     percentage: f32,
     _margins: (f32, f32),
@@ -198,7 +198,7 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
         crate::az_mark(0x60738_u32, ((tree.get(tree.root).is_some() as u32)));
         // [az-diag g55] 0x4075C = the `tree` ptr the CALLEE sees. Compare with 0x40748
         // (caller's &new_tree). Same → nodes-field-offset mis-lift; differ → &mut arg mis-passed.
-        crate::az_mark(0x6075C_u32, (((tree as *const LayoutTree as usize) as u32)));
+        crate::az_mark(0x6075C_u32, (((std::ptr::from_ref::<LayoutTree>(tree) as usize) as u32)));
     }
     calculator.calculate_intrinsic_recursive(tree, tree.root, false)?;
     debug_log!(ctx, "Finished intrinsic size calculation");
@@ -225,11 +225,11 @@ fn compute_dirty_ancestor_closure(
 struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
     ctx: &'a mut LayoutContext<'b, T>,
     /// Shared text shaping cache, threaded through from the caller so
-    /// stages 1–3 of the inline layout pipeline (logical / BiDi / shaping)
+    /// stages 1–3 of the inline layout pipeline (logical / `BiDi` / shaping)
     /// are cache-hits across the sizing pass's min/max-content measurements
     /// AND the subsequent real layout pass. Previously each pass held its
     /// own `LayoutCache`, so identical text was shaped three times per
-    /// root_layout_pass — once per min-content measurement, once per
+    /// `root_layout_pass` — once per min-content measurement, once per
     /// max-content measurement, once at final layout.
     text_cache: &'c mut LayoutCache,
     /// If `Some`, only nodes in this set (the ancestor-closure of
@@ -240,7 +240,7 @@ struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
 }
 
 impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
-    fn new(ctx: &'a mut LayoutContext<'b, T>, text_cache: &'c mut LayoutCache) -> Self {
+    const fn new(ctx: &'a mut LayoutContext<'b, T>, text_cache: &'c mut LayoutCache) -> Self {
         Self {
             ctx,
             text_cache,
@@ -284,8 +284,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 .subtree_needs_intrinsic
                 .get(node_index)
                 .copied()
-                .map(|v| !v)
-                .unwrap_or(false)
+                .is_some_and(|v| !v)
         {
             let default = IntrinsicSizes::default();
             if let Some(n) = tree.warm_mut(node_index) {
@@ -330,14 +329,13 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // ancestor up to and including self is STF.
         let self_is_stf = tree
             .get(node_index)
-            .map(|n| {
+            .is_some_and(|n| {
                 crate::solver3::layout_tree::is_shrink_to_fit_context(
                     self.ctx.styled_dom,
                     n.dom_node_id,
                     &n.formatting_context,
                 )
-            })
-            .unwrap_or(false);
+            });
         let child_ancestor_is_stf = ancestor_is_stf || self_is_stf;
 
         let mut child_intrinsics = Vec::with_capacity(n);
@@ -481,7 +479,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 let has_block_child = tree.children(node_index).iter().any(|&child_idx| {
                     tree.get(child_idx)
                         .and_then(|c| c.dom_node_id)
-                        .map(|dom_id| {
+                        .is_some_and(|dom_id| {
                             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
                             // Text nodes are inline-level
                             if matches!(node_data.get_node_type(), NodeType::Text(_)) {
@@ -490,13 +488,12 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                             let display = get_display_type(self.ctx.styled_dom, dom_id);
                             display.creates_block_context()
                         })
-                        .unwrap_or(false)
                 });
 
                 let has_inline_child = tree.children(node_index).iter().any(|&child_idx| {
                     tree.get(child_idx)
                         .and_then(|c| c.dom_node_id)
-                        .map(|dom_id| {
+                        .is_some_and(|dom_id| {
                             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
                             if matches!(node_data.get_node_type(), NodeType::Text(_)) {
                                 return true;
@@ -510,7 +507,6 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                                 | LayoutDisplay::InlineTable
                             )
                         })
-                        .unwrap_or(false)
                 });
 
                 // IFC root only if there are inline children and NO block children.
@@ -519,16 +515,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 
                 // Also check if this block has direct text content (text nodes in DOM)
                 // but ONLY if there are no block-level layout children
-                let has_direct_text = if !has_block_child {
-                    if let Some(dom_id) = node.dom_node_id {
-                        let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
-                        dom_id.az_children(node_hierarchy).any(|child_id| {
-                            let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
-                            matches!(child_node_data.get_node_type(), NodeType::Text(_))
-                        })
-                    } else {
-                        false
-                    }
+                let has_direct_text = if has_block_child {
+                    false
+                } else if let Some(dom_id) = node.dom_node_id {
+                    let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
+                    dom_id.az_children(node_hierarchy).any(|child_id| {
+                        let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
+                        matches!(child_node_data.get_node_type(), NodeType::Text(_))
+                    })
                 } else {
                     false
                 };
@@ -586,8 +580,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // are not in the layout tree, only in the DOM).
                 let has_inline_children = tree.children(node_index).iter().any(|&child_idx| {
                     tree.get(child_idx)
-                        .map(|c| matches!(c.formatting_context, FormattingContext::Inline))
-                        .unwrap_or(false)
+                        .is_some_and(|c| matches!(c.formatting_context, FormattingContext::Inline))
                 });
 
                 let has_direct_text = if let Some(dom_id) = node.dom_node_id {
@@ -1059,7 +1052,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
 ///
 /// This function recursively collects text and inline-level content according to
 /// CSS Sizing Level 3, Section 4.1: "Intrinsic Sizes"
-/// https://www.w3.org/TR/css-sizing-3/#intrinsic-sizes
+/// <https://www.w3.org/TR/css-sizing-3/#intrinsic-sizes>
 ///
 /// For inline formatting contexts, we need to gather:
 /// 1. Text nodes (inline content)
@@ -1109,12 +1102,9 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     // visible even though a PRIOR successful call already wrote B8. This is the suspected
     // InvalidTree site (phase stuck at 0xA0 + B8 reached ⇒ a 2nd IFC call fails at this get).
     unsafe { crate::az_mark(0x60754_u32, ((node_index as u32))); }
-    let node = match tree.get(node_index) {
-        Some(n) => n,
-        None => {
-            unsafe { crate::az_mark(0x6071C_u32, (0xBADu32)); }
-            return Err(LayoutError::InvalidTree);
-        }
+    let node = if let Some(n) = tree.get(node_index) { n } else {
+        unsafe { crate::az_mark(0x6071C_u32, (0xBADu32)); }
+        return Err(LayoutError::InvalidTree);
     };
 
     // CRITICAL FIX: Text nodes may exist in the DOM but not as separate layout nodes!
@@ -1312,9 +1302,9 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
 // +spec:overflow:3c4f25 - auto box sizes: four auto-determined size types resolved here
 // +spec:width-calculation:fb0629 - width/margin used values depend on box type, auto replaced by suitable value
 /// M12.7: out-of-line auto-width-block inline size — `(cb.width - margins - borders -
-/// padding).max(0.0)`. Extracted from calc_used_size's auto-width Block arm so the
+/// padding).max(0.0)`. Extracted from `calc_used_size`'s auto-width Block arm so the
 /// `.max(0.0)` runs in a small fn (proven to lift correctly), with a FRESH pointer
-/// deref (the huge calc_used_size body hoists/spills cb.width and the remill lift then
+/// deref (the huge `calc_used_size` body hoists/spills cb.width and the remill lift then
 /// reads it back 0). Returns by f32 (D0/V0 — the standard scalar return), NOT an out-ptr:
 /// the out-ptr version computed 800 correctly but the caller's reload was opt-forwarded
 /// to the init 0.0 across the opaque call (the helper's `*out` lowers to a direct
@@ -2169,7 +2159,7 @@ fn apply_height_constraints(
     result.max(min_height)
 }
 
-pub fn extract_text_from_node(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
+#[must_use] pub fn extract_text_from_node(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
     match &styled_dom.node_data.as_container()[node_id].get_node_type() {
         NodeType::Text(text_data) => {
             Some(text_data.as_str().to_string())

@@ -67,7 +67,7 @@ pub struct CameraWidget {
 
 impl CameraWidget {
     /// Create a camera widget for the given capture config.
-    pub fn create(config: CameraConfig) -> Self {
+    #[must_use] pub const fn create(config: CameraConfig) -> Self {
         Self {
             config,
             on_frame: OptionOnVideoFrame::None,
@@ -97,7 +97,7 @@ impl CameraWidget {
 
     /// Build the widget's DOM: a single `<img>` node, fed by a background
     /// capture thread started on mount.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         let state = CameraWidgetState {
             config: self.config,
             started: false,
@@ -126,13 +126,13 @@ impl CameraWidget {
 }
 
 /// Frame dimensions for a config (0 -> a sane default).
-fn frame_dims(config: &CameraConfig) -> (u32, u32) {
+const fn frame_dims(config: &CameraConfig) -> (u32, u32) {
     let w = if config.width > 0 { config.width } else { 640 };
     let h = if config.height > 0 { config.height } else { 480 };
     (w, h)
 }
 
-/// AfterMount: start the background capture thread exactly once.
+/// `AfterMount`: start the background capture thread exactly once.
 extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let dims = {
         let mut s = match data.downcast_mut::<CameraWidgetState>() {
@@ -165,8 +165,7 @@ extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) ->
 extern "C" fn camera_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     let (w, h) = init
         .downcast_ref::<CameraThreadInit>()
-        .map(|i| (i.width, i.height))
-        .unwrap_or((640, 480));
+        .map_or((640, 480), |i| (i.width, i.height));
 
     // Real platform capture if the dll registered a camera backend (v4l2 /
     // AVFoundation / Media Foundation); otherwise the colour-cycle test pattern.

@@ -33,7 +33,7 @@ pub struct CompositorState {
     pub layers: HashMap<LayerId, Layer>,
     /// Root layer of the tree.
     pub root_layer: LayerId,
-    /// Monotonic counter for generating unique LayerIds.
+    /// Monotonic counter for generating unique `LayerIds`.
     next_layer_id: u64,
     /// Previous frame's per-node positions, used for damage computation.
     pub previous_positions: Vec<LogicalPosition>,
@@ -83,7 +83,7 @@ pub enum LayerReason {
 
 impl CompositorState {
     /// Create a new compositor with a root layer sized to the viewport.
-    pub fn new(width: u32, height: u32) -> Self {
+    #[must_use] pub fn new(width: u32, height: u32) -> Self {
         let root_id = LayerId(0);
         let root_layer = Layer::new(
             root_id,
@@ -99,7 +99,7 @@ impl CompositorState {
         );
         let mut layers = HashMap::new();
         layers.insert(root_id, root_layer);
-        CompositorState {
+        Self {
             layers,
             root_layer: root_id,
             next_layer_id: 1,
@@ -108,19 +108,19 @@ impl CompositorState {
     }
 
     /// Allocate a new unique layer ID.
-    pub fn alloc_layer_id(&mut self) -> LayerId {
+    pub const fn alloc_layer_id(&mut self) -> LayerId {
         let id = LayerId(self.next_layer_id);
         self.next_layer_id += 1;
         id
     }
 
     /// Read-only peek at the next layer ID counter (for leak probes).
-    pub fn next_layer_id_peek(&self) -> u64 {
+    #[must_use] pub const fn next_layer_id_peek(&self) -> u64 {
         self.next_layer_id
     }
 
     /// Walk the display list and create layers for scroll frames, filters, opacity, transforms.
-    /// Returns a mapping from display-list item index to the LayerId it should render into.
+    /// Returns a mapping from display-list item index to the `LayerId` it should render into.
     pub fn allocate_layers_from_display_list(
         &mut self,
         display_list: &DisplayList,
@@ -330,7 +330,7 @@ impl CompositorState {
         }
 
         // Distribute damage rects to affected layers
-        for (_, layer) in self.layers.iter_mut() {
+        for layer in self.layers.values_mut() {
             for damage in &damage_rects {
                 if let Some(intersection) = rect_intersection(&layer.bounds, damage) {
                     layer.damage.push(intersection);
@@ -461,12 +461,12 @@ impl CompositorState {
             blit_pixmap(&layer.pixbuf, output, 0, 0, 1.0);
         } else {
             // Apply filters at composite time
-            let src = if !layer.filters.is_empty() {
+            let src = if layer.filters.is_empty() {
+                None
+            } else {
                 let mut filtered = layer.pixbuf.clone_pixmap();
                 apply_layer_filters(&mut filtered, &layer.filters, dpi_factor);
                 Some(filtered)
-            } else {
-                None
             };
 
             let src_pixbuf = src.as_ref().unwrap_or(&layer.pixbuf);
@@ -584,7 +584,7 @@ impl CompositorState {
 
 impl Layer {
     fn new(id: LayerId, bounds: LogicalRect, pixel_width: u32, pixel_height: u32) -> Self {
-        Layer {
+        Self {
             id,
             pixbuf: AzulPixmap::new(pixel_width.max(1), pixel_height.max(1)).unwrap_or_else(|| {
                 AzulPixmap {
@@ -854,7 +854,7 @@ pub fn scroll_shift_region(
 // `px_*` deltas follows the renderer: positive = content moves up/left, so the
 // exposed strip is the trailing (bottom/right) edge.
 
-/// Single-axis VERTICAL move: shift whole rows up (px_dy>0) or down (px_dy<0).
+/// Single-axis VERTICAL move: shift whole rows up (`px_dy>0`) or down (`px_dy`<0).
 /// Iteration order is chosen so a row read as a source is never already
 /// overwritten (src and dst row SETS overlap, so order matters).
 #[inline]
@@ -885,8 +885,8 @@ fn shift_vertical_1d(
     }
 }
 
-/// Single-axis HORIZONTAL move: shift each row's pixels left (px_dx>0) or right
-/// (px_dx<0). Source and dest overlap WITHIN a row, so `copy_within`'s memmove
+/// Single-axis HORIZONTAL move: shift each row's pixels left (`px_dx>0`) or right
+/// (`px_dx`<0). Source and dest overlap WITHIN a row, so `copy_within`'s memmove
 /// semantics handle it directly — no per-row ordering needed.
 #[inline]
 fn shift_horizontal_1d(
@@ -917,7 +917,7 @@ fn shift_horizontal_1d(
 
 /// Diagonal (two-axis) pan in ONE pass: each destination row is copied directly
 /// from its diagonally-offset source row, applying the column shift in the same
-/// `copy_within`. Because |px_dy| ≥ 1, the source and dest rows are always
+/// `copy_within`. Because |`px_dy`| ≥ 1, the source and dest rows are always
 /// DIFFERENT rows ≥ one stride apart, so the per-copy byte ranges never overlap
 /// regardless of the horizontal direction — only the row iteration order (by
 /// `px_dy` sign) matters, exactly as in the vertical case. This does the work of
@@ -1024,7 +1024,7 @@ pub fn scroll_fast_path_eligible(
     let clip_area = (clip_bounds.size.width * clip_bounds.size.height).max(1.0);
     let mut backdrop_fills: Vec<LogicalRect> = Vec::new();
     let mut backdrop_color: Option<ColorU> = None;
-    for it in display_list.items[..start].iter() {
+    for it in &display_list.items[..start] {
         if it.is_state_management() {
             continue;
         }
@@ -1125,7 +1125,7 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
                     .height
                     .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
                     * dpi_factor;
-                let radius = ((rx + ry) / 2.0).ceil() as u32;
+                let radius = f32::midpoint(rx, ry).ceil() as u32;
                 if radius > 0 {
                     let w = pixmap.width;
                     let h = pixmap.height;
@@ -1305,7 +1305,7 @@ fn render_display_list_range(
 ///
 /// The comparison is conservative: any item whose bounds or content changed
 /// produces a damage rect covering both the old and new bounds.
-pub fn compute_display_list_damage(
+#[must_use] pub fn compute_display_list_damage(
     old: &DisplayList,
     new: &DisplayList,
 ) -> Option<Vec<LogicalRect>> {
@@ -1345,7 +1345,7 @@ pub fn compute_display_list_damage(
 /// Are two display lists visually identical? (same length, same item
 /// discriminants, every item `is_visually_equal`). Cheaper proxy than a
 /// structural hash, reusing the same per-item comparison the damage diff uses.
-pub fn display_lists_visually_equal(a: &DisplayList, b: &DisplayList) -> bool {
+#[must_use] pub fn display_lists_visually_equal(a: &DisplayList, b: &DisplayList) -> bool {
     if a.items.len() != b.items.len() {
         return false;
     }
@@ -1359,23 +1359,23 @@ pub fn display_lists_visually_equal(a: &DisplayList, b: &DisplayList) -> bool {
 ///
 /// The parent display list only carries a `VirtualView { child_dom_id, bounds }`
 /// item that stays byte-identical when the *child* DOM re-renders (e.g. a
-/// MapWidget tile arriving on a worker thread and re-invoking the VirtualView
+/// `MapWidget` tile arriving on a worker thread and re-invoking the `VirtualView`
 /// in place). So `compute_display_list_damage` — which only diffs the parent —
 /// reports "nothing changed", and `render_frame` would skip the frame, freezing
-/// the child content. This compares each VirtualView's child DL against the
+/// the child content. This compares each `VirtualView`'s child DL against the
 /// previous frame's and returns the on-screen bounds of every one that differs,
 /// so the caller can damage exactly those regions.
 ///
 /// `current` / `previous` are keyed by the child `DomId` (the non-root entries
 /// of `layout_results`). A child that is newly present or newly absent counts
 /// as changed.
-pub fn compute_virtual_view_damage(
+#[must_use] pub fn compute_virtual_view_damage(
     parent: &DisplayList,
     current: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
     previous: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
 ) -> Vec<LogicalRect> {
     let mut damage = Vec::new();
-    for item in parent.items.iter() {
+    for item in &parent.items {
         if let DisplayListItem::VirtualView { child_dom_id, bounds, .. } = item {
             let changed = match (current.get(child_dom_id), previous.get(child_dom_id)) {
                 (Some(c), Some(p)) => {
@@ -1438,7 +1438,7 @@ fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
     }
 }
 
-pub(crate) fn rects_overlap_or_adjacent(a: &LogicalRect, b: &LogicalRect, gap: f32) -> bool {
+#[must_use] pub fn rects_overlap_or_adjacent(a: &LogicalRect, b: &LogicalRect, gap: f32) -> bool {
     a.origin.x - gap <= b.origin.x + b.size.width
         && b.origin.x - gap <= a.origin.x + a.size.width
         && a.origin.y - gap <= b.origin.y + b.size.height
@@ -1447,7 +1447,7 @@ pub(crate) fn rects_overlap_or_adjacent(a: &LogicalRect, b: &LogicalRect, gap: f
 
 /// Compute damage rects for a grow-only window resize.
 /// Returns the right strip and bottom strip that need rendering.
-pub fn compute_resize_damage(
+#[must_use] pub fn compute_resize_damage(
     old_width: f32,
     old_height: f32,
     new_width: f32,
@@ -1483,7 +1483,7 @@ pub fn compute_resize_damage(
 
 /// Compare a rectangular sub-region of two pixmaps pixel-by-pixel.
 /// Returns the number of pixels that differ by more than `threshold` per channel.
-pub fn compare_region(
+#[must_use] pub fn compare_region(
     a: &AzulPixmap,
     b: &AzulPixmap,
     x: u32,
@@ -1563,12 +1563,11 @@ mod scroll_shift_tests {
         let mut p = xy_pixmap(200, 100);
         // Scroll DOWN by 30 → content moves UP → bottom strip exposed.
         let strips = scroll_shift_region(&mut p, &rect(0.0, 0.0, 200.0, 100.0), (0.0, 30.0), 1.0);
-        assert_eq!(strips.len(), 1, "single-axis scroll = one strip, got {:?}", strips);
+        assert_eq!(strips.len(), 1, "single-axis scroll = one strip, got {strips:?}");
         let s = &strips[0];
         assert!(
             (s.origin.y - (100.0 - s.size.height)).abs() < 0.01 && s.size.width == 200.0,
-            "vertical scroll-down must expose a full-width BOTTOM strip, got {:?}",
-            s
+            "vertical scroll-down must expose a full-width BOTTOM strip, got {s:?}"
         );
         // Kept region (top): (x, y) now holds original (x, y+30).
         assert_eq!(at(&p, 50, 10), [50, 40, 0, 255], "content not translated up by 30");
@@ -1583,16 +1582,14 @@ mod scroll_shift_tests {
         assert_eq!(
             strips.len(),
             2,
-            "diagonal pan must expose TWO strips (L-shape), got {:?}",
-            strips
+            "diagonal pan must expose TWO strips (L-shape), got {strips:?}"
         );
         // One full-width strip (the vertical move) + one full-height strip (horizontal).
         let has_h_strip = strips.iter().any(|s| s.size.width == 200.0);
         let has_v_strip = strips.iter().any(|s| s.size.height == 100.0);
         assert!(
             has_h_strip && has_v_strip,
-            "expected a full-width AND a full-height strip, got {:?}",
-            strips
+            "expected a full-width AND a full-height strip, got {strips:?}"
         );
         // Kept top-left region: (sx,sy) now holds original (sx+20, sy+30).
         // (50,40) is inside the kept block (bottom strip y>=69, right strip x>=179).
@@ -1611,9 +1608,7 @@ mod scroll_shift_tests {
             assert_eq!(
                 at(&p, x, y),
                 [(x & 0xFF) as u8, (y & 0xFF) as u8, 0, 255],
-                "pixel ({},{}) OUTSIDE the clip was modified — scroll leaked past its frame",
-                x,
-                y
+                "pixel ({x},{y}) OUTSIDE the clip was modified — scroll leaked past its frame"
             );
         }
         // Inside the kept region it DID move: (50,40) holds original (50,50).

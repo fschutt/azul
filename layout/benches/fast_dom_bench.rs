@@ -65,12 +65,12 @@ fn main() {
     println!("  request_fonts:     {:.2}ms (blocks until common fonts parsed)", request_ms);
 
     let t3 = Instant::now();
-    let fc_cache = std::sync::Arc::new(registry.into_fc_font_cache());
+    let fc_cache = registry.shared_cache();
     let snapshot_ms = t3.elapsed().as_secs_f64() * 1000.0;
     println!("  snapshot cache:    {:.2}ms ({} font entries)", snapshot_ms, fc_cache.len());
 
     // Warm up: parse once to discover + load required fonts
-    let mut font_manager = FontManager::from_arc(fc_cache.clone()).expect("font manager");
+    let mut font_manager = FontManager::new(fc_cache.clone()).expect("font manager");
     {
         let warmup_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content).unwrap();
         use azul_layout::solver3::getters::*;
@@ -93,7 +93,7 @@ fn main() {
             let load_result = load_fonts_from_disk(
                 &fonts_to_load,
                 &font_manager.fc_cache,
-                |bytes, index| loader.load_font(bytes, index),
+                |bytes, index| loader.load_font_shared(bytes, index),
             );
             font_manager.insert_fonts(load_result.loaded);
         }
@@ -147,17 +147,7 @@ fn main() {
             origin: LogicalPosition::zero(),
             size: LogicalSize { width: viewport_w, height: viewport_h },
         };
-        let mut layout_cache = LayoutCache {
-            tree: None,
-            calculated_positions: Vec::new(),
-            viewport: None,
-            scroll_ids: HashMap::new(),
-            scroll_id_to_node_id: HashMap::new(),
-            counters: HashMap::new(),
-            float_cache: HashMap::new(),
-            cache_map: Default::default(),
-            previous_positions: Vec::new(),
-        };
+        let mut layout_cache = LayoutCache::default();
         let mut text_cache = TextLayoutCache::new();
         let renderer_resources = RendererResources::default();
         let get_system_time_fn = azul_core::task::GetSystemTimeCallback {
@@ -167,10 +157,9 @@ fn main() {
         let display_list = solver3::layout_document(
             &mut layout_cache,
             &mut text_cache,
-            styled_dom,
+            &styled_dom,
             viewport,
             &font_manager,
-            &BTreeMap::new(),
             &BTreeMap::new(),
             &BTreeMap::new(),
             &mut None,

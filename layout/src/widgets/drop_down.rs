@@ -216,7 +216,7 @@ static DROPDOWN_ARROW_ICON_STYLE: &[CssPropertyWithConditions] = &[
 
 /// A drop-down / select widget that displays the currently selected item
 /// and opens a native menu popup when focused.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct DropDown {
     /// The list of choices presented in the popup menu.
@@ -239,7 +239,7 @@ impl Default for DropDown {
 
 impl DropDown {
     /// Creates a new `DropDown` with the given choices and no callback.
-    pub fn new(choices: StringVec) -> Self {
+    #[must_use] pub fn new(choices: StringVec) -> Self {
         Self {
             choices,
             selected: 0,
@@ -263,13 +263,13 @@ impl DropDown {
 
     /// Replaces `self` with the default value and returns the original.
     pub fn swap_with_default(&mut self) -> Self {
-        let mut m = DropDown::default();
+        let mut m = Self::default();
         core::mem::swap(&mut m, self);
         m
     }
 
     /// Builds the DOM tree for this drop-down widget.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         let selected_text = self.choices
             .as_slice()
             .get(self.selected)
@@ -291,7 +291,7 @@ impl DropDown {
             .with_callbacks(
                 vec![CoreCallbackData {
                     event: EventFilter::Focus(FocusEventFilter::FocusReceived),
-                    refany: refany.clone(),
+                    refany,
                     callback: CoreCallback {
                         cb: on_dropdown_click as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
@@ -374,7 +374,7 @@ extern "C" fn on_choice_selected(mut refany: RefAny, info: CallbackInfo) -> Upda
 }
 
 impl From<DropDown> for Dom {
-    fn from(b: DropDown) -> Dom {
+    fn from(b: DropDown) -> Self {
         b.dom()
     }
 }

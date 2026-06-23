@@ -91,7 +91,7 @@ fn test_collapsed_columns_insert() {
 #[test]
 fn test_row_height_zero_for_collapsed() {
     // CSS 2.2 Section 17.6: Collapsed rows have height 0
-    let mut row_heights = vec![100.0, 50.0, 75.0, 60.0];
+    let mut row_heights = [100.0, 50.0, 75.0, 60.0];
     let collapsed_rows: HashSet<usize> = [1, 3].iter().cloned().collect();
 
     // Set collapsed rows to height 0
@@ -110,7 +110,7 @@ fn test_row_height_zero_for_collapsed() {
 #[test]
 fn test_total_height_with_collapsed_rows() {
     // Total table height excludes collapsed rows
-    let row_heights = vec![100.0, 0.0, 75.0, 0.0, 50.0];
+    let row_heights = [100.0, 0.0, 75.0, 0.0, 50.0];
     let total_height: f32 = row_heights.iter().sum();
 
     assert_eq!(total_height, 225.0); // 100 + 0 + 75 + 0 + 50
@@ -133,7 +133,7 @@ fn test_skip_cells_in_collapsed_rows() {
 fn test_rowspan_across_collapsed_rows() {
     // CSS 2.2 Section 17.6: Cells spanning collapsed rows
     // Cell spans rows 0-3, but row 1 and 3 are collapsed
-    let row_heights = vec![100.0, 0.0, 75.0, 0.0];
+    let row_heights = [100.0, 0.0, 75.0, 0.0];
     let collapsed_rows: HashSet<usize> = [1, 3].iter().cloned().collect();
 
     // Calculate height of visible rows in span
@@ -164,7 +164,7 @@ fn test_count_non_collapsed_rows_in_span() {
 #[test]
 fn test_distribute_height_across_non_collapsed() {
     // Distribute extra height only across non-collapsed rows
-    let mut row_heights = vec![100.0, 0.0, 100.0, 0.0];
+    let mut row_heights = [100.0, 0.0, 100.0, 0.0];
     let collapsed_rows: HashSet<usize> = [1, 3].iter().cloned().collect();
 
     let extra_height = 50.0;
@@ -203,7 +203,7 @@ fn test_collapsed_rows_affect_border_spacing() {
 #[test]
 fn test_all_rows_collapsed() {
     // Edge case: All rows collapsed
-    let row_heights = vec![0.0, 0.0, 0.0];
+    let row_heights = [0.0, 0.0, 0.0];
     let total_height: f32 = row_heights.iter().sum();
 
     assert_eq!(total_height, 0.0);
@@ -212,7 +212,7 @@ fn test_all_rows_collapsed() {
 #[test]
 fn test_no_rows_collapsed() {
     // Normal case: No rows collapsed
-    let row_heights = vec![100.0, 50.0, 75.0];
+    let row_heights = [100.0, 50.0, 75.0];
     let collapsed_rows: HashSet<usize> = HashSet::new();
 
     assert!(collapsed_rows.is_empty());
@@ -224,7 +224,7 @@ fn test_no_rows_collapsed() {
 #[test]
 fn test_first_row_collapsed() {
     // First row collapsed
-    let mut row_heights = vec![100.0, 50.0, 75.0];
+    let mut row_heights = [100.0, 50.0, 75.0];
     let collapsed_rows: HashSet<usize> = [0].iter().cloned().collect();
 
     for &row_idx in &collapsed_rows {
@@ -241,7 +241,7 @@ fn test_first_row_collapsed() {
 #[test]
 fn test_last_row_collapsed() {
     // Last row collapsed
-    let mut row_heights = vec![100.0, 50.0, 75.0];
+    let mut row_heights = [100.0, 50.0, 75.0];
     let collapsed_rows: HashSet<usize> = [2].iter().cloned().collect();
 
     for &row_idx in &collapsed_rows {
@@ -258,7 +258,7 @@ fn test_last_row_collapsed() {
 #[test]
 fn test_consecutive_collapsed_rows() {
     // Multiple consecutive collapsed rows
-    let mut row_heights = vec![100.0, 50.0, 75.0, 60.0, 80.0];
+    let mut row_heights = [100.0, 50.0, 75.0, 60.0, 80.0];
     let collapsed_rows: HashSet<usize> = [1, 2, 3].iter().cloned().collect();
 
     for &row_idx in &collapsed_rows {
@@ -280,7 +280,7 @@ fn test_consecutive_collapsed_rows() {
 #[test]
 fn test_collapsed_row_preservation() {
     // Ensure collapsed row height stays 0 after calculations
-    let mut row_heights = vec![100.0, 50.0, 75.0];
+    let mut row_heights = [100.0, 50.0, 75.0];
     let collapsed_rows: HashSet<usize> = [1].iter().cloned().collect();
 
     // Initial collapse
@@ -344,7 +344,7 @@ fn test_column_collapse_tracking() {
 #[test]
 fn test_column_width_zero_for_collapsed() {
     // CSS 2.2 Section 17.6: Collapsed columns have width 0
-    let mut column_widths = vec![100.0, 50.0, 75.0, 60.0];
+    let mut column_widths = [100.0, 50.0, 75.0, 60.0];
     let collapsed_columns: HashSet<usize> = [1, 3].iter().cloned().collect();
 
     // Set collapsed columns to width 0
@@ -363,7 +363,7 @@ fn test_column_width_zero_for_collapsed() {
 #[test]
 fn test_total_width_with_collapsed_columns() {
     // Total table width excludes collapsed columns
-    let column_widths = vec![100.0, 0.0, 75.0, 0.0, 50.0];
+    let column_widths = [100.0, 0.0, 75.0, 0.0, 50.0];
     let total_width: f32 = column_widths.iter().sum();
 
     assert_eq!(total_width, 225.0); // 100 + 0 + 75 + 0 + 50
@@ -372,7 +372,7 @@ fn test_total_width_with_collapsed_columns() {
 #[test]
 fn test_colspan_visible_width_calculation() {
     // CSS 2.2 Section 17.6: Cells spanning collapsed columns
-    let column_widths = vec![100.0, 0.0, 75.0, 0.0];
+    let column_widths = [100.0, 0.0, 75.0, 0.0];
     let collapsed_columns: HashSet<usize> = [1, 3].iter().cloned().collect();
 
     // Calculate width of visible columns in span
@@ -546,9 +546,9 @@ fn test_first_column_collapsed() {
     assert_eq!(width_per_visible, 150.0);
 
     // First column: 0, others: 150.0 each
-    assert_eq!(collapsed_columns.contains(&0), true);
-    assert_eq!(collapsed_columns.contains(&1), false);
-    assert_eq!(collapsed_columns.contains(&2), false);
+    assert!(collapsed_columns.contains(&0));
+    assert!(!collapsed_columns.contains(&1));
+    assert!(!collapsed_columns.contains(&2));
 }
 
 #[test]
@@ -568,9 +568,9 @@ fn test_last_column_collapsed() {
     assert_eq!(width_per_visible, 150.0);
 
     // Last column: 0, others: 150.0 each
-    assert_eq!(collapsed_columns.contains(&0), false);
-    assert_eq!(collapsed_columns.contains(&1), false);
-    assert_eq!(collapsed_columns.contains(&2), true);
+    assert!(!collapsed_columns.contains(&0));
+    assert!(!collapsed_columns.contains(&1));
+    assert!(collapsed_columns.contains(&2));
 }
 
 #[test]
@@ -688,7 +688,7 @@ fn test_auto_width_interpolation_with_collapsed() {
     // Col 0: 50 + (100-50) * 0.5 = 75
     // Col 1: 0 (collapsed)
     // Col 2: 40 + (80-40) * 0.5 = 60
-    let expected_widths = vec![75.0, 0.0, 60.0];
+    let expected_widths = [75.0, 0.0, 60.0];
 
     for (idx, (min, max)) in columns.iter().enumerate() {
         let computed = if collapsed_columns.contains(&idx) {
@@ -734,7 +734,7 @@ fn test_auto_width_scale_down_with_collapsed() {
     // Col 0: 50 * 0.5 = 25
     // Col 1: 0 (collapsed)
     // Col 2: 40 * 0.5 = 20
-    let expected_widths = vec![25.0, 0.0, 20.0];
+    let expected_widths = [25.0, 0.0, 20.0];
 
     for (idx, (min, _)) in columns.iter().enumerate() {
         let computed = if collapsed_columns.contains(&idx) {

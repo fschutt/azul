@@ -194,8 +194,8 @@ impl PrintAsCssValue for ColumnRuleColor {
 impl crate::codegen::format::FormatAsRustCode for ColumnCount {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            ColumnCount::Auto => String::from("ColumnCount::Auto"),
-            ColumnCount::Integer(i) => format!("ColumnCount::Integer({})", i),
+            Self::Auto => String::from("ColumnCount::Auto"),
+            Self::Integer(i) => format!("ColumnCount::Integer({i})"),
         }
     }
 }
@@ -203,8 +203,8 @@ impl crate::codegen::format::FormatAsRustCode for ColumnCount {
 impl crate::codegen::format::FormatAsRustCode for ColumnWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            ColumnWidth::Auto => String::from("ColumnWidth::Auto"),
-            ColumnWidth::Length(px) => format!(
+            Self::Auto => String::from("ColumnWidth::Auto"),
+            Self::Length(px) => format!(
                 "ColumnWidth::Length({})",
                 crate::codegen::format::format_pixel_value(px)
             ),
@@ -215,8 +215,8 @@ impl crate::codegen::format::FormatAsRustCode for ColumnWidth {
 impl crate::codegen::format::FormatAsRustCode for ColumnSpan {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            ColumnSpan::None => String::from("ColumnSpan::None"),
-            ColumnSpan::All => String::from("ColumnSpan::All"),
+            Self::None => String::from("ColumnSpan::None"),
+            Self::All => String::from("ColumnSpan::All"),
         }
     }
 }
@@ -224,8 +224,8 @@ impl crate::codegen::format::FormatAsRustCode for ColumnSpan {
 impl crate::codegen::format::FormatAsRustCode for ColumnFill {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            ColumnFill::Auto => String::from("ColumnFill::Auto"),
-            ColumnFill::Balance => String::from("ColumnFill::Balance"),
+            Self::Auto => String::from("ColumnFill::Auto"),
+            Self::Balance => String::from("ColumnFill::Balance"),
         }
     }
 }
@@ -266,7 +266,7 @@ pub mod parser {
 
     // -- ColumnCount parser
 
-    #[derive(Clone, PartialEq)]
+    #[derive(Clone, PartialEq, Eq)]
     pub enum ColumnCountParseError<'a> {
         InvalidValue(&'a str),
         ParseInt(ParseIntError),
@@ -278,24 +278,24 @@ pub mod parser {
         ParseInt(e) => format!("Invalid integer for column-count: {}", e),
     }}
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum ColumnCountParseErrorOwned {
         InvalidValue(AzString),
         ParseInt(AzString),
     }
 
-    impl<'a> ColumnCountParseError<'a> {
-        pub fn to_contained(&self) -> ColumnCountParseErrorOwned {
+    impl ColumnCountParseError<'_> {
+        #[must_use] pub fn to_contained(&self) -> ColumnCountParseErrorOwned {
             match self {
-                Self::InvalidValue(s) => ColumnCountParseErrorOwned::InvalidValue(s.to_string().into()),
+                Self::InvalidValue(s) => ColumnCountParseErrorOwned::InvalidValue((*s).to_string().into()),
                 Self::ParseInt(e) => ColumnCountParseErrorOwned::ParseInt(e.to_string().into()),
             }
         }
     }
 
     impl ColumnCountParseErrorOwned {
-        pub fn to_shared<'a>(&'a self) -> ColumnCountParseError<'a> {
+        #[must_use] pub fn to_shared(&self) -> ColumnCountParseError<'_> {
             match self {
                 Self::InvalidValue(s) => ColumnCountParseError::InvalidValue(s),
                 // ParseIntError cannot be reconstructed from its Display string,
@@ -306,9 +306,9 @@ pub mod parser {
         }
     }
 
-    pub fn parse_column_count<'a>(
-        input: &'a str,
-    ) -> Result<ColumnCount, ColumnCountParseError<'a>> {
+    pub fn parse_column_count(
+        input: &str,
+    ) -> Result<ColumnCount, ColumnCountParseError<'_>> {
         let trimmed = input.trim();
         if trimmed == "auto" {
             return Ok(ColumnCount::Auto);
@@ -321,7 +321,7 @@ pub mod parser {
 
     // -- ColumnWidth parser
 
-    #[derive(Clone, PartialEq)]
+    #[derive(Clone, PartialEq, Eq)]
     pub enum ColumnWidthParseError<'a> {
         InvalidValue(&'a str),
         PixelValue(CssPixelValueParseError<'a>),
@@ -334,24 +334,24 @@ pub mod parser {
     }}
     impl_from! { CssPixelValueParseError<'a>, ColumnWidthParseError::PixelValue }
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum ColumnWidthParseErrorOwned {
         InvalidValue(AzString),
         PixelValue(CssPixelValueParseErrorOwned),
     }
 
-    impl<'a> ColumnWidthParseError<'a> {
-        pub fn to_contained(&self) -> ColumnWidthParseErrorOwned {
+    impl ColumnWidthParseError<'_> {
+        #[must_use] pub fn to_contained(&self) -> ColumnWidthParseErrorOwned {
             match self {
-                Self::InvalidValue(s) => ColumnWidthParseErrorOwned::InvalidValue(s.to_string().into()),
+                Self::InvalidValue(s) => ColumnWidthParseErrorOwned::InvalidValue((*s).to_string().into()),
                 Self::PixelValue(e) => ColumnWidthParseErrorOwned::PixelValue(e.to_contained()),
             }
         }
     }
 
     impl ColumnWidthParseErrorOwned {
-        pub fn to_shared<'a>(&'a self) -> ColumnWidthParseError<'a> {
+        #[must_use] pub fn to_shared(&self) -> ColumnWidthParseError<'_> {
             match self {
                 Self::InvalidValue(s) => ColumnWidthParseError::InvalidValue(s),
                 Self::PixelValue(e) => ColumnWidthParseError::PixelValue(e.to_shared()),
@@ -359,9 +359,9 @@ pub mod parser {
         }
     }
 
-    pub fn parse_column_width<'a>(
-        input: &'a str,
-    ) -> Result<ColumnWidth, ColumnWidthParseError<'a>> {
+    pub fn parse_column_width(
+        input: &str,
+    ) -> Result<ColumnWidth, ColumnWidthParseError<'_>> {
         let trimmed = input.trim();
         if trimmed == "auto" {
             return Ok(ColumnWidth::Auto);
@@ -379,7 +379,7 @@ pub mod parser {
             $prop_name:expr,
             $($val:expr => $variant:path),+
         ) => {
-            #[derive(Clone, PartialEq)]
+            #[derive(Clone, PartialEq, Eq)]
             pub enum $error_name<'a> {
                 InvalidValue(&'a str),
             }
@@ -389,14 +389,14 @@ pub mod parser {
                 InvalidValue(v) => format!("Invalid {} value: \"{}\"", $prop_name, v),
             }}
 
-            #[derive(Debug, Clone, PartialEq)]
+            #[derive(Debug, Clone, PartialEq, Eq)]
             #[repr(C, u8)]
             pub enum $error_owned_name {
                 InvalidValue(AzString),
             }
 
-            impl<'a> $error_name<'a> {
-                pub fn to_contained(&self) -> $error_owned_name {
+            impl $error_name<'_> {
+                #[must_use] pub fn to_contained(&self) -> $error_owned_name {
                     match self {
                         Self::InvalidValue(s) => $error_owned_name::InvalidValue(s.to_string().into()),
                     }
@@ -404,14 +404,14 @@ pub mod parser {
             }
 
             impl $error_owned_name {
-                pub fn to_shared<'a>(&'a self) -> $error_name<'a> {
+                #[must_use] pub fn to_shared(&self) -> $error_name<'_> {
                     match self {
                         Self::InvalidValue(s) => $error_name::InvalidValue(s.as_str()),
                     }
                 }
             }
 
-            pub fn $fn_name<'a>(input: &'a str) -> Result<$struct_name, $error_name<'a>> {
+            pub fn $fn_name(input: &str) -> Result<$struct_name, $error_name<'_>> {
                 match input.trim() {
                     $( $val => Ok($variant), )+
                     _ => Err($error_name::InvalidValue(input)),
@@ -442,20 +442,20 @@ pub mod parser {
 
     // Parsers for column-rule-*
 
-    #[derive(Clone, PartialEq)]
+    #[derive(Clone, PartialEq, Eq)]
     pub enum ColumnRuleWidthParseError<'a> {
         Pixel(CssPixelValueParseError<'a>),
     }
     impl_debug_as_display!(ColumnRuleWidthParseError<'a>);
     impl_display! { ColumnRuleWidthParseError<'a>, { Pixel(e) => format!("{}", e) }}
     impl_from! { CssPixelValueParseError<'a>, ColumnRuleWidthParseError::Pixel }
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum ColumnRuleWidthParseErrorOwned {
         Pixel(CssPixelValueParseErrorOwned),
     }
-    impl<'a> ColumnRuleWidthParseError<'a> {
-        pub fn to_contained(&self) -> ColumnRuleWidthParseErrorOwned {
+    impl ColumnRuleWidthParseError<'_> {
+        #[must_use] pub fn to_contained(&self) -> ColumnRuleWidthParseErrorOwned {
             match self {
                 ColumnRuleWidthParseError::Pixel(e) => {
                     ColumnRuleWidthParseErrorOwned::Pixel(e.to_contained())
@@ -464,36 +464,36 @@ pub mod parser {
         }
     }
     impl ColumnRuleWidthParseErrorOwned {
-        pub fn to_shared<'a>(&'a self) -> ColumnRuleWidthParseError<'a> {
+        #[must_use] pub fn to_shared(&self) -> ColumnRuleWidthParseError<'_> {
             match self {
-                ColumnRuleWidthParseErrorOwned::Pixel(e) => {
+                Self::Pixel(e) => {
                     ColumnRuleWidthParseError::Pixel(e.to_shared())
                 }
             }
         }
     }
-    pub fn parse_column_rule_width<'a>(
-        input: &'a str,
-    ) -> Result<ColumnRuleWidth, ColumnRuleWidthParseError<'a>> {
+    pub fn parse_column_rule_width(
+        input: &str,
+    ) -> Result<ColumnRuleWidth, ColumnRuleWidthParseError<'_>> {
         Ok(ColumnRuleWidth {
             inner: parse_pixel_value(input)?,
         })
     }
 
-    #[derive(Clone, PartialEq)]
+    #[derive(Clone, PartialEq, Eq)]
     pub enum ColumnRuleStyleParseError<'a> {
         Style(CssBorderStyleParseError<'a>),
     }
     impl_debug_as_display!(ColumnRuleStyleParseError<'a>);
     impl_display! { ColumnRuleStyleParseError<'a>, { Style(e) => format!("{}", e) }}
     impl_from! { CssBorderStyleParseError<'a>, ColumnRuleStyleParseError::Style }
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum ColumnRuleStyleParseErrorOwned {
         Style(CssBorderStyleParseErrorOwned),
     }
-    impl<'a> ColumnRuleStyleParseError<'a> {
-        pub fn to_contained(&self) -> ColumnRuleStyleParseErrorOwned {
+    impl ColumnRuleStyleParseError<'_> {
+        #[must_use] pub fn to_contained(&self) -> ColumnRuleStyleParseErrorOwned {
             match self {
                 ColumnRuleStyleParseError::Style(e) => {
                     ColumnRuleStyleParseErrorOwned::Style(e.to_contained())
@@ -502,17 +502,17 @@ pub mod parser {
         }
     }
     impl ColumnRuleStyleParseErrorOwned {
-        pub fn to_shared<'a>(&'a self) -> ColumnRuleStyleParseError<'a> {
+        #[must_use] pub fn to_shared(&self) -> ColumnRuleStyleParseError<'_> {
             match self {
-                ColumnRuleStyleParseErrorOwned::Style(e) => {
+                Self::Style(e) => {
                     ColumnRuleStyleParseError::Style(e.to_shared())
                 }
             }
         }
     }
-    pub fn parse_column_rule_style<'a>(
-        input: &'a str,
-    ) -> Result<ColumnRuleStyle, ColumnRuleStyleParseError<'a>> {
+    pub fn parse_column_rule_style(
+        input: &str,
+    ) -> Result<ColumnRuleStyle, ColumnRuleStyleParseError<'_>> {
         Ok(ColumnRuleStyle {
             inner: parse_border_style(input)?,
         })
@@ -530,8 +530,8 @@ pub mod parser {
     pub enum ColumnRuleColorParseErrorOwned {
         Color(CssColorParseErrorOwned),
     }
-    impl<'a> ColumnRuleColorParseError<'a> {
-        pub fn to_contained(&self) -> ColumnRuleColorParseErrorOwned {
+    impl ColumnRuleColorParseError<'_> {
+        #[must_use] pub fn to_contained(&self) -> ColumnRuleColorParseErrorOwned {
             match self {
                 ColumnRuleColorParseError::Color(e) => {
                     ColumnRuleColorParseErrorOwned::Color(e.to_contained())
@@ -540,17 +540,17 @@ pub mod parser {
         }
     }
     impl ColumnRuleColorParseErrorOwned {
-        pub fn to_shared<'a>(&'a self) -> ColumnRuleColorParseError<'a> {
+        #[must_use] pub fn to_shared(&self) -> ColumnRuleColorParseError<'_> {
             match self {
-                ColumnRuleColorParseErrorOwned::Color(e) => {
+                Self::Color(e) => {
                     ColumnRuleColorParseError::Color(e.to_shared())
                 }
             }
         }
     }
-    pub fn parse_column_rule_color<'a>(
-        input: &'a str,
-    ) -> Result<ColumnRuleColor, ColumnRuleColorParseError<'a>> {
+    pub fn parse_column_rule_color(
+        input: &str,
+    ) -> Result<ColumnRuleColor, ColumnRuleColorParseError<'_>> {
         Ok(ColumnRuleColor {
             inner: parse_css_color(input)?,
         })

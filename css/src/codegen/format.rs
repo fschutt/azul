@@ -67,7 +67,7 @@ impl VecContents {
         let t = "    ".repeat(tabs);
         let t2 = "    ".repeat(tabs + 1);
 
-        for (key, item) in self.strings.iter() {
+        for (key, item) in &self.strings {
             result.push_str(&format!(
                 "\r\n    const STRING_{}: AzString = AzString::from_const_str(\"{}\");",
                 key,
@@ -75,110 +75,101 @@ impl VecContents {
             ));
         }
 
-        for (key, item) in self.style_filters.iter() {
+        for (key, item) in &self.style_filters {
             let val = item
                 .iter()
                 .map(|filter| format_style_filter(filter, tabs + 1))
                 .collect::<Vec<_>>()
-                .join(&format!(",\r\n{}", t));
+                .join(&format!(",\r\n{t}"));
 
             result.push_str(&format!(
-                "\r\n    const STYLE_FILTER_{}_ITEMS: &[StyleFilter] = &[\r\n{}{}\r\n{}];",
-                key, t2, val, t
+                "\r\n    const STYLE_FILTER_{key}_ITEMS: &[StyleFilter] = &[\r\n{t2}{val}\r\n{t}];"
             ));
         }
 
-        for (key, item) in self.style_background_sizes.iter() {
+        for (key, item) in &self.style_background_sizes {
             let val = item
                 .iter()
                 .map(format_style_background_size)
                 .collect::<Vec<_>>()
-                .join(&format!(",\r\n{}", t));
+                .join(&format!(",\r\n{t}"));
 
             result.push_str(&format!(
-                "\r\n    const STYLE_BACKGROUND_SIZE_{}_ITEMS: &[StyleBackgroundSize] = \
-                 &[\r\n{}{}\r\n{}];",
-                key, t2, val, t
+                "\r\n    const STYLE_BACKGROUND_SIZE_{key}_ITEMS: &[StyleBackgroundSize] = \
+                 &[\r\n{t2}{val}\r\n{t}];"
             ));
         }
 
-        for (key, item) in self.style_background_repeats.iter() {
+        for (key, item) in &self.style_background_repeats {
             let val = item
                 .iter()
                 .map(|bgr| bgr.format_as_rust_code(tabs + 1))
                 .collect::<Vec<_>>()
-                .join(&format!(",\r\n{}", t));
+                .join(&format!(",\r\n{t}"));
 
             result.push_str(&format!(
-                "\r\n    const STYLE_BACKGROUND_REPEAT_{}_ITEMS: &[StyleBackgroundRepeat] = \
-                 &[\r\n{}{}\r\n{}];",
-                key, t2, val, t
+                "\r\n    const STYLE_BACKGROUND_REPEAT_{key}_ITEMS: &[StyleBackgroundRepeat] = \
+                 &[\r\n{t2}{val}\r\n{t}];"
             ));
         }
 
-        for (key, item) in self.style_background_contents.iter() {
+        for (key, item) in &self.style_background_contents {
             let val = item
                 .iter()
                 .map(|bgc| format_style_background_content(bgc, tabs + 1))
                 .collect::<Vec<_>>()
-                .join(&format!(",\r\n{}", t));
+                .join(&format!(",\r\n{t}"));
 
             result.push_str(&format!(
-                "\r\n    const STYLE_BACKGROUND_CONTENT_{}_ITEMS: &[StyleBackgroundContent] = \
-                 &[\r\n{}{}\r\n{}];",
-                key, t2, val, t
+                "\r\n    const STYLE_BACKGROUND_CONTENT_{key}_ITEMS: &[StyleBackgroundContent] = \
+                 &[\r\n{t2}{val}\r\n{t}];"
             ));
         }
 
-        for (key, item) in self.style_background_positions.iter() {
+        for (key, item) in &self.style_background_positions {
             let val = item
                 .iter()
                 .map(|bgp| format_style_background_position(bgp, tabs))
                 .collect::<Vec<_>>()
-                .join(&format!(",\r\n{}", t));
+                .join(&format!(",\r\n{t}"));
 
             result.push_str(&format!(
-                "\r\n    const STYLE_BACKGROUND_POSITION_{}_ITEMS: &[StyleBackgroundPosition] = \
-                 &[\r\n{}{}\r\n{}];",
-                key, t2, val, t
+                "\r\n    const STYLE_BACKGROUND_POSITION_{key}_ITEMS: &[StyleBackgroundPosition] = \
+                 &[\r\n{t2}{val}\r\n{t}];"
             ));
         }
 
-        for (key, item) in self.style_transforms.iter() {
+        for (key, item) in &self.style_transforms {
             let val = format_style_transforms(item.as_ref(), tabs + 1);
 
             result.push_str(&format!(
-                "\r\n    const STYLE_TRANSFORM_{}_ITEMS: &[StyleTransform] = &[\r\n{}{}\r\n{}];",
-                key, t2, val, t
+                "\r\n    const STYLE_TRANSFORM_{key}_ITEMS: &[StyleTransform] = &[\r\n{t2}{val}\r\n{t}];"
             ));
         }
 
-        for (key, item) in self.font_families.iter() {
+        for (key, item) in &self.font_families {
             let val = format_font_ids(item.as_ref(), tabs + 1);
 
             result.push_str(&format!(
-                "\r\n    const STYLE_FONT_FAMILY_{}_ITEMS: &[StyleFontFamily] = &[\r\n{}{}\r\n{}];",
-                key, t2, val, t
+                "\r\n    const STYLE_FONT_FAMILY_{key}_ITEMS: &[StyleFontFamily] = &[\r\n{t2}{val}\r\n{t}];"
             ));
         }
 
-        for (key, item) in self.linear_color_stops.iter() {
+        for (key, item) in &self.linear_color_stops {
             let val = format_linear_color_stops(item.as_ref(), 1);
 
             result.push_str(&format!(
-                "\r\n    const LINEAR_COLOR_STOP_{}_ITEMS: &[NormalizedLinearColorStop] = \
-                 &[\r\n{}{}\r\n{}];",
-                key, t2, val, t
+                "\r\n    const LINEAR_COLOR_STOP_{key}_ITEMS: &[NormalizedLinearColorStop] = \
+                 &[\r\n{t2}{val}\r\n{t}];"
             ));
         }
 
-        for (key, item) in self.radial_color_stops.iter() {
+        for (key, item) in &self.radial_color_stops {
             let val = format_radial_color_stops(item.as_ref(), tabs);
 
             result.push_str(&format!(
-                "\r\n    const RADIAL_COLOR_STOP_{}_ITEMS: &[NormalizedRadialColorStop] = \
-                 &[\r\n{}{}\r\n{}];",
-                key, t2, val, t
+                "\r\n    const RADIAL_COLOR_STOP_{key}_ITEMS: &[NormalizedRadialColorStop] = \
+                 &[\r\n{t2}{val}\r\n{t}];"
             ));
         }
 
@@ -270,7 +261,7 @@ impl VecContents {
 // Helper functions for formatting values
 
 /// Formats a `PixelValue` as a const-compatible Rust constructor call.
-pub fn format_pixel_value(p: &PixelValue) -> String {
+#[must_use] pub fn format_pixel_value(p: &PixelValue) -> String {
     let value = p.number.get();
 
     // Decompose into integer + fractional parts using the absolute value so
@@ -283,22 +274,19 @@ pub fn format_pixel_value(p: &PixelValue) -> String {
 
     match p.metric {
         SizeMetric::Pt => format!(
-            "PixelValue::const_pt_fractional({}, {})",
-            pre_comma, post_comma
+            "PixelValue::const_pt_fractional({pre_comma}, {post_comma})"
         ),
         SizeMetric::Em => format!(
-            "PixelValue::const_em_fractional({}, {})",
-            pre_comma, post_comma
+            "PixelValue::const_em_fractional({pre_comma}, {post_comma})"
         ),
         other => format!(
-            "PixelValue::const_from_metric_fractional(SizeMetric::{:?}, {}, {})",
-            other, pre_comma, post_comma
+            "PixelValue::const_from_metric_fractional(SizeMetric::{other:?}, {pre_comma}, {post_comma})"
         ),
     }
 }
 
 /// Formats a `PixelValueNoPercent` as a const-compatible Rust constructor call.
-pub fn format_pixel_value_no_percent(p: &PixelValueNoPercent) -> String {
+#[must_use] pub fn format_pixel_value_no_percent(p: &PixelValueNoPercent) -> String {
     format!(
         "PixelValueNoPercent {{ inner: {} }}",
         format_pixel_value(&p.inner)
@@ -306,33 +294,31 @@ pub fn format_pixel_value_no_percent(p: &PixelValueNoPercent) -> String {
 }
 
 /// Formats a `FloatValue` as a const-compatible Rust constructor call.
-pub fn format_float_value(f: &FloatValue) -> String {
+#[must_use] pub fn format_float_value(f: &FloatValue) -> String {
     let value = f.get();
     let abs_val = libm::fabsf(value);
     let sign: isize = if value < 0.0 { -1 } else { 1 };
     let pre_comma = libm::floorf(abs_val) as isize * sign;
     let post_comma = libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0) as isize;
     format!(
-        "FloatValue::const_new_fractional({}, {})",
-        pre_comma, post_comma
+        "FloatValue::const_new_fractional({pre_comma}, {post_comma})"
     )
 }
 
 /// Formats a `PercentageValue` as a const-compatible Rust constructor call.
-pub fn format_percentage_value(f: &PercentageValue) -> String {
+#[must_use] pub fn format_percentage_value(f: &PercentageValue) -> String {
     let value = f.normalized() * 100.0;
     let abs_val = libm::fabsf(value);
     let sign: isize = if value < 0.0 { -1 } else { 1 };
     let pre_comma = libm::floorf(abs_val) as isize * sign;
     let post_comma = libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0) as isize;
     format!(
-        "PercentageValue::const_new_fractional({}, {})",
-        pre_comma, post_comma
+        "PercentageValue::const_new_fractional({pre_comma}, {post_comma})"
     )
 }
 
 /// Formats an `AngleValue` as a const-compatible Rust constructor call.
-pub fn format_angle_value(f: &AngleValue) -> String {
+#[must_use] pub fn format_angle_value(f: &AngleValue) -> String {
     let value = f.number.get();
     let abs_val = libm::fabsf(value);
     let sign: isize = if value < 0.0 { -1 } else { 1 };
@@ -345,7 +331,7 @@ pub fn format_angle_value(f: &AngleValue) -> String {
 }
 
 /// Formats a `ColorU` as a const-compatible Rust struct literal.
-pub fn format_color_value(c: &ColorU) -> String {
+#[must_use] pub fn format_color_value(c: &ColorU) -> String {
     format!(
         "ColorU {{ r: {}, g: {}, b: {}, a: {} }}",
         c.r, c.g, c.b, c.a
@@ -355,17 +341,17 @@ pub fn format_color_value(c: &ColorU) -> String {
 fn format_grid_line(line: &GridLine, _tabs: usize) -> String {
     match line {
         GridLine::Auto => "GridLine::Auto".to_string(),
-        GridLine::Line(n) => format!("GridLine::Line({})", n),
+        GridLine::Line(n) => format!("GridLine::Line({n})"),
         GridLine::Named(named) => format!(
             "GridLine::Named(NamedGridLine {{ grid_line_name: AzString::from_const_str({:?}), span_count: {} }})",
             named.grid_line_name.as_ref(),
             named.span_count,
         ),
-        GridLine::Span(n) => format!("GridLine::Span({})", n),
+        GridLine::Span(n) => format!("GridLine::Span({n})"),
     }
 }
 
-fn format_color_or_system(c: &crate::props::basic::color::ColorOrSystem) -> String {
+fn format_color_or_system(c: &ColorOrSystem) -> String {
     use crate::props::basic::color::{ColorOrSystem, SystemColorRef};
     match c {
         ColorOrSystem::Color(color) => format!("ColorOrSystem::Color({})", format_color_value(color)),
@@ -381,7 +367,7 @@ fn format_color_or_system(c: &crate::props::basic::color::ColorOrSystem) -> Stri
                 SystemColorRef::SelectionBackground => "SelectionBackground",
                 SystemColorRef::SelectionText => "SelectionText",
             };
-            format!("ColorOrSystem::System(SystemColorRef::{})", variant)
+            format!("ColorOrSystem::System(SystemColorRef::{variant})")
         }
     }
 }
@@ -465,12 +451,12 @@ impl_pixel_value_fmt!(LayoutPaddingInlineEnd);
 impl FormatAsRustCode for LayoutWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            LayoutWidth::Auto => "LayoutWidth::Auto".to_string(),
-            LayoutWidth::Px(px) => format!("LayoutWidth::Px({})", format_pixel_value(px)),
-            LayoutWidth::MinContent => "LayoutWidth::MinContent".to_string(),
-            LayoutWidth::MaxContent => "LayoutWidth::MaxContent".to_string(),
-            LayoutWidth::FitContent(px) => format!("LayoutWidth::FitContent({})", format_pixel_value(px)),
-            LayoutWidth::Calc(items) => format!("LayoutWidth::Calc(/* {} items */)", items.len()),
+            Self::Auto => "LayoutWidth::Auto".to_string(),
+            Self::Px(px) => format!("LayoutWidth::Px({})", format_pixel_value(px)),
+            Self::MinContent => "LayoutWidth::MinContent".to_string(),
+            Self::MaxContent => "LayoutWidth::MaxContent".to_string(),
+            Self::FitContent(px) => format!("LayoutWidth::FitContent({})", format_pixel_value(px)),
+            Self::Calc(items) => format!("LayoutWidth::Calc(/* {} items */)", items.len()),
         }
     }
 }
@@ -478,12 +464,12 @@ impl FormatAsRustCode for LayoutWidth {
 impl FormatAsRustCode for LayoutHeight {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            LayoutHeight::Auto => "LayoutHeight::Auto".to_string(),
-            LayoutHeight::Px(px) => format!("LayoutHeight::Px({})", format_pixel_value(px)),
-            LayoutHeight::MinContent => "LayoutHeight::MinContent".to_string(),
-            LayoutHeight::MaxContent => "LayoutHeight::MaxContent".to_string(),
-            LayoutHeight::FitContent(px) => format!("LayoutHeight::FitContent({})", format_pixel_value(px)),
-            LayoutHeight::Calc(items) => format!("LayoutHeight::Calc(/* {} items */)", items.len()),
+            Self::Auto => "LayoutHeight::Auto".to_string(),
+            Self::Px(px) => format!("LayoutHeight::Px({})", format_pixel_value(px)),
+            Self::MinContent => "LayoutHeight::MinContent".to_string(),
+            Self::MaxContent => "LayoutHeight::MaxContent".to_string(),
+            Self::FitContent(px) => format!("LayoutHeight::FitContent({})", format_pixel_value(px)),
+            Self::Calc(items) => format!("LayoutHeight::Calc(/* {} items */)", items.len()),
         }
     }
 }
@@ -571,8 +557,8 @@ impl FormatAsRustCode for StyleObjectPosition {
 impl FormatAsRustCode for StyleAspectRatio {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            StyleAspectRatio::Auto => "StyleAspectRatio::Auto".to_string(),
-            StyleAspectRatio::Ratio(r) => format!("StyleAspectRatio::Ratio(AspectRatioValue {{ width: {}, height: {} }})", r.width, r.height),
+            Self::Auto => "StyleAspectRatio::Auto".to_string(),
+            Self::Ratio(r) => format!("StyleAspectRatio::Ratio(AspectRatioValue {{ width: {}, height: {} }})", r.width, r.height),
         }
     }
 }
@@ -751,7 +737,7 @@ impl FormatAsRustCode for StyleClipRect {
         fn fmt_edge(o: &OptionF32) -> String {
             match o {
                 OptionF32::None => String::from("OptionF32::None"),
-                OptionF32::Some(v) => format!("OptionF32::Some({:?})", v),
+                OptionF32::Some(v) => format!("OptionF32::Some({v:?})"),
             }
         }
         format!(
@@ -781,7 +767,7 @@ fn format_style_background_size(c: &StyleBackgroundSize) -> String {
 // Scrollbar-related impls moved to `props/style/scrollbar.rs`
 
 /// Formats a `ScrollbarInfo` as a const-compatible Rust struct literal.
-pub fn format_scrollbar_info(s: &ScrollbarInfo, tabs: usize) -> String {
+#[must_use] pub fn format_scrollbar_info(s: &ScrollbarInfo, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
     format!(
@@ -824,7 +810,7 @@ fn format_style_background_content(content: &StyleBackgroundContent, tabs: usize
             "StyleBackgroundContent::ConicGradient({})",
             format_conic_gradient(r, tabs)
         ),
-        StyleBackgroundContent::Image(id) => format!("StyleBackgroundContent::Image({:?})", id),
+        StyleBackgroundContent::Image(id) => format!("StyleBackgroundContent::Image({id:?})"),
         StyleBackgroundContent::Color(c) => {
             format!("StyleBackgroundContent::Color({})", format_color_value(c))
         }
@@ -841,7 +827,7 @@ fn format_style_background_content(content: &StyleBackgroundContent, tabs: usize
                 SystemColorRef::SelectionBackground => "SelectionBackground",
                 SystemColorRef::SelectionText => "SelectionText",
             };
-            format!("StyleBackgroundContent::SystemColor(SystemColorRef::{})", variant)
+            format!("StyleBackgroundContent::SystemColor(SystemColorRef::{variant})")
         }
     }
 }
@@ -919,7 +905,7 @@ fn format_linear_color_stops(stops: &[NormalizedLinearColorStop], tabs: usize) -
         .iter()
         .map(format_linear_color_stop)
         .collect::<Vec<_>>()
-        .join(&format!(",\r\n{}", t))
+        .join(&format!(",\r\n{t}"))
 }
 
 fn format_linear_color_stop(g: &NormalizedLinearColorStop) -> String {
@@ -936,7 +922,7 @@ fn format_radial_color_stops(stops: &[NormalizedRadialColorStop], tabs: usize) -
         .iter()
         .map(format_radial_color_stop)
         .collect::<Vec<_>>()
-        .join(&format!(",\r\n{}", t))
+        .join(&format!(",\r\n{t}"))
 }
 
 fn format_radial_color_stop(g: &NormalizedRadialColorStop) -> String {
@@ -1035,7 +1021,7 @@ fn format_style_transforms(stops: &[StyleTransform], tabs: usize) -> String {
         .iter()
         .map(|s| format_style_transform(s, tabs))
         .collect::<Vec<_>>()
-        .join(&format!(",\r\n{}", t))
+        .join(&format!(",\r\n{t}"))
 }
 
 fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
@@ -1155,9 +1141,9 @@ fn format_font_ids(font_ids: &[StyleFontFamily], tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     font_ids
         .iter()
-        .map(|s| s.format_as_rust_code(tabs + 1).to_string())
+        .map(|s| s.format_as_rust_code(tabs + 1))
         .collect::<Vec<_>>()
-        .join(&format!(",\r\n{}", t))
+        .join(&format!(",\r\n{t}"))
 }
 
 fn format_style_background_position(b: &StyleBackgroundPosition, tabs: usize) -> String {

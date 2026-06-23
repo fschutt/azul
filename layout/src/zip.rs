@@ -27,16 +27,16 @@ pub struct ZipReadConfig {
 }
 
 impl ZipReadConfig {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
     
-    pub fn with_max_file_size(mut self, max_size: u64) -> Self {
+    #[must_use] pub const fn with_max_file_size(mut self, max_size: u64) -> Self {
         self.max_file_size = max_size;
         self
     }
     
-    pub fn with_allow_path_traversal(mut self, allow: bool) -> Self {
+    #[must_use] pub const fn with_allow_path_traversal(mut self, allow: bool) -> Self {
         self.allow_path_traversal = allow;
         self
     }
@@ -68,11 +68,11 @@ impl Default for ZipWriteConfig {
 }
 
 impl ZipWriteConfig {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
     
-    pub fn store() -> Self {
+    #[must_use] pub fn store() -> Self {
         Self {
             compression_method: 0,
             compression_level: 0,
@@ -80,7 +80,7 @@ impl ZipWriteConfig {
         }
     }
     
-    pub fn deflate(level: u8) -> Self {
+    #[must_use] pub fn deflate(level: u8) -> Self {
         Self {
             compression_method: 1,
             compression_level: level.min(9),
@@ -114,7 +114,7 @@ pub struct ZipPathEntry {
     pub crc32: u32,
 }
 
-/// Vec of ZipPathEntry
+/// Vec of `ZipPathEntry`
 pub type ZipPathEntryVec = Vec<ZipPathEntry>;
 
 /// File entry in a ZIP archive (with data, for writing)
@@ -149,7 +149,7 @@ impl ZipFileEntry {
     }
 }
 
-/// Vec of ZipFileEntry  
+/// Vec of `ZipFileEntry`  
 pub type ZipFileEntryVec = Vec<ZipFileEntry>;
 
 // ============================================================================
@@ -157,7 +157,7 @@ pub type ZipFileEntryVec = Vec<ZipFileEntry>;
 // ============================================================================
 
 /// Error when reading ZIP archives
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum ZipReadError {
     /// Invalid ZIP format
@@ -177,13 +177,13 @@ pub enum ZipReadError {
 impl fmt::Display for ZipReadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ZipReadError::InvalidFormat(msg) => write!(f, "Invalid ZIP format: {}", msg),
-            ZipReadError::FileNotFound(path) => write!(f, "File not found: {}", path),
-            ZipReadError::IoError(msg) => write!(f, "I/O error: {}", msg),
-            ZipReadError::UnsafePath(path) => write!(f, "Unsafe path: {}", path),
-            ZipReadError::EncryptedFile(path) => write!(f, "Encrypted file: {}", path),
-            ZipReadError::FileTooLarge { path, size, max_size } => {
-                write!(f, "File too large: {} ({} > {})", path, size, max_size)
+            Self::InvalidFormat(msg) => write!(f, "Invalid ZIP format: {msg}"),
+            Self::FileNotFound(path) => write!(f, "File not found: {path}"),
+            Self::IoError(msg) => write!(f, "I/O error: {msg}"),
+            Self::UnsafePath(path) => write!(f, "Unsafe path: {path}"),
+            Self::EncryptedFile(path) => write!(f, "Encrypted file: {path}"),
+            Self::FileTooLarge { path, size, max_size } => {
+                write!(f, "File too large: {path} ({size} > {max_size})")
             }
         }
     }
@@ -193,7 +193,7 @@ impl fmt::Display for ZipReadError {
 impl std::error::Error for ZipReadError {}
 
 /// Error when writing ZIP archives
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum ZipWriteError {
     /// I/O error
@@ -207,9 +207,9 @@ pub enum ZipWriteError {
 impl fmt::Display for ZipWriteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ZipWriteError::IoError(msg) => write!(f, "I/O error: {}", msg),
-            ZipWriteError::InvalidPath(path) => write!(f, "Invalid path: {}", path),
-            ZipWriteError::CompressionError(msg) => write!(f, "Compression error: {}", msg),
+            Self::IoError(msg) => write!(f, "I/O error: {msg}"),
+            Self::InvalidPath(path) => write!(f, "Invalid path: {path}"),
+            Self::CompressionError(msg) => write!(f, "Compression error: {msg}"),
         }
     }
 }
@@ -231,7 +231,7 @@ pub struct ZipFile {
 
 impl ZipFile {
     /// Create a new empty ZIP archive
-    pub fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         Self {
             entries: Vec::new(),
         }
@@ -466,22 +466,22 @@ impl ZipFile {
     }
     
     /// Get an entry by path
-    pub fn get(&self, path: &str) -> Option<&ZipFileEntry> {
+    #[must_use] pub fn get(&self, path: &str) -> Option<&ZipFileEntry> {
         self.entries.iter().find(|e| e.path == path)
     }
     
     /// Check if archive contains a path
-    pub fn contains(&self, path: &str) -> bool {
+    #[must_use] pub fn contains(&self, path: &str) -> bool {
         self.entries.iter().any(|e| e.path == path)
     }
     
     /// Get list of all paths
-    pub fn paths(&self) -> Vec<&str> {
+    #[must_use] pub fn paths(&self) -> Vec<&str> {
         self.entries.iter().map(|e| e.path.as_str()).collect()
     }
     
     /// Filter entries by suffix (e.g., ".fluent", ".json")
-    pub fn filter_by_suffix(&self, suffix: &str) -> Vec<&ZipFileEntry> {
+    #[must_use] pub fn filter_by_suffix(&self, suffix: &str) -> Vec<&ZipFileEntry> {
         self.entries.iter()
             .filter(|e| !e.is_directory && e.path.ends_with(suffix))
             .collect()

@@ -63,8 +63,8 @@ mod tests {
         let ref_dir = reference_dir();
         std::fs::create_dir_all(&ref_dir).expect("create reference_images dir");
 
-        let ref_path = ref_dir.join(format!("{}.png", name));
-        let actual_path = ref_dir.join(format!("{}_actual.png", name));
+        let ref_path = ref_dir.join(format!("{name}.png"));
+        let actual_path = ref_dir.join(format!("{name}_actual.png"));
 
         // Render
         let png_bytes =

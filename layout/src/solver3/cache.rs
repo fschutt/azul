@@ -80,8 +80,8 @@ use crate::{
 /// including child positioning.
 ///
 /// Inspired by Taffy's `RunMode` enum. The two-mode approach enables the
-/// classic CSS two-pass layout: Pass 1 (ComputeSize) measures all children,
-/// Pass 2 (PerformLayout) positions them using the measured sizes.
+/// classic CSS two-pass layout: Pass 1 (`ComputeSize`) measures all children,
+/// Pass 2 (`PerformLayout`) positions them using the measured sizes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComputeMode {
     /// Only compute the node's border-box size and baseline.
@@ -96,7 +96,7 @@ pub enum ComputeMode {
 /// Constraint classification for deterministic cache slot selection.
 ///
 /// Inspired by Taffy's `AvailableSpace` enum. Each constraint type maps to a
-/// different cache slot, preventing collisions between e.g. MinContent and
+/// different cache slot, preventing collisions between e.g. `MinContent` and
 /// Definite measurements of the same node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AvailableWidthType {
@@ -108,7 +108,7 @@ pub enum AvailableWidthType {
     MaxContent,
 }
 
-/// Cache entry for sizing (ComputeSize mode) — stores NO positions.
+/// Cache entry for sizing (`ComputeSize` mode) — stores NO positions.
 ///
 /// This is the lightweight entry stored in the 9 measurement slots.
 /// It records what constraints were provided and what size resulted,
@@ -127,7 +127,7 @@ pub struct SizingCacheEntry {
     pub escaped_bottom_margin: Option<f32>,
 }
 
-/// Cache entry for full layout (PerformLayout mode).
+/// Cache entry for full layout (`PerformLayout` mode).
 ///
 /// This is the single "final layout" slot. It includes child positions
 /// (relative to parent's content-box) and overflow/scrollbar info.
@@ -153,21 +153,21 @@ pub struct LayoutCacheEntry {
 ///
 /// Inspired by Taffy's `Cache` struct (9+1 slots per node). The deterministic
 /// slot index is computed from the constraint combination, so entries never
-/// clobber each other (unlike the old global BTreeMap where fixed-point
+/// clobber each other (unlike the old global `BTreeMap` where fixed-point
 /// collisions were possible).
 ///
-/// NOT stored on LayoutNode — lives in the external `LayoutCacheMap`.
+/// NOT stored on `LayoutNode` — lives in the external `LayoutCacheMap`.
 #[derive(Debug, Clone)]
 pub struct NodeCache {
     /// 9 measurement slots (Taffy's deterministic scheme):
     /// - Slot 0: both dimensions known
-    /// - Slots 1-2: only width known (MaxContent/Definite vs MinContent)
-    /// - Slots 3-4: only height known (MaxContent/Definite vs MinContent)
+    /// - Slots 1-2: only width known (MaxContent/Definite vs `MinContent`)
+    /// - Slots 3-4: only height known (MaxContent/Definite vs `MinContent`)
     /// - Slots 5-8: neither known (2×2 combos of width/height constraint types)
     pub measure_entries: [Option<SizingCacheEntry>; 9],
 
     /// 1 full layout slot (with child positions, overflow, baseline).
-    /// Only populated after PerformLayout, not after ComputeSize.
+    /// Only populated after `PerformLayout`, not after `ComputeSize`.
     pub layout_entry: Option<LayoutCacheEntry>,
 
     /// Fast check for dirty propagation (Taffy optimization).
@@ -202,7 +202,7 @@ impl NodeCache {
     /// TODO(superplan): currently unused — the layout cache only ever touches
     /// slot 0 (see the `get_size(0, ..)` / `store_size(0, ..)` call sites). This
     /// is the intended entry point for wiring the full 9-slot scheme.
-    pub fn slot_index(
+    #[must_use] pub fn slot_index(
         width_known: bool,
         height_known: bool,
         width_type: AvailableWidthType,
@@ -217,8 +217,8 @@ impl NodeCache {
                 if height_type == AvailableWidthType::MinContent { 4 } else { 3 }
             }
             (false, false) => {
-                let w = if width_type == AvailableWidthType::MinContent { 1 } else { 0 };
-                let h = if height_type == AvailableWidthType::MinContent { 1 } else { 0 };
+                let w = usize::from(width_type == AvailableWidthType::MinContent);
+                let h = usize::from(height_type == AvailableWidthType::MinContent);
                 5 + w * 2 + h
             }
         }
@@ -227,7 +227,7 @@ impl NodeCache {
     /// Look up a sizing cache entry, implementing Taffy's "result matches request"
     /// optimization: if the caller provides the result size as a known dimension
     /// (common in Pass1→Pass2 transitions), it's still a cache hit.
-    pub fn get_size(&self, slot: usize, known_dims: LogicalSize) -> Option<&SizingCacheEntry> {
+    #[must_use] pub fn get_size(&self, slot: usize, known_dims: LogicalSize) -> Option<&SizingCacheEntry> {
         let entry = self.measure_entries[slot].as_ref()?;
         // Exact match on input constraints
         if (known_dims.width - entry.available_size.width).abs() < CACHE_SIZE_EPSILON
@@ -248,13 +248,13 @@ impl NodeCache {
     }
 
     /// Store a sizing result in the given slot.
-    pub fn store_size(&mut self, slot: usize, entry: SizingCacheEntry) {
+    pub const fn store_size(&mut self, slot: usize, entry: SizingCacheEntry) {
         self.measure_entries[slot] = Some(entry);
         self.is_empty = false;
     }
 
     /// Look up the full layout cache entry.
-    pub fn get_layout(&self, known_dims: LogicalSize) -> Option<&LayoutCacheEntry> {
+    #[must_use] pub fn get_layout(&self, known_dims: LogicalSize) -> Option<&LayoutCacheEntry> {
         let entry = self.layout_entry.as_ref()?;
         if (known_dims.width - entry.available_size.width).abs() < CACHE_SIZE_EPSILON
             && (known_dims.height - entry.available_size.height).abs() < CACHE_SIZE_EPSILON
@@ -286,7 +286,7 @@ impl NodeCache {
 /// - `LayoutNode` stays slim (0 bytes overhead)
 /// - No `&mut tree` needed to read/write cache entries
 /// - Cache can be resized independently after reconciliation
-/// - O(1) indexed lookup (Vec) instead of O(log n) (BTreeMap)
+/// - O(1) indexed lookup (Vec) instead of O(log n) (`BTreeMap`)
 #[derive(Debug, Clone, Default)]
 pub struct LayoutCacheMap {
     pub entries: Vec<NodeCache>,
@@ -301,7 +301,7 @@ impl LayoutCacheMap {
 
     /// O(1) lookup by layout tree index.
     #[inline]
-    pub fn get(&self, node_index: usize) -> &NodeCache {
+    #[must_use] pub fn get(&self, node_index: usize) -> &NodeCache {
         &self.entries[node_index]
     }
 
@@ -352,43 +352,43 @@ pub struct LayoutCache {
     pub calculated_positions: super::PositionVec,
     /// The viewport size from the last layout pass, used to detect resizes.
     pub viewport: Option<LogicalRect>,
-    /// Stable scroll IDs computed from node_data_hash (layout index -> scroll ID)
+    /// Stable scroll IDs computed from `node_data_hash` (layout index -> scroll ID)
     pub scroll_ids: HashMap<usize, u64>,
-    /// Mapping from scroll ID to DOM NodeId for hit testing
+    /// Mapping from scroll ID to DOM `NodeId` for hit testing
     pub scroll_id_to_node_id: HashMap<u64, NodeId>,
     /// CSS counter values for each node and counter name.
-    /// Key: (layout_index, counter_name), Value: counter value
+    /// Key: (`layout_index`, `counter_name`), Value: counter value
     /// This stores the computed counter values after processing counter-reset and
     /// counter-increment.
     pub counters: HashMap<(usize, String), i32>,
-    /// Cache of positioned floats for each BFC node (layout_index -> FloatingContext).
+    /// Cache of positioned floats for each BFC node (`layout_index` -> `FloatingContext`).
     /// This persists float positions across multiple layout passes, ensuring IFC
     /// children always have access to correct float exclusions even when layout is
     /// recalculated.
     pub float_cache: HashMap<usize, fc::FloatingContext>,
     /// Per-node multi-slot cache (inspired by Taffy's 9+1 architecture).
-    /// External to LayoutTree — indexed by node index for O(1) lookup.
+    /// External to `LayoutTree` — indexed by node index for O(1) lookup.
     /// Persists across frames; resized after reconciliation.
     pub cache_map: LayoutCacheMap,
-    /// Snapshot of calculated_positions from the previous frame, used by the
+    /// Snapshot of `calculated_positions` from the previous frame, used by the
     /// compositor to compute damage rects (old bounds vs new bounds).
     pub previous_positions: super::PositionVec,
     /// Cached display list keyed by `(root_subtree_hash, viewport)`.
-    /// When the reconciled tree has the same root subtree_hash AND
+    /// When the reconciled tree has the same root `subtree_hash` AND
     /// the same viewport as the cached one, the display list is
     /// returned as-is — skipping layout, positioning, and
     /// display-list generation entirely. Cleared whenever
     /// `mark_dirty` fires on any node (since the root's upstream
     /// invalidation chain clears its ancestors).
     pub cached_display_list: Option<(SubtreeHash, LogicalRect, super::display_list::DisplayList)>,
-    /// Raw pointer of the StyledDom from the previous layout pass. When the
+    /// Raw pointer of the `StyledDom` from the previous layout pass. When the
     /// same `&StyledDom` reference is passed again AND the viewport is unchanged,
     /// skip reconcile entirely and return the cached display list (saves ~0.8 ms).
     pub prev_dom_ptr: usize,
     pub prev_viewport: LogicalRect,
 }
 
-/// Approximate heap-byte breakdown of the solver3 LayoutCache.
+/// Approximate heap-byte breakdown of the solver3 `LayoutCache`.
 #[derive(Debug, Clone, Default)]
 pub struct Solver3CacheMemoryReport {
     pub tree_bytes: usize,
@@ -404,7 +404,7 @@ pub struct Solver3CacheMemoryReport {
 }
 
 impl Solver3CacheMemoryReport {
-    pub fn total_bytes(&self) -> usize {
+    #[must_use] pub const fn total_bytes(&self) -> usize {
         self.tree_bytes
             + self.calculated_positions_bytes
             + self.previous_positions_bytes
@@ -421,13 +421,13 @@ impl LayoutCache {
     /// Drop all incremental-reuse state so the next `layout_document` lays the
     /// DOM out from scratch (cold path), as if no previous frame existed.
     ///
-    /// Required before laying out a DOM whose NodeIds are NOT a stable evolution
-    /// of whatever this (shared) cache last held — namely VirtualView / iframe
+    /// Required before laying out a DOM whose `NodeIds` are NOT a stable evolution
+    /// of whatever this (shared) cache last held — namely `VirtualView` / iframe
     /// child DOMs, which their callbacks rebuild wholesale on every invocation.
-    /// Incremental reconciliation matches/reuses subtrees by NodeId + subtree
-    /// hash; on a wholesale rebuild those NodeIds are reassigned, so reusing the
-    /// prior tree can graft NodeIds that no longer exist in the new StyledDom
-    /// (panic: out-of-bounds node_data index when the DOM shrinks — e.g. the map
+    /// Incremental reconciliation matches/reuses subtrees by `NodeId` + subtree
+    /// hash; on a wholesale rebuild those `NodeIds` are reassigned, so reusing the
+    /// prior tree can graft `NodeIds` that no longer exist in the new `StyledDom`
+    /// (panic: out-of-bounds `node_data` index when the DOM shrinks — e.g. the map
     /// dropping tiles on zoom-out).
     pub fn reset_incremental(&mut self) {
         self.tree = None;
@@ -438,34 +438,34 @@ impl LayoutCache {
         self.float_cache.clear();
     }
 
-    /// Approximate heap bytes retained by this LayoutCache.
-    pub fn memory_report(&self) -> Solver3CacheMemoryReport {
-        let tree_report = self.tree.as_ref().map(|t| t.memory_report());
-        let tree_bytes = tree_report.as_ref().map(|r| r.total_bytes()).unwrap_or(0);
+    /// Approximate heap bytes retained by this `LayoutCache`.
+    #[must_use] pub fn memory_report(&self) -> Solver3CacheMemoryReport {
+        let tree_report = self.tree.as_ref().map(LayoutTree::memory_report);
+        let tree_bytes = tree_report.as_ref().map_or(0, super::layout_tree::LayoutTreeMemoryReport::total_bytes);
         // cache_map: Vec<NodeCache>; NodeCache has 9 Option<SizingCacheEntry>
         // + 1 Option<LayoutCacheEntry>. Count filled layout entries' child_positions.
         let mut cache_map_bytes = self.cache_map.entries.capacity()
-            * core::mem::size_of::<NodeCache>();
+            * size_of::<NodeCache>();
         for e in &self.cache_map.entries {
             if let Some(le) = &e.layout_entry {
                 cache_map_bytes += le.child_positions.capacity()
-                    * core::mem::size_of::<(usize, LogicalPosition)>();
+                    * size_of::<(usize, LogicalPosition)>();
             }
         }
         Solver3CacheMemoryReport {
             tree_bytes,
             tree_report,
             calculated_positions_bytes: self.calculated_positions.len()
-                * core::mem::size_of::<LogicalPosition>(),
+                * size_of::<LogicalPosition>(),
             previous_positions_bytes: self.previous_positions.len()
-                * core::mem::size_of::<LogicalPosition>(),
+                * size_of::<LogicalPosition>(),
             scroll_ids_bytes: self.scroll_ids.len()
-                * (core::mem::size_of::<usize>() + core::mem::size_of::<u64>()),
+                * (size_of::<usize>() + size_of::<u64>()),
             scroll_id_to_node_id_bytes: self.scroll_id_to_node_id.len()
-                * (core::mem::size_of::<u64>() + core::mem::size_of::<NodeId>()),
+                * (size_of::<u64>() + size_of::<NodeId>()),
             counters_bytes: self.counters.iter().map(|((_, name), _)| {
-                core::mem::size_of::<(usize, String)>()
-                    + core::mem::size_of::<i32>()
+                size_of::<(usize, String)>()
+                    + size_of::<i32>()
                     + name.capacity()
             }).sum(),
             float_cache_bytes: self.float_cache.len() * 256, // conservative per-FC
@@ -488,19 +488,19 @@ pub struct ReconciliationResult {
 
 impl ReconciliationResult {
     /// Checks if any layout or paint work is needed.
-    pub fn is_clean(&self) -> bool {
+    #[must_use] pub fn is_clean(&self) -> bool {
         self.intrinsic_dirty.is_empty()
             && self.layout_roots.is_empty()
             && self.paint_dirty.is_empty()
     }
 
     /// Returns true if full layout work is needed for at least one node.
-    pub fn needs_layout(&self) -> bool {
+    #[must_use] pub fn needs_layout(&self) -> bool {
         !self.intrinsic_dirty.is_empty() || !self.layout_roots.is_empty()
     }
 
     /// Returns true if only paint work is needed (no layout).
-    pub fn needs_paint_only(&self) -> bool {
+    #[must_use] pub fn needs_paint_only(&self) -> bool {
         !self.needs_layout() && !self.paint_dirty.is_empty()
     }
 }
@@ -566,7 +566,7 @@ pub fn reposition_clean_subtrees(
     }
 }
 
-/// Convert LayoutOverflow to OverflowBehavior
+/// Convert `LayoutOverflow` to `OverflowBehavior`
 /// CSS Overflow Module Level 3: initial value of `overflow` is `visible`.
 // +spec:overflow:3a6297 - initial value 'visible', maps hidden/scroll/auto overflow behaviors
 fn to_overflow_behavior(overflow: MultiValue<LayoutOverflow>) -> fc::OverflowBehavior {
@@ -578,7 +578,7 @@ fn to_overflow_behavior(overflow: MultiValue<LayoutOverflow>) -> fc::OverflowBeh
     }
 }
 
-/// Convert StyleTextAlign to fc::TextAlign
+/// Convert `StyleTextAlign` to `fc::TextAlign`
 // +spec:text-alignment-spacing:43ea0a - text-align-all shorthand: aligns all lines except last (overridden by text-align-last)
 const fn style_text_align_to_fc(text_align: StyleTextAlign) -> fc::TextAlign {
     match text_align {
@@ -593,7 +593,7 @@ const fn style_text_align_to_fc(text_align: StyleTextAlign) -> fc::TextAlign {
 ///
 /// This is a helper function that flattens the sibling iteration into a simple loop.
 /// Children with `display: none` are filtered out since they generate no boxes.
-pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -> Vec<NodeId> {
+#[must_use] pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -> Vec<NodeId> {
     let hierarchy_container = styled_dom.node_hierarchy.as_container();
     let mut children = Vec::new();
 
@@ -781,7 +781,7 @@ fn shift_subtree_position(
 /// by walking the run pairs. We do not build the runs — just count
 /// survivors.
 fn layout_relevant_child_count(
-    styled_dom: &azul_core::styled_dom::StyledDom,
+    styled_dom: &StyledDom,
     children: &[NodeId],
     parent_id: NodeId,
 ) -> usize {
@@ -790,16 +790,16 @@ fn layout_relevant_child_count(
 
     let parent_display = match get_display_property(styled_dom, Some(parent_id)) {
         MultiValue::Exact(d) => d,
-        _ => azul_css::props::layout::display::LayoutDisplay::Block,
+        _ => LayoutDisplay::Block,
     };
     let is_table_structural = matches!(
         parent_display,
-        azul_css::props::layout::display::LayoutDisplay::Table
-            | azul_css::props::layout::display::LayoutDisplay::InlineTable
-            | azul_css::props::layout::display::LayoutDisplay::TableRowGroup
-            | azul_css::props::layout::display::LayoutDisplay::TableHeaderGroup
-            | azul_css::props::layout::display::LayoutDisplay::TableFooterGroup
-            | azul_css::props::layout::display::LayoutDisplay::TableRow
+        LayoutDisplay::Table
+            | LayoutDisplay::InlineTable
+            | LayoutDisplay::TableRowGroup
+            | LayoutDisplay::TableHeaderGroup
+            | LayoutDisplay::TableFooterGroup
+            | LayoutDisplay::TableRow
     );
 
     let has_any_block_child = children
@@ -815,9 +815,9 @@ fn layout_relevant_child_count(
         // display:none drops
         let display = match get_display_property(styled_dom, Some(id)) {
             MultiValue::Exact(d) => d,
-            _ => azul_css::props::layout::display::LayoutDisplay::Block,
+            _ => LayoutDisplay::Block,
         };
-        if matches!(display, azul_css::props::layout::display::LayoutDisplay::None) {
+        if matches!(display, LayoutDisplay::None) {
             continue;
         }
         // Table-structural whitespace drops.
@@ -936,7 +936,8 @@ fn is_whitespace_only_inline_run(
     // If white-space preserves whitespace, don't strip
     if matches!(
         white_space,
-        Some(StyleWhiteSpace::Pre) | Some(StyleWhiteSpace::PreWrap) | Some(StyleWhiteSpace::PreLine)
+        Some(StyleWhiteSpace::Pre | StyleWhiteSpace::PreWrap |
+StyleWhiteSpace::PreLine)
     ) {
         return false;
     }
@@ -1101,15 +1102,15 @@ pub fn reconcile_recursive(
         use super::getters::{get_display_property, MultiValue};
         let parent_display = match get_display_property(styled_dom, Some(new_dom_id)) {
             MultiValue::Exact(d) => d,
-            _ => azul_css::props::layout::display::LayoutDisplay::Block,
+            _ => LayoutDisplay::Block,
         };
         if matches!(parent_display,
-            azul_css::props::layout::display::LayoutDisplay::Table
-            | azul_css::props::layout::display::LayoutDisplay::InlineTable
-            | azul_css::props::layout::display::LayoutDisplay::TableRowGroup
-            | azul_css::props::layout::display::LayoutDisplay::TableHeaderGroup
-            | azul_css::props::layout::display::LayoutDisplay::TableFooterGroup
-            | azul_css::props::layout::display::LayoutDisplay::TableRow
+            LayoutDisplay::Table
+            | LayoutDisplay::InlineTable
+            | LayoutDisplay::TableRowGroup
+            | LayoutDisplay::TableHeaderGroup
+            | LayoutDisplay::TableFooterGroup
+            | LayoutDisplay::TableRow
         ) {
             new_children_dom_ids.retain(|&id| {
                 !super::layout_tree::is_whitespace_only_text(styled_dom, id)
@@ -1424,7 +1425,7 @@ struct PreparedLayoutContext<'a> {
 /// Prepares the layout context for a single node by calculating its used size
 /// and building the layout constraints for its children.
 ///
-/// For anonymous boxes (no dom_node_id), we use default values and inherit
+/// For anonymous boxes (no `dom_node_id`), we use default values and inherit
 /// from the containing block.
 fn prepare_layout_context<'a, T: ParsedFontTrait>(
     ctx: &LayoutContext<'a, T>,
@@ -1516,7 +1517,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
 ///
 /// This is the single source of truth for scrollbar detection. Both the BFC path
 /// (`compute_scrollbar_info`) and the Taffy flex/grid path (`compute_child_layout`
-/// in taffy_bridge.rs) call this function, ensuring consistent behaviour.
+/// in `taffy_bridge.rs`) call this function, ensuring consistent behaviour.
 ///
 /// For paged media (PDF), scrollbars are never added since they don't exist in print.
 pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
@@ -1643,7 +1644,7 @@ fn check_scrollbar_change(
 /// Calculates the content-box position from a margin-box position.
 ///
 /// The content-box is offset from the margin-box by border + padding.
-/// Margin is NOT added here because containing_block_pos already accounts for it.
+/// Margin is NOT added here because `containing_block_pos` already accounts for it.
 fn calculate_content_box_pos(
     containing_block_pos: LogicalPosition,
     box_props: &crate::solver3::geometry::BoxProps,
@@ -1674,9 +1675,7 @@ fn log_content_box_calculation<T: ParsedFontTrait>(
                 .as_container()
                 .internal
                 .get(id.index())
-        })
-        .map(|n| format!("{:?}", n.node_type))
-        .unwrap_or_else(|| "Unknown".to_string());
+        }).map_or_else(|| "Unknown".to_string(), |n| format!("{:?}", n.node_type));
 
     let cbp = current_node.box_props.unpack();
     debug_msgs.push(LayoutDebugMessage::new(
@@ -1716,9 +1715,7 @@ fn log_child_positioning<T: ParsedFontTrait>(
                 .as_container()
                 .internal
                 .get(id.index())
-        })
-        .map(|n| format!("{:?}", n.node_type))
-        .unwrap_or_else(|| "Unknown".to_string());
+        }).map_or_else(|| "Unknown".to_string(), |n| format!("{:?}", n.node_type));
 
     let Some(debug_msgs) = ctx.debug_messages.as_mut() else {
         return;
@@ -1747,7 +1744,7 @@ fn log_child_positioning<T: ParsedFontTrait>(
 ///
 /// For Flex/Grid containers, Taffy has already laid out the children completely.
 /// We only recurse to position their grandchildren.
-/// For Block/Inline/Table, layout_bfc/layout_ifc already laid out children in Pass 1.
+/// For Block/Inline/Table, `layout_bfc/layout_ifc` already laid out children in Pass 1.
 /// We only need to set absolute positions and recurse for positioning grandchildren.
 fn process_inflow_child<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
@@ -1836,7 +1833,7 @@ fn process_inflow_child<T: ParsedFontTrait>(
 }
 
 /// Recursively positions descendants of a BFC/IFC child without re-computing layout.
-/// The layout was already computed by layout_bfc/layout_ifc.
+/// The layout was already computed by `layout_bfc/layout_ifc`.
 /// We only need to convert relative positions to absolute positions.
 fn position_bfc_child_descendants(
     tree: &LayoutTree,
@@ -1874,7 +1871,7 @@ fn position_bfc_child_descendants(
 
 /// Processes out-of-flow children (absolute/fixed positioned elements).
 ///
-/// Out-of-flow elements don't appear in layout_output.positions but still need
+/// Out-of-flow elements don't appear in `layout_output.positions` but still need
 /// a static position for when no explicit offsets are specified. This sets their
 /// static position to the parent's content-box origin.
 fn process_out_of_flow_children<T: ParsedFontTrait>(
@@ -1959,9 +1956,9 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
 ///
 /// ## Cache Hit Rates (Taffy's "result matches request" optimization)
 ///
-/// When Pass 1 measures a node with available_size A and gets result_size R,
-/// then Pass 2 provides R as a known_dimension, `get_size()` / `get_layout()`
-/// recognize R == cached.result_size as a cache hit. This is the fundamental
+/// When Pass 1 measures a node with `available_size` A and gets `result_size` R,
+/// then Pass 2 provides R as a `known_dimension`, `get_size()` / `get_layout()`
+/// recognize R == `cached.result_size` as a cache hit. This is the fundamental
 /// mechanism ensuring O(n) total complexity across both passes.
 pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
@@ -2044,7 +2041,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                     }
                     if let Some(warm) = tree.warm_mut(node_index) {
                         warm.overflow_content_size = Some(cached_layout.content_size);
-                        warm.scrollbar_info = Some(cached_layout.scrollbar_info.clone());
+                        warm.scrollbar_info = Some(cached_layout.scrollbar_info);
                     }
                     return Ok(());
                 }
@@ -2196,8 +2193,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     let is_scroll_container = dom_id.is_some_and(|id| {
         let ov_x = get_overflow_x(ctx.styled_dom, id, &styled_node_state);
         let ov_y = get_overflow_y(ctx.styled_dom, id, &styled_node_state);
-        matches!(ov_x, MultiValue::Exact(LayoutOverflow::Scroll) | MultiValue::Exact(LayoutOverflow::Auto))
-            || matches!(ov_y, MultiValue::Exact(LayoutOverflow::Scroll) | MultiValue::Exact(LayoutOverflow::Auto))
+        matches!(ov_x, MultiValue::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto))
+            || matches!(ov_y, MultiValue::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto))
     });
 
     if should_use_content_height(&css_height) {
@@ -2236,7 +2233,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         *reflow_needed_for_scrollbars = true;
     }
 
-    let merged_scrollbar_info = scrollbar_info.clone();
+    let merged_scrollbar_info = scrollbar_info;
     let content_box_size = box_props.inner_size(final_used_size, writing_mode);
     let inner_size_after_scrollbars = merged_scrollbar_info.shrink_size(content_box_size);
 
@@ -2336,10 +2333,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
             available_size: containing_block_size,
             result_size: final_used_size,
             content_size,
-            child_positions: child_positions_for_cache.clone(),
+            child_positions: child_positions_for_cache,
             escaped_top_margin: escaped_top,
             escaped_bottom_margin: escaped_bottom,
-            scrollbar_info: merged_scrollbar_info.clone(),
+            scrollbar_info: merged_scrollbar_info,
         });
 
         // Also store in a measurement slot (slot 0: both dimensions known).
@@ -2363,8 +2360,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
 /// Recursively positions descendants of Flex/Grid children.
 ///
 /// When a Flex container lays out its children via Taffy, the children have their
-/// used_size and relative_position set, but their GRANDCHILDREN don't have positions
-/// in calculated_positions yet. This function traverses down the tree and positions
+/// `used_size` and `relative_position` set, but their GRANDCHILDREN don't have positions
+/// in `calculated_positions` yet. This function traverses down the tree and positions
 /// all descendants properly.
 fn position_flex_child_descendants<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
@@ -2467,7 +2464,7 @@ fn should_use_content_height(css_height: &MultiValue<LayoutHeight>) -> bool {
 /// **Note**: This function respects min-height/max-height constraints from Phase 1.
 ///
 /// According to CSS 2.2 § 10.7, when height is 'auto', the final height must be
-/// max(min_height, min(content_height, max_height)).
+/// `max(min_height`, `min(content_height`, `max_height`)).
 ///
 /// The `used_size` parameter already contains the size constrained by
 /// min-height/max-height from the initial sizing pass. We must take the
@@ -2543,7 +2540,7 @@ fn compute_counters_recursive(
     tree: &LayoutTree,
     node_idx: usize,
     counters: &mut HashMap<(usize, String), i32>,
-    counter_stacks: &mut std::collections::HashMap<String, Vec<i32>>,
+    counter_stacks: &mut HashMap<String, Vec<i32>>,
     scope_stack: &mut Vec<Vec<String>>,
 ) {
     let node = match tree.get(node_idx) {
@@ -2576,22 +2573,19 @@ fn compute_counters_recursive(
     }
 
     // Only process real DOM nodes, not anonymous boxes
-    let dom_id = match node.dom_node_id {
-        Some(id) => id,
-        None => {
-            // For anonymous boxes, just recurse to children
-            for &child_idx in tree.children(node_idx) {
-                compute_counters_recursive(
-                    styled_dom,
-                    tree,
-                    child_idx,
-                    counters,
-                    counter_stacks,
-                    scope_stack,
-                );
-            }
-            return;
+    let dom_id = if let Some(id) = node.dom_node_id { id } else {
+        // For anonymous boxes, just recurse to children
+        for &child_idx in tree.children(node_idx) {
+            compute_counters_recursive(
+                styled_dom,
+                tree,
+                child_idx,
+                counters,
+                counter_stacks,
+                scope_stack,
+            );
         }
+        return;
     };
 
     let node_data = &styled_dom.node_data.as_container()[dom_id];
@@ -2654,7 +2648,7 @@ fn compute_counters_recursive(
             let inc_value = counter_inc.value;
 
             // Increment the counter in the current scope
-            let stack = counter_stacks.entry(counter_name.clone()).or_default();
+            let stack = counter_stacks.entry(counter_name).or_default();
             if stack.is_empty() {
                 // Auto-initialize if counter doesn't exist
                 stack.push(inc_value);
@@ -2667,7 +2661,7 @@ fn compute_counters_recursive(
     // CSS Lists §3: display: list-item automatically increments "list-item" counter
     if is_list_item {
         let counter_name = "list-item".to_string();
-        let stack = counter_stacks.entry(counter_name.clone()).or_default();
+        let stack = counter_stacks.entry(counter_name).or_default();
         if stack.is_empty() {
             // Auto-initialize if counter doesn't exist
             stack.push(1);

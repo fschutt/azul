@@ -19,7 +19,7 @@ use azul_css::{AzString, U8Vec};
 /// decode worker matches on it directly (no `RefAny` downcast). Mirrors
 /// [`crate::screencap::ScreenCaptureSource`].
 #[repr(C, u8)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VideoSource {
     /// An HTTP(S) URL, fetched on the decode thread via an HTTP range request.
     Url(Url),
@@ -31,7 +31,7 @@ pub enum VideoSource {
 
 impl Default for VideoSource {
     fn default() -> Self {
-        VideoSource::Url(Url::default())
+        Self::Url(Url::default())
     }
 }
 
@@ -68,7 +68,7 @@ impl Default for VideoConfig {
 
 impl VideoConfig {
     /// A default config playing `source` (autoplay on, no loop, BGRA8, t=0).
-    pub fn new(source: VideoSource) -> Self {
+    #[must_use] pub fn new(source: VideoSource) -> Self {
         Self {
             source,
             ..Self::default()
@@ -82,7 +82,7 @@ impl VideoConfig {
 /// azul-meet sends over UDP. Defined here (like [`crate::audio::AudioFrame`])
 /// so it crosses the FFI without `azul-layout` as a dependency.
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoFrame {
     /// Frame width in px.
     pub width: u32,
@@ -94,7 +94,7 @@ pub struct VideoFrame {
 
 impl VideoFrame {
     /// A frame wrapping `bytes` (tightly-packed RGBA8, `width * height * 4`).
-    pub fn new(width: u32, height: u32, bytes: U8Vec) -> Self {
+    #[must_use] pub const fn new(width: u32, height: u32, bytes: U8Vec) -> Self {
         Self {
             width,
             height,

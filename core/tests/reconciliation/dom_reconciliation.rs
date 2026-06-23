@@ -8,12 +8,12 @@
 
 use azul_core::diff::{
     reconcile_dom_with_changes, ChangeAccumulator, ExtendedDiffResult,
-    NodeChangeSet, reconcile_dom, DiffResult,
+    NodeChangeSet,
 };
 use azul_core::dom::{NodeData, DomId};
 use azul_core::id::NodeId;
 use azul_core::geom::LogicalRect;
-use azul_core::styled_dom::{NodeHierarchyItem, StyledNodeState};
+use azul_core::styled_dom::StyledNodeState;
 use azul_core::task::Instant;
 use azul_core::OrderedMap;
 use azul_css::AzString;
@@ -76,8 +76,8 @@ fn identical_dom_no_changes() {
     );
     
     // All nodes should match with empty change sets
-    for &(_, _, ref cs) in &extended.node_changes {
-        assert!(cs.is_empty(), "identical DOM should have no changes, got {:?}", cs);
+    for (_, _, cs) in &extended.node_changes {
+        assert!(cs.is_empty(), "identical DOM should have no changes, got {cs:?}");
     }
 }
 
@@ -400,7 +400,7 @@ fn keyed_reorder_no_content_change() {
     );
     
     // All nodes should match (by key), and no content changes
-    for &(_, _, ref cs) in &extended.node_changes {
+    for (_, _, cs) in &extended.node_changes {
         assert!(!cs.contains(NodeChangeSet::TEXT_CONTENT),
             "reorder should not flag text changes");
         assert!(!cs.contains(NodeChangeSet::NODE_TYPE_CHANGED),

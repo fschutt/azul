@@ -56,8 +56,8 @@ impl PrintAsCssValue for FlowFrom {
 impl crate::codegen::format::FormatAsRustCode for FlowInto {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            FlowInto::None => String::from("FlowInto::None"),
-            FlowInto::Named(s) => format!(
+            Self::None => String::from("FlowInto::None"),
+            Self::Named(s) => format!(
                 "FlowInto::Named(AzString::from_const_str({:?}))",
                 s.as_str()
             ),
@@ -68,8 +68,8 @@ impl crate::codegen::format::FormatAsRustCode for FlowInto {
 impl crate::codegen::format::FormatAsRustCode for FlowFrom {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            FlowFrom::None => String::from("FlowFrom::None"),
-            FlowFrom::Named(s) => format!(
+            Self::None => String::from("FlowFrom::None"),
+            Self::Named(s) => format!(
                 "FlowFrom::Named(AzString::from_const_str({:?}))",
                 s.as_str()
             ),
@@ -92,7 +92,7 @@ pub mod parser {
             $error_owned_name:ident,
             $prop_name:expr
         ) => {
-            #[derive(Clone, PartialEq)]
+            #[derive(Clone, PartialEq, Eq)]
             pub enum $error_name<'a> {
                 InvalidValue(&'a str),
             }
@@ -102,14 +102,14 @@ pub mod parser {
                 InvalidValue(v) => format!("Invalid {} value: \"{}\"", $prop_name, v),
             }}
 
-            #[derive(Debug, Clone, PartialEq)]
+            #[derive(Debug, Clone, PartialEq, Eq)]
             #[repr(C, u8)]
             pub enum $error_owned_name {
                 InvalidValue(AzString),
             }
 
-            impl<'a> $error_name<'a> {
-                pub fn to_contained(&self) -> $error_owned_name {
+            impl $error_name<'_> {
+                #[must_use] pub fn to_contained(&self) -> $error_owned_name {
                     match self {
                         Self::InvalidValue(s) => $error_owned_name::InvalidValue(s.to_string().into()),
                     }
@@ -117,14 +117,14 @@ pub mod parser {
             }
 
             impl $error_owned_name {
-                pub fn to_shared<'a>(&'a self) -> $error_name<'a> {
+                #[must_use] pub fn to_shared(&self) -> $error_name<'_> {
                     match self {
                         Self::InvalidValue(s) => $error_name::InvalidValue(s.as_str()),
                     }
                 }
             }
 
-            pub fn $fn_name<'a>(input: &'a str) -> Result<$struct_name, $error_name<'a>> {
+            pub fn $fn_name(input: &str) -> Result<$struct_name, $error_name<'_>> {
                 let trimmed = input.trim();
                 if trimmed.is_empty() {
                     return Err($error_name::InvalidValue(input));

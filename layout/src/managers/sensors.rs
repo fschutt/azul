@@ -1,10 +1,10 @@
 //! Sensor manager — cross-platform state for the motion-sensor surface
-//! (SUPER_PLAN_2 §1 feature 5 + research/03).
+//! (`SUPER_PLAN_2` §1 feature 5 + research/03).
 //!
 //! Continuous + push-driven, like geolocation:
 //!
 //! - The **platform backend** (`dll/src/desktop/extra/sensors/<plat>.rs`)
-//!   subscribes to CoreMotion (`CMMotionManager`) / Android `SensorManager`
+//!   subscribes to `CoreMotion` (`CMMotionManager`) / Android `SensorManager`
 //!   and calls [`push_sensor_reading`] on every sample (arbitrary thread).
 //! - The dll **layout pass** drains the channel via
 //!   [`drain_sensor_readings`] and folds each into the manager through
@@ -13,7 +13,7 @@
 //!   `CallbackInfo::get_sensor_reading`) to drive tilt / shake / compass UI.
 //!
 //! One reading slot per [`SensorKind`]. No platform deps
-//! (SUPER_PLAN_2 §0.5); the channel mirrors `geolocation.rs` verbatim.
+//! (`SUPER_PLAN_2` §0.5); the channel mirrors `geolocation.rs` verbatim.
 
 use alloc::vec::Vec;
 
@@ -41,12 +41,12 @@ pub struct SensorManager {
 }
 
 impl SensorManager {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
 
     /// Latest reading for `kind`, or `None` if no backend has delivered one.
-    pub fn reading(&self, kind: SensorKind) -> Option<SensorReading> {
+    #[must_use] pub const fn reading(&self, kind: SensorKind) -> Option<SensorReading> {
         match kind {
             SensorKind::Accelerometer => self.accelerometer,
             SensorKind::Gyroscope => self.gyroscope,
@@ -76,7 +76,7 @@ impl SensorManager {
 
     /// Clear the pending-event flag. The dll calls this after the event pass
     /// has collected the `SensorChanged` event (mirrors `clear_changeset`).
-    pub fn clear_pending_event(&mut self) {
+    pub const fn clear_pending_event(&mut self) {
         self.pending_event = false;
     }
 }
@@ -122,7 +122,7 @@ static PENDING_READINGS: std::sync::Mutex<Vec<SensorReading>> =
 /// Park a sensor reading delivered by a platform backend (in the dll).
 /// Thread-safe; poison-recovering.
 pub fn push_sensor_reading(reading: SensorReading) {
-    let mut q = PENDING_READINGS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_READINGS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(reading);
 }
 
@@ -130,7 +130,7 @@ pub fn push_sensor_reading(reading: SensorReading) {
 /// Called once per layout pass; the caller applies them through
 /// [`SensorManager::set_reading`] (the last per kind wins).
 pub fn drain_sensor_readings() -> Vec<SensorReading> {
-    let mut q = PENDING_READINGS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_READINGS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 

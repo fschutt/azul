@@ -17,7 +17,7 @@ pub use azul_simplecss::Error as SimplecssError;
 use azul_simplecss::Tokenizer;
 
 /// FFI-safe position of a CSS syntax error.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct CssSyntaxErrorPos {
     pub row: usize,
@@ -26,12 +26,12 @@ pub struct CssSyntaxErrorPos {
 
 impl From<azul_simplecss::ErrorPos> for CssSyntaxErrorPos {
     fn from(p: azul_simplecss::ErrorPos) -> Self {
-        CssSyntaxErrorPos { row: p.row, col: p.col }
+        Self { row: p.row, col: p.col }
     }
 }
 
 /// FFI-safe wrapper for invalid advance details in CSS syntax errors.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct CssSyntaxInvalidAdvance {
     pub expected: isize,
@@ -39,8 +39,8 @@ pub struct CssSyntaxInvalidAdvance {
     pub pos: CssSyntaxErrorPos,
 }
 
-/// FFI-safe CSS syntax error type, mirrors azul_simplecss::Error.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// FFI-safe CSS syntax error type, mirrors `azul_simplecss::Error`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssSyntaxError {
     UnexpectedEndOfStream(CssSyntaxErrorPos),
@@ -52,10 +52,10 @@ pub enum CssSyntaxError {
 impl From<SimplecssError> for CssSyntaxError {
     fn from(e: SimplecssError) -> Self {
         match e {
-            SimplecssError::UnexpectedEndOfStream(pos) => CssSyntaxError::UnexpectedEndOfStream(pos.into()),
-            SimplecssError::InvalidAdvance { expected, total, pos } => CssSyntaxError::InvalidAdvance(CssSyntaxInvalidAdvance { expected, total, pos: pos.into() }),
-            SimplecssError::UnsupportedToken(pos) => CssSyntaxError::UnsupportedToken(pos.into()),
-            SimplecssError::UnknownToken(pos) => CssSyntaxError::UnknownToken(pos.into()),
+            SimplecssError::UnexpectedEndOfStream(pos) => Self::UnexpectedEndOfStream(pos.into()),
+            SimplecssError::InvalidAdvance { expected, total, pos } => Self::InvalidAdvance(CssSyntaxInvalidAdvance { expected, total, pos: pos.into() }),
+            SimplecssError::UnsupportedToken(pos) => Self::UnsupportedToken(pos.into()),
+            SimplecssError::UnknownToken(pos) => Self::UnknownToken(pos.into()),
         }
     }
 }
@@ -89,7 +89,7 @@ pub struct CssParseError<'a> {
     pub location: ErrorLocationRange,
 }
 
-/// Owned version of CssParseError, without references.
+/// Owned version of `CssParseError`, without references.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct CssParseErrorOwned {
@@ -98,8 +98,8 @@ pub struct CssParseErrorOwned {
     pub location: ErrorLocationRange,
 }
 
-impl<'a> CssParseError<'a> {
-    pub fn to_contained(&self) -> CssParseErrorOwned {
+impl CssParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssParseErrorOwned {
         CssParseErrorOwned {
             css_string: self.css_string.to_string().into(),
             error: self.error.to_contained(),
@@ -109,7 +109,7 @@ impl<'a> CssParseError<'a> {
 }
 
 impl CssParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssParseError<'_> {
         CssParseError {
             css_string: self.css_string.as_str(),
             error: self.error.to_shared(),
@@ -120,7 +120,7 @@ impl CssParseErrorOwned {
 
 impl<'a> CssParseError<'a> {
     /// Returns the string between the (start, end) location
-    pub fn get_error_string(&self) -> &'a str {
+    #[must_use] pub fn get_error_string(&self) -> &'a str {
         let (start, end) = (self.location.start.original_pos, self.location.end.original_pos);
         let s = &self.css_string[start..end];
         s.trim()
@@ -156,16 +156,16 @@ pub enum CssParseErrorInner<'a> {
     },
 }
 
-/// Wrapper for UnknownPropertyKey error.
-#[derive(Debug, Clone, PartialEq)]
+/// Wrapper for `UnknownPropertyKey` error.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct UnknownPropertyKeyError {
     pub key: AzString,
     pub value: AzString,
 }
 
-/// Wrapper for VarOnShorthandProperty error.
-#[derive(Debug, Clone, PartialEq)]
+/// Wrapper for `VarOnShorthandProperty` error.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct VarOnShorthandPropertyError {
     pub key: CombinedCssPropertyType,
@@ -185,8 +185,8 @@ pub enum CssParseErrorInnerOwned {
     VarOnShorthandProperty(VarOnShorthandPropertyError),
 }
 
-impl<'a> CssParseErrorInner<'a> {
-    pub fn to_contained(&self) -> CssParseErrorInnerOwned {
+impl CssParseErrorInner<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssParseErrorInnerOwned {
         match self {
             CssParseErrorInner::ParseError(e) => CssParseErrorInnerOwned::ParseError(*e),
             CssParseErrorInner::UnclosedBlock => CssParseErrorInnerOwned::UnclosedBlock,
@@ -201,12 +201,12 @@ impl<'a> CssParseErrorInner<'a> {
                 CssParseErrorInnerOwned::NodeTypeTag(e.to_contained())
             }
             CssParseErrorInner::UnknownPropertyKey(a, b) => {
-                CssParseErrorInnerOwned::UnknownPropertyKey(UnknownPropertyKeyError { key: a.to_string().into(), value: b.to_string().into() })
+                CssParseErrorInnerOwned::UnknownPropertyKey(UnknownPropertyKeyError { key: (*a).to_string().into(), value: (*b).to_string().into() })
             }
             CssParseErrorInner::VarOnShorthandProperty { key, value } => {
                 CssParseErrorInnerOwned::VarOnShorthandProperty(VarOnShorthandPropertyError {
                     key: *key,
-                    value: value.to_string().into(),
+                    value: (*value).to_string().into(),
                 })
             }
         }
@@ -214,24 +214,24 @@ impl<'a> CssParseErrorInner<'a> {
 }
 
 impl CssParseErrorInnerOwned {
-    pub fn to_shared<'a>(&'a self) -> CssParseErrorInner<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssParseErrorInner<'_> {
         match self {
-            CssParseErrorInnerOwned::ParseError(e) => CssParseErrorInner::ParseError(*e),
-            CssParseErrorInnerOwned::UnclosedBlock => CssParseErrorInner::UnclosedBlock,
-            CssParseErrorInnerOwned::MalformedCss => CssParseErrorInner::MalformedCss,
-            CssParseErrorInnerOwned::DynamicCssParseError(e) => {
+            Self::ParseError(e) => CssParseErrorInner::ParseError(*e),
+            Self::UnclosedBlock => CssParseErrorInner::UnclosedBlock,
+            Self::MalformedCss => CssParseErrorInner::MalformedCss,
+            Self::DynamicCssParseError(e) => {
                 CssParseErrorInner::DynamicCssParseError(e.to_shared())
             }
-            CssParseErrorInnerOwned::PseudoSelectorParseError(e) => {
+            Self::PseudoSelectorParseError(e) => {
                 CssParseErrorInner::PseudoSelectorParseError(e.to_shared())
             }
-            CssParseErrorInnerOwned::NodeTypeTag(e) => {
+            Self::NodeTypeTag(e) => {
                 CssParseErrorInner::NodeTypeTag(e.to_shared())
             }
-            CssParseErrorInnerOwned::UnknownPropertyKey(e) => {
+            Self::UnknownPropertyKey(e) => {
                 CssParseErrorInner::UnknownPropertyKey(e.key.as_str(), e.value.as_str())
             }
-            CssParseErrorInnerOwned::VarOnShorthandProperty(e) => {
+            Self::VarOnShorthandProperty(e) => {
                 CssParseErrorInner::VarOnShorthandProperty {
                     key: e.key,
                     value: e.value.as_str(),
@@ -255,13 +255,13 @@ impl_display! { CssParseErrorInner<'a>, {
     ),
 }}
 
-impl<'a> From<CssSyntaxError> for CssParseErrorInner<'a> {
+impl From<CssSyntaxError> for CssParseErrorInner<'_> {
     fn from(e: CssSyntaxError) -> Self {
         CssParseErrorInner::ParseError(e)
     }
 }
 
-impl<'a> From<SimplecssError> for CssParseErrorInner<'a> {
+impl From<SimplecssError> for CssParseErrorInner<'_> {
     fn from(e: SimplecssError) -> Self {
         CssParseErrorInner::ParseError(CssSyntaxError::from(e))
     }
@@ -279,7 +279,7 @@ pub enum CssPseudoSelectorParseError<'a> {
     InvalidNthChild(ParseIntError),
 }
 
-impl<'a> From<ParseIntError> for CssPseudoSelectorParseError<'a> {
+impl From<ParseIntError> for CssPseudoSelectorParseError<'_> {
     fn from(e: ParseIntError) -> Self {
         CssPseudoSelectorParseError::InvalidNthChild(e)
     }
@@ -292,10 +292,10 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
     ),
     UnknownSelector(selector, value) => {
         let format_str = match value {
-            Some(v) => format!("{}({})", selector, v),
-            None => selector.to_string(),
+            Some(v) => format!("{selector}({v})"),
+            None => (*selector).to_string(),
         };
-        format!("Invalid or unknown CSS pseudo-selector: ':{}'", format_str)
+        format!("Invalid or unknown CSS pseudo-selector: ':{format_str}'")
     },
     InvalidNthChildPattern(selector) => format!(
         "Invalid pseudo-selector :{} - value has to be a \
@@ -304,15 +304,15 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
     InvalidNthChild(e) => format!("Invalid :nth-child pseudo-selector: ':{}'", e),
 }}
 
-/// Wrapper for UnknownSelector error.
-#[derive(Debug, Clone, PartialEq)]
+/// Wrapper for `UnknownSelector` error.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct UnknownSelectorError {
     pub selector: AzString,
     pub suggestion: OptionString,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssPseudoSelectorParseErrorOwned {
     EmptyNthChild,
@@ -321,20 +321,20 @@ pub enum CssPseudoSelectorParseErrorOwned {
     InvalidNthChild(crate::props::basic::error::ParseIntError),
 }
 
-impl<'a> CssPseudoSelectorParseError<'a> {
-    pub fn to_contained(&self) -> CssPseudoSelectorParseErrorOwned {
+impl CssPseudoSelectorParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssPseudoSelectorParseErrorOwned {
         match self {
             CssPseudoSelectorParseError::EmptyNthChild => {
                 CssPseudoSelectorParseErrorOwned::EmptyNthChild
             }
             CssPseudoSelectorParseError::UnknownSelector(a, b) => {
                 CssPseudoSelectorParseErrorOwned::UnknownSelector(UnknownSelectorError {
-                    selector: a.to_string().into(),
+                    selector: (*a).to_string().into(),
                     suggestion: b.map(|s| AzString::from(s.to_string())).into(),
                 })
             }
             CssPseudoSelectorParseError::InvalidNthChildPattern(s) => {
-                CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s.to_string().into())
+                CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern((*s).to_string().into())
             }
             CssPseudoSelectorParseError::InvalidNthChild(e) => {
                 CssPseudoSelectorParseErrorOwned::InvalidNthChild(e.clone().into())
@@ -344,18 +344,18 @@ impl<'a> CssPseudoSelectorParseError<'a> {
 }
 
 impl CssPseudoSelectorParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssPseudoSelectorParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssPseudoSelectorParseError<'_> {
         match self {
-            CssPseudoSelectorParseErrorOwned::EmptyNthChild => {
+            Self::EmptyNthChild => {
                 CssPseudoSelectorParseError::EmptyNthChild
             }
-            CssPseudoSelectorParseErrorOwned::UnknownSelector(e) => {
-                CssPseudoSelectorParseError::UnknownSelector(e.selector.as_str(), e.suggestion.as_ref().map(|s| s.as_str()))
+            Self::UnknownSelector(e) => {
+                CssPseudoSelectorParseError::UnknownSelector(e.selector.as_str(), e.suggestion.as_ref().map(AzString::as_str))
             }
-            CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s) => {
+            Self::InvalidNthChildPattern(s) => {
                 CssPseudoSelectorParseError::InvalidNthChildPattern(s)
             }
-            CssPseudoSelectorParseErrorOwned::InvalidNthChild(e) => {
+            Self::InvalidNthChild(e) => {
                 CssPseudoSelectorParseError::InvalidNthChild(e.to_std())
             }
         }
@@ -389,11 +389,11 @@ pub enum DynamicCssParseErrorOwned {
     UnexpectedValue(CssParsingErrorOwned),
 }
 
-impl<'a> DynamicCssParseError<'a> {
-    pub fn to_contained(&self) -> DynamicCssParseErrorOwned {
+impl DynamicCssParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> DynamicCssParseErrorOwned {
         match self {
             DynamicCssParseError::InvalidBraceContents(s) => {
-                DynamicCssParseErrorOwned::InvalidBraceContents(s.to_string().into())
+                DynamicCssParseErrorOwned::InvalidBraceContents((*s).to_string().into())
             }
             DynamicCssParseError::UnexpectedValue(e) => {
                 DynamicCssParseErrorOwned::UnexpectedValue(e.to_contained())
@@ -403,12 +403,12 @@ impl<'a> DynamicCssParseError<'a> {
 }
 
 impl DynamicCssParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> DynamicCssParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> DynamicCssParseError<'_> {
         match self {
-            DynamicCssParseErrorOwned::InvalidBraceContents(s) => {
+            Self::InvalidBraceContents(s) => {
                 DynamicCssParseError::InvalidBraceContents(s)
             }
-            DynamicCssParseErrorOwned::UnexpectedValue(e) => {
+            Self::UnexpectedValue(e) => {
                 DynamicCssParseError::UnexpectedValue(e.to_shared())
             }
         }
@@ -459,7 +459,7 @@ pub fn pseudo_selector_from_str<'a>(
 /// Parses the inner content of an attribute selector token (the text between `[` and `]`).
 ///
 /// Returns `None` if the input is malformed (empty name, unterminated quote, etc).
-pub fn parse_attribute_selector(input: &str) -> Option<CssAttributeSelector> {
+#[must_use] pub fn parse_attribute_selector(input: &str) -> Option<CssAttributeSelector> {
     let s = input.trim();
     if s.is_empty() {
         return None;
@@ -534,9 +534,9 @@ fn strip_attribute_quotes(s: &str) -> Option<&str> {
 /// Parses the inner value of the `:nth-child` selector, including numbers and patterns.
 ///
 /// I.e.: `"2n+3"` -> `Pattern { repeat: 2, offset: 3 }`
-fn parse_nth_child_selector<'a>(
-    value: &'a str,
-) -> Result<CssNthChildSelector, CssPseudoSelectorParseError<'a>> {
+fn parse_nth_child_selector(
+    value: &str,
+) -> Result<CssNthChildSelector, CssPseudoSelectorParseError<'_>> {
     let value = value.trim();
 
     if value.is_empty() {
@@ -556,9 +556,9 @@ fn parse_nth_child_selector<'a>(
 }
 
 /// Parses the pattern between the braces of a "nth-child" (such as "2n+3").
-fn parse_nth_child_pattern<'a>(
-    value: &'a str,
-) -> Result<CssNthChildSelector, CssPseudoSelectorParseError<'a>> {
+fn parse_nth_child_pattern(
+    value: &str,
+) -> Result<CssNthChildSelector, CssPseudoSelectorParseError<'_>> {
     use crate::css::CssNthChildPattern;
 
     let value = value.trim();
@@ -569,14 +569,14 @@ fn parse_nth_child_pattern<'a>(
 
     // TODO: Test for "+"
     let repeat = value
-        .split("n")
+        .split('n')
         .next()
         .ok_or(CssPseudoSelectorParseError::InvalidNthChildPattern(value))?
         .trim()
         .parse::<u32>()?;
 
     // In a "2n+3" form, the first .next() yields the "2n", the second .next() yields the "3"
-    let mut offset_iterator = value.split("+");
+    let mut offset_iterator = value.split('+');
 
     // has to succeed, since the string is verified to not be empty
     offset_iterator.next().unwrap();
@@ -586,9 +586,8 @@ fn parse_nth_child_pattern<'a>(
             let offset_string = offset_string.trim();
             if offset_string.is_empty() {
                 return Err(CssPseudoSelectorParseError::InvalidNthChildPattern(value));
-            } else {
-                offset_string.parse::<u32>()?
             }
+            offset_string.parse::<u32>()?
         }
         None => 0,
     };
@@ -616,7 +615,7 @@ pub struct ErrorLocationRange {
 
 impl ErrorLocation {
     /// Given an error location, returns the (line, column)
-    pub fn get_line_column_from_error(&self, css_string: &str) -> (usize, usize) {
+    #[must_use] pub fn get_line_column_from_error(&self, css_string: &str) -> (usize, usize) {
         let error_location = self.original_pos.saturating_sub(1);
         let (mut line_number, mut total_characters) = (0, 0);
 
@@ -633,7 +632,7 @@ impl ErrorLocation {
     }
 }
 
-impl<'a> fmt::Display for CssParseError<'a> {
+impl fmt::Display for CssParseError<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let start_location = self.location.start.get_line_column_from_error(self.css_string);
         let end_location = self.location.end.get_line_column_from_error(self.css_string);
@@ -655,7 +654,7 @@ impl<'a> fmt::Display for CssParseError<'a> {
 /// Never panics. Syntax errors and unsupported properties are collected as
 /// [`CssParseWarnMsg`] items rather than causing a hard failure, so the caller
 /// always receives a (possibly empty) stylesheet.
-pub fn new_from_str<'a>(css_string: &'a str) -> (Css, Vec<CssParseWarnMsg<'a>>) {
+#[must_use] pub fn new_from_str(css_string: &str) -> (Css, Vec<CssParseWarnMsg<'_>>) {
     let mut tokenizer = Tokenizer::new(css_string);
     let (rules, warnings) = match new_from_str_inner(css_string, &mut tokenizer) {
         Ok((rules, warnings)) => (rules, warnings),
@@ -681,7 +680,7 @@ fn get_error_location(tokenizer: &Tokenizer) -> ErrorLocation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssPathParseError<'a> {
     EmptyPath,
     /// Invalid item encountered in string (for example a "{", "}")
@@ -697,19 +696,19 @@ pub enum CssPathParseError<'a> {
 impl_from! { NodeTypeTagParseError<'a>, CssPathParseError::NodeTypeTag }
 impl_from! { CssPseudoSelectorParseError<'a>, CssPathParseError::PseudoSelectorParseError }
 
-impl<'a> From<CssSyntaxError> for CssPathParseError<'a> {
+impl From<CssSyntaxError> for CssPathParseError<'_> {
     fn from(e: CssSyntaxError) -> Self {
         CssPathParseError::SyntaxError(e)
     }
 }
 
-impl<'a> From<SimplecssError> for CssPathParseError<'a> {
+impl From<SimplecssError> for CssPathParseError<'_> {
     fn from(e: SimplecssError) -> Self {
         CssPathParseError::SyntaxError(CssSyntaxError::from(e))
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssPathParseErrorOwned {
     EmptyPath,
     InvalidTokenEncountered(AzString),
@@ -719,15 +718,15 @@ pub enum CssPathParseErrorOwned {
     PseudoSelectorParseError(CssPseudoSelectorParseErrorOwned),
 }
 
-impl<'a> CssPathParseError<'a> {
-    pub fn to_contained(&self) -> CssPathParseErrorOwned {
+impl CssPathParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssPathParseErrorOwned {
         match self {
             CssPathParseError::EmptyPath => CssPathParseErrorOwned::EmptyPath,
             CssPathParseError::InvalidTokenEncountered(s) => {
-                CssPathParseErrorOwned::InvalidTokenEncountered(s.to_string().into())
+                CssPathParseErrorOwned::InvalidTokenEncountered((*s).to_string().into())
             }
             CssPathParseError::UnexpectedEndOfStream(s) => {
-                CssPathParseErrorOwned::UnexpectedEndOfStream(s.to_string().into())
+                CssPathParseErrorOwned::UnexpectedEndOfStream((*s).to_string().into())
             }
             CssPathParseError::SyntaxError(e) => CssPathParseErrorOwned::SyntaxError(*e),
             CssPathParseError::NodeTypeTag(e) => {
@@ -741,18 +740,18 @@ impl<'a> CssPathParseError<'a> {
 }
 
 impl CssPathParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssPathParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssPathParseError<'_> {
         match self {
-            CssPathParseErrorOwned::EmptyPath => CssPathParseError::EmptyPath,
-            CssPathParseErrorOwned::InvalidTokenEncountered(s) => {
+            Self::EmptyPath => CssPathParseError::EmptyPath,
+            Self::InvalidTokenEncountered(s) => {
                 CssPathParseError::InvalidTokenEncountered(s)
             }
-            CssPathParseErrorOwned::UnexpectedEndOfStream(s) => {
+            Self::UnexpectedEndOfStream(s) => {
                 CssPathParseError::UnexpectedEndOfStream(s)
             }
-            CssPathParseErrorOwned::SyntaxError(e) => CssPathParseError::SyntaxError(*e),
-            CssPathParseErrorOwned::NodeTypeTag(e) => CssPathParseError::NodeTypeTag(e.to_shared()),
-            CssPathParseErrorOwned::PseudoSelectorParseError(e) => {
+            Self::SyntaxError(e) => CssPathParseError::SyntaxError(*e),
+            Self::NodeTypeTag(e) => CssPathParseError::NodeTypeTag(e.to_shared()),
+            Self::PseudoSelectorParseError(e) => {
                 CssPathParseError::PseudoSelectorParseError(e.to_shared())
             }
         }
@@ -785,7 +784,7 @@ impl CssPathParseErrorOwned {
 ///     })
 /// );
 /// ```
-pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'a>> {
+pub fn parse_css_path(input: &str) -> Result<CssPath, CssPathParseError<'_>> {
     use azul_simplecss::{Combinator, Token};
 
     let input = input.trim();
@@ -839,16 +838,16 @@ pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'
         }
     }
 
-    if !selectors.is_empty() {
+    if selectors.is_empty() {
+        Err(CssPathParseError::EmptyPath)
+    } else {
         Ok(CssPath {
             selectors: selectors.into(),
         })
-    } else {
-        Err(CssPathParseError::EmptyPath)
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnparsedCssRuleBlock<'a> {
     /// The css path (full selector) of the style ruleset
     pub path: CssPath,
@@ -858,22 +857,22 @@ pub struct UnparsedCssRuleBlock<'a> {
     pub conditions: Vec<DynamicSelector>,
 }
 
-/// Owned version of UnparsedCssRuleBlock, with BTreeMap of Strings.
-#[derive(Debug, Clone, PartialEq)]
+/// Owned version of `UnparsedCssRuleBlock`, with `BTreeMap` of Strings.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnparsedCssRuleBlockOwned {
     pub path: CssPath,
     pub declarations: BTreeMap<String, (String, ErrorLocationRange)>,
     pub conditions: Vec<DynamicSelector>,
 }
 
-impl<'a> UnparsedCssRuleBlock<'a> {
-    pub fn to_contained(&self) -> UnparsedCssRuleBlockOwned {
+impl UnparsedCssRuleBlock<'_> {
+    #[must_use] pub fn to_contained(&self) -> UnparsedCssRuleBlockOwned {
         UnparsedCssRuleBlockOwned {
             path: self.path.clone(),
             declarations: self
                 .declarations
                 .iter()
-                .map(|(k, (v, loc))| (k.to_string(), (v.to_string(), *loc)))
+                .map(|(k, (v, loc))| ((*k).to_string(), ((*v).to_string(), *loc)))
                 .collect(),
             conditions: self.conditions.clone(),
         }
@@ -881,7 +880,7 @@ impl<'a> UnparsedCssRuleBlock<'a> {
 }
 
 impl UnparsedCssRuleBlockOwned {
-    pub fn to_shared<'a>(&'a self) -> UnparsedCssRuleBlock<'a> {
+    #[must_use] pub fn to_shared(&self) -> UnparsedCssRuleBlock<'_> {
         UnparsedCssRuleBlock {
             path: self.path.clone(),
             declarations: self
@@ -900,15 +899,15 @@ pub struct CssParseWarnMsg<'a> {
     pub location: ErrorLocationRange,
 }
 
-/// Owned version of CssParseWarnMsg, where warning is the owned type.
+/// Owned version of `CssParseWarnMsg`, where warning is the owned type.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CssParseWarnMsgOwned {
     pub warning: CssParseWarnMsgInnerOwned,
     pub location: ErrorLocationRange,
 }
 
-impl<'a> CssParseWarnMsg<'a> {
-    pub fn to_contained(&self) -> CssParseWarnMsgOwned {
+impl CssParseWarnMsg<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssParseWarnMsgOwned {
         CssParseWarnMsgOwned {
             warning: self.warning.to_contained(),
             location: self.location,
@@ -917,7 +916,7 @@ impl<'a> CssParseWarnMsg<'a> {
 }
 
 impl CssParseWarnMsgOwned {
-    pub fn to_shared<'a>(&'a self) -> CssParseWarnMsg<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssParseWarnMsg<'_> {
         CssParseWarnMsg {
             warning: self.warning.to_shared(),
             location: self.location,
@@ -967,36 +966,36 @@ pub enum CssParseWarnMsgInnerOwned {
     },
 }
 
-impl<'a> CssParseWarnMsgInner<'a> {
-    pub fn to_contained(&self) -> CssParseWarnMsgInnerOwned {
+impl CssParseWarnMsgInner<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssParseWarnMsgInnerOwned {
         match self {
             Self::UnsupportedKeyValuePair { key, value } => {
                 CssParseWarnMsgInnerOwned::UnsupportedKeyValuePair {
-                    key: key.to_string(),
-                    value: value.to_string(),
+                    key: (*key).to_string(),
+                    value: (*value).to_string(),
                 }
             }
             Self::ParseError(e) => CssParseWarnMsgInnerOwned::ParseError(e.to_contained()),
             Self::SkippedRule { selector, error } => CssParseWarnMsgInnerOwned::SkippedRule {
-                selector: selector.map(|s| s.to_string()),
+                selector: selector.map(std::string::ToString::to_string),
                 error: error.to_contained(),
             },
             Self::SkippedDeclaration { key, value, error } => {
                 CssParseWarnMsgInnerOwned::SkippedDeclaration {
-                    key: key.to_string(),
-                    value: value.to_string(),
+                    key: (*key).to_string(),
+                    value: (*value).to_string(),
                     error: error.to_contained(),
                 }
             }
             Self::MalformedStructure { message } => CssParseWarnMsgInnerOwned::MalformedStructure {
-                message: message.to_string(),
+                message: (*message).to_string(),
             },
         }
     }
 }
 
 impl CssParseWarnMsgInnerOwned {
-    pub fn to_shared<'a>(&'a self) -> CssParseWarnMsgInner<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssParseWarnMsgInner<'_> {
         match self {
             Self::UnsupportedKeyValuePair { key, value } => {
                 CssParseWarnMsgInner::UnsupportedKeyValuePair { key, value }
@@ -1025,14 +1024,14 @@ impl_display! { CssParseWarnMsgInner<'a>, {
     ParseError(e) => format!("Parse error (recoverable): {}", e),
     SkippedRule { selector, error } => {
         let sel = selector.unwrap_or("unknown");
-        format!("Skipped rule for selector '{}': {}", sel, error)
+        format!("Skipped rule for selector '{sel}': {error}")
     },
     SkippedDeclaration { key, value, error } => format!("Skipped declaration '{}:{}': {}", key, value, error),
     MalformedStructure { message } => format!("Malformed CSS structure: {}", message),
 }}
 
 /// Parses @media conditions from the content following "@media"
-/// Returns a list of DynamicSelectors for the conditions
+/// Returns a list of `DynamicSelectors` for the conditions
 fn parse_media_conditions(content: &str) -> Vec<DynamicSelector> {
     let mut conditions = Vec::new();
     let content = content.trim();
@@ -1211,10 +1210,10 @@ fn parse_container_conditions(content: &str) -> Vec<DynamicSelector> {
         (None, content)
     } else if let Some(paren_idx) = content.find('(') {
         let name = content[..paren_idx].trim();
-        if !name.is_empty() {
-            (Some(name), &content[paren_idx..])
-        } else {
+        if name.is_empty() {
             (None, content)
+        } else {
+            (Some(name), &content[paren_idx..])
         }
     } else {
         // No parentheses - might be just a container name
@@ -1521,7 +1520,7 @@ fn new_from_str_inner<'a>(
                         for parent in &parent_paths {
                             for child in &current_paths {
                                 // Check if child starts with pseudo-selector
-                                let is_pseudo_only = child.first().map(|s| matches!(s, CssPathSelector::PseudoSelector(_))).unwrap_or(false);
+                                let is_pseudo_only = child.first().is_some_and(|s| matches!(s, CssPathSelector::PseudoSelector(_)));
                                 let mut combined = parent.clone();
                                 if !is_pseudo_only && !child.is_empty() {
                                     combined.push(CssPathSelector::Children);
@@ -1636,12 +1635,9 @@ fn new_from_str_inner<'a>(
                 }
             }
             Token::AttributeSelector(attr) => {
-                match parse_attribute_selector(attr) {
-                    Some(sel) => last_path.push(CssPathSelector::Attribute(sel)),
-                    None => warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Malformed attribute selector, rule skipped",
-                    }),
-                }
+                if let Some(sel) = parse_attribute_selector(attr) { last_path.push(CssPathSelector::Attribute(sel)) } else { warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                    message: "Malformed attribute selector, rule skipped",
+                }) }
             }
             Token::Declaration(key, val) => {
                 current_declarations.insert(
@@ -1801,9 +1797,9 @@ pub fn parse_css_declaration<'a>(
     }
 }
 
-fn check_if_value_is_css_var<'a>(
-    unparsed_css_value: &'a str,
-) -> Option<Result<(&'a str, &'a str), CssParseErrorInner<'a>>> {
+fn check_if_value_is_css_var(
+    unparsed_css_value: &str,
+) -> Option<Result<(&str, &str), CssParseErrorInner<'_>>> {
     const DEFAULT_VARIABLE_DEFAULT: &str = "none";
 
     let (_, brace_contents) = parse_parentheses(unparsed_css_value, &["var"]).ok()?;
@@ -1827,7 +1823,7 @@ fn check_if_value_is_css_var<'a>(
 fn parse_css_variable_brace_contents(input: &str) -> Option<(&str, Option<&str>)> {
     let input = input.trim();
 
-    let mut split_comma_iter = input.splitn(2, ",");
+    let mut split_comma_iter = input.splitn(2, ',');
     let var_name = split_comma_iter.next()?;
     let var_name = var_name.trim();
 

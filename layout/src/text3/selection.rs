@@ -11,8 +11,8 @@ use crate::text3::cache::{
 /// Select the word at the given cursor position
 ///
 /// Uses a simple word character heuristic (alphanumeric and underscore)
-/// to determine word start/end. Returns a SelectionRange covering the entire word.
-pub fn select_word_at_cursor(
+/// to determine word start/end. Returns a `SelectionRange` covering the entire word.
+#[must_use] pub fn select_word_at_cursor(
     cursor: &TextCursor,
     layout: &UnifiedLayout,
 ) -> Option<SelectionRange> {
@@ -51,9 +51,9 @@ pub fn select_word_at_cursor(
 
 /// Select the paragraph/line at the given cursor position
 ///
-/// Returns a SelectionRange covering the entire line from the first
+/// Returns a `SelectionRange` covering the entire line from the first
 /// to the last cluster on that line.
-pub fn select_paragraph_at_cursor(
+#[must_use] pub fn select_paragraph_at_cursor(
     cursor: &TextCursor,
     layout: &UnifiedLayout,
 ) -> Option<SelectionRange> {
@@ -116,7 +116,7 @@ fn find_cluster_at_cursor<'a>(
 
 /// Extract text and cluster ID mapping from all clusters on the same line.
 ///
-/// Returns concatenated text and a vec of (cluster_id, byte_length) pairs
+/// Returns concatenated text and a vec of (`cluster_id`, `byte_length`) pairs
 /// so byte offsets can be mapped back to cluster IDs.
 fn extract_line_text_and_clusters(
     item_idx: usize,
@@ -127,7 +127,7 @@ fn extract_line_text_and_clusters(
     let mut text = String::new();
     let mut cluster_map = Vec::new();
 
-    for item in layout.items.iter() {
+    for item in &layout.items {
         if item.line_index != line_index {
             continue;
         }
@@ -186,7 +186,7 @@ fn find_word_boundaries(text: &str, cursor_offset: usize) -> (usize, usize) {
 
     // Find word end (scan forwards)
     let mut word_end = text.len();
-    for (byte_idx, ch) in char_indices.iter() {
+    for (byte_idx, ch) in &char_indices {
         if *byte_idx <= cursor_offset {
             continue;
         }
@@ -206,14 +206,12 @@ fn find_word_boundaries(text: &str, cursor_offset: usize) -> (usize, usize) {
                 .iter()
                 .rev()
                 .find(|(idx, c)| *idx < cursor_offset && is_word_char(*c))
-                .map(|(idx, c)| idx + c.len_utf8())
-                .unwrap_or(0);
+                .map_or(0, |(idx, c)| idx + c.len_utf8());
 
             let end = char_indices
                 .iter()
                 .find(|(idx, c)| *idx > cursor_offset && is_word_char(*c))
-                .map(|(idx, _)| *idx)
-                .unwrap_or(text.len());
+                .map_or(text.len(), |(idx, _)| *idx);
 
             return (start, end);
         }

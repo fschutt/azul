@@ -60,13 +60,13 @@ const MAX_SCROLL_EVENTS_PER_TICK: usize = 100;
 /// Used both in wheel impulse conversion and friction decay so the two stay coupled.
 const ASSUMED_FPS: f32 = 60.0;
 
-/// State stored in the timer's RefAny data.
+/// State stored in the timer's `RefAny` data.
 ///
 /// Contains the shared input queue, per-node velocity state, and the global
 /// scroll physics configuration from `SystemStyle`.
 #[derive(Debug)]
 pub struct ScrollPhysicsState {
-    /// Shared input queue — same Arc as ScrollManager.scroll_input_queue
+    /// Shared input queue — same Arc as `ScrollManager.scroll_input_queue`
     pub input_queue: ScrollInputQueue,
     /// Per-node velocity tracking
     pub node_velocities: BTreeMap<(DomId, NodeId), NodeScrollPhysics>,
@@ -74,11 +74,11 @@ pub struct ScrollPhysicsState {
     pub pending_positions: BTreeMap<(DomId, NodeId), LogicalPosition>,
     /// Per-node "forced position" from trackpad scroll (rubber-band clamped)
     pub pending_trackpad_positions: BTreeMap<(DomId, NodeId), LogicalPosition>,
-    /// Global scroll physics configuration (from SystemStyle)
+    /// Global scroll physics configuration (from `SystemStyle`)
     pub scroll_physics: ScrollPhysics,
 }
 
-/// For convenience, re-export NodeId
+/// For convenience, re-export `NodeId`
 use azul_core::id::NodeId;
 
 /// Per-node scroll physics state
@@ -92,7 +92,7 @@ pub struct NodeScrollPhysics {
 
 impl ScrollPhysicsState {
     /// Create a new physics state with the shared input queue and global config
-    pub fn new(input_queue: ScrollInputQueue, scroll_physics: ScrollPhysics) -> Self {
+    #[must_use] pub const fn new(input_queue: ScrollInputQueue, scroll_physics: ScrollPhysics) -> Self {
         Self {
             input_queue,
             node_velocities: BTreeMap::new(),
@@ -119,7 +119,7 @@ impl ScrollPhysicsState {
 /// The scroll physics timer callback.
 ///
 /// This is a normal timer callback registered with `SCROLL_MOMENTUM_TIMER_ID`.
-/// It consumes pending scroll inputs, applies physics, and pushes ScrollTo changes.
+/// It consumes pending scroll inputs, applies physics, and pushes `ScrollTo` changes.
 ///
 /// Uses the `ScrollPhysics` configuration from `SystemStyle` for friction,
 /// velocity thresholds, wheel multiplier, and rubber-banding parameters.
@@ -237,7 +237,7 @@ pub extern "C" fn scroll_physics_timer_callback(
     // 2. Integrate velocity physics for wheel-based momentum
     let mut velocity_updates: Vec<((DomId, NodeId), LogicalPosition)> = Vec::new();
 
-    for ((dom_id, node_id), node_physics) in physics.node_velocities.iter_mut() {
+    for ((dom_id, node_id), node_physics) in &mut physics.node_velocities {
         // Get current scroll info for clamping and per-node CSS config
         let info = match timer_info.get_scroll_node_info(*dom_id, *node_id) {
             Some(i) => i,
@@ -418,10 +418,10 @@ pub extern "C" fn scroll_physics_timer_callback(
 // ============================================================================
 
 /// Determines if a node allows rubber-banding on a given axis based on:
-/// 1. Whether the axis actually has overflow (max_scroll > 0)
+/// 1. Whether the axis actually has overflow (`max_scroll` > 0)
 /// 2. Per-node `overflow_scrolling` CSS property (-azul-overflow-scrolling)
 /// 3. Per-node `overscroll_behavior` CSS property (overscroll-behavior-x/y)
-/// 4. Global `overscroll_elasticity` from ScrollPhysics
+/// 4. Global `overscroll_elasticity` from `ScrollPhysics`
 fn node_allows_rubber_band(
     max_scroll: f32,
     overscroll_behavior: OverscrollBehavior,
@@ -488,8 +488,8 @@ fn rubber_band_clamp(
     }
 }
 
-/// Convert deceleration_rate (0.0 - 1.0) to a friction constant for exponential decay.
-/// Higher deceleration_rate = less friction (slower deceleration).
+/// Convert `deceleration_rate` (0.0 - 1.0) to a friction constant for exponential decay.
+/// Higher `deceleration_rate` = less friction (slower deceleration).
 fn friction_from_deceleration(deceleration_rate: f32) -> f32 {
     // deceleration_rate ~0.95 (fast) → friction ~0.05
     // deceleration_rate ~0.998 (iOS-like) → friction ~0.002

@@ -14,7 +14,7 @@
 use azul_css::{AzString, StringVec, U8Vec};
 
 /// A single SQL value — a bound statement parameter or a result cell.
-/// Mirrors SQLite's storage classes (Null / Integer / Real / Text / Blob)
+/// Mirrors `SQLite`'s storage classes (Null / Integer / Real / Text / Blob)
 /// but names nothing engine-specific.
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq)]
@@ -32,25 +32,25 @@ pub enum DbValue {
 }
 
 impl DbValue {
-    pub fn is_null(&self) -> bool {
-        matches!(self, DbValue::Null)
+    #[must_use] pub const fn is_null(&self) -> bool {
+        matches!(self, Self::Null)
     }
-    pub fn as_integer(&self) -> Option<i64> {
-        if let DbValue::Integer(i) = self {
+    #[must_use] pub const fn as_integer(&self) -> Option<i64> {
+        if let Self::Integer(i) = self {
             Some(*i)
         } else {
             None
         }
     }
-    pub fn as_real(&self) -> Option<f64> {
-        if let DbValue::Real(r) = self {
+    #[must_use] pub const fn as_real(&self) -> Option<f64> {
+        if let Self::Real(r) = self {
             Some(*r)
         } else {
             None
         }
     }
-    pub fn as_text(&self) -> Option<&AzString> {
-        if let DbValue::Text(t) = self {
+    #[must_use] pub const fn as_text(&self) -> Option<&AzString> {
+        if let Self::Text(t) = self {
             Some(t)
         } else {
             None
@@ -85,11 +85,11 @@ pub struct DbRows {
 
 impl DbRows {
     /// Number of result columns.
-    pub fn num_columns(&self) -> usize {
+    #[must_use] pub fn num_columns(&self) -> usize {
         self.columns.as_ref().len()
     }
     /// Number of result rows (`0` when there are no columns).
-    pub fn num_rows(&self) -> usize {
+    #[must_use] pub fn num_rows(&self) -> usize {
         let cols = self.num_columns();
         if cols == 0 {
             0
@@ -98,7 +98,7 @@ impl DbRows {
         }
     }
     /// The cell at `(row, col)`, or `None` if out of range.
-    pub fn get(&self, row: usize, col: usize) -> Option<&DbValue> {
+    #[must_use] pub fn get(&self, row: usize, col: usize) -> Option<&DbValue> {
         let cols = self.num_columns();
         if col >= cols {
             return None;
@@ -117,7 +117,7 @@ mod tests {
         assert_eq!(DbValue::Integer(7).as_integer(), Some(7));
         assert_eq!(DbValue::Real(1.5).as_real(), Some(1.5));
         assert_eq!(
-            DbValue::Text(AzString::from_const_str("hi")).as_text().map(|s| s.as_str()),
+            DbValue::Text(AzString::from_const_str("hi")).as_text().map(AzString::as_str),
             Some("hi")
         );
         // Wrong-variant accessors return None.
@@ -142,9 +142,9 @@ mod tests {
 
         assert_eq!(rows.num_columns(), 2);
         assert_eq!(rows.num_rows(), 2);
-        assert_eq!(rows.get(0, 0).and_then(|v| v.as_integer()), Some(1));
+        assert_eq!(rows.get(0, 0).and_then(DbValue::as_integer), Some(1));
         assert_eq!(
-            rows.get(1, 1).and_then(|v| v.as_text()).map(|s| s.as_str()),
+            rows.get(1, 1).and_then(|v| v.as_text()).map(AzString::as_str),
             Some("bob")
         );
         // Out-of-range column / row → None.

@@ -13,7 +13,7 @@
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-/// Datagram header length: msg_id (u32) + chunk_idx (u16) + chunk_count (u16).
+/// Datagram header length: `msg_id` (u32) + `chunk_idx` (u16) + `chunk_count` (u16).
 pub const CHUNK_HEADER_LEN: usize = 8;
 /// Conservative per-datagram payload (leaves room under a ~1400-byte path MTU).
 pub const DEFAULT_CHUNK_PAYLOAD: usize = 1200;
@@ -24,7 +24,7 @@ const MAX_PARTIAL_MESSAGES: usize = 256;
 /// Split `data` into chunk datagrams for `msg_id`. Each datagram is
 /// `CHUNK_HEADER_LEN + <= max_payload` bytes. An empty payload still produces
 /// one (header-only) chunk, so a zero-length message round-trips.
-pub fn chunk_message(msg_id: u32, data: &[u8], max_payload: usize) -> Vec<Vec<u8>> {
+#[must_use] pub fn chunk_message(msg_id: u32, data: &[u8], max_payload: usize) -> Vec<Vec<u8>> {
     let max_payload = max_payload.max(1);
     let count = if data.is_empty() {
         1
@@ -61,7 +61,7 @@ pub struct UdpReassembler {
 }
 
 impl UdpReassembler {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
 

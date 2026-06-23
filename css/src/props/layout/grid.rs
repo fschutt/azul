@@ -52,7 +52,7 @@ pub enum GridTrackSizing {
     /// auto
     #[default]
     Auto,
-    /// minmax(min, max) - uses GridMinMax which contains Box<GridTrackSizing> for each bound
+    /// minmax(min, max) - uses `GridMinMax` which contains Box<GridTrackSizing> for each bound
     MinMax(GridMinMax),
     /// fit-content(size)
     FitContent(PixelValue),
@@ -75,19 +75,19 @@ impl core::fmt::Debug for GridTrackSizing {
 impl PrintAsCssValue for GridTrackSizing {
     fn print_as_css_value(&self) -> String {
         match self {
-            GridTrackSizing::Fixed(px) => px.print_as_css_value(),
-            GridTrackSizing::Fr(f) => format!("{}fr", f),
-            GridTrackSizing::MinContent => "min-content".to_string(),
-            GridTrackSizing::MaxContent => "max-content".to_string(),
-            GridTrackSizing::Auto => "auto".to_string(),
-            GridTrackSizing::MinMax(minmax) => {
+            Self::Fixed(px) => px.print_as_css_value(),
+            Self::Fr(f) => format!("{f}fr"),
+            Self::MinContent => "min-content".to_string(),
+            Self::MaxContent => "max-content".to_string(),
+            Self::Auto => "auto".to_string(),
+            Self::MinMax(minmax) => {
                 format!(
                     "minmax({}, {})",
                     minmax.min.print_as_css_value(),
                     minmax.max.print_as_css_value()
                 )
             }
-            GridTrackSizing::FitContent(size) => {
+            Self::FitContent(size) => {
                 format!("fit-content({})", size.print_as_css_value())
             }
         }
@@ -124,7 +124,7 @@ impl core::fmt::Debug for GridTemplate {
 
 impl Default for GridTemplate {
     fn default() -> Self {
-        GridTemplate {
+        Self {
             tracks: GridTrackSizingVec::from_vec(Vec::new()),
         }
     }
@@ -138,7 +138,7 @@ impl PrintAsCssValue for GridTemplate {
         } else {
             tracks_slice
                 .iter()
-                .map(|t| t.print_as_css_value())
+                .map(PrintAsCssValue::print_as_css_value)
                 .collect::<Vec<_>>()
                 .join(" ")
         }
@@ -148,7 +148,7 @@ impl PrintAsCssValue for GridTemplate {
 // --- grid-auto-columns / grid-auto-rows ---
 
 /// Represents `grid-auto-columns` or `grid-auto-rows`
-/// Structurally identical to GridTemplate but semantically different
+/// Structurally identical to `GridTemplate` but semantically different
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct GridAutoTracks {
@@ -163,7 +163,7 @@ impl core::fmt::Debug for GridAutoTracks {
 
 impl Default for GridAutoTracks {
     fn default() -> Self {
-        GridAutoTracks {
+        Self {
             tracks: GridTrackSizingVec::from_vec(Vec::new()),
         }
     }
@@ -177,7 +177,7 @@ impl PrintAsCssValue for GridAutoTracks {
         } else {
             tracks_slice
                 .iter()
-                .map(|t| t.print_as_css_value())
+                .map(PrintAsCssValue::print_as_css_value)
                 .collect::<Vec<_>>()
                 .join(" ")
         }
@@ -186,7 +186,7 @@ impl PrintAsCssValue for GridAutoTracks {
 
 impl From<GridTemplate> for GridAutoTracks {
     fn from(template: GridTemplate) -> Self {
-        GridAutoTracks {
+        Self {
             tracks: template.tracks,
         }
     }
@@ -204,14 +204,14 @@ pub struct NamedGridLine {
 }
 
 impl NamedGridLine {
-    pub fn create(name: AzString, span: Option<i32>) -> Self {
+    #[must_use] pub fn create(name: AzString, span: Option<i32>) -> Self {
         Self {
             grid_line_name: name,
             span_count: span.unwrap_or(0),
         }
     }
 
-    pub fn span(&self) -> Option<i32> {
+    #[must_use] pub const fn span(&self) -> Option<i32> {
         if self.span_count == 0 {
             None
         } else {
@@ -246,16 +246,16 @@ impl core::fmt::Debug for GridLine {
 impl PrintAsCssValue for GridLine {
     fn print_as_css_value(&self) -> String {
         match self {
-            GridLine::Auto => "auto".to_string(),
-            GridLine::Line(n) => n.to_string(),
-            GridLine::Named(named) => {
+            Self::Auto => "auto".to_string(),
+            Self::Line(n) => n.to_string(),
+            Self::Named(named) => {
                 if named.span_count == 0 {
                     named.grid_line_name.as_str().to_string()
                 } else {
                     format!("{} {}", named.grid_line_name.as_str(), named.span_count)
                 }
             }
-            GridLine::Span(n) => format!("span {}", n),
+            Self::Span(n) => format!("span {n}"),
         }
     }
 }
@@ -276,7 +276,7 @@ impl core::fmt::Debug for GridPlacement {
 
 impl Default for GridPlacement {
     fn default() -> Self {
-        GridPlacement {
+        Self {
             grid_start: GridLine::Auto,
             grid_end: GridLine::Auto,
         }
@@ -298,7 +298,7 @@ impl PrintAsCssValue for GridPlacement {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum GridParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -311,26 +311,26 @@ impl_display! { GridParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum GridParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> GridParseError<'a> {
-    pub fn to_contained(&self) -> GridParseErrorOwned {
+impl GridParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> GridParseErrorOwned {
         match self {
-            GridParseError::InvalidValue(s) => GridParseErrorOwned::InvalidValue(s.to_string().into()),
+            GridParseError::InvalidValue(s) => GridParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl GridParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> GridParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> GridParseError<'_> {
         match self {
-            GridParseErrorOwned::InvalidValue(s) => GridParseError::InvalidValue(s.as_str()),
+            Self::InvalidValue(s) => GridParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -361,7 +361,7 @@ fn split_respecting_parens(input: &str) -> Result<Vec<String>, ()> {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_grid_template<'a>(input: &'a str) -> Result<GridTemplate, GridParseError<'a>> {
+pub fn parse_grid_template(input: &str) -> Result<GridTemplate, GridParseError<'_>> {
     use crate::props::basic::pixel::parse_pixel_value;
 
     let input = input.trim();
@@ -371,12 +371,12 @@ pub fn parse_grid_template<'a>(input: &'a str) -> Result<GridTemplate, GridParse
     }
 
     let parts = split_respecting_parens(input)
-        .map_err(|_| GridParseError::InvalidValue(input))?;
+        .map_err(|()| GridParseError::InvalidValue(input))?;
 
     let mut tracks = Vec::new();
     for part in &parts {
         parse_grid_track_or_repeat(part, &mut tracks)
-            .map_err(|_| GridParseError::InvalidValue(input))?;
+            .map_err(|()| GridParseError::InvalidValue(input))?;
     }
 
     Ok(GridTemplate {
@@ -486,7 +486,7 @@ fn parse_grid_track_owned(input: &str) -> Result<GridTrackSizing, ()> {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_grid_placement<'a>(input: &'a str) -> Result<GridPlacement, GridParseError<'a>> {
+pub fn parse_grid_placement(input: &str) -> Result<GridPlacement, GridParseError<'_>> {
     let input = input.trim();
 
     if input == "auto" {
@@ -494,12 +494,12 @@ pub fn parse_grid_placement<'a>(input: &'a str) -> Result<GridPlacement, GridPar
     }
 
     // Split by "/"
-    let parts: Vec<&str> = input.split('/').map(|s| s.trim()).collect();
+    let parts: Vec<&str> = input.split('/').map(str::trim).collect();
 
     let grid_start =
-        parse_grid_line_owned(parts[0]).map_err(|_| GridParseError::InvalidValue(input))?;
+        parse_grid_line_owned(parts[0]).map_err(|()| GridParseError::InvalidValue(input))?;
     let grid_end = if parts.len() > 1 {
-        parse_grid_line_owned(parts[1]).map_err(|_| GridParseError::InvalidValue(input))?
+        parse_grid_line_owned(parts[1]).map_err(|()| GridParseError::InvalidValue(input))?
     } else {
         GridLine::Auto
     };
@@ -525,19 +525,19 @@ pub enum LayoutGridAutoFlow {
 }
 
 
-impl crate::props::formatter::PrintAsCssValue for LayoutGridAutoFlow {
+impl PrintAsCssValue for LayoutGridAutoFlow {
     fn print_as_css_value(&self) -> alloc::string::String {
         match self {
-            LayoutGridAutoFlow::Row => "row".to_string(),
-            LayoutGridAutoFlow::Column => "column".to_string(),
-            LayoutGridAutoFlow::RowDense => "row dense".to_string(),
-            LayoutGridAutoFlow::ColumnDense => "column dense".to_string(),
+            Self::Row => "row".to_string(),
+            Self::Column => "column".to_string(),
+            Self::RowDense => "row dense".to_string(),
+            Self::ColumnDense => "column dense".to_string(),
         }
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum GridAutoFlowParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -550,18 +550,18 @@ impl_display! { GridAutoFlowParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum GridAutoFlowParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> GridAutoFlowParseError<'a> {
-    pub fn to_contained(&self) -> GridAutoFlowParseErrorOwned {
+impl GridAutoFlowParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> GridAutoFlowParseErrorOwned {
         match self {
             GridAutoFlowParseError::InvalidValue(s) => {
-                GridAutoFlowParseErrorOwned::InvalidValue(s.to_string().into())
+                GridAutoFlowParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
@@ -569,9 +569,9 @@ impl<'a> GridAutoFlowParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl GridAutoFlowParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> GridAutoFlowParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> GridAutoFlowParseError<'_> {
         match self {
-            GridAutoFlowParseErrorOwned::InvalidValue(s) => {
+            Self::InvalidValue(s) => {
                 GridAutoFlowParseError::InvalidValue(s.as_str())
             }
         }
@@ -579,9 +579,9 @@ impl GridAutoFlowParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_grid_auto_flow<'a>(
-    input: &'a str,
-) -> Result<LayoutGridAutoFlow, GridAutoFlowParseError<'a>> {
+pub fn parse_layout_grid_auto_flow(
+    input: &str,
+) -> Result<LayoutGridAutoFlow, GridAutoFlowParseError<'_>> {
     match input.trim() {
         "row" => Ok(LayoutGridAutoFlow::Row),
         "column" => Ok(LayoutGridAutoFlow::Column),
@@ -608,37 +608,37 @@ pub enum LayoutJustifySelf {
 }
 
 
-impl crate::props::formatter::PrintAsCssValue for LayoutJustifySelf {
+impl PrintAsCssValue for LayoutJustifySelf {
     fn print_as_css_value(&self) -> alloc::string::String {
         match self {
-            LayoutJustifySelf::Auto => "auto".to_string(),
-            LayoutJustifySelf::Start => "start".to_string(),
-            LayoutJustifySelf::End => "end".to_string(),
-            LayoutJustifySelf::Center => "center".to_string(),
-            LayoutJustifySelf::Stretch => "stretch".to_string(),
+            Self::Auto => "auto".to_string(),
+            Self::Start => "start".to_string(),
+            Self::End => "end".to_string(),
+            Self::Center => "center".to_string(),
+            Self::Stretch => "stretch".to_string(),
         }
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum JustifySelfParseError<'a> {
     InvalidValue(&'a str),
 }
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum JustifySelfParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> JustifySelfParseError<'a> {
-    pub fn to_contained(&self) -> JustifySelfParseErrorOwned {
+impl JustifySelfParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> JustifySelfParseErrorOwned {
         match self {
             JustifySelfParseError::InvalidValue(s) => {
-                JustifySelfParseErrorOwned::InvalidValue(s.to_string().into())
+                JustifySelfParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
@@ -646,9 +646,9 @@ impl<'a> JustifySelfParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl JustifySelfParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> JustifySelfParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> JustifySelfParseError<'_> {
         match self {
-            JustifySelfParseErrorOwned::InvalidValue(s) => {
+            Self::InvalidValue(s) => {
                 JustifySelfParseError::InvalidValue(s.as_str())
             }
         }
@@ -663,9 +663,9 @@ impl_display! { JustifySelfParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_justify_self<'a>(
-    input: &'a str,
-) -> Result<LayoutJustifySelf, JustifySelfParseError<'a>> {
+pub fn parse_layout_justify_self(
+    input: &str,
+) -> Result<LayoutJustifySelf, JustifySelfParseError<'_>> {
     match input.trim() {
         "auto" => Ok(LayoutJustifySelf::Auto),
         "start" | "flex-start" => Ok(LayoutJustifySelf::Start),
@@ -689,36 +689,36 @@ pub enum LayoutJustifyItems {
 }
 
 
-impl crate::props::formatter::PrintAsCssValue for LayoutJustifyItems {
+impl PrintAsCssValue for LayoutJustifyItems {
     fn print_as_css_value(&self) -> alloc::string::String {
         match self {
-            LayoutJustifyItems::Start => "start".to_string(),
-            LayoutJustifyItems::End => "end".to_string(),
-            LayoutJustifyItems::Center => "center".to_string(),
-            LayoutJustifyItems::Stretch => "stretch".to_string(),
+            Self::Start => "start".to_string(),
+            Self::End => "end".to_string(),
+            Self::Center => "center".to_string(),
+            Self::Stretch => "stretch".to_string(),
         }
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum JustifyItemsParseError<'a> {
     InvalidValue(&'a str),
 }
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum JustifyItemsParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> JustifyItemsParseError<'a> {
-    pub fn to_contained(&self) -> JustifyItemsParseErrorOwned {
+impl JustifyItemsParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> JustifyItemsParseErrorOwned {
         match self {
             JustifyItemsParseError::InvalidValue(s) => {
-                JustifyItemsParseErrorOwned::InvalidValue(s.to_string().into())
+                JustifyItemsParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
@@ -726,9 +726,9 @@ impl<'a> JustifyItemsParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl JustifyItemsParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> JustifyItemsParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> JustifyItemsParseError<'_> {
         match self {
-            JustifyItemsParseErrorOwned::InvalidValue(s) => {
+            Self::InvalidValue(s) => {
                 JustifyItemsParseError::InvalidValue(s.as_str())
             }
         }
@@ -743,9 +743,9 @@ impl_display! { JustifyItemsParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_justify_items<'a>(
-    input: &'a str,
-) -> Result<LayoutJustifyItems, JustifyItemsParseError<'a>> {
+pub fn parse_layout_justify_items(
+    input: &str,
+) -> Result<LayoutJustifyItems, JustifyItemsParseError<'_>> {
     match input.trim() {
         "start" => Ok(LayoutJustifyItems::Start),
         "end" => Ok(LayoutJustifyItems::End),
@@ -760,7 +760,7 @@ pub fn parse_layout_justify_items<'a>(
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LayoutGap {
-    pub inner: crate::props::basic::pixel::PixelValue,
+    pub inner: PixelValue,
 }
 
 impl core::fmt::Debug for LayoutGap {
@@ -769,7 +769,7 @@ impl core::fmt::Debug for LayoutGap {
     }
 }
 
-impl crate::props::formatter::PrintAsCssValue for LayoutGap {
+impl PrintAsCssValue for LayoutGap {
     fn print_as_css_value(&self) -> alloc::string::String {
         self.inner.print_as_css_value()
     }
@@ -782,10 +782,10 @@ impl FormatAsRustCode for LayoutGridAutoFlow {
         format!(
             "LayoutGridAutoFlow::{}",
             match self {
-                LayoutGridAutoFlow::Row => "Row",
-                LayoutGridAutoFlow::Column => "Column",
-                LayoutGridAutoFlow::RowDense => "RowDense",
-                LayoutGridAutoFlow::ColumnDense => "ColumnDense",
+                Self::Row => "Row",
+                Self::Column => "Column",
+                Self::RowDense => "RowDense",
+                Self::ColumnDense => "ColumnDense",
             }
         )
     }
@@ -796,11 +796,11 @@ impl FormatAsRustCode for LayoutJustifySelf {
         format!(
             "LayoutJustifySelf::{}",
             match self {
-                LayoutJustifySelf::Auto => "Auto",
-                LayoutJustifySelf::Start => "Start",
-                LayoutJustifySelf::End => "End",
-                LayoutJustifySelf::Center => "Center",
-                LayoutJustifySelf::Stretch => "Stretch",
+                Self::Auto => "Auto",
+                Self::Start => "Start",
+                Self::End => "End",
+                Self::Center => "Center",
+                Self::Stretch => "Stretch",
             }
         )
     }
@@ -811,10 +811,10 @@ impl FormatAsRustCode for LayoutJustifyItems {
         format!(
             "LayoutJustifyItems::{}",
             match self {
-                LayoutJustifyItems::Start => "Start",
-                LayoutJustifyItems::End => "End",
-                LayoutJustifyItems::Center => "Center",
-                LayoutJustifyItems::Stretch => "Stretch",
+                Self::Start => "Start",
+                Self::End => "End",
+                Self::Center => "Center",
+                Self::Stretch => "Stretch",
             }
         )
     }
@@ -831,21 +831,21 @@ impl FormatAsRustCode for GridTrackSizing {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         use crate::codegen::format::format_pixel_value;
         match self {
-            GridTrackSizing::Fixed(pv) => {
+            Self::Fixed(pv) => {
                 format!("GridTrackSizing::Fixed({})", format_pixel_value(pv))
             }
-            GridTrackSizing::Fr(f) => format!("GridTrackSizing::Fr({})", f),
-            GridTrackSizing::MinContent => "GridTrackSizing::MinContent".to_string(),
-            GridTrackSizing::MaxContent => "GridTrackSizing::MaxContent".to_string(),
-            GridTrackSizing::Auto => "GridTrackSizing::Auto".to_string(),
-            GridTrackSizing::MinMax(minmax) => {
+            Self::Fr(f) => format!("GridTrackSizing::Fr({f})"),
+            Self::MinContent => "GridTrackSizing::MinContent".to_string(),
+            Self::MaxContent => "GridTrackSizing::MaxContent".to_string(),
+            Self::Auto => "GridTrackSizing::Auto".to_string(),
+            Self::MinMax(minmax) => {
                 format!(
                     "GridTrackSizing::MinMax(GridMinMax {{ min: Box::new({}), max: Box::new({}) }})",
                     minmax.min.format_as_rust_code(tabs),
                     minmax.max.format_as_rust_code(tabs)
                 )
             }
-            GridTrackSizing::FitContent(pv) => {
+            Self::FitContent(pv) => {
                 format!("GridTrackSizing::FitContent({})", format_pixel_value(pv))
             }
         }
@@ -874,9 +874,9 @@ impl FormatAsRustCode for GridTemplateAreas {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_gap<'a>(
-    input: &'a str,
-) -> Result<LayoutGap, crate::props::basic::pixel::CssPixelValueParseError<'a>> {
+pub fn parse_layout_gap(
+    input: &str,
+) -> Result<LayoutGap, crate::props::basic::pixel::CssPixelValueParseError<'_>> {
     crate::props::basic::pixel::parse_pixel_value(input).map(|p| LayoutGap { inner: p })
 }
 
@@ -1208,7 +1208,7 @@ pub struct GridTemplateAreas {
 
 impl Default for GridTemplateAreas {
     fn default() -> Self {
-        GridTemplateAreas { areas: GridAreaDefinitionVec::from_vec(Vec::new()) }
+        Self { areas: GridAreaDefinitionVec::from_vec(Vec::new()) }
     }
 }
 
@@ -1270,7 +1270,7 @@ pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
                 return Err(());
             }
             let row_str = &input[start..i];
-            let cells: Vec<String> = row_str.split_whitespace().map(|s| s.to_string()).collect();
+            let cells: Vec<String> = row_str.split_whitespace().map(std::string::ToString::to_string).collect();
             if cells.is_empty() {
                 return Err(());
             }

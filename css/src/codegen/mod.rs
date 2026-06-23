@@ -38,11 +38,11 @@ pub trait CodegenBackend {
 }
 
 /// Look up a backend by its [`CodegenBackend::lang`] identifier.
-pub fn backend_for(lang: &str) -> Option<alloc::boxed::Box<dyn CodegenBackend>> {
+#[must_use] pub fn backend_for(lang: &str) -> Option<Box<dyn CodegenBackend>> {
     match lang {
-        "rust" => Some(alloc::boxed::Box::new(rust::RustBackend)),
-        "cpp" | "c++" => Some(alloc::boxed::Box::new(cpp::CppBackend)),
-        "python" | "py" => Some(alloc::boxed::Box::new(python::PythonBackend)),
+        "rust" => Some(Box::new(rust::RustBackend)),
+        "cpp" | "c++" => Some(Box::new(cpp::CppBackend)),
+        "python" | "py" => Some(Box::new(python::PythonBackend)),
         _ => None,
     }
 }

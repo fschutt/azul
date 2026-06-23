@@ -118,14 +118,14 @@ pub struct GamepadState {
 
 impl GamepadButton {
     /// This button's bit in [`GamepadState::buttons`].
-    pub fn bit(self) -> u32 {
+    #[must_use] pub const fn bit(self) -> u32 {
         1u32 << (self as u32)
     }
 }
 
 impl GamepadState {
     /// An empty (disconnected) state for `id` — all buttons up, axes zero.
-    pub fn empty(id: GamepadId) -> Self {
+    #[must_use] pub const fn empty(id: GamepadId) -> Self {
         Self {
             id,
             connected: false,
@@ -140,12 +140,12 @@ impl GamepadState {
     }
 
     /// Whether `button` is currently held.
-    pub fn is_pressed(&self, button: GamepadButton) -> bool {
+    #[must_use] pub const fn is_pressed(&self, button: GamepadButton) -> bool {
         self.buttons & button.bit() != 0
     }
 
     /// The current value of `axis` (sticks `[-1, 1]`, triggers `[0, 1]`).
-    pub fn axis(&self, axis: GamepadAxis) -> f32 {
+    #[must_use] pub const fn axis(&self, axis: GamepadAxis) -> f32 {
         match axis {
             GamepadAxis::LeftStickX => self.left_stick_x,
             GamepadAxis::LeftStickY => self.left_stick_y,

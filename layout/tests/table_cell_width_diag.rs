@@ -15,7 +15,7 @@ use azul_core::{
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
-    solver3::layout_tree::{AnonymousBoxType, LayoutTree},
+    solver3::layout_tree::LayoutTree,
     window::LayoutWindow,
     window_state::FullWindowState,
 };
@@ -71,7 +71,7 @@ fn dump_layout_tree(lw: &LayoutWindow, label: &str) {
     let positions = &lw.layout_cache.calculated_positions;
 
     eprintln!("\n============================================================");
-    eprintln!("=== LAYOUT TREE DUMP: {} ===", label);
+    eprintln!("=== LAYOUT TREE DUMP: {label} ===");
     eprintln!("Total nodes: {}", tree.nodes.len());
     eprintln!("============================================================");
 
@@ -89,12 +89,12 @@ fn dump_layout_tree(lw: &LayoutWindow, label: &str) {
         let fc_str = format!("{:?}", hot.formatting_context);
 
         let anon_str = match cold.anonymous_type {
-            Some(at) => format!(" anon={:?}", at),
+            Some(at) => format!(" anon={at:?}"),
             None => String::new(),
         };
 
         let parent_str = match hot.parent {
-            Some(p) => format!("{}", p),
+            Some(p) => format!("{p}"),
             None => "ROOT".to_string(),
         };
 
@@ -116,17 +116,7 @@ fn dump_layout_tree(lw: &LayoutWindow, label: &str) {
         let display_str = format!("{:?}", warm.computed_style.display);
 
         eprintln!(
-            "  [{:>2}] {} fc={:<30} parent={:<5} children={:?} {} {} display={}{}{}",
-            i,
-            dom_id_str,
-            fc_str,
-            parent_str,
-            children,
-            size_str,
-            pos_str,
-            display_str,
-            anon_str,
-            overflow_str,
+            "  [{i:>2}] {dom_id_str} fc={fc_str:<30} parent={parent_str:<5} children={children:?} {size_str} {pos_str} display={display_str}{anon_str}{overflow_str}",
         );
     }
     eprintln!();
@@ -135,7 +125,7 @@ fn dump_layout_tree(lw: &LayoutWindow, label: &str) {
 /// Helper: print which DOM node IDs map to which layout indices.
 fn dump_dom_to_layout(lw: &LayoutWindow, label: &str) {
     let tree = lw.layout_cache.tree.as_ref().expect("layout tree missing");
-    eprintln!("--- DOM -> Layout mapping ({}) ---", label);
+    eprintln!("--- DOM -> Layout mapping ({label}) ---");
     let mut entries: Vec<_> = tree.dom_to_layout.iter().collect();
     entries.sort_by_key(|(k, _)| k.index());
     for (dom_id, layout_indices) in entries {
@@ -210,7 +200,7 @@ fn diag_dump_3cell_layout_tree() {
             }
         }
     }
-    eprintln!("\nTable cells with near-zero width: {:?}", zero_width_cells);
+    eprintln!("\nTable cells with near-zero width: {zero_width_cells:?}");
     eprintln!("EXPECTED: no table cells should have near-zero width");
 }
 
@@ -380,7 +370,7 @@ fn diag_3cell_all_nested_inline() {
         if matches!(tree.nodes[i].formatting_context, FormattingContext::TableCell) {
             let w = tree.nodes[i].used_size.map(|s| s.width).unwrap_or(-1.0);
             cell_widths.push((i, w));
-            eprintln!("  cell layout[{}]: w={:.1}", i, w);
+            eprintln!("  cell layout[{i}]: w={w:.1}");
         }
     }
 
@@ -657,7 +647,7 @@ fn compute_depth(tree: &LayoutTree, node: usize) -> usize {
 
 /// Print subtree depth for all table cells in the tree.
 fn print_subtree_depth(tree: &LayoutTree, label: &str) {
-    eprintln!("  Subtree depths below table cells ({}):", label);
+    eprintln!("  Subtree depths below table cells ({label}):");
     for i in 0..tree.nodes.len() {
         if matches!(tree.nodes[i].formatting_context, FormattingContext::TableCell) {
             let depth = compute_depth(tree, i);
@@ -687,7 +677,7 @@ fn print_children_recursive(tree: &LayoutTree, node: usize, indent: usize) {
             None => "ANON".to_string(),
         };
         let anon_str = match cold.anonymous_type {
-            Some(at) => format!(" ({:?})", at),
+            Some(at) => format!(" ({at:?})"),
             None => String::new(),
         };
         let w = hot.used_size.map(|s| s.width).unwrap_or(-1.0);
@@ -780,7 +770,7 @@ fn diag_nesting_depth_isolation() {
     for i in 0..t1.nodes.len() {
         if matches!(t1.nodes[i].formatting_context, FormattingContext::TableCell) {
             let w = t1.nodes[i].used_size.map(|s| s.width).unwrap_or(-1.0);
-            eprintln!("  cell[{}]: w={:.1}", i, w);
+            eprintln!("  cell[{i}]: w={w:.1}");
         }
     }
 
@@ -801,7 +791,7 @@ fn diag_nesting_depth_isolation() {
     for i in 0..t2.nodes.len() {
         if matches!(t2.nodes[i].formatting_context, FormattingContext::TableCell) {
             let w = t2.nodes[i].used_size.map(|s| s.width).unwrap_or(-1.0);
-            eprintln!("  cell[{}]: w={:.1}", i, w);
+            eprintln!("  cell[{i}]: w={w:.1}");
         }
     }
 
@@ -825,7 +815,7 @@ fn diag_nesting_depth_isolation() {
     for i in 0..t3.nodes.len() {
         if matches!(t3.nodes[i].formatting_context, FormattingContext::TableCell) {
             let w = t3.nodes[i].used_size.map(|s| s.width).unwrap_or(-1.0);
-            eprintln!("  cell[{}]: w={:.1}", i, w);
+            eprintln!("  cell[{i}]: w={w:.1}");
         }
     }
 
@@ -852,7 +842,7 @@ fn diag_nesting_depth_isolation() {
     for i in 0..t4.nodes.len() {
         if matches!(t4.nodes[i].formatting_context, FormattingContext::TableCell) {
             let w = t4.nodes[i].used_size.map(|s| s.width).unwrap_or(-1.0);
-            eprintln!("  cell[{}]: w={:.1}", i, w);
+            eprintln!("  cell[{i}]: w={w:.1}");
         }
     }
 }
@@ -1083,16 +1073,16 @@ fn diag_root_cause_overflow_propagation() {
     eprintln!("\n--- ROOT CAUSE SUMMARY ---");
     eprintln!("In Case A, the cell's BFC child is the IFC text content node.");
     eprintln!("Its used_size.width reflects the text width, so max_cross_size is correct.");
-    eprintln!("");
+    eprintln!();
     eprintln!("In Case B, the cell's BFC child is <span> (FormattingContext::Inline).");
     eprintln!("Its used_size.width = 0 (CSS 2.2 ss10.3.1: width N/A to inline non-replaced).");
     eprintln!("The BFC computes max_cross_size from used_size.width = 0.");
     eprintln!("The cell's overflow_content_size.width = 0, so measure_cell_content_width = 0.");
-    eprintln!("");
+    eprintln!();
     eprintln!("FIX: In layout_bfc(), when computing max_cross_size for inline children,");
     eprintln!("use max(child.used_size.width, child.overflow_content_size.width) instead");
     eprintln!("of just child.used_size.width.");
-    eprintln!("");
+    eprintln!();
     eprintln!("Alternatively: in measure_cell_content_width(), walk the subtree to find");
     eprintln!("the deepest overflow_content_size that reflects actual content width.");
 }

@@ -74,14 +74,14 @@ impl File {
         }
     }
     /// Opens a file in read-only mode, returning `None` on failure.
-    pub fn open(path: &str) -> Option<Self> {
+    #[must_use] pub fn open(path: &str) -> Option<Self> {
         Some(Self::new(
             fs::File::open(path).ok()?,
             path.to_string().into(),
         ))
     }
     /// Creates a file (truncating if it exists), returning `None` on failure.
-    pub fn create(path: &str) -> Option<Self> {
+    #[must_use] pub fn create(path: &str) -> Option<Self> {
         Some(Self::new(
             fs::File::create(path).ok()?,
             path.to_string().into(),
@@ -89,12 +89,12 @@ impl File {
     }
     /// Reads the file at `self.path` into a string.
     pub fn read_to_string(&mut self) -> Option<AzString> {
-        let file_string = std::fs::read_to_string(self.path.as_str()).ok()?;
+        let file_string = fs::read_to_string(self.path.as_str()).ok()?;
         Some(file_string.into())
     }
     /// Reads the file at `self.path` into a byte vector.
     pub fn read_to_bytes(&mut self) -> Option<U8Vec> {
-        let file_bytes = std::fs::read(self.path.as_str()).ok()?;
+        let file_bytes = fs::read(self.path.as_str()).ok()?;
         Some(file_bytes.into())
     }
     /// Writes a string to the file handle. Returns `false` on failure.

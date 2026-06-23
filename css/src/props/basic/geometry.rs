@@ -19,7 +19,7 @@ pub struct LayoutPoint {
 
 impl fmt::Debug for LayoutPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 impl fmt::Display for LayoutPoint {
@@ -29,12 +29,12 @@ impl fmt::Display for LayoutPoint {
 }
 
 impl LayoutPoint {
-    #[inline(always)]
-    pub const fn new(x: isize, y: isize) -> Self {
+    #[inline]
+    #[must_use] pub const fn new(x: isize, y: isize) -> Self {
         Self { x, y }
     }
-    #[inline(always)]
-    pub const fn zero() -> Self {
+    #[inline]
+    #[must_use] pub const fn zero() -> Self {
         Self::new(0, 0)
     }
 }
@@ -42,7 +42,7 @@ impl LayoutPoint {
 impl_option!(
     LayoutPoint,
     OptionLayoutPoint,
-    [Debug, Copy, Clone, PartialEq, PartialOrd]
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
 );
 
 /// Only used for calculations: Size (width, height) in layout space.
@@ -55,7 +55,7 @@ pub struct LayoutSize {
 
 impl fmt::Debug for LayoutSize {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 impl fmt::Display for LayoutSize {
@@ -65,16 +65,16 @@ impl fmt::Display for LayoutSize {
 }
 
 impl LayoutSize {
-    #[inline(always)]
-    pub const fn new(width: isize, height: isize) -> Self {
+    #[inline]
+    #[must_use] pub const fn new(width: isize, height: isize) -> Self {
         Self { width, height }
     }
-    #[inline(always)]
-    pub const fn zero() -> Self {
+    #[inline]
+    #[must_use] pub const fn zero() -> Self {
         Self::new(0, 0)
     }
     #[inline]
-    pub fn round(width: f32, height: f32) -> Self {
+    #[must_use] pub fn round(width: f32, height: f32) -> Self {
         Self {
             width: libm::roundf(width) as isize,
             height: libm::roundf(height) as isize,
@@ -89,7 +89,7 @@ impl_option!(
 );
 
 /// Only used for calculations: Rectangle (x, y, width, height) in layout space.
-#[derive(Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct LayoutRect {
     pub origin: LayoutPoint,
@@ -99,7 +99,7 @@ pub struct LayoutRect {
 impl_option!(
     LayoutRect,
     OptionLayoutRect,
-    [Debug, Copy, Clone, PartialEq, PartialOrd]
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
 );
 impl_vec!(LayoutRect, LayoutRectVec, LayoutRectVecDestructor, LayoutRectVecDestructorType, LayoutRectVecSlice, OptionLayoutRect);
 impl_vec_clone!(LayoutRect, LayoutRectVec, LayoutRectVecDestructor);
@@ -110,7 +110,7 @@ impl_vec_partialord!(LayoutRect, LayoutRectVec);
 
 impl fmt::Debug for LayoutRect {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 impl fmt::Display for LayoutRect {
@@ -120,47 +120,47 @@ impl fmt::Display for LayoutRect {
 }
 
 impl LayoutRect {
-    #[inline(always)]
-    pub const fn new(origin: LayoutPoint, size: LayoutSize) -> Self {
+    #[inline]
+    #[must_use] pub const fn new(origin: LayoutPoint, size: LayoutSize) -> Self {
         Self { origin, size }
     }
-    #[inline(always)]
-    pub const fn zero() -> Self {
+    #[inline]
+    #[must_use] pub const fn zero() -> Self {
         Self::new(LayoutPoint::zero(), LayoutSize::zero())
     }
-    #[inline(always)]
-    pub const fn max_x(&self) -> isize {
+    #[inline]
+    #[must_use] pub const fn max_x(&self) -> isize {
         self.origin.x + self.size.width
     }
-    #[inline(always)]
-    pub const fn min_x(&self) -> isize {
+    #[inline]
+    #[must_use] pub const fn min_x(&self) -> isize {
         self.origin.x
     }
-    #[inline(always)]
-    pub const fn max_y(&self) -> isize {
+    #[inline]
+    #[must_use] pub const fn max_y(&self) -> isize {
         self.origin.y + self.size.height
     }
-    #[inline(always)]
-    pub const fn min_y(&self) -> isize {
+    #[inline]
+    #[must_use] pub const fn min_y(&self) -> isize {
         self.origin.y
     }
-    #[inline(always)]
-    pub const fn width(&self) -> isize {
+    #[inline]
+    #[must_use] pub const fn width(&self) -> isize {
         self.size.width
     }
-    #[inline(always)]
-    pub const fn height(&self) -> isize {
+    #[inline]
+    #[must_use] pub const fn height(&self) -> isize {
         self.size.height
     }
 
-    pub const fn contains(&self, other: &LayoutPoint) -> bool {
+    #[must_use] pub const fn contains(&self, other: &LayoutPoint) -> bool {
         self.min_x() <= other.x
             && other.x < self.max_x()
             && self.min_y() <= other.y
             && other.y < self.max_y()
     }
 
-    pub fn contains_f32(&self, other_x: f32, other_y: f32) -> bool {
+    #[must_use] pub fn contains_f32(&self, other_x: f32, other_y: f32) -> bool {
         self.min_x() as f32 <= other_x
             && other_x < self.max_x() as f32
             && self.min_y() as f32 <= other_y
@@ -171,7 +171,7 @@ impl LayoutRect {
     /// relative to the rectangle origin. Unlike `contains()`, points exactly
     /// on the boundary are excluded (returns `None`).
     #[inline]
-    pub const fn hit_test(&self, other: &LayoutPoint) -> Option<LayoutPoint> {
+    #[must_use] pub const fn hit_test(&self, other: &LayoutPoint) -> Option<LayoutPoint> {
         let dx_left_edge = other.x - self.min_x();
         let dx_right_edge = self.max_x() - other.x;
         let dy_top_edge = other.y - self.min_y();
@@ -186,7 +186,7 @@ impl LayoutRect {
     /// Returns the bounding rectangle that covers every rectangle in the slice,
     /// or `OptionLayoutRect::None` if the slice is empty.
     #[inline]
-    pub fn union(rects: LayoutRectVecSlice) -> OptionLayoutRect {
+    #[must_use] pub fn union(rects: LayoutRectVecSlice) -> OptionLayoutRect {
         let mut iter = rects.as_slice().iter().copied();
         let Some(first) = iter.next() else {
             return OptionLayoutRect::None;
@@ -218,8 +218,8 @@ impl LayoutRect {
     }
 
     /// Returns true if `b` is fully contained inside `self`.
-    #[inline(always)]
-    pub const fn contains_rect(&self, b: &LayoutRect) -> bool {
+    #[inline]
+    #[must_use] pub const fn contains_rect(&self, b: &Self) -> bool {
         let a = self;
 
         let a_x = a.origin.x;

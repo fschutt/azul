@@ -48,7 +48,7 @@ pub struct SensorReading {
 impl SensorReading {
     /// The magnitude of the `(x, y, z)` vector — e.g. total acceleration
     /// (≈9.81 at rest for the accelerometer) or field strength.
-    pub fn magnitude(&self) -> f32 {
+    #[must_use] pub fn magnitude(&self) -> f32 {
         (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
     }
 }

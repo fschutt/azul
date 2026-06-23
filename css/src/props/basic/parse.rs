@@ -9,14 +9,14 @@ use crate::corety::AzString;
 /// E.g. `url(something,else), url(another,thing)` becomes `["url(something,else)",
 /// "url(another,thing)"]` whereas a normal split by comma would yield `["url(something", "else)",
 /// "url(another", "thing)"]`
-pub fn split_string_respect_comma(input: &str) -> Vec<&str> {
+#[must_use] pub fn split_string_respect_comma(input: &str) -> Vec<&str> {
     split_string_by_char(input, ',')
 }
 
 /// Splits a string by whitespace, but respects parentheses/braces
 ///
 /// E.g. `translateX(10px) rotate(90deg)` becomes `["translateX(10px)", "rotate(90deg)"]`
-pub fn split_string_respect_whitespace(input: &str) -> Vec<&str> {
+#[must_use] pub fn split_string_respect_whitespace(input: &str) -> Vec<&str> {
     let mut items = Vec::<&str>::new();
     let mut current_start = 0;
     let mut depth = 0;
@@ -114,8 +114,8 @@ impl_display! { ParenthesisParseError<'a>, {
     EmptyInput => format!("Empty parenthesis"),
 }}
 
-/// Owned version of ParenthesisParseError.
-#[derive(Debug, Clone, PartialEq)]
+/// Owned version of `ParenthesisParseError`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum ParenthesisParseErrorOwned {
     UnclosedBraces,
@@ -125,8 +125,8 @@ pub enum ParenthesisParseErrorOwned {
     EmptyInput,
 }
 
-impl<'a> ParenthesisParseError<'a> {
-    pub fn to_contained(&self) -> ParenthesisParseErrorOwned {
+impl ParenthesisParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> ParenthesisParseErrorOwned {
         match self {
             ParenthesisParseError::UnclosedBraces => ParenthesisParseErrorOwned::UnclosedBraces,
             ParenthesisParseError::NoOpeningBraceFound => {
@@ -136,7 +136,7 @@ impl<'a> ParenthesisParseError<'a> {
                 ParenthesisParseErrorOwned::NoClosingBraceFound
             }
             ParenthesisParseError::StopWordNotFound(s) => {
-                ParenthesisParseErrorOwned::StopWordNotFound(s.to_string().into())
+                ParenthesisParseErrorOwned::StopWordNotFound((*s).to_string().into())
             }
             ParenthesisParseError::EmptyInput => ParenthesisParseErrorOwned::EmptyInput,
         }
@@ -144,19 +144,19 @@ impl<'a> ParenthesisParseError<'a> {
 }
 
 impl ParenthesisParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> ParenthesisParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> ParenthesisParseError<'_> {
         match self {
-            ParenthesisParseErrorOwned::UnclosedBraces => ParenthesisParseError::UnclosedBraces,
-            ParenthesisParseErrorOwned::NoOpeningBraceFound => {
+            Self::UnclosedBraces => ParenthesisParseError::UnclosedBraces,
+            Self::NoOpeningBraceFound => {
                 ParenthesisParseError::NoOpeningBraceFound
             }
-            ParenthesisParseErrorOwned::NoClosingBraceFound => {
+            Self::NoClosingBraceFound => {
                 ParenthesisParseError::NoClosingBraceFound
             }
-            ParenthesisParseErrorOwned::StopWordNotFound(s) => {
+            Self::StopWordNotFound(s) => {
                 ParenthesisParseError::StopWordNotFound(s.as_str())
             }
-            ParenthesisParseErrorOwned::EmptyInput => ParenthesisParseError::EmptyInput,
+            Self::EmptyInput => ParenthesisParseError::EmptyInput,
         }
     }
 }
@@ -191,7 +191,7 @@ pub fn parse_parentheses<'a>(
     input: &'a str,
     stopwords: &[&'static str],
 ) -> Result<(&'static str, &'a str), ParenthesisParseError<'a>> {
-    use self::ParenthesisParseError::*;
+    use self::ParenthesisParseError::{EmptyInput, NoOpeningBraceFound, StopWordNotFound, NoClosingBraceFound};
 
     let input = input.trim();
     if input.is_empty() {
@@ -250,7 +250,7 @@ pub struct QuoteStripped<'a>(pub &'a str);
 ///     Err(UnclosedQuotesError("\"Arial'"))
 /// );
 /// ```
-pub fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuotesError<'a>> {
+pub fn strip_quotes(input: &str) -> Result<QuoteStripped<'_>, UnclosedQuotesError<'_>> {
     let mut double_quote_iter = input.splitn(2, '"');
     double_quote_iter.next();
     let mut single_quote_iter = input.splitn(2, '\'');
@@ -265,18 +265,18 @@ pub fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuo
         if !quote_contents.ends_with('"') {
             return Err(UnclosedQuotesError(quote_contents));
         }
-        Ok(QuoteStripped(quote_contents.trim_end_matches("\"")))
+        Ok(QuoteStripped(quote_contents.trim_end_matches('"')))
     } else if let Some(quote_contents) = first_single_quote {
         if !quote_contents.ends_with('\'') {
             return Err(UnclosedQuotesError(input));
         }
-        Ok(QuoteStripped(quote_contents.trim_end_matches("'")))
+        Ok(QuoteStripped(quote_contents.trim_end_matches('\'')))
     } else {
         Err(UnclosedQuotesError(input))
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum CssImageParseError<'a> {
     UnclosedQuotes(&'a str),
 }
@@ -286,19 +286,19 @@ impl_display! {CssImageParseError<'a>, {
     UnclosedQuotes(e) => format!("Unclosed quotes: \"{}\"", e),
 }}
 
-/// Owned version of CssImageParseError.
-#[derive(Debug, Clone, PartialEq)]
+/// Owned version of `CssImageParseError`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssImageParseErrorOwned {
     UnclosedQuotes(AzString),
 }
 
-impl<'a> CssImageParseError<'a> {
+impl CssImageParseError<'_> {
     /// Converts to the owned variant.
-    pub fn to_contained(&self) -> CssImageParseErrorOwned {
+    #[must_use] pub fn to_contained(&self) -> CssImageParseErrorOwned {
         match self {
             CssImageParseError::UnclosedQuotes(s) => {
-                CssImageParseErrorOwned::UnclosedQuotes(s.to_string().into())
+                CssImageParseErrorOwned::UnclosedQuotes((*s).to_string().into())
             }
         }
     }
@@ -306,9 +306,9 @@ impl<'a> CssImageParseError<'a> {
 
 impl CssImageParseErrorOwned {
     /// Converts to the borrowed variant.
-    pub fn to_shared<'a>(&'a self) -> CssImageParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssImageParseError<'_> {
         match self {
-            CssImageParseErrorOwned::UnclosedQuotes(s) => {
+            Self::UnclosedQuotes(s) => {
                 CssImageParseError::UnclosedQuotes(s.as_str())
             }
         }
@@ -316,8 +316,8 @@ impl CssImageParseErrorOwned {
 }
 
 /// A string slice that has been stripped of its quotes.
-/// In CSS, quotes are optional in url() so we accept both quoted and unquoted strings.
-pub fn parse_image<'a>(input: &'a str) -> Result<AzString, CssImageParseError<'a>> {
+/// In CSS, quotes are optional in `url()` so we accept both quoted and unquoted strings.
+pub fn parse_image(input: &str) -> Result<AzString, CssImageParseError<'_>> {
     Ok(match strip_quotes(input) {
         Ok(stripped) => stripped.0.into(),
         Err(_) => input.trim().into(),

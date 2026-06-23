@@ -25,7 +25,7 @@ pub struct PositionedGlyph {
 }
 
 /// A simple glyph run without font reference - used when fonts aren't available.
-/// The font can be looked up later via font_hash if needed.
+/// The font can be looked up later via `font_hash` if needed.
 #[derive(Debug, Clone)]
 pub struct SimpleGlyphRun {
     /// The glyphs in this run, with their positions relative to the start of the run.
@@ -52,7 +52,7 @@ pub struct SimpleGlyphRun {
 
 /// Groups glyphs into runs without requiring font references.
 /// Use this when you only need glyph positions and don't need font references.
-pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
+#[must_use] pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
     let mut runs: Vec<SimpleGlyphRun> = Vec::new();
     let mut current_run: Option<SimpleGlyphRun> = None;
 
@@ -236,7 +236,7 @@ pub struct PdfGlyphRun<T: ParsedFontTrait> {
     pub direction: crate::text3::cache::BidiDirection,
     /// Writing mode for this run
     pub writing_mode: crate::text3::cache::WritingMode,
-    /// The starting position (baseline) of this run - used for SetTextMatrix
+    /// The starting position (baseline) of this run - used for `SetTextMatrix`
     pub baseline_start: Point,
     /// Original cluster text for debugging/CID mapping
     pub cluster_texts: Vec<String>,
@@ -251,18 +251,18 @@ pub struct PdfPositionedGlyph {
     pub position: Point,
     /// The advance width of this glyph
     pub advance: f32,
-    /// The Unicode character(s) this glyph represents (for PDF ToUnicode CMap)
-    /// This is extracted from the cluster text using the glyph's cluster_offset
+    /// The Unicode character(s) this glyph represents (for PDF `ToUnicode` `CMap`)
+    /// This is extracted from the cluster text using the glyph's `cluster_offset`
     pub unicode_codepoint: String,
 }
 
 /// Extract glyph runs optimized for PDF rendering.
 /// This function:
 /// - Groups consecutive glyphs by font, color, size, style, and line
-/// - Breaks runs at line boundaries (different line_index)
+/// - Breaks runs at line boundaries (different `line_index`)
 /// - Preserves absolute positioning for each glyph (critical for RTL and complex scripts)
 /// - Includes cluster text for proper CID/Unicode mapping
-pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
+#[must_use] pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
     layout: &UnifiedLayout,
     fonts: &LoadedFonts<T>,
 ) -> Vec<PdfGlyphRun<T>> {
@@ -330,9 +330,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                     // Get the character at this byte offset
                     cluster_text[byte_offset..]
                         .chars()
-                        .next()
-                        .map(|c| c.to_string())
-                        .unwrap_or_else(|| cluster_text.clone())
+                        .next().map_or_else(|| cluster_text.clone(), |c| c.to_string())
                 } else {
                     // Fallback: if offset is out of range, use the whole cluster for first glyph
                     // or empty for subsequent glyphs (they share the same codepoint)
@@ -429,7 +427,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
 ///
 /// A `Vec<PositionedGlyph>` containing all glyphs from the layout with their
 /// absolute baseline positions.
-pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
+#[must_use] pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
     let mut final_glyphs = Vec::new();
 
     for item in &layout.items {

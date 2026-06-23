@@ -1,19 +1,19 @@
 //! Keyring manager — cross-platform state for the system-keyring surface
-//! (SUPER_PLAN_2 §4 P4.2).
+//! (`SUPER_PLAN_2` §4 P4.2).
 //!
 //! Request-driven, mirroring [`crate::managers::biometric`]:
 //!
 //! - A **callback** calls `CallbackInfo::keyring_store/get/delete(...)`,
 //!   which parks a [`KeyringRequest`] in the request channel.
 //! - The dll **layout pass** drains it and dispatches to the platform
-//!   backend (`dll::desktop::extra::keyring`) — Keychain / KeyStore /
-//!   libsecret / CredentialLocker. A biometry-bound `Get` shows the OS
+//!   backend (`dll::desktop::extra::keyring`) — Keychain / `KeyStore` /
+//!   libsecret / `CredentialLocker`. A biometry-bound `Get` shows the OS
 //!   prompt; the outcome is parked in the result channel.
 //! - The layout pass folds the latest result into the manager via
 //!   [`KeyringManager::set_last_result`]; callbacks read it with
 //!   `CallbackInfo::get_keyring_result()`.
 //!
-//! No platform deps (SUPER_PLAN_2 §0.5); the channels are the same
+//! No platform deps (`SUPER_PLAN_2` §0.5); the channels are the same
 //! poison-recovering `Mutex<Vec<_>>` pattern as the geolocation /
 //! biometric managers.
 
@@ -26,7 +26,7 @@ pub use azul_core::keyring::{KeyringRequest, KeyringResult};
 
 /// Cross-platform keyring state. One per `App` — the OS keyring is a
 /// per-process (per-app-identity) store, not per-window.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct KeyringManager {
     /// Outcome of the most recent keyring op, or `None` until the first
     /// completes. Read by callbacks via `CallbackInfo::get_keyring_result()`.
@@ -34,12 +34,12 @@ pub struct KeyringManager {
 }
 
 impl KeyringManager {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
 
     /// Most recent keyring outcome, or `None` until the first op resolves.
-    pub fn last_result(&self) -> Option<&KeyringResult> {
+    #[must_use] pub const fn last_result(&self) -> Option<&KeyringResult> {
         self.last_result.as_ref()
     }
 
@@ -61,14 +61,14 @@ static PENDING_REQUESTS: std::sync::Mutex<Vec<KeyringRequest>> =
 /// Queue a keyring op from a callback. Drained by the dll layout pass and
 /// dispatched to the native keyring. Thread-safe; poison-recovering.
 pub fn push_keyring_request(request: KeyringRequest) {
-    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(request);
 }
 
 /// Drain every queued keyring op, in arrival order. Called once per
 /// layout pass; the dll dispatches each to the platform backend.
 pub fn drain_keyring_requests() -> Vec<KeyringRequest> {
-    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -81,14 +81,14 @@ static PENDING_RESULTS: std::sync::Mutex<Vec<KeyringResult>> =
 /// Thread-safe; poison-recovering (a biometry-bound `Get` resolves from
 /// the OS prompt's reply on an arbitrary thread).
 pub fn push_keyring_result(result: KeyringResult) {
-    let mut q = PENDING_RESULTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(result);
 }
 
 /// Drain every parked keyring result, in arrival order. Called once per
 /// layout pass; the caller applies them via [`KeyringManager::set_last_result`].
 pub fn drain_keyring_results() -> Vec<KeyringResult> {
-    let mut q = PENDING_RESULTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn result_helpers() {
         let secret = KeyringResult::Retrieved(AzString::from_const_str("hunter2"));
-        assert_eq!(secret.secret().map(|s| s.as_str()), Some("hunter2"));
+        assert_eq!(secret.secret().map(AzString::as_str), Some("hunter2"));
         assert!(secret.is_ok());
         assert!(KeyringResult::Stored.is_ok());
         assert!(KeyringResult::Deleted.is_ok());
@@ -127,7 +127,7 @@ mod tests {
             KeyringResult::Unavailable,
             KeyringResult::Error,
         ] {
-            assert!(!r.is_ok(), "{:?} must not be ok", r);
+            assert!(!r.is_ok(), "{r:?} must not be ok");
             assert_eq!(r.secret(), None);
         }
     }
@@ -165,7 +165,7 @@ mod tests {
             mgr.set_last_result(r);
         }
         assert_eq!(
-            mgr.last_result().and_then(|r| r.secret()).map(|s| s.as_str()),
+            mgr.last_result().and_then(|r| r.secret()).map(AzString::as_str),
             Some("s"),
             "the last applied result wins"
         );

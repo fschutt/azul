@@ -94,36 +94,33 @@ pub fn present_frame(
         None => return current_id,
     };
 
-    match current_id {
-        Some(id) => {
-            upload_rgba(&gl, id, frame);
-            info.update_all_image_callbacks();
-            Some(id)
-        }
-        None => {
-            let tex = Texture::allocate_rgba8(
-                gl.clone(),
-                PhysicalSizeU32 {
-                    width: frame.width,
-                    height: frame.height,
-                },
-                ColorU {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 0,
-                },
-            );
-            let id = tex.texture_id;
-            upload_rgba(&gl, id, frame);
-            let image = ImageRef::new_gltexture(tex);
-            if let Some(node) = info.get_node_id_of_root_dataset(dataset) {
-                if let Some(nid) = node.node.into_crate_internal() {
-                    info.change_node_image(node.dom, nid, image, UpdateImageType::Content);
-                }
+    if let Some(id) = current_id {
+        upload_rgba(&gl, id, frame);
+        info.update_all_image_callbacks();
+        Some(id)
+    } else {
+        let tex = Texture::allocate_rgba8(
+            gl.clone(),
+            PhysicalSizeU32 {
+                width: frame.width,
+                height: frame.height,
+            },
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
+        );
+        let id = tex.texture_id;
+        upload_rgba(&gl, id, frame);
+        let image = ImageRef::new_gltexture(tex);
+        if let Some(node) = info.get_node_id_of_root_dataset(dataset) {
+            if let Some(nid) = node.node.into_crate_internal() {
+                info.change_node_image(node.dom, nid, image, UpdateImageType::Content);
             }
-            Some(id)
         }
+        Some(id)
     }
 }
 
@@ -146,8 +143,8 @@ pub fn upload_rgba(gl: &GlContextPtr, texture_id: u32, frame: &VideoFrame) {
 /// A platform frame-capture backend (camera / screen), registered by the dll at
 /// startup so the cross-platform capture widgets can pull **real** frames
 /// instead of their built-in test pattern. The dll provides one per OS (v4l2 on
-/// Linux, AVFoundation on macOS, Media Foundation on Windows, ScreenCaptureKit /
-/// PipeWire / DXGI for screens, ...). These are plain Rust fn pointers - the dll
+/// Linux, `AVFoundation` on macOS, Media Foundation on Windows, `ScreenCaptureKit` /
+/// `PipeWire` / DXGI for screens, ...). These are plain Rust fn pointers - the dll
 /// links azul-layout statically, so registering + calling is a Rust-to-Rust
 /// call, no `extern "C"`/trait-object dance.
 #[derive(Clone, Copy)]
@@ -159,7 +156,7 @@ pub struct CaptureVTable {
     /// Block for the next frame, writing tightly-packed RGBA8 into `out`
     /// (resized as needed). Returns the actual frame `(width, height)`, or
     /// `(0, 0)` on end-of-stream / error (the worker then stops + closes).
-    pub read: fn(handle: u64, out: &mut alloc::vec::Vec<u8>) -> (u32, u32),
+    pub read: fn(handle: u64, out: &mut Vec<u8>) -> (u32, u32),
     /// Close + free the source.
     pub close: fn(handle: u64),
 }
@@ -200,7 +197,7 @@ pub struct AudioCaptureVTable {
     /// Block for the next chunk, writing interleaved `f32` into `out` (resized).
     /// Returns the frame count (`out.len() / channels`), or `0` on error / EOF
     /// (the worker then stops + closes).
-    pub read: fn(handle: u64, out: &mut alloc::vec::Vec<f32>) -> u32,
+    pub read: fn(handle: u64, out: &mut Vec<f32>) -> u32,
     /// Close + free the source.
     pub close: fn(handle: u64),
 }

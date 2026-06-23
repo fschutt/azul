@@ -44,7 +44,7 @@ pub struct StylePerspectiveOrigin {
 }
 
 impl StylePerspectiveOrigin {
-    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             x: self.x.interpolate(&other.x, t),
             y: self.y.interpolate(&other.y, t),
@@ -76,7 +76,7 @@ impl Default for StyleTransformOrigin {
 }
 
 impl StyleTransformOrigin {
-    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             x: self.x.interpolate(&other.x, t),
             y: self.y.interpolate(&other.y, t),
@@ -124,8 +124,8 @@ pub enum StyleBackfaceVisibility {
 impl PrintAsCssValue for StyleBackfaceVisibility {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleBackfaceVisibility::Hidden => "hidden",
-            StyleBackfaceVisibility::Visible => "visible",
+            Self::Hidden => "hidden",
+            Self::Visible => "visible",
         })
     }
 }
@@ -160,7 +160,7 @@ pub enum StyleTransform {
 impl_option!(
     StyleTransform,
     OptionStyleTransform,
-    [Debug, Copy, Clone, PartialEq, PartialOrd]
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
 );
 
 impl_vec!(StyleTransform, StyleTransformVec, StyleTransformVecDestructor, StyleTransformVecDestructorType, StyleTransformVecSlice, OptionStyleTransform);
@@ -180,7 +180,7 @@ impl PrintAsCssValue for StyleTransformVec {
     fn print_as_css_value(&self) -> String {
         self.as_ref()
             .iter()
-            .map(|f| f.print_as_css_value())
+            .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(" ")
     }
@@ -199,11 +199,11 @@ impl crate::codegen::format::FormatAsRustCode for StyleTransformVec {
 impl PrintAsCssValue for StyleTransform {
     fn print_as_css_value(&self) -> String {
         match self {
-            StyleTransform::Matrix(m) => format!(
+            Self::Matrix(m) => format!(
                 "matrix({}, {}, {}, {}, {}, {})",
                 m.a, m.b, m.c, m.d, m.tx, m.ty
             ),
-            StyleTransform::Matrix3D(m) => format!(
+            Self::Matrix3D(m) => format!(
                 "matrix3d({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})",
                 m.m11,
                 m.m12,
@@ -222,27 +222,27 @@ impl PrintAsCssValue for StyleTransform {
                 m.m43,
                 m.m44
             ),
-            StyleTransform::Translate(t) => format!("translate({}, {})", t.x, t.y),
-            StyleTransform::Translate3D(t) => format!("translate3d({}, {}, {})", t.x, t.y, t.z),
-            StyleTransform::TranslateX(x) => format!("translateX({})", x),
-            StyleTransform::TranslateY(y) => format!("translateY({})", y),
-            StyleTransform::TranslateZ(z) => format!("translateZ({})", z),
-            StyleTransform::Rotate(r) => format!("rotate({})", r),
-            StyleTransform::Rotate3D(r) => {
+            Self::Translate(t) => format!("translate({}, {})", t.x, t.y),
+            Self::Translate3D(t) => format!("translate3d({}, {}, {})", t.x, t.y, t.z),
+            Self::TranslateX(x) => format!("translateX({x})"),
+            Self::TranslateY(y) => format!("translateY({y})"),
+            Self::TranslateZ(z) => format!("translateZ({z})"),
+            Self::Rotate(r) => format!("rotate({r})"),
+            Self::Rotate3D(r) => {
                 format!("rotate3d({}, {}, {}, {})", r.x, r.y, r.z, r.angle)
             }
-            StyleTransform::RotateX(x) => format!("rotateX({})", x),
-            StyleTransform::RotateY(y) => format!("rotateY({})", y),
-            StyleTransform::RotateZ(z) => format!("rotateZ({})", z),
-            StyleTransform::Scale(s) => format!("scale({}, {})", s.x, s.y),
-            StyleTransform::Scale3D(s) => format!("scale3d({}, {}, {})", s.x, s.y, s.z),
-            StyleTransform::ScaleX(x) => format!("scaleX({})", x),
-            StyleTransform::ScaleY(y) => format!("scaleY({})", y),
-            StyleTransform::ScaleZ(z) => format!("scaleZ({})", z),
-            StyleTransform::Skew(sk) => format!("skew({}, {})", sk.x, sk.y),
-            StyleTransform::SkewX(x) => format!("skewX({})", x),
-            StyleTransform::SkewY(y) => format!("skewY({})", y),
-            StyleTransform::Perspective(dist) => format!("perspective({})", dist),
+            Self::RotateX(x) => format!("rotateX({x})"),
+            Self::RotateY(y) => format!("rotateY({y})"),
+            Self::RotateZ(z) => format!("rotateZ({z})"),
+            Self::Scale(s) => format!("scale({}, {})", s.x, s.y),
+            Self::Scale3D(s) => format!("scale3d({}, {}, {})", s.x, s.y, s.z),
+            Self::ScaleX(x) => format!("scaleX({x})"),
+            Self::ScaleY(y) => format!("scaleY({y})"),
+            Self::ScaleZ(z) => format!("scaleZ({z})"),
+            Self::Skew(sk) => format!("skew({}, {})", sk.x, sk.y),
+            Self::SkewX(x) => format!("skewX({x})"),
+            Self::SkewY(y) => format!("skewY({y})"),
+            Self::Perspective(dist) => format!("perspective({dist})"),
         }
     }
 }
@@ -371,7 +371,7 @@ pub struct StyleTransformSkew2D {
 
 // -- Errors --
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CssStyleTransformParseError<'a> {
     InvalidTransform(&'a str),
     InvalidParenthesis(ParenthesisParseError<'a>),
@@ -380,7 +380,7 @@ pub enum CssStyleTransformParseError<'a> {
         got: usize,
         input: &'a str,
     },
-    NumberParseError(core::num::ParseFloatError),
+    NumberParseError(ParseFloatError),
     PixelValueParseError(CssPixelValueParseError<'a>),
     AngleValueParseError(CssAngleValueParseError<'a>),
     PercentageValueParseError(PercentageParseError),
@@ -402,13 +402,13 @@ impl_from! { CssPixelValueParseError<'a>, CssStyleTransformParseError::PixelValu
 impl_from! { CssAngleValueParseError<'a>, CssStyleTransformParseError::AngleValueParseError }
 impl_from! { ParseFloatError, CssStyleTransformParseError<'a>::NumberParseError }
 
-impl<'a> From<PercentageParseError> for CssStyleTransformParseError<'a> {
+impl From<PercentageParseError> for CssStyleTransformParseError<'_> {
     fn from(p: PercentageParseError) -> Self {
         Self::PercentageValueParseError(p)
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssStyleTransformParseErrorOwned {
     InvalidTransform(AzString),
@@ -420,11 +420,11 @@ pub enum CssStyleTransformParseErrorOwned {
     PercentageValueParseError(PercentageParseError),
 }
 
-impl<'a> CssStyleTransformParseError<'a> {
-    pub fn to_contained(&self) -> CssStyleTransformParseErrorOwned {
+impl CssStyleTransformParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssStyleTransformParseErrorOwned {
         match self {
             Self::InvalidTransform(s) => {
-                CssStyleTransformParseErrorOwned::InvalidTransform(s.to_string().into())
+                CssStyleTransformParseErrorOwned::InvalidTransform((*s).to_string().into())
             }
             Self::InvalidParenthesis(e) => {
                 CssStyleTransformParseErrorOwned::InvalidParenthesis(e.to_contained())
@@ -436,7 +436,7 @@ impl<'a> CssStyleTransformParseError<'a> {
             } => CssStyleTransformParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                 expected: *expected,
                 got: *got,
-                input: input.to_string().into(),
+                input: (*input).to_string().into(),
             }),
             Self::NumberParseError(e) => {
                 CssStyleTransformParseErrorOwned::NumberParseError(e.clone().into())
@@ -455,7 +455,7 @@ impl<'a> CssStyleTransformParseError<'a> {
 }
 
 impl CssStyleTransformParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssStyleTransformParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssStyleTransformParseError<'_> {
         match self {
             Self::InvalidTransform(s) => CssStyleTransformParseError::InvalidTransform(s),
             Self::InvalidParenthesis(e) => {
@@ -480,7 +480,7 @@ impl CssStyleTransformParseErrorOwned {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CssStyleTransformOriginParseError<'a> {
     WrongNumberOfComponents {
         expected: usize,
@@ -497,15 +497,15 @@ impl_display! { CssStyleTransformOriginParseError<'a>, {
 }}
 impl_from! { CssPixelValueParseError<'a>, CssStyleTransformOriginParseError::PixelValueParseError }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssStyleTransformOriginParseErrorOwned {
     WrongNumberOfComponents(WrongComponentCountError),
     PixelValueParseError(CssPixelValueParseErrorOwned),
 }
 
-impl<'a> CssStyleTransformOriginParseError<'a> {
-    pub fn to_contained(&self) -> CssStyleTransformOriginParseErrorOwned {
+impl CssStyleTransformOriginParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssStyleTransformOriginParseErrorOwned {
         match self {
             Self::WrongNumberOfComponents {
                 expected,
@@ -514,7 +514,7 @@ impl<'a> CssStyleTransformOriginParseError<'a> {
             } => CssStyleTransformOriginParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                 expected: *expected,
                 got: *got,
-                input: input.to_string().into(),
+                input: (*input).to_string().into(),
             }),
             Self::PixelValueParseError(e) => {
                 CssStyleTransformOriginParseErrorOwned::PixelValueParseError(e.to_contained())
@@ -524,7 +524,7 @@ impl<'a> CssStyleTransformOriginParseError<'a> {
 }
 
 impl CssStyleTransformOriginParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssStyleTransformOriginParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssStyleTransformOriginParseError<'_> {
         match self {
             Self::WrongNumberOfComponents(e) => CssStyleTransformOriginParseError::WrongNumberOfComponents {
                 expected: e.expected,
@@ -538,7 +538,7 @@ impl CssStyleTransformOriginParseErrorOwned {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CssStylePerspectiveOriginParseError<'a> {
     WrongNumberOfComponents {
         expected: usize,
@@ -555,15 +555,15 @@ impl_display! { CssStylePerspectiveOriginParseError<'a>, {
 }}
 impl_from! { CssPixelValueParseError<'a>, CssStylePerspectiveOriginParseError::PixelValueParseError }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssStylePerspectiveOriginParseErrorOwned {
     WrongNumberOfComponents(WrongComponentCountError),
     PixelValueParseError(CssPixelValueParseErrorOwned),
 }
 
-impl<'a> CssStylePerspectiveOriginParseError<'a> {
-    pub fn to_contained(&self) -> CssStylePerspectiveOriginParseErrorOwned {
+impl CssStylePerspectiveOriginParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssStylePerspectiveOriginParseErrorOwned {
         match self {
             Self::WrongNumberOfComponents {
                 expected,
@@ -572,7 +572,7 @@ impl<'a> CssStylePerspectiveOriginParseError<'a> {
             } => CssStylePerspectiveOriginParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
                 expected: *expected,
                 got: *got,
-                input: input.to_string().into(),
+                input: (*input).to_string().into(),
             }),
             Self::PixelValueParseError(e) => {
                 CssStylePerspectiveOriginParseErrorOwned::PixelValueParseError(e.to_contained())
@@ -582,7 +582,7 @@ impl<'a> CssStylePerspectiveOriginParseError<'a> {
 }
 
 impl CssStylePerspectiveOriginParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssStylePerspectiveOriginParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssStylePerspectiveOriginParseError<'_> {
         match self {
             Self::WrongNumberOfComponents(e) => CssStylePerspectiveOriginParseError::WrongNumberOfComponents {
                 expected: e.expected,
@@ -596,7 +596,7 @@ impl CssStylePerspectiveOriginParseErrorOwned {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CssBackfaceVisibilityParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -606,24 +606,24 @@ impl_display! { CssBackfaceVisibilityParseError<'a>, {
     InvalidValue(s) => format!("Invalid value for backface-visibility: \"{}\", expected \"visible\" or \"hidden\"", s),
 }}
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssBackfaceVisibilityParseErrorOwned {
     InvalidValue(AzString),
 }
 
-impl<'a> CssBackfaceVisibilityParseError<'a> {
-    pub fn to_contained(&self) -> CssBackfaceVisibilityParseErrorOwned {
+impl CssBackfaceVisibilityParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssBackfaceVisibilityParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
-                CssBackfaceVisibilityParseErrorOwned::InvalidValue(s.to_string().into())
+                CssBackfaceVisibilityParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
 }
 
 impl CssBackfaceVisibilityParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssBackfaceVisibilityParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssBackfaceVisibilityParseError<'_> {
         match self {
             Self::InvalidValue(s) => CssBackfaceVisibilityParseError::InvalidValue(s),
         }
@@ -633,9 +633,9 @@ impl CssBackfaceVisibilityParseErrorOwned {
 // -- Parsers --
 
 #[cfg(feature = "parser")]
-pub fn parse_style_transform_vec<'a>(
-    input: &'a str,
-) -> Result<StyleTransformVec, CssStyleTransformParseError<'a>> {
+pub fn parse_style_transform_vec(
+    input: &str,
+) -> Result<StyleTransformVec, CssStyleTransformParseError<'_>> {
     crate::props::basic::parse::split_string_respect_whitespace(input)
         .iter()
         .map(|i| parse_style_transform(i))
@@ -644,9 +644,9 @@ pub fn parse_style_transform_vec<'a>(
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_transform<'a>(
-    input: &'a str,
-) -> Result<StyleTransform, CssStyleTransformParseError<'a>> {
+pub fn parse_style_transform(
+    input: &str,
+) -> Result<StyleTransform, CssStyleTransformParseError<'_>> {
     let (transform_type, transform_values) = parse_parentheses(
         input,
         &[
@@ -674,22 +674,22 @@ pub fn parse_style_transform<'a>(
         ],
     )?;
 
-    fn get_numbers<'a>(
-        input: &'a str,
+    fn get_numbers(
+        input: &str,
         expected: usize,
-    ) -> Result<Vec<f32>, CssStyleTransformParseError<'a>> {
+    ) -> Result<Vec<f32>, CssStyleTransformParseError<'_>> {
         let numbers: Vec<_> = input
             .split(',')
             .map(|s| s.trim().parse::<f32>())
             .collect::<Result<_, _>>()?;
-        if numbers.len() != expected {
+        if numbers.len() == expected {
+            Ok(numbers)
+        } else {
             Err(CssStyleTransformParseError::WrongNumberOfComponents {
                 expected,
                 got: numbers.len(),
                 input,
             })
-        } else {
-            Ok(numbers)
         }
     }
 
@@ -895,9 +895,9 @@ pub fn parse_style_transform<'a>(
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_transform_origin<'a>(
-    input: &'a str,
-) -> Result<StyleTransformOrigin, CssStyleTransformOriginParseError<'a>> {
+pub fn parse_style_transform_origin(
+    input: &str,
+) -> Result<StyleTransformOrigin, CssStyleTransformOriginParseError<'_>> {
     let components: Vec<_> = input.split_whitespace().collect();
     if components.len() != 2 {
         return Err(CssStyleTransformOriginParseError::WrongNumberOfComponents {
@@ -928,9 +928,9 @@ pub fn parse_style_transform_origin<'a>(
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_perspective_origin<'a>(
-    input: &'a str,
-) -> Result<StylePerspectiveOrigin, CssStylePerspectiveOriginParseError<'a>> {
+pub fn parse_style_perspective_origin(
+    input: &str,
+) -> Result<StylePerspectiveOrigin, CssStylePerspectiveOriginParseError<'_>> {
     let components: Vec<_> = input.split_whitespace().collect();
     if components.len() != 2 {
         return Err(
@@ -947,9 +947,9 @@ pub fn parse_style_perspective_origin<'a>(
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_backface_visibility<'a>(
-    input: &'a str,
-) -> Result<StyleBackfaceVisibility, CssBackfaceVisibilityParseError<'a>> {
+pub fn parse_style_backface_visibility(
+    input: &str,
+) -> Result<StyleBackfaceVisibility, CssBackfaceVisibilityParseError<'_>> {
     match input.trim() {
         "visible" => Ok(StyleBackfaceVisibility::Visible),
         "hidden" => Ok(StyleBackfaceVisibility::Hidden),

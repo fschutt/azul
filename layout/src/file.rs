@@ -21,7 +21,7 @@ fn path_to_azstring(p: impl AsRef<Path>) -> AzString {
 // ============================================================================
 
 /// Error when performing file operations
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileError {
     /// Error message
@@ -63,7 +63,7 @@ impl FileError {
     }
     
     #[cfg(feature = "std")]
-    pub fn from_io_error(e: std::io::Error) -> Self {
+    #[must_use] pub fn from_io_error(e: std::io::Error) -> Self {
         use std::io::ErrorKind;
         
         let kind = match e.kind() {
@@ -97,7 +97,7 @@ impl_result!(
     FileError,
     ResultEmptyStructFileError,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 impl_result!(
@@ -105,7 +105,7 @@ impl_result!(
     FileError,
     ResultU8VecFileError,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 impl_result!(
@@ -113,7 +113,7 @@ impl_result!(
     FileError,
     ResultStringFileError,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 impl_result!(
@@ -121,7 +121,7 @@ impl_result!(
     FileError,
     Resultu64FileError,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 // Forward declarations for result types that need later-defined types
@@ -146,7 +146,7 @@ pub enum FileType {
 }
 
 /// Metadata about a file
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileMetadata {
     /// File size in bytes
@@ -186,7 +186,7 @@ impl_result!(
     FileError,
     ResultFileMetadataFileError,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 impl_result!(
@@ -222,14 +222,14 @@ pub fn file_read_string(path: &str) -> Result<AzString, FileError> {
 #[cfg(feature = "std")]
 pub fn file_write(path: &str, data: &[u8]) -> Result<EmptyStruct, FileError> {
     std::fs::write(path, data)
-        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Write string to a file (creates or overwrites)
 #[cfg(feature = "std")]
 pub fn file_write_string(path: &str, data: &str) -> Result<EmptyStruct, FileError> {
     std::fs::write(path, data.as_bytes())
-        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Append bytes to a file
@@ -245,7 +245,7 @@ pub fn file_append(path: &str, data: &[u8]) -> Result<EmptyStruct, FileError> {
         .map_err(FileError::from_io_error)?;
     
     file.write_all(data)
-        .map(|_| EmptyStruct::default())
+        .map(|()| EmptyStruct::default())
         .map_err(FileError::from_io_error)
 }
 
@@ -260,31 +260,31 @@ pub fn file_copy(from: &str, to: &str) -> Result<u64, FileError> {
 #[cfg(feature = "std")]
 pub fn file_rename(from: &str, to: &str) -> Result<EmptyStruct, FileError> {
     std::fs::rename(from, to)
-        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Delete a file
 #[cfg(feature = "std")]
 pub fn file_delete(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::remove_file(path)
-        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Check if a file or directory exists
 #[cfg(feature = "std")]
-pub fn path_exists(path: &str) -> bool {
+#[must_use] pub fn path_exists(path: &str) -> bool {
     Path::new(path).exists()
 }
 
 /// Check if path is a file
 #[cfg(feature = "std")]
-pub fn path_is_file(path: &str) -> bool {
+#[must_use] pub fn path_is_file(path: &str) -> bool {
     Path::new(path).is_file()
 }
 
 /// Check if path is a directory
 #[cfg(feature = "std")]
-pub fn path_is_dir(path: &str) -> bool {
+#[must_use] pub fn path_is_dir(path: &str) -> bool {
     Path::new(path).is_dir()
 }
 
@@ -307,14 +307,12 @@ pub fn file_metadata(path: &str) -> Result<FileMetadata, FileError> {
     let modified_secs = meta.modified()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     
     let created_secs = meta.created()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     
     Ok(FileMetadata {
         size: meta.len(),
@@ -415,28 +413,28 @@ pub fn file_metadata(_path: &str) -> Result<FileMetadata, FileError> {
 #[cfg(feature = "std")]
 pub fn dir_create(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::create_dir(path)
-        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Create a directory and all parent directories
 #[cfg(feature = "std")]
 pub fn dir_create_all(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::create_dir_all(path)
-        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Delete an empty directory
 #[cfg(feature = "std")]
 pub fn dir_delete(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::remove_dir(path)
-        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Delete a directory and all its contents
 #[cfg(feature = "std")]
 pub fn dir_delete_all(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::remove_dir_all(path)
-        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// List directory contents
@@ -509,7 +507,7 @@ pub fn dir_list(_path: &str) -> Result<DirEntryVec, FileError> {
 
 /// Join two paths
 #[cfg(feature = "std")]
-pub fn path_join(base: &str, path: &str) -> AzString {
+#[must_use] pub fn path_join(base: &str, path: &str) -> AzString {
     let joined = Path::new(base).join(path);
     path_to_azstring(joined)
 }
@@ -549,7 +547,7 @@ pub fn path_canonicalize(path: &str) -> Result<AzString, FileError> {
 
 /// Get the system temporary directory
 #[cfg(feature = "std")]
-pub fn temp_dir() -> AzString {
+#[must_use] pub fn temp_dir() -> AzString {
     path_to_azstring(std::env::temp_dir())
 }
 
@@ -608,11 +606,11 @@ impl_result!(
     FileError,
     ResultFilePathFileError,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 // Option type for FilePath
-impl_option!(FilePath, OptionFilePath, copy = false, [Clone, Debug, PartialEq]);
+impl_option!(FilePath, OptionFilePath, copy = false, [Clone, Debug, PartialEq, Eq]);
 
 impl Default for FilePath {
     fn default() -> Self {
@@ -622,29 +620,29 @@ impl Default for FilePath {
 
 impl FilePath {
     /// Creates a new path from a string
-    pub fn new(path: AzString) -> Self {
+    #[must_use] pub const fn new(path: AzString) -> Self {
         Self { inner: path }
     }
 
     /// Creates an empty path
-    pub fn empty() -> Self {
+    #[must_use] pub fn empty() -> Self {
         Self::default()
     }
 
     /// Creates a path from a string slice
-    pub fn from_str(s: &str) -> Self {
+    #[must_use] pub fn from_str(s: &str) -> Self {
         Self { inner: AzString::from(String::from(s)) }
     }
 
     /// Returns the system temporary directory
     #[cfg(feature = "std")]
-    pub fn get_temp_dir() -> Self {
+    #[must_use] pub fn get_temp_dir() -> Self {
         Self { inner: temp_dir() }
     }
 
     /// Returns the current working directory
     #[cfg(feature = "std")]
-    pub fn get_current_dir() -> Result<FilePath, FileError> {
+    pub fn get_current_dir() -> Result<Self, FileError> {
         match std::env::current_dir() {
             Ok(p) => Ok(Self { inner: path_to_azstring(p) }),
             Err(e) => Err(FileError::from_io_error(e)),
@@ -653,169 +651,169 @@ impl FilePath {
 
     /// Returns the user's home directory (e.g., /home/username on Linux, C:\Users\username on Windows)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_home_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_home_dir() -> Option<Self> {
         dirs::home_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's cache directory (e.g., ~/.cache on Linux, ~/Library/Caches on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_cache_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_cache_dir() -> Option<Self> {
         dirs::cache_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's config directory (e.g., ~/.config on Linux, ~/Library/Application Support on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_config_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_config_dir() -> Option<Self> {
         dirs::config_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's local config directory (e.g., ~/.config on Linux, ~/Library/Application Support on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_config_local_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_config_local_dir() -> Option<Self> {
         dirs::config_local_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's data directory (e.g., ~/.local/share on Linux, ~/Library/Application Support on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_data_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_data_dir() -> Option<Self> {
         dirs::data_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's local data directory (e.g., ~/.local/share on Linux, ~/Library/Application Support on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_data_local_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_data_local_dir() -> Option<Self> {
         dirs::data_local_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's desktop directory (e.g., ~/Desktop)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_desktop_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_desktop_dir() -> Option<Self> {
         dirs::desktop_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's documents directory (e.g., ~/Documents)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_document_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_document_dir() -> Option<Self> {
         dirs::document_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's downloads directory (e.g., ~/Downloads)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_download_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_download_dir() -> Option<Self> {
         dirs::download_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's executable directory (e.g., ~/.local/bin on Linux)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_executable_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_executable_dir() -> Option<Self> {
         dirs::executable_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's font directory (e.g., ~/.local/share/fonts on Linux, ~/Library/Fonts on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_font_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_font_dir() -> Option<Self> {
         dirs::font_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's pictures directory (e.g., ~/Pictures)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_picture_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_picture_dir() -> Option<Self> {
         dirs::picture_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's preference directory (e.g., ~/.config on Linux, ~/Library/Preferences on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_preference_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_preference_dir() -> Option<Self> {
         dirs::preference_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's public directory (e.g., ~/Public)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_public_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_public_dir() -> Option<Self> {
         dirs::public_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's runtime directory (e.g., /run/user/1000 on Linux)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_runtime_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_runtime_dir() -> Option<Self> {
         dirs::runtime_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's state directory (e.g., ~/.local/state on Linux)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_state_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_state_dir() -> Option<Self> {
         dirs::state_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's audio directory (e.g., ~/Music)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_audio_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_audio_dir() -> Option<Self> {
         dirs::audio_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's video directory (e.g., ~/Videos)
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_video_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_video_dir() -> Option<Self> {
         dirs::video_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Returns the user's templates directory
     #[cfg(all(feature = "std", feature = "extra"))]
-    pub fn get_template_dir() -> Option<FilePath> {
+    #[must_use] pub fn get_template_dir() -> Option<Self> {
         dirs::template_dir().map(|p| Self { inner: path_to_azstring(p) })
     }
 
     /// Joins this path with another path component
     #[cfg(feature = "std")]
-    pub fn join(&self, other: &FilePath) -> FilePath {
-        FilePath { inner: path_join(self.inner.as_str(), other.inner.as_str()) }
+    #[must_use] pub fn join(&self, other: &Self) -> Self {
+        Self { inner: path_join(self.inner.as_str(), other.inner.as_str()) }
     }
 
     /// Joins this path with a string component
     #[cfg(feature = "std")]
-    pub fn join_str(&self, component: &AzString) -> FilePath {
-        FilePath { inner: path_join(self.inner.as_str(), component.as_str()) }
+    #[must_use] pub fn join_str(&self, component: &AzString) -> Self {
+        Self { inner: path_join(self.inner.as_str(), component.as_str()) }
     }
 
     /// Returns the parent directory of this path
     #[cfg(feature = "std")]
-    pub fn parent(&self) -> Option<FilePath> {
-        path_parent(self.inner.as_str()).map(|p| FilePath { inner: p })
+    #[must_use] pub fn parent(&self) -> Option<Self> {
+        path_parent(self.inner.as_str()).map(|p| Self { inner: p })
     }
 
     /// Returns the file name component of this path
     #[cfg(feature = "std")]
-    pub fn file_name(&self) -> Option<AzString> {
+    #[must_use] pub fn file_name(&self) -> Option<AzString> {
         path_file_name(self.inner.as_str())
     }
 
     /// Returns the file extension of this path
     #[cfg(feature = "std")]
-    pub fn extension(&self) -> Option<AzString> {
+    #[must_use] pub fn extension(&self) -> Option<AzString> {
         path_extension(self.inner.as_str())
     }
 
     /// Checks if the path exists on the filesystem
     #[cfg(feature = "std")]
-    pub fn exists(&self) -> bool {
+    #[must_use] pub fn exists(&self) -> bool {
         path_exists(self.inner.as_str())
     }
 
     /// Checks if the path is a file
     #[cfg(feature = "std")]
-    pub fn is_file(&self) -> bool {
+    #[must_use] pub fn is_file(&self) -> bool {
         path_is_file(self.inner.as_str())
     }
 
     /// Checks if the path is a directory
     #[cfg(feature = "std")]
-    pub fn is_dir(&self) -> bool {
+    #[must_use] pub fn is_dir(&self) -> bool {
         path_is_dir(self.inner.as_str())
     }
 
     /// Checks if the path is absolute
     #[cfg(feature = "std")]
-    pub fn is_absolute(&self) -> bool {
+    #[must_use] pub fn is_absolute(&self) -> bool {
         Path::new(self.inner.as_str()).is_absolute()
     }
 
@@ -875,23 +873,23 @@ impl FilePath {
 
     /// Copies a file from this path to another path
     #[cfg(feature = "std")]
-    pub fn copy_to(&self, dest: &FilePath) -> Result<u64, FileError> {
+    pub fn copy_to(&self, dest: &Self) -> Result<u64, FileError> {
         file_copy(self.inner.as_str(), dest.inner.as_str())
     }
 
     /// Renames/moves a file from this path to another path
     #[cfg(feature = "std")]
-    pub fn rename_to(&self, dest: &FilePath) -> Result<EmptyStruct, FileError> {
+    pub fn rename_to(&self, dest: &Self) -> Result<EmptyStruct, FileError> {
         file_rename(self.inner.as_str(), dest.inner.as_str())
     }
 
     /// Returns the path as a string reference
-    pub fn as_str(&self) -> &str {
+    #[must_use] pub fn as_str(&self) -> &str {
         self.inner.as_str()
     }
 
-    /// Returns the path as an AzString
-    pub fn as_string(&self) -> AzString {
+    /// Returns the path as an `AzString`
+    #[must_use] pub fn as_string(&self) -> AzString {
         self.inner.clone()
     }
 
@@ -909,8 +907,8 @@ impl FilePath {
 
     /// Makes the path canonical (absolute, with no `.` or `..` components)
     #[cfg(feature = "std")]
-    pub fn canonicalize(&self) -> Result<FilePath, FileError> {
-        path_canonicalize(self.inner.as_str()).map(|p| FilePath { inner: p })
+    pub fn canonicalize(&self) -> Result<Self, FileError> {
+        path_canonicalize(self.inner.as_str()).map(|p| Self { inner: p })
     }
 }
 

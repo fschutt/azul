@@ -21,14 +21,14 @@ pub enum TextEdit {
     DeleteForward,
 }
 
-fn selection_start_run(selection: &Selection) -> u32 {
+const fn selection_start_run(selection: &Selection) -> u32 {
     match selection {
         Selection::Cursor(c) => c.cluster_id.source_run,
         Selection::Range(r) => r.start.cluster_id.source_run,
     }
 }
 
-fn selection_start_byte(selection: &Selection) -> u32 {
+const fn selection_start_byte(selection: &Selection) -> u32 {
     match selection {
         Selection::Cursor(c) => c.cluster_id.start_byte_in_run,
         Selection::Range(r) => r.start.cluster_id.start_byte_in_run,
@@ -84,7 +84,7 @@ fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
 
 /// The primary entry point for text modification. Takes the current content and selections,
 /// applies an edit, and returns the new content and the resulting cursor positions.
-pub fn edit_text(
+#[must_use] pub fn edit_text(
     content: &[InlineContent],
     selections: &[Selection],
     edit: &TextEdit,
@@ -134,7 +134,7 @@ pub fn edit_text(
 /// - `DeleteBackward`/`DeleteForward`: deletes the range ONLY (the range
 ///   deletion replaces the character-level delete — pressing Backspace with
 ///   a selection should remove the selection, not the selection + 1 char)
-pub fn apply_edit_to_selection(
+#[must_use] pub fn apply_edit_to_selection(
     content: &[InlineContent],
     selection: &Selection,
     edit: &TextEdit,
@@ -187,8 +187,7 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
                 text[csb..]
                     .grapheme_indices(true)
                     .next()
-                    .map(|(_, g)| csb + g.len())
-                    .unwrap_or(text.len())
+                    .map_or(text.len(), |(_, g)| csb + g.len())
             }
         }
     }
@@ -205,7 +204,7 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
 /// Non-text items (images, etc.) at the boundaries are left intact (their text
 /// offset resolves to 0), while intermediate non-text items are dropped along
 /// with the rest of the spanned content.
-pub fn delete_range(
+#[must_use] pub fn delete_range(
     content: &[InlineContent],
     range: &SelectionRange,
 ) -> (Vec<InlineContent>, TextCursor) {
@@ -322,7 +321,7 @@ pub fn delete_range(
 /// Inserts text at a cursor position.
 /// 
 /// The cursor's affinity determines the exact insertion point:
-/// - `Leading`: Insert at the start of the referenced cluster (start_byte_in_run)
+/// - `Leading`: Insert at the start of the referenced cluster (`start_byte_in_run`)
 /// - `Trailing`: Insert at the end of the referenced cluster (after the grapheme)
 pub fn insert_text(
     content: &mut Vec<InlineContent>,
@@ -353,8 +352,7 @@ pub fn insert_text(
                     run.text[cluster_start_byte..]
                         .grapheme_indices(true)
                         .next()
-                        .map(|(_, grapheme)| cluster_start_byte + grapheme.len())
-                        .unwrap_or(run.text.len())
+                        .map_or(run.text.len(), |(_, grapheme)| cluster_start_byte + grapheme.len())
                 }
             },
         };
@@ -374,7 +372,7 @@ pub fn insert_text(
     }
 
     // If insertion failed, return original state
-    (content.to_vec(), *cursor)
+    (content.clone(), *cursor)
 }
 
 /// Deletes one grapheme cluster backward from the cursor.
@@ -403,8 +401,7 @@ pub fn delete_backward(
                     run.text[cluster_start_byte..]
                         .grapheme_indices(true)
                         .next()
-                        .map(|(_, grapheme)| cluster_start_byte + grapheme.len())
-                        .unwrap_or(run.text.len())
+                        .map_or(run.text.len(), |(_, grapheme)| cluster_start_byte + grapheme.len())
                 }
             },
         };
@@ -451,7 +448,7 @@ pub fn delete_backward(
         }
     }
 
-    (content.to_vec(), *cursor)
+    (content.clone(), *cursor)
 }
 
 /// Deletes one grapheme cluster forward from the cursor.
@@ -480,8 +477,7 @@ pub fn delete_forward(
                     run.text[cluster_start_byte..]
                         .grapheme_indices(true)
                         .next()
-                        .map(|(_, grapheme)| cluster_start_byte + grapheme.len())
-                        .unwrap_or(run.text.len())
+                        .map_or(run.text.len(), |(_, grapheme)| cluster_start_byte + grapheme.len())
                 }
             },
         };
@@ -521,7 +517,7 @@ pub fn delete_forward(
         }
     }
 
-    (content.to_vec(), *cursor)
+    (content.clone(), *cursor)
 }
 
 /// Edit text with different text per selection (for N-lines-to-N-cursors paste).
@@ -532,7 +528,7 @@ pub fn delete_forward(
 /// # Panics
 ///
 /// Panics if `texts.len() != selections.len()`.
-pub fn edit_text_multi(
+#[must_use] pub fn edit_text_multi(
     content: &[InlineContent],
     selections: &[Selection],
     texts: &[&str],
@@ -569,7 +565,7 @@ pub fn edit_text_multi(
     });
 
     for (selection, text) in &pairs {
-        let edit = TextEdit::Insert(text.to_string());
+        let edit = TextEdit::Insert((*text).to_string());
 
         let edit_run = selection_start_run(selection);
         let edit_byte = selection_start_byte(selection);
@@ -593,7 +589,7 @@ pub fn edit_text_multi(
 /// Returns the range and text that a delete operation would remove, without
 /// actually modifying the content. Useful for callbacks that need to inspect
 /// pending deletes. Returns `None` if nothing would be deleted.
-pub fn inspect_delete(
+#[must_use] pub fn inspect_delete(
     content: &[InlineContent],
     selection: &Selection,
     forward: bool,

@@ -4,7 +4,6 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
-use azul_css::css::Css;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
@@ -88,8 +87,8 @@ fn test_margin_collapsing() {
         .get_node_layout_rect(p_id)
         .expect("p rect not found");
 
-    println!("H1: {:?}", h1_rect);
-    println!("P: {:?}", p_rect);
+    println!("H1: {h1_rect:?}");
+    println!("P: {p_rect:?}");
 
     // Expected behavior with border on root:
     // Root has 1px border.

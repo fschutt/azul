@@ -1429,7 +1429,7 @@ azul_core::impl_managed_callback! {
     extra_args:     [ state: ListViewState, row_clicked: usize ],
 }
 
-/// State of the ListView, but without row data
+/// State of the `ListView`, but without row data
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ListViewState {
@@ -1441,7 +1441,7 @@ pub struct ListViewState {
     pub current_row_count: usize,
     /// Y-offset currently applied to the rows
     pub scroll_offset: PixelValueNoPercent,
-    /// Current position where the user has scrolled the ListView to
+    /// Current position where the user has scrolled the `ListView` to
     pub current_scroll_position: LogicalPosition,
     /// Current height of the row container
     pub current_content_height: LogicalSize,
@@ -1453,7 +1453,7 @@ pub struct ListViewState {
 pub struct ListView {
     /// Column names
     pub columns: StringVec,
-    /// Currently rendered rows. Note that the ListView does not
+    /// Currently rendered rows. Note that the `ListView` does not
     /// have to render all rows at once, usually you'd only render
     /// the top 100 rows
     pub rows: ListViewRowVec,
@@ -1467,8 +1467,8 @@ pub struct ListView {
     /// Context menu for the columns (usually opens a context menu
     /// to select which columns to show)
     pub column_context_menu: OptionMenu,
-    /// Indicates that this ListView is being lazily loaded, allows
-    /// control over what happens when the user scrolls the ListView.
+    /// Indicates that this `ListView` is being lazily loaded, allows
+    /// control over what happens when the user scrolls the `ListView`.
     pub on_lazy_load_scroll: OptionListViewOnLazyLoadScroll,
     /// What to do when the user left-clicks the column
     /// (usually used for storing which column to sort by)
@@ -1496,7 +1496,7 @@ impl Default for ListView {
     }
 }
 
-/// Row of the ListView
+/// Row of the `ListView`
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ListViewRow {
@@ -1513,7 +1513,7 @@ impl_vec_mut!(ListViewRow, ListViewRowVec);
 impl_vec_debug!(ListViewRow, ListViewRowVec);
 
 impl ListView {
-    pub fn create(columns: StringVec) -> Self {
+    #[must_use] pub fn create(columns: StringVec) -> Self {
         Self {
             columns,
             ..Default::default()
@@ -1526,7 +1526,7 @@ impl ListView {
         m
     }
 
-    pub fn with_columns(mut self, columns: StringVec) -> Self {
+    #[must_use] pub fn with_columns(mut self, columns: StringVec) -> Self {
         self.set_columns(columns);
         self
     }
@@ -1535,7 +1535,7 @@ impl ListView {
         self.columns = columns;
     }
 
-    pub fn with_rows(mut self, rows: ListViewRowVec) -> Self {
+    #[must_use] pub fn with_rows(mut self, rows: ListViewRowVec) -> Self {
         self.set_rows(rows);
         self
     }
@@ -1547,13 +1547,13 @@ impl ListView {
     /// The half-open range `[first, last)` of row indices visible in a
     /// vertically-scrolled, fixed-row-height list — the windowing core for
     /// virtualizing a long `ListView` (render only these rows instead of all of
-    /// them, the way the MapWidget's VirtualView renders only visible tiles).
+    /// them, the way the `MapWidget`'s `VirtualView` renders only visible tiles).
     /// `scroll_y` is pixels scrolled past the top, `viewport_height` the visible
     /// height; one extra row is included so a row straddling the bottom edge
     /// still renders. Returns `(0, 0)` for degenerate input (no rows, a
     /// non-positive/non-finite height, or non-finite scroll), and an empty range
     /// `(total, total)` once scrolled past the end.
-    pub fn visible_row_range(
+    #[must_use] pub fn visible_row_range(
         scroll_y: f32,
         viewport_height: f32,
         row_height: f32,
@@ -1577,25 +1577,25 @@ impl ListView {
         (first, last)
     }
 
-    pub fn with_sorted_by(mut self, sorted_by: OptionUsize) -> Self {
+    #[must_use] pub const fn with_sorted_by(mut self, sorted_by: OptionUsize) -> Self {
         self.set_sorted_by(sorted_by);
         self
     }
 
-    pub fn set_sorted_by(&mut self, sorted_by: OptionUsize) {
+    pub const fn set_sorted_by(&mut self, sorted_by: OptionUsize) {
         self.sorted_by = sorted_by;
     }
 
-    pub fn with_scroll_offset(mut self, scroll_offset: PixelValueNoPercent) -> Self {
+    #[must_use] pub const fn with_scroll_offset(mut self, scroll_offset: PixelValueNoPercent) -> Self {
         self.set_scroll_offset(scroll_offset);
         self
     }
 
-    pub fn set_scroll_offset(&mut self, scroll_offset: PixelValueNoPercent) {
+    pub const fn set_scroll_offset(&mut self, scroll_offset: PixelValueNoPercent) {
         self.scroll_offset = scroll_offset;
     }
 
-    pub fn with_content_height(mut self, content_height: PixelValueNoPercent) -> Self {
+    #[must_use] pub fn with_content_height(mut self, content_height: PixelValueNoPercent) -> Self {
         self.set_content_height(content_height);
         self
     }
@@ -1604,7 +1604,7 @@ impl ListView {
         self.content_height = Some(content_height).into();
     }
 
-    pub fn with_column_context_menu(mut self, context_menu: Menu) -> Self {
+    #[must_use] pub fn with_column_context_menu(mut self, context_menu: Menu) -> Self {
         self.set_column_context_menu(context_menu);
         self
     }
@@ -1655,7 +1655,7 @@ impl ListView {
         .into();
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         // Snapshot the state handed to row/column click callbacks. Runtime-only
         // fields (scroll position / content height) aren't known at build time,
         // so they default to zero; columns/sorted_by/row-count/scroll-offset are.
@@ -1724,7 +1724,7 @@ impl ListView {
                             .map(|(row_index, row)| {
                                 let row_dom = Dom::create_div()
                                     .with_css_props(CSS_MATCH_7894335449545988724)
-                                    .with_ids_and_classes(ROW_CLASS.clone())
+                                    .with_ids_and_classes(ROW_CLASS)
                                     .with_tab_index(TabIndex::Auto)
                                     .with_children(
                                         row.cells
@@ -1765,7 +1765,7 @@ impl ListView {
     }
 }
 
-/// Per-row data carried to the internal MouseUp handler (the row index plus a
+/// Per-row data carried to the internal `MouseUp` handler (the row index plus a
 /// snapshot of the list state and the app's `on_row_click` hook).
 struct RowClickData {
     row_index: usize,
@@ -1780,7 +1780,7 @@ struct ColumnClickData {
     on_column_click: OptionListViewOnColumnClick,
 }
 
-/// MouseUp on a row → invoke the app's `on_row_click(state, row_index)`.
+/// `MouseUp` on a row → invoke the app's `on_row_click(state, row_index)`.
 extern "C" fn on_list_view_row_click(mut refany: RefAny, info: CallbackInfo) -> Update {
     let data = match refany.downcast_ref::<RowClickData>() {
         Some(d) => d,
@@ -1794,7 +1794,7 @@ extern "C" fn on_list_view_row_click(mut refany: RefAny, info: CallbackInfo) -> 
     }
 }
 
-/// MouseUp on a column header → invoke the app's `on_column_click(state, col_index)`.
+/// `MouseUp` on a column header → invoke the app's `on_column_click(state, col_index)`.
 extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) -> Update {
     let data = match refany.downcast_ref::<ColumnClickData>() {
         Some(d) => d,
@@ -1812,7 +1812,7 @@ extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) 
 mod list_view_click_tests {
     use super::*;
 
-    /// The windowing core for ListView virtualization: only the visible rows
+    /// The windowing core for `ListView` virtualization: only the visible rows
     /// (+1 straddling the bottom) are in range, the range tracks scroll, clamps
     /// to the row count, and degenerate input yields an empty range.
     #[test]

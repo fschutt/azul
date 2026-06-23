@@ -1,8 +1,8 @@
 //! Hover state management for tracking mouse and touch hover history
 //!
-//! The HoverManager records hit test results for multiple input points
+//! The `HoverManager` records hit test results for multiple input points
 //! (mouse, touch, pen) over multiple frames to enable gesture detection
-//! (like DragStart) that requires analyzing hover patterns over time
+//! (like `DragStart`) that requires analyzing hover patterns over time
 //! rather than just the current frame.
 
 use std::collections::{BTreeMap, VecDeque};
@@ -15,7 +15,7 @@ const MAX_HOVER_HISTORY: usize = 5;
 /// Pick the front-most deepest hovered node across all hit DOMs.
 ///
 /// Iterates DOMs from highest `DomId` (most-nested child, composited on top)
-/// to lowest and returns the deepest node (last in NodeId order) of the first
+/// to lowest and returns the deepest node (last in `NodeId` order) of the first
 /// DOM that actually has a regular hit. See [`HoverManager::current_hover_node_full`].
 fn deepest_node_across_doms(ht: &FullHitTest) -> Option<azul_core::dom::DomNodeId> {
     for (dom_id, hit) in ht.hovered_nodes.iter().rev() {
@@ -43,13 +43,13 @@ pub enum InputPointId {
 /// Manages hover state history for all input points
 ///
 /// Records hit test results for mouse and touch inputs over multiple frames:
-/// - DragStart detection (requires movement threshold over multiple frames)
+/// - `DragStart` detection (requires movement threshold over multiple frames)
 /// - Hover-over event detection
 /// - Multi-touch gesture detection
 /// - Input path analysis
 ///
 /// The manager maintains a separate history for each active input point.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HoverManager {
     /// Hit test history for each input point
     /// Each point has its own ring buffer of the last N frames
@@ -57,8 +57,8 @@ pub struct HoverManager {
 }
 
 impl HoverManager {
-    /// Create a new empty HoverManager
-    pub fn new() -> Self {
+    /// Create a new empty `HoverManager`
+    #[must_use] pub const fn new() -> Self {
         Self {
             hover_histories: BTreeMap::new(),
         }
@@ -66,9 +66,9 @@ impl HoverManager {
 
     /// (input points, total history entries across all points). Used by
     /// `AZ_E2E_TEST` to watch for unbounded growth.
-    pub fn debug_counts(&self) -> (usize, usize) {
+    #[must_use] pub fn debug_counts(&self) -> (usize, usize) {
         let points = self.hover_histories.len();
-        let total: usize = self.hover_histories.values().map(|h| h.len()).sum();
+        let total: usize = self.hover_histories.values().map(VecDeque::len).sum();
         (points, total)
     }
 
@@ -99,14 +99,14 @@ impl HoverManager {
     /// Get the most recent hit test result for an input point
     ///
     /// Returns None if no hit tests have been recorded for this input point.
-    pub fn get_current(&self, input_id: &InputPointId) -> Option<&FullHitTest> {
+    #[must_use] pub fn get_current(&self, input_id: &InputPointId) -> Option<&FullHitTest> {
         self.hover_histories
             .get(input_id)
             .and_then(|history| history.front())
     }
 
     /// Get the most recent mouse cursor hit test (convenience method)
-    pub fn get_current_mouse(&self) -> Option<&FullHitTest> {
+    #[must_use] pub fn get_current_mouse(&self) -> Option<&FullHitTest> {
         self.get_current(&InputPointId::Mouse)
     }
 
@@ -114,40 +114,39 @@ impl HoverManager {
     /// (0 = current frame)
     ///
     /// Returns None if the requested frame is not in history.
-    pub fn get_frame(&self, input_id: &InputPointId, frames_ago: usize) -> Option<&FullHitTest> {
+    #[must_use] pub fn get_frame(&self, input_id: &InputPointId, frames_ago: usize) -> Option<&FullHitTest> {
         self.hover_histories
             .get(input_id)
             .and_then(|history| history.get(frames_ago))
     }
 
     /// Get the entire hover history for an input point (most recent first)
-    pub fn get_history(&self, input_id: &InputPointId) -> Option<&VecDeque<FullHitTest>> {
+    #[must_use] pub fn get_history(&self, input_id: &InputPointId) -> Option<&VecDeque<FullHitTest>> {
         self.hover_histories.get(input_id)
     }
 
     /// Get all currently tracked input points
-    pub fn get_active_input_points(&self) -> Vec<InputPointId> {
+    #[must_use] pub fn get_active_input_points(&self) -> Vec<InputPointId> {
         self.hover_histories.keys().copied().collect()
     }
 
     /// Get the number of frames in history for an input point
-    pub fn frame_count(&self, input_id: &InputPointId) -> usize {
+    #[must_use] pub fn frame_count(&self, input_id: &InputPointId) -> usize {
         self.hover_histories
             .get(input_id)
-            .map(|h| h.len())
-            .unwrap_or(0)
+            .map_or(0, VecDeque::len)
     }
 
     /// Purge every recorded hit-test entry for `dom_id` across all input
     /// points and all history frames.
     ///
-    /// Called when a VirtualView child DOM is rebuilt IN PLACE (fresh NodeIds,
-    /// no reconcile mapping — e.g. a MapWidget pan rebuilding the tile grid):
-    /// the recorded hits for that DOM reference the OLD generation's NodeIds,
+    /// Called when a `VirtualView` child DOM is rebuilt IN PLACE (fresh `NodeIds`,
+    /// no reconcile mapping — e.g. a `MapWidget` pan rebuilding the tile grid):
+    /// the recorded hits for that DOM reference the OLD generation's `NodeIds`,
     /// and consumers that resolve them against the NEW styled DOM read out of
-    /// bounds (the hit_test.rs cursor panic: "len is 25 but the index is 27")
+    /// bounds (the `hit_test.rs` cursor panic: "len is 25 but the index is 27")
     /// or target the wrong node. Unlike incremental reconciles there is no
-    /// NodeId map to `remap` with, so the only safe option is to forget that
+    /// `NodeId` map to `remap` with, so the only safe option is to forget that
     /// DOM's hits; the next pointer move re-populates them from a fresh
     /// hit test.
     pub fn purge_dom(&mut self, dom_id: &azul_core::dom::DomId) {
@@ -172,14 +171,14 @@ impl HoverManager {
 
     /// Check if we have enough frames for gesture detection on an input point
     ///
-    /// DragStart detection requires analyzing movement over multiple frames.
+    /// `DragStart` detection requires analyzing movement over multiple frames.
     /// This returns true if we have at least 2 frames of history.
-    pub fn has_sufficient_history_for_gestures(&self, input_id: &InputPointId) -> bool {
+    #[must_use] pub fn has_sufficient_history_for_gestures(&self, input_id: &InputPointId) -> bool {
         self.frame_count(input_id) >= 2
     }
 
     /// Check if any input point has enough history for gesture detection
-    pub fn any_has_sufficient_history_for_gestures(&self) -> bool {
+    #[must_use] pub fn any_has_sufficient_history_for_gestures(&self) -> bool {
         self.hover_histories
             .iter()
             .any(|(_, history)| history.len() >= 2)
@@ -187,11 +186,11 @@ impl HoverManager {
 
     /// Get the deepest hovered node from the current mouse hit test.
     ///
-    /// Returns the NodeId of the most specific (deepest in DOM tree) node
+    /// Returns the `NodeId` of the most specific (deepest in DOM tree) node
     /// that the mouse cursor is currently over, or None if not hovering anything.
     ///
     /// NOTE: Assumes single-DOM architecture (uses `DomId { inner: 0 }`).
-    pub fn current_hover_node(&self) -> Option<azul_core::id::NodeId> {
+    #[must_use] pub fn current_hover_node(&self) -> Option<azul_core::id::NodeId> {
         let current = self.get_current_mouse()?;
         let dom_id = azul_core::dom::DomId { inner: 0 };
         let ht = current.hovered_nodes.get(&dom_id)?;
@@ -200,11 +199,11 @@ impl HoverManager {
 
     /// Get the deepest hovered node from the previous frame's mouse hit test.
     ///
-    /// Returns the NodeId from one frame ago, or None if not hovering anything
+    /// Returns the `NodeId` from one frame ago, or None if not hovering anything
     /// or no previous frame exists.
     ///
     /// NOTE: Assumes single-DOM architecture (uses `DomId { inner: 0 }`).
-    pub fn previous_hover_node(&self) -> Option<azul_core::id::NodeId> {
+    #[must_use] pub fn previous_hover_node(&self) -> Option<azul_core::id::NodeId> {
         let history = self.hover_histories.get(&InputPointId::Mouse)?;
         let previous = history.get(1)?; // index 1 = one frame ago
         let dom_id = azul_core::dom::DomId { inner: 0 };
@@ -213,36 +212,36 @@ impl HoverManager {
     }
 
     /// Multi-DOM aware: the deepest hovered node across ALL hit DOMs (current
-    /// frame). Returns a full `DomNodeId` so events can target VirtualView /
+    /// frame). Returns a full `DomNodeId` so events can target `VirtualView` /
     /// iframe child DOMs, not just the root.
     ///
     /// Selection rule: prefer the most-nested DOM that was hit. Child DOMs
-    /// (VirtualView / iframe content) always have higher `DomId`s than their
+    /// (`VirtualView` / iframe content) always have higher `DomId`s than their
     /// host and are composited on top of it, so the highest hit `DomId` is the
-    /// front-most surface. Within that DOM the deepest node (last in NodeId
+    /// front-most surface. Within that DOM the deepest node (last in `NodeId`
     /// order) is the W3C event target; bubbling then reaches ancestor handlers.
     ///
     /// For single-DOM apps only `DomId 0` is ever hit, so this is equivalent to
     /// [`current_hover_node`] wrapped in `DomId { inner: 0 }`.
-    pub fn current_hover_node_full(&self) -> Option<azul_core::dom::DomNodeId> {
+    #[must_use] pub fn current_hover_node_full(&self) -> Option<azul_core::dom::DomNodeId> {
         deepest_node_across_doms(self.get_current_mouse()?)
     }
 
     /// Multi-DOM aware counterpart of [`previous_hover_node`] (one frame ago).
-    pub fn previous_hover_node_full(&self) -> Option<azul_core::dom::DomNodeId> {
+    #[must_use] pub fn previous_hover_node_full(&self) -> Option<azul_core::dom::DomNodeId> {
         let history = self.hover_histories.get(&InputPointId::Mouse)?;
         deepest_node_across_doms(history.get(1)?)
     }
 
-    /// Remap NodeIds in all hover histories after DOM reconciliation.
+    /// Remap `NodeIds` in all hover histories after DOM reconciliation.
     ///
-    /// When the DOM is regenerated, NodeIds can change. This method updates
-    /// all stored NodeIds in hover histories using the old→new mapping from
+    /// When the DOM is regenerated, `NodeIds` can change. This method updates
+    /// all stored `NodeIds` in hover histories using the old→new mapping from
     /// reconciliation. Nodes not found in the map are removed from hit tests.
     pub fn remap_node_ids(
         &mut self,
         dom_id: azul_core::dom::DomId,
-        node_id_map: &std::collections::BTreeMap<azul_core::id::NodeId, azul_core::id::NodeId>,
+        node_id_map: &BTreeMap<azul_core::id::NodeId, azul_core::id::NodeId>,
     ) {
         for history in self.hover_histories.values_mut() {
             for hit_test in history.iter_mut() {
@@ -252,8 +251,8 @@ impl HoverManager {
                     remap_btreemap(&mut ht.cursor_hit_test_nodes, node_id_map);
 
                     // Remap scrollbar_hit_test_nodes (ScrollbarHitId contains NodeId)
-                    let old_sb: Vec<_> = ht.scrollbar_hit_test_nodes.keys().cloned().collect();
-                    let mut new_sb = std::collections::BTreeMap::new();
+                    let old_sb: Vec<_> = ht.scrollbar_hit_test_nodes.keys().copied().collect();
+                    let mut new_sb = BTreeMap::new();
                     for old_key in old_sb {
                         let new_key = remap_scrollbar_hit_id(&old_key, dom_id, node_id_map);
                         if let Some(item) = ht.scrollbar_hit_test_nodes.remove(&old_key) {
@@ -273,14 +272,14 @@ impl Default for HoverManager {
     }
 }
 
-/// Remap all keys in a BTreeMap<NodeId, V> using the reconciliation map.
-/// Entries whose old NodeId is not in the map are dropped.
+/// Remap all keys in a `BTreeMap`<`NodeId`, V> using the reconciliation map.
+/// Entries whose old `NodeId` is not in the map are dropped.
 fn remap_btreemap<V>(
-    map: &mut std::collections::BTreeMap<azul_core::id::NodeId, V>,
-    node_id_map: &std::collections::BTreeMap<azul_core::id::NodeId, azul_core::id::NodeId>,
+    map: &mut BTreeMap<azul_core::id::NodeId, V>,
+    node_id_map: &BTreeMap<azul_core::id::NodeId, azul_core::id::NodeId>,
 ) {
-    let old_keys: Vec<_> = map.keys().cloned().collect();
-    let mut new_map = std::collections::BTreeMap::new();
+    let old_keys: Vec<_> = map.keys().copied().collect();
+    let mut new_map = BTreeMap::new();
     for old_nid in old_keys {
         if let Some(&new_nid) = node_id_map.get(&old_nid) {
             if let Some(item) = map.remove(&old_nid) {
@@ -291,12 +290,12 @@ fn remap_btreemap<V>(
     *map = new_map;
 }
 
-/// Remap a ScrollbarHitId's NodeId using the reconciliation map.
-/// If the NodeId's DomId doesn't match, or the NodeId isn't in the map, returns unchanged.
+/// Remap a `ScrollbarHitId`'s `NodeId` using the reconciliation map.
+/// If the `NodeId`'s `DomId` doesn't match, or the `NodeId` isn't in the map, returns unchanged.
 fn remap_scrollbar_hit_id(
     id: &azul_core::hit_test::ScrollbarHitId,
     dom_id: azul_core::dom::DomId,
-    node_id_map: &std::collections::BTreeMap<azul_core::id::NodeId, azul_core::id::NodeId>,
+    node_id_map: &BTreeMap<azul_core::id::NodeId, azul_core::id::NodeId>,
 ) -> azul_core::hit_test::ScrollbarHitId {
     use azul_core::hit_test::ScrollbarHitId;
     match id {

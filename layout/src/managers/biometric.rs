@@ -1,11 +1,11 @@
 //! Biometric manager — cross-platform state for the biometric-auth
-//! surface (SUPER_PLAN_2 §1 feature 4 + research/02).
+//! surface (`SUPER_PLAN_2` §1 feature 4 + research/02).
 //!
 //! **Request-driven**, unlike the continuous `GeolocationManager`. The
 //! three callers are:
 //!
 //! - A **callback** invokes `App::request_biometric_auth(prompt)` (e.g.
-//!   the AzulVault unlock button). The OS draws its own modal sheet; the
+//!   the `AzulVault` unlock button). The OS draws its own modal sheet; the
 //!   app cannot skin it.
 //!
 //! - The **platform backend** (`dll/src/desktop/extra/biometric/<plat>.rs`)
@@ -21,7 +21,7 @@
 //!   `CallbackInfo::get_biometric_result()` and the device capability via
 //!   the sync availability accessor.
 //!
-//! No platform deps (SUPER_PLAN_2 §0.5); the async-result channel is
+//! No platform deps (`SUPER_PLAN_2` §0.5); the async-result channel is
 //! copied verbatim from `geolocation.rs`.
 
 use alloc::vec::Vec;
@@ -34,7 +34,7 @@ pub use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
 
 /// Cross-platform biometric state. One per `App` — the OS exposes a
 /// single per-process authentication surface, not per-window.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BiometricManager {
     /// Outcome of the most recent `request_biometric_auth`, or `None`
     /// until the first request completes. Read by callbacks via
@@ -57,24 +57,24 @@ impl Default for BiometricManager {
 }
 
 impl BiometricManager {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
 
     /// Most recent auth outcome, or `None` until the first request
     /// resolves.
-    pub fn last_result(&self) -> Option<BiometricResult> {
+    #[must_use] pub const fn last_result(&self) -> Option<BiometricResult> {
         self.last_result
     }
 
     /// Device capability probe (sync). `NotAvailable` until the backend
     /// reports otherwise.
-    pub fn availability(&self) -> BiometricKind {
+    #[must_use] pub const fn availability(&self) -> BiometricKind {
         self.availability
     }
 
     /// `true` if the device has a usable biometric sensor.
-    pub fn is_available(&self) -> bool {
+    #[must_use] pub const fn is_available(&self) -> bool {
         self.availability.is_available()
     }
 
@@ -99,7 +99,7 @@ impl BiometricManager {
 
     /// `true` if the last attempt unlocked successfully (biometric match
     /// or OS passcode fallback). Convenience for the vault gate.
-    pub fn last_was_success(&self) -> bool {
+    #[must_use] pub const fn last_was_success(&self) -> bool {
         matches!(self.last_result, Some(r) if r.is_success())
     }
 }
@@ -122,7 +122,7 @@ static PENDING_RESULTS: std::sync::Mutex<Vec<BiometricResult>> =
 /// Thread-safe; recovers from a poisoned lock so one panicking applier
 /// can't wedge delivery forever.
 pub fn push_biometric_result(result: BiometricResult) {
-    let mut q = PENDING_RESULTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(result);
 }
 
@@ -130,7 +130,7 @@ pub fn push_biometric_result(result: BiometricResult) {
 /// order. Called once per layout pass; the caller applies them through
 /// [`BiometricManager::set_last_result`] (the last one wins).
 pub fn drain_biometric_results() -> Vec<BiometricResult> {
-    let mut q = PENDING_RESULTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -153,7 +153,7 @@ static PENDING_REQUESTS: std::sync::Mutex<Vec<BiometricPrompt>> =
 /// layout pass and dispatched to the native prompt. Thread-safe;
 /// poison-recovering.
 pub fn push_biometric_request(prompt: BiometricPrompt) {
-    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(prompt);
 }
 
@@ -161,7 +161,7 @@ pub fn push_biometric_request(prompt: BiometricPrompt) {
 /// order. Called once per layout pass; the dll dispatches each to the
 /// platform backend.
 pub fn drain_biometric_requests() -> Vec<BiometricPrompt> {
-    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -216,7 +216,7 @@ mod tests {
             BiometricResult::Unavailable,
             BiometricResult::Error,
         ] {
-            assert!(!r.is_success(), "{:?} must not be a success", r);
+            assert!(!r.is_success(), "{r:?} must not be a success");
         }
     }
 

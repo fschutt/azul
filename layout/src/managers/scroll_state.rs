@@ -7,14 +7,14 @@
 //!
 //! - **Platform shell** (macos/events.rs, etc.): Calls `record_scroll_from_hit_test()`
 //!   to queue trackpad/mouse wheel input for the physics timer.
-//! - **Scroll physics timer** (scroll_timer.rs): Consumes inputs via `ScrollInputQueue`,
+//! - **Scroll physics timer** (`scroll_timer.rs)`: Consumes inputs via `ScrollInputQueue`,
 //!   applies physics, and pushes `CallbackChange::ScrollTo` for each updated node.
-//! - **Event processing** (event_v2.rs): Processes `ScrollTo` changes, sets scroll
-//!   positions, and checks VirtualView re-invocation transparently.
+//! - **Event processing** (`event_v2.rs)`: Processes `ScrollTo` changes, sets scroll
+//!   positions, and checks `VirtualView` re-invocation transparently.
 //! - **Gesture manager** (gesture.rs): Tracks drag state and emits
 //!   `AutoScrollDirection` — does NOT modify scroll offsets directly.
 //! - **Render loop**: Calls `tick()` every frame to advance easing animations.
-//! - **WebRender sync** (wr_translate2.rs): Reads offsets via
+//! - **`WebRender` sync** (`wr_translate2.rs)`: Reads offsets via
 //!   `get_scroll_states_for_dom()` to synchronize scroll frames.
 //! - **Layout** (cache.rs): Registers scroll nodes via
 //!   `register_or_update_scroll_node()` after layout completes.
@@ -40,7 +40,7 @@
 //! - Smooth scroll animations with easing
 //! - Event source classification for scroll events
 //! - Scrollbar geometry and hit-testing
-//! - Virtual scroll bounds for VirtualView nodes
+//! - Virtual scroll bounds for `VirtualView` nodes
 
 use alloc::collections::BTreeMap;
 #[cfg(feature = "std")]
@@ -75,7 +75,7 @@ const SCROLL_CHANGE_EPSILON: f32 = 0.01;
 /// - `TrackpadContinuous`: The OS already applies momentum — set position directly
 /// - `WheelDiscrete`: Mouse wheel clicks — apply as impulse with momentum decay
 /// - `Programmatic`: API-driven scroll — apply with optional easing animation
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrollInputSource {
     /// Continuous trackpad gesture (macOS precise scrolling).
     /// Position is set directly — the OS handles momentum/physics.
@@ -83,7 +83,7 @@ pub enum ScrollInputSource {
     /// Trackpad gesture ended (fingers lifted off trackpad).
     /// Triggers spring-back if the scroll position is past the bounds
     /// (rubber-banding overshoot). The OS sends this when
-    /// NSEventPhaseEnded or momentumPhaseEnded is detected.
+    /// `NSEventPhaseEnded` or momentumPhaseEnded is detected.
     TrackpadEnd,
     /// Discrete mouse wheel steps (Windows/Linux mouse wheel).
     /// Applied as velocity impulse with momentum decay.
@@ -125,7 +125,7 @@ pub struct ScrollInputQueue {
 
 #[cfg(feature = "std")]
 impl ScrollInputQueue {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(Vec::new())),
         }
@@ -139,7 +139,7 @@ impl ScrollInputQueue {
     }
 
     /// Take all pending inputs (called from timer callback)
-    pub fn take_all(&self) -> Vec<ScrollInput> {
+    #[must_use] pub fn take_all(&self) -> Vec<ScrollInput> {
         if let Ok(mut queue) = self.inner.lock() {
             core::mem::take(&mut *queue)
         } else {
@@ -150,7 +150,7 @@ impl ScrollInputQueue {
     /// Take at most `max_events` recent inputs, sorted by timestamp (newest last).
     /// Any older events beyond `max_events` are discarded.
     /// This prevents the physics timer from processing an unbounded backlog.
-    pub fn take_recent(&self, max_events: usize) -> Vec<ScrollInput> {
+    #[must_use] pub fn take_recent(&self, max_events: usize) -> Vec<ScrollInput> {
         if let Ok(mut queue) = self.inner.lock() {
             let mut events = core::mem::take(&mut *queue);
             if events.len() > max_events {
@@ -165,7 +165,7 @@ impl ScrollInputQueue {
     }
 
     /// Check if there are pending inputs without consuming them
-    pub fn has_pending(&self) -> bool {
+    #[must_use] pub fn has_pending(&self) -> bool {
         self.inner
             .lock()
             .map(|q| !q.is_empty())
@@ -205,7 +205,7 @@ pub struct ScrollbarState {
     pub thumb_size_ratio: f32,
     /// Position of the scrollbar in the container (for hit-testing)
     pub track_rect: LogicalRect,
-    /// Button size (square: button_size × button_size)
+    /// Button size (square: `button_size` × `button_size`)
     pub button_size: f32,
     /// Usable track length after subtracting buttons
     pub usable_track_length: f32,
@@ -216,10 +216,10 @@ pub struct ScrollbarState {
 }
 
 impl ScrollbarState {
-    /// Determine which component was hit at the given local position (relative to track_rect
-    /// origin). Uses the shared geometry values (button_size, usable_track_length, thumb_length,
-    /// thumb_offset) for consistent hit-testing.
-    pub fn hit_test_component(&self, local_pos: LogicalPosition) -> ScrollbarComponent {
+    /// Determine which component was hit at the given local position (relative to `track_rect`
+    /// origin). Uses the shared geometry values (`button_size`, `usable_track_length`, `thumb_length`,
+    /// `thumb_offset`) for consistent hit-testing.
+    #[must_use] pub fn hit_test_component(&self, local_pos: LogicalPosition) -> ScrollbarComponent {
         match self.orientation {
             ScrollbarOrientation::Vertical => {
                 // Top button
@@ -283,7 +283,7 @@ pub struct ScrollbarHit {
     pub orientation: ScrollbarOrientation,
     /// Which component was hit (track, thumb, buttons)
     pub component: ScrollbarComponent,
-    /// Position relative to track_rect origin
+    /// Position relative to `track_rect` origin
     pub local_position: LogicalPosition,
     /// Original global window position
     pub global_position: LogicalPosition,
@@ -294,7 +294,7 @@ pub struct ScrollbarHit {
 /// Manages all scroll state and animations for a window
 #[derive(Debug, Clone, Default)]
 pub struct ScrollManager {
-    /// Maps (DomId, NodeId) to their scroll state
+    /// Maps (`DomId`, `NodeId`) to their scroll state
     states: BTreeMap<(DomId, NodeId), AnimatedScrollState>,
     /// Scrollbar geometry states (calculated per frame)
     scrollbar_states: BTreeMap<(DomId, NodeId, ScrollbarOrientation), ScrollbarState>,
@@ -343,10 +343,10 @@ pub struct AnimatedScrollState {
     pub container_rect: LogicalRect,
     /// Bounds of the total content (for calculating scroll limits)
     pub content_rect: LogicalRect,
-    /// Virtual scroll size from VirtualView callback (if this node hosts a VirtualView).
-    /// When set, clamp logic uses this instead of content_rect for max scroll bounds.
+    /// Virtual scroll size from `VirtualView` callback (if this node hosts a `VirtualView`).
+    /// When set, clamp logic uses this instead of `content_rect` for max scroll bounds.
     pub virtual_scroll_size: Option<LogicalSize>,
-    /// Virtual scroll offset from VirtualView callback
+    /// Virtual scroll offset from `VirtualView` callback
     pub virtual_scroll_offset: Option<LogicalPosition>,
     /// Per-node overscroll behavior for X axis (from CSS `overscroll-behavior-x`)
     pub overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior,
@@ -358,7 +358,7 @@ pub struct AnimatedScrollState {
     /// Used for rendering and hit-testing. Defaults to 16.0 if not set.
     pub scrollbar_thickness: f32,
     /// Visual rendering width in CSS pixels (e.g. 8.0 for thin overlay).
-    /// Non-zero even for overlay scrollbars. Falls back to scrollbar_thickness if 0.
+    /// Non-zero even for overlay scrollbars. Falls back to `scrollbar_thickness` if 0.
     pub visual_width_px: f32,
     /// Whether this node also needs a horizontal scrollbar (affects vertical geometry)
     pub has_horizontal_scrollbar: bool,
@@ -381,10 +381,10 @@ struct ScrollAnimation {
     easing: EasingFunction,
 }
 
-/// Read-only snapshot of a scroll node's state, returned by CallbackInfo queries.
+/// Read-only snapshot of a scroll node's state, returned by `CallbackInfo` queries.
 ///
 /// Provides all the information a timer callback needs to compute scroll physics
-/// without requiring mutable access to the ScrollManager.
+/// without requiring mutable access to the `ScrollManager`.
 #[derive(Debug, Clone)]
 pub struct ScrollNodeInfo {
     /// Current scroll offset
@@ -417,15 +417,15 @@ pub struct ScrollTickResult {
 // ScrollManager Implementation
 
 impl ScrollManager {
-    /// Creates a new empty ScrollManager
-    pub fn new() -> Self {
+    /// Creates a new empty `ScrollManager`
+    #[must_use] pub fn new() -> Self {
         let mut m = Self::default();
         // Power-user / test override. Platform shells should call
         // `set_natural_scroll` from the OS preference; this env var wins so the
         // direction can be flipped without a rebuild and so tests are hermetic.
         #[cfg(feature = "std")]
         if let Some(v) = std::env::var_os("AZ_NATURAL_SCROLL") {
-            m.natural_scroll = matches!(v.to_str(), Some("1") | Some("true") | Some("TRUE"));
+            m.natural_scroll = matches!(v.to_str(), Some("1" | "true" | "TRUE"));
         }
         m
     }
@@ -434,12 +434,12 @@ impl ScrollManager {
     /// gesture / inverted from the traditional wheel). Platform shells call this
     /// from the detected OS preference. See the `natural_scroll` field docs for the
     /// macOS/libinput pre-application caveat.
-    pub fn set_natural_scroll(&mut self, natural: bool) {
+    pub const fn set_natural_scroll(&mut self, natural: bool) {
         self.natural_scroll = natural;
     }
 
     /// Current scroll-direction preference (`true` = natural/inverted).
-    pub fn is_natural_scroll(&self) -> bool {
+    #[must_use] pub const fn is_natural_scroll(&self) -> bool {
         self.natural_scroll
     }
 
@@ -447,7 +447,7 @@ impl ScrollManager {
     /// `-1.0` traditional (default), `+1.0` natural. Centralises what used to be a
     /// hardcoded `-delta` at every platform call site.
     #[inline]
-    fn scroll_sign(&self) -> f32 {
+    const fn scroll_sign(&self) -> f32 {
         if self.natural_scroll {
             1.0
         } else {
@@ -457,29 +457,29 @@ impl ScrollManager {
 
     /// Sizes of the internal maps — used by `AZ_E2E_TEST` to watch for
     /// unbounded growth across resize/tick iterations.
-    pub fn debug_counts(&self) -> (usize, usize) {
+    #[must_use] pub fn debug_counts(&self) -> (usize, usize) {
         (self.states.len(), self.scrollbar_states.len())
     }
 
     /// Returns `true` if any scroll position changed since the last
     /// `clear_scroll_dirty()` call.
-    pub(crate) fn has_pending_scroll_changes(&self) -> bool {
+    pub(crate) const fn has_pending_scroll_changes(&self) -> bool {
         self.scroll_dirty
     }
 
     /// Clear the dirty flag after the display list has been regenerated.
-    pub fn clear_scroll_dirty(&mut self) {
+    pub const fn clear_scroll_dirty(&mut self) {
         self.scroll_dirty = false;
     }
 
-    /// Build a map from scroll_id (LocalScrollId) to current scroll offset.
+    /// Build a map from `scroll_id` (`LocalScrollId`) to current scroll offset.
     ///
     /// Used by the CPU renderer to look up scroll positions at render time
     /// without embedding them in the display list.
     ///
-    /// `scroll_ids` maps layout-tree node index → scroll_id. We need to
-    /// convert our (DomId, NodeId) keys to scroll_ids.
-    pub fn build_scroll_offset_map(
+    /// `scroll_ids` maps layout-tree node index → `scroll_id`. We need to
+    /// convert our (`DomId`, `NodeId`) keys to `scroll_ids`.
+    #[must_use] pub fn build_scroll_offset_map(
         &self,
         dom_id: DomId,
         scroll_ids: &std::collections::HashMap<usize, u64>,
@@ -569,17 +569,17 @@ impl ScrollManager {
 
     /// Get a clone of the scroll input queue (for sharing with timer callbacks).
     ///
-    /// The timer callback stores this in its RefAny data and calls `take_all()`
+    /// The timer callback stores this in its `RefAny` data and calls `take_all()`
     /// each tick to consume pending inputs.
     #[cfg(feature = "std")]
-    pub fn get_input_queue(&self) -> ScrollInputQueue {
+    #[must_use] pub fn get_input_queue(&self) -> ScrollInputQueue {
         self.scroll_input_queue.clone()
     }
 
     /// Advances scroll animations by one tick, returns repaint info
     pub fn tick(&mut self, now: Instant) -> ScrollTickResult {
         let mut result = ScrollTickResult::default();
-        for ((dom_id, node_id), state) in self.states.iter_mut() {
+        for ((dom_id, node_id), state) in &mut self.states {
             if let Some(anim) = &state.animation {
                 let elapsed = now.duration_since(&anim.start_time);
                 let t = elapsed.div(&anim.duration).min(1.0);
@@ -604,16 +604,16 @@ impl ScrollManager {
     ///
     /// Used by GPU render paths to skip rendering when the UI is completely
     /// static (no scroll animations, no layout changes).
-    pub fn has_active_animations(&self) -> bool {
+    #[must_use] pub fn has_active_animations(&self) -> bool {
         self.states.values().any(|s| s.animation.is_some())
     }
 
     /// Finds the closest scroll-container ancestor for a given node.
     ///
     /// Walks up the node hierarchy to find a node that is registered as a
-    /// scrollable node in this ScrollManager. Returns `None` if no scrollable
+    /// scrollable node in this `ScrollManager`. Returns `None` if no scrollable
     /// ancestor is found.
-    pub fn find_scroll_parent(
+    #[must_use] pub fn find_scroll_parent(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -626,7 +626,7 @@ impl ScrollManager {
             }
             current = node_hierarchy
                 .get(nid.index())
-                .and_then(|item| item.parent_id());
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         None
     }
@@ -634,16 +634,14 @@ impl ScrollManager {
     /// Check if a node is scrollable (has overflow:scroll/auto and overflowing content)
     ///
     /// Uses `virtual_scroll_size` (when set) instead of `content_rect` for the
-    /// overflow check, so VirtualView nodes with large virtual content are correctly
+    /// overflow check, so `VirtualView` nodes with large virtual content are correctly
     /// identified as scrollable even when only a small subset is rendered.
     fn is_node_scrollable(&self, dom_id: DomId, node_id: NodeId) -> bool {
         let result = self.states.get(&(dom_id, node_id)).is_some_and(|state| {
             let effective_width = state.virtual_scroll_size
-                .map(|s| s.width)
-                .unwrap_or(state.content_rect.size.width);
+                .map_or(state.content_rect.size.width, |s| s.width);
             let effective_height = state.virtual_scroll_size
-                .map(|s| s.height)
-                .unwrap_or(state.content_rect.size.height);
+                .map_or(state.content_rect.size.height, |s| s.height);
             let has_horizontal = effective_width > state.container_rect.size.width;
             let has_vertical = effective_height > state.container_rect.size.height;
             has_horizontal || has_vertical
@@ -678,7 +676,7 @@ impl ScrollManager {
     /// Sets scroll position immediately without clamping.
     ///
     /// Used by the scroll physics timer which does its own rubber-band clamping.
-    /// Allows the offset to go outside [0, max_scroll] for overscroll/rubber-banding.
+    /// Allows the offset to go outside [0, `max_scroll`] for overscroll/rubber-banding.
     pub fn set_scroll_position_unclamped(
         &mut self,
         dom_id: DomId,
@@ -774,10 +772,10 @@ impl ScrollManager {
         state.current_offset = state.clamp(state.current_offset);
     }
 
-    /// Updates virtual scroll bounds for a VirtualView node.
+    /// Updates virtual scroll bounds for a `VirtualView` node.
     ///
-    /// Called after VirtualView callback returns to propagate the virtual content size
-    /// to the ScrollManager. Clamp logic then uses `virtual_scroll_size` (when set)
+    /// Called after `VirtualView` callback returns to propagate the virtual content size
+    /// to the `ScrollManager`. Clamp logic then uses `virtual_scroll_size` (when set)
     /// instead of `content_rect` for max scroll bounds.
     ///
     /// If no scroll state exists yet for this node (because `register_or_update_scroll_node`
@@ -794,7 +792,7 @@ impl ScrollManager {
             // AzInstant (System on std, safe Tick on no-clock targets) — not the
             // WASM-panicking std::time::Instant::now(). (A refinement would thread
             // the window's get_system_time_fn callback through for hookability.)
-            AnimatedScrollState::new(azul_core::task::Instant::now())
+            AnimatedScrollState::new(Instant::now())
         });
         state.virtual_scroll_size = Some(virtual_scroll_size);
         state.virtual_scroll_offset = virtual_scroll_offset;
@@ -803,21 +801,21 @@ impl ScrollManager {
     }
 
     /// Returns the current scroll offset for a node
-    pub fn get_current_offset(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
+    #[must_use] pub fn get_current_offset(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
         self.states
             .get(&(dom_id, node_id))
             .map(|s| s.current_offset)
     }
 
     /// Returns the timestamp of last scroll activity for a node
-    pub fn get_last_activity_time(&self, dom_id: DomId, node_id: NodeId) -> Option<Instant> {
+    #[must_use] pub fn get_last_activity_time(&self, dom_id: DomId, node_id: NodeId) -> Option<Instant> {
         self.states
             .get(&(dom_id, node_id))
             .map(|s| s.last_activity.clone())
     }
 
     /// Returns the internal scroll state for a node
-    pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&AnimatedScrollState> {
+    #[must_use] pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&AnimatedScrollState> {
         self.states.get(&(dom_id, node_id))
     }
 
@@ -826,20 +824,18 @@ impl ScrollManager {
     /// This is the preferred way for timer callbacks to query scroll state,
     /// since they only have `&CallbackInfo` (read-only access).
     ///
-    /// When `virtual_scroll_size` is set (for VirtualView nodes), the max scroll
+    /// When `virtual_scroll_size` is set (for `VirtualView` nodes), the max scroll
     /// bounds are computed from the virtual size instead of `content_rect`.
-    pub fn get_scroll_node_info(
+    #[must_use] pub fn get_scroll_node_info(
         &self,
         dom_id: DomId,
         node_id: NodeId,
     ) -> Option<ScrollNodeInfo> {
         let state = self.states.get(&(dom_id, node_id))?;
         let effective_content_width = state.virtual_scroll_size
-            .map(|s| s.width)
-            .unwrap_or(state.content_rect.size.width);
+            .map_or(state.content_rect.size.width, |s| s.width);
         let effective_content_height = state.virtual_scroll_size
-            .map(|s| s.height)
-            .unwrap_or(state.content_rect.size.height);
+            .map_or(state.content_rect.size.height, |s| s.height);
         let max_x = (effective_content_width - state.container_rect.size.width).max(0.0);
         let max_y = (effective_content_height - state.container_rect.size.height).max(0.0);
         Some(ScrollNodeInfo {
@@ -855,7 +851,7 @@ impl ScrollManager {
     }
 
     /// Returns all scroll positions for nodes in a specific DOM
-    pub fn get_scroll_states_for_dom(&self, dom_id: DomId) -> BTreeMap<NodeId, ScrollPosition> {
+    #[must_use] pub fn get_scroll_states_for_dom(&self, dom_id: DomId) -> BTreeMap<NodeId, ScrollPosition> {
         // M12.7: iterating an EMPTY hashbrown map (RawIterRange) mis-lifts to
         // wasm and loops forever (same class as the font-id / GPU-cache loops).
         // For the headless web path `states` is empty; guard it (len-based, no
@@ -961,11 +957,11 @@ impl ScrollManager {
                 .filter(|(_, s)| {
                     let (effective, container) = match orientation {
                         ScrollbarOrientation::Vertical => (
-                            s.virtual_scroll_size.map(|vs| vs.height).unwrap_or(s.content_rect.size.height),
+                            s.virtual_scroll_size.map_or(s.content_rect.size.height, |vs| vs.height),
                             s.container_rect.size.height,
                         ),
                         ScrollbarOrientation::Horizontal => (
-                            s.virtual_scroll_size.map(|vs| vs.width).unwrap_or(s.content_rect.size.width),
+                            s.virtual_scroll_size.map_or(s.content_rect.size.width, |vs| vs.width),
                             s.container_rect.size.width,
                         ),
                     };
@@ -998,8 +994,7 @@ impl ScrollManager {
         };
 
         let content_size = scroll_state.virtual_scroll_size
-            .map(|vs| LogicalSize { width: vs.width, height: vs.height })
-            .unwrap_or(scroll_state.content_rect.size);
+            .map_or(scroll_state.content_rect.size, |vs| vs);
 
         let scroll_offset = match orientation {
             ScrollbarOrientation::Vertical => scroll_state.current_offset.y,
@@ -1050,7 +1045,7 @@ impl ScrollManager {
     }
 
     /// Get scrollbar state for hit-testing
-    pub fn get_scrollbar_state(
+    #[must_use] pub fn get_scrollbar_state(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -1122,8 +1117,8 @@ impl ScrollManager {
     /// and returns the first hit. Use this when you don't know which node to check.
     ///
     /// For better performance, use `hit_test_scrollbar()` when you already have
-    /// a hit-tested node from WebRender.
-    pub fn hit_test_scrollbars(&self, global_pos: LogicalPosition) -> Option<ScrollbarHit> {
+    /// a hit-tested node from `WebRender`.
+    #[must_use] pub fn hit_test_scrollbars(&self, global_pos: LogicalPosition) -> Option<ScrollbarHit> {
         // Iterate in reverse order to hit top-most scrollbars first
         for ((dom_id, node_id, orientation), scrollbar_state) in self.scrollbar_states.iter().rev()
         {
@@ -1164,7 +1159,7 @@ impl ScrollManager {
 impl AnimatedScrollState {
     // +spec:overflow:60f6a1 - scroll origin defaults to block-start inline-start corner (0,0)
     /// Create a new scroll state initialized at offset (0, 0).
-    pub(crate) fn new(now: Instant) -> Self {
+    pub(crate) const fn new(now: Instant) -> Self {
         Self {
             current_offset: LogicalPosition::zero(),
             animation: None,
@@ -1183,17 +1178,15 @@ impl AnimatedScrollState {
         }
     }
 
-    /// Clamp a scroll position to valid bounds (0 to max_scroll).
+    /// Clamp a scroll position to valid bounds (0 to `max_scroll`).
     ///
-    /// When `virtual_scroll_size` is set (for VirtualView nodes), the max bounds
-    /// are computed from the virtual size instead of content_rect.
+    /// When `virtual_scroll_size` is set (for `VirtualView` nodes), the max bounds
+    /// are computed from the virtual size instead of `content_rect`.
     pub(crate) fn clamp(&self, position: LogicalPosition) -> LogicalPosition {
         let effective_width = self.virtual_scroll_size
-            .map(|s| s.width)
-            .unwrap_or(self.content_rect.size.width);
+            .map_or(self.content_rect.size.width, |s| s.width);
         let effective_height = self.virtual_scroll_size
-            .map(|s| s.height)
-            .unwrap_or(self.content_rect.size.height);
+            .map_or(self.content_rect.size.height, |s| s.height);
         let max_x = (effective_width - self.container_rect.size.width).max(0.0);
         let max_y = (effective_height - self.container_rect.size.height).max(0.0);
         LogicalPosition {
@@ -1206,7 +1199,7 @@ impl AnimatedScrollState {
 // Easing Functions
 
 /// Apply an easing function to a normalized time value (0.0 to 1.0).
-/// Used by ScrollAnimation::tick() for smooth scroll animations.
+/// Used by `ScrollAnimation::tick()` for smooth scroll animations.
 pub(crate) fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
     match easing {
         EasingFunction::Linear => t,
@@ -1222,14 +1215,14 @@ pub(crate) fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
 }
 
 impl ScrollManager {
-    /// Remap NodeIds after DOM reconciliation
+    /// Remap `NodeIds` after DOM reconciliation
     ///
-    /// When the DOM is regenerated, NodeIds can change. This method updates all
-    /// internal state to use the new NodeIds based on the provided mapping.
+    /// When the DOM is regenerated, `NodeIds` can change. This method updates all
+    /// internal state to use the new `NodeIds` based on the provided mapping.
     pub fn remap_node_ids(
         &mut self,
         dom_id: DomId,
-        node_id_map: &std::collections::BTreeMap<NodeId, NodeId>,
+        node_id_map: &BTreeMap<NodeId, NodeId>,
     ) {
         // Only remap nodes that actually moved (old_id != new_id).
         // Nodes NOT in the map are stable (kept same NodeId) — don't touch them.
@@ -1237,7 +1230,7 @@ impl ScrollManager {
         // so we conservatively keep states that aren't in the map.
         
         // Remap states
-        for (&old_node_id, &new_node_id) in node_id_map.iter() {
+        for (&old_node_id, &new_node_id) in node_id_map {
             if old_node_id != new_node_id {
                 if let Some(state) = self.states.remove(&(dom_id, old_node_id)) {
                     self.states.insert((dom_id, new_node_id), state);
@@ -1250,7 +1243,7 @@ impl ScrollManager {
             .filter(|(d, node_id, _)| {
                 *d == dom_id && node_id_map.get(node_id).is_some_and(|new_id| new_id != node_id)
             })
-            .cloned()
+            .copied()
             .collect();
         
         for (d, old_node_id, orientation) in scrollbar_states_to_remap {

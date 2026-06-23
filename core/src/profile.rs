@@ -124,22 +124,22 @@ pub fn out_path() -> Option<&'static str> {
 }
 
 #[inline]
-pub fn memory_enabled() -> bool { flags().memory }
+#[must_use] pub fn memory_enabled() -> bool { flags().memory }
 
 #[inline]
-pub fn cpu_enabled() -> bool { flags().cpu }
+#[must_use] pub fn cpu_enabled() -> bool { flags().cpu }
 
 #[inline]
-pub fn cascade_enabled() -> bool { flags().cascade }
+#[must_use] pub fn cascade_enabled() -> bool { flags().cascade }
 
 #[inline]
-pub fn heap_enabled() -> bool { flags().heap }
+#[must_use] pub fn heap_enabled() -> bool { flags().heap }
 
 #[inline]
-pub fn jsonl_enabled() -> bool { flags().jsonl }
+#[must_use] pub fn jsonl_enabled() -> bool { flags().jsonl }
 
 #[inline]
-pub fn detail_enabled() -> bool { flags().detail }
+#[must_use] pub fn detail_enabled() -> bool { flags().detail }
 
 #[cfg(test)]
 mod tests {

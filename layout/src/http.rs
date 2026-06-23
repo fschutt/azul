@@ -14,7 +14,7 @@ use azul_css::{AzString, U8Vec, impl_vec, impl_vec_clone, impl_vec_debug, impl_v
 // ============================================================================
 
 /// HTTP status error (4xx, 5xx responses)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct HttpStatusError {
     /// HTTP status code
@@ -24,7 +24,7 @@ pub struct HttpStatusError {
 }
 
 /// Response too large error
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct HttpResponseTooLargeError {
     /// Maximum allowed size in bytes
@@ -34,7 +34,7 @@ pub struct HttpResponseTooLargeError {
 }
 
 /// HTTP error types (C-compatible)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum HttpError {
     /// Invalid URL format
@@ -56,37 +56,37 @@ pub enum HttpError {
 }
 
 impl HttpError {
-    pub fn invalid_url(url: AzString) -> Self {
+    #[must_use] pub const fn invalid_url(url: AzString) -> Self {
         Self::InvalidUrl(url)
     }
     
-    pub fn connection_failed(msg: AzString) -> Self {
+    #[must_use] pub const fn connection_failed(msg: AzString) -> Self {
         Self::ConnectionFailed(msg)
     }
     
-    pub fn tls_error(msg: AzString) -> Self {
+    #[must_use] pub const fn tls_error(msg: AzString) -> Self {
         Self::TlsError(msg)
     }
     
-    pub fn http_status(status_code: u16, message: AzString) -> Self {
+    #[must_use] pub const fn http_status(status_code: u16, message: AzString) -> Self {
         Self::HttpStatus(HttpStatusError {
             status_code,
             message,
         })
     }
     
-    pub fn io_error(msg: AzString) -> Self {
+    #[must_use] pub const fn io_error(msg: AzString) -> Self {
         Self::IoError(msg)
     }
     
-    pub fn response_too_large(max_size: u64, actual_size: u64) -> Self {
+    #[must_use] pub const fn response_too_large(max_size: u64, actual_size: u64) -> Self {
         Self::ResponseTooLarge(HttpResponseTooLargeError {
             max_size,
             actual_size,
         })
     }
     
-    pub fn other(msg: AzString) -> Self {
+    #[must_use] pub const fn other(msg: AzString) -> Self {
         Self::Other(msg)
     }
 }
@@ -94,16 +94,16 @@ impl HttpError {
 impl fmt::Display for HttpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            HttpError::InvalidUrl(url) => write!(f, "Invalid URL: {}", url.as_str()),
-            HttpError::ConnectionFailed(msg) => write!(f, "Connection failed: {}", msg.as_str()),
-            HttpError::Timeout => write!(f, "Request timed out"),
-            HttpError::TlsError(msg) => write!(f, "TLS error: {}", msg.as_str()),
-            HttpError::HttpStatus(e) => write!(f, "HTTP {} - {}", e.status_code, e.message.as_str()),
-            HttpError::IoError(msg) => write!(f, "I/O error: {}", msg.as_str()),
-            HttpError::ResponseTooLarge(e) => {
+            Self::InvalidUrl(url) => write!(f, "Invalid URL: {}", url.as_str()),
+            Self::ConnectionFailed(msg) => write!(f, "Connection failed: {}", msg.as_str()),
+            Self::Timeout => write!(f, "Request timed out"),
+            Self::TlsError(msg) => write!(f, "TLS error: {}", msg.as_str()),
+            Self::HttpStatus(e) => write!(f, "HTTP {} - {}", e.status_code, e.message.as_str()),
+            Self::IoError(msg) => write!(f, "I/O error: {}", msg.as_str()),
+            Self::ResponseTooLarge(e) => {
                 write!(f, "Response too large: {} bytes (max: {})", e.actual_size, e.max_size)
             }
-            HttpError::Other(msg) => write!(f, "HTTP error: {}", msg.as_str()),
+            Self::Other(msg) => write!(f, "HTTP error: {}", msg.as_str()),
         }
     }
 }
@@ -124,7 +124,7 @@ use azul_css::{impl_result, impl_result_inner};
 // ============================================================================
 
 /// HTTP header key-value pair
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct HttpHeader {
     /// Header name
@@ -142,7 +142,7 @@ impl HttpHeader {
     }
 }
 
-impl_option!(HttpHeader, OptionHttpHeader, copy = false, [Debug, Clone, PartialEq]);
+impl_option!(HttpHeader, OptionHttpHeader, copy = false, [Debug, Clone, PartialEq, Eq]);
 impl_vec!(HttpHeader, HttpHeaderVec, HttpHeaderVecDestructor, HttpHeaderVecDestructorType, HttpHeaderVecSlice, OptionHttpHeader);
 impl_vec_clone!(HttpHeader, HttpHeaderVec, HttpHeaderVecDestructor);
 impl_vec_debug!(HttpHeader, HttpHeaderVec);
@@ -182,18 +182,18 @@ impl Default for HttpRequestConfig {
 
 impl HttpRequestConfig {
     /// Create a new config with default values
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
     
     /// Set timeout in seconds
-    pub fn with_timeout(mut self, secs: u64) -> Self {
+    #[must_use] pub const fn with_timeout(mut self, secs: u64) -> Self {
         self.timeout_secs = secs;
         self
     }
     
     /// Set maximum response size (0 = unlimited)
-    pub fn with_max_size(mut self, max_bytes: u64) -> Self {
+    #[must_use] pub const fn with_max_size(mut self, max_bytes: u64) -> Self {
         self.max_response_size = max_bytes;
         self
     }
@@ -225,7 +225,7 @@ impl HttpRequestConfig {
 
     /// Stub: `http` feature disabled.
     #[cfg(not(feature = "http"))]
-    pub fn http_get_default(_url: AzString) -> ResultHttpResponseHttpError {
+    #[must_use] pub fn http_get_default(_url: AzString) -> ResultHttpResponseHttpError {
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
@@ -243,7 +243,7 @@ impl HttpRequestConfig {
 
     /// Stub: `http` feature disabled.
     #[cfg(not(feature = "http"))]
-    pub fn http_get(&self, _url: AzString) -> ResultHttpResponseHttpError {
+    #[must_use] pub fn http_get(&self, _url: AzString) -> ResultHttpResponseHttpError {
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
@@ -261,7 +261,7 @@ impl HttpRequestConfig {
 
     /// Stub: `http` feature disabled.
     #[cfg(not(feature = "http"))]
-    pub fn download_bytes_default(_url: AzString) -> ResultU8VecHttpError {
+    #[must_use] pub fn download_bytes_default(_url: AzString) -> ResultU8VecHttpError {
         ResultU8VecHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
@@ -279,7 +279,7 @@ impl HttpRequestConfig {
 
     /// Stub: `http` feature disabled.
     #[cfg(not(feature = "http"))]
-    pub fn download_bytes(&self, _url: AzString) -> ResultU8VecHttpError {
+    #[must_use] pub fn download_bytes(&self, _url: AzString) -> ResultU8VecHttpError {
         ResultU8VecHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
@@ -297,7 +297,7 @@ impl HttpRequestConfig {
 
     /// Stub: `http` feature disabled.
     #[cfg(not(feature = "http"))]
-    pub fn is_url_reachable(_url: AzString) -> bool {
+    #[must_use] pub fn is_url_reachable(_url: AzString) -> bool {
         false
     }
 }
@@ -324,27 +324,27 @@ pub struct HttpResponse {
 
 impl HttpResponse {
     /// Check if the response was successful (2xx status)
-    pub fn is_success(&self) -> bool {
+    #[must_use] pub const fn is_success(&self) -> bool {
         self.status_code >= 200 && self.status_code < 300
     }
     
     /// Check if the response is a redirect (3xx status)
-    pub fn is_redirect(&self) -> bool {
+    #[must_use] pub const fn is_redirect(&self) -> bool {
         self.status_code >= 300 && self.status_code < 400
     }
     
     /// Check if the response is a client error (4xx status)
-    pub fn is_client_error(&self) -> bool {
+    #[must_use] pub const fn is_client_error(&self) -> bool {
         self.status_code >= 400 && self.status_code < 500
     }
     
     /// Check if the response is a server error (5xx status)
-    pub fn is_server_error(&self) -> bool {
+    #[must_use] pub const fn is_server_error(&self) -> bool {
         self.status_code >= 500 && self.status_code < 600
     }
     
     /// Try to convert the body to a UTF-8 string
-    pub fn body_as_string(&self) -> Option<AzString> {
+    #[must_use] pub fn body_as_string(&self) -> Option<AzString> {
         core::str::from_utf8(self.body.as_slice())
             .ok()
             .map(|s| AzString::from(s.to_string()))
@@ -367,7 +367,7 @@ impl_result!(
     ResultU8VecHttpError,
     copy = false,
     clone = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 /// Simple HTTP GET request
@@ -595,7 +595,7 @@ pub fn is_url_reachable(url: &str) -> bool {
 
 /// Stub: `http` feature disabled.
 #[cfg(not(feature = "http"))]
-pub fn is_url_reachable(_url: &str) -> bool {
+#[must_use] pub const fn is_url_reachable(_url: &str) -> bool {
     false
 }
 

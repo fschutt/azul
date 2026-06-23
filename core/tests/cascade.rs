@@ -200,7 +200,7 @@ fn test_em_values_in_properties() {
     }));
 
     if let CssProperty::FontSize(CssPropertyValue::Exact(ref size)) = font_size_em {
-        println!("✓ Em value created: {:?}", size);
+        println!("✓ Em value created: {size:?}");
         println!("  In cascade, 1.5em would resolve to 1.5 × parent's font-size");
     }
 }
@@ -213,7 +213,7 @@ fn test_percentage_values_in_properties() {
     }));
 
     if let CssProperty::FontSize(CssPropertyValue::Exact(ref size)) = font_size_percent {
-        println!("✓ Percentage value created: {:?}", size);
+        println!("✓ Percentage value created: {size:?}");
         println!("  In cascade, 150% would resolve to 1.5 × parent's font-size");
     }
 }

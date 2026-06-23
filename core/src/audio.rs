@@ -34,7 +34,7 @@ impl Default for AudioConfig {
 
 impl AudioConfig {
     /// A config with the given rate + channel count.
-    pub fn new(sample_rate: u32, channels: u16) -> Self {
+    #[must_use] pub const fn new(sample_rate: u32, channels: u16) -> Self {
         Self {
             sample_rate,
             channels,
@@ -58,7 +58,7 @@ pub struct AudioFrame {
 
 impl AudioFrame {
     /// Number of sample *frames* (samples per channel) in this chunk.
-    pub fn frame_count(&self) -> usize {
+    #[must_use] pub fn frame_count(&self) -> usize {
         if self.channels == 0 {
             0
         } else {

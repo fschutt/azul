@@ -80,7 +80,7 @@ impl Default for WindowId {
 
 impl WindowId {
     pub fn new() -> Self {
-        WindowId {
+        Self {
             id: LAST_WINDOW_ID.fetch_add(1, AtomicOrdering::SeqCst),
         }
     }
@@ -136,7 +136,7 @@ impl Default for RendererOptions {
 }
 
 impl RendererOptions {
-    pub const fn new(vsync: Vsync, srgb: Srgb, hw_accel: HwAcceleration) -> Self {
+    #[must_use] pub const fn new(vsync: Vsync, srgb: Srgb, hw_accel: HwAcceleration) -> Self {
         Self {
             vsync,
             srgb,
@@ -154,8 +154,8 @@ pub enum Vsync {
 }
 
 impl Vsync {
-    pub const fn is_enabled(&self) -> bool {
-        matches!(self, Vsync::Enabled)
+    #[must_use] pub const fn is_enabled(&self) -> bool {
+        matches!(self, Self::Enabled)
     }
 }
 
@@ -167,8 +167,8 @@ pub enum Srgb {
     DontCare,
 }
 impl Srgb {
-    pub const fn is_enabled(&self) -> bool {
-        matches!(self, Srgb::Enabled)
+    #[must_use] pub const fn is_enabled(&self) -> bool {
+        matches!(self, Self::Enabled)
     }
 }
 
@@ -180,8 +180,8 @@ pub enum HwAcceleration {
     DontCare,
 }
 impl HwAcceleration {
-    pub const fn is_enabled(&self) -> bool {
-        matches!(self, HwAcceleration::Enabled)
+    #[must_use] pub const fn is_enabled(&self) -> bool {
+        matches!(self, Self::Enabled)
     }
 }
 
@@ -230,18 +230,18 @@ pub struct XlibHandle {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct XcbHandle {
-    /// An X11 xcb_window_t.
+    /// An X11 `xcb_window_t`.
     pub window: u32,
-    /// A pointer to an X server xcb_connection_t.
+    /// A pointer to an X server `xcb_connection_t`.
     pub connection: *mut c_void,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct WaylandHandle {
-    /// A pointer to a wl_surface
+    /// A pointer to a `wl_surface`
     pub surface: *mut c_void,
-    /// A pointer to a wl_display.
+    /// A pointer to a `wl_display`.
     pub display: *mut c_void,
 }
 
@@ -268,7 +268,7 @@ pub struct WebHandle {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct AndroidHandle {
-    /// A pointer to an ANativeWindow.
+    /// A pointer to an `ANativeWindow`.
     pub a_native_window: *mut c_void,
 }
 
@@ -319,7 +319,7 @@ pub enum MouseCursorType {
 pub type ScanCode = u32;
 
 /// Determines which keys are pressed currently (modifiers, etc.)
-#[derive(Default, Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct KeyboardState {
     /// Currently pressed virtual keycode - **DO NOT USE THIS FOR TEXT INPUT**.
@@ -348,19 +348,19 @@ pub struct KeyboardState {
 }
 
 impl KeyboardState {
-    pub fn shift_down(&self) -> bool {
+    #[must_use] pub fn shift_down(&self) -> bool {
         self.is_key_down(VirtualKeyCode::LShift) || self.is_key_down(VirtualKeyCode::RShift)
     }
-    pub fn ctrl_down(&self) -> bool {
+    #[must_use] pub fn ctrl_down(&self) -> bool {
         self.is_key_down(VirtualKeyCode::LControl) || self.is_key_down(VirtualKeyCode::RControl)
     }
-    pub fn alt_down(&self) -> bool {
+    #[must_use] pub fn alt_down(&self) -> bool {
         self.is_key_down(VirtualKeyCode::LAlt) || self.is_key_down(VirtualKeyCode::RAlt)
     }
-    pub fn super_down(&self) -> bool {
+    #[must_use] pub fn super_down(&self) -> bool {
         self.is_key_down(VirtualKeyCode::LWin) || self.is_key_down(VirtualKeyCode::RWin)
     }
-    pub fn is_key_down(&self, key: VirtualKeyCode) -> bool {
+    #[must_use] pub fn is_key_down(&self, key: VirtualKeyCode) -> bool {
         self.pressed_virtual_keycodes.iter().any(|k| *k == key)
     }
 
@@ -369,7 +369,7 @@ impl KeyboardState {
     /// shortcuts like `[Ctrl, Shift, Key(VirtualKeyCode::S)]`.
     ///
     /// An empty chord matches trivially.
-    pub fn matches_accelerator(&self, chord: &[AcceleratorKey]) -> bool {
+    #[must_use] pub fn matches_accelerator(&self, chord: &[AcceleratorKey]) -> bool {
         chord.iter().all(|a| a.matches(self))
     }
 }
@@ -378,7 +378,7 @@ impl_option!(
     KeyboardState,
     OptionKeyboardState,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 // char is not ABI-stable, use u32 instead
@@ -422,7 +422,7 @@ impl_vec_mut!(ScanCode, ScanCodeVec);
 impl_vec_as_hashmap!(ScanCode, ScanCodeVec);
 
 /// Mouse position, cursor type, user scroll input, etc.
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Eq)]
 #[repr(C)]
 pub struct MouseState {
     /// Current mouse cursor type, set to `None` if the cursor is hidden. (READWRITE)
@@ -442,8 +442,8 @@ pub struct MouseState {
 }
 
 impl MouseState {
-    pub fn matches(&self, context: &ContextMenuMouseButton) -> bool {
-        use self::ContextMenuMouseButton::*;
+    #[must_use] pub const fn matches(&self, context: &ContextMenuMouseButton) -> bool {
+        use self::ContextMenuMouseButton::{Left, Right, Middle};
         match context {
             Left => self.left_down,
             Right => self.right_down,
@@ -455,7 +455,7 @@ impl MouseState {
 impl_option!(
     MouseState,
     OptionMouseState,
-    [Debug, Copy, Clone, PartialEq, PartialOrd]
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
 );
 
 impl_option!(
@@ -503,12 +503,12 @@ pub enum ContextMenuMouseButton {
 
 impl MouseState {
     /// Returns whether any mouse button (left, right or center) is currently held down
-    pub fn mouse_down(&self) -> bool {
+    #[must_use] pub const fn mouse_down(&self) -> bool {
         self.right_down || self.left_down || self.middle_down
     }
 
     /// Snapshot the button-down flags as a `MouseButtonState` for drag tracking.
-    pub fn button_state(&self) -> crate::events::MouseButtonState {
+    #[must_use] pub const fn button_state(&self) -> crate::events::MouseButtonState {
         crate::events::MouseButtonState {
             left_down: self.left_down,
             right_down: self.right_down,
@@ -525,7 +525,7 @@ impl From<&MouseState> for crate::events::MouseButtonState {
 
 impl crate::events::MouseButtonState {
     /// Returns true if any of the tracked buttons is held down.
-    pub fn any_down(&self) -> bool {
+    #[must_use] pub const fn any_down(&self) -> bool {
         self.left_down || self.right_down || self.middle_down
     }
 }
@@ -536,7 +536,7 @@ impl crate::events::MouseButtonState {
 /// [`ScrollResult::remaining_delta`] to forward un-consumed scroll to a parent
 /// container, and [`ScrollResult::hit_scrollbar`] to distinguish scrollbar-drag
 /// scrolling from wheel-on-content scrolling for hit-testing purposes.
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct ScrollResult {
     /// Number of scrollable nodes whose offset was updated by this dispatch.
@@ -555,16 +555,16 @@ pub struct ScrollResult {
 /// in `LayoutWindow::process_scroll`; this helper packages a delta into a
 /// `ScrollResult` for return to callers so the result type is observable from
 /// the public API.
-pub fn process_system_scroll(delta: LogicalPosition, hit_scrollbar: bool) -> ScrollResult {
+#[must_use] pub fn process_system_scroll(delta: LogicalPosition, hit_scrollbar: bool) -> ScrollResult {
     let consumed = delta.x != 0.0 || delta.y != 0.0;
     ScrollResult {
-        scrolled_nodes: if consumed { 1 } else { 0 },
+        scrolled_nodes: usize::from(consumed),
         remaining_delta: LogicalPosition::zero(),
         hit_scrollbar,
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C, u8)]
 #[derive(Default)]
 pub enum CursorPosition {
@@ -576,14 +576,14 @@ pub enum CursorPosition {
 
 
 impl CursorPosition {
-    pub fn get_position(&self) -> Option<LogicalPosition> {
+    #[must_use] pub const fn get_position(&self) -> Option<LogicalPosition> {
         match self {
-            CursorPosition::InWindow(logical_pos) => Some(*logical_pos),
-            CursorPosition::OutOfWindow(_) | CursorPosition::Uninitialized => None,
+            Self::InWindow(logical_pos) => Some(*logical_pos),
+            Self::OutOfWindow(_) | Self::Uninitialized => None,
         }
     }
 
-    pub fn is_inside_window(&self) -> bool {
+    #[must_use] pub const fn is_inside_window(&self) -> bool {
         self.get_position().is_some()
     }
 }
@@ -694,15 +694,15 @@ pub struct MonitorId {
 
 impl MonitorId {
     /// Primary/default monitor (index 0, hash 0)
-    pub const PRIMARY: MonitorId = MonitorId { index: 0, hash: 0 };
+    pub const PRIMARY: Self = Self { index: 0, hash: 0 };
 
-    /// Create a MonitorId from index only (hash will be 0)
-    pub const fn new(index: usize) -> Self {
+    /// Create a `MonitorId` from index only (hash will be 0)
+    #[must_use] pub const fn new(index: usize) -> Self {
         Self { index, hash: 0 }
     }
 
-    /// Create a MonitorId from index and hash
-    pub const fn from_index_and_hash(index: usize, hash: u64) -> Self {
+    /// Create a `MonitorId` from index and hash
+    #[must_use] pub const fn from_index_and_hash(index: usize, hash: u64) -> Self {
         Self { index, hash }
     }
 
@@ -711,7 +711,7 @@ impl MonitorId {
     /// Uses FNV-1a hash of: name + position + size
     /// This ensures the hash is stable across app restarts as long as
     /// the monitor configuration doesn't change significantly
-    pub fn from_properties(
+    #[must_use] pub fn from_properties(
         index: usize,
         name: &str,
         position: LayoutPoint,
@@ -794,18 +794,18 @@ impl_vec_clone!(Monitor, MonitorVec, MonitorVecDestructor);
 impl_vec_partialeq!(Monitor, MonitorVec);
 impl_vec_partialord!(Monitor, MonitorVec);
 
-impl core::hash::Hash for Monitor {
+impl Hash for Monitor {
     fn hash<H>(&self, state: &mut H)
     where
-        H: core::hash::Hasher,
+        H: Hasher,
     {
-        self.monitor_id.hash(state)
+        self.monitor_id.hash(state);
     }
 }
 
 impl Default for Monitor {
     fn default() -> Self {
-        Monitor {
+        Self {
             monitor_id: MonitorId::PRIMARY,
             monitor_name: OptionString::None,
             size: LayoutSize::zero(),
@@ -838,7 +838,7 @@ impl_vec_partialeq!(VideoMode, VideoModeVec);
 impl_vec_partialord!(VideoMode, VideoModeVec);
 
 /// Position of the window on screen
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 #[derive(Default)]
 pub enum WindowPosition {
@@ -852,13 +852,13 @@ pub enum WindowPosition {
     /// `WindowCreateOptions.parent_window_id`: the backend resolves the final
     /// screen position as `parent_top_left + offset`. This is robust where
     /// absolute screen coordinates aren't available — notably Wayland, whose
-    /// xdg_popup / subsurface protocol positions relative to the parent. Falls
+    /// `xdg_popup` / subsurface protocol positions relative to the parent. Falls
     /// back to absolute (`offset` from origin) if there is no parent.
     RelativeToParentWindow(PhysicalPositionI32),
 }
 
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 /// IME composition window rectangle (cursor position + height)
 #[derive(Default)]
@@ -880,8 +880,8 @@ pub struct WindowFlags {
     pub background_material: WindowBackgroundMaterial,
     /// Window type classification (Normal, Menu, Tooltip, Dialog)
     pub window_type: WindowType,
-    /// User clicked the close button (set by WindowDelegate, checked by event loop)
-    /// The close_callback can set this to false to prevent closing
+    /// User clicked the close button (set by `WindowDelegate`, checked by event loop)
+    /// The `close_callback` can set this to false to prevent closing
     pub close_requested: bool,
     /// Is the window currently visible?
     pub is_visible: bool,
@@ -896,20 +896,20 @@ pub struct WindowFlags {
     /// Is automatic TAB switching supported?
     pub autotab_enabled: bool,
     /// Enable client-side decorations (custom titlebar with CSD)
-    /// Only effective when decorations == WindowDecorations::None
+    /// Only effective when decorations == `WindowDecorations::None`
     pub has_decorations: bool,
-    /// Use native menus (Win32 HMENU, macOS NSMenu) instead of Azul window-based menus
+    /// Use native menus (Win32 HMENU, macOS `NSMenu`) instead of Azul window-based menus
     /// Default: true on Windows/macOS, false on Linux
     pub use_native_menus: bool,
     /// Use native context menus instead of Azul window-based context menus
     /// Default: true on Windows/macOS, false on Linux
     pub use_native_context_menus: bool,
     /// Keep window above all others (even from other applications)
-    /// Platform-specific: Uses SetWindowPos(HWND_TOPMOST) on Windows, [NSWindow setLevel:] on
-    /// macOS, _NET_WM_STATE_ABOVE on X11, zwlr_layer_shell on Wayland
+    /// Platform-specific: Uses `SetWindowPos(HWND_TOPMOST)` on Windows, [`NSWindow` setLevel:] on
+    /// macOS, _`NET_WM_STATE_ABOVE` on X11, `zwlr_layer_shell` on Wayland
     pub is_top_level: bool,
     /// Prevent system from sleeping while window is open
-    /// Platform-specific: Uses SetThreadExecutionState on Windows, IOPMAssertionCreateWithName on
+    /// Platform-specific: Uses `SetThreadExecutionState` on Windows, `IOPMAssertionCreateWithName` on
     /// macOS, org.freedesktop.ScreenSaver.Inhibit on Linux
     pub prevent_system_sleep: bool,
     /// Desired fullscreen-transition style.
@@ -1044,49 +1044,49 @@ impl Default for WindowFlags {
 impl WindowFlags {
     /// Check if window is a menu popup
     #[inline]
-    pub fn is_menu_window(&self) -> bool {
+    #[must_use] pub fn is_menu_window(&self) -> bool {
         self.window_type == WindowType::Menu
     }
 
     /// Check if window is a tooltip
     #[inline]
-    pub fn is_tooltip_window(&self) -> bool {
+    #[must_use] pub fn is_tooltip_window(&self) -> bool {
         self.window_type == WindowType::Tooltip
     }
 
     /// Check if window is a dialog
     #[inline]
-    pub fn is_dialog_window(&self) -> bool {
+    #[must_use] pub fn is_dialog_window(&self) -> bool {
         self.window_type == WindowType::Dialog
     }
 
     /// Check if window currently has focus
     #[inline]
-    pub fn window_has_focus(&self) -> bool {
+    #[must_use] pub const fn window_has_focus(&self) -> bool {
         self.has_focus
     }
 
     /// Check if close was requested via callback
     #[inline]
-    pub fn is_close_requested(&self) -> bool {
+    #[must_use] pub const fn is_close_requested(&self) -> bool {
         self.close_requested
     }
 
     /// Check if window has client-side decorations enabled
     #[inline]
-    pub fn has_csd(&self) -> bool {
+    #[must_use] pub const fn has_csd(&self) -> bool {
         self.has_decorations
     }
 
     /// Check if native menus should be used
     #[inline]
-    pub fn use_native_menus(&self) -> bool {
+    #[must_use] pub const fn use_native_menus(&self) -> bool {
         self.use_native_menus
     }
 
     /// Check if native context menus should be used
     #[inline]
-    pub fn use_native_context_menus(&self) -> bool {
+    #[must_use] pub const fn use_native_context_menus(&self) -> bool {
         self.use_native_context_menus
     }
 }
@@ -1106,7 +1106,7 @@ pub struct PlatformSpecificOptions {
 unsafe impl Sync for PlatformSpecificOptions {}
 unsafe impl Send for PlatformSpecificOptions {}
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct WindowsWindowOptions {
     /// STARTUP ONLY: Whether the window should allow drag + drop operations (default: true)
@@ -1126,8 +1126,8 @@ pub struct WindowsWindowOptions {
 }
 
 impl Default for WindowsWindowOptions {
-    fn default() -> WindowsWindowOptions {
-        WindowsWindowOptions {
+    fn default() -> Self {
+        Self {
             allow_drag_and_drop: true,
             no_redirection_bitmap: false,
             window_icon: OptionWindowIcon::None,
@@ -1262,7 +1262,7 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-/// A key-value pair of strings, used for X11 WM_CLASS and other platform properties
+/// A key-value pair of strings, used for X11 `WM_CLASS` and other platform properties
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct AzStringPair {
@@ -1295,7 +1295,7 @@ impl_option!(
 );
 
 impl StringPairVec {
-    pub fn get_key(&self, search_key: &str) -> Option<&AzString> {
+    #[must_use] pub fn get_key(&self, search_key: &str) -> Option<&AzString> {
         self.as_ref().iter().find_map(|v| {
             if v.key.as_str() == search_key {
                 Some(&v.value)
@@ -1426,7 +1426,7 @@ pub struct WaylandTheme {
     pub title_bar_font_size: f32,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct WindowSize {
     /// Width and height of the window, in logical
@@ -1441,7 +1441,7 @@ pub struct WindowSize {
 }
 
 impl WindowSize {
-    pub fn get_layout_size(&self) -> LayoutSize {
+    #[must_use] pub fn get_layout_size(&self) -> LayoutSize {
         LayoutSize::new(
             libm::roundf(self.dimensions.width) as isize,
             libm::roundf(self.dimensions.height) as isize,
@@ -1449,16 +1449,16 @@ impl WindowSize {
     }
 
     /// Get the actual logical size
-    pub fn get_logical_size(&self) -> LogicalSize {
+    #[must_use] pub const fn get_logical_size(&self) -> LogicalSize {
         self.dimensions
     }
 
-    pub fn get_physical_size(&self) -> PhysicalSize<u32> {
+    #[must_use] pub fn get_physical_size(&self) -> PhysicalSize<u32> {
         self.dimensions
             .to_physical(self.get_hidpi_factor().inner.get())
     }
 
-    pub fn get_hidpi_factor(&self) -> DpiScaleFactor {
+    #[must_use] pub fn get_hidpi_factor(&self) -> DpiScaleFactor {
         DpiScaleFactor {
             inner: FloatValue::new(self.dpi as f32 / 96.0),
         }
@@ -1500,14 +1500,14 @@ pub enum UpdateFocusWarning {
 
 impl ::core::fmt::Display for UpdateFocusWarning {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        use self::UpdateFocusWarning::*;
+        use self::UpdateFocusWarning::{FocusInvalidDomId, FocusInvalidNodeId, CouldNotFindFocusNode};
         match self {
-            FocusInvalidDomId(dom_id) => write!(f, "Focusing on DOM with invalid ID: {:?}", dom_id),
+            FocusInvalidDomId(dom_id) => write!(f, "Focusing on DOM with invalid ID: {dom_id:?}"),
             FocusInvalidNodeId(node_id) => {
-                write!(f, "Focusing on node with invalid ID: {}", node_id)
+                write!(f, "Focusing on node with invalid ID: {node_id}")
             }
             CouldNotFindFocusNode(css_path) => {
-                write!(f, "Could not find focus node for path: {}", css_path)
+                write!(f, "Could not find focus node for path: {css_path}")
             }
         }
     }
@@ -1527,8 +1527,8 @@ impl AcceleratorKey {
     /// Checks if the current keyboard state contains the given char or modifier,
     /// i.e. if the keyboard state currently has the shift key pressed and the
     /// accelerator key is `Shift`, evaluates to true, otherwise to false.
-    pub fn matches(&self, keyboard_state: &KeyboardState) -> bool {
-        use self::AcceleratorKey::*;
+    #[must_use] pub fn matches(&self, keyboard_state: &KeyboardState) -> bool {
+        use self::AcceleratorKey::{Ctrl, Alt, Shift, Key};
         match self {
             Ctrl => keyboard_state.ctrl_down(),
             Alt => keyboard_state.alt_down(),
@@ -1708,8 +1708,8 @@ pub enum VirtualKeyCode {
 }
 
 impl VirtualKeyCode {
-    pub fn get_lowercase(&self) -> Option<char> {
-        use self::VirtualKeyCode::*;
+    #[must_use] pub const fn get_lowercase(&self) -> Option<char> {
+        use self::VirtualKeyCode::{A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, Key0, Numpad0, Key1, Numpad1, Key2, Numpad2, Key3, Numpad3, Key4, Numpad4, Key5, Numpad5, Key6, Numpad6, Key7, Numpad7, Key8, Numpad8, Key9, Numpad9, Minus, Asterisk, At, Period, Semicolon, Slash, Caret};
         match self {
             A => Some('a'),
             B => Some('b'),
@@ -1792,10 +1792,10 @@ impl_option!(
 );
 
 impl WindowIcon {
-    pub fn get_key(&self) -> IconKey {
+    #[must_use] pub const fn get_key(&self) -> IconKey {
         match &self {
-            WindowIcon::Small(SmallWindowIconBytes { key, .. }) => *key,
-            WindowIcon::Large(LargeWindowIconBytes { key, .. }) => *key,
+            Self::Small(SmallWindowIconBytes { key, .. }) => *key,
+            Self::Large(LargeWindowIconBytes { key, .. }) => *key,
         }
     }
 }

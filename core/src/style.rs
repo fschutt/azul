@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use azul_css::css::{
     AttributeMatchOp, CssAttributeSelector, CssContentGroup, CssNthChildSelector,
-    CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector,
+    CssNthChildSelector::{Number, Even, Odd, Pattern}, CssPath, CssPathPseudoSelector, CssPathSelector,
 };
 
 use crate::{
@@ -39,7 +39,7 @@ impl_vec_clone!(CascadeInfo, CascadeInfoVec, CascadeInfoVecDestructor);
 impl_vec_partialeq!(CascadeInfo, CascadeInfoVec);
 
 impl CascadeInfoVec {
-    pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, CascadeInfo> {
+    #[must_use] pub fn as_container(&self) -> NodeDataContainerRef<'_, CascadeInfo> {
         NodeDataContainerRef {
             internal: self.as_ref(),
         }
@@ -48,7 +48,7 @@ impl CascadeInfoVec {
 
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by
 /// that element)
-pub fn matches_html_element(
+#[must_use] pub fn matches_html_element(
     css_path: &CssPath,
     node_id: NodeId,
     node_hierarchy: &NodeDataContainerRef<NodeHierarchyItem>,
@@ -56,7 +56,7 @@ pub fn matches_html_element(
     html_node_tree: &NodeDataContainerRef<CascadeInfo>,
     expected_path_ending: Option<CssPathPseudoSelector>,
 ) -> bool {
-    use self::CssGroupSplitReason::*;
+    use self::CssGroupSplitReason::{DirectChildren, Children, AdjacentSibling, GeneralSibling};
 
     if css_path.selectors.is_empty() {
         return false;
@@ -207,7 +207,7 @@ fn find_non_anonymous_prev_sibling(
 ///
 /// If any of these requirements are not met, the CSS block is discarded.
 ///
-/// The CssGroupIterator splits the CSS path into semantic blocks, i.e.:
+/// The `CssGroupIterator` splits the CSS path into semantic blocks, i.e.:
 ///
 /// "body > .foo.main > #baz" will be split into ["body", ".foo.main" and "#baz"]
 pub struct CssGroupIterator<'a> {
@@ -229,7 +229,7 @@ pub enum CssGroupSplitReason {
 }
 
 impl<'a> CssGroupIterator<'a> {
-    pub fn new(css_path: &'a [CssPathSelector]) -> Self {
+    #[must_use] pub const fn new(css_path: &'a [CssPathSelector]) -> Self {
         let initial_len = css_path.len();
         Self {
             css_path,
@@ -243,7 +243,7 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     type Item = (CssContentGroup<'a>, CssGroupSplitReason);
 
     fn next(&mut self) -> Option<(CssContentGroup<'a>, CssGroupSplitReason)> {
-        use self::CssPathSelector::*;
+        use self::CssPathSelector::{Children, DirectChildren, AdjacentSibling, GeneralSibling};
 
         let mut new_idx = self.current_idx;
 
@@ -297,7 +297,7 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     }
 }
 
-pub fn construct_html_cascade_tree(
+#[must_use] pub fn construct_html_cascade_tree(
     node_hierarchy: &NodeHierarchyRef,
     node_depths_sorted: &[(usize, NodeId)],
     node_data: &NodeDataContainerRef<NodeData>,
@@ -382,10 +382,10 @@ pub fn construct_html_cascade_tree(
 /// selectors like `div:hover:first-child` may not be filtered correctly when `target`
 /// is `None` — only the very last pseudo-selector is tested.
 #[inline]
-pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> bool {
+#[must_use] pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> bool {
     // Helper to check if a pseudo-selector is "interactive" (requires user interaction state)
     // vs "structural" (based on DOM structure only)
-    fn is_interactive_pseudo(p: &CssPathPseudoSelector) -> bool {
+    const fn is_interactive_pseudo(p: &CssPathPseudoSelector) -> bool {
         matches!(
             p,
             CssPathPseudoSelector::Hover
@@ -450,7 +450,7 @@ fn match_single_selector(
     expected_path_ending: &Option<CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
-    use self::CssPathSelector::*;
+    use self::CssPathSelector::{Global, Root, Type, Class, Id, PseudoSelector, Attribute, DirectChildren, Children, AdjacentSibling, GeneralSibling};
 
     match selector {
         Global => true,
@@ -485,7 +485,7 @@ fn match_single_selector(
 /// so that `[class~="primary"]` matches a node with classes `foo primary bar`.
 fn match_attribute_selector(sel: &CssAttributeSelector, node_data: &NodeData) -> bool {
     let name = sel.name.as_str();
-    let target = sel.value.as_ref().map(|v| v.as_str());
+    let target = sel.value.as_ref().map(azul_css::AzString::as_str);
 
     let check = |actual: &str| -> bool {
         match (&sel.op, target) {
@@ -498,7 +498,7 @@ fn match_attribute_selector(sel: &CssAttributeSelector, node_data: &NodeData) ->
                 actual.split_whitespace().any(|word| word == t)
             }
             (AttributeMatchOp::DashMatch, Some(t)) => {
-                actual == t || actual.starts_with(&alloc::format!("{}-", t))
+                actual == t || actual.starts_with(&alloc::format!("{t}-"))
             }
             (AttributeMatchOp::Prefix, Some(t)) => !t.is_empty() && actual.starts_with(t),
             (AttributeMatchOp::Suffix, Some(t)) => !t.is_empty() && actual.ends_with(t),
@@ -576,12 +576,12 @@ fn match_pseudo_selector(
 }
 
 /// Returns true if the node is the first child of its parent.
-fn match_first_child(html_node: &CascadeInfo) -> bool {
+const fn match_first_child(html_node: &CascadeInfo) -> bool {
     html_node.index_in_parent == 0
 }
 
 /// Returns true if the node is the last child of its parent.
-fn match_last_child(html_node: &CascadeInfo) -> bool {
+const fn match_last_child(html_node: &CascadeInfo) -> bool {
     html_node.is_last_child
 }
 

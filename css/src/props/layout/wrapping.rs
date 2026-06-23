@@ -38,8 +38,8 @@ pub enum LayoutWritingMode {
 
 
 impl LayoutWritingMode {
-    /// Returns true if the writing mode is vertical (VerticalRl or VerticalLr)
-    pub const fn is_vertical(self) -> bool {
+    /// Returns true if the writing mode is vertical (`VerticalRl` or `VerticalLr`)
+    #[must_use] pub const fn is_vertical(self) -> bool {
         matches!(self, Self::VerticalRl | Self::VerticalLr)
     }
 }
@@ -59,15 +59,15 @@ impl core::fmt::Display for LayoutWritingMode {
 impl PrintAsCssValue for LayoutWritingMode {
     fn print_as_css_value(&self) -> String {
         match self {
-            LayoutWritingMode::HorizontalTb => "horizontal-tb".to_string(),
-            LayoutWritingMode::VerticalRl => "vertical-rl".to_string(),
-            LayoutWritingMode::VerticalLr => "vertical-lr".to_string(),
+            Self::HorizontalTb => "horizontal-tb".to_string(),
+            Self::VerticalRl => "vertical-rl".to_string(),
+            Self::VerticalLr => "vertical-lr".to_string(),
         }
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum LayoutWritingModeParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -80,18 +80,18 @@ impl_display! { LayoutWritingModeParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum LayoutWritingModeParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> LayoutWritingModeParseError<'a> {
-    pub fn to_contained(&self) -> LayoutWritingModeParseErrorOwned {
+impl LayoutWritingModeParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> LayoutWritingModeParseErrorOwned {
         match self {
             LayoutWritingModeParseError::InvalidValue(s) => {
-                LayoutWritingModeParseErrorOwned::InvalidValue(s.to_string().into())
+                LayoutWritingModeParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
@@ -99,9 +99,9 @@ impl<'a> LayoutWritingModeParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl LayoutWritingModeParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> LayoutWritingModeParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> LayoutWritingModeParseError<'_> {
         match self {
-            LayoutWritingModeParseErrorOwned::InvalidValue(s) => {
+            Self::InvalidValue(s) => {
                 LayoutWritingModeParseError::InvalidValue(s.as_str())
             }
         }
@@ -109,9 +109,9 @@ impl LayoutWritingModeParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_writing_mode<'a>(
-    input: &'a str,
-) -> Result<LayoutWritingMode, LayoutWritingModeParseError<'a>> {
+pub fn parse_layout_writing_mode(
+    input: &str,
+) -> Result<LayoutWritingMode, LayoutWritingModeParseError<'_>> {
     let input = input.trim();
     match input {
         "horizontal-tb" => Ok(LayoutWritingMode::HorizontalTb),
@@ -156,16 +156,16 @@ impl core::fmt::Display for LayoutClear {
 impl PrintAsCssValue for LayoutClear {
     fn print_as_css_value(&self) -> String {
         match self {
-            LayoutClear::None => "none".to_string(),
-            LayoutClear::Left => "left".to_string(),
-            LayoutClear::Right => "right".to_string(),
-            LayoutClear::Both => "both".to_string(),
+            Self::None => "none".to_string(),
+            Self::Left => "left".to_string(),
+            Self::Right => "right".to_string(),
+            Self::Both => "both".to_string(),
         }
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum LayoutClearParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -178,18 +178,18 @@ impl_display! { LayoutClearParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum LayoutClearParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> LayoutClearParseError<'a> {
-    pub fn to_contained(&self) -> LayoutClearParseErrorOwned {
+impl LayoutClearParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> LayoutClearParseErrorOwned {
         match self {
             LayoutClearParseError::InvalidValue(s) => {
-                LayoutClearParseErrorOwned::InvalidValue(s.to_string().into())
+                LayoutClearParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
@@ -197,9 +197,9 @@ impl<'a> LayoutClearParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl LayoutClearParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> LayoutClearParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> LayoutClearParseError<'_> {
         match self {
-            LayoutClearParseErrorOwned::InvalidValue(s) => {
+            Self::InvalidValue(s) => {
                 LayoutClearParseError::InvalidValue(s.as_str())
             }
         }
@@ -207,7 +207,7 @@ impl LayoutClearParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_clear<'a>(input: &'a str) -> Result<LayoutClear, LayoutClearParseError<'a>> {
+pub fn parse_layout_clear(input: &str) -> Result<LayoutClear, LayoutClearParseError<'_>> {
     let input = input.trim();
     match input {
         "none" => Ok(LayoutClear::None),

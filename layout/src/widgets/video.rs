@@ -50,22 +50,22 @@ pub struct VideoWidgetState {
     pub frames: OptionRefAny,
     /// The off-main-thread streaming decode worker (mirrors the map widget's
     /// `fetch_callback`). Set via [`VideoWidget::dom_with_decoder`]. When present,
-    /// AfterMount spawns it on a background `Thread` instead of the replay /
+    /// `AfterMount` spawns it on a background `Thread` instead of the replay /
     /// test-pattern workers, so the VK decode runs off the main thread.
     pub decode_callback: Option<ThreadCallback>,
     /// The latest decoded frame to display, as a CPU `ImageRef` (RGBA8). The
-    /// VirtualView render callback ([`video_widget_render`]) reads this on each
+    /// `VirtualView` render callback ([`video_widget_render`]) reads this on each
     /// re-render; [`video_writeback`] stores it and triggers an in-place
-    /// VirtualView re-render — so the frame renders on cpurender AND webrender,
+    /// `VirtualView` re-render — so the frame renders on cpurender AND webrender,
     /// exactly like the map widget's tile cache. (Replaces the GL `present_frame`
-    /// path for video; camera/screencap still use present_frame.)
+    /// path for video; camera/screencap still use `present_frame`.)
     pub current_frame: Option<ImageRef>,
-    /// The decode worker's `ThreadId` (set by AfterMount). Lets the resize callback
+    /// The decode worker's `ThreadId` (set by `AfterMount`). Lets the resize callback
     /// message the running worker (`info.get_thread(id).sender.send(..)`) so it can
     /// re-target the decoder to the new physical-pixel size — a cheap image swap, no
     /// relayout. Carried across relayout by [`merge_video_state`].
     pub thread_id: Option<ThreadId>,
-    /// Clone of the worker's main→worker `Sender` (set by AfterMount, carried by
+    /// Clone of the worker's main→worker `Sender` (set by `AfterMount`, carried by
     /// merge). Lets [`merge_video_state`] — which has no `CallbackInfo` — push a
     /// seek to the running worker when `config.timestamp` changes (scrubbing).
     pub seek_sender: Option<std::sync::mpsc::Sender<ThreadSendMsg>>,
@@ -87,7 +87,7 @@ pub struct VideoWidget {
 
 impl VideoWidget {
     /// Create a video widget for the given config.
-    pub fn create(config: VideoConfig) -> Self {
+    #[must_use] pub const fn create(config: VideoConfig) -> Self {
         Self {
             config,
             on_frame: OptionOnVideoFrame::None,
@@ -123,7 +123,7 @@ impl VideoWidget {
     /// decode a clip up front (e.g. `decode_mp4_h264_bytes`) get real pixels on
     /// screen. The `RefAny` must carry a `Vec<VideoFrame>`, else playback is
     /// skipped and the test pattern shows instead.
-    pub fn with_frames(mut self, frames: RefAny) -> Self {
+    #[must_use] pub fn with_frames(mut self, frames: RefAny) -> Self {
         self.frames = Some(frames).into();
         self
     }
@@ -177,7 +177,7 @@ impl VideoWidget {
     /// Build the widget's DOM: a single `<img>` node a background thread keeps
     /// fed. Replays pre-decoded [`with_frames`](Self::with_frames) if given, else
     /// shows the built-in test pattern.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         self.build_dom(None)
     }
 
@@ -189,12 +189,12 @@ impl VideoWidget {
     /// frames). The standard worker is
     /// `azul_dll::desktop::extra::video_codec::stream::video_decode_worker`; wrap
     /// it in a `ThreadCallback` to pass it here.
-    pub fn dom_with_decoder(self, cb: ThreadCallback) -> Dom {
+    #[must_use] pub fn dom_with_decoder(self, cb: ThreadCallback) -> Dom {
         self.build_dom(Some(cb))
     }
 }
 
-/// VirtualView render callback (mirrors `map_widget_render`): build the `<img>`
+/// `VirtualView` render callback (mirrors `map_widget_render`): build the `<img>`
 /// for the latest decoded frame, re-read from the widget's dataset on every
 /// re-render. The decode worker stores frames into `current_frame` and triggers
 /// the re-render in place (see [`video_writeback`]), so this renders on both the
@@ -236,7 +236,7 @@ extern "C" fn video_widget_render(
     }
 }
 
-/// AfterMount: start the background decode thread exactly once.
+/// `AfterMount`: start the background decode thread exactly once.
 extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     // Mark started exactly once; pull out the streaming decode worker (if any),
     // its source, and any pre-decoded replay frames.
@@ -290,7 +290,7 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
     Update::DoNothing
 }
 
-/// NodeResized: the video box changed physical size (window resize / relayout). Tell
+/// `NodeResized`: the video box changed physical size (window resize / relayout). Tell
 /// the running decode worker the new target size via its `ThreadSender` so it scales
 /// frames to fit OFF the main thread — the UI then does a cheap image swap with no
 /// interpolation. This is a message, NOT a relayout: returns `DoNothing`.
@@ -310,7 +310,9 @@ extern "C" fn video_on_resize(mut data: RefAny, mut info: CallbackInfo) -> Updat
     };
     let target = (size.width.max(1.0) as u32, size.height.max(1.0) as u32);
     if let Some(thread) = info.get_thread(&tid) {
-        thread.send_message(ThreadSendMsg::Custom(RefAny::new(target)));
+        // Best-effort resize notification: if the decode worker has already
+        // exited, the send fails and there is nothing to do here.
+        let _ = thread.send_message(ThreadSendMsg::Custom(RefAny::new(target)));
     }
     Update::DoNothing
 }
@@ -357,7 +359,7 @@ extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: 
 
 /// Background worker (replay): cycle a caller-supplied `Vec<VideoFrame>` (e.g. a
 /// clip decoded up front via `decode_mp4_h264_bytes`) ~30x/s through the same
-/// WriteBack -> [`video_writeback`] -> [`super::capture_common::present_frame`]
+/// `WriteBack` -> [`video_writeback`] -> [`super::capture_common::present_frame`]
 /// path as the test pattern, so real decoded pixels land in the shared GL
 /// texture. `init` is the `RefAny` handed to
 /// [`VideoWidget::with_frames`](VideoWidget::with_frames); if it doesn't hold a
@@ -386,10 +388,10 @@ extern "C" fn video_replay_worker(mut init: RefAny, mut sender: ThreadSender, _r
 }
 
 /// Writeback (main thread): store the decoded frame as the widget's
-/// `current_frame` (a CPU `ImageRef`) and re-render the VirtualView in place so it
+/// `current_frame` (a CPU `ImageRef`) and re-render the `VirtualView` in place so it
 /// re-reads it — exactly like `map_tile_writeback`. Renders on cpurender AND
 /// webrender (no GL `present_frame`, no DOM rebuild).
-pub extern "C" fn video_writeback(
+#[must_use] pub extern "C" fn video_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,
     mut info: CallbackInfo,

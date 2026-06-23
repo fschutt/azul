@@ -65,7 +65,7 @@ impl ClipboardContent {
     /// Retained consumer of the FFI-exported `styled_runs`: returns an empty
     /// `<div></div>` until `styled_runs` is populated and the platform clipboard
     /// backends gain an HTML format (see module docs). Kept as public API.
-    pub fn to_html(&self) -> String {
+    #[must_use] pub fn to_html(&self) -> String {
         let mut html = String::from("<div>");
 
         for run in self.styled_runs.as_slice() {

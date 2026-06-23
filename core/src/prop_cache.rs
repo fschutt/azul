@@ -39,7 +39,7 @@ pub enum CssPropertyOrigin {
 }
 
 /// A CSS property with its origin tracking.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CssPropertyWithOrigin {
     pub property: CssProperty,
     pub origin: CssPropertyOrigin,
@@ -139,7 +139,7 @@ std::thread_local! {
 /// this after each `layout_document` to print which properties
 /// drove the most cascade walks.
 #[cfg(feature = "std")]
-pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
+#[must_use] pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
     // try_with: no real TLS in the lifted-to-wasm web backend (see the
     // get_property recording site) — return empty rather than panic.
     PROP_COUNTS
@@ -158,7 +158,7 @@ const IN_TO_PX: f32 = 96.0;
 const CM_TO_PX: f32 = 37.795_277;
 const MM_TO_PX: f32 = 3.779_527_7;
 
-/// Match on any CssProperty variant and access the inner CssPropertyValue<T>.
+/// Match on any `CssProperty` variant and access the inner `CssPropertyValue`<T>.
 #[allow(unused_macros)]
 macro_rules! match_property_value {
     ($property:expr, $value:ident, $expr:expr) => {
@@ -328,10 +328,11 @@ macro_rules! match_property_value {
 }
 
 /// A CSS property tagged with its pseudo-state and property type.
-/// Replaces the per-pseudo-state BTreeMap approach: instead of 6 BTreeMaps
+///
+/// Replaces the per-pseudo-state `BTreeMap` approach: instead of 6 `BTreeMaps`
 /// per node (Normal/Hover/Active/Focus/Dragging/DragOver), we store one Vec
 /// per node and tag each property with its state. Lookups use `.iter().find()`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatefulCssProperty {
     pub state: azul_css::dynamic_selector::PseudoStateType,
     pub prop_type: CssPropertyType,
@@ -397,11 +398,11 @@ impl<T> FlatVecVec<T> {
     /// flattened `data` + `offsets` tables and the per-node build
     /// Vecs (in case `sort_each_and_flatten` hasn't been called
     /// yet). `per_element_size` should be `size_of::<T>()`.
-    pub fn heap_bytes(&self, per_element_size: usize) -> usize {
+    #[must_use] pub fn heap_bytes(&self, per_element_size: usize) -> usize {
         let data_bytes = self.data.capacity() * per_element_size;
         let offsets_bytes =
-            self.offsets.capacity() * core::mem::size_of::<(u32, u32)>();
-        let mut build_bytes = self.build.capacity() * core::mem::size_of::<Vec<T>>();
+            self.offsets.capacity() * size_of::<(u32, u32)>();
+        let mut build_bytes = self.build.capacity() * size_of::<Vec<T>>();
         for v in &self.build {
             build_bytes += v.capacity() * per_element_size;
         }
@@ -409,7 +410,7 @@ impl<T> FlatVecVec<T> {
     }
 
     /// Create a new `FlatVecVec` with `node_count` empty slots (build phase).
-    pub fn new(node_count: usize) -> Self {
+    #[must_use] pub fn new(node_count: usize) -> Self {
         let mut build = Vec::with_capacity(node_count);
         for _ in 0..node_count {
             build.push(Vec::new());
@@ -445,23 +446,23 @@ impl<T> FlatVecVec<T> {
     /// Get a reference to the inner Vec at `node_index` during build phase.
     /// During read phase, returns None (use `get_slice` instead).
     #[inline]
-    pub fn build_get(&self, node_index: usize) -> Option<&Vec<T>> {
+    #[must_use] pub fn build_get(&self, node_index: usize) -> Option<&Vec<T>> {
         self.build.get(node_index)
     }
 
     /// Number of node slots.
     #[inline]
-    pub fn len(&self) -> usize {
-        if !self.offsets.is_empty() {
-            self.offsets.len()
-        } else {
+    #[must_use] pub const fn len(&self) -> usize {
+        if self.offsets.is_empty() {
             self.build.len()
+        } else {
+            self.offsets.len()
         }
     }
 
     /// Returns true if this is in read (flattened) mode.
     #[inline]
-    pub fn is_flattened(&self) -> bool {
+    #[must_use] pub const fn is_flattened(&self) -> bool {
         !self.offsets.is_empty() || self.build.is_empty()
     }
 
@@ -469,8 +470,11 @@ impl<T> FlatVecVec<T> {
     /// Returns empty slice if index is out of bounds or not yet flattened
     /// (falls back to build-phase data if not yet flattened).
     #[inline]
-    pub fn get_slice(&self, node_index: usize) -> &[T] {
-        if !self.offsets.is_empty() {
+    #[must_use] pub fn get_slice(&self, node_index: usize) -> &[T] {
+        if self.offsets.is_empty() {
+            // Build phase fallback: use inner Vecs
+            self.build.get(node_index).map_or(&[], std::vec::Vec::as_slice)
+        } else {
             // Read phase: use flat data
             if let Some(&(start, len)) = self.offsets.get(node_index) {
                 let s = start as usize;
@@ -479,9 +483,6 @@ impl<T> FlatVecVec<T> {
             } else {
                 &[]
             }
-        } else {
-            // Build phase fallback: use inner Vecs
-            self.build.get(node_index).map(|v| v.as_slice()).unwrap_or(&[])
         }
     }
 
@@ -491,12 +492,12 @@ impl<T> FlatVecVec<T> {
     /// Drains all build-phase Vecs. After this call, only `get_slice()` works.
     pub fn sort_each_and_flatten<K: Ord + Eq>(&mut self, key_fn: impl Fn(&T) -> K) {
         let node_count = self.build.len();
-        let total: usize = self.build.iter().map(|v| v.len()).sum();
+        let total: usize = self.build.iter().map(std::vec::Vec::len).sum();
 
         let mut flat_data = Vec::with_capacity(total);
         let mut offsets = Vec::with_capacity(node_count);
 
-        for inner in self.build.iter_mut() {
+        for inner in &mut self.build {
             inner.sort_by_key(|a| key_fn(a));
 
             // Deduplicate: keep last of each consecutive-key group (CSS cascade).
@@ -529,12 +530,12 @@ impl<T> FlatVecVec<T> {
     /// Flatten without sorting (for data that's already sorted).
     pub fn flatten(&mut self) {
         let node_count = self.build.len();
-        let total: usize = self.build.iter().map(|v| v.len()).sum();
+        let total: usize = self.build.iter().map(std::vec::Vec::len).sum();
 
         let mut flat_data = Vec::with_capacity(total);
         let mut offsets = Vec::with_capacity(node_count);
 
-        for inner in self.build.iter_mut() {
+        for inner in &mut self.build {
             let start = flat_data.len() as u32;
             let len = inner.len() as u32;
             offsets.push((start, len));
@@ -601,9 +602,9 @@ impl<T> FlatVecVec<T> {
         self.offsets = new_offsets;
     }
 
-    /// Iterate over all nodes, yielding (node_index, &[T]) for each.
+    /// Iterate over all nodes, yielding (`node_index`, &[T]) for each.
     /// Works in both build and flattened phases.
-    pub(crate) fn iter_node_slices(&self) -> FlatVecVecIter<'_, T> {
+    pub(crate) const fn iter_node_slices(&self) -> FlatVecVecIter<'_, T> {
         FlatVecVecIter {
             fvv: self,
             idx: 0,
@@ -611,7 +612,7 @@ impl<T> FlatVecVec<T> {
         }
     }
 
-    /// Extend this FlatVecVec with all nodes from `other` (append for DOM merge).
+    /// Extend this `FlatVecVec` with all nodes from `other` (append for DOM merge).
     /// Both must be in build phase, or both must be flattened.
     pub fn extend_from(&mut self, other: &mut Self) {
         if !self.offsets.is_empty() && !other.offsets.is_empty() {
@@ -629,7 +630,7 @@ impl<T> FlatVecVec<T> {
     }
 }
 
-/// Iterator over (node_index, &[T]) pairs from a `FlatVecVec`.
+/// Iterator over (`node_index`, &[T]) pairs from a `FlatVecVec`.
 pub(crate) struct FlatVecVecIter<'a, T> {
     fvv: &'a FlatVecVec<T>,
     idx: usize,
@@ -655,7 +656,7 @@ impl<'a, T> Iterator for FlatVecVecIter<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for FlatVecVecIter<'a, T> {}
+impl<T> ExactSizeIterator for FlatVecVecIter<'_, T> {}
 
 // NOTE: To avoid large memory allocations, this is a "cache" that stores all the CSS properties
 // found in the DOM. This cache exists on a per-DOM basis, so it scales independent of how many
@@ -735,7 +736,7 @@ pub struct CssPropertyCacheBreakdown {
 
 impl CssPropertyCacheBreakdown {
     /// Sum of all subfields.
-    pub fn total_bytes(&self) -> usize {
+    #[must_use] pub const fn total_bytes(&self) -> usize {
         self.cascaded_props_bytes
             + self.css_props_bytes
             + self.computed_values_bytes
@@ -761,10 +762,10 @@ impl CssPropertyCache {
     /// numbers. Still useful for spotting gross duplication between
     /// the pre-compact and compact caches.
     pub fn memory_breakdown(&self) -> CssPropertyCacheBreakdown {
-        let stateful_sz = core::mem::size_of::<StatefulCssProperty>();
+        let stateful_sz = size_of::<StatefulCssProperty>();
         let computed_entry_sz =
-            core::mem::size_of::<(CssPropertyType, CssPropertyWithOrigin)>();
-        let outer_vec_sz = core::mem::size_of::<Vec<(CssPropertyType, CssPropertyWithOrigin)>>();
+            size_of::<(CssPropertyType, CssPropertyWithOrigin)>();
+        let outer_vec_sz = size_of::<Vec<(CssPropertyType, CssPropertyWithOrigin)>>();
 
         let cascaded_bytes = self.cascaded_props.heap_bytes(stateful_sz);
         let css_bytes = self.css_props.heap_bytes(stateful_sz);
@@ -778,32 +779,30 @@ impl CssPropertyCache {
             let mut b = self.user_overridden_properties.capacity() * outer_vec_sz;
             for v in &self.user_overridden_properties {
                 b += v.capacity()
-                    * core::mem::size_of::<(CssPropertyType, CssProperty)>();
+                    * size_of::<(CssPropertyType, CssProperty)>();
             }
             b
         };
 
         let global_bytes = self.global_css_props.capacity()
-            * core::mem::size_of::<CssProperty>();
+            * size_of::<CssProperty>();
 
         let compact_bytes = self
             .compact_cache
             .as_ref()
-            .map(|c| {
+            .map_or(0, |c| {
                 c.tier1_enums.capacity() * 8
                     + c.tier2_dims.capacity() * 68
                     + c.tier2_cold.capacity() * 28
                     + c.tier2b_text.capacity() * 24
                     + c.prev_font_hashes.capacity() * 8
                     + c.font_dirty_nodes.capacity() * 8
-            })
-            .unwrap_or(0);
+            });
 
         let resolved_font_sizes_bytes = self
             .resolved_font_sizes_px
             .get()
-            .map(|v| v.capacity() * core::mem::size_of::<f32>())
-            .unwrap_or(0);
+            .map_or(0, |v| v.capacity() * size_of::<f32>());
 
         CssPropertyCacheBreakdown {
             node_count: self.node_count,
@@ -844,7 +843,7 @@ impl CssPropertyCache {
                     }
                 }
             }
-            let ssp_sz = core::mem::size_of::<StatefulCssProperty>();
+            let ssp_sz = size_of::<StatefulCssProperty>();
             let mut casc_normal_compact = 0usize;
             let mut casc_total = 0usize;
             for i in 0..self.cascaded_props.len() {
@@ -855,8 +854,7 @@ impl CssPropertyCache {
                     }
                 }
             }
-            eprintln!("[PRUNE] css_props: norm+compact={} norm+other={} nonnorm={} SSP={}B | cascaded: total={} norm+compact={}",
-                normal_compact, normal_noncompact, nonnormal, ssp_sz, casc_total, casc_normal_compact);
+            eprintln!("[PRUNE] css_props: norm+compact={normal_compact} norm+other={normal_noncompact} nonnorm={nonnormal} SSP={ssp_sz}B | cascaded: total={casc_total} norm+compact={casc_normal_compact}");
         }
         }
 
@@ -899,7 +897,7 @@ impl CssPropertyCache {
     }
 
     /// Look up a CSS property for a specific pseudo-state in a stateful property vec.
-    /// Requires the vec to be sorted by (state, prop_type).
+    /// Requires the vec to be sorted by (state, `prop_type`).
     #[inline]
     fn find_in_stateful<'a>(
         props: &'a [StatefulCssProperty],
@@ -913,7 +911,7 @@ impl CssPropertyCache {
     }
 
     /// Check if any properties exist for a specific pseudo-state in a stateful property vec.
-    /// Requires the vec to be sorted by (state, prop_type).
+    /// Requires the vec to be sorted by (state, `prop_type`).
     #[inline]
     fn has_state_props(
         props: &[StatefulCssProperty],
@@ -926,10 +924,10 @@ impl CssPropertyCache {
     }
 
     /// Collect all property types for a specific pseudo-state.
-    pub(crate) fn prop_types_for_state<'a>(
-        props: &'a [StatefulCssProperty],
+    pub(crate) fn prop_types_for_state(
+        props: &[StatefulCssProperty],
         state: azul_css::dynamic_selector::PseudoStateType,
-    ) -> impl Iterator<Item = &'a CssPropertyType> + 'a {
+    ) -> impl Iterator<Item = &CssPropertyType> + '_ {
         props.iter().filter(move |p| p.state == state).map(|p| &p.prop_type)
     }
 }
@@ -1035,8 +1033,8 @@ fn property_needs_slow_path_after_compact(prop: &CssProperty) -> bool {
 /// `CaretColor`, a `Copy` value with no heap pointer to deref). On native this function
 /// is byte-for-byte equivalent to `p.clone()`.
 fn clone_inheritable_property(
-    p: &azul_css::props::property::CssProperty,
-) -> azul_css::props::property::CssProperty {
+    p: &CssProperty,
+) -> CssProperty {
     use azul_css::props::property::CssProperty;
     if let CssProperty::FontFamily(v) = p { return CssProperty::FontFamily(v.clone()); }
     if let CssProperty::BackgroundContent(v) = p { return CssProperty::BackgroundContent(v.clone()); }
@@ -1063,8 +1061,8 @@ fn clone_inheritable_property(
 }
 
 impl CssPropertyCache {
-    /// Match CSS selectors to nodes and populate css_props.
-    /// Returns tag IDs for hit-testing. If compact_cache is available,
+    /// Match CSS selectors to nodes and populate `css_props`.
+    /// Returns tag IDs for hit-testing. If `compact_cache` is available,
     /// uses it for fast display/overflow checks; otherwise falls back to slow path.
     #[must_use]
     pub fn restyle(
@@ -1076,7 +1074,7 @@ impl CssPropertyCache {
         html_tree: &NodeDataContainerRef<CascadeInfo>,
     ) -> Vec<TagIdToNodeIdMapping> {
         use azul_css::{
-            css::{CssDeclaration, CssPathPseudoSelector::*},
+            css::{CssDeclaration, CssPathPseudoSelector::{Hover, Active, Focus, Dragging, DragOver}},
             props::layout::LayoutDisplay,
         };
 
@@ -1248,14 +1246,14 @@ impl CssPropertyCache {
                     .collect();
 
                 // 2. Inherit CSS stylesheet properties from parent for this pseudo-state
-                let parent_inheritable_css: Vec<(CssPropertyType, CssProperty)> = if !css_is_empty {
+                let parent_inheritable_css: Vec<(CssPropertyType, CssProperty)> = if css_is_empty {
+                    Vec::new()
+                } else {
                     self.css_props.get_slice(parent_id.index())
                         .iter()
                         .filter(|p| p.state == state && p.prop_type.is_inheritable())
                         .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
                         .collect()
-                } else {
-                    Vec::new()
                 };
 
                 // 3. Inherit cascaded properties from parent for this pseudo-state
@@ -1304,7 +1302,7 @@ impl CssPropertyCache {
 
     /// Generate hit-test tag IDs for nodes that need event handling.
     /// Uses compact cache (if available) for fast display/overflow reads.
-    /// Can be called separately after build_compact_cache_with_inheritance.
+    /// Can be called separately after `build_compact_cache_with_inheritance`.
     pub fn generate_tag_ids(
         &self,
         node_data: &NodeDataContainerRef<NodeData>,
@@ -1389,9 +1387,9 @@ impl CssPropertyCache {
                     // Cursor check — read from cached css_props or inline style.
                     if self.css_props.get_slice(node_idx).iter().any(|p|
                         p.state == azul_css::dynamic_selector::PseudoStateType::Normal
-                        && p.prop_type == azul_css::props::property::CssPropertyType::Cursor
+                        && p.prop_type == CssPropertyType::Cursor
                     ) || node_data.style.iter_inline_properties().any(|(p, _)|
-                        p.get_type() == azul_css::props::property::CssPropertyType::Cursor
+                        p.get_type() == CssPropertyType::Cursor
                     ) {
                         need_tag = true; break;
                     }
@@ -1427,14 +1425,14 @@ impl CssPropertyCache {
                     break;
                 }
 
-                if !need_tag {
-                    None
-                } else {
+                if need_tag {
                     Some(TagIdToNodeIdMapping {
                         tag_id: TagId::from_crate_internal(TagId::unique()),
                         node_id: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
                         tab_index: tab_index.into(),
                     })
+                } else {
+                    None
                 }
             })
             .collect::<Vec<_>>();
@@ -1777,7 +1775,7 @@ macro_rules! impl_get_prop {
 }
 
 impl CssPropertyCache {
-    pub fn empty(node_count: usize) -> Self {
+    #[must_use] pub fn empty(node_count: usize) -> Self {
         Self {
             node_count,
             user_overridden_properties: Vec::new(),
@@ -1871,7 +1869,7 @@ impl CssPropertyCache {
     ) -> StyleTextColor {
         use azul_css::defaults::DEFAULT_TEXT_COLOR;
         self.get_text_color(node_data, node_id, node_state)
-            .and_then(|fs| fs.get_property().cloned())
+            .and_then(|fs| fs.get_property().copied())
             .unwrap_or(DEFAULT_TEXT_COLOR)
     }
 
@@ -1903,7 +1901,7 @@ impl CssPropertyCache {
     ) -> StyleFontSize {
         use azul_css::defaults::DEFAULT_FONT_SIZE;
         self.get_font_size(node_data, node_id, node_state)
-            .and_then(|fs| fs.get_property().cloned())
+            .and_then(|fs| fs.get_property().copied())
             .unwrap_or(DEFAULT_FONT_SIZE)
     }
 
@@ -2007,7 +2005,7 @@ impl CssPropertyCache {
         if let Some(s) = g.get(t) {
             return s;
         }
-        let s: String = std::format!("{:?}", t);
+        let s: String = std::format!("{t:?}");
         let leaked: &'static str = std::boxed::Box::leak(s.into_boxed_str());
         g.insert(*t, leaked);
         leaked
@@ -2267,7 +2265,7 @@ impl CssPropertyCache {
         crate::ua_css::get_ua_property(&node_data.node_type, *css_property_type)
     }
 
-    /// Get a CSS property using DynamicSelectorContext for evaluation.
+    /// Get a CSS property using `DynamicSelectorContext` for evaluation.
     ///
     /// This is the new API that supports @media queries, @container queries,
     /// OS-specific styles, and all pseudo-states via `CssPropertyWithConditions`.
@@ -3245,7 +3243,7 @@ impl CssPropertyCache {
 
         // Mark properties from css_props (author CSS, Normal state)
         for (node_idx, props) in self.css_props.iter_node_slices() {
-            for p in props.iter() {
+            for p in props {
                 if p.state == PseudoStateType::Normal {
                     let d = p.prop_type as u16 as usize;
                     if d < 128 {
@@ -3259,7 +3257,7 @@ impl CssPropertyCache {
 
         // Mark properties from cascaded_props (Normal state)
         for (node_idx, props) in self.cascaded_props.iter_node_slices() {
-            for p in props.iter() {
+            for p in props {
                 if p.state == PseudoStateType::Normal {
                     let d = p.prop_type as u16 as usize;
                     if d < 128 {
@@ -3351,8 +3349,8 @@ impl CssPropertyCache {
         }
     }
 
-    /// Sort cascaded_props by (state, prop_type) and flatten into contiguous memory.
-    /// Must be called after apply_ua_css() which adds entries to cascaded_props.
+    /// Sort `cascaded_props` by (state, `prop_type`) and flatten into contiguous memory.
+    /// Must be called after `apply_ua_css()` which adds entries to `cascaded_props`.
     pub fn sort_cascaded_props(&mut self) {
         self.cascaded_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
     }
@@ -3439,7 +3437,7 @@ impl CssPropertyCache {
         // Step 2: Cascaded properties (UA CSS)
         {
             let cascaded_slice = self.cascaded_props.get_slice(node_id.index());
-            for p in cascaded_slice.iter() {
+            for p in cascaded_slice {
                 if p.state == azul_css::dynamic_selector::PseudoStateType::Normal
                     && self.should_apply_cascaded(&ctx.computed_values, p.prop_type, &p.property) {
                         self.process_property(ctx, &p.property, parent_computed);
@@ -3450,7 +3448,7 @@ impl CssPropertyCache {
         // Step 3: CSS properties (stylesheets)
         {
             let css_slice = self.css_props.get_slice(node_id.index());
-            for p in css_slice.iter() {
+            for p in css_slice {
                 if p.state == azul_css::dynamic_selector::PseudoStateType::Normal {
                     self.process_property(ctx, &p.property, parent_computed);
                 }
@@ -3467,7 +3465,7 @@ impl CssPropertyCache {
 
         // Step 5: User-overridden properties
         if let Some(user_props) = self.user_overridden_properties.get(node_id.index()) {
-            for (_, prop) in user_props.iter() {
+            for (_, prop) in user_props {
                 self.process_property(ctx, prop, parent_computed);
             }
         }
@@ -3611,22 +3609,19 @@ impl CssPropertyCache {
 
         css_val
             .get_property()
-            .map(|fs| {
+            .is_some_and(|fs| {
                 matches!(
                     fs.inner.metric,
                     SizeMetric::Em | SizeMetric::Rem | SizeMetric::Percent
                 )
             })
-            .unwrap_or(false)
     }
 
     /// Store computed values if changed, returns true if values were updated
     fn store_if_changed(&mut self, ctx: &InheritanceContext) -> bool {
         let values_changed = self
             .computed_values
-            .get(ctx.node_id.index())
-            .map(|old| old != &ctx.computed_values)
-            .unwrap_or(true);
+            .get(ctx.node_id.index()) != Some(&ctx.computed_values);
 
         self.computed_values[ctx.node_id.index()] = ctx.computed_values.clone();
 

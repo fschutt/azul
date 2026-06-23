@@ -30,7 +30,7 @@ use crate::{
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTextColor {
-    pub inner: crate::props::basic::color::ColorU,
+    pub inner: ColorU,
 }
 
 impl fmt::Debug for StyleTextColor {
@@ -40,7 +40,7 @@ impl fmt::Debug for StyleTextColor {
 }
 
 impl StyleTextColor {
-    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             inner: self.inner.interpolate(&other.inner, t),
         }
@@ -77,12 +77,12 @@ impl_option!(
 impl PrintAsCssValue for StyleTextAlign {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleTextAlign::Left => "left",
-            StyleTextAlign::Center => "center",
-            StyleTextAlign::Right => "right",
-            StyleTextAlign::Justify => "justify",
-            StyleTextAlign::Start => "start",
-            StyleTextAlign::End => "end",
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+            Self::Justify => "justify",
+            Self::Start => "start",
+            Self::End => "end",
         })
     }
 }
@@ -212,7 +212,7 @@ impl PrintAsCssValue for StyleTabSize {
 
 /// How to handle white space inside an element.
 /// 
-/// CSS Text Level 3: https://www.w3.org/TR/css-text-3/#white-space-property
+/// CSS Text Level 3: <https://www.w3.org/TR/css-text-3/#white-space-property>
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
@@ -239,12 +239,12 @@ impl_option!(
 impl PrintAsCssValue for StyleWhiteSpace {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleWhiteSpace::Normal => "normal",
-            StyleWhiteSpace::Pre => "pre",
-            StyleWhiteSpace::Nowrap => "nowrap",
-            StyleWhiteSpace::PreWrap => "pre-wrap",
-            StyleWhiteSpace::PreLine => "pre-line",
-            StyleWhiteSpace::BreakSpaces => "break-spaces",
+            Self::Normal => "normal",
+            Self::Pre => "pre",
+            Self::Nowrap => "nowrap",
+            Self::PreWrap => "pre-wrap",
+            Self::PreLine => "pre-line",
+            Self::BreakSpaces => "break-spaces",
         })
     }
 }
@@ -275,9 +275,9 @@ impl_option!(
 impl PrintAsCssValue for StyleHyphens {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleHyphens::None => "none",
-            StyleHyphens::Manual => "manual",
-            StyleHyphens::Auto => "auto",
+            Self::None => "none",
+            Self::Manual => "manual",
+            Self::Auto => "auto",
         })
     }
 }
@@ -286,7 +286,7 @@ impl PrintAsCssValue for StyleHyphens {
 
 /// Controls the strictness of line breaking rules.
 ///
-/// CSS Text Level 3: https://www.w3.org/TR/css-text-3/#line-break-property
+/// CSS Text Level 3: <https://www.w3.org/TR/css-text-3/#line-break-property>
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
@@ -313,11 +313,11 @@ impl_option!(
 impl PrintAsCssValue for StyleLineBreak {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleLineBreak::Auto => "auto",
-            StyleLineBreak::Loose => "loose",
-            StyleLineBreak::Normal => "normal",
-            StyleLineBreak::Strict => "strict",
-            StyleLineBreak::Anywhere => "anywhere",
+            Self::Auto => "auto",
+            Self::Loose => "loose",
+            Self::Normal => "normal",
+            Self::Strict => "strict",
+            Self::Anywhere => "anywhere",
         })
     }
 }
@@ -326,7 +326,7 @@ impl PrintAsCssValue for StyleLineBreak {
 
 /// Controls line breaking rules within words.
 ///
-/// CSS Text Level 3 §5.2: https://www.w3.org/TR/css-text-3/#word-break-property
+/// CSS Text Level 3 §5.2: <https://www.w3.org/TR/css-text-3/#word-break-property>
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
@@ -350,10 +350,10 @@ impl_option!(
 impl PrintAsCssValue for StyleWordBreak {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleWordBreak::Normal => "normal",
-            StyleWordBreak::BreakAll => "break-all",
-            StyleWordBreak::KeepAll => "keep-all",
-            StyleWordBreak::BreakWord => "break-word",
+            Self::Normal => "normal",
+            Self::BreakAll => "break-all",
+            Self::KeepAll => "keep-all",
+            Self::BreakWord => "break-word",
         })
     }
 }
@@ -363,7 +363,7 @@ impl PrintAsCssValue for StyleWordBreak {
 /// Controls whether the browser may break at otherwise disallowed points
 /// to prevent overflow.
 ///
-/// CSS Text Level 3 §3.3: https://www.w3.org/TR/css-text-3/#overflow-wrap-property
+/// CSS Text Level 3 §3.3: <https://www.w3.org/TR/css-text-3/#overflow-wrap-property>
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
@@ -386,9 +386,9 @@ impl_option!(
 impl PrintAsCssValue for StyleOverflowWrap {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleOverflowWrap::Normal => "normal",
-            StyleOverflowWrap::Anywhere => "anywhere",
-            StyleOverflowWrap::BreakWord => "break-word",
+            Self::Normal => "normal",
+            Self::Anywhere => "anywhere",
+            Self::BreakWord => "break-word",
         })
     }
 }
@@ -398,7 +398,7 @@ impl PrintAsCssValue for StyleOverflowWrap {
 /// Controls alignment of the last line of a block or a line right before
 /// a forced line break.
 ///
-/// CSS Text Level 3 §7.2: https://www.w3.org/TR/css-text-3/#text-align-last-property
+/// CSS Text Level 3 §7.2: <https://www.w3.org/TR/css-text-3/#text-align-last-property>
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
@@ -427,13 +427,13 @@ impl_option!(
 impl PrintAsCssValue for StyleTextAlignLast {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleTextAlignLast::Auto => "auto",
-            StyleTextAlignLast::Start => "start",
-            StyleTextAlignLast::End => "end",
-            StyleTextAlignLast::Left => "left",
-            StyleTextAlignLast::Right => "right",
-            StyleTextAlignLast::Center => "center",
-            StyleTextAlignLast::Justify => "justify",
+            Self::Auto => "auto",
+            Self::Start => "start",
+            Self::End => "end",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Center => "center",
+            Self::Justify => "justify",
         })
     }
 }
@@ -460,8 +460,8 @@ impl_option!(
 impl PrintAsCssValue for StyleDirection {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleDirection::Ltr => "ltr",
-            StyleDirection::Rtl => "rtl",
+            Self::Ltr => "ltr",
+            Self::Rtl => "rtl",
         })
     }
 }
@@ -492,10 +492,10 @@ impl_option!(
 impl PrintAsCssValue for StyleUserSelect {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleUserSelect::Auto => "auto",
-            StyleUserSelect::Text => "text",
-            StyleUserSelect::None => "none",
-            StyleUserSelect::All => "all",
+            Self::Auto => "auto",
+            Self::Text => "text",
+            Self::None => "none",
+            Self::All => "all",
         })
     }
 }
@@ -525,10 +525,10 @@ impl_option!(
 impl PrintAsCssValue for StyleTextDecoration {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleTextDecoration::None => "none",
-            StyleTextDecoration::Underline => "underline",
-            StyleTextDecoration::Overline => "overline",
-            StyleTextDecoration::LineThrough => "line-through",
+            Self::None => "none",
+            Self::Underline => "underline",
+            Self::Overline => "overline",
+            Self::LineThrough => "line-through",
         })
     }
 }
@@ -572,33 +572,33 @@ impl_option!(
 impl PrintAsCssValue for StyleVerticalAlign {
     fn print_as_css_value(&self) -> String {
         match self {
-            StyleVerticalAlign::Baseline => String::from("baseline"),
-            StyleVerticalAlign::Top => String::from("top"),
-            StyleVerticalAlign::Middle => String::from("middle"),
-            StyleVerticalAlign::Bottom => String::from("bottom"),
-            StyleVerticalAlign::Sub => String::from("sub"),
-            StyleVerticalAlign::Superscript => String::from("super"),
-            StyleVerticalAlign::TextTop => String::from("text-top"),
-            StyleVerticalAlign::TextBottom => String::from("text-bottom"),
-            StyleVerticalAlign::Percentage(p) => format!("{}%", p.normalized() * 100.0),
-            StyleVerticalAlign::Length(l) => l.print_as_css_value(),
+            Self::Baseline => String::from("baseline"),
+            Self::Top => String::from("top"),
+            Self::Middle => String::from("middle"),
+            Self::Bottom => String::from("bottom"),
+            Self::Sub => String::from("sub"),
+            Self::Superscript => String::from("super"),
+            Self::TextTop => String::from("text-top"),
+            Self::TextBottom => String::from("text-bottom"),
+            Self::Percentage(p) => format!("{}%", p.normalized() * 100.0),
+            Self::Length(l) => l.print_as_css_value(),
         }
     }
 }
 
-impl crate::codegen::format::FormatAsRustCode for StyleVerticalAlign {
+impl FormatAsRustCode for StyleVerticalAlign {
     fn format_as_rust_code(&self, indent: usize) -> String {
         match self {
-            StyleVerticalAlign::Baseline => "StyleVerticalAlign::Baseline".to_string(),
-            StyleVerticalAlign::Top => "StyleVerticalAlign::Top".to_string(),
-            StyleVerticalAlign::Middle => "StyleVerticalAlign::Middle".to_string(),
-            StyleVerticalAlign::Bottom => "StyleVerticalAlign::Bottom".to_string(),
-            StyleVerticalAlign::Sub => "StyleVerticalAlign::Sub".to_string(),
-            StyleVerticalAlign::Superscript => "StyleVerticalAlign::Superscript".to_string(),
-            StyleVerticalAlign::TextTop => "StyleVerticalAlign::TextTop".to_string(),
-            StyleVerticalAlign::TextBottom => "StyleVerticalAlign::TextBottom".to_string(),
-            StyleVerticalAlign::Percentage(p) => format!("StyleVerticalAlign::Percentage(PercentageValue::new({}))", p.normalized() * 100.0),
-            StyleVerticalAlign::Length(l) => format!("StyleVerticalAlign::Length({})", l),
+            Self::Baseline => "StyleVerticalAlign::Baseline".to_string(),
+            Self::Top => "StyleVerticalAlign::Top".to_string(),
+            Self::Middle => "StyleVerticalAlign::Middle".to_string(),
+            Self::Bottom => "StyleVerticalAlign::Bottom".to_string(),
+            Self::Sub => "StyleVerticalAlign::Sub".to_string(),
+            Self::Superscript => "StyleVerticalAlign::Superscript".to_string(),
+            Self::TextTop => "StyleVerticalAlign::TextTop".to_string(),
+            Self::TextBottom => "StyleVerticalAlign::TextBottom".to_string(),
+            Self::Percentage(p) => format!("StyleVerticalAlign::Percentage(PercentageValue::new({}))", p.normalized() * 100.0),
+            Self::Length(l) => format!("StyleVerticalAlign::Length({l})"),
         }
     }
 }
@@ -636,8 +636,8 @@ pub enum StyleTextColorParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleTextColorParseError<'a> {
-    pub fn to_contained(&self) -> StyleTextColorParseErrorOwned {
+impl StyleTextColorParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleTextColorParseErrorOwned {
         match self {
             Self::ColorParseError(e) => {
                 StyleTextColorParseErrorOwned::ColorParseError(e.to_contained())
@@ -648,7 +648,7 @@ impl<'a> StyleTextColorParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleTextColorParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleTextColorParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleTextColorParseError<'_> {
         match self {
             Self::ColorParseError(e) => StyleTextColorParseError::ColorParseError(e.to_shared()),
         }
@@ -663,7 +663,7 @@ pub fn parse_style_text_color(input: &str) -> Result<StyleTextColor, StyleTextCo
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleTextAlignParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -677,15 +677,15 @@ impl_display! { StyleTextAlignParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleTextAlignParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleTextAlignParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleTextAlignParseError<'a> {
-    pub fn to_contained(&self) -> StyleTextAlignParseErrorOwned {
+impl StyleTextAlignParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleTextAlignParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleTextAlignParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -694,7 +694,7 @@ impl<'a> StyleTextAlignParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleTextAlignParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleTextAlignParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleTextAlignParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleTextAlignParseError::InvalidValue(e.to_shared()),
         }
@@ -717,7 +717,7 @@ pub fn parse_style_text_align(input: &str) -> Result<StyleTextAlign, StyleTextAl
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleLetterSpacingParseError<'a> {
     PixelValue(CssPixelValueParseError<'a>),
 }
@@ -734,15 +734,15 @@ impl_from!(
 );
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleLetterSpacingParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleLetterSpacingParseError<'a> {
-    pub fn to_contained(&self) -> StyleLetterSpacingParseErrorOwned {
+impl StyleLetterSpacingParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleLetterSpacingParseErrorOwned {
         match self {
             Self::PixelValue(e) => StyleLetterSpacingParseErrorOwned::PixelValue(e.to_contained()),
         }
@@ -751,7 +751,7 @@ impl<'a> StyleLetterSpacingParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleLetterSpacingParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleLetterSpacingParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleLetterSpacingParseError<'_> {
         match self {
             Self::PixelValue(e) => StyleLetterSpacingParseError::PixelValue(e.to_shared()),
         }
@@ -789,64 +789,64 @@ impl fmt::Debug for StyleTextIndent {
 
 impl StyleTextIndent {
     #[inline]
-    pub const fn zero() -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::zero(), each_line: false, hanging: false }
+    #[must_use] pub const fn zero() -> Self {
+        Self { inner: PixelValue::zero(), each_line: false, hanging: false }
     }
     #[inline]
-    pub const fn const_px(value: isize) -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::const_px(value), each_line: false, hanging: false }
+    #[must_use] pub const fn const_px(value: isize) -> Self {
+        Self { inner: PixelValue::const_px(value), each_line: false, hanging: false }
     }
     #[inline]
-    pub const fn const_em(value: isize) -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::const_em(value), each_line: false, hanging: false }
+    #[must_use] pub const fn const_em(value: isize) -> Self {
+        Self { inner: PixelValue::const_em(value), each_line: false, hanging: false }
     }
     #[inline]
-    pub const fn const_pt(value: isize) -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::const_pt(value), each_line: false, hanging: false }
+    #[must_use] pub const fn const_pt(value: isize) -> Self {
+        Self { inner: PixelValue::const_pt(value), each_line: false, hanging: false }
     }
     #[inline]
-    pub const fn const_percent(value: isize) -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::const_percent(value), each_line: false, hanging: false }
+    #[must_use] pub const fn const_percent(value: isize) -> Self {
+        Self { inner: PixelValue::const_percent(value), each_line: false, hanging: false }
     }
     #[inline]
-    pub const fn const_in(value: isize) -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::const_in(value), each_line: false, hanging: false }
+    #[must_use] pub const fn const_in(value: isize) -> Self {
+        Self { inner: PixelValue::const_in(value), each_line: false, hanging: false }
     }
     #[inline]
-    pub const fn const_cm(value: isize) -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::const_cm(value), each_line: false, hanging: false }
+    #[must_use] pub const fn const_cm(value: isize) -> Self {
+        Self { inner: PixelValue::const_cm(value), each_line: false, hanging: false }
     }
     #[inline]
-    pub const fn const_mm(value: isize) -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::const_mm(value), each_line: false, hanging: false }
+    #[must_use] pub const fn const_mm(value: isize) -> Self {
+        Self { inner: PixelValue::const_mm(value), each_line: false, hanging: false }
     }
     #[inline]
-    pub const fn const_from_metric(metric: crate::props::basic::length::SizeMetric, value: isize) -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::const_from_metric(metric, value), each_line: false, hanging: false }
+    #[must_use] pub const fn const_from_metric(metric: crate::props::basic::length::SizeMetric, value: isize) -> Self {
+        Self { inner: PixelValue::const_from_metric(metric, value), each_line: false, hanging: false }
     }
     #[inline]
-    pub fn px(value: f32) -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::px(value), each_line: false, hanging: false }
+    #[must_use] pub fn px(value: f32) -> Self {
+        Self { inner: PixelValue::px(value), each_line: false, hanging: false }
     }
     #[inline]
-    pub fn em(value: f32) -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::em(value), each_line: false, hanging: false }
+    #[must_use] pub fn em(value: f32) -> Self {
+        Self { inner: PixelValue::em(value), each_line: false, hanging: false }
     }
     #[inline]
-    pub fn pt(value: f32) -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::pt(value), each_line: false, hanging: false }
+    #[must_use] pub fn pt(value: f32) -> Self {
+        Self { inner: PixelValue::pt(value), each_line: false, hanging: false }
     }
     #[inline]
-    pub fn percent(value: f32) -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::percent(value), each_line: false, hanging: false }
+    #[must_use] pub fn percent(value: f32) -> Self {
+        Self { inner: PixelValue::percent(value), each_line: false, hanging: false }
     }
     #[inline]
-    pub fn from_metric(metric: crate::props::basic::length::SizeMetric, value: f32) -> Self {
-        Self { inner: crate::props::basic::pixel::PixelValue::from_metric(metric, value), each_line: false, hanging: false }
+    #[must_use] pub fn from_metric(metric: crate::props::basic::length::SizeMetric, value: f32) -> Self {
+        Self { inner: PixelValue::from_metric(metric, value), each_line: false, hanging: false }
     }
     #[inline]
-    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
-        StyleTextIndent { inner: self.inner.interpolate(&other.inner, t), each_line: self.each_line, hanging: self.hanging }
+    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self { inner: self.inner.interpolate(&other.inner, t), each_line: self.each_line, hanging: self.hanging }
     }
 }
 
@@ -863,7 +863,7 @@ impl PrintAsCssValue for StyleTextIndent {
     }
 }
 
-impl crate::codegen::format::FormatAsRustCode for StyleTextIndent {
+impl FormatAsRustCode for StyleTextIndent {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "StyleTextIndent {{ inner: {}, each_line: {}, hanging: {} }}",
@@ -873,7 +873,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleTextIndent {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleTextIndentParseError<'a> {
     PixelValue(CssPixelValueParseError<'a>),
 }
@@ -890,15 +890,15 @@ impl_from!(
 );
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleTextIndentParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleTextIndentParseError<'a> {
-    pub fn to_contained(&self) -> StyleTextIndentParseErrorOwned {
+impl StyleTextIndentParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleTextIndentParseErrorOwned {
         match self {
             Self::PixelValue(e) => StyleTextIndentParseErrorOwned::PixelValue(e.to_contained()),
         }
@@ -907,7 +907,7 @@ impl<'a> StyleTextIndentParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleTextIndentParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleTextIndentParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleTextIndentParseError<'_> {
         match self {
             Self::PixelValue(e) => StyleTextIndentParseError::PixelValue(e.to_shared()),
         }
@@ -947,7 +947,7 @@ pub struct StyleInitialLetter {
 
 impl FormatAsRustCode for StyleInitialLetter {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 }
 
@@ -962,7 +962,7 @@ impl PrintAsCssValue for StyleInitialLetter {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleInitialLetterParseError<'a> {
     InvalidFormat(&'a str),
     InvalidSize(&'a str),
@@ -978,7 +978,7 @@ impl_display! { StyleInitialLetterParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleInitialLetterParseErrorOwned {
     InvalidFormat(AzString),
@@ -987,21 +987,21 @@ pub enum StyleInitialLetterParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleInitialLetterParseError<'a> {
-    pub fn to_contained(&self) -> StyleInitialLetterParseErrorOwned {
+impl StyleInitialLetterParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleInitialLetterParseErrorOwned {
         match self {
             Self::InvalidFormat(s) => {
-                StyleInitialLetterParseErrorOwned::InvalidFormat(s.to_string().into())
+                StyleInitialLetterParseErrorOwned::InvalidFormat((*s).to_string().into())
             }
-            Self::InvalidSize(s) => StyleInitialLetterParseErrorOwned::InvalidSize(s.to_string().into()),
-            Self::InvalidSink(s) => StyleInitialLetterParseErrorOwned::InvalidSink(s.to_string().into()),
+            Self::InvalidSize(s) => StyleInitialLetterParseErrorOwned::InvalidSize((*s).to_string().into()),
+            Self::InvalidSink(s) => StyleInitialLetterParseErrorOwned::InvalidSink((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleInitialLetterParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleInitialLetterParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleInitialLetterParseError<'_> {
         match self {
             Self::InvalidFormat(s) => StyleInitialLetterParseError::InvalidFormat(s.as_str()),
             Self::InvalidSize(s) => StyleInitialLetterParseError::InvalidSize(s.as_str()),
@@ -1015,13 +1015,13 @@ impl From<StyleInitialLetterParseError<'_>> for StyleInitialLetterParseErrorOwne
     fn from(e: StyleInitialLetterParseError) -> Self {
         match e {
             StyleInitialLetterParseError::InvalidFormat(s) => {
-                StyleInitialLetterParseErrorOwned::InvalidFormat(s.to_string().into())
+                Self::InvalidFormat(s.to_string().into())
             }
             StyleInitialLetterParseError::InvalidSize(s) => {
-                StyleInitialLetterParseErrorOwned::InvalidSize(s.to_string().into())
+                Self::InvalidSize(s.to_string().into())
             }
             StyleInitialLetterParseError::InvalidSink(s) => {
-                StyleInitialLetterParseErrorOwned::InvalidSink(s.to_string().into())
+                Self::InvalidSink(s.to_string().into())
             }
         }
     }
@@ -1035,9 +1035,9 @@ impl_display! { StyleInitialLetterParseErrorOwned, {
 }}
 
 #[cfg(feature = "parser")]
-pub fn parse_style_initial_letter<'a>(
-    input: &'a str,
-) -> Result<StyleInitialLetter, StyleInitialLetterParseError<'a>> {
+pub fn parse_style_initial_letter(
+    input: &str,
+) -> Result<StyleInitialLetter, StyleInitialLetterParseError<'_>> {
     let input = input.trim();
     let parts: Vec<&str> = input.split_whitespace().collect();
 
@@ -1077,7 +1077,7 @@ pub struct StyleLineClamp {
 
 impl FormatAsRustCode for StyleLineClamp {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 }
 
@@ -1088,7 +1088,7 @@ impl PrintAsCssValue for StyleLineClamp {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleLineClampParseError<'a> {
     InvalidValue(&'a str),
     ZeroValue,
@@ -1102,7 +1102,7 @@ impl_display! { StyleLineClampParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleLineClampParseErrorOwned {
     InvalidValue(AzString),
@@ -1110,10 +1110,10 @@ pub enum StyleLineClampParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleLineClampParseError<'a> {
-    pub fn to_contained(&self) -> StyleLineClampParseErrorOwned {
+impl StyleLineClampParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleLineClampParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleLineClampParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => StyleLineClampParseErrorOwned::InvalidValue((*s).to_string().into()),
             Self::ZeroValue => StyleLineClampParseErrorOwned::ZeroValue,
         }
     }
@@ -1121,7 +1121,7 @@ impl<'a> StyleLineClampParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleLineClampParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleLineClampParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleLineClampParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleLineClampParseError::InvalidValue(s.as_str()),
             Self::ZeroValue => StyleLineClampParseError::ZeroValue,
@@ -1143,9 +1143,9 @@ impl_display! { StyleLineClampParseErrorOwned, {
 }}
 
 #[cfg(feature = "parser")]
-pub fn parse_style_line_clamp<'a>(
-    input: &'a str,
-) -> Result<StyleLineClamp, StyleLineClampParseError<'a>> {
+pub fn parse_style_line_clamp(
+    input: &str,
+) -> Result<StyleLineClamp, StyleLineClampParseError<'_>> {
     let input = input.trim();
 
     let max_lines = input
@@ -1173,14 +1173,14 @@ pub struct StyleHangingPunctuation {
 }
 
 impl StyleHangingPunctuation {
-    pub fn is_enabled(&self) -> bool {
+    #[must_use] pub const fn is_enabled(&self) -> bool {
         self.first || self.force_end || self.allow_end || self.last
     }
 }
 
 impl FormatAsRustCode for StyleHangingPunctuation {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 }
 
@@ -1189,7 +1189,7 @@ impl PrintAsCssValue for StyleHangingPunctuation {
         if !self.is_enabled() {
             return "none".to_string();
         }
-        let mut parts = alloc::vec::Vec::new();
+        let mut parts = Vec::new();
         if self.first { parts.push("first"); }
         if self.force_end { parts.push("force-end"); }
         if self.allow_end { parts.push("allow-end"); }
@@ -1199,7 +1199,7 @@ impl PrintAsCssValue for StyleHangingPunctuation {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleHangingPunctuationParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -1211,18 +1211,18 @@ impl_display! { StyleHangingPunctuationParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleHangingPunctuationParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleHangingPunctuationParseError<'a> {
-    pub fn to_contained(&self) -> StyleHangingPunctuationParseErrorOwned {
+impl StyleHangingPunctuationParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleHangingPunctuationParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
-                StyleHangingPunctuationParseErrorOwned::InvalidValue(s.to_string().into())
+                StyleHangingPunctuationParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
@@ -1230,7 +1230,7 @@ impl<'a> StyleHangingPunctuationParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleHangingPunctuationParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleHangingPunctuationParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleHangingPunctuationParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleHangingPunctuationParseError::InvalidValue(s.as_str()),
         }
@@ -1250,9 +1250,9 @@ impl_display! { StyleHangingPunctuationParseErrorOwned, {
 }}
 
 #[cfg(feature = "parser")]
-pub fn parse_style_hanging_punctuation<'a>(
-    input: &'a str,
-) -> Result<StyleHangingPunctuation, StyleHangingPunctuationParseError<'a>> {
+pub fn parse_style_hanging_punctuation(
+    input: &str,
+) -> Result<StyleHangingPunctuation, StyleHangingPunctuationParseError<'_>> {
     let input = input.trim();
 
     if input.eq_ignore_ascii_case("none") {
@@ -1295,7 +1295,7 @@ pub enum StyleTextCombineUpright {
 
 impl FormatAsRustCode for StyleTextCombineUpright {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 }
 
@@ -1304,13 +1304,13 @@ impl PrintAsCssValue for StyleTextCombineUpright {
         match self {
             Self::None => "none".to_string(),
             Self::All => "all".to_string(),
-            Self::Digits(n) => format!("digits {}", n),
+            Self::Digits(n) => format!("digits {n}"),
         }
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleTextCombineUprightParseError<'a> {
     InvalidValue(&'a str),
     InvalidDigits(&'a str),
@@ -1324,7 +1324,7 @@ impl_display! { StyleTextCombineUprightParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleTextCombineUprightParseErrorOwned {
     InvalidValue(AzString),
@@ -1332,14 +1332,14 @@ pub enum StyleTextCombineUprightParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleTextCombineUprightParseError<'a> {
-    pub fn to_contained(&self) -> StyleTextCombineUprightParseErrorOwned {
+impl StyleTextCombineUprightParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleTextCombineUprightParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
-                StyleTextCombineUprightParseErrorOwned::InvalidValue(s.to_string().into())
+                StyleTextCombineUprightParseErrorOwned::InvalidValue((*s).to_string().into())
             }
             Self::InvalidDigits(s) => {
-                StyleTextCombineUprightParseErrorOwned::InvalidDigits(s.to_string().into())
+                StyleTextCombineUprightParseErrorOwned::InvalidDigits((*s).to_string().into())
             }
         }
     }
@@ -1347,7 +1347,7 @@ impl<'a> StyleTextCombineUprightParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleTextCombineUprightParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleTextCombineUprightParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleTextCombineUprightParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleTextCombineUprightParseError::InvalidValue(s.as_str()),
             Self::InvalidDigits(s) => StyleTextCombineUprightParseError::InvalidDigits(s.as_str()),
@@ -1369,9 +1369,9 @@ impl_display! { StyleTextCombineUprightParseErrorOwned, {
 }}
 
 #[cfg(feature = "parser")]
-pub fn parse_style_text_combine_upright<'a>(
-    input: &'a str,
-) -> Result<StyleTextCombineUpright, StyleTextCombineUprightParseError<'a>> {
+pub fn parse_style_text_combine_upright(
+    input: &str,
+) -> Result<StyleTextCombineUpright, StyleTextCombineUprightParseError<'_>> {
     let trimmed = input.trim();
 
     if trimmed.eq_ignore_ascii_case("none") {
@@ -1399,7 +1399,7 @@ pub fn parse_style_text_combine_upright<'a>(
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleWordSpacingParseError<'a> {
     PixelValue(CssPixelValueParseError<'a>),
 }
@@ -1416,15 +1416,15 @@ impl_from!(
 );
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleWordSpacingParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleWordSpacingParseError<'a> {
-    pub fn to_contained(&self) -> StyleWordSpacingParseErrorOwned {
+impl StyleWordSpacingParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleWordSpacingParseErrorOwned {
         match self {
             Self::PixelValue(e) => StyleWordSpacingParseErrorOwned::PixelValue(e.to_contained()),
         }
@@ -1433,7 +1433,7 @@ impl<'a> StyleWordSpacingParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleWordSpacingParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleWordSpacingParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleWordSpacingParseError<'_> {
         match self {
             Self::PixelValue(e) => StyleWordSpacingParseError::PixelValue(e.to_shared()),
         }
@@ -1450,7 +1450,7 @@ pub fn parse_style_word_spacing(
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleLineHeightParseError {
     Percentage(PercentageParseError),
@@ -1465,14 +1465,14 @@ impl_display! { StyleLineHeightParseError, {
 impl_from!(PercentageParseError, StyleLineHeightParseError::Percentage);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StyleLineHeightParseErrorOwned {
     Percentage(PercentageParseErrorOwned),
 }
 
 #[cfg(feature = "parser")]
 impl StyleLineHeightParseError {
-    pub fn to_contained(&self) -> StyleLineHeightParseErrorOwned {
+    #[must_use] pub fn to_contained(&self) -> StyleLineHeightParseErrorOwned {
         match self {
             Self::Percentage(e) => StyleLineHeightParseErrorOwned::Percentage(e.to_contained()),
         }
@@ -1481,7 +1481,7 @@ impl StyleLineHeightParseError {
 
 #[cfg(feature = "parser")]
 impl StyleLineHeightParseErrorOwned {
-    pub fn to_shared(&self) -> StyleLineHeightParseError {
+    #[must_use] pub fn to_shared(&self) -> StyleLineHeightParseError {
         match self {
             Self::Percentage(e) => StyleLineHeightParseError::Percentage(e.to_shared()),
         }
@@ -1501,17 +1501,17 @@ pub fn parse_style_line_height(input: &str) -> Result<StyleLineHeight, StyleLine
         if px.metric == crate::props::basic::length::SizeMetric::Px {
             let px_val = px.number.get();
             return Ok(StyleLineHeight {
-                inner: crate::props::basic::length::PercentageValue::new(-px_val * 100.0),
+                inner: PercentageValue::new(-px_val * 100.0),
             });
         }
     }
     Err(StyleLineHeightParseError::Percentage(
-        crate::props::basic::length::PercentageParseError::InvalidUnit("".to_string().into()),
+        PercentageParseError::InvalidUnit(String::new().into()),
     ))
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleTabSizeParseError<'a> {
     PixelValue(CssPixelValueParseError<'a>),
 }
@@ -1528,15 +1528,15 @@ impl_from!(
 );
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleTabSizeParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleTabSizeParseError<'a> {
-    pub fn to_contained(&self) -> StyleTabSizeParseErrorOwned {
+impl StyleTabSizeParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleTabSizeParseErrorOwned {
         match self {
             Self::PixelValue(e) => StyleTabSizeParseErrorOwned::PixelValue(e.to_contained()),
         }
@@ -1545,7 +1545,7 @@ impl<'a> StyleTabSizeParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleTabSizeParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleTabSizeParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleTabSizeParseError<'_> {
         match self {
             Self::PixelValue(e) => StyleTabSizeParseError::PixelValue(e.to_shared()),
         }
@@ -1566,7 +1566,7 @@ pub fn parse_style_tab_size(input: &str) -> Result<StyleTabSize, StyleTabSizePar
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleWhiteSpaceParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -1580,15 +1580,15 @@ impl_display! { StyleWhiteSpaceParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleWhiteSpaceParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleWhiteSpaceParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleWhiteSpaceParseError<'a> {
-    pub fn to_contained(&self) -> StyleWhiteSpaceParseErrorOwned {
+impl StyleWhiteSpaceParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleWhiteSpaceParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleWhiteSpaceParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -1597,7 +1597,7 @@ impl<'a> StyleWhiteSpaceParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleWhiteSpaceParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleWhiteSpaceParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleWhiteSpaceParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleWhiteSpaceParseError::InvalidValue(e.to_shared()),
         }
@@ -1620,7 +1620,7 @@ pub fn parse_style_white_space(input: &str) -> Result<StyleWhiteSpace, StyleWhit
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleHyphensParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -1634,15 +1634,15 @@ impl_display! { StyleHyphensParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleHyphensParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleHyphensParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleHyphensParseError<'a> {
-    pub fn to_contained(&self) -> StyleHyphensParseErrorOwned {
+impl StyleHyphensParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleHyphensParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleHyphensParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -1651,7 +1651,7 @@ impl<'a> StyleHyphensParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleHyphensParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleHyphensParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleHyphensParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleHyphensParseError::InvalidValue(e.to_shared()),
         }
@@ -1671,7 +1671,7 @@ pub fn parse_style_hyphens(input: &str) -> Result<StyleHyphens, StyleHyphensPars
 // -- StyleLineBreak parse --
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleLineBreakParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -1685,15 +1685,15 @@ impl_display! { StyleLineBreakParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleLineBreakParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleLineBreakParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleLineBreakParseError<'a> {
-    pub fn to_contained(&self) -> StyleLineBreakParseErrorOwned {
+impl StyleLineBreakParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleLineBreakParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleLineBreakParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -1702,7 +1702,7 @@ impl<'a> StyleLineBreakParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleLineBreakParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleLineBreakParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleLineBreakParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleLineBreakParseError::InvalidValue(e.to_shared()),
         }
@@ -1724,7 +1724,7 @@ pub fn parse_style_line_break(input: &str) -> Result<StyleLineBreak, StyleLineBr
 // -- StyleWordBreak parse --
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleWordBreakParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -1738,15 +1738,15 @@ impl_display! { StyleWordBreakParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleWordBreakParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleWordBreakParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleWordBreakParseError<'a> {
-    pub fn to_contained(&self) -> StyleWordBreakParseErrorOwned {
+impl StyleWordBreakParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleWordBreakParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleWordBreakParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -1755,7 +1755,7 @@ impl<'a> StyleWordBreakParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleWordBreakParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleWordBreakParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleWordBreakParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleWordBreakParseError::InvalidValue(e.to_shared()),
         }
@@ -1776,7 +1776,7 @@ pub fn parse_style_word_break(input: &str) -> Result<StyleWordBreak, StyleWordBr
 // -- StyleOverflowWrap parse --
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleOverflowWrapParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -1790,15 +1790,15 @@ impl_display! { StyleOverflowWrapParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleOverflowWrapParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleOverflowWrapParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleOverflowWrapParseError<'a> {
-    pub fn to_contained(&self) -> StyleOverflowWrapParseErrorOwned {
+impl StyleOverflowWrapParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleOverflowWrapParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleOverflowWrapParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -1807,7 +1807,7 @@ impl<'a> StyleOverflowWrapParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleOverflowWrapParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleOverflowWrapParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleOverflowWrapParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleOverflowWrapParseError::InvalidValue(e.to_shared()),
         }
@@ -1827,7 +1827,7 @@ pub fn parse_style_overflow_wrap(input: &str) -> Result<StyleOverflowWrap, Style
 // -- StyleTextAlignLast parse --
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleTextAlignLastParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -1841,15 +1841,15 @@ impl_display! { StyleTextAlignLastParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleTextAlignLastParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleTextAlignLastParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleTextAlignLastParseError<'a> {
-    pub fn to_contained(&self) -> StyleTextAlignLastParseErrorOwned {
+impl StyleTextAlignLastParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleTextAlignLastParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleTextAlignLastParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -1858,7 +1858,7 @@ impl<'a> StyleTextAlignLastParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleTextAlignLastParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleTextAlignLastParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleTextAlignLastParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleTextAlignLastParseError::InvalidValue(e.to_shared()),
         }
@@ -1880,7 +1880,7 @@ pub fn parse_style_text_align_last(input: &str) -> Result<StyleTextAlignLast, St
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleDirectionParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -1894,15 +1894,15 @@ impl_display! { StyleDirectionParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleDirectionParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleDirectionParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleDirectionParseError<'a> {
-    pub fn to_contained(&self) -> StyleDirectionParseErrorOwned {
+impl StyleDirectionParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleDirectionParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleDirectionParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -1911,7 +1911,7 @@ impl<'a> StyleDirectionParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleDirectionParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleDirectionParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleDirectionParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleDirectionParseError::InvalidValue(e.to_shared()),
         }
@@ -1930,7 +1930,7 @@ pub fn parse_style_direction(input: &str) -> Result<StyleDirection, StyleDirecti
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleUserSelectParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -1944,15 +1944,15 @@ impl_display! { StyleUserSelectParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleUserSelectParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleUserSelectParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleUserSelectParseError<'a> {
-    pub fn to_contained(&self) -> StyleUserSelectParseErrorOwned {
+impl StyleUserSelectParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleUserSelectParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleUserSelectParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -1961,7 +1961,7 @@ impl<'a> StyleUserSelectParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleUserSelectParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleUserSelectParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleUserSelectParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleUserSelectParseError::InvalidValue(e.to_shared()),
         }
@@ -1982,7 +1982,7 @@ pub fn parse_style_user_select(input: &str) -> Result<StyleUserSelect, StyleUser
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleTextDecorationParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -1999,15 +1999,15 @@ impl_from!(
 );
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleTextDecorationParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleTextDecorationParseError<'a> {
-    pub fn to_contained(&self) -> StyleTextDecorationParseErrorOwned {
+impl StyleTextDecorationParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleTextDecorationParseErrorOwned {
         match self {
             Self::InvalidValue(e) => {
                 StyleTextDecorationParseErrorOwned::InvalidValue(e.to_contained())
@@ -2018,7 +2018,7 @@ impl<'a> StyleTextDecorationParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleTextDecorationParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleTextDecorationParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleTextDecorationParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleTextDecorationParseError::InvalidValue(e.to_shared()),
         }
@@ -2041,7 +2041,7 @@ pub fn parse_style_text_decoration(
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleVerticalAlignParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -2058,15 +2058,15 @@ impl_from!(
 );
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleVerticalAlignParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleVerticalAlignParseError<'a> {
-    pub fn to_contained(&self) -> StyleVerticalAlignParseErrorOwned {
+impl StyleVerticalAlignParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleVerticalAlignParseErrorOwned {
         match self {
             Self::InvalidValue(e) => {
                 StyleVerticalAlignParseErrorOwned::InvalidValue(e.to_contained())
@@ -2077,7 +2077,7 @@ impl<'a> StyleVerticalAlignParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleVerticalAlignParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleVerticalAlignParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleVerticalAlignParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleVerticalAlignParseError::InvalidValue(e.to_shared()),
         }
@@ -2135,7 +2135,7 @@ impl PrintAsCssValue for CaretColor {
     }
 }
 
-impl crate::codegen::format::FormatAsRustCode for CaretColor {
+impl FormatAsRustCode for CaretColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "CaretColor {{ inner: {} }}",
@@ -2171,7 +2171,7 @@ impl PrintAsCssValue for CaretAnimationDuration {
     }
 }
 
-impl crate::codegen::format::FormatAsRustCode for CaretAnimationDuration {
+impl FormatAsRustCode for CaretAnimationDuration {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "CaretAnimationDuration {{ inner: {} }}",
@@ -2213,7 +2213,7 @@ impl PrintAsCssValue for CaretWidth {
     }
 }
 
-impl crate::codegen::format::FormatAsRustCode for CaretWidth {
+impl FormatAsRustCode for CaretWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "CaretWidth {{ inner: {} }}",
@@ -2234,14 +2234,14 @@ pub fn parse_caret_width(input: &str) -> Result<CaretWidth, CssPixelValueParseEr
 impl From<StyleUserSelect> for crate::props::property::CssProperty {
     fn from(value: StyleUserSelect) -> Self {
         use crate::props::property::CssProperty;
-        CssProperty::user_select(value)
+        Self::user_select(value)
     }
 }
 
 impl From<StyleTextDecoration> for crate::props::property::CssProperty {
     fn from(value: StyleTextDecoration) -> Self {
         use crate::props::property::CssProperty;
-        CssProperty::text_decoration(value)
+        Self::text_decoration(value)
     }
 }
 
@@ -2387,18 +2387,18 @@ impl_option!(
 impl PrintAsCssValue for StyleUnicodeBidi {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleUnicodeBidi::Normal => "normal",
-            StyleUnicodeBidi::Embed => "embed",
-            StyleUnicodeBidi::Isolate => "isolate",
-            StyleUnicodeBidi::BidiOverride => "bidi-override",
-            StyleUnicodeBidi::IsolateOverride => "isolate-override",
-            StyleUnicodeBidi::Plaintext => "plaintext",
+            Self::Normal => "normal",
+            Self::Embed => "embed",
+            Self::Isolate => "isolate",
+            Self::BidiOverride => "bidi-override",
+            Self::IsolateOverride => "isolate-override",
+            Self::Plaintext => "plaintext",
         })
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleUnicodeBidiParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -2412,15 +2412,15 @@ impl_display! { StyleUnicodeBidiParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleUnicodeBidiParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleUnicodeBidiParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleUnicodeBidiParseError<'a> {
-    pub fn to_contained(&self) -> StyleUnicodeBidiParseErrorOwned {
+impl StyleUnicodeBidiParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleUnicodeBidiParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleUnicodeBidiParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -2429,7 +2429,7 @@ impl<'a> StyleUnicodeBidiParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleUnicodeBidiParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleUnicodeBidiParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleUnicodeBidiParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleUnicodeBidiParseError::InvalidValue(e.to_shared()),
         }
@@ -2476,16 +2476,16 @@ impl_option!(
 impl PrintAsCssValue for StyleTextBoxTrim {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleTextBoxTrim::None => "none",
-            StyleTextBoxTrim::TrimStart => "trim-start",
-            StyleTextBoxTrim::TrimEnd => "trim-end",
-            StyleTextBoxTrim::TrimBoth => "trim-both",
+            Self::None => "none",
+            Self::TrimStart => "trim-start",
+            Self::TrimEnd => "trim-end",
+            Self::TrimBoth => "trim-both",
         })
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleTextBoxTrimParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -2499,15 +2499,15 @@ impl_display! { StyleTextBoxTrimParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleTextBoxTrimParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleTextBoxTrimParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleTextBoxTrimParseError<'a> {
-    pub fn to_contained(&self) -> StyleTextBoxTrimParseErrorOwned {
+impl StyleTextBoxTrimParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleTextBoxTrimParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleTextBoxTrimParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -2516,7 +2516,7 @@ impl<'a> StyleTextBoxTrimParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleTextBoxTrimParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleTextBoxTrimParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleTextBoxTrimParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleTextBoxTrimParseError::InvalidValue(e.to_shared()),
         }
@@ -2564,16 +2564,16 @@ impl_option!(
 impl PrintAsCssValue for StyleTextBoxEdge {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleTextBoxEdge::Auto => "auto",
-            StyleTextBoxEdge::TextEdge => "text",
-            StyleTextBoxEdge::CapHeight => "cap",
-            StyleTextBoxEdge::ExHeight => "ex",
+            Self::Auto => "auto",
+            Self::TextEdge => "text",
+            Self::CapHeight => "cap",
+            Self::ExHeight => "ex",
         })
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleTextBoxEdgeParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -2587,15 +2587,15 @@ impl_display! { StyleTextBoxEdgeParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleTextBoxEdgeParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleTextBoxEdgeParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleTextBoxEdgeParseError<'a> {
-    pub fn to_contained(&self) -> StyleTextBoxEdgeParseErrorOwned {
+impl StyleTextBoxEdgeParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleTextBoxEdgeParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleTextBoxEdgeParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -2604,7 +2604,7 @@ impl<'a> StyleTextBoxEdgeParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleTextBoxEdgeParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleTextBoxEdgeParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleTextBoxEdgeParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleTextBoxEdgeParseError::InvalidValue(e.to_shared()),
         }
@@ -2659,21 +2659,21 @@ impl_option!(
 impl PrintAsCssValue for StyleDominantBaseline {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleDominantBaseline::Auto => "auto",
-            StyleDominantBaseline::TextBottom => "text-bottom",
-            StyleDominantBaseline::Alphabetic => "alphabetic",
-            StyleDominantBaseline::Ideographic => "ideographic",
-            StyleDominantBaseline::Middle => "middle",
-            StyleDominantBaseline::Central => "central",
-            StyleDominantBaseline::Mathematical => "mathematical",
-            StyleDominantBaseline::Hanging => "hanging",
-            StyleDominantBaseline::TextTop => "text-top",
+            Self::Auto => "auto",
+            Self::TextBottom => "text-bottom",
+            Self::Alphabetic => "alphabetic",
+            Self::Ideographic => "ideographic",
+            Self::Middle => "middle",
+            Self::Central => "central",
+            Self::Mathematical => "mathematical",
+            Self::Hanging => "hanging",
+            Self::TextTop => "text-top",
         })
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleDominantBaselineParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -2687,15 +2687,15 @@ impl_display! { StyleDominantBaselineParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleDominantBaselineParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleDominantBaselineParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleDominantBaselineParseError<'a> {
-    pub fn to_contained(&self) -> StyleDominantBaselineParseErrorOwned {
+impl StyleDominantBaselineParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleDominantBaselineParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleDominantBaselineParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -2704,7 +2704,7 @@ impl<'a> StyleDominantBaselineParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleDominantBaselineParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleDominantBaselineParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleDominantBaselineParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleDominantBaselineParseError::InvalidValue(e.to_shared()),
         }
@@ -2766,20 +2766,20 @@ impl_option!(
 impl PrintAsCssValue for StyleAlignmentBaseline {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleAlignmentBaseline::Baseline => "baseline",
-            StyleAlignmentBaseline::TextBottom => "text-bottom",
-            StyleAlignmentBaseline::Alphabetic => "alphabetic",
-            StyleAlignmentBaseline::Ideographic => "ideographic",
-            StyleAlignmentBaseline::Middle => "middle",
-            StyleAlignmentBaseline::Central => "central",
-            StyleAlignmentBaseline::Mathematical => "mathematical",
-            StyleAlignmentBaseline::TextTop => "text-top",
+            Self::Baseline => "baseline",
+            Self::TextBottom => "text-bottom",
+            Self::Alphabetic => "alphabetic",
+            Self::Ideographic => "ideographic",
+            Self::Middle => "middle",
+            Self::Central => "central",
+            Self::Mathematical => "mathematical",
+            Self::TextTop => "text-top",
         })
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleAlignmentBaselineParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -2793,15 +2793,15 @@ impl_display! { StyleAlignmentBaselineParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleAlignmentBaselineParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleAlignmentBaselineParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleAlignmentBaselineParseError<'a> {
-    pub fn to_contained(&self) -> StyleAlignmentBaselineParseErrorOwned {
+impl StyleAlignmentBaselineParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleAlignmentBaselineParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleAlignmentBaselineParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -2810,7 +2810,7 @@ impl<'a> StyleAlignmentBaselineParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleAlignmentBaselineParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleAlignmentBaselineParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleAlignmentBaselineParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleAlignmentBaselineParseError::InvalidValue(e.to_shared()),
         }
@@ -2859,16 +2859,16 @@ impl_option!(
 impl PrintAsCssValue for StyleInitialLetterAlign {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleInitialLetterAlign::Auto => "auto",
-            StyleInitialLetterAlign::Alphabetic => "alphabetic",
-            StyleInitialLetterAlign::Hanging => "hanging",
-            StyleInitialLetterAlign::Ideographic => "ideographic",
+            Self::Auto => "auto",
+            Self::Alphabetic => "alphabetic",
+            Self::Hanging => "hanging",
+            Self::Ideographic => "ideographic",
         })
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleInitialLetterAlignParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -2882,15 +2882,15 @@ impl_display! { StyleInitialLetterAlignParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleInitialLetterAlignParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleInitialLetterAlignParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleInitialLetterAlignParseError<'a> {
-    pub fn to_contained(&self) -> StyleInitialLetterAlignParseErrorOwned {
+impl StyleInitialLetterAlignParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleInitialLetterAlignParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleInitialLetterAlignParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -2899,7 +2899,7 @@ impl<'a> StyleInitialLetterAlignParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleInitialLetterAlignParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleInitialLetterAlignParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleInitialLetterAlignParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleInitialLetterAlignParseError::InvalidValue(e.to_shared()),
         }
@@ -2944,16 +2944,16 @@ impl_option!(
 impl PrintAsCssValue for StyleInitialLetterWrap {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleInitialLetterWrap::None => "none",
-            StyleInitialLetterWrap::First => "first",
-            StyleInitialLetterWrap::All => "all",
-            StyleInitialLetterWrap::Grid => "grid",
+            Self::None => "none",
+            Self::First => "first",
+            Self::All => "all",
+            Self::Grid => "grid",
         })
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleInitialLetterWrapParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -2967,15 +2967,15 @@ impl_display! { StyleInitialLetterWrapParseError<'a>, {
 impl_from!(InvalidValueErr<'a>, StyleInitialLetterWrapParseError::InvalidValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleInitialLetterWrapParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleInitialLetterWrapParseError<'a> {
-    pub fn to_contained(&self) -> StyleInitialLetterWrapParseErrorOwned {
+impl StyleInitialLetterWrapParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleInitialLetterWrapParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleInitialLetterWrapParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -2984,7 +2984,7 @@ impl<'a> StyleInitialLetterWrapParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleInitialLetterWrapParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleInitialLetterWrapParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleInitialLetterWrapParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleInitialLetterWrapParseError::InvalidValue(e.to_shared()),
         }

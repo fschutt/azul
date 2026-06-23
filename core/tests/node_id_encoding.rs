@@ -111,8 +111,7 @@ fn test_roundtrip_various_values() {
         let decoded = NodeId::from_usize(encoded);
         assert_eq!(
             decoded, original,
-            "NodeId({}) should roundtrip correctly",
-            i
+            "NodeId({i}) should roundtrip correctly"
         );
     }
 }

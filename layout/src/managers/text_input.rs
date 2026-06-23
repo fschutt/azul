@@ -13,7 +13,7 @@
 //!
 //! The text input system uses a two-phase approach:
 //!
-//! 1. **Record Phase**: When text input occurs, record what changed (old_text + inserted_text)
+//! 1. **Record Phase**: When text input occurs, record what changed (`old_text` + `inserted_text`)
 //!
 //!    - Store in `pending_changeset`
 //!    - Do NOT modify any caches yet
@@ -21,7 +21,7 @@
 //!
 //! 2. **Apply Phase**: After callbacks, if preventDefault was not set:
 //!
-//!    - Compute new text using text3::edit
+//!    - Compute new text using `text3::edit`
 //!    - Update cursor position
 //!    - Update text cache
 //!    - Mark nodes dirty for re-layout
@@ -50,23 +50,23 @@ pub struct PendingTextEdit {
     pub node: DomNodeId,
     /// The text that was inserted
     pub inserted_text: AzString,
-    /// The old text before the edit (plain text extracted from InlineContent)
+    /// The old text before the edit (plain text extracted from `InlineContent`)
     pub old_text: AzString,
 }
 
 impl PendingTextEdit {
-    /// Preview the resulting text by appending inserted_text to old_text.
+    /// Preview the resulting text by appending `inserted_text` to `old_text`.
     ///
-    /// NOTE: Actual cursor-based insertion is handled by apply_text_changeset()
-    /// in window.rs via text3::edit::insert_text().
-    pub fn resulting_text(&self) -> AzString {
+    /// NOTE: Actual cursor-based insertion is handled by `apply_text_changeset()`
+    /// in window.rs via `text3::edit::insert_text()`.
+    #[must_use] pub fn resulting_text(&self) -> AzString {
         let mut result = self.old_text.as_str().to_string();
         result.push_str(self.inserted_text.as_str());
         result.into()
     }
 }
 
-/// C-compatible Option type for PendingTextEdit
+/// C-compatible Option type for `PendingTextEdit`
 #[derive(Debug, Clone)]
 #[repr(C, u8)]
 pub enum OptionPendingTextEdit {
@@ -75,10 +75,10 @@ pub enum OptionPendingTextEdit {
 }
 
 impl OptionPendingTextEdit {
-    pub fn into_option(self) -> Option<PendingTextEdit> {
+    #[must_use] pub fn into_option(self) -> Option<PendingTextEdit> {
         match self {
-            OptionPendingTextEdit::None => None,
-            OptionPendingTextEdit::Some(t) => Some(t),
+            Self::None => None,
+            Self::Some(t) => Some(t),
         }
     }
 }
@@ -86,8 +86,8 @@ impl OptionPendingTextEdit {
 impl From<Option<PendingTextEdit>> for OptionPendingTextEdit {
     fn from(o: Option<PendingTextEdit>) -> Self {
         match o {
-            Some(v) => OptionPendingTextEdit::Some(v),
-            None => OptionPendingTextEdit::None,
+            Some(v) => Self::Some(v),
+            None => Self::None,
         }
     }
 }
@@ -95,8 +95,8 @@ impl From<Option<PendingTextEdit>> for OptionPendingTextEdit {
 impl<'a> From<Option<&'a PendingTextEdit>> for OptionPendingTextEdit {
     fn from(o: Option<&'a PendingTextEdit>) -> Self {
         match o {
-            Some(v) => OptionPendingTextEdit::Some(v.clone()),
-            None => OptionPendingTextEdit::None,
+            Some(v) => Self::Some(v.clone()),
+            None => Self::None,
         }
     }
 }
@@ -127,8 +127,8 @@ pub struct TextInputManager {
 }
 
 impl TextInputManager {
-    /// Create a new TextInputManager
-    pub fn new() -> Self {
+    /// Create a new `TextInputManager`
+    #[must_use] pub const fn new() -> Self {
         Self {
             pending_changeset: None,
             input_source: None,
@@ -167,7 +167,7 @@ impl TextInputManager {
     }
 
     /// Get the pending changeset (if any)
-    pub fn get_pending_changeset(&self) -> Option<&PendingTextEdit> {
+    #[must_use] pub const fn get_pending_changeset(&self) -> Option<&PendingTextEdit> {
         self.pending_changeset.as_ref()
     }
 
@@ -197,7 +197,7 @@ impl EventProvider for TextInputManager {
 
         if let Some(changeset) = &self.pending_changeset {
             let event_source = match self.input_source {
-                Some(TextInputSource::Keyboard) | Some(TextInputSource::Ime) => {
+                Some(TextInputSource::Keyboard | TextInputSource::Ime) => {
                     CoreEventSource::User
                 }
                 Some(TextInputSource::Accessibility) => CoreEventSource::User, /* A11y is still */

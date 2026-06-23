@@ -189,7 +189,7 @@ pub struct ProgressBarState {
 impl ProgressBar {
     /// Creates a new progress bar with the given completion percentage (0.0 to 100.0).
     #[inline]
-    pub fn create(percent_done: f32) -> Self {
+    #[must_use] pub const fn create(percent_done: f32) -> Self {
         Self {
             progressbar_state: ProgressBarState {
                 percent_done,
@@ -207,7 +207,7 @@ impl ProgressBar {
 
     /// Replaces `self` with a default (0%) progress bar, returning the previous value.
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(0.0);
         core::mem::swap(&mut s, self);
         s
@@ -217,7 +217,7 @@ impl ProgressBar {
         self.container_background = background;
     }
 
-    pub fn with_container_background(mut self, background: StyleBackgroundContentVec) -> Self {
+    #[must_use] pub fn with_container_background(mut self, background: StyleBackgroundContentVec) -> Self {
         self.set_container_background(background);
         self
     }
@@ -226,23 +226,23 @@ impl ProgressBar {
         self.bar_background = background;
     }
 
-    pub fn with_bar_background(mut self, background: StyleBackgroundContentVec) -> Self {
+    #[must_use] pub fn with_bar_background(mut self, background: StyleBackgroundContentVec) -> Self {
         self.set_bar_background(background);
         self
     }
 
-    pub fn set_height(&mut self, height: PixelValue) {
+    pub const fn set_height(&mut self, height: PixelValue) {
         self.height = height;
     }
 
-    pub fn with_height(mut self, height: PixelValue) -> Self {
+    #[must_use] pub const fn with_height(mut self, height: PixelValue) -> Self {
         self.set_height(height);
         self
     }
 
     /// Renders this progress bar into a [`Dom`] tree consisting of a container div
     /// with two children: the filled bar and the remaining empty space.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::dom::DomVec;
 
         // Use percentage widths for the progress bar and remaining space.
@@ -586,7 +586,7 @@ impl ProgressBar {
                             }),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-                            StyleBackgroundContentVecValue::Exact(self.bar_background.clone()),
+                            StyleBackgroundContentVecValue::Exact(self.bar_background),
                         )),
                     ]))
                     .with_ids_and_classes({

@@ -316,7 +316,7 @@ pub struct Frame {
 
 impl Frame {
     /// Creates a new `Frame` with the given title and content DOM.
-    pub fn create(title: AzString, content: Dom) -> Self {
+    #[must_use] pub const fn create(title: AzString, content: Dom) -> Self {
         Self {
             title,
             content,
@@ -325,24 +325,24 @@ impl Frame {
     }
 
     /// Replaces `self` with a default frame and returns the original.
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""), Dom::create_div());
         core::mem::swap(&mut s, self);
         s
     }
 
     /// Sets the flex-grow factor for the content area.
-    pub fn set_flex_grow(&mut self, flex_grow: f32) {
+    pub const fn set_flex_grow(&mut self, flex_grow: f32) {
         self.flex_grow = flex_grow;
     }
 
     /// Builder-style setter for the flex-grow factor.
-    pub fn with_flex_grow(mut self, flex_grow: f32) -> Self {
+    #[must_use] pub const fn with_flex_grow(mut self, flex_grow: f32) -> Self {
         self.set_flex_grow(flex_grow);
         self
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         Dom::create_div()
             .with_css_props(CSS_MATCH_8602559445190067154)
             .with_ids_and_classes({

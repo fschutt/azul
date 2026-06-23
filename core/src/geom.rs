@@ -28,10 +28,10 @@ impl core::fmt::Display for LogicalRect {
 }
 
 impl LogicalRect {
-    pub const fn zero() -> Self {
+    #[must_use] pub const fn zero() -> Self {
         Self::new(LogicalPosition::zero(), LogicalSize::zero())
     }
-    pub const fn new(origin: LogicalPosition, size: LogicalSize) -> Self {
+    #[must_use] pub const fn new(origin: LogicalPosition, size: LogicalSize) -> Self {
         Self { origin, size }
     }
 
@@ -45,29 +45,29 @@ impl LogicalRect {
     }
 
     /// Returns the maximum x coordinate (origin.x + width).
-    #[inline(always)]
-    pub fn max_x(&self) -> f32 {
+    #[inline]
+    #[must_use] pub fn max_x(&self) -> f32 {
         self.origin.x + self.size.width
     }
     /// Returns the minimum x coordinate (origin.x).
-    #[inline(always)]
-    pub fn min_x(&self) -> f32 {
+    #[inline]
+    #[must_use] pub const fn min_x(&self) -> f32 {
         self.origin.x
     }
     /// Returns the maximum y coordinate (origin.y + height).
-    #[inline(always)]
-    pub fn max_y(&self) -> f32 {
+    #[inline]
+    #[must_use] pub fn max_y(&self) -> f32 {
         self.origin.y + self.size.height
     }
     /// Returns the minimum y coordinate (origin.y).
-    #[inline(always)]
-    pub fn min_y(&self) -> f32 {
+    #[inline]
+    #[must_use] pub const fn min_y(&self) -> f32 {
         self.origin.y
     }
 
     /// Returns whether this rectangle intersects with another rectangle
     #[inline]
-    pub fn intersects(&self, other: Self) -> bool {
+    #[must_use] pub fn intersects(&self, other: Self) -> bool {
         // Check if one rectangle is to the left of the other
         if self.max_x() <= other.min_x() || other.max_x() <= self.min_x() {
             return false;
@@ -84,7 +84,7 @@ impl LogicalRect {
 
     /// Returns whether this rectangle contains the given point
     #[inline]
-    pub fn contains(&self, point: LogicalPosition) -> bool {
+    #[must_use] pub fn contains(&self, point: LogicalPosition) -> bool {
         point.x >= self.min_x()
             && point.x < self.max_x()
             && point.y >= self.min_y()
@@ -95,7 +95,7 @@ impl LogicalRect {
     ///
     /// On a regular computer this function takes ~3.2ns to run
     #[inline]
-    pub fn hit_test(&self, other: &LogicalPosition) -> Option<LogicalPosition> {
+    #[must_use] pub fn hit_test(&self, other: &LogicalPosition) -> Option<LogicalPosition> {
         let dx_left_edge = other.x - self.min_x();
         let dx_right_edge = self.max_x() - other.x;
         let dy_top_edge = other.y - self.min_y();
@@ -142,15 +142,15 @@ impl LogicalPosition {
     }
 }
 
-impl SubAssign<LogicalPosition> for LogicalPosition {
-    fn sub_assign(&mut self, other: LogicalPosition) {
+impl SubAssign<Self> for LogicalPosition {
+    fn sub_assign(&mut self, other: Self) {
         self.x -= other.x;
         self.y -= other.y;
     }
 }
 
-impl AddAssign<LogicalPosition> for LogicalPosition {
-    fn add_assign(&mut self, other: LogicalPosition) {
+impl AddAssign<Self> for LogicalPosition {
+    fn add_assign(&mut self, other: Self) {
         self.x += other.x;
         self.y += other.y;
     }
@@ -199,11 +199,11 @@ const DECIMAL_MULTIPLIER: f32 = 1000.0;
 impl_option!(
     LogicalPosition,
     OptionLogicalPosition,
-    [Debug, Copy, Clone, PartialEq, PartialOrd]
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
 );
 
 impl Ord for LogicalPosition {
-    fn cmp(&self, other: &LogicalPosition) -> Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         let self_x = (self.x * DECIMAL_MULTIPLIER) as isize;
         let self_y = (self.y * DECIMAL_MULTIPLIER) as isize;
         let other_x = (other.x * DECIMAL_MULTIPLIER) as isize;
@@ -228,7 +228,7 @@ impl Hash for LogicalPosition {
 
 impl LogicalPosition {
     /// Returns the main-axis component for the given writing mode.
-    pub fn main(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use] pub const fn main(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.y,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.x,
@@ -236,7 +236,7 @@ impl LogicalPosition {
     }
 
     /// Returns the cross-axis component for the given writing mode.
-    pub fn cross(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use] pub const fn cross(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.x,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.y,
@@ -244,7 +244,7 @@ impl LogicalPosition {
     }
 
     /// Creates a `LogicalPosition` from main and cross axis dimensions.
-    pub fn from_main_cross(main: f32, cross: f32, wm: LayoutWritingMode) -> Self {
+    #[must_use] pub const fn from_main_cross(main: f32, cross: f32, wm: LayoutWritingMode) -> Self {
         match wm {
             LayoutWritingMode::HorizontalTb => Self::new(cross, main),
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => Self::new(main, cross),
@@ -269,7 +269,7 @@ impl LogicalSize {
     }
 
     /// Creates a `LogicalSize` from main and cross axis dimensions.
-    pub fn from_main_cross(main: f32, cross: f32, wm: LayoutWritingMode) -> Self {
+    #[must_use] pub const fn from_main_cross(main: f32, cross: f32, wm: LayoutWritingMode) -> Self {
         match wm {
             LayoutWritingMode::HorizontalTb => Self::new(cross, main),
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => Self::new(main, cross),
@@ -292,17 +292,17 @@ impl core::fmt::Display for LogicalSize {
 impl_option!(
     LogicalSize,
     OptionLogicalSize,
-    [Debug, Copy, Clone, PartialEq, PartialOrd]
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
 );
 
 impl_option!(
     LogicalRect,
     OptionLogicalRect,
-    [Debug, Copy, Clone, PartialEq, PartialOrd]
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
 );
 
 impl Ord for LogicalSize {
-    fn cmp(&self, other: &LogicalSize) -> Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         let self_width = (self.width * DECIMAL_MULTIPLIER) as isize;
         let self_height = (self.height * DECIMAL_MULTIPLIER) as isize;
         let other_width = (other.width * DECIMAL_MULTIPLIER) as isize;
@@ -329,7 +329,7 @@ impl Hash for LogicalSize {
 
 impl LogicalSize {
     /// Returns the main-axis dimension for the given writing mode.
-    pub fn main(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use] pub const fn main(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.height,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.width,
@@ -337,7 +337,7 @@ impl LogicalSize {
     }
 
     /// Returns the cross-axis dimension for the given writing mode.
-    pub fn cross(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use] pub const fn cross(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.width,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.height,
@@ -345,7 +345,7 @@ impl LogicalSize {
     }
 
     /// Returns a new `LogicalSize` with the main-axis dimension updated.
-    pub fn with_main(self, wm: LayoutWritingMode, value: f32) -> Self {
+    #[must_use] pub const fn with_main(self, wm: LayoutWritingMode, value: f32) -> Self {
         match wm {
             LayoutWritingMode::HorizontalTb => Self {
                 height: value,
@@ -359,7 +359,7 @@ impl LogicalSize {
     }
 
     /// Returns a new `LogicalSize` with the cross-axis dimension updated.
-    pub fn with_cross(self, wm: LayoutWritingMode, value: f32) -> Self {
+    #[must_use] pub const fn with_cross(self, wm: LayoutWritingMode, value: f32) -> Self {
         match wm {
             LayoutWritingMode::HorizontalTb => Self {
                 width: value,
@@ -391,7 +391,7 @@ pub type PhysicalPositionI32 = PhysicalPosition<i32>;
 impl_option!(
     PhysicalPositionI32,
     OptionPhysicalPositionI32,
-    [Debug, Copy, Clone, PartialEq, PartialOrd]
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
 );
 
 /// A 2D size in physical (pixel) coordinates.
@@ -422,17 +422,17 @@ impl_option!(
 );
 
 impl LogicalPosition {
-    #[inline(always)]
-    pub const fn new(x: f32, y: f32) -> Self {
+    #[inline]
+    #[must_use] pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
-    #[inline(always)]
-    pub const fn zero() -> Self {
+    #[inline]
+    #[must_use] pub const fn zero() -> Self {
         Self::new(0.0, 0.0)
     }
     /// Converts to physical pixel coordinates by multiplying by the DPI factor.
-    #[inline(always)]
-    pub fn to_physical(self, hidpi_factor: f32) -> PhysicalPosition<u32> {
+    #[inline]
+    #[must_use] pub fn to_physical(self, hidpi_factor: f32) -> PhysicalPosition<u32> {
         PhysicalPosition {
             x: libm::roundf(self.x * hidpi_factor) as u32,
             y: libm::roundf(self.y * hidpi_factor) as u32,
@@ -441,20 +441,20 @@ impl LogicalPosition {
 }
 
 impl<T> PhysicalPosition<T> {
-    #[inline(always)]
+    #[inline]
     pub const fn new(x: T, y: T) -> Self {
         Self { x, y }
     }
 }
 
 impl PhysicalPosition<i32> {
-    #[inline(always)]
-    pub const fn zero() -> Self {
+    #[inline]
+    #[must_use] pub const fn zero() -> Self {
         Self::new(0, 0)
     }
     /// Converts to logical coordinates by dividing by the DPI factor.
-    #[inline(always)]
-    pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
+    #[inline]
+    #[must_use] pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
         LogicalPosition {
             x: self.x as f32 / hidpi_factor,
             y: self.y as f32 / hidpi_factor,
@@ -463,13 +463,13 @@ impl PhysicalPosition<i32> {
 }
 
 impl PhysicalPosition<f64> {
-    #[inline(always)]
-    pub const fn zero() -> Self {
+    #[inline]
+    #[must_use] pub const fn zero() -> Self {
         Self::new(0.0, 0.0)
     }
     /// Converts to logical coordinates by dividing by the DPI factor.
-    #[inline(always)]
-    pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
+    #[inline]
+    #[must_use] pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
         LogicalPosition {
             x: self.x as f32 / hidpi_factor,
             y: self.y as f32 / hidpi_factor,
@@ -478,17 +478,17 @@ impl PhysicalPosition<f64> {
 }
 
 impl LogicalSize {
-    #[inline(always)]
-    pub const fn new(width: f32, height: f32) -> Self {
+    #[inline]
+    #[must_use] pub const fn new(width: f32, height: f32) -> Self {
         Self { width, height }
     }
-    #[inline(always)]
-    pub const fn zero() -> Self {
+    #[inline]
+    #[must_use] pub const fn zero() -> Self {
         Self::new(0.0, 0.0)
     }
     /// Converts to physical pixel size by multiplying by the DPI factor.
-    #[inline(always)]
-    pub fn to_physical(self, hidpi_factor: f32) -> PhysicalSize<u32> {
+    #[inline]
+    #[must_use] pub fn to_physical(self, hidpi_factor: f32) -> PhysicalSize<u32> {
         PhysicalSize {
             width: libm::roundf(self.width * hidpi_factor) as u32,
             height: libm::roundf(self.height * hidpi_factor) as u32,
@@ -497,20 +497,20 @@ impl LogicalSize {
 }
 
 impl<T> PhysicalSize<T> {
-    #[inline(always)]
+    #[inline]
     pub const fn new(width: T, height: T) -> Self {
         Self { width, height }
     }
 }
 
 impl PhysicalSize<u32> {
-    #[inline(always)]
-    pub const fn zero() -> Self {
+    #[inline]
+    #[must_use] pub const fn zero() -> Self {
         Self::new(0, 0)
     }
     /// Converts to logical coordinates by dividing by the DPI factor.
-    #[inline(always)]
-    pub fn to_logical(self, hidpi_factor: f32) -> LogicalSize {
+    #[inline]
+    #[must_use] pub fn to_logical(self, hidpi_factor: f32) -> LogicalSize {
         LogicalSize {
             width: self.width as f32 / hidpi_factor,
             height: self.height as f32 / hidpi_factor,
@@ -535,7 +535,7 @@ pub enum CoordinateSpace {
     Window,
     
     /// Relative to scroll frame content origin.
-    /// Transformation: scroll_pos = window_pos - scroll_frame_origin
+    /// Transformation: `scroll_pos` = `window_pos` - `scroll_frame_origin`
     ScrollFrame,
     
     /// Relative to parent node's content box origin.
@@ -560,22 +560,22 @@ pub struct ScreenPosition {
 }
 
 impl ScreenPosition {
-    #[inline(always)]
-    pub const fn new(x: f32, y: f32) -> Self {
+    #[inline]
+    #[must_use] pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
-    #[inline(always)]
-    pub const fn zero() -> Self {
+    #[inline]
+    #[must_use] pub const fn zero() -> Self {
         Self::new(0.0, 0.0)
     }
-    /// Convert to a raw LogicalPosition (for interop with existing code).
-    #[inline(always)]
-    pub const fn to_logical(self) -> LogicalPosition {
+    /// Convert to a raw `LogicalPosition` (for interop with existing code).
+    #[inline]
+    #[must_use] pub const fn to_logical(self) -> LogicalPosition {
         LogicalPosition { x: self.x, y: self.y }
     }
-    /// Create from a raw LogicalPosition that is known to be in screen space.
-    #[inline(always)]
-    pub const fn from_logical(p: LogicalPosition) -> Self {
+    /// Create from a raw `LogicalPosition` that is known to be in screen space.
+    #[inline]
+    #[must_use] pub const fn from_logical(p: LogicalPosition) -> Self {
         Self { x: p.x, y: p.y }
     }
 }
@@ -595,20 +595,20 @@ pub struct CursorNodePosition {
 }
 
 impl CursorNodePosition {
-    #[inline(always)]
-    pub const fn new(x: f32, y: f32) -> Self {
+    #[inline]
+    #[must_use] pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
-    #[inline(always)]
-    pub const fn zero() -> Self {
+    #[inline]
+    #[must_use] pub const fn zero() -> Self {
         Self::new(0.0, 0.0)
     }
-    #[inline(always)]
-    pub const fn to_logical(self) -> LogicalPosition {
+    #[inline]
+    #[must_use] pub const fn to_logical(self) -> LogicalPosition {
         LogicalPosition { x: self.x, y: self.y }
     }
-    #[inline(always)]
-    pub const fn from_logical(p: LogicalPosition) -> Self {
+    #[inline]
+    #[must_use] pub const fn from_logical(p: LogicalPosition) -> Self {
         Self { x: p.x, y: p.y }
     }
 }

@@ -26,7 +26,7 @@ use core::{
 pub use self::node_id::NodeId;
 use crate::styled_dom::NodeHierarchyItem;
 
-/// Type alias for depth-first traversal results: (depth, node_id) pairs
+/// Type alias for depth-first traversal results: (depth, `node_id`) pairs
 pub type NodeDepths = Vec<(usize, NodeId)>;
 
 // Simple FFI-safe NodeId - just a wrapper around usize
@@ -76,12 +76,12 @@ pub mod node_id {
 
     impl NodeId {
         /// The zero/first node ID (index 0).
-        pub const ZERO: NodeId = NodeId { inner: 0 };
+        pub const ZERO: Self = Self { inner: 0 };
 
         /// Creates a new `NodeId` from a zero-based index.
-        #[inline(always)]
-        pub const fn new(value: usize) -> Self {
-            NodeId { inner: value }
+        #[inline]
+        #[must_use] pub const fn new(value: usize) -> Self {
+            Self { inner: value }
         }
 
         /// Decodes a raw `usize` to `Option<NodeId>` using 1-based encoding.
@@ -97,10 +97,10 @@ pub mod node_id {
         /// `NodeHierarchyItem`. Do not use raw usize values directly - always
         /// decode them first!
         #[inline]
-        pub const fn from_usize(value: usize) -> Option<Self> {
+        #[must_use] pub const fn from_usize(value: usize) -> Option<Self> {
             match value {
                 0 => None,
-                i => Some(NodeId { inner: i - 1 }),
+                i => Some(Self { inner: i - 1 }),
             }
         }
 
@@ -113,7 +113,7 @@ pub mod node_id {
         /// NOT "node at index 0". Use [`NodeId::from_usize`] to decode.
         ///
         #[inline]
-        pub const fn into_raw(val: &Option<Self>) -> usize {
+        #[must_use] pub const fn into_raw(val: &Option<Self>) -> usize {
             match val {
                 None => 0,
                 Some(s) => s.inner + 1,
@@ -123,15 +123,15 @@ pub mod node_id {
         /// Returns the **zero-based** index of this node.
         ///
         /// This is the actual array index where the node data is stored.
-        #[inline(always)]
-        pub const fn index(&self) -> usize {
+        #[inline]
+        #[must_use] pub const fn index(&self) -> usize {
             self.inner
         }
     }
 
     impl From<usize> for NodeId {
         fn from(val: usize) -> Self {
-            NodeId::new(val)
+            Self::new(val)
         }
     }
 
@@ -142,15 +142,15 @@ pub mod node_id {
     }
 
     impl Add<usize> for NodeId {
-        type Output = NodeId;
-        #[inline(always)]
-        fn add(self, other: usize) -> NodeId {
-            NodeId::new(self.inner + other)
+        type Output = Self;
+        #[inline]
+        fn add(self, other: usize) -> Self {
+            Self::new(self.inner + other)
         }
     }
 
     impl AddAssign<usize> for NodeId {
-        #[inline(always)]
+        #[inline]
         fn add_assign(&mut self, other: usize) {
             *self = *self + other;
         }
@@ -187,7 +187,7 @@ pub struct Node {
 }
 
 impl Node {
-    pub const ROOT: Node = Node {
+    pub const ROOT: Self = Self {
         parent: None,
         previous_sibling: None,
         next_sibling: None,
@@ -195,28 +195,28 @@ impl Node {
     };
 
     #[inline]
-    pub const fn has_parent(&self) -> bool {
+    #[must_use] pub const fn has_parent(&self) -> bool {
         self.parent.is_some()
     }
     #[inline]
-    pub const fn has_previous_sibling(&self) -> bool {
+    #[must_use] pub const fn has_previous_sibling(&self) -> bool {
         self.previous_sibling.is_some()
     }
     #[inline]
-    pub const fn has_next_sibling(&self) -> bool {
+    #[must_use] pub const fn has_next_sibling(&self) -> bool {
         self.next_sibling.is_some()
     }
     #[inline]
-    pub const fn has_first_child(&self) -> bool {
+    #[must_use] pub const fn has_first_child(&self) -> bool {
         self.last_child.is_some() /* last_child and first_child are always set together */
     }
     #[inline]
-    pub const fn has_last_child(&self) -> bool {
+    #[must_use] pub const fn has_last_child(&self) -> bool {
         self.last_child.is_some()
     }
 
     #[inline]
-    pub fn get_first_child(&self, current_node_id: NodeId) -> Option<NodeId> {
+    #[must_use] pub fn get_first_child(&self, current_node_id: NodeId) -> Option<NodeId> {
         // last_child and first_child are always set together
         self.last_child.map(|_| current_node_id + 1)
     }
@@ -231,13 +231,13 @@ pub struct NodeHierarchy {
 }
 
 impl NodeHierarchy {
-    #[inline(always)]
-    pub const fn new(data: Vec<Node>) -> Self {
+    #[inline]
+    #[must_use] pub const fn new(data: Vec<Node>) -> Self {
         Self { internal: data }
     }
 
-    #[inline(always)]
-    pub fn as_ref(&self) -> NodeHierarchyRef<'_> {
+    #[inline]
+    #[must_use] pub fn as_ref(&self) -> NodeHierarchyRef<'_> {
         NodeHierarchyRef {
             internal: &self.internal[..],
         }
@@ -254,23 +254,23 @@ pub struct NodeHierarchyRef<'a> {
 }
 
 impl<'a> NodeHierarchyRef<'a> {
-    #[inline(always)]
-    pub fn from_slice(data: &'a [Node]) -> NodeHierarchyRef<'a> {
+    #[inline]
+    #[must_use] pub const fn from_slice(data: &'a [Node]) -> Self {
         NodeHierarchyRef { internal: data }
     }
 
-    #[inline(always)]
-    pub fn len(&self) -> usize {
+    #[inline]
+    #[must_use] pub const fn len(&self) -> usize {
         self.internal.len()
     }
 
-    #[inline(always)]
-    pub fn get(&self, id: NodeId) -> Option<&Node> {
+    #[inline]
+    #[must_use] pub fn get(&self, id: NodeId) -> Option<&Node> {
         self.internal.get(id.index())
     }
 
-    #[inline(always)]
-    pub fn linear_iter(&self) -> LinearIterator {
+    #[inline]
+    #[must_use] pub const fn linear_iter(&self) -> LinearIterator {
         LinearIterator {
             arena_len: self.len(),
             position: 0,
@@ -282,7 +282,7 @@ impl<'a> NodeHierarchyRef<'a> {
     /// the first element.
     ///
     /// Runtime: O(n) max
-    pub fn get_parents_sorted_by_depth(&self) -> NodeDepths {
+    #[must_use] pub fn get_parents_sorted_by_depth(&self) -> NodeDepths {
         let mut non_leaf_nodes = Vec::new();
         let mut current_children = vec![(0, NodeId::new(0))];
         let mut next_children = Vec::new();
@@ -299,10 +299,9 @@ impl<'a> NodeHierarchyRef<'a> {
 
             if next_children.is_empty() {
                 break;
-            } else {
-                current_children.extend(&mut next_children.drain(..));
-                depth += 1;
             }
+            current_children.extend(&mut next_children.drain(..));
+            depth += 1;
         }
 
         non_leaf_nodes
@@ -316,8 +315,8 @@ pub struct NodeDataContainer<T> {
 }
 
 impl<T> From<Vec<T>> for NodeDataContainer<T> {
-    fn from(v: Vec<T>) -> NodeDataContainer<T> {
-        NodeDataContainer { internal: v }
+    fn from(v: Vec<T>) -> Self {
+        Self { internal: v }
     }
 }
 
@@ -339,55 +338,55 @@ impl<T> Default for NodeDataContainer<T> {
     }
 }
 
-impl<'a> Index<NodeId> for NodeHierarchyRef<'a> {
+impl Index<NodeId> for NodeHierarchyRef<'_> {
     type Output = Node;
 
-    #[inline(always)]
+    #[inline]
     fn index(&self, node_id: NodeId) -> &Node {
         &self.internal[node_id.index()]
     }
 }
 
 impl<T> NodeDataContainer<T> {
-    #[inline(always)]
-    pub const fn new(data: Vec<T>) -> Self {
+    #[inline]
+    #[must_use] pub const fn new(data: Vec<T>) -> Self {
         Self { internal: data }
     }
 
-    #[inline(always)]
-    pub fn is_empty(&self) -> bool {
+    #[inline]
+    #[must_use] pub const fn is_empty(&self) -> bool {
         self.internal.is_empty()
     }
 
-    #[inline(always)]
-    pub fn as_ref(&self) -> NodeDataContainerRef<'_, T> {
+    #[inline]
+    #[must_use] pub fn as_ref(&self) -> NodeDataContainerRef<'_, T> {
         NodeDataContainerRef {
             internal: &self.internal[..],
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn as_ref_mut(&mut self) -> NodeDataContainerRefMut<'_, T> {
         NodeDataContainerRefMut {
             internal: &mut self.internal[..],
         }
     }
 
-    #[inline(always)]
-    pub fn len(&self) -> usize {
+    #[inline]
+    #[must_use] pub const fn len(&self) -> usize {
         self.internal.len()
     }
 }
 
 impl<'a, T: 'a> NodeDataContainerRefMut<'a, T> {
-    #[inline(always)]
-    pub fn from_slice(data: &'a mut [T]) -> NodeDataContainerRefMut<'a, T> {
+    #[inline]
+    pub const fn from_slice(data: &'a mut [T]) -> Self {
         NodeDataContainerRefMut { internal: data }
     }
 }
 
 impl<'a, T: 'a> NodeDataContainerRefMut<'a, T> {
-    #[inline(always)]
+    #[inline]
     pub fn get_mut(&mut self, id: NodeId) -> Option<&mut T> {
         self.internal.get_mut(id.index())
     }
@@ -411,28 +410,28 @@ impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
 }
 
 impl<'a, T: 'a> NodeDataContainerRef<'a, T> {
-    #[inline(always)]
-    pub fn from_slice(data: &'a [T]) -> NodeDataContainerRef<'a, T> {
+    #[inline]
+    pub const fn from_slice(data: &'a [T]) -> Self {
         NodeDataContainerRef { internal: data }
     }
 
-    #[inline(always)]
-    pub fn len(&self) -> usize {
+    #[inline]
+    #[must_use] pub const fn len(&self) -> usize {
         self.internal.len()
     }
 
-    #[inline(always)]
-    pub fn get(&self, id: NodeId) -> Option<&T> {
+    #[inline]
+    #[must_use] pub fn get(&self, id: NodeId) -> Option<&T> {
         self.internal.get(id.index())
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn iter(&self) -> Iter<T> {
         self.internal.iter()
     }
 
-    #[inline(always)]
-    pub fn linear_iter(&self) -> LinearIterator {
+    #[inline]
+    #[must_use] pub const fn linear_iter(&self) -> LinearIterator {
         LinearIterator {
             arena_len: self.len(),
             position: 0,
@@ -440,26 +439,26 @@ impl<'a, T: 'a> NodeDataContainerRef<'a, T> {
     }
 }
 
-impl<'a, T> Index<NodeId> for NodeDataContainerRef<'a, T> {
+impl<T> Index<NodeId> for NodeDataContainerRef<'_, T> {
     type Output = T;
 
-    #[inline(always)]
+    #[inline]
     fn index(&self, node_id: NodeId) -> &T {
         &self.internal[node_id.index()]
     }
 }
 
-impl<'a, T> Index<NodeId> for NodeDataContainerRefMut<'a, T> {
+impl<T> Index<NodeId> for NodeDataContainerRefMut<'_, T> {
     type Output = T;
 
-    #[inline(always)]
+    #[inline]
     fn index(&self, node_id: NodeId) -> &T {
         &self.internal[node_id.index()]
     }
 }
 
-impl<'a, T> IndexMut<NodeId> for NodeDataContainerRefMut<'a, T> {
-    #[inline(always)]
+impl<T> IndexMut<NodeId> for NodeDataContainerRefMut<'_, T> {
+    #[inline]
     fn index_mut(&mut self, node_id: NodeId) -> &mut T {
         &mut self.internal[node_id.index()]
     }
@@ -470,7 +469,7 @@ impl NodeId {
     ///
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
     #[inline]
-    pub const fn preceding_siblings<'a>(
+    #[must_use] pub const fn preceding_siblings<'a>(
         self,
         node_hierarchy: &'a NodeHierarchyRef<'a>,
     ) -> PrecedingSiblings<'a> {
@@ -482,7 +481,7 @@ impl NodeId {
 
     /// Return an iterator of references to this node's children.
     #[inline]
-    pub fn children<'a>(self, node_hierarchy: &'a NodeHierarchyRef<'a>) -> Children<'a> {
+    #[must_use] pub fn children<'a>(self, node_hierarchy: &'a NodeHierarchyRef<'a>) -> Children<'a> {
         Children {
             node_hierarchy,
             node: node_hierarchy[self].get_first_child(self),
@@ -492,7 +491,7 @@ impl NodeId {
 
 macro_rules! impl_node_iterator {
     ($name:ident, $next:expr) => {
-        impl<'a> Iterator for $name<'a> {
+        impl Iterator for $name<'_> {
             type Item = NodeId;
 
             fn next(&mut self) -> Option<NodeId> {
@@ -538,13 +537,13 @@ pub struct PrecedingSiblings<'a> {
 
 impl_node_iterator!(PrecedingSiblings, |node: &Node| node.previous_sibling);
 
-/// Special iterator for using NodeDataContainerRef<AzNode> instead of NodeHierarchy
+/// Special iterator for using `NodeDataContainerRef`<AzNode> instead of `NodeHierarchy`
 pub struct AzChildren<'a> {
     node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
     node: Option<NodeId>,
 }
 
-impl<'a> Iterator for AzChildren<'a> {
+impl Iterator for AzChildren<'_> {
     type Item = NodeId;
 
     fn next(&mut self) -> Option<NodeId> {
@@ -558,13 +557,13 @@ impl<'a> Iterator for AzChildren<'a> {
     }
 }
 
-/// Special iterator for using NodeDataContainerRef<AzNode> instead of NodeHierarchy
+/// Special iterator for using `NodeDataContainerRef`<AzNode> instead of `NodeHierarchy`
 pub struct AzReverseChildren<'a> {
     node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
     node: Option<NodeId>,
 }
 
-impl<'a> Iterator for AzReverseChildren<'a> {
+impl Iterator for AzReverseChildren<'_> {
     type Item = NodeId;
 
     fn next(&mut self) -> Option<NodeId> {
@@ -587,35 +586,31 @@ impl NodeId {
         self,
         node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
         predicate: F,
-    ) -> Option<NodeId>
+    ) -> Option<Self>
     where
-        F: Fn(NodeId) -> bool,
+        F: Fn(Self) -> bool,
     {
         let mut current_node = node_hierarchy[self].parent_id()?;
         loop {
-            match predicate(current_node) {
-                true => {
-                    return Some(current_node);
-                }
-                false => {
-                    current_node = node_hierarchy[current_node].parent_id()?;
-                }
+            if predicate(current_node) {
+                return Some(current_node);
             }
+            current_node = node_hierarchy[current_node].parent_id()?;
         }
     }
 
     /// Return the children of this node (necessary for parallel iteration over children)
     #[inline]
-    pub fn az_children_collect<'a>(
+    #[must_use] pub fn az_children_collect<'a>(
         self,
         node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
-    ) -> Vec<NodeId> {
+    ) -> Vec<Self> {
         self.az_children(node_hierarchy).collect()
     }
 
     /// Return an iterator of references to this node's children.
     #[inline]
-    pub fn az_children<'a>(
+    #[must_use] pub fn az_children<'a>(
         self,
         node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
     ) -> AzChildren<'a> {
@@ -627,7 +622,7 @@ impl NodeId {
 
     /// Return an iterator of references to this node's children.
     #[inline]
-    pub fn az_reverse_children<'a>(
+    #[must_use] pub fn az_reverse_children<'a>(
         self,
         node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
     ) -> AzReverseChildren<'a> {

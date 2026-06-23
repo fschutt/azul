@@ -100,7 +100,7 @@ pub(crate) fn kp_layout<T: ParsedFontTrait>(
     Ok(final_layout)
 }
 
-/// Converts a slice of ShapedItems into the Box/Glue/Penalty model.
+/// Converts a slice of `ShapedItems` into the Box/Glue/Penalty model.
 // +spec:line-breaking:16e64c - soft wrap opportunity controls (word-break, overflow-wrap, line-break) threaded via UnifiedConstraints
 fn convert_items_to_nodes<T: ParsedFontTrait>(
     items: &[ShapedItem],
@@ -192,7 +192,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     let breaks = hyphenation_breaks.unwrap();
                     let mut current_item_cursor = 0;
 
-                    for b in breaks.iter() {
+                    for b in &breaks {
                         // Add the items that form the next syllable (the part between the last
                         // break and this one)
                         let num_items_in_syllable = b.line_part.len() - current_item_cursor;
@@ -290,10 +290,10 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
     // (and lines after forced breaks when each-line is set). The hanging keyword would
     // invert this, indenting all lines EXCEPT the first.
     let text_indent = constraints.text_indent;
-    let first_line_width = if !constraints.text_indent_hanging {
-        line_width - text_indent
-    } else {
+    let first_line_width = if constraints.text_indent_hanging {
         line_width
+    } else {
+        line_width - text_indent
     };
     let non_first_line_width = if constraints.text_indent_hanging {
         line_width - text_indent

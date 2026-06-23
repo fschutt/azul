@@ -27,7 +27,7 @@ fn test_focus_manager_basic_operations() {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
     };
-    manager.set_focused_node(Some(node1.clone()));
+    manager.set_focused_node(Some(node1));
     assert_eq!(manager.get_focused_node(), Some(&node1));
 
     // Change focus to another node
@@ -35,7 +35,7 @@ fn test_focus_manager_basic_operations() {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(2))),
     };
-    manager.set_focused_node(Some(node2.clone()));
+    manager.set_focused_node(Some(node2));
     assert_eq!(manager.get_focused_node(), Some(&node2));
 
     // Clear focus
@@ -50,7 +50,7 @@ fn test_focus_update_request_enum() {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(5))),
     };
-    let req = FocusUpdateRequest::FocusNode(node.clone());
+    let req = FocusUpdateRequest::FocusNode(node);
     assert!(req.is_change());
     assert_eq!(req.to_focused_node(), Some(Some(node)));
 
@@ -73,7 +73,7 @@ fn test_focus_update_request_from_optional() {
     };
 
     // Some(Some(node)) -> FocusNode
-    let req = FocusUpdateRequest::from_optional(Some(Some(node.clone())));
+    let req = FocusUpdateRequest::from_optional(Some(Some(node)));
     assert!(matches!(req, FocusUpdateRequest::FocusNode(_)));
     assert!(req.is_change());
 
@@ -104,7 +104,7 @@ fn test_focus_manager_with_layout_window() {
     };
     layout_window
         .focus_manager
-        .set_focused_node(Some(node.clone()));
+        .set_focused_node(Some(node));
 
     // Verify focus was set
     assert_eq!(layout_window.focus_manager.get_focused_node(), Some(&node));
@@ -123,8 +123,7 @@ fn test_recursive_focus_change_detection() {
     let mut recursion_count = 0;
     const MAX_RECURSION: usize = 5;
 
-    let nodes = vec![
-        DomNodeId {
+    let nodes = [DomNodeId {
             dom: DomId::ROOT_ID,
             node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
         },
@@ -147,11 +146,10 @@ fn test_recursive_focus_change_detection() {
         DomNodeId {
             dom: DomId::ROOT_ID,
             node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(5))),
-        },
-    ];
+        }];
 
     // Simulate initial focus
-    focus_manager.set_focused_node(Some(nodes[0].clone()));
+    focus_manager.set_focused_node(Some(nodes[0]));
 
     // Simulate recursive focus changes (as would happen in callbacks)
     for i in 1..nodes.len() {
@@ -160,7 +158,7 @@ fn test_recursive_focus_change_detection() {
         }
 
         let old_focus = focus_manager.get_focused_node().copied();
-        focus_manager.set_focused_node(Some(nodes[i].clone()));
+        focus_manager.set_focused_node(Some(nodes[i]));
         let new_focus = focus_manager.get_focused_node();
 
         // Verify focus changed
@@ -188,7 +186,7 @@ fn test_focus_clear_then_set() {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
     };
-    focus_manager.set_focused_node(Some(node1.clone()));
+    focus_manager.set_focused_node(Some(node1));
     assert_eq!(focus_manager.get_focused_node(), Some(&node1));
 
     // Clear focus
@@ -200,7 +198,7 @@ fn test_focus_clear_then_set() {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(2))),
     };
-    focus_manager.set_focused_node(Some(node2.clone()));
+    focus_manager.set_focused_node(Some(node2));
     assert_eq!(focus_manager.get_focused_node(), Some(&node2));
 }
 
@@ -211,7 +209,7 @@ fn test_focus_update_request_conversion_edge_cases() {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
     };
-    let req = FocusUpdateRequest::FocusNode(root_node.clone());
+    let req = FocusUpdateRequest::FocusNode(root_node);
     assert!(req.is_change());
     assert_eq!(req.to_focused_node(), Some(Some(root_node)));
 
@@ -247,7 +245,7 @@ fn test_focus_manager_integration_with_all_managers() {
     // Set initial focus
     layout_window
         .focus_manager
-        .set_focused_node(Some(node1.clone()));
+        .set_focused_node(Some(node1));
 
     assert_eq!(layout_window.focus_manager.get_focused_node(), Some(&node1));
 
@@ -255,7 +253,7 @@ fn test_focus_manager_integration_with_all_managers() {
     let old_focus = layout_window.focus_manager.get_focused_node().copied();
     layout_window
         .focus_manager
-        .set_focused_node(Some(node2.clone()));
+        .set_focused_node(Some(node2));
     let new_focus = layout_window.focus_manager.get_focused_node();
 
     // Verify focus changed
@@ -285,7 +283,7 @@ fn test_recursion_depth_limit_enforcement() {
         .collect();
 
     // Set initial focus
-    focus_manager.set_focused_node(Some(nodes[0].clone()));
+    focus_manager.set_focused_node(Some(nodes[0]));
 
     // Simulate recursive focus changes with depth tracking
     for i in 1..nodes.len() {
@@ -295,7 +293,7 @@ fn test_recursion_depth_limit_enforcement() {
         }
 
         let old_focus = focus_manager.get_focused_node().copied();
-        focus_manager.set_focused_node(Some(nodes[i].clone()));
+        focus_manager.set_focused_node(Some(nodes[i]));
         let new_focus = focus_manager.get_focused_node();
 
         if old_focus.as_ref() != new_focus {
@@ -328,9 +326,9 @@ fn test_focus_update_request_equality() {
     };
 
     // Test equality for FocusNode
-    let req1 = FocusUpdateRequest::FocusNode(node1.clone());
-    let req2 = FocusUpdateRequest::FocusNode(node1.clone());
-    let req3 = FocusUpdateRequest::FocusNode(node2.clone());
+    let req1 = FocusUpdateRequest::FocusNode(node1);
+    let req2 = FocusUpdateRequest::FocusNode(node1);
+    let req3 = FocusUpdateRequest::FocusNode(node2);
     assert_eq!(req1, req2);
     assert_ne!(req1, req3);
 
@@ -345,7 +343,7 @@ fn test_focus_update_request_equality() {
     assert_eq!(req1, req2);
 
     // Test inequality across variants
-    let req1 = FocusUpdateRequest::FocusNode(node1.clone());
+    let req1 = FocusUpdateRequest::FocusNode(node1);
     let req2 = FocusUpdateRequest::ClearFocus;
     let req3 = FocusUpdateRequest::NoChange;
     assert_ne!(req1, req2);

@@ -52,7 +52,7 @@ pub struct AccessibilityInfo {
     pub labelled_by: OptionDomNodeId,
     /// ID of another node that describes this one (for `aria-describedby`).
     pub described_by: OptionDomNodeId,
-    /// Get an enumerated value representing what this IAccessible is used for,
+    /// Get an enumerated value representing what this `IAccessible` is used for,
     /// for example is it a link, static text, editable text, a checkbox, or a table cell, etc.
     pub role: AccessibilityRole,
     /// For live regions that update automatically (e.g., chat messages, timers).
@@ -61,7 +61,7 @@ pub struct AccessibilityInfo {
 }
 
 /// Actions that can be performed on an accessible element.
-/// This is a simplified version of accesskit::Action to avoid direct dependency in core.
+/// This is a simplified version of `accesskit::Action` to avoid direct dependency in core.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum AccessibilityAction {
@@ -787,7 +787,7 @@ impl SmallAriaInfo {
         }
     }
 
-    pub fn with_role(mut self, role: AccessibilityRole) -> Self {
+    #[must_use] pub const fn with_role(mut self, role: AccessibilityRole) -> Self {
         self.role = OptionAccessibilityRole::Some(role);
         self
     }
@@ -798,7 +798,7 @@ impl SmallAriaInfo {
     }
 
     /// Convert to full `AccessibilityInfo`
-    pub fn to_full_info(&self) -> AccessibilityInfo {
+    #[must_use] pub fn to_full_info(&self) -> AccessibilityInfo {
         AccessibilityInfo {
             accessibility_name: self.label.clone(),
             accessibility_value: OptionString::None,
@@ -822,7 +822,7 @@ impl SmallAriaInfo {
 ///
 /// Mirrors HTML's `<progress value max>` plus an `indeterminate` flag for
 /// progress bars whose end is unknown. Maps to `AccessibilityRole::ProgressBar`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct ProgressAriaInfo {
     /// Accessible label describing the task being measured.
@@ -841,12 +841,12 @@ impl_option!(
     ProgressAriaInfo,
     OptionProgressAriaInfo,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 impl ProgressAriaInfo {
     /// Creates a `ProgressAriaInfo` with only an accessible label.
-    pub fn create(label: AzString) -> Self {
+    #[must_use] pub const fn create(label: AzString) -> Self {
         Self {
             label: OptionString::Some(label),
             current_value: OptionF32::None,
@@ -857,36 +857,36 @@ impl ProgressAriaInfo {
     }
 
     /// Returns a copy with the given current value.
-    pub fn with_current_value(mut self, value: f32) -> Self {
+    #[must_use] pub const fn with_current_value(mut self, value: f32) -> Self {
         self.current_value = OptionF32::Some(value);
         self
     }
 
     /// Returns a copy with the given maximum value.
-    pub fn with_max(mut self, max: f32) -> Self {
+    #[must_use] pub const fn with_max(mut self, max: f32) -> Self {
         self.max = OptionF32::Some(max);
         self
     }
 
     /// Returns a copy with the indeterminate flag set.
-    pub fn with_indeterminate(mut self, indeterminate: bool) -> Self {
+    #[must_use] pub const fn with_indeterminate(mut self, indeterminate: bool) -> Self {
         self.indeterminate = indeterminate;
         self
     }
 
     /// Returns a copy with the given description.
-    pub fn with_description(mut self, desc: AzString) -> Self {
+    #[must_use] pub fn with_description(mut self, desc: AzString) -> Self {
         self.description = OptionString::Some(desc);
         self
     }
 
     /// Convert to full `AccessibilityInfo` so the value can be installed on a node.
-    pub fn to_full_info(&self) -> AccessibilityInfo {
+    #[must_use] pub fn to_full_info(&self) -> AccessibilityInfo {
         let value_string = if self.indeterminate {
             OptionString::None
         } else {
             match self.current_value {
-                OptionF32::Some(v) => OptionString::Some(format!("{}", v).into()),
+                OptionF32::Some(v) => OptionString::Some(format!("{v}").into()),
                 OptionF32::None => OptionString::None,
             }
         };
@@ -941,7 +941,7 @@ impl_option!(
 
 impl MeterAriaInfo {
     /// Creates a `MeterAriaInfo` with the required label and value/range triple.
-    pub fn create(label: AzString, current_value: f32, min: f32, max: f32) -> Self {
+    #[must_use] pub const fn create(label: AzString, current_value: f32, min: f32, max: f32) -> Self {
         Self {
             label: OptionString::Some(label),
             current_value,
@@ -955,31 +955,31 @@ impl MeterAriaInfo {
     }
 
     /// Returns a copy with the given low threshold.
-    pub fn with_low(mut self, low: f32) -> Self {
+    #[must_use] pub const fn with_low(mut self, low: f32) -> Self {
         self.low = OptionF32::Some(low);
         self
     }
 
     /// Returns a copy with the given high threshold.
-    pub fn with_high(mut self, high: f32) -> Self {
+    #[must_use] pub const fn with_high(mut self, high: f32) -> Self {
         self.high = OptionF32::Some(high);
         self
     }
 
     /// Returns a copy with the given optimum value.
-    pub fn with_optimum(mut self, optimum: f32) -> Self {
+    #[must_use] pub const fn with_optimum(mut self, optimum: f32) -> Self {
         self.optimum = OptionF32::Some(optimum);
         self
     }
 
     /// Returns a copy with the given description.
-    pub fn with_description(mut self, desc: AzString) -> Self {
+    #[must_use] pub fn with_description(mut self, desc: AzString) -> Self {
         self.description = OptionString::Some(desc);
         self
     }
 
     /// Convert to full `AccessibilityInfo` so the value can be installed on a node.
-    pub fn to_full_info(&self) -> AccessibilityInfo {
+    #[must_use] pub fn to_full_info(&self) -> AccessibilityInfo {
         AccessibilityInfo {
             accessibility_name: self.label.clone(),
             accessibility_value: OptionString::Some(format!("{}", self.current_value).into()),
@@ -1002,7 +1002,7 @@ impl MeterAriaInfo {
 /// node that describes the dialog (`aria-describedby`). The `role` defaults
 /// to `AccessibilityRole::Dialog` but can be overridden (e.g., for alert
 /// dialogs).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct DialogAriaInfo {
     /// Accessible label / title for the dialog.
@@ -1021,13 +1021,13 @@ impl_option!(
     DialogAriaInfo,
     OptionDialogAriaInfo,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 impl DialogAriaInfo {
     /// Creates a `DialogAriaInfo` with the given accessible label. Defaults
     /// to a non-modal dialog with role `Dialog`.
-    pub fn create(label: AzString) -> Self {
+    #[must_use] pub const fn create(label: AzString) -> Self {
         Self {
             label: OptionString::Some(label),
             modal: false,
@@ -1038,31 +1038,31 @@ impl DialogAriaInfo {
     }
 
     /// Returns a copy with the given modality flag.
-    pub fn with_modal(mut self, modal: bool) -> Self {
+    #[must_use] pub const fn with_modal(mut self, modal: bool) -> Self {
         self.modal = modal;
         self
     }
 
     /// Returns a copy with `aria-describedby` pointing at the given node ID.
-    pub fn with_described_by(mut self, described_by: AzString) -> Self {
+    #[must_use] pub fn with_described_by(mut self, described_by: AzString) -> Self {
         self.described_by = OptionString::Some(described_by);
         self
     }
 
     /// Returns a copy with the given role (defaults to `Dialog`).
-    pub fn with_role(mut self, role: AccessibilityRole) -> Self {
+    #[must_use] pub const fn with_role(mut self, role: AccessibilityRole) -> Self {
         self.role = role;
         self
     }
 
     /// Returns a copy with the given inline description.
-    pub fn with_description(mut self, desc: AzString) -> Self {
+    #[must_use] pub fn with_description(mut self, desc: AzString) -> Self {
         self.description = OptionString::Some(desc);
         self
     }
 
     /// Convert to full `AccessibilityInfo` so the value can be installed on a node.
-    pub fn to_full_info(&self) -> AccessibilityInfo {
+    #[must_use] pub fn to_full_info(&self) -> AccessibilityInfo {
         AccessibilityInfo {
             accessibility_name: self.label.clone(),
             accessibility_value: OptionString::None,

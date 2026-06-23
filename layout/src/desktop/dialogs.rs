@@ -50,8 +50,8 @@ impl From<tfd::OkCancel> for OkCancel {
     #[inline]
     fn from(e: tfd::OkCancel) -> Self {
         match e {
-            tfd::OkCancel::Ok => OkCancel::Ok,
-            tfd::OkCancel::Cancel => OkCancel::Cancel,
+            tfd::OkCancel::Ok => Self::Ok,
+            tfd::OkCancel::Cancel => Self::Cancel,
         }
     }
 }
@@ -61,8 +61,8 @@ impl From<OkCancel> for tfd::OkCancel {
     #[inline]
     fn from(e: OkCancel) -> Self {
         match e {
-            OkCancel::Ok => tfd::OkCancel::Ok,
-            OkCancel::Cancel => tfd::OkCancel::Cancel,
+            OkCancel::Ok => Self::Ok,
+            OkCancel::Cancel => Self::Cancel,
         }
     }
 }
@@ -79,8 +79,8 @@ impl From<YesNo> for tfd::YesNo {
     #[inline]
     fn from(e: YesNo) -> Self {
         match e {
-            YesNo::Yes => tfd::YesNo::Yes,
-            YesNo::No => tfd::YesNo::No,
+            YesNo::Yes => Self::Yes,
+            YesNo::No => Self::No,
         }
     }
 }
@@ -90,8 +90,8 @@ impl From<tfd::YesNo> for YesNo {
     #[inline]
     fn from(e: tfd::YesNo) -> Self {
         match e {
-            tfd::YesNo::Yes => YesNo::Yes,
-            tfd::YesNo::No => YesNo::No,
+            tfd::YesNo::Yes => Self::Yes,
+            tfd::YesNo::No => Self::No,
         }
     }
 }
@@ -110,10 +110,10 @@ impl From<MsgBoxIcon> for MessageBoxIcon {
     #[inline]
     fn from(e: MsgBoxIcon) -> Self {
         match e {
-            MsgBoxIcon::Info => MessageBoxIcon::Info,
-            MsgBoxIcon::Warning => MessageBoxIcon::Warning,
-            MsgBoxIcon::Error => MessageBoxIcon::Error,
-            MsgBoxIcon::Question => MessageBoxIcon::Question,
+            MsgBoxIcon::Info => Self::Info,
+            MsgBoxIcon::Warning => Self::Warning,
+            MsgBoxIcon::Error => Self::Error,
+            MsgBoxIcon::Question => Self::Question,
         }
     }
 }
@@ -128,7 +128,7 @@ impl MsgBox {
     /// Returns a zero-initialised namespace handle. The struct itself carries
     /// no state — instances exist only so the FFI layer can hang static
     /// methods off the type.
-    pub const fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         Self { _reserved: 0 }
     }
 
@@ -152,7 +152,7 @@ impl MsgBox {
     }
 
     /// "Ok / Cancel" message box — title, message, icon, default button.
-    pub fn ok_cancel(
+    #[must_use] pub fn ok_cancel(
         title: AzString,
         message: AzString,
         icon: MsgBoxIcon,
@@ -173,7 +173,7 @@ impl MsgBox {
     }
 
     /// "Yes / No" message box — title, message, icon, default button.
-    pub fn yes_no(
+    #[must_use] pub fn yes_no(
         title: AzString,
         message: AzString,
         icon: MsgBoxIcon,
@@ -208,12 +208,12 @@ impl Default for ColorPickerDialog {
 impl ColorPickerDialog {
     /// Returns a zero-initialised namespace handle. Static-only — the struct
     /// is just a hook for the FFI layer.
-    pub const fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         Self { _reserved: 0 }
     }
 
     /// Opens the default color picker dialog. Returns `None` if cancelled.
-    pub fn open(title: AzString, default_value: OptionColorU) -> OptionColorU {
+    #[must_use] pub fn open(title: AzString, default_value: OptionColorU) -> OptionColorU {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let rgb = default_value
@@ -241,7 +241,7 @@ impl ColorPickerDialog {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct FileTypeList {
     pub document_types: StringVec,
@@ -252,14 +252,14 @@ impl_option!(
     FileTypeList,
     OptionFileTypeList,
     copy = false,
-    [Debug, Clone, PartialEq, PartialOrd]
+    [Debug, Clone, PartialEq, Eq, PartialOrd]
 );
 
 /// Apply a [`FileTypeList`] filter to a `tfd::FileDialog`.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn apply_filter(mut dialog: tfd::FileDialog, filter: FileTypeList) -> tfd::FileDialog {
     let v = filter.document_types.clone().into_library_owned_vec();
-    let patterns: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
+    let patterns: Vec<&str> = v.iter().map(AzString::as_str).collect();
     dialog = dialog.with_filter(&patterns, filter.document_descriptor.as_str());
     dialog
 }
@@ -273,7 +273,7 @@ impl Default for FileDialog {
 impl FileDialog {
     /// Returns a zero-initialised namespace handle. Static-only — the struct
     /// is just a hook for the FFI layer.
-    pub const fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         Self { _reserved: 0 }
     }
 

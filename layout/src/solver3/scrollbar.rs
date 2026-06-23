@@ -31,7 +31,7 @@ pub struct ScrollbarRequirements {
 impl ScrollbarRequirements {
     /// Checks if the presence of scrollbars reduces the available inner size,
     /// which would necessitate a reflow of the content.
-    pub fn needs_reflow(&self) -> bool {
+    #[must_use] pub fn needs_reflow(&self) -> bool {
         self.scrollbar_width > 0.0 || self.scrollbar_height > 0.0
     }
 
@@ -40,7 +40,7 @@ impl ScrollbarRequirements {
     // +spec:overflow:30a49c - scrollbar space subtracted from content area
     /// Takes a size (representing a content-box) and returns a new size
     /// reduced by the dimensions of any active scrollbars.
-    pub fn shrink_size(&self, size: LogicalSize) -> LogicalSize {
+    #[must_use] pub fn shrink_size(&self, size: LogicalSize) -> LogicalSize {
         LogicalSize {
             width: (size.width - self.scrollbar_width).max(0.0),
             height: (size.height - self.scrollbar_height).max(0.0),
@@ -61,12 +61,12 @@ pub struct ScrollbarGeometry {
     pub orientation: ScrollbarOrientation,
     /// The full track rect in the container's coordinate space
     pub track_rect: LogicalRect,
-    /// Button size (square: width = height = scrollbar_width_px)
+    /// Button size (square: width = height = `scrollbar_width_px`)
     pub button_size: f32,
     /// Usable track length after subtracting buttons and corner
-    /// = track_total - 2*button_size
+    /// = `track_total` - 2*`button_size`
     pub usable_track_length: f32,
-    /// The thumb length (min-clamped to 2*width_px)
+    /// The thumb length (min-clamped to 2*`width_px`)
     pub thumb_length: f32,
     /// Thumb size as ratio of viewport / content (0.0–1.0)
     pub thumb_size_ratio: f32,
@@ -112,7 +112,7 @@ impl Default for ScrollbarGeometry {
 /// - `scrollbar_width_px`: CSS-resolved scrollbar thickness in pixels
 /// - `has_other_scrollbar`: Whether the perpendicular scrollbar is also visible
 ///   (reduces track length by one `scrollbar_width_px` for the corner)
-pub fn compute_scrollbar_geometry(
+#[must_use] pub fn compute_scrollbar_geometry(
     orientation: ScrollbarOrientation,
     inner_rect: LogicalRect,
     content_size: LogicalSize,
@@ -135,7 +135,7 @@ pub fn compute_scrollbar_geometry(
 
 /// Like [`compute_scrollbar_geometry`] but allows overriding the button size.
 /// Pass `button_size = 0.0` for macOS-style overlay scrollbars (no arrow buttons).
-pub fn compute_scrollbar_geometry_with_button_size(
+#[must_use] pub fn compute_scrollbar_geometry_with_button_size(
     orientation: ScrollbarOrientation,
     inner_rect: LogicalRect,
     content_size: LogicalSize,

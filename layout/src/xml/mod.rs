@@ -24,7 +24,7 @@ pub mod svg;
 /// Decodes XML/HTML entities in a string.
 /// Handles standard XML entities: &lt; &gt; &amp; &apos; &quot;
 /// and numeric character references: &#60; &#x3C;
-/// Returns Cow::Borrowed when no entities are found (zero-alloc fast path).
+/// Returns `Cow::Borrowed` when no entities are found (zero-alloc fast path).
 fn decode_xml_entities(s: &str) -> std::borrow::Cow<'_, str> {
     // Fast path: if no ampersand, no entities to decode
     if !s.contains('&') {
@@ -122,7 +122,7 @@ use azul_css::{css::Css, AzString, OptionString, U8Vec};
 use xmlparser::Tokenizer;
 
 #[cfg(feature = "xml")]
-pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
+#[must_use] pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
     let error_css = Css::empty();
 
     let parsed = match parse_xml_string(xml) {
@@ -131,8 +131,8 @@ pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
             return DomXml {
                 parsed_dom: {
                     let mut dom = Dom::create_body()
-                        .with_children(vec![Dom::create_text(format!("{}", e))].into());
-                    StyledDom::create(&mut dom, error_css.clone())
+                        .with_children(vec![Dom::create_text(format!("{e}"))].into());
+                    StyledDom::create(&mut dom, error_css)
                 },
             };
         }
@@ -144,8 +144,8 @@ pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
             return DomXml {
                 parsed_dom: {
                     let mut dom = Dom::create_body()
-                        .with_children(vec![Dom::create_text(format!("{}", e))].into());
-                    StyledDom::create(&mut dom, error_css.clone())
+                        .with_children(vec![Dom::create_text(format!("{e}"))].into());
+                    StyledDom::create(&mut dom, error_css)
                 },
             };
         }
@@ -159,20 +159,21 @@ pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
 /// Returns an unstyled `Dom` suitable for use in layout callbacks (which return `Dom`,
 /// not `StyledDom`). The CSS from `<style>` tags is attached to the `Dom.css` field
 /// and will be applied during the cascade pass.
-pub fn dom_from_parsed_xml(xml: Xml) -> Dom {
+#[must_use] pub fn dom_from_parsed_xml(xml: Xml) -> Dom {
     let component_map = ComponentMap::with_builtin();
     match str_to_dom_unstyled(xml.root.as_ref(), &component_map) {
         Ok(dom) => dom,
-        Err(e) => Dom::create_body().with_children(vec![Dom::create_text(format!("{}", e))].into()),
+        Err(e) => Dom::create_body().with_children(vec![Dom::create_text(format!("{e}"))].into()),
     }
 }
 
-/// Fastest path: parse XML string directly into FastDom without intermediate XmlNode tree.
-/// Feeds XML tokenizer events directly into CompactDomBuilder, skipping both the
-/// XmlNode tree construction AND the Dom tree construction.
+/// Fastest path: parse XML string directly into `FastDom` without intermediate `XmlNode` tree.
+///
+/// Feeds XML tokenizer events directly into `CompactDomBuilder`, skipping both the
+/// `XmlNode` tree construction AND the Dom tree construction.
 /// Parse XML string directly into a `FastDom` (arena-based DOM) in a single pass.
 ///
-/// Also extracts `<style>` tag content as CSS. Returns both the FastDom and
+/// Also extracts `<style>` tag content as CSS. Returns both the `FastDom` and
 /// collected CSS stylesheets. No intermediate `XmlNode` tree is built.
 ///
 /// This is the fastest XML→DOM path: XML tokens feed directly into
@@ -182,7 +183,7 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
     Ok(fast_dom)
 }
 
-/// Parse XML directly into FastDom + extracted CSS, ready for StyledDom.
+/// Parse XML directly into `FastDom` + extracted CSS, ready for `StyledDom`.
 pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
     // Optional per-phase RSS/timing breakdown.
     // Gated on AZ_MEM_BREAKDOWN=1 — prints
@@ -268,13 +269,13 @@ fn peak_rss_bytes() -> u64 {
 }
 
 #[cfg(not(all(unix, feature = "probe")))]
-fn peak_rss_bytes() -> u64 {
+const fn peak_rss_bytes() -> u64 {
     0
 }
 
-/// Internal: parse XML into FastDom + collected CSS stylesheets.
+/// Internal: parse XML into `FastDom` + collected CSS stylesheets.
 fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom, Vec<Css>), XmlError> {
-    use xmlparser::{ElementEnd::*, Token::*, Tokenizer};
+    use xmlparser::{ElementEnd::{Open, Empty, Close}, Token::{ElementStart, Attribute, ElementEnd, Text}, Tokenizer};
     use azul_core::dom::{NodeData, NodeType, IdOrClass, TabIndex};
     use azul_core::xml::CompactDomBuilder;
 
@@ -292,7 +293,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
     // Skip <!DOCTYPE ...>
     let mut xml = xml.trim();
     if xml.len() > 9 && xml[..9].to_ascii_lowercase().starts_with("<!doctype") {
-        if let Some(pos) = xml.find(">") {
+        if let Some(pos) = xml.find('>') {
             xml = &xml[(pos + 1)..];
         }
     } else if xml.starts_with("<!--") {
@@ -343,7 +344,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
         attrs: &[(String, String)],
         css_key_map: &azul_css::props::property::CssKeyMap,
     | {
-        let node_type = azul_core::xml::tag_to_node_type(tag);
+        let node_type = tag_to_node_type(tag);
         let mut nd = NodeData::create_node(node_type);
 
         // Apply attributes — build AttributeTypeVec directly (avoids the
@@ -362,7 +363,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     }
                 }
                 "focusable" => {
-                    if let Some(f) = azul_core::xml::parse_bool(value.as_str()) {
+                    if let Some(f) = parse_bool(value.as_str()) {
                         nd.set_tab_index(if f { TabIndex::Auto } else { TabIndex::NoKeyboardFocus });
                     }
                 }
@@ -377,8 +378,8 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                 }
                 "style" => {
                     let mut css_attrs = Vec::new();
-                    for s in value.split(";") {
-                        let mut s = s.split(":");
+                    for s in value.split(';') {
+                        let mut s = s.split(':');
                         let key = match s.next() { Some(s) => s, None => continue };
                         let val = match s.next() { Some(s) => s, None => continue };
                         let _ = azul_css::parser2::parse_css_declaration(
@@ -400,7 +401,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     }
                 }
                 "contenteditable" => {
-                    if azul_core::xml::parse_bool(value.as_str()).unwrap_or(false) {
+                    if parse_bool(value.as_str()).unwrap_or(false) {
                         nd.set_contenteditable(true);
                     }
                 }
@@ -620,7 +621,7 @@ pub fn domxml_from_file<I: AsRef<Path>>(
                             ))]
                             .into(),
                         );
-                    StyledDom::create(&mut dom, error_css.clone())
+                    StyledDom::create(&mut dom, error_css)
                 },
             };
         }
@@ -637,7 +638,7 @@ pub fn domxml_from_file<I: AsRef<Path>>(
 /// children recursively.
 #[cfg(feature = "xml")]
 pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
-    use xmlparser::{ElementEnd::*, Token::*, Tokenizer};
+    use xmlparser::{ElementEnd::{Empty, Close}, Token::{ElementStart, ElementEnd, Attribute, Text}, Tokenizer};
 
     use self::XmlParseError::*;
 
@@ -650,7 +651,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
     let mut xml = xml.trim();
     if xml.starts_with("<?") {
         let pos = xml.find("?>").ok_or(XmlError::MalformedHierarchy(
-            azul_core::xml::MalformedHierarchyError {
+            MalformedHierarchyError {
                 expected: "<?xml".into(),
                 got: "?>".into(),
             },
@@ -661,8 +662,8 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
     // Delete <!DOCTYPE ...> if necessary (case-insensitive)
     let mut xml = xml.trim();
     if xml.len() > 9 && xml[..9].to_ascii_lowercase().starts_with("<!doctype") {
-        let pos = xml.find(">").ok_or(XmlError::MalformedHierarchy(
-            azul_core::xml::MalformedHierarchyError {
+        let pos = xml.find('>').ok_or(XmlError::MalformedHierarchy(
+            MalformedHierarchyError {
                 expected: "<!DOCTYPE".into(),
                 got: ">".into(),
             },
@@ -683,7 +684,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
     // 1. All pointers point into `root_node` which is owned and not moved
     // 2. We never hold multiple mutable references simultaneously
     // 3. The stack is only used within this function
-    let mut node_stack: Vec<*mut XmlNode> = vec![&mut root_node as *mut XmlNode];
+    let mut node_stack: Vec<*mut XmlNode> = vec![&raw mut root_node];
 
     // HTML5-lite parser: List of void elements that should auto-close
     // See: https://developer.mozilla.org/en-US/docs/Glossary/Void_element
@@ -786,7 +787,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                     // Get pointer to the newly added child
                     let children_len = current_parent.children.len();
                     if let Some(XmlNodeChild::Element(ref mut new_child)) = current_parent.children.as_mut().get_mut(children_len - 1) {
-                        node_stack.push(new_child as *mut XmlNode);
+                        node_stack.push(std::ptr::from_mut::<XmlNode>(new_child));
                     }
                     
                     last_was_void = is_void_element;
@@ -847,7 +848,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                     // Decode XML entities in attribute values as well
                     last.attributes.push(azul_core::window::AzStringPair {
                         key: local.to_string().into(),
-                        value: azul_css::AzString::from(&*decode_xml_entities(value.as_str())),
+                        value: AzString::from(&*decode_xml_entities(value.as_str())),
                     });
                 }
             }
@@ -876,7 +877,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                         // Add text as a child node
                         current_parent
                             .children
-                            .push(XmlNodeChild::Text(azul_css::AzString::from(&*decoded_text)));
+                            .push(XmlNodeChild::Text(AzString::from(&*decoded_text)));
                     }
                 }
             }
@@ -907,8 +908,8 @@ pub fn parse_xml(s: &str) -> Result<Xml, XmlError> {
 // to_string(&self) -> String
 
 #[cfg(feature = "xml")]
-pub fn translate_roxmltree_expandedname<'a, 'b>(
-    e: roxmltree::ExpandedName<'a, 'b>,
+#[must_use] pub fn translate_roxmltree_expandedname(
+    e: roxmltree::ExpandedName<'_, '_>,
 ) -> XmlQualifiedName {
     let ns: Option<AzString> = e.namespace().map(|e| e.to_string().into());
     XmlQualifiedName {
@@ -1024,7 +1025,7 @@ fn translate_xmlparser_error(e: xmlparser::Error) -> XmlParseError {
 }
 
 #[cfg(feature = "xml")]
-pub fn translate_roxmltree_error(e: roxmltree::Error) -> XmlError {
+#[must_use] pub fn translate_roxmltree_error(e: roxmltree::Error) -> XmlError {
     match e {
         roxmltree::Error::InvalidXmlPrefixUri(s) => {
             XmlError::InvalidXmlPrefixUri(translate_roxml_textpos(s))
@@ -1124,7 +1125,7 @@ pub fn translate_roxmltree_error(e: roxmltree::Error) -> XmlError {
 }
 
 #[cfg(feature = "xml")]
-#[inline(always)]
+#[inline]
 const fn translate_xmlparser_textpos(o: xmlparser::TextPos) -> XmlTextPos {
     XmlTextPos {
         row: o.row,
@@ -1133,7 +1134,7 @@ const fn translate_xmlparser_textpos(o: xmlparser::TextPos) -> XmlTextPos {
 }
 
 #[cfg(feature = "xml")]
-#[inline(always)]
+#[inline]
 const fn translate_roxml_textpos(o: roxmltree::TextPos) -> XmlTextPos {
     XmlTextPos {
         row: o.row,
@@ -1150,8 +1151,8 @@ const fn translate_roxml_textpos(o: roxmltree::TextPos) -> XmlTextPos {
 pub trait DomXmlExt {
     /// Parse XML/XHTML string into a DOM tree
     ///
-    /// This method parses the XML string and converts it to an Azul StyledDom.
-    /// On error, it returns a StyledDom displaying the error message.
+    /// This method parses the XML string and converts it to an Azul `StyledDom`.
+    /// On error, it returns a `StyledDom` displaying the error message.
     ///
     /// # Arguments
     /// * `xml` - The XML/XHTML string to parse

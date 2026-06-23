@@ -53,9 +53,9 @@ impl_option!(
 impl Menu {
     /// Creates a new menu with the given items.
     ///
-    /// Uses default position (AutoCursor) and right mouse button for context menus.
+    /// Uses default position (`AutoCursor`) and right mouse button for context menus.
     #[must_use]
-    pub fn create(items: MenuItemVec) -> Self {
+    pub const fn create(items: MenuItemVec) -> Self {
         Self {
             items,
             position: MenuPopupPosition::AutoCursor,
@@ -65,12 +65,12 @@ impl Menu {
 
     /// Builder method to set the popup position.
     #[must_use]
-    pub fn with_position(mut self, position: MenuPopupPosition) -> Self {
+    pub const fn with_position(mut self, position: MenuPopupPosition) -> Self {
         self.position = position;
         self
     }
 
-    /// Computes a 64-bit hash of this menu using the HighwayHash algorithm.
+    /// Computes a 64-bit hash of this menu using the `HighwayHash` algorithm.
     ///
     /// This is used to detect changes in menu structure for caching and optimization.
     #[must_use]
@@ -183,7 +183,7 @@ pub struct StringMenuItem {
     /// (ex. "File", "Edit", "View")
     pub label: AzString,
     /// Optional accelerator combination
-    /// (ex. "CTRL + X" = [VirtualKeyCode::Ctrl, VirtualKeyCode::X]) for keyboard shortcut
+    /// (ex. "CTRL + X" = [`VirtualKeyCode::Ctrl`, `VirtualKeyCode::X`]) for keyboard shortcut
     pub accelerator: OptionVirtualKeyCodeCombo,
     /// Optional callback to call
     pub callback: OptionCoreMenuCallback,
@@ -200,7 +200,7 @@ impl StringMenuItem {
     /// All optional fields default to `None` / `Normal`.
     #[must_use]
     pub const fn create(label: AzString) -> Self {
-        StringMenuItem {
+        Self {
             label,
             accelerator: OptionVirtualKeyCodeCombo::None,
             callback: OptionCoreMenuCallback::None,

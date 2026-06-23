@@ -84,7 +84,7 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-/// Parse a calc() inner expression (the part between the parentheses) into
+/// Parse a `calc()` inner expression (the part between the parentheses) into
 /// a flat `CalcAstItemVec` suitable for stack-machine evaluation.
 ///
 /// Examples:
@@ -127,11 +127,8 @@ fn parse_calc_expression(input: &str) -> Result<CalcAstItemVec, ()> {
                 let is_negative_number = items.is_empty()
                     || matches!(
                         items.last(),
-                        Some(CalcAstItem::Add)
-                            | Some(CalcAstItem::Sub)
-                            | Some(CalcAstItem::Mul)
-                            | Some(CalcAstItem::Div)
-                            | Some(CalcAstItem::BraceOpen)
+                        Some(CalcAstItem::Add | CalcAstItem::Sub | CalcAstItem::Mul | CalcAstItem::Div
+| CalcAstItem::BraceOpen)
                     );
 
                 if is_negative_number {
@@ -168,7 +165,7 @@ fn parse_calc_expression(input: &str) -> Result<CalcAstItemVec, ()> {
     Ok(CalcAstItemVec::from(items))
 }
 
-/// Find the end of a numeric value token in a calc() expression.
+/// Find the end of a numeric value token in a `calc()` expression.
 /// Returns the byte offset where the value ends.
 #[cfg(feature = "parser")]
 fn find_value_end(s: &str) -> usize {
@@ -276,15 +273,15 @@ macro_rules! define_sizing_enum {
         }
 
         impl $name {
-            pub fn px(value: f32) -> Self {
+            #[must_use] pub fn px(value: f32) -> Self {
                 $name::Px(PixelValue::px(value))
             }
 
-            pub const fn const_px(value: isize) -> Self {
+            #[must_use] pub const fn const_px(value: isize) -> Self {
                 $name::Px(PixelValue::const_px(value))
             }
 
-            pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+            #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
                 match (self, other) {
                     ($name::Px(a), $name::Px(b)) => $name::Px(a.interpolate(b, t)),
                     ($name::FitContent(a), $name::FitContent(b)) => $name::FitContent(a.interpolate(b, t)),
@@ -339,8 +336,8 @@ pub enum LayoutBoxSizing {
 impl PrintAsCssValue for LayoutBoxSizing {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            LayoutBoxSizing::ContentBox => "content-box",
-            LayoutBoxSizing::BorderBox => "border-box",
+            Self::ContentBox => "content-box",
+            Self::BorderBox => "border-box",
         })
     }
 }
@@ -358,7 +355,7 @@ pub mod parser {
 
     macro_rules! define_pixel_dimension_parser {
         ($fn_name:ident, $struct_name:ident, $error_name:ident, $error_owned_name:ident) => {
-            #[derive(Clone, PartialEq)]
+            #[derive(Clone, PartialEq, Eq)]
             pub enum $error_name<'a> {
                 PixelValue(CssPixelValueParseError<'a>),
             }
@@ -370,14 +367,14 @@ pub mod parser {
 
             impl_from! { CssPixelValueParseError<'a>, $error_name::PixelValue }
 
-            #[derive(Debug, Clone, PartialEq)]
+            #[derive(Debug, Clone, PartialEq, Eq)]
             #[repr(C, u8)]
             pub enum $error_owned_name {
                 PixelValue(CssPixelValueParseErrorOwned),
             }
 
-            impl<'a> $error_name<'a> {
-                pub fn to_contained(&self) -> $error_owned_name {
+            impl $error_name<'_> {
+                #[must_use] pub fn to_contained(&self) -> $error_owned_name {
                     match self {
                         $error_name::PixelValue(e) => {
                             $error_owned_name::PixelValue(e.to_contained())
@@ -387,14 +384,14 @@ pub mod parser {
             }
 
             impl $error_owned_name {
-                pub fn to_shared<'a>(&'a self) -> $error_name<'a> {
+                #[must_use] pub fn to_shared(&self) -> $error_name<'_> {
                     match self {
                         $error_owned_name::PixelValue(e) => $error_name::PixelValue(e.to_shared()),
                     }
                 }
             }
 
-            pub fn $fn_name<'a>(input: &'a str) -> Result<$struct_name, $error_name<'a>> {
+            pub fn $fn_name(input: &str) -> Result<$struct_name, $error_name<'_>> {
                 parse_pixel_value(input)
                     .map(|v| $struct_name { inner: v })
                     .map_err($error_name::PixelValue)
@@ -404,7 +401,7 @@ pub mod parser {
 
     macro_rules! define_sizing_parser {
         ($fn_name:ident, $enum_name:ident, $error_name:ident, $error_owned_name:ident, $keyword_label:expr) => {
-            #[derive(Clone, PartialEq)]
+            #[derive(Clone, PartialEq, Eq)]
             pub enum $error_name<'a> {
                 PixelValue(CssPixelValueParseError<'a>),
                 InvalidKeyword(&'a str),
@@ -418,15 +415,15 @@ pub mod parser {
 
             impl_from! { CssPixelValueParseError<'a>, $error_name::PixelValue }
 
-            #[derive(Debug, Clone, PartialEq)]
+            #[derive(Debug, Clone, PartialEq, Eq)]
             #[repr(C, u8)]
             pub enum $error_owned_name {
                 PixelValue(CssPixelValueParseErrorOwned),
                 InvalidKeyword(AzString),
             }
 
-            impl<'a> $error_name<'a> {
-                pub fn to_contained(&self) -> $error_owned_name {
+            impl $error_name<'_> {
+                #[must_use] pub fn to_contained(&self) -> $error_owned_name {
                     match self {
                         $error_name::PixelValue(e) => {
                             $error_owned_name::PixelValue(e.to_contained())
@@ -439,7 +436,7 @@ pub mod parser {
             }
 
             impl $error_owned_name {
-                pub fn to_shared<'a>(&'a self) -> $error_name<'a> {
+                #[must_use] pub fn to_shared(&self) -> $error_name<'_> {
                     match self {
                         $error_owned_name::PixelValue(e) => {
                             $error_name::PixelValue(e.to_shared())
@@ -451,9 +448,9 @@ pub mod parser {
                 }
             }
 
-            pub fn $fn_name<'a>(
-                input: &'a str,
-            ) -> Result<$enum_name, $error_name<'a>> {
+            pub fn $fn_name(
+                input: &str,
+            ) -> Result<$enum_name, $error_name<'_>> {
                 let trimmed = input.trim();
                 match trimmed {
                     "auto" => Ok($enum_name::Auto),
@@ -514,7 +511,7 @@ pub mod parser {
 
     // -- Box Sizing Parser --
 
-    #[derive(Clone, PartialEq)]
+    #[derive(Clone, PartialEq, Eq)]
     pub enum LayoutBoxSizingParseError<'a> {
         InvalidValue(&'a str),
     }
@@ -524,35 +521,35 @@ pub mod parser {
         InvalidValue(v) => format!("Invalid box-sizing value: \"{}\"", v),
     }}
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum LayoutBoxSizingParseErrorOwned {
         InvalidValue(AzString),
     }
 
-    impl<'a> LayoutBoxSizingParseError<'a> {
-        pub fn to_contained(&self) -> LayoutBoxSizingParseErrorOwned {
+    impl LayoutBoxSizingParseError<'_> {
+        #[must_use] pub fn to_contained(&self) -> LayoutBoxSizingParseErrorOwned {
             match self {
                 LayoutBoxSizingParseError::InvalidValue(s) => {
-                    LayoutBoxSizingParseErrorOwned::InvalidValue(s.to_string().into())
+                    LayoutBoxSizingParseErrorOwned::InvalidValue((*s).to_string().into())
                 }
             }
         }
     }
 
     impl LayoutBoxSizingParseErrorOwned {
-        pub fn to_shared<'a>(&'a self) -> LayoutBoxSizingParseError<'a> {
+        #[must_use] pub fn to_shared(&self) -> LayoutBoxSizingParseError<'_> {
             match self {
-                LayoutBoxSizingParseErrorOwned::InvalidValue(s) => {
+                Self::InvalidValue(s) => {
                     LayoutBoxSizingParseError::InvalidValue(s)
                 }
             }
         }
     }
 
-    pub fn parse_layout_box_sizing<'a>(
-        input: &'a str,
-    ) -> Result<LayoutBoxSizing, LayoutBoxSizingParseError<'a>> {
+    pub fn parse_layout_box_sizing(
+        input: &str,
+    ) -> Result<LayoutBoxSizing, LayoutBoxSizingParseError<'_>> {
         match input.trim() {
             "content-box" => Ok(LayoutBoxSizing::ContentBox),
             "border-box" => Ok(LayoutBoxSizing::BorderBox),

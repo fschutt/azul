@@ -46,7 +46,7 @@ pub(crate) struct PositionOffsets {
 // +spec:positioning:94ef0f - position property: static|relative|absolute|sticky|fixed, initial static, applies to all elements except table-column-group/table-column
 /// Looks up the `position` property using the compact-cache-aware getter.
 // +spec:positioning:ba937d - positioned elements have position != static
-pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutPosition {
+#[must_use] pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutPosition {
     let Some(id) = dom_id else {
         return LayoutPosition::Static;
     };
@@ -713,7 +713,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         // For `position: relative`, this is the parent's content box size.
         let containing_block_size = node.parent
             .and_then(|parent_idx| tree.get(parent_idx))
-            .map(|parent_node| {
+            .map_or(viewport.size, |parent_node| {
                 // Get parent's writing mode to correctly calculate its inner (content) size.
                 let parent_wm = parent_node.dom_node_id
                     .map(|pid| {
@@ -723,9 +723,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
                     .unwrap_or_default();
                 let parent_used_size = parent_node.used_size.unwrap_or_default();
                 parent_node.box_props.inner_size(parent_used_size, parent_wm)
-            })
-            // The root element is relatively positioned. Its containing block is the viewport.
-            .unwrap_or(viewport.size);
+            });
 
         // +spec:positioning:418c74 - inset percentages resolve against containing block size per axis; auto is unconstrained
         let offsets =
@@ -863,12 +861,9 @@ fn find_nearest_scrollport(
             Some(n) => n,
             None => break,
         };
-        let parent_dom_id = match parent_node.dom_node_id {
-            Some(id) => id,
-            None => {
-                current_parent_idx = parent_node.parent;
-                continue;
-            }
+        let parent_dom_id = if let Some(id) = parent_node.dom_node_id { id } else {
+            current_parent_idx = parent_node.parent;
+            continue;
         };
 
         let node_state = &styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
@@ -924,7 +919,7 @@ fn find_nearest_scrollport(
 }
 
 /// Find the scroll offset of the nearest scroll container ancestor.
-/// Returns the scroll offset as a LogicalPosition (how far the content has scrolled).
+/// Returns the scroll offset as a `LogicalPosition` (how far the content has scrolled).
 fn find_nearest_scroll_offset(
     tree: &LayoutTree,
     node_index: usize,

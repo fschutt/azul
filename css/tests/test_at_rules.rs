@@ -40,13 +40,12 @@ fn test_media_screen() {
     assert_eq!(
         conditions.len(),
         1,
-        "Expected 1 condition, got {:?}",
-        conditions
+        "Expected 1 condition, got {conditions:?}"
     );
 
     match &conditions[0] {
         DynamicSelector::Media(MediaType::Screen) => {}
-        other => panic!("Expected Media(Screen), got {:?}", other),
+        other => panic!("Expected Media(Screen), got {other:?}"),
     }
 }
 
@@ -68,7 +67,7 @@ fn test_media_print() {
 
     match &conditions[0] {
         DynamicSelector::Media(MediaType::Print) => {}
-        other => panic!("Expected Media(Print), got {:?}", other),
+        other => panic!("Expected Media(Print), got {other:?}"),
     }
 }
 
@@ -90,7 +89,7 @@ fn test_media_all() {
 
     match &conditions[0] {
         DynamicSelector::Media(MediaType::All) => {}
-        other => panic!("Expected Media(All), got {:?}", other),
+        other => panic!("Expected Media(All), got {other:?}"),
     }
 }
 
@@ -116,7 +115,7 @@ fn test_media_min_width() {
             assert_eq!(range.min(), Some(800.0));
             assert!(range.max().is_none());
         }
-        other => panic!("Expected ViewportWidth, got {:?}", other),
+        other => panic!("Expected ViewportWidth, got {other:?}"),
     }
 }
 
@@ -142,7 +141,7 @@ fn test_media_max_width() {
             assert!(range.min().is_none());
             assert_eq!(range.max(), Some(600.0));
         }
-        other => panic!("Expected ViewportWidth, got {:?}", other),
+        other => panic!("Expected ViewportWidth, got {other:?}"),
     }
 }
 
@@ -168,7 +167,7 @@ fn test_media_min_height() {
             assert_eq!(range.min(), Some(500.0));
             assert!(range.max().is_none());
         }
-        other => panic!("Expected ViewportHeight, got {:?}", other),
+        other => panic!("Expected ViewportHeight, got {other:?}"),
     }
 }
 
@@ -194,7 +193,7 @@ fn test_media_max_height() {
             assert!(range.min().is_none());
             assert_eq!(range.max(), Some(1200.0));
         }
-        other => panic!("Expected ViewportHeight, got {:?}", other),
+        other => panic!("Expected ViewportHeight, got {other:?}"),
     }
 }
 
@@ -217,7 +216,7 @@ fn test_media_orientation_portrait() {
 
     match &conditions[0] {
         DynamicSelector::Orientation(OrientationType::Portrait) => {}
-        other => panic!("Expected Orientation(Portrait), got {:?}", other),
+        other => panic!("Expected Orientation(Portrait), got {other:?}"),
     }
 }
 
@@ -240,7 +239,7 @@ fn test_media_orientation_landscape() {
 
     match &conditions[0] {
         DynamicSelector::Orientation(OrientationType::Landscape) => {}
-        other => panic!("Expected Orientation(Landscape), got {:?}", other),
+        other => panic!("Expected Orientation(Landscape), got {other:?}"),
     }
 }
 
@@ -296,7 +295,7 @@ fn test_media_multiple_rules_in_block() {
         assert_eq!(conditions.len(), 1);
         match &conditions[0] {
             DynamicSelector::Media(MediaType::Screen) => {}
-            other => panic!("Expected Media(Screen), got {:?}", other),
+            other => panic!("Expected Media(Screen), got {other:?}"),
         }
     }
 }
@@ -334,8 +333,7 @@ fn test_lang_pseudo_class_simple() {
     // Should parse without warnings
     assert!(
         warnings.is_empty(),
-        "Expected no warnings, got: {:?}",
-        warnings
+        "Expected no warnings, got: {warnings:?}"
     );
 
     let rules: Vec<_> = result.rules().collect();
@@ -350,8 +348,7 @@ fn test_lang_pseudo_class_simple() {
     });
     assert!(
         has_lang,
-        "Expected :lang(de) pseudo-selector in path: {:?}",
-        path_selectors
+        "Expected :lang(de) pseudo-selector in path: {path_selectors:?}"
     );
 }
 
@@ -363,8 +360,7 @@ fn test_lang_pseudo_class_with_region() {
 
     assert!(
         warnings.is_empty(),
-        "Expected no warnings, got: {:?}",
-        warnings
+        "Expected no warnings, got: {warnings:?}"
     );
 
     let rules: Vec<_> = result.rules().collect();
@@ -378,8 +374,7 @@ fn test_lang_pseudo_class_with_region() {
     });
     assert!(
         has_lang,
-        "Expected :lang(de-DE) pseudo-selector in path: {:?}",
-        path_selectors
+        "Expected :lang(de-DE) pseudo-selector in path: {path_selectors:?}"
     );
 }
 
@@ -391,8 +386,7 @@ fn test_lang_pseudo_class_quoted() {
 
     assert!(
         warnings.is_empty(),
-        "Expected no warnings, got: {:?}",
-        warnings
+        "Expected no warnings, got: {warnings:?}"
     );
 
     let rules: Vec<_> = result.rules().collect();
@@ -406,8 +400,7 @@ fn test_lang_pseudo_class_quoted() {
     });
     assert!(
         has_lang,
-        "Expected :lang(en-US) pseudo-selector (quotes stripped) in path: {:?}",
-        path_selectors
+        "Expected :lang(en-US) pseudo-selector (quotes stripped) in path: {path_selectors:?}"
     );
 }
 
@@ -419,8 +412,7 @@ fn test_lang_pseudo_class_single_quoted() {
 
     assert!(
         warnings.is_empty(),
-        "Expected no warnings, got: {:?}",
-        warnings
+        "Expected no warnings, got: {warnings:?}"
     );
 
     let rules: Vec<_> = result.rules().collect();
@@ -434,8 +426,7 @@ fn test_lang_pseudo_class_single_quoted() {
     });
     assert!(
         has_lang,
-        "Expected :lang(fr) pseudo-selector (quotes stripped) in path: {:?}",
-        path_selectors
+        "Expected :lang(fr) pseudo-selector (quotes stripped) in path: {path_selectors:?}"
     );
 }
 
@@ -451,8 +442,7 @@ fn test_lang_pseudo_class_multiple_rules() {
 
     assert!(
         warnings.is_empty(),
-        "Expected no warnings, got: {:?}",
-        warnings
+        "Expected no warnings, got: {warnings:?}"
     );
 
     let rules: Vec<_> = result.rules().collect();
@@ -482,8 +472,7 @@ fn test_lang_pseudo_class_combined_with_class() {
 
     assert!(
         warnings.is_empty(),
-        "Expected no warnings, got: {:?}",
-        warnings
+        "Expected no warnings, got: {warnings:?}"
     );
 
     let rules: Vec<_> = result.rules().collect();
@@ -502,13 +491,11 @@ fn test_lang_pseudo_class_combined_with_class() {
 
     assert!(
         has_class,
-        "Expected .content class in selector, got: {:?}",
-        path_selectors
+        "Expected .content class in selector, got: {path_selectors:?}"
     );
     assert!(
         has_lang,
-        "Expected :lang(de) pseudo-selector, got: {:?}",
-        path_selectors
+        "Expected :lang(de) pseudo-selector, got: {path_selectors:?}"
     );
 }
 
@@ -520,8 +507,7 @@ fn test_lang_pseudo_class_combined_with_other_pseudo() {
 
     assert!(
         warnings.is_empty(),
-        "Expected no warnings, got: {:?}",
-        warnings
+        "Expected no warnings, got: {warnings:?}"
     );
 
     let rules: Vec<_> = result.rules().collect();
@@ -543,13 +529,11 @@ fn test_lang_pseudo_class_combined_with_other_pseudo() {
 
     assert!(
         has_lang,
-        "Expected :lang(en) pseudo-selector, got: {:?}",
-        path_selectors
+        "Expected :lang(en) pseudo-selector, got: {path_selectors:?}"
     );
     assert!(
         has_hover,
-        "Expected :hover pseudo-selector, got: {:?}",
-        path_selectors
+        "Expected :hover pseudo-selector, got: {path_selectors:?}"
     );
 }
 
@@ -697,13 +681,12 @@ fn test_os_linux() {
     assert_eq!(
         conditions.len(),
         1,
-        "Expected 1 condition, got {:?}",
-        conditions
+        "Expected 1 condition, got {conditions:?}"
     );
 
     match &conditions[0] {
         DynamicSelector::Os(OsCondition::Linux) => {}
-        other => panic!("Expected Os(Linux), got {:?}", other),
+        other => panic!("Expected Os(Linux), got {other:?}"),
     }
 }
 
@@ -725,7 +708,7 @@ fn test_os_windows() {
 
     match &conditions[0] {
         DynamicSelector::Os(OsCondition::Windows) => {}
-        other => panic!("Expected Os(Windows), got {:?}", other),
+        other => panic!("Expected Os(Windows), got {other:?}"),
     }
 }
 
@@ -747,7 +730,7 @@ fn test_os_macos() {
 
     match &conditions[0] {
         DynamicSelector::Os(OsCondition::MacOS) => {}
-        other => panic!("Expected Os(MacOS), got {:?}", other),
+        other => panic!("Expected Os(MacOS), got {other:?}"),
     }
 }
 
@@ -770,7 +753,7 @@ fn test_os_apple() {
 
     match &conditions[0] {
         DynamicSelector::Os(OsCondition::Apple) => {}
-        other => panic!("Expected Os(Apple), got {:?}", other),
+        other => panic!("Expected Os(Apple), got {other:?}"),
     }
 }
 
@@ -793,7 +776,7 @@ fn test_os_multiple_rules_in_block() {
         assert_eq!(conditions.len(), 1);
         match &conditions[0] {
             DynamicSelector::Os(OsCondition::Linux) => {}
-            other => panic!("Expected Os(Linux), got {:?}", other),
+            other => panic!("Expected Os(Linux), got {other:?}"),
         }
     }
 }
@@ -811,19 +794,19 @@ fn test_os_aliases() {
     ];
 
     for (alias, expected) in test_cases {
-        let css = format!("@os {} {{ div {{ color: red; }} }}", alias);
+        let css = format!("@os {alias} {{ div {{ color: red; }} }}");
         let (result, _warnings) = new_from_str(&css);
 
         let rules: Vec<_> = result.rules().collect();
-        assert_eq!(rules.len(), 1, "Expected 1 rule for alias '{}'", alias);
+        assert_eq!(rules.len(), 1, "Expected 1 rule for alias '{alias}'");
 
         let rule = &rules[0];
         let conditions: Vec<_> = rule.conditions.iter().collect();
-        assert_eq!(conditions.len(), 1, "Expected 1 condition for alias '{}'", alias);
+        assert_eq!(conditions.len(), 1, "Expected 1 condition for alias '{alias}'");
 
         match &conditions[0] {
             DynamicSelector::Os(os) if os == &expected => {}
-            other => panic!("For alias '{}': Expected Os({:?}), got {:?}", alias, expected, other),
+            other => panic!("For alias '{alias}': Expected Os({expected:?}), got {other:?}"),
         }
     }
 }
@@ -854,8 +837,7 @@ fn test_nested_os_and_media() {
     assert_eq!(
         conditions.len(),
         2,
-        "Expected 2 conditions for nested selectors, got {:?}",
-        conditions
+        "Expected 2 conditions for nested selectors, got {conditions:?}"
     );
 
     let has_os_linux = conditions
@@ -890,8 +872,7 @@ fn test_nested_media_and_os() {
     assert_eq!(
         conditions.len(),
         2,
-        "Expected 2 conditions for nested selectors, got {:?}",
-        conditions
+        "Expected 2 conditions for nested selectors, got {conditions:?}"
     );
 
     let has_media_screen = conditions

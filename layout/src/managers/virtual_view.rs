@@ -1,7 +1,7 @@
-//! VirtualView lifecycle management for layout
+//! `VirtualView` lifecycle management for layout
 //!
 //! This module provides:
-//! - VirtualView re-invocation logic for lazy loading
+//! - `VirtualView` re-invocation logic for lazy loading
 //! - Nested DOM ID management
 
 use alloc::collections::BTreeMap;
@@ -17,30 +17,30 @@ use crate::managers::scroll_state::ScrollManager;
 /// Distance in pixels from edge that triggers edge-scrolled callback
 const EDGE_THRESHOLD: f32 = 200.0;
 
-/// Manages VirtualView lifecycle, including re-invocation
+/// Manages `VirtualView` lifecycle, including re-invocation
 ///
-/// Tracks which VirtualViews have been invoked, assigns unique DOM IDs to nested
-/// virtual views, and determines when VirtualViews need to be re-invoked (e.g., when
+/// Tracks which `VirtualViews` have been invoked, assigns unique DOM IDs to nested
+/// virtual views, and determines when `VirtualViews` need to be re-invoked (e.g., when
 /// the container bounds expand or the user scrolls near an edge).
 #[derive(Debug, Clone, Default)]
 pub struct VirtualViewManager {
-    /// Per-VirtualView state keyed by (parent DomId, NodeId of virtualized view element)
+    /// Per-VirtualView state keyed by (parent `DomId`, `NodeId` of virtualized view element)
     states: BTreeMap<(DomId, NodeId), VirtualViewState>,
     /// Counter for generating unique nested DOM IDs
     next_dom_id: usize,
 }
 
-/// Internal state for a single VirtualView instance
+/// Internal state for a single `VirtualView` instance
 ///
 /// Tracks invocation status, content dimensions, and edge triggers
-/// to determine when the VirtualView callback needs to be re-invoked.
+/// to determine when the `VirtualView` callback needs to be re-invoked.
 #[derive(Debug, Clone)]
 struct VirtualViewState {
-    /// Content size reported by VirtualView callback (actual rendered size)
+    /// Content size reported by `VirtualView` callback (actual rendered size)
     virtual_view_scroll_size: Option<LogicalSize>,
     /// Virtual scroll size for infinite scroll scenarios
     virtual_view_virtual_scroll_size: Option<LogicalSize>,
-    /// Whether the VirtualView has ever been invoked
+    /// Whether the `VirtualView` has ever been invoked
     virtual_view_was_invoked: bool,
     /// Whether invoked for current container expansion
     invoked_for_current_expansion: bool,
@@ -48,11 +48,11 @@ struct VirtualViewState {
     invoked_for_current_edge: bool,
     /// Which edges have already triggered callbacks
     last_edge_triggered: EdgeFlags,
-    /// Unique DOM ID assigned to this VirtualView's content
+    /// Unique DOM ID assigned to this `VirtualView`'s content
     nested_dom_id: DomId,
-    /// Last known layout bounds of the VirtualView container
+    /// Last known layout bounds of the `VirtualView` container
     last_bounds: LogicalRect,
-    /// Scroll offset captured at InitialRender. Edge-scroll callbacks only fire
+    /// Scroll offset captured at `InitialRender`. Edge-scroll callbacks only fire
     /// once the user has scrolled away from this resting position — being at an
     /// edge from the very start (e.g. the top/left edge at offset 0) is the
     /// initial position, not a scroll-to-edge event.
@@ -76,23 +76,23 @@ struct EdgeFlags {
 }
 
 impl VirtualViewManager {
-    /// Creates a new VirtualViewManager with no tracked VirtualViews
-    pub fn new() -> Self {
+    /// Creates a new `VirtualViewManager` with no tracked `VirtualViews`
+    #[must_use] pub fn new() -> Self {
         Self {
             next_dom_id: 1, // 0 is root
             ..Default::default()
         }
     }
 
-    /// Number of tracked VirtualView states. Used by `AZ_E2E_TEST` to watch growth.
-    pub fn debug_counts(&self) -> usize {
+    /// Number of tracked `VirtualView` states. Used by `AZ_E2E_TEST` to watch growth.
+    #[must_use] pub fn debug_counts(&self) -> usize {
         self.states.len()
     }
 
-    /// Gets or creates a unique nested DOM ID for a VirtualView
+    /// Gets or creates a unique nested DOM ID for a `VirtualView`
     ///
-    /// Returns the existing DOM ID if the VirtualView was previously registered,
-    /// otherwise allocates a new unique ID and initializes the VirtualView state.
+    /// Returns the existing DOM ID if the `VirtualView` was previously registered,
+    /// otherwise allocates a new unique ID and initializes the `VirtualView` state.
     pub fn get_or_create_nested_dom_id(&mut self, dom_id: DomId, node_id: NodeId) -> DomId {
         let key = (dom_id, node_id);
 
@@ -111,24 +111,23 @@ impl VirtualViewManager {
         nested_dom_id
     }
 
-    /// Gets the nested DOM ID for a VirtualView if it exists
-    pub fn get_nested_dom_id(&self, dom_id: DomId, node_id: NodeId) -> Option<DomId> {
+    /// Gets the nested DOM ID for a `VirtualView` if it exists
+    #[must_use] pub fn get_nested_dom_id(&self, dom_id: DomId, node_id: NodeId) -> Option<DomId> {
         self.states.get(&(dom_id, node_id)).map(|s| s.nested_dom_id)
     }
 
-    /// Returns whether the VirtualView has ever been invoked
-    pub fn was_virtual_view_invoked(&self, dom_id: DomId, node_id: NodeId) -> bool {
+    /// Returns whether the `VirtualView` has ever been invoked
+    #[must_use] pub fn was_virtual_view_invoked(&self, dom_id: DomId, node_id: NodeId) -> bool {
         self.states
             .get(&(dom_id, node_id))
-            .map(|s| s.virtual_view_was_invoked)
-            .unwrap_or(false)
+            .is_some_and(|s| s.virtual_view_was_invoked)
     }
 
-    /// Updates the VirtualView's content size information
+    /// Updates the `VirtualView`'s content size information
     ///
-    /// Called after the VirtualView callback returns to record the actual content
+    /// Called after the `VirtualView` callback returns to record the actual content
     /// dimensions. If the new size is larger than previously recorded, clears
-    /// the expansion flag to allow BoundsExpanded re-invocation.
+    /// the expansion flag to allow `BoundsExpanded` re-invocation.
     pub fn update_virtual_view_info(
         &mut self,
         dom_id: DomId,
@@ -150,7 +149,7 @@ impl VirtualViewManager {
         Some(())
     }
 
-    /// Marks a VirtualView as invoked for a specific reason
+    /// Marks a `VirtualView` as invoked for a specific reason
     ///
     /// Updates internal state flags based on the callback reason to prevent
     /// duplicate callbacks for the same trigger condition.
@@ -175,11 +174,11 @@ impl VirtualViewManager {
         Some(())
     }
 
-    /// Reset invocation flags for ALL tracked VirtualViews
+    /// Reset invocation flags for ALL tracked `VirtualViews`
     ///
     /// After `layout_results.clear()`, the child DOMs no longer exist in memory.
     /// This method ensures `check_reinvoke()` returns `InitialRender` for every
-    /// VirtualView, so the callbacks re-run and re-populate `layout_results`.
+    /// `VirtualView`, so the callbacks re-run and re-populate `layout_results`.
     ///
     /// Called from `layout_and_generate_display_list()` after clearing layout results.
     pub fn reset_all_invocation_flags(&mut self) {
@@ -191,10 +190,10 @@ impl VirtualViewManager {
         }
     }
 
-    /// Force a VirtualView to be re-invoked on the next layout pass
+    /// Force a `VirtualView` to be re-invoked on the next layout pass
     ///
-    /// Clears all invocation flags, causing check_reinvoke() to return InitialRender.
-    /// Used by trigger_virtual_view_rerender() to manually refresh VirtualView content.
+    /// Clears all invocation flags, causing `check_reinvoke()` to return `InitialRender`.
+    /// Used by `trigger_virtual_view_rerender()` to manually refresh `VirtualView` content.
     pub fn force_reinvoke(&mut self, dom_id: DomId, node_id: NodeId) -> Option<()> {
         let state = self.states.get_mut(&(dom_id, node_id))?;
 
@@ -205,18 +204,18 @@ impl VirtualViewManager {
         Some(())
     }
 
-    /// `(DomId, NodeId)` of every VirtualView registered so far (invoked at
+    /// `(DomId, NodeId)` of every `VirtualView` registered so far (invoked at
     /// least once). Used to re-invoke *all* views after a shared-dataset change
     /// arrives out-of-band (e.g. a background tile-fetch writeback) without
     /// needing to know which node the data belongs to.
-    pub fn all_view_keys(&self) -> alloc::vec::Vec<(DomId, NodeId)> {
+    #[must_use] pub fn all_view_keys(&self) -> Vec<(DomId, NodeId)> {
         self.states.keys().copied().collect()
     }
 
-    /// Checks whether a VirtualView needs to be re-invoked and returns the reason
+    /// Checks whether a `VirtualView` needs to be re-invoked and returns the reason
     ///
-    /// Returns `Some(reason)` if the VirtualView callback should be invoked:
-    /// - `InitialRender`: VirtualView has never been invoked
+    /// Returns `Some(reason)` if the `VirtualView` callback should be invoked:
+    /// - `InitialRender`: `VirtualView` has never been invoked
     /// - `BoundsExpanded`: Container grew larger than content
     /// - `EdgeScrolled`: User scrolled near an edge (for lazy loading)
     ///
@@ -260,11 +259,11 @@ impl VirtualViewManager {
         state.check_reinvoke_condition(scroll_offset, layout_bounds.size)
     }
 
-    /// Returns debug info for all tracked VirtualViews
+    /// Returns debug info for all tracked `VirtualViews`
     ///
-    /// Each entry contains: (parent_dom_id, parent_node_id, nested_dom_id,
-    /// scroll_size, virtual_scroll_size, was_invoked, last_bounds)
-    pub fn get_all_virtual_view_infos(&self) -> alloc::vec::Vec<VirtualViewDebugInfo> {
+    /// Each entry contains: (`parent_dom_id`, `parent_node_id`, `nested_dom_id`,
+    /// `scroll_size`, `virtual_scroll_size`, `was_invoked`, `last_bounds`)
+    #[must_use] pub fn get_all_virtual_view_infos(&self) -> Vec<VirtualViewDebugInfo> {
         self.states
             .iter()
             .map(|((dom_id, node_id), state)| VirtualViewDebugInfo {
@@ -285,7 +284,7 @@ impl VirtualViewManager {
     }
 }
 
-/// Debug info for a single VirtualView, returned by `get_all_virtual_view_infos`
+/// Debug info for a single `VirtualView`, returned by `get_all_virtual_view_infos`
 #[derive(Debug, Clone)]
 pub struct VirtualViewDebugInfo {
     pub parent_dom_id: usize,
@@ -303,7 +302,7 @@ pub struct VirtualViewDebugInfo {
 }
 
 impl VirtualViewState {
-    /// Creates a new VirtualViewState with the given nested DOM ID
+    /// Creates a new `VirtualViewState` with the given nested DOM ID
     fn new(nested_dom_id: DomId) -> Self {
         Self {
             virtual_view_scroll_size: None,
@@ -318,12 +317,12 @@ impl VirtualViewState {
         }
     }
 
-    /// Determines if the VirtualView callback should be re-invoked based on
+    /// Determines if the `VirtualView` callback should be re-invoked based on
     /// scroll position
     ///
     /// Checks two conditions:
     /// 1. Container bounds expanded beyond content size
-    /// 2. User scrolled within EDGE_THRESHOLD pixels of an edge (for lazy loading)
+    /// 2. User scrolled within `EDGE_THRESHOLD` pixels of an edge (for lazy loading)
     fn check_reinvoke_condition(
         &mut self,
         current_offset: LogicalPosition,
@@ -386,7 +385,7 @@ impl VirtualViewState {
 
 impl EdgeFlags {
     /// Returns true if any edge flag is set
-    fn any(&self) -> bool {
+    const fn any(&self) -> bool {
         self.top || self.bottom || self.left || self.right
     }
 }

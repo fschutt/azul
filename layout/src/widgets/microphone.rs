@@ -103,7 +103,7 @@ pub struct MicrophoneWidget {
 
 impl MicrophoneWidget {
     /// Create a microphone widget for the given capture config.
-    pub fn create(config: AudioConfig) -> Self {
+    #[must_use] pub const fn create(config: AudioConfig) -> Self {
         Self {
             config,
             on_frame: OptionOnAudioFrame::None,
@@ -134,7 +134,7 @@ impl MicrophoneWidget {
     /// Build the widget's DOM: a single invisible node, fed by a background
     /// capture thread started on mount. Place it anywhere in your tree - the
     /// capture lives as long as the node is mounted (unmount stops it).
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         let state = MicrophoneWidgetState {
             config: self.config,
             started: false,
@@ -153,7 +153,7 @@ impl MicrophoneWidget {
     }
 }
 
-/// AfterMount: start the background capture thread exactly once.
+/// `AfterMount`: start the background capture thread exactly once.
 extern "C" fn mic_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let (rate, channels) = {
         let mut s = match data.downcast_mut::<MicrophoneWidgetState>() {
@@ -188,13 +188,12 @@ extern "C" fn mic_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
 }
 
 /// Background worker (test tone): a 440 Hz sine in ~20 ms chunks until the
-/// widget unmounts. The real AVAudioEngine / AAudio / cpal capture loop
+/// widget unmounts. The real `AVAudioEngine` / `AAudio` / cpal capture loop
 /// replaces it (dll-side).
 extern "C" fn mic_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     let (rate, channels) = init
         .downcast_ref::<MicThreadInit>()
-        .map(|i| (i.sample_rate, i.channels))
-        .unwrap_or((48_000, 1));
+        .map_or((48_000, 1), |i| (i.sample_rate, i.channels));
 
     // Real platform capture if the dll registered a mic backend (ALSA on
     // Linux); otherwise the 440 Hz test tone below.
@@ -272,7 +271,7 @@ extern "C" fn mic_writeback(
     }
 }
 
-/// Carry live state forward across relayout (config + started; the on_frame
+/// Carry live state forward across relayout (config + started; the `on_frame`
 /// hook is taken from the fresh build).
 extern "C" fn merge_microphone_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     {

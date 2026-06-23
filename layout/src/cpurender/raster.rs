@@ -60,7 +60,7 @@ fn resolve_color(
     }
 }
 
-/// Build a GradientLut from normalized linear color stops.
+/// Build a `GradientLut` from normalized linear color stops.
 fn build_gradient_lut_linear(
     stops: &azul_css::props::style::background::NormalizedLinearColorStopVec,
     system_colors: Option<&azul_css::system::SystemColors>,
@@ -86,7 +86,7 @@ fn build_gradient_lut_linear(
     lut
 }
 
-/// Build a GradientLut from normalized radial (conic) color stops.
+/// Build a `GradientLut` from normalized radial (conic) color stops.
 fn build_gradient_lut_radial(
     stops: &azul_css::props::style::background::NormalizedRadialColorStopVec,
     system_colors: Option<&azul_css::system::SystemColors>,
@@ -112,7 +112,7 @@ fn build_gradient_lut_radial(
     lut
 }
 
-/// Resolve a background position to (x_fraction, y_fraction) in 0..1 range.
+/// Resolve a background position to (`x_fraction`, `y_fraction`) in 0..1 range.
 fn resolve_background_position(
     pos: &azul_css::props::style::background::StyleBackgroundPosition,
     width: f32,
@@ -192,7 +192,7 @@ fn render_linear_gradient(
 
     let dx = x2 - x1;
     let dy = y2 - y1;
-    let len = (dx * dx + dy * dy).sqrt();
+    let len = dx.hypot(dy);
     if len < 0.001 {
         return Ok(());
     }
@@ -269,12 +269,12 @@ fn render_radial_gradient(
         RadialGradientSize::ClosestCorner => {
             let dx = (cx_frac as f64 * w).min((1.0 - cx_frac as f64) * w);
             let dy = (cy_frac as f64 * h).min((1.0 - cy_frac as f64) * h);
-            (dx * dx + dy * dy).sqrt()
+            dx.hypot(dy)
         }
         RadialGradientSize::FarthestCorner => {
             let dx = (cx_frac as f64 * w).max((1.0 - cx_frac as f64) * w);
             let dy = (cy_frac as f64 * h).max((1.0 - cy_frac as f64) * h);
-            (dx * dx + dy * dy).sqrt()
+            dx.hypot(dy)
         }
     };
 
@@ -481,7 +481,7 @@ fn render_box_shadow(
 }
 
 /// Entry on the mask/opacity stack.
-pub(crate) enum MaskEntry {
+pub enum MaskEntry {
     /// Image mask clip (R8 mask).
     ImageMask {
         snapshot: Vec<u8>,
@@ -660,8 +660,8 @@ pub fn render(
     Ok(pixmap)
 }
 
-/// Render a display list using fonts from FontManager directly.
-/// This is used in reftest scenarios where RendererResources doesn't have fonts registered.
+/// Render a display list using fonts from `FontManager` directly.
+/// This is used in reftest scenarios where `RendererResources` doesn't have fonts registered.
 pub fn render_with_font_manager(
     dl: &DisplayList,
     res: &RendererResources,
@@ -673,7 +673,7 @@ pub fn render_with_font_manager(
     render_with_font_manager_and_scroll(dl, res, font_manager, opts, glyph_cache, &empty_state)
 }
 
-/// Render with FontManager and explicit render state (scroll offsets + GPU values).
+/// Render with `FontManager` and explicit render state (scroll offsets + GPU values).
 /// Used by `take_screenshot` to render with the current scroll/transform/opacity state.
 pub fn render_with_font_manager_and_scroll(
     dl: &DisplayList,
@@ -730,24 +730,24 @@ pub fn render_with_font_manager_and_scroll_retained(
     Ok(pixmap)
 }
 
-/// Scroll offsets keyed by scroll_id (LocalScrollId).
+/// Scroll offsets keyed by `scroll_id` (`LocalScrollId`).
 /// Passed to the renderer so it can look up the current scroll position
-/// for each PushScrollFrame without embedding it in the display list.
+/// for each `PushScrollFrame` without embedding it in the display list.
 pub type ScrollOffsetMap = HashMap<LocalScrollId, (f32, f32)>;
 
 /// Consolidated render-time state for CPU rendering.
 ///
 /// Bundles scroll offsets and GPU-animated values (transforms, opacities)
-/// that WebRender would normally manage internally. In cpurender these
+/// that `WebRender` would normally manage internally. In cpurender these
 /// are looked up from the `GpuValueCache` at screenshot time.
 pub struct CpuRenderState {
-    /// Scroll offsets by scroll_id
+    /// Scroll offsets by `scroll_id`
     pub scroll_offsets: ScrollOffsetMap,
     /// Transform values keyed by TransformKey.id — scrollbar thumb positions
-    /// and CSS transforms that are GPU-animated in WebRender.
+    /// and CSS transforms that are GPU-animated in `WebRender`.
     pub transforms: HashMap<usize, azul_core::transform::ComputedTransform3D>,
     /// Opacity values keyed by OpacityKey.id — scrollbar fade-in/out.
-    /// For WhenScrolling mode, opacity is 1.0 when recently scrolled,
+    /// For `WhenScrolling` mode, opacity is 1.0 when recently scrolled,
     /// fades to 0.0 after idle. For Always mode, opacity is always 1.0.
     pub opacities: HashMap<usize, f32>,
     /// System style for resolving system color references inside gradient
@@ -755,7 +755,7 @@ pub struct CpuRenderState {
     /// system color stops fall back to a transparent color.
     pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
     /// Display lists of nested `VirtualView` child DOMs, keyed by their
-    /// `child_dom_id`. The WebRender path composites these via separate pipelines;
+    /// `child_dom_id`. The `WebRender` path composites these via separate pipelines;
     /// the CPU path has no pipelines, so the `DisplayListItem::VirtualView` arm
     /// recursively rasterises the child's display list from here (translated to the
     /// item's `bounds.origin`, clipped to `bounds`). Empty for non-window renders.
@@ -768,11 +768,11 @@ pub struct CpuRenderState {
     /// the produced images here, where the `DisplayListItem::Image` arm looks
     /// them up by hash. Empty when there are no callback images.
     pub image_callback_results:
-        std::collections::BTreeMap<azul_core::resources::ImageRefHash, azul_core::resources::ImageRef>,
+        std::collections::BTreeMap<azul_core::resources::ImageRefHash, ImageRef>,
 }
 
 impl CpuRenderState {
-    pub fn new(scroll_offsets: ScrollOffsetMap) -> Self {
+    #[must_use] pub fn new(scroll_offsets: ScrollOffsetMap) -> Self {
         Self {
             scroll_offsets,
             transforms: HashMap::new(),
@@ -784,11 +784,11 @@ impl CpuRenderState {
     }
 
     /// Provide the resolved `RenderImageCallback` images (see the field doc).
-    pub fn with_image_callback_results(
+    #[must_use] pub fn with_image_callback_results(
         mut self,
         results: std::collections::BTreeMap<
             azul_core::resources::ImageRefHash,
-            azul_core::resources::ImageRef,
+            ImageRef,
         >,
     ) -> Self {
         self.image_callback_results = results;
@@ -797,7 +797,7 @@ impl CpuRenderState {
 
     /// Provide the nested `VirtualView` child DOM display lists so the CPU
     /// renderer can composite them (see the field doc).
-    pub fn with_virtual_view_display_lists(
+    #[must_use] pub fn with_virtual_view_display_lists(
         mut self,
         lists: std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
     ) -> Self {
@@ -807,7 +807,7 @@ impl CpuRenderState {
 
     /// Attach a `SystemStyle` so the renderer can resolve `system:*` color
     /// keywords (e.g. in gradient stops) against the live OS palette.
-    pub fn with_system_style(
+    #[must_use] pub fn with_system_style(
         mut self,
         system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
     ) -> Self {
@@ -815,8 +815,8 @@ impl CpuRenderState {
         self
     }
 
-    /// Build from a GpuValueCache snapshot.
-    pub fn from_gpu_cache(
+    /// Build from a `GpuValueCache` snapshot.
+    #[must_use] pub fn from_gpu_cache(
         gpu_cache: Option<&azul_core::gpu::GpuValueCache>,
         dom_id: azul_core::dom::DomId,
         scroll_offsets: &ScrollOffsetMap,
@@ -941,7 +941,7 @@ fn render_display_list_with_state(
 /// strings (probe events store `&'static str` for cheap aggregation),
 /// hence the closed match instead of formatting `Debug`.
 #[inline]
-fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
+const fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
     use crate::solver3::display_list::DisplayListItem as I;
     match item {
         I::Rect { .. } => "dl:rect",
@@ -1037,7 +1037,7 @@ pub fn render_display_list_damaged(
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
     let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
 
-    for item in display_list.items.iter() {
+    for item in &display_list.items {
         // Always process state-management items (Push/Pop) regardless of bounds,
         // because skipping a Push while processing its matching Pop corrupts stacks.
         if !item.is_state_management() {
@@ -1088,7 +1088,7 @@ pub fn render_display_list_damaged(
     Ok(())
 }
 
-pub(crate) fn render_single_item(
+pub fn render_single_item(
     item: &DisplayListItem,
     pixmap: &mut AzulPixmap,
     dpi_factor: f32,
@@ -1180,79 +1180,67 @@ pub(crate) fn render_single_item(
 
             let w_top = widths
                 .top
-                .and_then(|w| w.get_property().cloned())
-                .map(|w| {
+                .and_then(|w| w.get_property().copied())
+                .map_or(0.0, |w| {
                     w.inner
                         .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                })
-                .unwrap_or(0.0);
+                });
             let w_right = widths
                 .right
-                .and_then(|w| w.get_property().cloned())
-                .map(|w| {
+                .and_then(|w| w.get_property().copied())
+                .map_or(0.0, |w| {
                     w.inner
                         .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                })
-                .unwrap_or(0.0);
+                });
             let w_bottom = widths
                 .bottom
-                .and_then(|w| w.get_property().cloned())
-                .map(|w| {
+                .and_then(|w| w.get_property().copied())
+                .map_or(0.0, |w| {
                     w.inner
                         .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                })
-                .unwrap_or(0.0);
+                });
             let w_left = widths
                 .left
-                .and_then(|w| w.get_property().cloned())
-                .map(|w| {
+                .and_then(|w| w.get_property().copied())
+                .map_or(0.0, |w| {
                     w.inner
                         .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                })
-                .unwrap_or(0.0);
+                });
 
             let c_top = colors
                 .top
-                .and_then(|c| c.get_property().cloned())
-                .map(|c| c.inner)
-                .unwrap_or(default_color);
+                .and_then(|c| c.get_property().copied())
+                .map_or(default_color, |c| c.inner);
             let c_right = colors
                 .right
-                .and_then(|c| c.get_property().cloned())
-                .map(|c| c.inner)
-                .unwrap_or(default_color);
+                .and_then(|c| c.get_property().copied())
+                .map_or(default_color, |c| c.inner);
             let c_bottom = colors
                 .bottom
-                .and_then(|c| c.get_property().cloned())
-                .map(|c| c.inner)
-                .unwrap_or(default_color);
+                .and_then(|c| c.get_property().copied())
+                .map_or(default_color, |c| c.inner);
             let c_left = colors
                 .left
-                .and_then(|c| c.get_property().cloned())
-                .map(|c| c.inner)
-                .unwrap_or(default_color);
+                .and_then(|c| c.get_property().copied())
+                .map_or(default_color, |c| c.inner);
 
             use azul_css::props::style::border::BorderStyle;
             let s_top = styles
                 .top
-                .and_then(|s| s.get_property().cloned())
-                .map(|s| s.inner)
-                .unwrap_or(BorderStyle::Solid);
+                .and_then(|s| s.get_property().copied())
+                .map_or(BorderStyle::Solid, |s| s.inner);
             let s_right = styles
                 .right
-                .and_then(|s| s.get_property().cloned())
-                .map(|s| s.inner)
-                .unwrap_or(BorderStyle::Solid);
+                .and_then(|s| s.get_property().copied())
+                .map_or(BorderStyle::Solid, |s| s.inner);
             let s_bottom = styles
                 .bottom
-                .and_then(|s| s.get_property().cloned())
-                .map(|s| s.inner)
-                .unwrap_or(BorderStyle::Solid);
+                .and_then(|s| s.get_property().copied())
+                .map_or(BorderStyle::Solid, |s| s.inner);
             let s_left = styles
                 .left
-                .and_then(|s| s.get_property().cloned())
-                .map(|s| s.inner)
-                .unwrap_or(BorderStyle::Solid);
+                .and_then(|s| s.get_property().copied())
+                .map_or(BorderStyle::Solid, |s| s.inner);
 
             let simple_radius = BorderRadius {
                 top_left: border_radius.top_left.to_pixels_internal(
@@ -1558,7 +1546,7 @@ pub(crate) fn render_single_item(
             transform_stack.push(
                 transform_stack
                     .last()
-                    .cloned()
+                    .copied()
                     .unwrap_or_else(TransAffine::new),
             );
             let frame_offset = render_state
@@ -1607,9 +1595,9 @@ pub(crate) fn render_single_item(
                     "[cpu-vview] VirtualView item: child_dom_id={} found={} items={} bounds={:?} avail_ids={:?}",
                     child_dom_id.inner,
                     child_dl.is_some(),
-                    child_dl.as_ref().map(|d| d.items.len()).unwrap_or(0),
+                    child_dl.as_ref().map_or(0, |d| d.items.len()),
                     bounds.inner(),
-                    render_state.virtual_view_display_lists.keys().map(|k| k.inner).collect::<alloc::vec::Vec<_>>(),
+                    render_state.virtual_view_display_lists.keys().map(|k| k.inner).collect::<Vec<_>>(),
                 );
             }
             if let Some(child_dl) = child_dl {
@@ -1622,7 +1610,7 @@ pub(crate) fn render_single_item(
                 );
                 clip_stack.push(vv_clip);
                 scroll_offset_stack.push((scroll_dx - vv_origin.x, scroll_dy - vv_origin.y));
-                for child_item in child_dl.items.iter() {
+                for child_item in &child_dl.items {
                     render_single_item(
                         child_item,
                         pixmap,
@@ -1797,7 +1785,7 @@ pub(crate) fn render_single_item(
             );
             let current = transform_stack
                 .last()
-                .cloned()
+                .copied()
                 .unwrap_or_else(TransAffine::new);
             let mut composed = tf;
             composed.premultiply(&current);
@@ -1991,41 +1979,31 @@ fn render_text(
 
     // Try to get the parsed font
     let parsed_font: &ParsedFont = if let Some(fm) = font_manager {
-        match fm.get_font_by_hash(font_hash.font_hash) {
-            Some(font_ref) => unsafe { &*(font_ref.get_parsed() as *const ParsedFont) },
-            None => {
-                eprintln!(
-                    "[cpurender] Font hash {} not found in FontManager",
-                    font_hash.font_hash
-                );
-                return Ok(());
-            }
+        if let Some(font_ref) = fm.get_font_by_hash(font_hash.font_hash) { unsafe { &*font_ref.get_parsed().cast::<ParsedFont>() } } else {
+            eprintln!(
+                "[cpurender] Font hash {} not found in FontManager",
+                font_hash.font_hash
+            );
+            return Ok(());
         }
     } else {
-        let font_key = match renderer_resources.font_hash_map.get(&font_hash.font_hash) {
-            Some(k) => k,
-            None => {
-                eprintln!(
-                    "[cpurender] Font hash {} not found in font_hash_map (available: {:?})",
-                    font_hash.font_hash,
-                    renderer_resources.font_hash_map.keys().collect::<Vec<_>>()
-                );
-                return Ok(());
-            }
+        let font_key = if let Some(k) = renderer_resources.font_hash_map.get(&font_hash.font_hash) { k } else {
+            eprintln!(
+                "[cpurender] Font hash {} not found in font_hash_map (available: {:?})",
+                font_hash.font_hash,
+                renderer_resources.font_hash_map.keys().collect::<Vec<_>>()
+            );
+            return Ok(());
         };
 
-        let font_ref = match renderer_resources.currently_registered_fonts.get(font_key) {
-            Some((font_ref, _instances)) => font_ref,
-            None => {
-                eprintln!(
-                    "[cpurender] FontKey {:?} not found in currently_registered_fonts",
-                    font_key
-                );
-                return Ok(());
-            }
+        let font_ref = if let Some((font_ref, _instances)) = renderer_resources.currently_registered_fonts.get(font_key) { font_ref } else {
+            eprintln!(
+                "[cpurender] FontKey {font_key:?} not found in currently_registered_fonts"
+            );
+            return Ok(());
         };
 
-        unsafe { &*(font_ref.get_parsed() as *const ParsedFont) }
+        unsafe { &*font_ref.get_parsed().cast::<ParsedFont>() }
     };
 
     let units_per_em = parsed_font.font_metrics.units_per_em as f32;
@@ -2078,8 +2056,7 @@ fn render_text(
                 parsed_font,
                 ppem,
             )
-            .map(|c| c.is_hinted)
-            .unwrap_or(false);
+            .is_some_and(|c| c.is_hinted);
 
         let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
@@ -2724,7 +2701,7 @@ fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
 #[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
 pub fn render_component_preview(
     styled_dom: azul_core::styled_dom::StyledDom,
-    font_manager: &FontManager<azul_css::props::basic::FontRef>,
+    font_manager: &FontManager<FontRef>,
     opts: ComponentPreviewOptions,
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
 ) -> Result<ComponentPreviewResult, String> {
@@ -2757,7 +2734,7 @@ pub fn render_component_preview(
         font_manager.fc_cache.clone(),
         font_manager.parsed_fonts.clone(),
     )
-    .map_err(|e| format!("Failed to create preview font manager: {:?}", e))?;
+    .map_err(|e| format!("Failed to create preview font manager: {e:?}"))?;
 
     // --- Font resolution ---
     {
@@ -2825,7 +2802,7 @@ pub fn render_component_preview(
         system_style.clone(),
         get_system_time_fn,
     )
-    .map_err(|e| format!("Layout failed: {:?}", e))?;
+    .map_err(|e| format!("Layout failed: {e:?}"))?;
 
     // --- Determine actual render size ---
     let (render_width, render_height) = if opts.width.is_some() && opts.height.is_some() {
@@ -2864,7 +2841,7 @@ pub fn render_component_preview(
     let pixel_h = ((render_height * dpi) as u32).max(1);
 
     let mut pixmap = AzulPixmap::new(pixel_w, pixel_h)
-        .ok_or_else(|| format!("Cannot create pixmap {}x{}", pixel_w, pixel_h))?;
+        .ok_or_else(|| format!("Cannot create pixmap {pixel_w}x{pixel_h}"))?;
 
     let bg = opts.background_color;
     pixmap.fill(bg.r, bg.g, bg.b, bg.a);
@@ -2884,7 +2861,7 @@ pub fn render_component_preview(
 
     let png_data = pixmap
         .encode_png()
-        .map_err(|e| format!("PNG encoding failed: {}", e))?;
+        .map_err(|e| format!("PNG encoding failed: {e}"))?;
 
     Ok(ComponentPreviewResult {
         png_data,
@@ -2912,13 +2889,13 @@ pub fn render_dom_to_image(
 
     let fc_cache = crate::font::loading::build_font_cache();
     let font_manager = FontManager::new(fc_cache)
-        .map_err(|e| format!("Failed to create font manager: {:?}", e))?;
+        .map_err(|e| format!("Failed to create font manager: {e:?}"))?;
 
     let opts = ComponentPreviewOptions {
         width: Some(width),
         height: Some(height),
         dpi_factor: dpi,
-        background_color: azul_css::props::basic::ColorU {
+        background_color: ColorU {
             r: 255,
             g: 255,
             b: 255,

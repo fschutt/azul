@@ -89,7 +89,7 @@ pub enum CaptureErrorCode {
 /// Requested capture configuration - the input to `start_camera`. Zero
 /// `width`/`height`/`fps` mean "let the backend pick its default".
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CameraConfig {
     /// Which camera to open.
     pub facing: CameraFacing,
@@ -120,7 +120,7 @@ impl Default for CameraConfig {
 impl CameraConfig {
     /// A default config for the given `facing` (backend-chosen size/fps,
     /// `BGRA8`).
-    pub fn new(facing: CameraFacing) -> Self {
+    #[must_use] pub fn new(facing: CameraFacing) -> Self {
         Self {
             facing,
             ..Self::default()

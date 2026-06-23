@@ -124,7 +124,7 @@ impl Default for NumberInputState {
 
 impl NumberInput {
     /// Creates a new `NumberInput` with the given initial value.
-    pub fn create(input: f32) -> Self {
+    #[must_use] pub fn create(input: f32) -> Self {
         Self {
             number_input_state: NumberInputStateWrapper {
                 inner: NumberInputState {
@@ -175,7 +175,7 @@ impl NumberInput {
         self.text_input.placeholder_style = style;
     }
 
-    pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_placeholder_style(style);
         self
     }
@@ -184,7 +184,7 @@ impl NumberInput {
         self.text_input.container_style = style;
     }
 
-    pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_container_style(style);
         self
     }
@@ -193,7 +193,7 @@ impl NumberInput {
         self.text_input.label_style = style;
     }
 
-    pub fn with_label_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_label_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_label_style(style);
         self
     }
@@ -247,7 +247,7 @@ impl NumberInput {
         s
     }
 
-    pub fn dom(mut self) -> Dom {
+    #[must_use] pub fn dom(mut self) -> Dom {
         let number_string = format!("{}", self.number_input_state.inner.number);
         self.text_input.text_input_state.inner.text = number_string
             .chars()

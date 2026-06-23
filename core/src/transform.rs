@@ -26,12 +26,12 @@ pub static USE_SSE: AtomicBool = AtomicBool::new(false);
 
 /// Specifies the coordinate system convention for rotations.
 ///
-/// WebRender uses a different rotation direction than hit-testing, so transforms
+/// `WebRender` uses a different rotation direction than hit-testing, so transforms
 /// must be adjusted based on their use case. This enum controls whether the
 /// rotation matrix is inverted to match the expected behavior.
 #[derive(Debug, Copy, Clone)]
 pub enum RotationMode {
-    /// Use rotation convention for WebRender (counter-clockwise, requires inversion)
+    /// Use rotation convention for `WebRender` (counter-clockwise, requires inversion)
     ForWebRender,
     /// Use rotation convention for hit-testing (clockwise, no inversion)
     ForHitTesting,
@@ -73,7 +73,7 @@ impl ComputedTransform3D {
     /// Creates a new 4x4 transformation matrix with the given elements.
     ///
     /// Elements are specified in row-major order (m11, m12, ..., m44).
-    pub const fn new(
+    #[must_use] pub const fn new(
         m11: f32,
         m12: f32,
         m13: f32,
@@ -127,7 +127,7 @@ impl ComputedTransform3D {
             return Self::IDENTITY;
         }
 
-        let m = ComputedTransform3D::new(
+        let m = Self::new(
             self.m[1][2] * self.m[2][3] * self.m[3][1] - self.m[1][3] * self.m[2][2] * self.m[3][1]
                 + self.m[1][3] * self.m[2][1] * self.m[3][2]
                 - self.m[1][1] * self.m[2][3] * self.m[3][2]
@@ -249,7 +249,7 @@ impl ComputedTransform3D {
     }
 
     fn multiply_scalar(&self, x: f32) -> Self {
-        ComputedTransform3D::new(
+        Self::new(
             self.m[0][0] * x,
             self.m[0][1] * x,
             self.m[0][2] * x,
@@ -286,7 +286,7 @@ impl ComputedTransform3D {
             && USE_SSE.load(AtomicOrdering::Relaxed);
 
         if use_avx {
-            for t in t_vec.iter() {
+            for t in t_vec {
                 #[cfg(target_arch = "x86_64")]
                 unsafe {
                     matrix = matrix.then_avx8(&Self::from_style_transform(
@@ -299,7 +299,7 @@ impl ComputedTransform3D {
                 }
             }
         } else if use_sse {
-            for t in t_vec.iter() {
+            for t in t_vec {
                 #[cfg(target_arch = "x86_64")]
                 unsafe {
                     matrix = matrix.then_sse(&Self::from_style_transform(
@@ -313,7 +313,7 @@ impl ComputedTransform3D {
             }
         } else {
             // fallback for everything else
-            for t in t_vec.iter() {
+            for t in t_vec {
                 matrix = matrix.then(&Self::from_style_transform(
                     t,
                     transform_origin,
@@ -337,7 +337,7 @@ impl ComputedTransform3D {
         rotation_mode: RotationMode,
     ) -> Self {
         use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-        use azul_css::props::style::StyleTransform::*;
+        use azul_css::props::style::StyleTransform::{Matrix, Matrix3D, Translate, Translate3D, TranslateX, TranslateY, TranslateZ, Rotate3D, RotateX, RotateY, Rotate, RotateZ, Scale, Scale3D, ScaleX, ScaleY, ScaleZ, Skew, SkewX, SkewY, Perspective};
         match t {
             Matrix(mat2d) => {
                 let a = mat2d.a.get();
@@ -600,8 +600,8 @@ impl ComputedTransform3D {
 
     /// Returns this matrix transposed to column-major layout.
     #[must_use]
-    pub(crate) fn get_column_major(&self) -> Self {
-        ComputedTransform3D::new(
+    pub(crate) const fn get_column_major(&self) -> Self {
+        Self::new(
             self.m[0][0],
             self.m[1][0],
             self.m[2][0],
@@ -773,7 +773,7 @@ impl ComputedTransform3D {
     // a[0] * B.row[0] + a[1] * B.row[1] + a[2] * B.row[2] + a[3] * B.row[3]
     #[cfg(target_arch = "x86_64")]
     #[inline]
-    unsafe fn linear_combine_sse(a: [f32; 4], b: &ComputedTransform3D) -> [f32; 4] {
+    unsafe fn linear_combine_sse(a: [f32; 4], b: &Self) -> [f32; 4] { unsafe {
         use core::{
             arch::x86_64::{__m128, _mm_add_ps, _mm_mul_ps, _mm_shuffle_ps},
             mem,
@@ -795,12 +795,12 @@ impl ComputedTransform3D {
         );
 
         mem::transmute(result)
-    }
+    }}
 
     /// Multiplies this matrix by `other` using SSE instructions.
     #[cfg(target_arch = "x86_64")]
     #[inline]
-    unsafe fn then_sse(&self, other: &Self) -> Self {
+    unsafe fn then_sse(&self, other: &Self) -> Self { unsafe {
         Self {
             m: [
                 Self::linear_combine_sse(self.m[0], other),
@@ -809,14 +809,14 @@ impl ComputedTransform3D {
                 Self::linear_combine_sse(self.m[3], other),
             ],
         }
-    }
+    }}
 
     /// Dual linear combination using AVX instructions on YMM registers.
     #[cfg(target_arch = "x86_64")]
     unsafe fn linear_combine_avx8(
         a01: core::arch::x86_64::__m256,
-        b: &ComputedTransform3D,
-    ) -> core::arch::x86_64::__m256 {
+        b: &Self,
+    ) -> core::arch::x86_64::__m256 { unsafe {
         use core::{
             arch::x86_64::{_mm256_add_ps, _mm256_broadcast_ps, _mm256_mul_ps, _mm256_shuffle_ps},
             mem,
@@ -848,12 +848,12 @@ impl ComputedTransform3D {
             ),
         );
         result
-    }
+    }}
 
     /// Multiplies this matrix by `other` using AVX instructions.
     #[cfg(target_arch = "x86_64")]
     #[inline]
-    unsafe fn then_avx8(&self, other: &Self) -> Self {
+    unsafe fn then_avx8(&self, other: &Self) -> Self { unsafe {
         use core::{
             arch::x86_64::{__m256, _mm256_loadu_ps, _mm256_storeu_ps, _mm256_zeroupper},
             mem,
@@ -875,7 +875,7 @@ impl ComputedTransform3D {
         _mm256_storeu_ps(mem::transmute(&mut out.m[2][0]), out23x);
 
         out
-    }
+    }}
 
     /// Creates a rotation matrix around the given axis, adjusted for the coordinate system.
     #[must_use]

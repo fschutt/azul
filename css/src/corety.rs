@@ -43,7 +43,7 @@ pub struct EmptyStruct {
 
 
 impl EmptyStruct {
-    /// Create a new EmptyStruct value (equivalent to `()`)
+    /// Create a new `EmptyStruct` value (equivalent to `()`)
     #[must_use]
     pub const fn new() -> Self {
         Self { _reserved: 0 }
@@ -51,7 +51,7 @@ impl EmptyStruct {
 }
 
 impl From<()> for EmptyStruct {
-    fn from(_: ()) -> Self {
+    fn from((): ()) -> Self {
         Self::default()
     }
 }
@@ -89,7 +89,7 @@ pub enum LayoutDebugMessageType {
 
 
 /// A debug message emitted during layout, with severity, text, and source location.
-#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct LayoutDebugMessage {
     pub message_type: LayoutDebugMessageType,
@@ -132,7 +132,7 @@ impl LayoutDebugMessage {
         Self::new(LayoutDebugMessageType::Error, message)
     }
 
-    /// Helper for BoxProps debug messages
+    /// Helper for `BoxProps` debug messages
     #[track_caller]
     pub fn box_props(message: impl Into<String>) -> Self {
         Self::new(LayoutDebugMessageType::BoxProps, message)
@@ -219,13 +219,13 @@ impl core::fmt::Display for AzString {
 
 impl AzString {
     #[inline]
-    pub const fn from_const_str(s: &'static str) -> Self {
+    #[must_use] pub const fn from_const_str(s: &'static str) -> Self {
         Self {
             vec: U8Vec::from_const_slice(s.as_bytes()),
         }
     }
 
-    /// Creates a new AzString from a null-terminated C string (const char*).
+    /// Creates a new `AzString` from a null-terminated C string (const char*).
     /// This copies the string data into a new allocation.
     ///
     /// # Safety
@@ -240,29 +240,29 @@ impl AzString {
     /// mismatch at codegen-call sites. We cast internally before
     /// handing the pointer to `CStr::from_ptr`.
     #[inline]
-    pub unsafe fn from_c_str(ptr: *const i8) -> Self {
+    #[must_use] pub unsafe fn from_c_str(ptr: *const i8) -> Self { unsafe {
         if ptr.is_null() {
             return Self::default();
         }
         let c_str = core::ffi::CStr::from_ptr(ptr as *const core::ffi::c_char);
         let bytes = c_str.to_bytes();
         Self::copy_from_bytes(bytes.as_ptr(), 0, bytes.len())
-    }
+    }}
 
-    /// Copies bytes from a pointer into a new AzString.
+    /// Copies bytes from a pointer into a new `AzString`.
     /// This is useful for C FFI where you have a char* buffer.
     ///
     /// Invalid UTF-8 sequences are replaced with U+FFFD to maintain
     /// the UTF-8 invariant required by [`as_str()`](Self::as_str).
     ///
-    /// `#[inline(always)]` (2026-06-03 web-lift FIX): forces inlining into the
+    /// `#[inline]` (2026-06-03 web-lift FIX): forces inlining into the
     /// `extern "C" AzString_copyFromBytes` wrapper so there is NO separate
     /// C-ABI(X8-sret) → Rust-ABI(X0-sret) boundary call. The lift mis-threads
     /// %state across that sret-in-X0 shift (X1/ptr 0x13f80→garbage, X3/len 5→0,
-    /// empty AzString); inlining lets the wrapper do the alloc/memcpy directly
+    /// empty `AzString`); inlining lets the wrapper do the alloc/memcpy directly
     /// with the standard X8-sret ABI the cascade proves works.
-    #[inline(always)]
-    pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
+    #[inline]
+    #[must_use] pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
         let raw = U8Vec::copy_from_bytes(ptr, start, len);
         // web-lift FIX (2026-06-03): FAST PATH for already-valid UTF-8 (the common case, incl. all
         // ASCII like "Hello") — wrap the U8Vec directly, avoiding the `String::from_utf8_lossy()
@@ -277,47 +277,47 @@ impl AzString {
         Self::from_string(s)
     }
 
-    #[inline(always)] // web-lift: inline through the sret-in-X0 chain (see copy_from_bytes)
-    pub fn from_string(s: String) -> Self {
+    #[inline] // web-lift: inline through the sret-in-X0 chain (see copy_from_bytes)
+    #[must_use] pub const fn from_string(s: String) -> Self {
         Self {
             vec: U8Vec::from_vec(s.into_bytes()),
         }
     }
 
     #[inline]
-    pub fn as_str(&self) -> &str {
+    #[must_use] pub fn as_str(&self) -> &str {
         unsafe { core::str::from_utf8_unchecked(self.vec.as_ref()) }
     }
 
     /// NOTE: CLONES the memory if the memory is external or &'static
     /// Moves the memory out if the memory is library-allocated
     #[inline]
-    pub fn clone_self(&self) -> Self {
+    #[must_use] pub fn clone_self(&self) -> Self {
         Self {
             vec: self.vec.clone_self(),
         }
     }
 
     #[inline]
-    pub fn into_library_owned_string(self) -> String {
+    #[must_use] pub fn into_library_owned_string(self) -> String {
         match self.vec.destructor {
             U8VecDestructor::NoDestructor | U8VecDestructor::External(_) | U8VecDestructor::AlreadyDestroyed => {
                 self.as_str().to_string()
             }
             U8VecDestructor::DefaultRust => {
                 let m = core::mem::ManuallyDrop::new(self);
-                unsafe { String::from_raw_parts(m.vec.ptr as *mut u8, m.vec.len, m.vec.cap) }
+                unsafe { String::from_raw_parts(m.vec.ptr.cast_mut(), m.vec.len, m.vec.cap) }
             }
         }
     }
 
     #[inline]
-    pub fn as_bytes(&self) -> &[u8] {
+    #[must_use] pub fn as_bytes(&self) -> &[u8] {
         self.vec.as_ref()
     }
 
     #[inline]
-    pub fn into_bytes(self) -> U8Vec {
+    #[must_use] pub fn into_bytes(self) -> U8Vec {
         let m = core::mem::ManuallyDrop::new(self);
         U8Vec {
             ptr: m.vec.ptr,
@@ -329,23 +329,23 @@ impl AzString {
 
     /// Returns the length of the string in bytes (not including null terminator)
     #[inline]
-    pub fn len(&self) -> usize {
+    #[must_use] pub const fn len(&self) -> usize {
         self.vec.len
     }
 
     /// Returns true if the string is empty
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    #[must_use] pub const fn is_empty(&self) -> bool {
         self.vec.len == 0
     }
 
     /// Creates a null-terminated copy of the string for C FFI usage.
-    /// Returns a new U8Vec that contains the string data followed by a null byte.
+    /// Returns a new `U8Vec` that contains the string data followed by a null byte.
     /// The caller is responsible for freeing this memory.
     ///
     /// Use this when you need to pass a string to C code that expects `const char*`.
     #[inline]
-    pub fn to_c_str(&self) -> U8Vec {
+    #[must_use] pub fn to_c_str(&self) -> U8Vec {
         let bytes = self.as_bytes();
         let mut result = Vec::with_capacity(bytes.len() + 1);
         result.extend_from_slice(bytes);
@@ -362,7 +362,7 @@ impl AzString {
         ptr: *const u8,
         len: usize,
         from_bytes: fn([u8; 2]) -> u16,
-    ) -> Self {
+    ) -> Self { unsafe {
         if ptr.is_null() || len == 0 {
             return Self::default();
         }
@@ -382,9 +382,9 @@ impl AzString {
             Ok(s) => Self::from_string(s),
             Err(_) => Self::default(),
         }
-    }
+    }}
 
-    /// Creates a new AzString from UTF-16 encoded bytes (little-endian).
+    /// Creates a new `AzString` from UTF-16 encoded bytes (little-endian).
     /// Returns an empty string if the input is invalid UTF-16 or has odd length.
     ///
     /// # Arguments
@@ -395,11 +395,11 @@ impl AzString {
     /// - `ptr` must be valid for reading `len` bytes
     /// - `len` must be even (UTF-16 uses 2 bytes per code unit)
     #[inline]
-    pub unsafe fn from_utf16_le(ptr: *const u8, len: usize) -> Self {
+    pub unsafe fn from_utf16_le(ptr: *const u8, len: usize) -> Self { unsafe {
         Self::from_utf16_with_byte_order(ptr, len, u16::from_le_bytes)
-    }
+    }}
 
-    /// Creates a new AzString from UTF-16 encoded bytes (big-endian).
+    /// Creates a new `AzString` from UTF-16 encoded bytes (big-endian).
     /// Returns an empty string if the input is invalid UTF-16 or has odd length.
     ///
     /// # Arguments
@@ -410,17 +410,17 @@ impl AzString {
     /// - `ptr` must be valid for reading `len` bytes
     /// - `len` must be even (UTF-16 uses 2 bytes per code unit)
     #[inline]
-    pub unsafe fn from_utf16_be(ptr: *const u8, len: usize) -> Self {
+    pub unsafe fn from_utf16_be(ptr: *const u8, len: usize) -> Self { unsafe {
         Self::from_utf16_with_byte_order(ptr, len, u16::from_be_bytes)
-    }
+    }}
 
-    /// Creates a new AzString from UTF-8 bytes with lossy conversion.
+    /// Creates a new `AzString` from UTF-8 bytes with lossy conversion.
     /// Invalid UTF-8 sequences are replaced with the Unicode replacement character (U+FFFD).
     ///
     /// # Safety
     /// - `ptr` must be valid for reading `len` bytes
     #[inline]
-    pub unsafe fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self {
+    #[must_use] pub unsafe fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { unsafe {
         if ptr.is_null() || len == 0 {
             return Self::default();
         }
@@ -428,15 +428,15 @@ impl AzString {
         let byte_slice = core::slice::from_raw_parts(ptr, len);
         let s = String::from_utf8_lossy(byte_slice).into_owned();
         Self::from_string(s)
-    }
+    }}
 
-    /// Creates a new AzString from UTF-8 bytes.
+    /// Creates a new `AzString` from UTF-8 bytes.
     /// Returns an empty string if the input is not valid UTF-8.
     ///
     /// # Safety
     /// - `ptr` must be valid for reading `len` bytes
     #[inline]
-    pub unsafe fn from_utf8(ptr: *const u8, len: usize) -> Self {
+    #[must_use] pub unsafe fn from_utf8(ptr: *const u8, len: usize) -> Self { unsafe {
         if ptr.is_null() || len == 0 {
             return Self::default();
         }
@@ -446,12 +446,12 @@ impl AzString {
             Ok(s) => Self::from_string(s.to_string()),
             Err(_) => Self::default(),
         }
-    }
+    }}
 }
 
 impl From<String> for AzString {
-    fn from(input: String) -> AzString {
-        AzString::from_string(input)
+    fn from(input: String) -> Self {
+        Self::from_string(input)
     }
 }
 
@@ -486,7 +486,7 @@ impl core::hash::Hash for AzString {
     where
         H: core::hash::Hasher,
     {
-        self.as_str().hash(state)
+        self.as_str().hash(state);
     }
 }
 
@@ -516,13 +516,13 @@ impl_vec_hash!(u8, U8Vec);
 
 impl U8Vec {
     /// Copies bytes from a pointer into a new Vec.
-    /// This is useful for C FFI where you have a uint8_t* buffer.
+    /// This is useful for C FFI where you have a `uint8_t`* buffer.
     ///
     /// # Safety contract (caller must ensure)
     /// - `ptr` must be valid for reading `start + len` bytes
     /// - `start + len` must not overflow
-    #[inline(always)] // web-lift: inline through the sret-in-X0 chain (see AzString::copy_from_bytes)
-    pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
+    #[inline] // web-lift: inline through the sret-in-X0 chain (see AzString::copy_from_bytes)
+    #[must_use] pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
         if ptr.is_null() || len == 0 {
             return Self::new();
         }
@@ -578,8 +578,8 @@ impl_vec_eq!(AzString, StringVec);
 impl_vec_hash!(AzString, StringVec);
 
 impl From<Vec<String>> for StringVec {
-    fn from(v: Vec<String>) -> StringVec {
-        let new_v: Vec<AzString> = v.into_iter().map(|s| s.into()).collect();
+    fn from(v: Vec<String>) -> Self {
+        let new_v: Vec<AzString> = v.into_iter().map(Into::into).collect();
         new_v.into()
     }
 }
@@ -629,8 +629,8 @@ impl_option!(f64, OptionF64, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 impl core::hash::Hash for OptionF32 {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         match self {
-            OptionF32::None => 0u8.hash(state),
-            OptionF32::Some(v) => {
+            Self::None => 0u8.hash(state),
+            Self::Some(v) => {
                 1u8.hash(state);
                 v.to_bits().hash(state);
             }
@@ -643,10 +643,10 @@ impl Eq for OptionF32 {}
 impl Ord for OptionF32 {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match (self, other) {
-            (OptionF32::None, OptionF32::None) => core::cmp::Ordering::Equal,
-            (OptionF32::None, OptionF32::Some(_)) => core::cmp::Ordering::Less,
-            (OptionF32::Some(_), OptionF32::None) => core::cmp::Ordering::Greater,
-            (OptionF32::Some(a), OptionF32::Some(b)) => {
+            (Self::None, Self::None) => core::cmp::Ordering::Equal,
+            (Self::None, Self::Some(_)) => core::cmp::Ordering::Less,
+            (Self::Some(_), Self::None) => core::cmp::Ordering::Greater,
+            (Self::Some(a), Self::Some(b)) => {
                 a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal)
             }
         }
@@ -693,13 +693,13 @@ unsafe impl Sync for StringArenaInner {}
 
 /// Bump allocator backing arena-owned `AzString` instances.
 ///
-/// Every AzString returned by [`StringArena::intern`] holds a cloned
+/// Every `AzString` returned by [`StringArena::intern`] holds a cloned
 /// `Arc` to this arena; the backing bytes stay alive until the last
-/// such AzString (and the arena handle itself) is dropped.
+/// such `AzString` (and the arena handle itself) is dropped.
 ///
 /// Intended use: create one arena per XML/HTML parse pass, intern all
 /// tag names / attribute values / text content through it, then drop the
-/// handle. The AzStrings embedded in the resulting `StyledDom` keep the
+/// handle. The `AzStrings` embedded in the resulting `StyledDom` keep the
 /// arena alive for as long as they need the bytes.
 pub struct StringArena {
     inner: Arc<StringArenaInner>,
@@ -711,7 +711,7 @@ impl StringArena {
     /// for small documents.
     pub const CHUNK_SIZE: usize = 64 * 1024;
 
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self {
             inner: Arc::new(StringArenaInner {
                 chunks: UnsafeCell::new(Vec::new()),
@@ -721,18 +721,18 @@ impl StringArena {
     }
 
     /// Returns `(chunk_count, total_bytes_used)` for metrics.
-    pub fn metrics(&self) -> (usize, usize) {
+    #[must_use] pub fn metrics(&self) -> (usize, usize) {
         // Safety: metrics is read-only; the caller holds &self so no
         // concurrent mutation via &mut self is possible.
         unsafe {
             let chunks = &*self.inner.chunks.get();
-            let total: usize = chunks.iter().map(|c| c.len()).sum();
+            let total: usize = chunks.iter().map(Vec::len).sum();
             (chunks.len(), total)
         }
     }
 
-    /// Intern `s` into the arena and return an AzString whose backing
-    /// bytes live inside the arena. The returned AzString owns a cloned
+    /// Intern `s` into the arena and return an `AzString` whose backing
+    /// bytes live inside the arena. The returned `AzString` owns a cloned
     /// `Arc` reference; dropping it decrements the refcount, and the
     /// arena frees its chunks when the final reference is released.
     pub fn intern(&mut self, s: &str) -> AzString {
@@ -798,7 +798,7 @@ impl Default for StringArena {
     }
 }
 
-/// Destructor installed on every arena-backed AzString. Reads the Arc
+/// Destructor installed on every arena-backed `AzString`. Reads the Arc
 /// pointer out of `cap` and drops one Arc reference; when the count
 /// reaches zero the `StringArenaInner` is freed.
 extern "C" fn arena_string_destructor(vec: *mut U8Vec) {
@@ -869,8 +869,8 @@ mod string_arena_tests {
         // the clone doesn't depend on the arena at all.
         let clone = {
             let mut arena = StringArena::new();
-            let a = arena.intern("deep-copy test");
-            a.clone()
+            
+            arena.intern("deep-copy test")
         };
         assert_eq!(clone.as_str(), "deep-copy test");
     }

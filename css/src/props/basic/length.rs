@@ -14,7 +14,7 @@ use crate::corety::AzString;
 pub const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
 const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
 
-/// Wrapper around FloatValue, represents a percentage instead
+/// Wrapper around `FloatValue`, represents a percentage instead
 /// of just being a regular floating-point value, i.e `5` = `5%`
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -38,13 +38,13 @@ impl PercentageValue {
     /// Same as `PercentageValue::new()`, but only accepts whole numbers.
     /// Uses isize arithmetic to avoid floating-point in const context.
     #[inline]
-    pub const fn const_new(value: isize) -> Self {
+    #[must_use] pub const fn const_new(value: isize) -> Self {
         Self {
             number: FloatValue::const_new(value),
         }
     }
 
-    /// Creates a PercentageValue from a fractional number in const context.
+    /// Creates a `PercentageValue` from a fractional number in const context.
     ///
     /// # Arguments
     /// * `pre_comma` - The integer part (e.g., 100 for 100.5%)
@@ -56,14 +56,14 @@ impl PercentageValue {
     /// // 50.5% = const_new_fractional(50, 5)
     /// ```
     #[inline]
-    pub const fn const_new_fractional(pre_comma: isize, post_comma: isize) -> Self {
+    #[must_use] pub const fn const_new_fractional(pre_comma: isize, post_comma: isize) -> Self {
         Self {
             number: FloatValue::const_new_fractional(pre_comma, post_comma),
         }
     }
 
     #[inline]
-    pub fn new(value: f32) -> Self {
+    #[must_use] pub fn new(value: f32) -> Self {
         Self {
             number: value.into(),
         }
@@ -72,12 +72,12 @@ impl PercentageValue {
     // NOTE: no get() function, to avoid confusion with "150%"
 
     #[inline]
-    pub fn normalized(&self) -> f32 {
+    #[must_use] pub fn normalized(&self) -> f32 {
         self.number.get() / 100.0
     }
 
     #[inline]
-    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             number: self.number.interpolate(&other.number, t),
         }
@@ -100,7 +100,7 @@ impl fmt::Display for FloatValue {
 
 impl ::core::fmt::Debug for FloatValue {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 
@@ -115,13 +115,13 @@ impl FloatValue {
     /// Same as `FloatValue::new()`, but only accepts whole numbers.
     /// Uses isize arithmetic to avoid floating-point in const context.
     #[inline]
-    pub const fn const_new(value: isize) -> Self {
+    #[must_use] pub const fn const_new(value: isize) -> Self {
         Self {
             number: value * FP_PRECISION_MULTIPLIER_CONST,
         }
     }
 
-    /// Creates a FloatValue from a fractional number in const context.
+    /// Creates a `FloatValue` from a fractional number in const context.
     ///
     /// This uses integer arithmetic to represent fractional values like 1.5, 0.83, etc.
     /// in const context without relying on f32 operations.
@@ -144,7 +144,7 @@ impl FloatValue {
     /// // 2.123456 -> 2.123 (truncated to 3 decimal places)
     /// ```
     #[inline]
-    pub const fn const_new_fractional(pre_comma: isize, post_comma: isize) -> Self {
+    #[must_use] pub const fn const_new_fractional(pre_comma: isize, post_comma: isize) -> Self {
         // Get absolute value for digit counting
         let abs_post = if post_comma < 0 {
             -post_comma
@@ -166,20 +166,20 @@ impl FloatValue {
         } else if abs_post < 10000 {
             // 4+ digits: take first 3 (e.g., 5234 → 523 → 0.523)
             (abs_post / 10, 1000)
-        } else if abs_post < 100000 {
+        } else if abs_post < 100_000 {
             (abs_post / 100, 1000)
-        } else if abs_post < 1000000 {
+        } else if abs_post < 1_000_000 {
             (abs_post / 1000, 1000)
-        } else if abs_post < 10000000 {
+        } else if abs_post < 10_000_000 {
             (abs_post / 10000, 1000)
-        } else if abs_post < 100000000 {
-            (abs_post / 100000, 1000)
-        } else if abs_post < 1000000000 {
-            (abs_post / 1000000, 1000)
+        } else if abs_post < 100_000_000 {
+            (abs_post / 100_000, 1000)
+        } else if abs_post < 1_000_000_000 {
+            (abs_post / 1_000_000, 1000)
         } else {
             // For very large values (>= 1 billion), cap at reasonable precision
             // This ensures compatibility with 32-bit isize on WASM
-            (abs_post / 10000000, 1000)
+            (abs_post / 10_000_000, 1000)
         };
 
         // Calculate fractional part
@@ -206,14 +206,14 @@ impl FloatValue {
     }
 
     #[inline]
-    pub fn new(value: f32) -> Self {
+    #[must_use] pub fn new(value: f32) -> Self {
         Self {
             number: (value * FP_PRECISION_MULTIPLIER) as isize,
         }
     }
 
     #[inline]
-    pub fn get(&self) -> f32 {
+    #[must_use] pub fn get(&self) -> f32 {
         self.number as f32 / FP_PRECISION_MULTIPLIER
     }
 
@@ -222,12 +222,12 @@ impl FloatValue {
     /// round-trip the value through the compact-cache encoding without
     /// re-multiplying through f32.
     #[inline]
-    pub fn number(&self) -> isize {
+    #[must_use] pub const fn number(&self) -> isize {
         self.number
     }
 
     #[inline]
-    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         let self_val_f32 = self.get();
         let other_val_f32 = other.get();
         let interpolated = self_val_f32 + ((other_val_f32 - self_val_f32) * t);
@@ -269,7 +269,7 @@ pub enum SizeMetric {
 
 impl fmt::Display for SizeMetric {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::SizeMetric::*;
+        use self::SizeMetric::{Px, Pt, Em, Rem, In, Cm, Mm, Percent, Vw, Vh, Vmin, Vmax};
         match self {
             Px => write!(f, "px"),
             Pt => write!(f, "pt"),
@@ -303,7 +303,7 @@ impl_debug_as_display!(PercentageParseError);
 
 impl From<ParseFloatError> for PercentageParseError {
     fn from(e: ParseFloatError) -> Self {
-        PercentageParseError::ValueParseErr(crate::props::basic::error::ParseFloatError::from(e))
+        Self::ValueParseErr(crate::props::basic::error::ParseFloatError::from(e))
     }
 }
 
@@ -322,7 +322,7 @@ pub enum PercentageParseErrorOwned {
 }
 
 impl PercentageParseError {
-    pub fn to_contained(&self) -> PercentageParseErrorOwned {
+    #[must_use] pub fn to_contained(&self) -> PercentageParseErrorOwned {
         match self {
             Self::ValueParseErr(e) => PercentageParseErrorOwned::ValueParseErr(*e),
             Self::NoPercentSign => PercentageParseErrorOwned::NoPercentSign,
@@ -332,7 +332,7 @@ impl PercentageParseError {
 }
 
 impl PercentageParseErrorOwned {
-    pub fn to_shared(&self) -> PercentageParseError {
+    #[must_use] pub fn to_shared(&self) -> PercentageParseError {
         match self {
             Self::ValueParseErr(e) => PercentageParseError::ValueParseErr(*e),
             Self::NoPercentSign => PercentageParseError::NoPercentSign,
@@ -341,7 +341,7 @@ impl PercentageParseErrorOwned {
     }
 }
 
-/// Parse "1.2" or "120%" (similar to parse_pixel_value)
+/// Parse "1.2" or "120%" (similar to `parse_pixel_value`)
 pub fn parse_percentage_value(input: &str) -> Result<PercentageValue, PercentageParseError> {
     let input = input.trim();
 
@@ -502,15 +502,15 @@ mod tests {
         assert!((val.get() - 1.123).abs() < 0.001);
 
         // 6 digits: 123456 → 123 → 1.123
-        let val = FloatValue::const_new_fractional(1, 123456);
+        let val = FloatValue::const_new_fractional(1, 123_456);
         assert!((val.get() - 1.123).abs() < 0.001);
 
         // 7 digits: 9876543 → 987 → 0.987
-        let val = FloatValue::const_new_fractional(0, 9876543);
+        let val = FloatValue::const_new_fractional(0, 9_876_543);
         assert!((val.get() - 0.987).abs() < 0.001);
 
         // 10 digits
-        let val = FloatValue::const_new_fractional(2, 1234567890);
+        let val = FloatValue::const_new_fractional(2, 1_234_567_890);
         assert!((val.get() - 2.123).abs() < 0.001);
     }
 

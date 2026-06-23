@@ -45,21 +45,21 @@ pub struct CounterReset {
 }
 
 impl CounterReset {
-    pub const fn new(counter_name: AzString, value: i32) -> Self {
+    #[must_use] pub const fn new(counter_name: AzString, value: i32) -> Self {
         Self {
             counter_name,
             value,
         }
     }
 
-    pub const fn none() -> Self {
+    #[must_use] pub const fn none() -> Self {
         Self {
             counter_name: AzString::from_const_str("none"),
             value: 0,
         }
     }
 
-    pub const fn list_item() -> Self {
+    #[must_use] pub const fn list_item() -> Self {
         Self {
             counter_name: AzString::from_const_str("list-item"),
             value: 0,
@@ -92,21 +92,21 @@ pub struct CounterIncrement {
 }
 
 impl CounterIncrement {
-    pub const fn new(counter_name: AzString, value: i32) -> Self {
+    #[must_use] pub const fn new(counter_name: AzString, value: i32) -> Self {
         Self {
             counter_name,
             value,
         }
     }
 
-    pub const fn none() -> Self {
+    #[must_use] pub const fn none() -> Self {
         Self {
             counter_name: AzString::from_const_str("none"),
             value: 0,
         }
     }
 
-    pub const fn list_item() -> Self {
+    #[must_use] pub const fn list_item() -> Self {
         Self {
             counter_name: AzString::from_const_str("list-item"),
             value: 1,

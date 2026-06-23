@@ -23,7 +23,8 @@
     clippy::pedantic,
     clippy::nursery,
     clippy::cargo,
-    missing_docs,
+    // missing_docs,  // TODO(docs): re-enable as a dedicated final docs pass; disabled
+    //                // for now so the cleanup focuses on code-quality lints, not doc debt.
     missing_debug_implementations,
     missing_copy_implementations,
     unreachable_pub,
@@ -190,7 +191,7 @@ pub mod sync {
 /// is unchanged. In `no_std` builds it provides a small deterministic
 /// `FxHasher`-style hasher implementing `core::hash::Hasher`. The values are
 /// only required to be stable within a single process run (they back diffing /
-/// change detection), not to match `std`'s SipHash output.
+/// change detection), not to match `std`'s `SipHash` output.
 pub mod hash {
     #[cfg(feature = "std")]
     pub use std::hash::DefaultHasher;
@@ -270,6 +271,7 @@ pub mod a11y;
 /// over UDP. Backend (rodio / cpal / AVAudioEngine / AAudio) lives dll-side.
 pub mod audio;
 /// Biometric-auth POD types — `BiometricKind` + `BiometricResult` + `BiometricPrompt`.
+///
 /// Stateful manager lives in `azul_layout::managers::biometric`.
 pub mod biometric;
 /// Camera-capture POD types — `CaptureStreamId` + `CameraConfig` +
@@ -291,6 +293,7 @@ pub mod events;
 /// `GamepadState`. Stateful manager lives in `azul_layout::managers::gamepad`.
 pub mod gamepad;
 /// Geolocation POD types — `LocationFix` + `GeolocationProbeConfig`.
+///
 /// Stateful manager lives in `azul_layout::managers::geolocation`.
 pub mod geolocation;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
@@ -313,6 +316,7 @@ pub mod id;
 /// JSON value types for the C API (no serde dependency).
 pub mod json;
 /// System-keyring POD types — `KeyringRequest` + `KeyringResult`.
+///
 /// Stateful manager lives in `azul_layout::managers::keyring`.
 pub mod keyring;
 /// Menu system: context menus, dropdown menus, and menu bars.
@@ -329,12 +333,14 @@ pub mod refany;
 /// Resource management: font/image loading, caching, and garbage collection.
 pub mod resources;
 /// Screen-capture POD types — `ScreenCaptureSource` + `ScreenCaptureConfig`.
+///
 /// Symmetric to the camera surface (a "dumb widget" in
 /// `azul_layout::widgets::screencap`); reuses `camera`'s capture status types.
 pub mod screencap;
 /// Text selection and cursor positioning for inline content.
 pub mod selection;
 /// Motion-sensor POD types — `SensorKind` + `SensorReading`.
+///
 /// Stateful manager lives in `azul_layout::managers::sensors`.
 pub mod sensors;
 /// CSS cascade: selector matching, specificity, and property inheritance.
@@ -358,6 +364,7 @@ pub mod ui_solver;
 /// URL POD type (`Url`/`UrlParseError`); parsing gated behind the `url` feature.
 pub mod url;
 /// Video-playback POD types — `VideoConfig` (source URL + autoplay/loop).
+///
 /// Same "dumb widget" architecture (`azul_layout::widgets::video`); decoded
 /// via vk-video into the shared GL texture.
 pub mod video;

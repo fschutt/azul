@@ -5,7 +5,7 @@
 //! callers drive it:
 //!
 //! - The **layout pass** scans the styled DOM for permission-bearing
-//!   NodeTypes (`GeolocationProbe`, `CameraPreview`, `SensorProbe`, etc.) and
+//!   `NodeTypes` (`GeolocationProbe`, `CameraPreview`, `SensorProbe`, etc.) and
 //!   calls `subscribe` / `release` to maintain the refcount. The diff
 //!   between consecutive layouts yields the [`PermissionDiffEvent`]s the
 //!   platform backend translates into native subscribe/release operations.
@@ -49,13 +49,13 @@ pub enum Capability {
     Geolocation,
     /// Background geolocation. A separate iOS / Android permission gate.
     GeolocationBackground,
-    /// FaceID / TouchID / Hello / `BiometricPrompt`.
+    /// `FaceID` / `TouchID` / Hello / `BiometricPrompt`.
     Biometric,
     /// Motion sensor data (accelerometer + gyro + magnetometer).
     Motion,
-    /// PhotoKit / MediaStore read.
+    /// `PhotoKit` / `MediaStore` read.
     PhotoLibrary,
-    /// PhotoKit add-only / MediaStore write.
+    /// `PhotoKit` add-only / `MediaStore` write.
     PhotoLibraryWrite,
     /// Contacts list.
     Contacts,
@@ -117,16 +117,16 @@ pub enum PermissionState {
 
 impl PermissionState {
     /// `true` if the capability is currently usable, regardless of quality.
-    pub fn is_granted(self) -> bool {
+    #[must_use] pub const fn is_granted(self) -> bool {
         matches!(
             self,
-            PermissionState::Granted { .. } | PermissionState::EphemeralGranted { .. }
+            Self::Granted { .. } | Self::EphemeralGranted { .. }
         )
     }
 
     /// `true` if a re-prompt could plausibly flip this to `Granted`.
-    pub fn could_re_prompt(self) -> bool {
-        matches!(self, PermissionState::NotDetermined)
+    #[must_use] pub const fn could_re_prompt(self) -> bool {
+        matches!(self, Self::NotDetermined)
     }
 }
 
@@ -137,7 +137,7 @@ impl PermissionState {
 /// zero to one (i.e. the first permission-bearing node of its kind appears).
 /// `Release` fires when the refcount drops back to zero. `Reconfigure` is
 /// reserved for in-place parameter changes (e.g. camera-facing front → back)
-/// once `CameraPreview` lands as a NodeType — kept in the enum so platform
+/// once `CameraPreview` lands as a `NodeType` — kept in the enum so platform
 /// backends can ignore it cleanly until then.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
@@ -173,7 +173,7 @@ pub struct CapabilityEntry {
 }
 
 impl CapabilityEntry {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             state: PermissionState::NotDetermined,
             refcount: 0,
@@ -201,16 +201,15 @@ pub struct PermissionManager {
 }
 
 impl PermissionManager {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
 
     /// Read the most recently observed state for `capability`.
-    pub fn get_status(&self, capability: Capability) -> PermissionState {
+    #[must_use] pub fn get_status(&self, capability: Capability) -> PermissionState {
         self.statuses
             .get(&capability)
-            .map(|e| e.state)
-            .unwrap_or(PermissionState::NotDetermined)
+            .map_or(PermissionState::NotDetermined, |e| e.state)
     }
 
     /// Record that `node_id` now needs `capability`. The first subscriber
@@ -287,11 +286,10 @@ impl PermissionManager {
     }
 
     /// Refcount snapshot — primarily for diagnostics and tests.
-    pub fn refcount(&self, capability: Capability) -> u32 {
+    #[must_use] pub fn refcount(&self, capability: Capability) -> u32 {
         self.statuses
             .get(&capability)
-            .map(|e| e.refcount)
-            .unwrap_or(0)
+            .map_or(0, |e| e.refcount)
     }
 
     /// Pre-compute the next-frame refcount map from a closure that yields
@@ -367,7 +365,7 @@ static ASYNC_RESULTS: std::sync::Mutex<Vec<(Capability, PermissionState)>> =
 /// dll) when an OS prompt resolves. Thread-safe; recovers from a poisoned
 /// lock so one panicking applier can't wedge delivery forever.
 pub fn push_async_result(capability: Capability, state: PermissionState) {
-    let mut q = ASYNC_RESULTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = ASYNC_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push((capability, state));
 }
 
@@ -375,7 +373,7 @@ pub fn push_async_result(capability: Capability, state: PermissionState) {
 /// Called once per layout pass; the caller applies each result through
 /// [`PermissionManager::set_status`] and relayouts if any changed.
 pub fn drain_async_results() -> Vec<(Capability, PermissionState)> {
-    let mut q = ASYNC_RESULTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = ASYNC_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 

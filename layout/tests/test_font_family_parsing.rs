@@ -49,16 +49,14 @@ fn test_font_family_parsing_simple() {
     let arial_string = arial.as_string();
     assert!(
         arial_string.contains("Arial") || arial_string.contains("arial"),
-        "First font should be Arial, got: {}",
-        arial_string
+        "First font should be Arial, got: {arial_string}"
     );
 
     let sans_serif = families.get(1).expect("Should have second family");
     let sans_string = sans_serif.as_string();
     assert!(
         sans_string.contains("sans-serif"),
-        "Second font should be sans-serif, got: {}",
-        sans_string
+        "Second font should be sans-serif, got: {sans_string}"
     );
 }
 
@@ -99,7 +97,6 @@ fn test_font_family_parsing_japanese() {
     let noto_string = noto.as_string();
     assert!(
         noto_string.contains("NotoSansJP") || noto_string.contains("notosansjp"),
-        "First font should be NotoSansJP, got: {}",
-        noto_string
+        "First font should be NotoSansJP, got: {noto_string}"
     );
 }

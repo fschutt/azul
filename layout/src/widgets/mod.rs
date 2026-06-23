@@ -3,13 +3,13 @@
 /// Implements `Display, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Hash`
 /// for a Callback with a `.cb` field.
 ///
-/// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
+/// This is necessary to work around for <https://github.com/rust-lang/rust/issues/54508>
 ///
 /// # Host-invoker plumbing for managed-FFI bindings
 ///
 /// Widget callbacks have varying shapes — some are
 /// `(RefAny, CallbackInfo) -> Update` (Button), others add a state
-/// struct (CheckBox/Tab/etc.), a few have two extras (ListView). The
+/// struct (CheckBox/Tab/etc.), a few have two extras (`ListView`). The
 /// macro therefore does **not** auto-emit an `impl_managed_callback!`
 /// invocation; per-widget files apply it themselves with the right
 /// extras list. The base invocation still produces the standard
@@ -162,10 +162,12 @@ pub mod video;
 /// each `AudioFrame` to the user's `on_frame` hook. See `microphone.rs`.
 pub mod microphone;
 /// Map widget — MVT tile + MapCSS → SVG → DOM (AzulMaps goal app, P3).
+///
 /// Cache lives in a dataset RefAny owned by a merge callback so it
 /// survives relayout. See `layout/src/widgets/map.rs` for the design.
 pub mod map;
 /// Software menu-bar widget (Linux fallback when there is no native global menu).
+///
 /// Renders a window's `Menu` as a horizontal bar; items open dropdowns via the
 /// unified `WindowPosition::RelativeToParentWindow` popup path.
 pub mod menubar;

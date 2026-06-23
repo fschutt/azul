@@ -33,7 +33,7 @@ impl Default for FxaaConfig {
 
 impl FxaaConfig {
     /// Create config with FXAA enabled and default quality settings
-    pub fn enabled() -> Self {
+    #[must_use] pub fn enabled() -> Self {
         Self {
             enabled: true,
             ..Default::default()
@@ -41,7 +41,7 @@ impl FxaaConfig {
     }
 
     /// High quality preset - more aggressive edge detection
-    pub fn high_quality() -> Self {
+    #[must_use] pub const fn high_quality() -> Self {
         Self {
             enabled: true,
             edge_threshold: 0.063,
@@ -50,7 +50,7 @@ impl FxaaConfig {
     }
 
     /// Balanced preset - default settings
-    pub fn balanced() -> Self {
+    #[must_use] pub const fn balanced() -> Self {
         Self {
             enabled: true,
             edge_threshold: 0.125,
@@ -59,7 +59,7 @@ impl FxaaConfig {
     }
 
     /// Performance preset - less aggressive, faster
-    pub fn performance() -> Self {
+    #[must_use] pub const fn performance() -> Self {
         Self {
             enabled: true,
             edge_threshold: 0.25,

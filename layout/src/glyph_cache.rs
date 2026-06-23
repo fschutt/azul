@@ -46,7 +46,7 @@ pub struct CachedGlyph<'a> {
 }
 
 /// Pre-rasterized glyph cells at a canonical position.
-/// Contains the rasterizer's cell output for a glyph at sub-pixel position (subpx_x, subpx_y).
+/// Contains the rasterizer's cell output for a glyph at sub-pixel position (`subpx_x`, `subpx_y`).
 /// To render at actual position (x, y), add integer pixel offset to each cell.
 struct CachedCells {
     cells: Vec<CellAa>,
@@ -88,10 +88,10 @@ impl GlyphCache {
     }
 
     /// Entry count of the glyph-path cache (for leak probes).
-    pub fn paths_len(&self) -> usize { self.paths.len() }
+    #[must_use] pub fn paths_len(&self) -> usize { self.paths.len() }
 
     /// Entry count of the pre-rasterized cell cache (for leak probes).
-    pub fn cells_len(&self) -> usize { self.cells.len() }
+    #[must_use] pub fn cells_len(&self) -> usize { self.cells.len() }
 
     /// Get a cached path, or build it on cache miss.
     /// Returns `None` if the glyph has no outline (e.g. space character).
@@ -148,7 +148,7 @@ impl GlyphCache {
         }
         let subpx_x = if is_hinted { 0 } else { quantize_subpx(glyph_x) };
         let subpx_y = if is_hinted { 0 } else { quantize_subpx(glyph_y) };
-        debug_assert!((0.0..65536.0).contains(&scale), "scale out of range for fixed-point: {}", scale);
+        debug_assert!((0.0..65536.0).contains(&scale), "scale out of range for fixed-point: {scale}");
         let scale_fixed = if is_hinted { 0 } else { (scale * 65536.0) as u32 };
 
         let cell_key = GlyphCellKey {
@@ -260,15 +260,15 @@ fn build_hinted_path(
     build_path_from_contours(&hinted, raw_on_curve, raw_contour_ends)
 }
 
-/// Build an agg PathStorage from TrueType contour data (points in F26Dot6).
+/// Build an agg `PathStorage` from TrueType contour data (points in `F26Dot6`).
 ///
 /// Matches allsorts' `visit_simple_glyph_outline` algorithm exactly:
 /// - On-curve points are endpoints of line/curve segments
 /// - Off-curve points are quadratic Bézier control points
 /// - Two consecutive off-curve points have an implicit on-curve midpoint
 /// - Y is negated for screen coordinates (font Y-up → screen Y-down)
-/// - The origin point is NOT revisited in the loop; close() handles the final segment
-pub fn build_path_from_contours(
+/// - The origin point is NOT revisited in the loop; `close()` handles the final segment
+#[must_use] pub fn build_path_from_contours(
     points: &[(i32, i32)],
     on_curve: &[bool],
     contour_ends: &[u16],
@@ -355,7 +355,7 @@ pub fn build_path_from_contours(
     Some(path)
 }
 
-/// Convert F26Dot6 value to pixel coordinate (f32).
+/// Convert `F26Dot6` value to pixel coordinate (f32).
 #[inline]
 fn f26_to_px(v: i32) -> f32 {
     v as f32 / 64.0

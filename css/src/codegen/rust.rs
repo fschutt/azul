@@ -56,7 +56,7 @@ impl CodegenBackend for RustBackend {
 }
 
 /// Render a parsed [`Css`] as Rust source code (a `const CSS: Css = ...;`).
-pub fn css_to_rust_code(css: &Css) -> String {
+#[must_use] pub fn css_to_rust_code(css: &Css) -> String {
     let mut output = String::new();
 
     output.push_str("const CSS: Css = Css {\r\n");
@@ -88,10 +88,10 @@ pub fn css_to_rust_code(css: &Css) -> String {
     output.push_str("\t]\r\n");
     output.push_str("};");
 
-    output.replace("\t", "    ")
+    output.replace('\t', "    ")
 }
 
-pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
+#[must_use] pub const fn format_node_type(n: &NodeTypeTag) -> &'static str {
     match n {
         // Document structure
         NodeTypeTag::Html => "NodeTypeTag::Html",
@@ -317,7 +317,7 @@ pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
     }
 }
 
-pub fn print_block_path(path: &CssPath, tabs: usize) -> String {
+#[must_use] pub fn print_block_path(path: &CssPath, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
 
@@ -329,7 +329,7 @@ pub fn print_block_path(path: &CssPath, tabs: usize) -> String {
     )
 }
 
-pub fn format_selectors(selectors: &[CssPathSelector], tabs: usize) -> String {
+#[must_use] pub fn format_selectors(selectors: &[CssPathSelector], tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
 
@@ -339,10 +339,10 @@ pub fn format_selectors(selectors: &[CssPathSelector], tabs: usize) -> String {
         .collect::<Vec<String>>()
         .join("\r\n");
 
-    format!("vec![\r\n{}\r\n{}].into()", selectors_formatted, t)
+    format!("vec![\r\n{selectors_formatted}\r\n{t}].into()")
 }
 
-pub fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
+#[must_use] pub fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
     match p {
         CssPathSelector::Global => "CssPathSelector::Global".to_string(),
         CssPathSelector::Root(r) => format!(
@@ -351,9 +351,9 @@ pub fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
         ),
         CssPathSelector::Type(ntp) => format!("CssPathSelector::Type({})", format_node_type(ntp)),
         CssPathSelector::Class(class) => {
-            format!("CssPathSelector::Class(String::from({:?}))", class)
+            format!("CssPathSelector::Class(String::from({class:?}))")
         }
-        CssPathSelector::Id(id) => format!("CssPathSelector::Id(String::from({:?}))", id),
+        CssPathSelector::Id(id) => format!("CssPathSelector::Id(String::from({id:?}))"),
         CssPathSelector::PseudoSelector(cps) => format!(
             "CssPathSelector::PseudoSelector({})",
             format_pseudo_selector_type(cps)
@@ -369,7 +369,7 @@ pub fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
     }
 }
 
-pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
+#[must_use] pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
     match p {
         CssPathPseudoSelector::First => "CssPathPseudoSelector::First".to_string(),
         CssPathPseudoSelector::Last => "CssPathPseudoSelector::Last".to_string(),
@@ -390,7 +390,7 @@ pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
     }
 }
 
-pub fn format_attribute_selector(a: &CssAttributeSelector) -> String {
+#[must_use] pub fn format_attribute_selector(a: &CssAttributeSelector) -> String {
     let value = match a.value.as_ref() {
         Some(v) => format!(
             "OptionString::Some(AzString::from_const_str({:?}))",
@@ -406,7 +406,7 @@ pub fn format_attribute_selector(a: &CssAttributeSelector) -> String {
     )
 }
 
-pub fn format_attribute_match_op(op: &AttributeMatchOp) -> String {
+#[must_use] pub fn format_attribute_match_op(op: &AttributeMatchOp) -> String {
     match op {
         AttributeMatchOp::Exists => "AttributeMatchOp::Exists".to_string(),
         AttributeMatchOp::Eq => "AttributeMatchOp::Eq".to_string(),
@@ -418,22 +418,21 @@ pub fn format_attribute_match_op(op: &AttributeMatchOp) -> String {
     }
 }
 
-pub fn format_nth_child_selector(n: &CssNthChildSelector) -> String {
+#[must_use] pub fn format_nth_child_selector(n: &CssNthChildSelector) -> String {
     match n {
-        CssNthChildSelector::Number(num) => format!("CssNthChildSelector::Number({})", num),
+        CssNthChildSelector::Number(num) => format!("CssNthChildSelector::Number({num})"),
         CssNthChildSelector::Even => "CssNthChildSelector::Even".to_string(),
         CssNthChildSelector::Odd => "CssNthChildSelector::Odd".to_string(),
         CssNthChildSelector::Pattern(CssNthChildPattern {
             pattern_repeat,
             offset,
         }) => format!(
-            "CssNthChildSelector::Pattern(CssNthChildPattern {{ pattern_repeat: {}, offset: {} }})",
-            pattern_repeat, offset
+            "CssNthChildSelector::Pattern(CssNthChildPattern {{ pattern_repeat: {pattern_repeat}, offset: {offset} }})"
         ),
     }
 }
 
-pub fn print_declaration(decl: &CssDeclaration, tabs: usize) -> String {
+#[must_use] pub fn print_declaration(decl: &CssDeclaration, tabs: usize) -> String {
     match decl {
         CssDeclaration::Static(s) => format!(
             "CssDeclaration::Static({})",
@@ -446,7 +445,7 @@ pub fn print_declaration(decl: &CssDeclaration, tabs: usize) -> String {
     }
 }
 
-pub fn format_dynamic_css_prop(decl: &DynamicCssProperty, tabs: usize) -> String {
+#[must_use] pub fn format_dynamic_css_prop(decl: &DynamicCssProperty, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     format!(
         "DynamicCssProperty {{\r\n{}    dynamic_id: {:?},\r\n{}    default_value: {},\r\n{}}}",
@@ -485,7 +484,7 @@ mod tests {
     fn rust_backend_emits_project_files() {
         let css = sample_css();
         let files = RustBackend.emit_project(&css);
-        let paths: alloc::vec::Vec<_> = files.iter().map(|f| f.path.as_str()).collect();
+        let paths: Vec<_> = files.iter().map(|f| f.path.as_str()).collect();
         assert!(paths.contains(&"Cargo.toml"));
         assert!(paths.contains(&"src/main.rs"));
         let main_rs = files

@@ -6,7 +6,7 @@
 //! buffered in a per-thread [`Vec`] and drained by the consumer with
 //! [`Probe::drain`].
 //!
-//! With the feature off every method is a `#[inline(always)]` no-op so
+//! With the feature off every method is a `#[inline]` no-op so
 //! release builds without the feature pay zero cost.
 //!
 //! Consumer (e.g. servo-shot) groups drained events by name to produce
@@ -106,31 +106,31 @@ mod imp {
     pub struct Span;
 
     impl Drop for Span {
-        #[inline(always)]
+        #[inline]
         fn drop(&mut self) {}
     }
 
-    #[inline(always)]
-    pub(super) fn open(_name: &'static str) -> Span {
+    #[inline]
+    pub(super) const fn open(_name: &'static str) -> Span {
         Span
     }
 
-    #[inline(always)]
-    pub(super) fn sample_rss(_label: &'static str, _bytes: u64) {}
+    #[inline]
+    pub(super) const fn sample_rss(_label: &'static str, _bytes: u64) {}
 
-    #[inline(always)]
-    pub(super) fn drain() -> Vec<super::Event> {
+    #[inline]
+    pub(super) const fn drain() -> Vec<super::Event> {
         Vec::new()
     }
 
-    #[inline(always)]
-    pub(super) fn drop_events() {}
+    #[inline]
+    pub(super) const fn drop_events() {}
 
-    #[inline(always)]
-    pub(super) fn peek_len() -> usize { 0 }
+    #[inline]
+    pub(super) const fn peek_len() -> usize { 0 }
 
-    #[inline(always)]
-    pub(super) fn enabled() -> bool {
+    #[inline]
+    pub(super) const fn enabled() -> bool {
         false
     }
 }
@@ -162,8 +162,8 @@ pub struct Probe {
 impl Probe {
     /// Open a timed span. The returned guard records its name + nanos
     /// on drop into the thread-local event buffer.
-    #[inline(always)]
-    pub fn span(name: &'static str) -> Span {
+    #[inline]
+    #[must_use] pub const fn span(name: &'static str) -> Span {
         imp::open(name)
     }
 
@@ -171,14 +171,14 @@ impl Probe {
     /// caller supplies the bytes (this module does not depend on
     /// platform RSS readers) so consumers can use whatever measurement
     /// helper they own.
-    #[inline(always)]
-    pub fn sample_rss(label: &'static str, bytes: u64) {
+    #[inline]
+    pub const fn sample_rss(label: &'static str, bytes: u64) {
         imp::sample_rss(label, bytes);
     }
 
     /// Drain the per-thread event buffer.
-    #[inline(always)]
-    pub fn drain() -> Vec<Event> {
+    #[inline]
+    #[must_use] pub const fn drain() -> Vec<Event> {
         imp::drain()
     }
 
@@ -186,20 +186,20 @@ impl Probe {
     /// hand back. Used by long-running harnesses (e.g. `AZ_E2E_TEST`) that
     /// want to prevent the thread-local buffer from inflating RSS during
     /// thousands of layout passes without actually needing the events.
-    #[inline(always)]
-    pub fn drop_events() {
+    #[inline]
+    pub const fn drop_events() {
         imp::drop_events();
     }
 
     /// Current number of events in the per-thread buffer. Cheap to call.
-    #[inline(always)]
-    pub fn peek_len() -> usize {
+    #[inline]
+    #[must_use] pub const fn peek_len() -> usize {
         imp::peek_len()
     }
 
     /// Whether the `probe` feature is compiled in.
-    #[inline(always)]
-    pub fn enabled() -> bool {
+    #[inline]
+    #[must_use] pub const fn enabled() -> bool {
         imp::enabled()
     }
 }
@@ -231,14 +231,14 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
     use std::collections::BTreeMap;
 
     if events.is_empty() {
-        if !Probe::enabled() {
+        if Probe::enabled() {
+            eprintln!("[CPU] {label}: no events recorded this pass");
+        } else {
             // Feature absent or target-family disabled (WASM): show "???"
             // instead of a misleading "compile with feature=probe" hint.
             eprintln!(
                 "[CPU] {label}: probe unavailable on this target (timings = ???)"
             );
-        } else {
-            eprintln!("[CPU] {label}: no events recorded this pass");
         }
         return;
     }
@@ -316,7 +316,7 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
 /// `sample_peak_rss` for backwards compatibility with existing
 /// checkpoint labels; semantically it is "sample current".
 #[inline]
-pub fn sample_peak_rss(label: &'static str) {
+pub const fn sample_peak_rss(label: &'static str) {
     // [WEB-LIFT 2026-06-11] also no-op under web_lift: current_rss_bytes/
     // peak_rss_bytes_self are mach syscalls (task_info/getrusage) —
     // out-of-image and unliftable. See the `imp` cfg note above.
@@ -362,7 +362,7 @@ fn peak_rss_bytes_self() -> u64 {
 ///
 /// Call after major allocations are freed (e.g. after a layout pass).
 #[inline]
-pub fn hint_purge_allocator() {
+pub const fn hint_purge_allocator() {
     #[cfg(feature = "allocator_mimalloc")]
     {
         // Aggressive purge — returns arenas to the OS when possible.
@@ -629,16 +629,16 @@ pub fn sample_phase_peak(label: &'static str) {
 }
 
 #[cfg(not(feature = "probe"))]
-#[inline(always)]
-pub fn reset_peak() {}
+#[inline]
+pub const fn reset_peak() {}
 
 #[cfg(not(feature = "probe"))]
-#[inline(always)]
-pub fn sample_phase_peak(_label: &'static str) {}
+#[inline]
+pub const fn sample_phase_peak(_label: &'static str) {}
 
 #[cfg(not(feature = "probe"))]
-#[inline(always)]
-pub fn malloc_heap_bytes() -> u64 { 0 }
+#[inline]
+#[must_use] pub const fn malloc_heap_bytes() -> u64 { 0 }
 
 /// Emit one `{"ev":"phase","label":L,"heap":N,"call":C}` line to the
 /// JSONL file named by `AZ_PROFILE_OUT=<path>`. Only fires when
@@ -688,8 +688,8 @@ pub fn emit_phase_heap(label: &str) {
 }
 
 #[cfg(not(feature = "probe"))]
-#[inline(always)]
-pub fn emit_phase_heap(_label: &str) {}
+#[inline]
+pub const fn emit_phase_heap(_label: &str) {}
 
 /// Like [`emit_phase_heap`] but attaches a numeric payload (e.g., a cache
 /// size) to the JSONL record under the `"extra"` field.
@@ -719,8 +719,8 @@ pub fn emit_phase_heap_extra(label: &str, extra: u64) {
 }
 
 #[cfg(not(feature = "probe"))]
-#[inline(always)]
-pub fn emit_phase_heap_extra(_label: &str, _extra: u64) {}
+#[inline]
+pub const fn emit_phase_heap_extra(_label: &str, _extra: u64) {}
 
 /// Both `heap` and `jsonl` tokens active in `AZ_PROFILE` — the combination
 /// that enables JSONL heap-probe emission. Either alone is a no-op.
@@ -741,5 +741,5 @@ pub fn detail_enabled() -> bool {
 }
 
 #[cfg(not(feature = "probe"))]
-#[inline(always)]
-pub fn detail_enabled() -> bool { false }
+#[inline]
+#[must_use] pub const fn detail_enabled() -> bool { false }

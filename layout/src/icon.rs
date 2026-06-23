@@ -58,9 +58,9 @@ use azul_core::{
 /// directly via `IconProviderHandle::register_icon`.
 pub struct ImageIconData {
     pub image: ImageRef,
-    /// Width duplicated from ImageRef at registration time
+    /// Width duplicated from `ImageRef` at registration time
     pub width: f32,
-    /// Height duplicated from ImageRef at registration time
+    /// Height duplicated from `ImageRef` at registration time
     pub height: f32,
 }
 
@@ -81,14 +81,14 @@ pub struct FontIconData {
 /// Default icon resolver that handles both image and font icons.
 ///
 /// Resolution logic:
-/// 1. If icon_data is None -> return empty div (icon not found)
-/// 2. If icon_data contains ImageIconData -> render as image
-/// 3. If icon_data contains FontIconData -> render as text with font
+/// 1. If `icon_data` is None -> return empty div (icon not found)
+/// 2. If `icon_data` contains `ImageIconData` -> render as image
+/// 3. If `icon_data` contains `FontIconData` -> render as text with font
 /// 4. Unknown data type -> return empty div
 ///
 /// Styles from the original icon DOM are copied to the result,
-/// filtered based on SystemStyle preferences.
-pub extern "C" fn default_icon_resolver(
+/// filtered based on `SystemStyle` preferences.
+#[must_use] pub extern "C" fn default_icon_resolver(
     icon_data: OptionRefAny,
     original_icon_dom: &StyledDom,
     system_style: &SystemStyle,
@@ -116,7 +116,7 @@ pub extern "C" fn default_icon_resolver(
 
 // Icon DOM Creation (from original)
 
-/// Create a StyledDom for an image-based icon, copying styles from original.
+/// Create a `StyledDom` for an image-based icon, copying styles from original.
 ///
 /// Applies SystemStyle-aware modifications:
 /// - Grayscale filter if `prefer_grayscale` is true
@@ -172,7 +172,7 @@ fn create_image_icon_from_original(
     StyledDom::create(&mut dom, Css::empty())
 }
 
-/// Create a StyledDom for a font-based icon, copying styles from original.
+/// Create a `StyledDom` for a font-based icon, copying styles from original.
 ///
 /// Applies SystemStyle-aware modifications:
 /// - Text color override if `inherit_text_color` is true
@@ -354,7 +354,7 @@ pub fn register_font_icon(provider: &mut IconProviderHandle, pack_name: &str, ic
 // ZIP Support
 // ============================================================================
 
-/// Load all images from a ZIP file, returning (icon_name, ImageRef, width, height)
+/// Load all images from a ZIP file, returning (`icon_name`, `ImageRef`, width, height)
 #[cfg(all(feature = "zip_support", feature = "image_decoding"))]
 fn load_images_from_zip(zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
     use crate::zip::{ZipFile, ZipReadConfig};
@@ -368,7 +368,7 @@ fn load_images_from_zip(zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
         Err(_) => return result,
     };
     
-    for entry in entries.iter() {
+    for entry in &entries {
         if entry.path.ends_with('/') { continue; } // Skip directories
         
         let file_bytes = match ZipFile::get_single_file(zip_bytes, entry, &config) {
@@ -410,7 +410,7 @@ fn load_images_from_zip(_zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> 
 /// 
 /// This registers all 2234 Material Icons from the `material-icons` crate.
 /// Each icon is registered under the "material-icons" pack with its HTML name
-/// (e.g., "home", "settings", "arrow_back", etc.).
+/// (e.g., "home", "settings", "`arrow_back`", etc.).
 /// 
 /// Requires the "icons" feature with material-icons crate.
 #[cfg(feature = "icons")]
@@ -418,7 +418,7 @@ pub fn register_material_icons(provider: &mut IconProviderHandle, font: FontRef)
     use material_icons::{ALL_ICONS, icon_to_char, icon_to_html_name};
     
     // Register all Material Icons with their Unicode codepoints
-    for icon in ALL_ICONS.iter() {
+    for icon in &ALL_ICONS {
         let icon_char = icon_to_char(*icon);
         let name = icon_to_html_name(icon);
         
@@ -484,7 +484,7 @@ pub fn register_embedded_material_icons(
 // Convenience Functions
 // ============================================================================
 
-/// Create an IconProviderHandle with the default resolver.
+/// Create an `IconProviderHandle` with the default resolver.
 pub fn create_default_icon_provider() -> IconProviderHandle {
     IconProviderHandle::with_resolver(default_icon_resolver)
 }

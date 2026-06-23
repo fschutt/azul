@@ -38,7 +38,7 @@ pub struct BlinkState {
 
 
 impl BlinkState {
-    pub fn new() -> Self { Self::default() }
+    #[must_use] pub fn new() -> Self { Self::default() }
 
     /// Reset blink on user input — cursor stays solid until blink interval elapses.
     pub fn reset_blink_on_input(&mut self, now: Instant) {
@@ -47,25 +47,25 @@ impl BlinkState {
     }
 
     /// Toggle cursor visibility (called by blink timer callback).
-    pub fn toggle_visibility(&mut self) -> bool {
+    pub const fn toggle_visibility(&mut self) -> bool {
         self.is_visible = !self.is_visible;
         self.is_visible
     }
 
-    pub fn set_visibility(&mut self, visible: bool) {
+    pub const fn set_visibility(&mut self, visible: bool) {
         self.is_visible = visible;
     }
 
-    pub fn set_blink_timer_active(&mut self, active: bool) {
+    pub const fn set_blink_timer_active(&mut self, active: bool) {
         self.blink_timer_active = active;
     }
 
-    pub fn is_blink_timer_active(&self) -> bool {
+    #[must_use] pub const fn is_blink_timer_active(&self) -> bool {
         self.blink_timer_active
     }
 
     /// Check if enough time has passed since last input to start blinking.
-    pub fn should_blink(&self, now: &Instant) -> bool {
+    #[must_use] pub fn should_blink(&self, now: &Instant) -> bool {
         use azul_core::task::{Duration, SystemTimeDiff};
         match &self.last_input_time {
             Some(last_input) => {
@@ -128,7 +128,7 @@ impl PartialEq for TextEditManager {
 
 impl TextEditManager {
     /// Create a new text edit manager with no active editing state
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self {
             multi_cursor: None,
             blink: BlinkState::new(),
@@ -142,35 +142,35 @@ impl TextEditManager {
     // === Dirty flag ===
 
     /// Mark that the display list needs regeneration.
-    pub fn mark_dirty(&mut self) {
+    pub const fn mark_dirty(&mut self) {
         self.display_list_dirty = true;
     }
 
     // === Editing lifecycle ===
 
     /// Whether a contenteditable element is currently being edited.
-    pub fn has_active_editing(&self) -> bool {
+    #[must_use] pub const fn has_active_editing(&self) -> bool {
         self.multi_cursor.is_some()
     }
 
-    /// Get the DomId of the node being edited.
-    pub fn get_editing_dom_id(&self) -> Option<DomId> {
+    /// Get the `DomId` of the node being edited.
+    #[must_use] pub fn get_editing_dom_id(&self) -> Option<DomId> {
         self.multi_cursor.as_ref().map(|mc| mc.node_id.dom)
     }
 
-    /// Get the NodeId of the node being edited.
-    pub fn get_editing_node_id(&self) -> Option<NodeId> {
+    /// Get the `NodeId` of the node being edited.
+    #[must_use] pub fn get_editing_node_id(&self) -> Option<NodeId> {
         self.multi_cursor.as_ref()
             .and_then(|mc| mc.node_id.node.into_crate_internal())
     }
 
     /// Get the primary cursor position (last-added cursor).
-    pub fn get_primary_cursor(&self) -> Option<TextCursor> {
-        self.multi_cursor.as_ref().and_then(|mc| mc.get_primary_cursor())
+    #[must_use] pub fn get_primary_cursor(&self) -> Option<TextCursor> {
+        self.multi_cursor.as_ref().and_then(MultiCursorState::get_primary_cursor)
     }
 
     /// Whether the cursor should be drawn (editing active AND blink visible).
-    pub fn should_draw_cursor(&self) -> bool {
+    #[must_use] pub const fn should_draw_cursor(&self) -> bool {
         self.has_active_editing() && self.blink.is_visible
     }
 
@@ -228,10 +228,10 @@ impl TextEditManager {
 
     // === Convenience for building cursor_locations ===
 
-    /// Build the Vec of cursor locations for LayoutContext.
+    /// Build the Vec of cursor locations for `LayoutContext`.
     ///
-    /// Returns all cursor positions from MultiCursorState, or empty if not editing.
-    pub fn build_cursor_locations(&self) -> Vec<(DomId, NodeId, TextCursor)> {
+    /// Returns all cursor positions from `MultiCursorState`, or empty if not editing.
+    #[must_use] pub fn build_cursor_locations(&self) -> Vec<(DomId, NodeId, TextCursor)> {
         let Some(ref mc) = self.multi_cursor else {
             return Vec::new();
         };
@@ -247,14 +247,14 @@ impl TextEditManager {
         }).collect()
     }
 
-    /// Build a TextSelection map for the display list's `paint_selections`.
+    /// Build a `TextSelection` map for the display list's `paint_selections`.
     ///
-    /// Extracts Range selections from MultiCursorState into the format that
+    /// Extracts Range selections from `MultiCursorState` into the format that
     /// `LayoutContext.text_selections` expects: `BTreeMap<DomId, TextSelection>`.
-    /// The `affected_nodes` map uses the editing node's NodeId as key.
+    /// The `affected_nodes` map uses the editing node's `NodeId` as key.
     /// NOTE: only one range per node is supported — if multiple cursors have
     /// range selections on the same node, later ranges overwrite earlier ones.
-    pub fn build_text_selections_map(&self) -> std::collections::BTreeMap<DomId, azul_core::selection::TextSelection> {
+    #[must_use] pub fn build_text_selections_map(&self) -> std::collections::BTreeMap<DomId, azul_core::selection::TextSelection> {
         use azul_core::selection::{TextSelection, SelectionAnchor, SelectionFocus};
         use azul_core::geom::LogicalRect;
 

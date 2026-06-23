@@ -16,8 +16,8 @@
 //! # W3C Compliance
 //!
 //! This implementation follows the W3C CSSOM View Module specification:
-//! - ScrollLogicalPosition: start, center, end, nearest
-//! - ScrollBehavior: auto, instant, smooth
+//! - `ScrollLogicalPosition`: start, center, end, nearest
+//! - `ScrollBehavior`: auto, instant, smooth
 //! - Proper scroll ancestor chain traversal
 
 use alloc::vec::Vec;
@@ -268,7 +268,7 @@ fn find_scrollable_ancestors(
     let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
 
     // Walk up the DOM tree from parent of target node
-    let mut current = node_hierarchy.get(node_id).and_then(|h| h.parent_id());
+    let mut current = node_hierarchy.get(node_id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
     
     while let Some(current_node_id) = current {
         // Check if this node is scrollable
@@ -282,7 +282,7 @@ fn find_scrollable_ancestors(
         }
         
         // Move to parent
-        current = node_hierarchy.get(current_node_id).and_then(|h| h.parent_id());
+        current = node_hierarchy.get(current_node_id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
     }
     
     ancestors
@@ -322,8 +322,8 @@ fn check_if_scrollable(
     let scroll_state = scroll_manager.get_scroll_state(dom_id, node_id)?;
     
     // Check if content actually overflows (use virtual_scroll_size when set, e.g. for VirtualView)
-    let effective_width = scroll_state.virtual_scroll_size.map(|s| s.width).unwrap_or(scroll_state.content_rect.size.width);
-    let effective_height = scroll_state.virtual_scroll_size.map(|s| s.height).unwrap_or(scroll_state.content_rect.size.height);
+    let effective_width = scroll_state.virtual_scroll_size.map_or(scroll_state.content_rect.size.width, |s| s.width);
+    let effective_height = scroll_state.virtual_scroll_size.map_or(scroll_state.content_rect.size.height, |s| s.height);
     let has_overflow_x = effective_width > scroll_state.container_rect.size.width;
     let has_overflow_y = effective_height > scroll_state.container_rect.size.height;
     
@@ -385,7 +385,7 @@ fn calculate_scroll_delta(
 }
 
 /// Calculate scroll delta for a single axis
-pub fn calculate_axis_delta(
+#[must_use] pub fn calculate_axis_delta(
     target_start: f32,
     target_size: f32,
     container_start: f32,
@@ -434,7 +434,7 @@ pub fn calculate_axis_delta(
 
 /// Resolve scroll behavior based on options and CSS properties
 // +spec:containing-block:03528c - scroll-behavior on root element applies to viewport
-fn resolve_scroll_behavior(
+const fn resolve_scroll_behavior(
     requested: ScrollIntoViewBehavior,
     _dom_id: DomId,
     _node_id: NodeId,

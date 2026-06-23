@@ -26,7 +26,7 @@ use azul_css::AzString;
 use crate::{solver3::layout_tree::LayoutNodeHot, window::DomLayoutResult};
 
 /// Cursor/selection info passed to the a11y tree builder.
-/// Used to set text_selection on contenteditable nodes so screen readers
+/// Used to set `text_selection` on contenteditable nodes so screen readers
 /// can announce the cursor position and selection range.
 #[cfg(feature = "a11y")]
 pub struct CursorA11yInfo {
@@ -67,7 +67,7 @@ impl Default for A11yManager {
 
 impl A11yManager {
     /// Creates a new `A11yManager` with an empty tree containing only a root window node.
-    pub fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         let root_id = A11yNodeId(0);
         Self {
             root_id,
@@ -81,12 +81,12 @@ impl A11yManager {
     ///
     /// This should be called after each layout pass to synchronize the
     /// accessibility tree with the visual representation.
-    pub fn update_tree(
+    #[must_use] pub fn update_tree(
         root_id: A11yNodeId,
         layout_results: &std::collections::BTreeMap<DomId, DomLayoutResult>,
         window_title: &AzString,
         window_size: LogicalSize,
-        focused_node: Option<azul_core::dom::DomNodeId>,
+        focused_node: Option<DomNodeId>,
         hidpi_factor: f32,
         dirty_text_overrides: &std::collections::BTreeMap<(DomId, NodeId), String>,
         cursor_info: Option<CursorA11yInfo>,
@@ -151,23 +151,20 @@ impl A11yManager {
                         Some((hot, layout_idx, abs_pos))
                     });
 
-                let a11y_info_ref = a11y_info.as_ref().map(|b| b.as_ref());
-                let mut node = match layout_info {
-                    Some((layout_node, _layout_idx, abs_pos)) => {
-                        Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref, hidpi_factor, window_size)
+                let a11y_info_ref = a11y_info.as_ref().map(AsRef::as_ref);
+                let mut node = if let Some((layout_node, _layout_idx, abs_pos)) = layout_info {
+                    Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref, hidpi_factor, window_size)
+                } else {
+                    let role = if let Some(info) = a11y_info_ref {
+                        Self::map_role(&info.role)
+                    } else {
+                        Self::node_type_to_role(&node_data.node_type)
+                    };
+                    let mut builder = Node::new(role);
+                    if let NodeType::Text(text) = &node_data.node_type {
+                        builder.set_label(text.as_str());
                     }
-                    None => {
-                        let role = if let Some(info) = a11y_info_ref {
-                            Self::map_role(&info.role)
-                        } else {
-                            Self::node_type_to_role(&node_data.node_type)
-                        };
-                        let mut builder = Node::new(role);
-                        if let NodeType::Text(text) = &node_data.node_type {
-                            builder.set_label(text.as_str());
-                        }
-                        builder
-                    }
+                    builder
                 };
 
                 // Collect child text and promote to this node's label or value.
@@ -300,7 +297,7 @@ impl A11yManager {
         }
 
         // Third pass: Set children on all nodes (including root)
-        for (node_id, node) in nodes.iter_mut() {
+        for (node_id, node) in &mut nodes {
             if *node_id == root_id {
                 // Root window node gets top-level DOM nodes as children
                 node.set_children(root_children.clone());
@@ -323,8 +320,7 @@ impl A11yManager {
                     .find(|(id, node)| {
                         *id != root_id && !matches!(node.role(), Role::GenericContainer | Role::Window)
                     })
-                    .map(|(id, _)| *id)
-                    .unwrap_or(root_id)
+                    .map_or(root_id, |(id, _)| *id)
             });
 
         // Create the tree update
@@ -338,7 +334,7 @@ impl A11yManager {
         }
     }
 
-    /// Builds an accesskit Node from Azul's NodeData and layout information.
+    /// Builds an accesskit Node from Azul's `NodeData` and layout information.
     fn build_node(
         node_data: &NodeData,
         layout_node: &LayoutNodeHot,
@@ -524,15 +520,15 @@ impl A11yManager {
         builder
     }
 
-    /// Encode a `(DomId.inner, node index)` pair into the stable A11yNodeId used
+    /// Encode a `(DomId.inner, node index)` pair into the stable `A11yNodeId` used
     /// throughout the tree (offset by 1 so it never collides with `root_id` 0).
     /// Shared by the tree walk and the aria-labelledby/-describedby relation
     /// mapping, so a relation always resolves to the node the walk emitted.
-    fn encode_a11y_node_id(dom_inner: usize, node_idx: usize) -> A11yNodeId {
+    const fn encode_a11y_node_id(dom_inner: usize, node_idx: usize) -> A11yNodeId {
         A11yNodeId(((dom_inner as u64) << 32) | ((node_idx as u64) + 1))
     }
 
-    /// Map an aria-labelledby/-describedby target `DomNodeId` to its A11yNodeId,
+    /// Map an aria-labelledby/-describedby target `DomNodeId` to its `A11yNodeId`,
     /// or `None` if the node id can't be resolved.
     fn a11y_node_id_for(target: &DomNodeId) -> Option<A11yNodeId> {
         let idx = target.node.into_crate_internal()?.index();
@@ -542,7 +538,7 @@ impl A11yManager {
     /// Maps an HTML `NodeType` to an accesskit `Role`.
     ///
     /// Every role used here must pass accesskit's `common_filter` (i.e. NOT be
-    /// `GenericContainer` or `TextRun`) or VoiceOver will skip the node entirely.
+    /// `GenericContainer` or `TextRun`) or `VoiceOver` will skip the node entirely.
     /// Use `Group` for structural containers, `Paragraph` for text blocks, `Label`
     /// for inline text, and semantic roles for everything else.
     const fn node_type_to_role(node_type: &NodeType) -> Role {
@@ -647,8 +643,8 @@ impl A11yManager {
         }
     }
 
-    /// Maps Azul's AccessibilityRole to accesskit's Role.
-    fn map_role(role: &AccessibilityRole) -> Role {
+    /// Maps Azul's `AccessibilityRole` to accesskit's Role.
+    const fn map_role(role: &AccessibilityRole) -> Role {
         match role {
             AccessibilityRole::TitleBar => Role::TitleBar,
             AccessibilityRole::MenuBar => Role::MenuBar,
@@ -729,7 +725,7 @@ impl A11yManager {
 /// - Lower 32 bits: `NodeId + 1` (index within that DOM tree, offset by 1 to avoid
 ///   colliding with the accesskit root node id, matching the encoding in `update_tree`)
 #[cfg(feature = "a11y")]
-pub fn decode_a11y_node_id(a11y_node_id: A11yNodeId) -> (DomId, NodeId) {
+#[must_use] pub const fn decode_a11y_node_id(a11y_node_id: A11yNodeId) -> (DomId, NodeId) {
     let raw = a11y_node_id.0;
     let dom_id = DomId {
         inner: (raw >> 32) as usize,
@@ -742,7 +738,7 @@ pub fn decode_a11y_node_id(a11y_node_id: A11yNodeId) -> (DomId, NodeId) {
 ///
 /// Returns `None` if the action requires data that was not provided or is invalid.
 #[cfg(feature = "a11y")]
-pub fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction> {
+#[must_use] pub fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction> {
     use azul_css::{props::basic::FloatValue, AzString};
 
     let action = match request.action {
@@ -837,7 +833,7 @@ mod a11y_relation_tests {
     use accesskit::NodeId as A11yNodeId;
 
     /// The a11y node-id encoding must stay in lockstep with the tree walk:
-    /// `(dom.inner << 32) | (idx + 1)`. labelled_by/described_by relations encode
+    /// `(dom.inner << 32) | (idx + 1)`. `labelled_by/described_by` relations encode
     /// their targets the same way, so any drift here would point a relation at
     /// the wrong (or a nonexistent) node.
     #[test]

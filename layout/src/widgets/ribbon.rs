@@ -183,7 +183,7 @@ impl_vec_mut!(RibbonTab, RibbonTabVec);
 
 impl RibbonTab {
     /// Creates a new tab with the given label and no sections.
-    pub fn new(label: AzString) -> Self {
+    #[must_use] pub const fn new(label: AzString) -> Self {
         Self { label, sections: RibbonSectionVec::from_const_slice(&[]) }
     }
 
@@ -193,7 +193,7 @@ impl RibbonTab {
     }
 
     /// Builder method: appends a section and returns `self`.
-    pub fn with_section(mut self, section: RibbonSection) -> Self {
+    #[must_use] pub fn with_section(mut self, section: RibbonSection) -> Self {
         self.add_section(section);
         self
     }
@@ -201,19 +201,19 @@ impl RibbonTab {
 
 impl RibbonSection {
     /// Creates a new section with the given title and content DOM.
-    pub fn new(title: AzString, content: Dom) -> Self {
+    #[must_use] pub const fn new(title: AzString, content: Dom) -> Self {
         Self { title, content }
     }
 }
 
 impl Ribbon {
     /// Creates a new ribbon with the given tabs, defaulting to the first tab active.
-    pub fn new(tabs: RibbonTabVec) -> Self {
+    #[must_use] pub fn new(tabs: RibbonTabVec) -> Self {
         Self { tabs, active_tab: 0, on_tab_click: None.into() }
     }
 
     /// Sets the active tab by index, clamping to the last valid tab.
-    pub fn set_active_tab(&mut self, index: usize) {
+    pub const fn set_active_tab(&mut self, index: usize) {
         let max = self.tabs.len().saturating_sub(1);
         self.active_tab = if index > max { max } else { index };
     }
@@ -232,7 +232,7 @@ impl Ribbon {
     }
 
     /// Builds the ribbon DOM, rendering the tab bar and the active tab's sections.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         let active_tab = self.active_tab;
         let has_callback = self.on_tab_click.is_some();
 
@@ -308,5 +308,5 @@ extern "C" fn on_ribbon_tab_click(mut refany: RefAny, info: CallbackInfo) -> Upd
 }
 
 impl From<Ribbon> for Dom {
-    fn from(r: Ribbon) -> Dom { r.dom() }
+    fn from(r: Ribbon) -> Self { r.dom() }
 }

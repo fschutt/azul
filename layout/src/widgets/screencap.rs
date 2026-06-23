@@ -60,7 +60,7 @@ pub struct ScreenCaptureWidget {
 
 impl ScreenCaptureWidget {
     /// Create a screencap widget for the given config.
-    pub fn create(config: ScreenCaptureConfig) -> Self {
+    #[must_use] pub const fn create(config: ScreenCaptureConfig) -> Self {
         Self {
             config,
             on_frame: OptionOnVideoFrame::None,
@@ -90,7 +90,7 @@ impl ScreenCaptureWidget {
 
     /// Build the widget's DOM: a single `<img>` node, fed by a background
     /// capture thread started on mount.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         let state = ScreenCaptureWidgetState {
             config: self.config,
             started: false,
@@ -117,7 +117,7 @@ impl ScreenCaptureWidget {
     }
 }
 
-/// AfterMount: start the background capture thread exactly once.
+/// `AfterMount`: start the background capture thread exactly once.
 extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     {
         let mut s = match data.downcast_mut::<ScreenCaptureWidgetState>() {
@@ -141,7 +141,7 @@ extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo)
 }
 
 /// Background worker (test pattern): a downward-moving white band on dark grey,
-/// ~30×/s. Replaced by the real ScreenCaptureKit / MediaProjection worker.
+/// ~30×/s. Replaced by the real `ScreenCaptureKit` / `MediaProjection` worker.
 extern "C" fn screencap_worker(_init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     // Real platform capture if the dll registered a screen backend
     // (ScreenCaptureKit / X11 / DXGI; Wayland stays a dummy); else the test pattern.

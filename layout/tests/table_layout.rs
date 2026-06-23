@@ -211,8 +211,7 @@ fn test_border_conflict_source_priority() {
 #[test]
 fn test_border_conflict_source_priority_full_hierarchy() {
     // Test all source priorities
-    let borders = vec![
-        (
+    let borders = [(
             BorderSource::Table,
             ColorU {
                 r: 10,
@@ -265,8 +264,7 @@ fn test_border_conflict_source_priority_full_hierarchy() {
                 b: 0,
                 a: 255,
             },
-        ),
-    ];
+        )];
 
     // Cell should win against all others
     let cell = BorderInfo {
@@ -507,8 +505,7 @@ fn test_border_source_as_priority() {
 #[test]
 fn test_border_style_priority_full_hierarchy() {
     // Test full style hierarchy: double > solid > dashed > dotted > ridge > outset > groove > inset
-    let styles = vec![
-        (
+    let styles = [(
             BorderStyle::Double,
             ColorU {
                 r: 1,
@@ -579,8 +576,7 @@ fn test_border_style_priority_full_hierarchy() {
                 b: 0,
                 a: 255,
             },
-        ),
-    ];
+        )];
 
     // Double should win against all others
     let double = BorderInfo {

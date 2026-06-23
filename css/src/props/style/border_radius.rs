@@ -64,7 +64,7 @@ pub struct StyleBorderRadius {
 // --- Error Types ---
 
 /// Error for the shorthand `border-radius` property.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CssBorderRadiusParseError<'a> {
     /// Too many values were provided (max is 4).
     TooManyValues(&'a str),
@@ -83,7 +83,7 @@ impl_from!(
 );
 
 /// Owned version of `CssBorderRadiusParseError`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssBorderRadiusParseErrorOwned {
     TooManyValues(AzString),
@@ -91,7 +91,7 @@ pub enum CssBorderRadiusParseErrorOwned {
 }
 
 /// Newtype wrapper around `CssBorderRadiusParseErrorOwned` for the `border-radius` shorthand.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct CssStyleBorderRadiusParseErrorOwned {
     pub inner: CssBorderRadiusParseErrorOwned,
@@ -103,11 +103,11 @@ impl From<CssBorderRadiusParseErrorOwned> for CssStyleBorderRadiusParseErrorOwne
     }
 }
 
-impl<'a> CssBorderRadiusParseError<'a> {
-    pub fn to_contained(&self) -> CssBorderRadiusParseErrorOwned {
+impl CssBorderRadiusParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssBorderRadiusParseErrorOwned {
         match self {
             CssBorderRadiusParseError::TooManyValues(s) => {
-                CssBorderRadiusParseErrorOwned::TooManyValues(s.to_string().into())
+                CssBorderRadiusParseErrorOwned::TooManyValues((*s).to_string().into())
             }
             CssBorderRadiusParseError::PixelValue(e) => {
                 CssBorderRadiusParseErrorOwned::PixelValue(e.to_contained())
@@ -117,12 +117,12 @@ impl<'a> CssBorderRadiusParseError<'a> {
 }
 
 impl CssBorderRadiusParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssBorderRadiusParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssBorderRadiusParseError<'_> {
         match self {
-            CssBorderRadiusParseErrorOwned::TooManyValues(s) => {
+            Self::TooManyValues(s) => {
                 CssBorderRadiusParseError::TooManyValues(s)
             }
-            CssBorderRadiusParseErrorOwned::PixelValue(e) => {
+            Self::PixelValue(e) => {
                 CssBorderRadiusParseError::PixelValue(e.to_shared())
             }
         }
@@ -132,7 +132,7 @@ impl CssBorderRadiusParseErrorOwned {
 /// Macro to generate error types for individual radius properties.
 macro_rules! define_border_radius_parse_error {
     ($error_name:ident, $error_name_owned:ident) => {
-        #[derive(Clone, PartialEq)]
+        #[derive(Clone, PartialEq, Eq)]
         pub enum $error_name<'a> {
             PixelValue(CssPixelValueParseError<'a>),
         }
@@ -144,14 +144,14 @@ macro_rules! define_border_radius_parse_error {
 
         impl_from!(CssPixelValueParseError<'a>, $error_name::PixelValue);
 
-        #[derive(Debug, Clone, PartialEq)]
+        #[derive(Debug, Clone, PartialEq, Eq)]
         #[repr(C, u8)]
         pub enum $error_name_owned {
             PixelValue(CssPixelValueParseErrorOwned),
         }
 
-        impl<'a> $error_name<'a> {
-            pub fn to_contained(&self) -> $error_name_owned {
+        impl $error_name<'_> {
+            #[must_use] pub fn to_contained(&self) -> $error_name_owned {
                 match self {
                     $error_name::PixelValue(e) => $error_name_owned::PixelValue(e.to_contained()),
                 }
@@ -159,7 +159,7 @@ macro_rules! define_border_radius_parse_error {
         }
 
         impl $error_name_owned {
-            pub fn to_shared<'a>(&'a self) -> $error_name<'a> {
+            #[must_use] pub fn to_shared(&self) -> $error_name<'_> {
                 match self {
                     $error_name_owned::PixelValue(e) => $error_name::PixelValue(e.to_shared()),
                 }
@@ -189,12 +189,12 @@ define_border_radius_parse_error!(
 
 /// Parse the CSS `border-radius` shorthand into individual corner values.
 #[cfg(feature = "parser")]
-pub fn parse_style_border_radius<'a>(
-    input: &'a str,
-) -> Result<StyleBorderRadius, CssBorderRadiusParseError<'a>> {
+pub fn parse_style_border_radius(
+    input: &str,
+) -> Result<StyleBorderRadius, CssBorderRadiusParseError<'_>> {
     let components: Vec<_> = input.split_whitespace().collect();
     let mut values = Vec::with_capacity(components.len());
-    for comp in components.iter() {
+    for comp in &components {
         values.push(parse_pixel_value(comp)?);
     }
 
@@ -229,36 +229,36 @@ pub fn parse_style_border_radius<'a>(
 
 /// Parse the CSS `border-top-left-radius` longhand property.
 #[cfg(feature = "parser")]
-pub fn parse_style_border_top_left_radius<'a>(
-    input: &'a str,
-) -> Result<StyleBorderTopLeftRadius, StyleBorderTopLeftRadiusParseError<'a>> {
+pub fn parse_style_border_top_left_radius(
+    input: &str,
+) -> Result<StyleBorderTopLeftRadius, StyleBorderTopLeftRadiusParseError<'_>> {
     let pixel_value = parse_pixel_value(input)?;
     Ok(StyleBorderTopLeftRadius { inner: pixel_value })
 }
 
 /// Parse the CSS `border-top-right-radius` longhand property.
 #[cfg(feature = "parser")]
-pub fn parse_style_border_top_right_radius<'a>(
-    input: &'a str,
-) -> Result<StyleBorderTopRightRadius, StyleBorderTopRightRadiusParseError<'a>> {
+pub fn parse_style_border_top_right_radius(
+    input: &str,
+) -> Result<StyleBorderTopRightRadius, StyleBorderTopRightRadiusParseError<'_>> {
     let pixel_value = parse_pixel_value(input)?;
     Ok(StyleBorderTopRightRadius { inner: pixel_value })
 }
 
 /// Parse the CSS `border-bottom-left-radius` longhand property.
 #[cfg(feature = "parser")]
-pub fn parse_style_border_bottom_left_radius<'a>(
-    input: &'a str,
-) -> Result<StyleBorderBottomLeftRadius, StyleBorderBottomLeftRadiusParseError<'a>> {
+pub fn parse_style_border_bottom_left_radius(
+    input: &str,
+) -> Result<StyleBorderBottomLeftRadius, StyleBorderBottomLeftRadiusParseError<'_>> {
     let pixel_value = parse_pixel_value(input)?;
     Ok(StyleBorderBottomLeftRadius { inner: pixel_value })
 }
 
 /// Parse the CSS `border-bottom-right-radius` longhand property.
 #[cfg(feature = "parser")]
-pub fn parse_style_border_bottom_right_radius<'a>(
-    input: &'a str,
-) -> Result<StyleBorderBottomRightRadius, StyleBorderBottomRightRadiusParseError<'a>> {
+pub fn parse_style_border_bottom_right_radius(
+    input: &str,
+) -> Result<StyleBorderBottomRightRadius, StyleBorderBottomRightRadiusParseError<'_>> {
     let pixel_value = parse_pixel_value(input)?;
     Ok(StyleBorderBottomRightRadius { inner: pixel_value })
 }

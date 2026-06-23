@@ -25,7 +25,7 @@ const ZERO_LENGTH_EPSILON: f32 = 1e-10;
 const ARC_SPLIT_FUDGE: f32 = 0.001;
 
 /// Errors that can occur during SVG path parsing.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SvgPathParseError {
     /// The path string is empty.
     EmptyPath,
@@ -43,10 +43,10 @@ impl core::fmt::Display for SvgPathParseError {
         match self {
             Self::EmptyPath => write!(f, "empty path"),
             Self::UnexpectedChar { pos, ch } => {
-                write!(f, "unexpected char '{}' at byte {}", ch, pos)
+                write!(f, "unexpected char '{ch}' at byte {pos}")
             }
-            Self::ExpectedNumber { pos } => write!(f, "expected number at byte {}", pos),
-            Self::InvalidArcFlag { pos } => write!(f, "invalid arc flag at byte {}", pos),
+            Self::ExpectedNumber { pos } => write!(f, "expected number at byte {pos}"),
+            Self::InvalidArcFlag { pos } => write!(f, "invalid arc flag at byte {pos}"),
         }
     }
 }
@@ -62,7 +62,7 @@ struct PathParser<'a> {
 }
 
 impl<'a> PathParser<'a> {
-    fn new(input: &'a [u8]) -> Self {
+    const fn new(input: &'a [u8]) -> Self {
         Self {
             input,
             pos: 0,
@@ -73,7 +73,7 @@ impl<'a> PathParser<'a> {
         }
     }
 
-    fn at_end(&self) -> bool {
+    const fn at_end(&self) -> bool {
         self.pos >= self.input.len()
     }
 
@@ -104,7 +104,7 @@ impl<'a> PathParser<'a> {
     /// Returns true if the current position looks like the start of a number.
     fn has_number(&self) -> bool {
         match self.input.get(self.pos) {
-            Some(b'+') | Some(b'-') | Some(b'.') => true,
+            Some(b'+' | b'-' | b'.') => true,
             Some(b) if b.is_ascii_digit() => true,
             _ => false,
         }
@@ -134,7 +134,7 @@ impl<'a> PathParser<'a> {
         }
 
         // Decimal part
-        if let Some(&b'.') = self.input.get(self.pos) {
+        if self.input.get(self.pos) == Some(&b'.') {
             self.pos += 1;
             while let Some(&b) = self.input.get(self.pos) {
                 if b.is_ascii_digit() {
@@ -547,8 +547,8 @@ fn arc_to_cubics(
     let cyp = sign * sq * -(ry * x1p / rx);
 
     // Step 3: Compute (cx, cy) from (cx', cy')
-    let mx = (start.x + end.x) / 2.0;
-    let my = (start.y + end.y) / 2.0;
+    let mx = f32::midpoint(start.x, end.x);
+    let my = f32::midpoint(start.y, end.y);
     let cx = cos_phi * cxp - sin_phi * cyp + mx;
     let cy = sin_phi * cxp + cos_phi * cyp + my;
 

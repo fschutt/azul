@@ -47,19 +47,19 @@ impl PrintAsCssValue for LayoutFlexGrow {
 }
 
 impl LayoutFlexGrow {
-    pub fn new(value: isize) -> Self {
+    #[must_use] pub fn new(value: isize) -> Self {
         Self {
             inner: FloatValue::new(value as f32),
         }
     }
 
-    pub const fn const_new(value: isize) -> Self {
+    #[must_use] pub const fn const_new(value: isize) -> Self {
         Self {
             inner: FloatValue::const_new(value),
         }
     }
 
-    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             inner: self.inner.interpolate(&other.inner, t),
         }
@@ -67,7 +67,7 @@ impl LayoutFlexGrow {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum FlexGrowParseError<'a> {
     ParseFloat(ParseFloatError, &'a str),
     NegativeValue(&'a str),
@@ -82,7 +82,7 @@ impl_display! { FlexGrowParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum FlexGrowParseErrorOwned {
     ParseFloat(ParseFloatErrorWithInput),
@@ -90,14 +90,14 @@ pub enum FlexGrowParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-impl<'a> FlexGrowParseError<'a> {
-    pub fn to_contained(&self) -> FlexGrowParseErrorOwned {
+impl FlexGrowParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> FlexGrowParseErrorOwned {
         match self {
             FlexGrowParseError::ParseFloat(e, s) => {
-                FlexGrowParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone().into(), input: s.to_string().into() })
+                FlexGrowParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone().into(), input: (*s).to_string().into() })
             }
             FlexGrowParseError::NegativeValue(s) => {
-                FlexGrowParseErrorOwned::NegativeValue(s.to_string().into())
+                FlexGrowParseErrorOwned::NegativeValue((*s).to_string().into())
             }
         }
     }
@@ -105,12 +105,12 @@ impl<'a> FlexGrowParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl FlexGrowParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> FlexGrowParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> FlexGrowParseError<'_> {
         match self {
-            FlexGrowParseErrorOwned::ParseFloat(e) => {
+            Self::ParseFloat(e) => {
                 FlexGrowParseError::ParseFloat(e.error.to_std(), e.input.as_str())
             }
-            FlexGrowParseErrorOwned::NegativeValue(s) => {
+            Self::NegativeValue(s) => {
                 FlexGrowParseError::NegativeValue(s.as_str())
             }
         }
@@ -118,9 +118,9 @@ impl FlexGrowParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_flex_grow<'a>(
-    input: &'a str,
-) -> Result<LayoutFlexGrow, FlexGrowParseError<'a>> {
+pub fn parse_layout_flex_grow(
+    input: &str,
+) -> Result<LayoutFlexGrow, FlexGrowParseError<'_>> {
     match parse_float_value(input) {
         Ok(o) => {
             if o.get() < 0.0 {
@@ -165,7 +165,7 @@ impl PrintAsCssValue for LayoutFlexShrink {
 }
 
 impl LayoutFlexShrink {
-    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             inner: self.inner.interpolate(&other.inner, t),
         }
@@ -173,7 +173,7 @@ impl LayoutFlexShrink {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum FlexShrinkParseError<'a> {
     ParseFloat(ParseFloatError, &'a str),
     NegativeValue(&'a str),
@@ -188,7 +188,7 @@ impl_display! { FlexShrinkParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum FlexShrinkParseErrorOwned {
     ParseFloat(ParseFloatErrorWithInput),
@@ -196,14 +196,14 @@ pub enum FlexShrinkParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-impl<'a> FlexShrinkParseError<'a> {
-    pub fn to_contained(&self) -> FlexShrinkParseErrorOwned {
+impl FlexShrinkParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> FlexShrinkParseErrorOwned {
         match self {
             FlexShrinkParseError::ParseFloat(e, s) => {
-                FlexShrinkParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone().into(), input: s.to_string().into() })
+                FlexShrinkParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone().into(), input: (*s).to_string().into() })
             }
             FlexShrinkParseError::NegativeValue(s) => {
-                FlexShrinkParseErrorOwned::NegativeValue(s.to_string().into())
+                FlexShrinkParseErrorOwned::NegativeValue((*s).to_string().into())
             }
         }
     }
@@ -211,12 +211,12 @@ impl<'a> FlexShrinkParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl FlexShrinkParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> FlexShrinkParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> FlexShrinkParseError<'_> {
         match self {
-            FlexShrinkParseErrorOwned::ParseFloat(e) => {
+            Self::ParseFloat(e) => {
                 FlexShrinkParseError::ParseFloat(e.error.to_std(), e.input.as_str())
             }
-            FlexShrinkParseErrorOwned::NegativeValue(s) => {
+            Self::NegativeValue(s) => {
                 FlexShrinkParseError::NegativeValue(s.as_str())
             }
         }
@@ -224,9 +224,9 @@ impl FlexShrinkParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_flex_shrink<'a>(
-    input: &'a str,
-) -> Result<LayoutFlexShrink, FlexShrinkParseError<'a>> {
+pub fn parse_layout_flex_shrink(
+    input: &str,
+) -> Result<LayoutFlexShrink, FlexShrinkParseError<'_>> {
     match parse_float_value(input) {
         Ok(o) => {
             if o.get() < 0.0 {
@@ -265,14 +265,14 @@ pub enum LayoutAxis {
 }
 
 impl LayoutFlexDirection {
-    pub fn get_axis(&self) -> LayoutAxis {
+    #[must_use] pub const fn get_axis(&self) -> LayoutAxis {
         match self {
             Self::Row | Self::RowReverse => LayoutAxis::Horizontal,
             Self::Column | Self::ColumnReverse => LayoutAxis::Vertical,
         }
     }
 
-    pub fn is_reverse(&self) -> bool {
+    #[must_use] pub const fn is_reverse(&self) -> bool {
         matches!(self, Self::RowReverse | Self::ColumnReverse)
     }
 }
@@ -289,7 +289,7 @@ impl PrintAsCssValue for LayoutFlexDirection {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum FlexDirectionParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -302,24 +302,24 @@ impl_display! { FlexDirectionParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum FlexDirectionParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> FlexDirectionParseError<'a> {
-    pub fn to_contained(&self) -> FlexDirectionParseErrorOwned {
+impl FlexDirectionParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> FlexDirectionParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => FlexDirectionParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => FlexDirectionParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl FlexDirectionParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> FlexDirectionParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> FlexDirectionParseError<'_> {
         match self {
             Self::InvalidValue(s) => FlexDirectionParseError::InvalidValue(s.as_str()),
         }
@@ -327,9 +327,9 @@ impl FlexDirectionParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_flex_direction<'a>(
-    input: &'a str,
-) -> Result<LayoutFlexDirection, FlexDirectionParseError<'a>> {
+pub fn parse_layout_flex_direction(
+    input: &str,
+) -> Result<LayoutFlexDirection, FlexDirectionParseError<'_>> {
     match input.trim() {
         "row" => Ok(LayoutFlexDirection::Row),
         "row-reverse" => Ok(LayoutFlexDirection::RowReverse),
@@ -366,7 +366,7 @@ impl PrintAsCssValue for LayoutFlexWrap {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum FlexWrapParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -379,24 +379,24 @@ impl_display! { FlexWrapParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum FlexWrapParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> FlexWrapParseError<'a> {
-    pub fn to_contained(&self) -> FlexWrapParseErrorOwned {
+impl FlexWrapParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> FlexWrapParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => FlexWrapParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => FlexWrapParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl FlexWrapParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> FlexWrapParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> FlexWrapParseError<'_> {
         match self {
             Self::InvalidValue(s) => FlexWrapParseError::InvalidValue(s.as_str()),
         }
@@ -404,9 +404,9 @@ impl FlexWrapParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_flex_wrap<'a>(
-    input: &'a str,
-) -> Result<LayoutFlexWrap, FlexWrapParseError<'a>> {
+pub fn parse_layout_flex_wrap(
+    input: &str,
+) -> Result<LayoutFlexWrap, FlexWrapParseError<'_>> {
     match input.trim() {
         "wrap" => Ok(LayoutFlexWrap::Wrap),
         "nowrap" => Ok(LayoutFlexWrap::NoWrap),
@@ -452,7 +452,7 @@ impl PrintAsCssValue for LayoutJustifyContent {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum JustifyContentParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -465,24 +465,24 @@ impl_display! { JustifyContentParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum JustifyContentParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> JustifyContentParseError<'a> {
-    pub fn to_contained(&self) -> JustifyContentParseErrorOwned {
+impl JustifyContentParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> JustifyContentParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => JustifyContentParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => JustifyContentParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl JustifyContentParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> JustifyContentParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> JustifyContentParseError<'_> {
         match self {
             Self::InvalidValue(s) => JustifyContentParseError::InvalidValue(s.as_str()),
         }
@@ -490,9 +490,9 @@ impl JustifyContentParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_justify_content<'a>(
-    input: &'a str,
-) -> Result<LayoutJustifyContent, JustifyContentParseError<'a>> {
+pub fn parse_layout_justify_content(
+    input: &str,
+) -> Result<LayoutJustifyContent, JustifyContentParseError<'_>> {
     match input.trim() {
         "flex-start" => Ok(LayoutJustifyContent::FlexStart),
         "flex-end" => Ok(LayoutJustifyContent::FlexEnd),
@@ -537,7 +537,7 @@ impl PrintAsCssValue for LayoutAlignItems {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum AlignItemsParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -550,24 +550,24 @@ impl_display! { AlignItemsParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum AlignItemsParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> AlignItemsParseError<'a> {
-    pub fn to_contained(&self) -> AlignItemsParseErrorOwned {
+impl AlignItemsParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> AlignItemsParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => AlignItemsParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => AlignItemsParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl AlignItemsParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> AlignItemsParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> AlignItemsParseError<'_> {
         match self {
             Self::InvalidValue(s) => AlignItemsParseError::InvalidValue(s.as_str()),
         }
@@ -575,9 +575,9 @@ impl AlignItemsParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_align_items<'a>(
-    input: &'a str,
-) -> Result<LayoutAlignItems, AlignItemsParseError<'a>> {
+pub fn parse_layout_align_items(
+    input: &str,
+) -> Result<LayoutAlignItems, AlignItemsParseError<'_>> {
     match input.trim() {
         "stretch" => Ok(LayoutAlignItems::Stretch),
         "center" => Ok(LayoutAlignItems::Center),
@@ -621,7 +621,7 @@ impl PrintAsCssValue for LayoutAlignContent {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum AlignContentParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -634,24 +634,24 @@ impl_display! { AlignContentParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum AlignContentParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> AlignContentParseError<'a> {
-    pub fn to_contained(&self) -> AlignContentParseErrorOwned {
+impl AlignContentParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> AlignContentParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => AlignContentParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => AlignContentParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl AlignContentParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> AlignContentParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> AlignContentParseError<'_> {
         match self {
             Self::InvalidValue(s) => AlignContentParseError::InvalidValue(s.as_str()),
         }
@@ -659,9 +659,9 @@ impl AlignContentParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_align_content<'a>(
-    input: &'a str,
-) -> Result<LayoutAlignContent, AlignContentParseError<'a>> {
+pub fn parse_layout_align_content(
+    input: &str,
+) -> Result<LayoutAlignContent, AlignContentParseError<'_>> {
     match input.trim() {
         "stretch" => Ok(LayoutAlignContent::Stretch),
         "center" => Ok(LayoutAlignContent::Center),
@@ -710,19 +710,19 @@ impl FormatAsRustCode for LayoutAlignSelf {
         format!(
             "LayoutAlignSelf::{}",
             match self {
-                LayoutAlignSelf::Auto => "Auto",
-                LayoutAlignSelf::Stretch => "Stretch",
-                LayoutAlignSelf::Center => "Center",
-                LayoutAlignSelf::Start => "Start",
-                LayoutAlignSelf::End => "End",
-                LayoutAlignSelf::Baseline => "Baseline",
+                Self::Auto => "Auto",
+                Self::Stretch => "Stretch",
+                Self::Center => "Center",
+                Self::Start => "Start",
+                Self::End => "End",
+                Self::Baseline => "Baseline",
             }
         )
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum AlignSelfParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -735,24 +735,24 @@ impl_display! { AlignSelfParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum AlignSelfParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> AlignSelfParseError<'a> {
-    pub fn to_contained(&self) -> AlignSelfParseErrorOwned {
+impl AlignSelfParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> AlignSelfParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => AlignSelfParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => AlignSelfParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl AlignSelfParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> AlignSelfParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> AlignSelfParseError<'_> {
         match self {
             Self::InvalidValue(s) => AlignSelfParseError::InvalidValue(s.as_str()),
         }
@@ -760,9 +760,9 @@ impl AlignSelfParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_align_self<'a>(
-    input: &'a str,
-) -> Result<LayoutAlignSelf, AlignSelfParseError<'a>> {
+pub fn parse_layout_align_self(
+    input: &str,
+) -> Result<LayoutAlignSelf, AlignSelfParseError<'_>> {
     match input.trim() {
         "auto" => Ok(LayoutAlignSelf::Auto),
         "stretch" => Ok(LayoutAlignSelf::Stretch),
@@ -798,17 +798,17 @@ impl core::fmt::Debug for LayoutFlexBasis {
 impl PrintAsCssValue for LayoutFlexBasis {
     fn print_as_css_value(&self) -> String {
         match self {
-            LayoutFlexBasis::Auto => "auto".to_string(),
-            LayoutFlexBasis::Exact(px) => px.print_as_css_value(),
+            Self::Auto => "auto".to_string(),
+            Self::Exact(px) => px.print_as_css_value(),
         }
     }
 }
 
-impl crate::codegen::format::FormatAsRustCode for LayoutFlexBasis {
+impl FormatAsRustCode for LayoutFlexBasis {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            LayoutFlexBasis::Auto => String::from("LayoutFlexBasis::Auto"),
-            LayoutFlexBasis::Exact(px) => {
+            Self::Auto => String::from("LayoutFlexBasis::Auto"),
+            Self::Exact(px) => {
                 format!(
                     "LayoutFlexBasis::Exact({})",
                     crate::codegen::format::format_pixel_value(px)
@@ -819,7 +819,7 @@ impl crate::codegen::format::FormatAsRustCode for LayoutFlexBasis {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum FlexBasisParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -832,18 +832,18 @@ impl_display! { FlexBasisParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum FlexBasisParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> FlexBasisParseError<'a> {
-    pub fn to_contained(&self) -> FlexBasisParseErrorOwned {
+impl FlexBasisParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> FlexBasisParseErrorOwned {
         match self {
             FlexBasisParseError::InvalidValue(s) => {
-                FlexBasisParseErrorOwned::InvalidValue(s.to_string().into())
+                FlexBasisParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
@@ -851,9 +851,9 @@ impl<'a> FlexBasisParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl FlexBasisParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> FlexBasisParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> FlexBasisParseError<'_> {
         match self {
-            FlexBasisParseErrorOwned::InvalidValue(s) => {
+            Self::InvalidValue(s) => {
                 FlexBasisParseError::InvalidValue(s.as_str())
             }
         }
@@ -861,9 +861,9 @@ impl FlexBasisParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_flex_basis<'a>(
-    input: &'a str,
-) -> Result<LayoutFlexBasis, FlexBasisParseError<'a>> {
+pub fn parse_layout_flex_basis(
+    input: &str,
+) -> Result<LayoutFlexBasis, FlexBasisParseError<'_>> {
     use crate::props::basic::pixel::parse_pixel_value;
 
     match input.trim() {

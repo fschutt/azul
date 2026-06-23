@@ -54,22 +54,22 @@ pub enum ButtonType {
 
 impl ButtonType {
     /// Get the CSS class name for this button type
-    pub fn class_name(&self) -> &'static str {
+    #[must_use] pub const fn class_name(&self) -> &'static str {
         match self {
-            ButtonType::Default => "__azul-btn-default",
-            ButtonType::Primary => "__azul-btn-primary",
-            ButtonType::Secondary => "__azul-btn-secondary",
-            ButtonType::Success => "__azul-btn-success",
-            ButtonType::Danger => "__azul-btn-danger",
-            ButtonType::Warning => "__azul-btn-warning",
-            ButtonType::Info => "__azul-btn-info",
-            ButtonType::Link => "__azul-btn-link",
+            Self::Default => "__azul-btn-default",
+            Self::Primary => "__azul-btn-primary",
+            Self::Secondary => "__azul-btn-secondary",
+            Self::Success => "__azul-btn-success",
+            Self::Danger => "__azul-btn-danger",
+            Self::Warning => "__azul-btn-warning",
+            Self::Info => "__azul-btn-info",
+            Self::Link => "__azul-btn-link",
         }
     }
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 pub struct Button {
     /// Content (image or text) of this button, centered by default
     pub label: AzString,
@@ -112,7 +112,7 @@ azul_core::impl_managed_callback! {
 // ============================================================
 
 /// Get the background color for a button type
-fn get_button_colors(button_type: ButtonType) -> (ColorU, ColorU, ColorU) {
+const fn get_button_colors(button_type: ButtonType) -> (ColorU, ColorU, ColorU) {
     // Returns (normal, hover, active) colors
     match button_type {
         ButtonType::Default => (
@@ -159,7 +159,7 @@ fn get_button_colors(button_type: ButtonType) -> (ColorU, ColorU, ColorU) {
 }
 
 /// Get the text color for a button type
-fn get_button_text_color(button_type: ButtonType) -> ColorU {
+const fn get_button_text_color(button_type: ButtonType) -> ColorU {
     match button_type {
         ButtonType::Default => ColorU::rgb(33, 37, 41),   // Dark text
         ButtonType::Warning => ColorU::BLACK,             // Black text on yellow
@@ -297,13 +297,13 @@ fn build_button_label_style() -> Vec<CssPropertyWithConditions> {
 impl Button {
     /// Create a button with `ButtonType::Default` styling.
     #[inline]
-    pub fn create(label: AzString) -> Self {
+    #[must_use] pub fn create(label: AzString) -> Self {
         Self::with_type(label, ButtonType::Default)
     }
     
     /// Create a button with a specific type (Primary, Success, Danger, etc.)
     #[inline]
-    pub fn with_type(label: AzString, button_type: ButtonType) -> Self {
+    #[must_use] pub fn with_type(label: AzString, button_type: ButtonType) -> Self {
         let container_style = build_button_container_style(button_type);
         let label_style = build_button_label_style();
         
@@ -327,12 +327,12 @@ impl Button {
     
     /// Builder method to set the button type
     #[inline]
-    pub fn with_button_type(mut self, button_type: ButtonType) -> Self {
+    #[must_use] pub fn with_button_type(mut self, button_type: ButtonType) -> Self {
         self.set_button_type(button_type);
         self
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn swap_with_default(&mut self) -> Self {
         let mut m = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut m, self);
@@ -364,7 +364,7 @@ impl Button {
     }
 
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::{CoreCallback, CoreCallbackData},
             dom::{EventFilter, HoverEventFilter},

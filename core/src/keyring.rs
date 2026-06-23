@@ -26,12 +26,12 @@ use azul_css::AzString;
 /// binary blobs are base64-encoded by the caller. `key` is the lookup
 /// name, scoped to the app's keyring service.
 #[repr(C, u8)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyringRequest {
     /// Write `secret` under `key`, overwriting any existing value. When
     /// `require_biometry` is set the item is stored access-controlled so a
     /// later `Get` triggers the OS biometric prompt (Keychain
-    /// `biometryCurrentSet` / KeyStore `setUserAuthenticationRequired`).
+    /// `biometryCurrentSet` / `KeyStore` `setUserAuthenticationRequired`).
     Store {
         key: AzString,
         secret: AzString,
@@ -47,7 +47,7 @@ pub enum KeyringRequest {
 /// The outcome of a [`KeyringRequest`], delivered to the result channel
 /// and read by callbacks via `CallbackInfo::get_keyring_result()`.
 #[repr(C, u8)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyringResult {
     /// A `Store` succeeded.
     Stored,
@@ -69,18 +69,18 @@ pub enum KeyringResult {
 
 impl KeyringResult {
     /// The retrieved secret, if this is a successful `Get`.
-    pub fn secret(&self) -> Option<&AzString> {
+    #[must_use] pub const fn secret(&self) -> Option<&AzString> {
         match self {
-            KeyringResult::Retrieved(s) => Some(s),
+            Self::Retrieved(s) => Some(s),
             _ => None,
         }
     }
 
     /// `true` for the success outcomes (`Stored` / `Retrieved` / `Deleted`).
-    pub fn is_ok(&self) -> bool {
+    #[must_use] pub const fn is_ok(&self) -> bool {
         matches!(
             self,
-            KeyringResult::Stored | KeyringResult::Retrieved(_) | KeyringResult::Deleted
+            Self::Stored | Self::Retrieved(_) | Self::Deleted
         )
     }
 }
@@ -93,5 +93,5 @@ impl_option!(
     KeyringResult,
     OptionKeyringResult,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );

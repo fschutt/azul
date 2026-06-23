@@ -48,7 +48,7 @@ pub struct GpuStateManager {
     /// Duration of the fade-out animation
     pub fade_duration: Duration,
     /// Whether any scrollbar has non-zero opacity and needs continued frame
-    /// generation. Set during both the fade_delay period (opacity == 1.0)
+    /// generation. Set during both the `fade_delay` period (opacity == 1.0)
     /// and the active fade-out phase (0 < opacity < 1).
     /// Set by `LayoutWindow::synchronize_scrollbar_opacity`, read by the platform render loop.
     pub scrollbar_fade_active: bool,
@@ -70,7 +70,7 @@ impl Default for GpuStateManager {
 
 impl GpuStateManager {
     /// Creates a new GPU state manager with specified fade timing.
-    pub fn new(fade_delay: Duration, fade_duration: Duration) -> Self {
+    #[must_use] pub fn new(fade_delay: Duration, fade_duration: Duration) -> Self {
         Self {
             caches: BTreeMap::new(),
             fade_delay,
@@ -95,7 +95,7 @@ impl GpuStateManager {
     // render loop and has been removed.
 
     /// Gets or creates the GPU cache for a specific DOM.
-    pub fn get_cache(&self, dom_id: DomId) -> Option<&GpuValueCache> {
+    #[must_use] pub fn get_cache(&self, dom_id: DomId) -> Option<&GpuValueCache> {
         self.caches.get(&dom_id)
     }
 

@@ -23,7 +23,7 @@ use crate::{
     widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback},
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileInput {
     /// State of the file input
@@ -56,7 +56,7 @@ impl Default for FileInput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileInputStateWrapper {
     pub inner: FileInputState,
@@ -79,7 +79,7 @@ impl Default for FileInputStateWrapper {
 }
 
 /// Current state of the file input (selected path)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileInputState {
     pub path: OptionString,
@@ -116,7 +116,7 @@ azul_core::impl_managed_callback! {
 }
 
 impl FileInput {
-    pub fn create(path: OptionString) -> Self {
+    #[must_use] pub fn create(path: OptionString) -> Self {
         Self {
             file_input_state: FileInputStateWrapper {
                 inner: FileInputState { path },
@@ -139,7 +139,7 @@ impl FileInput {
     }
 
     #[inline]
-    pub fn with_default_text(mut self, default_text: AzString) -> Self {
+    #[must_use] pub fn with_default_text(mut self, default_text: AzString) -> Self {
         self.set_default_text(default_text);
         self
     }
@@ -168,7 +168,7 @@ impl FileInput {
     }
 
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         // either show the default text or the file name
         // including the extension as the button label
         let button_label = match self.file_input_state.inner.path.as_ref() {

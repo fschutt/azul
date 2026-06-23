@@ -109,7 +109,7 @@ macro_rules! define_border_side_property {
             }
         }
         impl $struct_name {
-            pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+            #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
                 Self {
                     inner: self.inner.interpolate(&other.inner, t),
                 }
@@ -217,10 +217,10 @@ define_border_side_property!(LayoutBorderLeftWidth, PixelValue, MEDIUM_BORDER_TH
 macro_rules! impl_border_width_helpers {
     ($($t:ty),+) => { $(
         impl $t {
-            pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+            #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
                 Self { inner: self.inner.interpolate(&other.inner, t) }
             }
-            pub const fn const_px(value: isize) -> Self {
+            #[must_use] pub const fn const_px(value: isize) -> Self {
                 Self { inner: PixelValue::const_px(value) }
             }
         }
@@ -248,7 +248,7 @@ pub struct StyleBorderSide {
 // -- BorderStyle Parser --
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CssBorderStyleParseError<'a> {
     InvalidStyle(&'a str),
 }
@@ -261,18 +261,18 @@ impl_display! { CssBorderStyleParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssBorderStyleParseErrorOwned {
     InvalidStyle(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> CssBorderStyleParseError<'a> {
-    pub fn to_contained(&self) -> CssBorderStyleParseErrorOwned {
+impl CssBorderStyleParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssBorderStyleParseErrorOwned {
         match self {
             CssBorderStyleParseError::InvalidStyle(s) => {
-                CssBorderStyleParseErrorOwned::InvalidStyle(s.to_string().into())
+                CssBorderStyleParseErrorOwned::InvalidStyle((*s).to_string().into())
             }
         }
     }
@@ -280,9 +280,9 @@ impl<'a> CssBorderStyleParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl CssBorderStyleParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssBorderStyleParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssBorderStyleParseError<'_> {
         match self {
-            CssBorderStyleParseErrorOwned::InvalidStyle(s) => {
+            Self::InvalidStyle(s) => {
                 CssBorderStyleParseError::InvalidStyle(s.as_str())
             }
         }
@@ -290,7 +290,7 @@ impl CssBorderStyleParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_border_style<'a>(input: &'a str) -> Result<BorderStyle, CssBorderStyleParseError<'a>> {
+pub fn parse_border_style(input: &str) -> Result<BorderStyle, CssBorderStyleParseError<'_>> {
     match input.trim() {
         "none" => Ok(BorderStyle::None),
         "solid" => Ok(BorderStyle::Solid),
@@ -345,11 +345,11 @@ pub enum CssBorderSideParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-impl<'a> CssBorderSideParseError<'a> {
-    pub fn to_contained(&self) -> CssBorderSideParseErrorOwned {
+impl CssBorderSideParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssBorderSideParseErrorOwned {
         match self {
             CssBorderSideParseError::InvalidDeclaration(s) => {
-                CssBorderSideParseErrorOwned::InvalidDeclaration(s.to_string().into())
+                CssBorderSideParseErrorOwned::InvalidDeclaration((*s).to_string().into())
             }
             CssBorderSideParseError::Width(e) => {
                 CssBorderSideParseErrorOwned::Width(e.to_contained())
@@ -366,14 +366,14 @@ impl<'a> CssBorderSideParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl CssBorderSideParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssBorderSideParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssBorderSideParseError<'_> {
         match self {
-            CssBorderSideParseErrorOwned::InvalidDeclaration(s) => {
+            Self::InvalidDeclaration(s) => {
                 CssBorderSideParseError::InvalidDeclaration(s.as_str())
             }
-            CssBorderSideParseErrorOwned::Width(e) => CssBorderSideParseError::Width(e.to_shared()),
-            CssBorderSideParseErrorOwned::Style(e) => CssBorderSideParseError::Style(e.to_shared()),
-            CssBorderSideParseErrorOwned::Color(e) => CssBorderSideParseError::Color(e.to_shared()),
+            Self::Width(e) => CssBorderSideParseError::Width(e.to_shared()),
+            Self::Style(e) => CssBorderSideParseError::Style(e.to_shared()),
+            Self::Color(e) => CssBorderSideParseError::Color(e.to_shared()),
         }
     }
 }
@@ -400,9 +400,9 @@ impl From<CssBorderSideParseErrorOwned> for CssBorderParseErrorOwned {
 /// Parses a border shorthand property such as "1px solid red".
 /// Handles any order of components and applies defaults for missing values.
 #[cfg(feature = "parser")]
-fn parse_border_side<'a>(
-    input: &'a str,
-) -> Result<StyleBorderSide, CssBorderSideParseError<'a>> {
+fn parse_border_side(
+    input: &str,
+) -> Result<StyleBorderSide, CssBorderSideParseError<'_>> {
     let mut width = None;
     let mut style = None;
     let mut color = None;
@@ -450,9 +450,9 @@ fn parse_border_side<'a>(
 // --- Individual Property Parsers ---
 
 #[cfg(feature = "parser")]
-fn parse_border_width_value<'a>(
-    input: &'a str,
-) -> Result<PixelValue, CssPixelValueParseError<'a>> {
+fn parse_border_width_value(
+    input: &str,
+) -> Result<PixelValue, CssPixelValueParseError<'_>> {
     match input.trim() {
         "thin" => Ok(THIN_BORDER_THICKNESS),
         "medium" => Ok(MEDIUM_BORDER_THICKNESS),
@@ -462,80 +462,80 @@ fn parse_border_width_value<'a>(
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_border_top_width<'a>(
-    input: &'a str,
-) -> Result<LayoutBorderTopWidth, CssPixelValueParseError<'a>> {
+pub fn parse_border_top_width(
+    input: &str,
+) -> Result<LayoutBorderTopWidth, CssPixelValueParseError<'_>> {
     parse_border_width_value(input).map(|inner| LayoutBorderTopWidth { inner })
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_border_right_width<'a>(
-    input: &'a str,
-) -> Result<LayoutBorderRightWidth, CssPixelValueParseError<'a>> {
+pub fn parse_border_right_width(
+    input: &str,
+) -> Result<LayoutBorderRightWidth, CssPixelValueParseError<'_>> {
     parse_border_width_value(input).map(|inner| LayoutBorderRightWidth { inner })
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_border_bottom_width<'a>(
-    input: &'a str,
-) -> Result<LayoutBorderBottomWidth, CssPixelValueParseError<'a>> {
+pub fn parse_border_bottom_width(
+    input: &str,
+) -> Result<LayoutBorderBottomWidth, CssPixelValueParseError<'_>> {
     parse_border_width_value(input).map(|inner| LayoutBorderBottomWidth { inner })
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_border_left_width<'a>(
-    input: &'a str,
-) -> Result<LayoutBorderLeftWidth, CssPixelValueParseError<'a>> {
+pub fn parse_border_left_width(
+    input: &str,
+) -> Result<LayoutBorderLeftWidth, CssPixelValueParseError<'_>> {
     parse_border_width_value(input).map(|inner| LayoutBorderLeftWidth { inner })
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_border_top_style<'a>(
-    input: &'a str,
-) -> Result<StyleBorderTopStyle, CssBorderStyleParseError<'a>> {
+pub fn parse_border_top_style(
+    input: &str,
+) -> Result<StyleBorderTopStyle, CssBorderStyleParseError<'_>> {
     parse_border_style(input).map(|inner| StyleBorderTopStyle { inner })
 }
 #[cfg(feature = "parser")]
-pub fn parse_border_right_style<'a>(
-    input: &'a str,
-) -> Result<StyleBorderRightStyle, CssBorderStyleParseError<'a>> {
+pub fn parse_border_right_style(
+    input: &str,
+) -> Result<StyleBorderRightStyle, CssBorderStyleParseError<'_>> {
     parse_border_style(input).map(|inner| StyleBorderRightStyle { inner })
 }
 #[cfg(feature = "parser")]
-pub fn parse_border_bottom_style<'a>(
-    input: &'a str,
-) -> Result<StyleBorderBottomStyle, CssBorderStyleParseError<'a>> {
+pub fn parse_border_bottom_style(
+    input: &str,
+) -> Result<StyleBorderBottomStyle, CssBorderStyleParseError<'_>> {
     parse_border_style(input).map(|inner| StyleBorderBottomStyle { inner })
 }
 #[cfg(feature = "parser")]
-pub fn parse_border_left_style<'a>(
-    input: &'a str,
-) -> Result<StyleBorderLeftStyle, CssBorderStyleParseError<'a>> {
+pub fn parse_border_left_style(
+    input: &str,
+) -> Result<StyleBorderLeftStyle, CssBorderStyleParseError<'_>> {
     parse_border_style(input).map(|inner| StyleBorderLeftStyle { inner })
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_border_top_color<'a>(
-    input: &'a str,
-) -> Result<StyleBorderTopColor, CssColorParseError<'a>> {
+pub fn parse_border_top_color(
+    input: &str,
+) -> Result<StyleBorderTopColor, CssColorParseError<'_>> {
     parse_css_color(input).map(|inner| StyleBorderTopColor { inner })
 }
 #[cfg(feature = "parser")]
-pub fn parse_border_right_color<'a>(
-    input: &'a str,
-) -> Result<StyleBorderRightColor, CssColorParseError<'a>> {
+pub fn parse_border_right_color(
+    input: &str,
+) -> Result<StyleBorderRightColor, CssColorParseError<'_>> {
     parse_css_color(input).map(|inner| StyleBorderRightColor { inner })
 }
 #[cfg(feature = "parser")]
-pub fn parse_border_bottom_color<'a>(
-    input: &'a str,
-) -> Result<StyleBorderBottomColor, CssColorParseError<'a>> {
+pub fn parse_border_bottom_color(
+    input: &str,
+) -> Result<StyleBorderBottomColor, CssColorParseError<'_>> {
     parse_css_color(input).map(|inner| StyleBorderBottomColor { inner })
 }
 #[cfg(feature = "parser")]
-pub fn parse_border_left_color<'a>(
-    input: &'a str,
-) -> Result<StyleBorderLeftColor, CssColorParseError<'a>> {
+pub fn parse_border_left_color(
+    input: &str,
+) -> Result<StyleBorderLeftColor, CssColorParseError<'_>> {
     parse_css_color(input).map(|inner| StyleBorderLeftColor { inner })
 }
 
@@ -557,9 +557,9 @@ pub struct StyleBorderColors {
 /// - 3 values: top, left/right, bottom
 /// - 4 values: top, right, bottom, left
 #[cfg(feature = "parser")]
-pub fn parse_style_border_color<'a>(
-    input: &'a str,
-) -> Result<StyleBorderColors, CssColorParseError<'a>> {
+pub fn parse_style_border_color(
+    input: &str,
+) -> Result<StyleBorderColors, CssColorParseError<'_>> {
     let input = input.trim();
     let parts: Vec<&str> = input.split_whitespace().collect();
 
@@ -624,9 +624,9 @@ pub struct StyleBorderStyles {
 
 /// Parses `border-style` shorthand: 1-4 style values
 #[cfg(feature = "parser")]
-pub fn parse_style_border_style<'a>(
-    input: &'a str,
-) -> Result<StyleBorderStyles, CssBorderStyleParseError<'a>> {
+pub fn parse_style_border_style(
+    input: &str,
+) -> Result<StyleBorderStyles, CssBorderStyleParseError<'_>> {
     let input = input.trim();
     let parts: Vec<&str> = input.split_whitespace().collect();
 
@@ -691,9 +691,9 @@ pub struct StyleBorderWidths {
 
 /// Parses `border-width` shorthand: 1-4 width values
 #[cfg(feature = "parser")]
-pub fn parse_style_border_width<'a>(
-    input: &'a str,
-) -> Result<StyleBorderWidths, CssPixelValueParseError<'a>> {
+pub fn parse_style_border_width(
+    input: &str,
+) -> Result<StyleBorderWidths, CssPixelValueParseError<'_>> {
     let input = input.trim();
     let parts: Vec<&str> = input.split_whitespace().collect();
 
@@ -746,7 +746,7 @@ pub fn parse_style_border_width<'a>(
 
 // Compatibility alias
 #[cfg(feature = "parser")]
-pub fn parse_style_border<'a>(input: &'a str) -> Result<StyleBorderSide, CssBorderParseError<'a>> {
+pub fn parse_style_border(input: &str) -> Result<StyleBorderSide, CssBorderParseError<'_>> {
     parse_border_side(input)
 }
 

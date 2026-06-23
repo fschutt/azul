@@ -114,12 +114,12 @@ fn test_body_margin_15vh_auto() {
     
     println!("Layout cache positions:");
     for (id, pos) in layout_cache.calculated_positions.iter().enumerate() {
-        println!("  Node {}: {:?}", id, pos);
+        println!("  Node {id}: {pos:?}");
     }
     
     // Expected: 15% of 768px = 115.2px
     let expected_body_y = 768.0 * 0.15;
-    println!("Expected body Y: {:.2}", expected_body_y);
+    println!("Expected body Y: {expected_body_y:.2}");
     
     if let Some(pos) = body_position {
         println!("Actual body Y: {:.2}", pos.y);

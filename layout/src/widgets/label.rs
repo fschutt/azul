@@ -77,7 +77,7 @@ static LABEL_STYLE_OTHER: &[CssPropertyWithConditions] = &[];
 impl Label {
     /// Creates a new label with the given text and platform-specific default styling.
     #[inline]
-    pub fn create(string: AzString) -> Self {
+    #[must_use] pub fn create(string: AzString) -> Self {
         Self {
             string,
             #[cfg(target_os = "windows")]
@@ -94,14 +94,14 @@ impl Label {
     /// Replaces `self` with an empty default label, returning the original.
     #[inline]
     pub fn swap_with_default(&mut self) -> Self {
-        let mut s = Label::create(AzString::from_const_str(""));
+        let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
     }
 
     /// Converts this label into a DOM text node with the `__azul-native-label` class.
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         static LABEL_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-label"))];
 
@@ -112,7 +112,7 @@ impl Label {
 }
 
 impl From<Label> for Dom {
-    fn from(l: Label) -> Dom {
+    fn from(l: Label) -> Self {
         l.dom()
     }
 }

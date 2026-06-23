@@ -43,7 +43,7 @@ pub enum ActiveDragType {
 /// Text selection drag state.
 ///
 /// Tracks the anchor point (where selection started) and current position.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextSelectionDrag {
     /// DOM ID where the selection started
@@ -97,7 +97,7 @@ pub enum ScrollbarAxis {
 /// Node drag-and-drop state.
 ///
 /// Tracks a DOM node being dragged for reordering or moving.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct NodeDrag {
     /// DOM ID of the node being dragged
@@ -116,7 +116,7 @@ pub struct NodeDrag {
     pub previous_drop_target: OptionDomNodeId,
     /// Drag data (MIME types and content)
     pub drag_data: DragData,
-    /// Whether the current drop target has accepted the drop via accept_drop()
+    /// Whether the current drop target has accepted the drop via `accept_drop()`
     pub drop_accepted: bool,
     /// Drop effect set by the drop target
     pub drop_effect: DropEffect,
@@ -125,7 +125,7 @@ pub struct NodeDrag {
 /// Window move drag state.
 ///
 /// Tracks the window being moved via titlebar drag.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct WindowMoveDrag {
     /// Position where window drag started (in screen coordinates)
@@ -139,7 +139,7 @@ pub struct WindowMoveDrag {
 /// Window resize drag state.
 ///
 /// Tracks the window being resized via edge/corner drag.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct WindowResizeDrag {
     /// Which edge/corner is being dragged
@@ -171,7 +171,7 @@ pub enum WindowResizeEdge {
 /// File drop from OS drag state.
 ///
 /// Tracks files being dragged from the operating system.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileDropDrag {
     /// Files being dragged (as string paths)
@@ -289,7 +289,7 @@ impl_vec_hash!(MimeTypeData, MimeTypeDataVec);
 ///
 /// Holds the payload(s) being transferred during a drag operation, keyed
 /// by MIME type, plus the set of operations the source allows.
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct DragData {
     /// MIME type -> data mapping (vec-of-pairs for FFI compatibility).
@@ -302,7 +302,7 @@ pub struct DragData {
 
 impl DragData {
     /// Create new empty drag data
-    pub fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         Self {
             data: MimeTypeDataVec::new(),
             effect_allowed: DragEffect::Uninitialized,
@@ -330,7 +330,7 @@ impl DragData {
     }
 
     /// Get data for a MIME type
-    pub fn get_data(&self, mime_type: &str) -> Option<&[u8]> {
+    #[must_use] pub fn get_data(&self, mime_type: &str) -> Option<&[u8]> {
         self.data
             .as_ref()
             .iter()
@@ -345,7 +345,7 @@ impl DragData {
     }
 
     /// Get plain text data
-    pub fn get_text(&self) -> Option<AzString> {
+    #[must_use] pub fn get_text(&self) -> Option<AzString> {
         self.get_data("text/plain")
             .map(|bytes| AzString::from(core::str::from_utf8(bytes).unwrap_or("")))
     }
@@ -361,7 +361,7 @@ impl DragData {
 pub struct DragContext {
     /// The specific type of drag operation
     pub drag_type: ActiveDragType,
-    /// Session ID from gesture detection (links back to GestureManager)
+    /// Session ID from gesture detection (links back to `GestureManager`)
     pub session_id: u64,
     /// Whether the drag has been cancelled (e.g., Escape pressed)
     pub cancelled: bool,
@@ -369,7 +369,7 @@ pub struct DragContext {
 
 impl DragContext {
     /// Create a new drag context
-    pub fn new(drag_type: ActiveDragType, session_id: u64) -> Self {
+    #[must_use] pub const fn new(drag_type: ActiveDragType, session_id: u64) -> Self {
         Self {
             drag_type,
             session_id,
@@ -378,7 +378,7 @@ impl DragContext {
     }
 
     /// Create a text selection drag
-    pub fn text_selection(
+    #[must_use] pub const fn text_selection(
         dom_id: DomId,
         anchor_ifc_node: NodeId,
         start_mouse_position: LogicalPosition,
@@ -399,7 +399,7 @@ impl DragContext {
     }
 
     /// Create a scrollbar thumb drag
-    pub fn scrollbar_thumb(
+    #[must_use] pub const fn scrollbar_thumb(
         scroll_container_node: NodeId,
         axis: ScrollbarAxis,
         start_mouse_position: LogicalPosition,
@@ -425,7 +425,7 @@ impl DragContext {
     }
 
     /// Create a node drag
-    pub fn node_drag(
+    #[must_use] pub const fn node_drag(
         dom_id: DomId,
         node_id: NodeId,
         start_position: LogicalPosition,
@@ -450,7 +450,7 @@ impl DragContext {
     }
 
     /// Create a window move drag
-    pub fn window_move(
+    #[must_use] pub const fn window_move(
         start_position: LogicalPosition,
         initial_window_position: WindowPosition,
         session_id: u64,
@@ -466,7 +466,7 @@ impl DragContext {
     }
 
     /// Create a file drop drag
-    pub fn file_drop(files: Vec<AzString>, position: LogicalPosition, session_id: u64) -> Self {
+    #[must_use] pub fn file_drop(files: Vec<AzString>, position: LogicalPosition, session_id: u64) -> Self {
         Self::new(
             ActiveDragType::FileDrop(FileDropDrag {
                 files: files.into(),
@@ -479,7 +479,7 @@ impl DragContext {
     }
 
     /// Update the current mouse position for all drag types
-    pub fn update_position(&mut self, position: LogicalPosition) {
+    pub const fn update_position(&mut self, position: LogicalPosition) {
         match &mut self.drag_type {
             ActiveDragType::TextSelection(ref mut drag) => {
                 drag.current_mouse_position = position;
@@ -503,7 +503,7 @@ impl DragContext {
     }
 
     /// Get the current mouse position
-    pub fn current_position(&self) -> LogicalPosition {
+    #[must_use] pub const fn current_position(&self) -> LogicalPosition {
         match &self.drag_type {
             ActiveDragType::TextSelection(drag) => drag.current_mouse_position,
             ActiveDragType::ScrollbarThumb(drag) => drag.current_mouse_position,
@@ -515,7 +515,7 @@ impl DragContext {
     }
 
     /// Get the start position
-    pub fn start_position(&self) -> LogicalPosition {
+    #[must_use] pub const fn start_position(&self) -> LogicalPosition {
         match &self.drag_type {
             ActiveDragType::TextSelection(drag) => drag.start_mouse_position,
             ActiveDragType::ScrollbarThumb(drag) => drag.start_mouse_position,
@@ -527,32 +527,32 @@ impl DragContext {
     }
 
     /// Check if this is a text selection drag
-    pub fn is_text_selection(&self) -> bool {
+    #[must_use] pub const fn is_text_selection(&self) -> bool {
         matches!(self.drag_type, ActiveDragType::TextSelection(_))
     }
 
     /// Check if this is a scrollbar thumb drag
-    pub fn is_scrollbar_thumb(&self) -> bool {
+    #[must_use] pub const fn is_scrollbar_thumb(&self) -> bool {
         matches!(self.drag_type, ActiveDragType::ScrollbarThumb(_))
     }
 
     /// Check if this is a node drag
-    pub fn is_node_drag(&self) -> bool {
+    #[must_use] pub const fn is_node_drag(&self) -> bool {
         matches!(self.drag_type, ActiveDragType::Node(_))
     }
 
     /// Check if this is a window move drag
-    pub fn is_window_move(&self) -> bool {
+    #[must_use] pub const fn is_window_move(&self) -> bool {
         matches!(self.drag_type, ActiveDragType::WindowMove(_))
     }
 
     /// Check if this is a file drop
-    pub fn is_file_drop(&self) -> bool {
+    #[must_use] pub const fn is_file_drop(&self) -> bool {
         matches!(self.drag_type, ActiveDragType::FileDrop(_))
     }
 
     /// Get as text selection drag (if applicable)
-    pub fn as_text_selection(&self) -> Option<&TextSelectionDrag> {
+    #[must_use] pub const fn as_text_selection(&self) -> Option<&TextSelectionDrag> {
         match &self.drag_type {
             ActiveDragType::TextSelection(drag) => Some(drag),
             _ => None,
@@ -560,7 +560,7 @@ impl DragContext {
     }
 
     /// Get as mutable text selection drag (if applicable)
-    pub fn as_text_selection_mut(&mut self) -> Option<&mut TextSelectionDrag> {
+    pub const fn as_text_selection_mut(&mut self) -> Option<&mut TextSelectionDrag> {
         match &mut self.drag_type {
             ActiveDragType::TextSelection(drag) => Some(drag),
             _ => None,
@@ -568,7 +568,7 @@ impl DragContext {
     }
 
     /// Get as scrollbar thumb drag (if applicable)
-    pub fn as_scrollbar_thumb(&self) -> Option<&ScrollbarThumbDrag> {
+    #[must_use] pub const fn as_scrollbar_thumb(&self) -> Option<&ScrollbarThumbDrag> {
         match &self.drag_type {
             ActiveDragType::ScrollbarThumb(drag) => Some(drag),
             _ => None,
@@ -576,7 +576,7 @@ impl DragContext {
     }
 
     /// Get as mutable scrollbar thumb drag (if applicable)
-    pub fn as_scrollbar_thumb_mut(&mut self) -> Option<&mut ScrollbarThumbDrag> {
+    pub const fn as_scrollbar_thumb_mut(&mut self) -> Option<&mut ScrollbarThumbDrag> {
         match &mut self.drag_type {
             ActiveDragType::ScrollbarThumb(drag) => Some(drag),
             _ => None,
@@ -584,7 +584,7 @@ impl DragContext {
     }
 
     /// Get as node drag (if applicable)
-    pub fn as_node_drag(&self) -> Option<&NodeDrag> {
+    #[must_use] pub const fn as_node_drag(&self) -> Option<&NodeDrag> {
         match &self.drag_type {
             ActiveDragType::Node(drag) => Some(drag),
             _ => None,
@@ -592,7 +592,7 @@ impl DragContext {
     }
 
     /// Get as mutable node drag (if applicable)
-    pub fn as_node_drag_mut(&mut self) -> Option<&mut NodeDrag> {
+    pub const fn as_node_drag_mut(&mut self) -> Option<&mut NodeDrag> {
         match &mut self.drag_type {
             ActiveDragType::Node(drag) => Some(drag),
             _ => None,
@@ -600,7 +600,7 @@ impl DragContext {
     }
 
     /// Get as window move drag (if applicable)
-    pub fn as_window_move(&self) -> Option<&WindowMoveDrag> {
+    #[must_use] pub const fn as_window_move(&self) -> Option<&WindowMoveDrag> {
         match &self.drag_type {
             ActiveDragType::WindowMove(drag) => Some(drag),
             _ => None,
@@ -608,7 +608,7 @@ impl DragContext {
     }
 
     /// Get as file drop (if applicable)
-    pub fn as_file_drop(&self) -> Option<&FileDropDrag> {
+    #[must_use] pub const fn as_file_drop(&self) -> Option<&FileDropDrag> {
         match &self.drag_type {
             ActiveDragType::FileDrop(drag) => Some(drag),
             _ => None,
@@ -616,7 +616,7 @@ impl DragContext {
     }
 
     /// Get as mutable file drop (if applicable)
-    pub fn as_file_drop_mut(&mut self) -> Option<&mut FileDropDrag> {
+    pub const fn as_file_drop_mut(&mut self) -> Option<&mut FileDropDrag> {
         match &mut self.drag_type {
             ActiveDragType::FileDrop(drag) => Some(drag),
             _ => None,
@@ -626,7 +626,7 @@ impl DragContext {
     /// Calculate scroll delta for scrollbar thumb drag
     ///
     /// Returns the new scroll offset based on current mouse position.
-    pub fn calculate_scrollbar_scroll_offset(&self) -> Option<f32> {
+    #[must_use] pub fn calculate_scrollbar_scroll_offset(&self) -> Option<f32> {
         let drag = self.as_scrollbar_thumb()?;
         
         // Calculate mouse delta along the drag axis
@@ -664,8 +664,8 @@ impl DragContext {
         Some(new_offset.clamp(0.0, scrollable_range))
     }
 
-    /// Remap a drop target's NodeId using the old→new mapping.
-    /// Clears the target if the old NodeId was removed.
+    /// Remap a drop target's `NodeId` using the old→new mapping.
+    /// Clears the target if the old `NodeId` was removed.
     fn remap_drop_target(
         target: &mut OptionDomNodeId,
         dom_id: DomId,
@@ -689,11 +689,11 @@ impl DragContext {
         }
     }
 
-    /// Remap NodeIds stored in this drag context after DOM reconciliation.
+    /// Remap `NodeIds` stored in this drag context after DOM reconciliation.
     ///
-    /// When the DOM is regenerated during an active drag, NodeIds can change.
-    /// This updates all stored NodeIds using the old→new mapping.
-    /// Returns `false` if a critical NodeId was removed (drag should be cancelled).
+    /// When the DOM is regenerated during an active drag, `NodeIds` can change.
+    /// This updates all stored `NodeIds` using the old→new mapping.
+    /// Returns `false` if a critical `NodeId` was removed (drag should be cancelled).
     pub fn remap_node_ids(
         &mut self,
         dom_id: DomId,
@@ -767,12 +767,12 @@ pub struct DragDelta {
 }
 
 impl DragDelta {
-    #[inline(always)]
-    pub const fn new(dx: f32, dy: f32) -> Self {
+    #[inline]
+    #[must_use] pub const fn new(dx: f32, dy: f32) -> Self {
         Self { dx, dy }
     }
-    #[inline(always)]
-    pub const fn zero() -> Self {
+    #[inline]
+    #[must_use] pub const fn zero() -> Self {
         Self::new(0.0, 0.0)
     }
 }

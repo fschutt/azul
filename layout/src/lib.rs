@@ -29,7 +29,8 @@
     clippy::pedantic,
     clippy::nursery,
     clippy::cargo,
-    missing_docs,
+    // missing_docs,  // TODO(docs): re-enable as a dedicated final docs pass; disabled
+    //                // for now so the cleanup focuses on code-quality lints, not doc debt.
     missing_debug_implementations,
     missing_copy_implementations,
     unreachable_pub,
@@ -85,8 +86,8 @@ extern crate core;
 /// With the `web_lift` feature enabled, `addr` must be a valid, writable wasm
 /// linear-memory address (within the 0x40000–0xF0000 diagnostic band). Without
 /// the feature this is a no-op and always safe.
-#[inline(always)]
-pub unsafe fn az_mark(_addr: u32, _val: u32) {
+#[inline]
+pub const unsafe fn az_mark(_addr: u32, _val: u32) {
     #[cfg(feature = "web_lift")]
     core::ptr::write_volatile(_addr as usize as *mut u32, _val);
 }
@@ -99,8 +100,8 @@ pub unsafe fn az_mark(_addr: u32, _val: u32) {
 /// With the `web_lift` feature enabled, `addr` must be a valid, readable wasm
 /// linear-memory address (within the 0x40000–0xF0000 diagnostic band). Without
 /// the feature this is a no-op that returns 0 and is always safe.
-#[inline(always)]
-pub unsafe fn az_mark_read(_addr: u32) -> u32 {
+#[inline]
+#[must_use] pub const unsafe fn az_mark_read(_addr: u32) -> u32 {
     #[cfg(feature = "web_lift")]
     return core::ptr::read_volatile(_addr as usize as *const u32);
     #[cfg(not(feature = "web_lift"))]
@@ -206,6 +207,7 @@ pub use file::{
 };
 
 /// HTTP client: GET/POST requests with pure-Rust TLS.
+///
 /// API surface always present (stub when off); ureq/rustls only pulled in with `http`.
 pub mod http;
 pub use http::{
@@ -281,6 +283,7 @@ pub mod event_determination;
 pub mod font;
 
 /// Headless backend for CPU-only rendering without a display server.
+///
 /// Used with `AZUL_HEADLESS=1` for E2E testing, CI, and screenshot capture.
 #[cfg(feature = "text_layout")]
 pub mod headless;
@@ -382,13 +385,13 @@ pub fn parse_font_fn(
 /// Wraps a [`ParsedFont`] in a [`FontRef`](azul_css::props::basic::FontRef),
 /// transferring ownership to the returned handle.
 pub fn parsed_font_to_font_ref(
-    parsed_font: crate::font::parsed::ParsedFont,
+    parsed_font: ParsedFont,
 ) -> azul_css::props::basic::FontRef {
     use core::ffi::c_void;
 
     extern "C" fn parsed_font_destructor(ptr: *mut c_void) {
         unsafe {
-            let _ = Box::from_raw(ptr as *mut crate::font::parsed::ParsedFont);
+            let _ = Box::from_raw(ptr.cast::<ParsedFont>());
         }
     }
 
@@ -403,10 +406,10 @@ pub fn parsed_font_to_font_ref(
 /// # Safety contract
 /// The `font_ref` must have been created by [`parsed_font_to_font_ref`],
 /// so that `font_ref.parsed` points to a valid `ParsedFont`.
-pub fn font_ref_to_parsed_font(
+#[must_use] pub const fn font_ref_to_parsed_font(
     font_ref: &azul_css::props::basic::FontRef,
-) -> &crate::font::parsed::ParsedFont {
+) -> &ParsedFont {
     // SAFETY: `font_ref.parsed` was created by `parsed_font_to_font_ref`
     // via `Box::into_raw`, so it points to a valid, aligned `ParsedFont`.
-    unsafe { &*(font_ref.parsed as *const crate::font::parsed::ParsedFont) }
+    unsafe { &*font_ref.parsed.cast::<ParsedFont>() }
 }

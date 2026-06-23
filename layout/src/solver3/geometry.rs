@@ -40,12 +40,12 @@ pub struct EdgeSizes {
 
 impl EdgeSizes {
     /// Sum of horizontal edges (left + right).
-    pub fn horizontal_sum(&self) -> f32 {
+    #[must_use] pub fn horizontal_sum(&self) -> f32 {
         self.left + self.right
     }
 
     /// Sum of vertical edges (top + bottom).
-    pub fn vertical_sum(&self) -> f32 {
+    #[must_use] pub fn vertical_sum(&self) -> f32 {
         self.top + self.bottom
     }
 
@@ -72,7 +72,7 @@ impl EdgeSizes {
     // +spec:writing-modes:fd8c18 - block/inline axis mapping based on writing mode
     // +spec:writing-modes:0e549a - writing-mode computed value influences physical/logical axis mapping
     /// Returns the size of the edge at the start of the main/block axis.
-    pub fn main_start(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use] pub const fn main_start(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.top,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.left,
@@ -80,7 +80,7 @@ impl EdgeSizes {
     }
 
     /// Returns the size of the edge at the end of the main/block axis.
-    pub fn main_end(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use] pub const fn main_end(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.bottom,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.right,
@@ -88,13 +88,13 @@ impl EdgeSizes {
     }
 
     /// Returns the sum of the start and end sizes on the main/block axis.
-    pub fn main_sum(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use] pub fn main_sum(&self, wm: LayoutWritingMode) -> f32 {
         self.main_start(wm) + self.main_end(wm)
     }
 
     // +spec:block-formatting-context:6225cb - line-relative directions: vertical modes map line-over/under to top/bottom
     /// Returns the size of the edge at the start of the cross/inline axis.
-    pub fn cross_start(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use] pub const fn cross_start(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.left,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.top,
@@ -102,7 +102,7 @@ impl EdgeSizes {
     }
 
     /// Returns the size of the edge at the end of the cross/inline axis.
-    pub fn cross_end(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use] pub const fn cross_end(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.right,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.bottom,
@@ -110,7 +110,7 @@ impl EdgeSizes {
     }
 
     /// Returns the sum of the start and end sizes on the cross/inline axis.
-    pub fn cross_sum(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use] pub fn cross_sum(&self, wm: LayoutWritingMode) -> f32 {
         self.cross_start(wm) + self.cross_end(wm)
     }
 }
@@ -124,7 +124,7 @@ impl EdgeSizes {
 ///
 /// Margins can be `auto` (for centering) or a length value that needs
 /// resolution against the containing block.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum UnresolvedMargin {
     /// margin: 0 (default)
     #[default]
@@ -137,8 +137,8 @@ pub enum UnresolvedMargin {
 
 impl UnresolvedMargin {
     /// Returns true if this is an auto margin
-    pub fn is_auto(&self) -> bool {
-        matches!(self, UnresolvedMargin::Auto)
+    #[must_use] pub const fn is_auto(&self) -> bool {
+        matches!(self, Self::Auto)
     }
 
     /// Resolve this margin value to pixels.
@@ -146,13 +146,13 @@ impl UnresolvedMargin {
     /// - `Auto` returns 0.0 (actual auto margin calculation happens in layout)
     /// - `Zero` returns 0.0
     /// - `Length` is resolved using the resolution context
-    pub fn resolve(&self, ctx: &ResolutionContext) -> f32 {
+    #[must_use] pub fn resolve(&self, ctx: &ResolutionContext) -> f32 {
         match self {
-            UnresolvedMargin::Zero => 0.0,
+            Self::Zero => 0.0,
             // +spec:box-model:c921aa - auto margin-top/bottom used value is 0 for block-level non-replaced elements in normal flow
             // +spec:box-model:e25fdc - auto margins treated as zero for abspos size computation
-            UnresolvedMargin::Auto => 0.0, // Auto is handled separately in layout
-            UnresolvedMargin::Length(pv) => pv.resolve_with_context(ctx, PropertyContext::Margin),
+            Self::Auto => 0.0, // Auto is handled separately in layout
+            Self::Length(pv) => pv.resolve_with_context(ctx, PropertyContext::Margin),
         }
     }
 }
@@ -170,14 +170,14 @@ pub struct UnresolvedEdge<T> {
 }
 
 impl<T> UnresolvedEdge<T> {
-    pub fn new(top: T, right: T, bottom: T, left: T) -> Self {
+    pub const fn new(top: T, right: T, bottom: T, left: T) -> Self {
         Self { top, right, bottom, left }
     }
 }
 
 impl UnresolvedEdge<UnresolvedMargin> {
     /// Resolve all margin edges to pixel values.
-    pub fn resolve(&self, ctx: &ResolutionContext) -> EdgeSizes {
+    #[must_use] pub fn resolve(&self, ctx: &ResolutionContext) -> EdgeSizes {
         EdgeSizes {
             top: self.top.resolve(ctx),
             right: self.right.resolve(ctx),
@@ -187,7 +187,7 @@ impl UnresolvedEdge<UnresolvedMargin> {
     }
 
     /// Extract which margins are set to `auto`.
-    pub fn get_margin_auto(&self) -> MarginAuto {
+    #[must_use] pub const fn get_margin_auto(&self) -> MarginAuto {
         MarginAuto {
             top: self.top.is_auto(),
             right: self.right.is_auto(),
@@ -199,7 +199,7 @@ impl UnresolvedEdge<UnresolvedMargin> {
 
 impl UnresolvedEdge<PixelValue> {
     /// Resolve all edges to pixel values.
-    pub fn resolve(&self, ctx: &ResolutionContext, prop_ctx: PropertyContext) -> EdgeSizes {
+    #[must_use] pub fn resolve(&self, ctx: &ResolutionContext, prop_ctx: PropertyContext) -> EdgeSizes {
         EdgeSizes {
             top: self.top.resolve_with_context(ctx, prop_ctx),
             right: self.right.resolve_with_context(ctx, prop_ctx),
@@ -224,8 +224,8 @@ pub struct ResolutionParams {
 }
 
 impl ResolutionParams {
-    /// Create a ResolutionContext from these parameters.
-    pub fn to_resolution_context(&self) -> ResolutionContext {
+    /// Create a `ResolutionContext` from these parameters.
+    #[must_use] pub const fn to_resolution_context(&self) -> ResolutionContext {
         ResolutionContext {
             element_font_size: self.element_font_size,
             // For non-font properties, `em` resolves against the element's own
@@ -263,7 +263,7 @@ pub struct UnresolvedBoxProps {
 
 impl UnresolvedBoxProps {
     /// Resolve all box properties to pixel values.
-    pub fn resolve(&self, params: &ResolutionParams) -> ResolvedBoxProps {
+    #[must_use] pub fn resolve(&self, params: &ResolutionParams) -> ResolvedBoxProps {
         let ctx = params.to_resolution_context();
         ResolvedBoxProps {
             margin: self.margin.resolve(&ctx),
@@ -310,7 +310,7 @@ impl ResolvedBoxProps {
     // +spec:writing-modes:a58616 - abstract dimensions: inline size maps to physical width/height per writing-mode
     /// Calculates the inner content-box size from an outer border-box size,
     /// correctly accounting for the specified writing mode.
-    pub fn inner_size(&self, outer_size: LogicalSize, wm: LayoutWritingMode) -> LogicalSize {
+    #[must_use] pub fn inner_size(&self, outer_size: LogicalSize, wm: LayoutWritingMode) -> LogicalSize {
         let outer_main = outer_size.main(wm);
         let outer_cross = outer_size.cross(wm);
 
@@ -333,7 +333,7 @@ impl ResolvedBoxProps {
     /// Returns the content-box rect from a border-box rect.
     /// Shrinks inward by border + padding on each side.
     // +spec:box-model:1720a5 - content of a block box is confined to its content edges
-    pub fn content_box(&self, border_box: LogicalRect) -> LogicalRect {
+    #[must_use] pub fn content_box(&self, border_box: LogicalRect) -> LogicalRect {
         let x = border_box.origin.x + self.border.left + self.padding.left;
         let y = border_box.origin.y + self.border.top + self.padding.top;
         let w = (border_box.size.width - self.border.horizontal_sum() - self.padding.horizontal_sum()).max(0.0);
@@ -343,7 +343,7 @@ impl ResolvedBoxProps {
 
     /// Returns the padding-box rect from a border-box rect.
     /// Shrinks inward by border on each side.
-    pub fn padding_box(&self, border_box: LogicalRect) -> LogicalRect {
+    #[must_use] pub fn padding_box(&self, border_box: LogicalRect) -> LogicalRect {
         let x = border_box.origin.x + self.border.left;
         let y = border_box.origin.y + self.border.top;
         let w = (border_box.size.width - self.border.horizontal_sum()).max(0.0);
@@ -353,7 +353,7 @@ impl ResolvedBoxProps {
 
     /// Returns the margin-box rect from a border-box rect.
     /// Expands outward by margin on each side.
-    pub fn margin_box(&self, border_box: LogicalRect) -> LogicalRect {
+    #[must_use] pub fn margin_box(&self, border_box: LogicalRect) -> LogicalRect {
         let x = border_box.origin.x - self.margin.left;
         let y = border_box.origin.y - self.margin.top;
         let w = border_box.size.width + self.margin.horizontal_sum();
@@ -363,28 +363,28 @@ impl ResolvedBoxProps {
 
     // +spec:box-model:0e75c1 - margin, padding, border contribute to layout bounds (default line-fit-edge: leading uses line-height model)
     /// Total horizontal space consumed by margin + border + padding.
-    pub fn horizontal_mbp(&self) -> f32 {
+    #[must_use] pub fn horizontal_mbp(&self) -> f32 {
         self.margin.horizontal_sum() + self.border.horizontal_sum() + self.padding.horizontal_sum()
     }
 
     /// Total vertical space consumed by margin + border + padding.
-    pub fn vertical_mbp(&self) -> f32 {
+    #[must_use] pub fn vertical_mbp(&self) -> f32 {
         self.margin.vertical_sum() + self.border.vertical_sum() + self.padding.vertical_sum()
     }
 
     /// Total horizontal space consumed by border + padding only (no margin).
-    pub fn horizontal_bp(&self) -> f32 {
+    #[must_use] pub fn horizontal_bp(&self) -> f32 {
         self.border.horizontal_sum() + self.padding.horizontal_sum()
     }
 
     /// Total vertical space consumed by border + padding only (no margin).
-    pub fn vertical_bp(&self) -> f32 {
+    #[must_use] pub fn vertical_bp(&self) -> f32 {
         self.border.vertical_sum() + self.padding.vertical_sum()
     }
 }
 
 /// Type alias for backwards compatibility.
-/// TODO: Remove this once all code uses ResolvedBoxProps directly.
+/// TODO: Remove this once all code uses `ResolvedBoxProps` directly.
 pub type BoxProps = ResolvedBoxProps;
 
 /// Packed representation of box model properties using i16×10 encoding.
@@ -406,7 +406,7 @@ pub struct PackedBoxProps {
 impl PackedBoxProps {
     /// Pack a `ResolvedBoxProps` into compact i16×10 encoding.
     #[inline]
-    pub fn pack(bp: &ResolvedBoxProps) -> Self {
+    #[must_use] pub fn pack(bp: &ResolvedBoxProps) -> Self {
         Self {
             margin: Self::pack_edge(&bp.margin),
             padding: Self::pack_edge(&bp.padding),
@@ -417,7 +417,7 @@ impl PackedBoxProps {
 
     /// Unpack to full `ResolvedBoxProps` with f32 values.
     #[inline]
-    pub fn unpack(&self) -> ResolvedBoxProps {
+    #[must_use] pub fn unpack(&self) -> ResolvedBoxProps {
         ResolvedBoxProps {
             margin: Self::unpack_edge(&self.margin),
             padding: Self::unpack_edge(&self.padding),
@@ -428,53 +428,53 @@ impl PackedBoxProps {
 
     /// Convenience: unpack and call `inner_size` on the result.
     #[inline]
-    pub fn inner_size(&self, outer_size: LogicalSize, wm: LayoutWritingMode) -> LogicalSize {
+    #[must_use] pub fn inner_size(&self, outer_size: LogicalSize, wm: LayoutWritingMode) -> LogicalSize {
         self.unpack().inner_size(outer_size, wm)
     }
 
     /// Convenience: unpack and call `content_box` on the result.
     #[inline]
-    pub fn content_box(&self, border_box: LogicalRect) -> LogicalRect {
+    #[must_use] pub fn content_box(&self, border_box: LogicalRect) -> LogicalRect {
         self.unpack().content_box(border_box)
     }
 
     /// Convenience: unpack and call `padding_box` on the result.
     #[inline]
-    pub fn padding_box(&self, border_box: LogicalRect) -> LogicalRect {
+    #[must_use] pub fn padding_box(&self, border_box: LogicalRect) -> LogicalRect {
         self.unpack().padding_box(border_box)
     }
 
     /// Convenience: unpack and call `margin_box` on the result.
     #[inline]
-    pub fn margin_box(&self, border_box: LogicalRect) -> LogicalRect {
+    #[must_use] pub fn margin_box(&self, border_box: LogicalRect) -> LogicalRect {
         self.unpack().margin_box(border_box)
     }
 
     /// Convenience: unpack and return horizontal MBP.
     #[inline]
-    pub fn horizontal_mbp(&self) -> f32 {
+    #[must_use] pub fn horizontal_mbp(&self) -> f32 {
         self.unpack().horizontal_mbp()
     }
 
     /// Convenience: unpack and return vertical MBP.
     #[inline]
-    pub fn vertical_mbp(&self) -> f32 {
+    #[must_use] pub fn vertical_mbp(&self) -> f32 {
         self.unpack().vertical_mbp()
     }
 
     /// Convenience: unpack and return horizontal BP.
     #[inline]
-    pub fn horizontal_bp(&self) -> f32 {
+    #[must_use] pub fn horizontal_bp(&self) -> f32 {
         self.unpack().horizontal_bp()
     }
 
     /// Convenience: unpack and return vertical BP.
     #[inline]
-    pub fn vertical_bp(&self) -> f32 {
+    #[must_use] pub fn vertical_bp(&self) -> f32 {
         self.unpack().vertical_bp()
     }
 
-    #[inline(always)]
+    #[inline]
     fn pack_edge(e: &EdgeSizes) -> [i16; 4] {
         const MIN: f32 = i16::MIN as f32;
         const MAX: f32 = i16::MAX as f32;
@@ -486,7 +486,7 @@ impl PackedBoxProps {
         ]
     }
 
-    #[inline(always)]
+    #[inline]
     fn unpack_edge(e: &[i16; 4]) -> EdgeSizes {
         EdgeSizes {
             top: e[0] as f32 * 0.1,
@@ -572,7 +572,7 @@ impl Default for WritingModeContext {
 impl WritingModeContext {
     /// Constructs a `WritingModeContext`, applying spec-mandated overrides.
     // +spec:writing-modes:8307e4 - text-orientation: upright forces used direction to ltr
-    pub fn new(
+    #[must_use] pub fn new(
         writing_mode: LayoutWritingMode,
         direction: StyleDirection,
         text_orientation: StyleTextOrientation,
@@ -597,7 +597,7 @@ impl WritingModeContext {
     ///
     /// The upright override is already applied in `new()`, so this just
     /// returns the stored direction.
-    pub fn used_direction(&self) -> StyleDirection {
+    #[must_use] pub const fn used_direction(&self) -> StyleDirection {
         self.direction
     }
 
@@ -605,10 +605,10 @@ impl WritingModeContext {
 
     // +spec:block-formatting-context:6225cb - vertical writing modes: line-over is right, line-under is left
     // +spec:block-formatting-context:9a4269 - vertical vs horizontal script classification
-    /// Returns true if the writing mode is horizontal (HorizontalTb).
+    /// Returns true if the writing mode is horizontal (`HorizontalTb`).
     ///
     /// When true, the inline axis is horizontal and the block axis is vertical.
-    pub fn is_horizontal(&self) -> bool {
+    #[must_use] pub const fn is_horizontal(&self) -> bool {
         matches!(self.writing_mode, LayoutWritingMode::HorizontalTb)
     }
 
@@ -617,7 +617,7 @@ impl WritingModeContext {
     /// In horizontal writing modes, inline size = width.
     /// In vertical writing modes, inline size = height.
     // +spec:block-formatting-context:bb9845 - orthogonal flows: inline/block axis mapping
-    pub fn inline_size_is_width(&self) -> bool {
+    #[must_use] pub const fn inline_size_is_width(&self) -> bool {
         self.is_horizontal()
     }
 
@@ -625,14 +625,14 @@ impl WritingModeContext {
     ///
     /// In horizontal writing modes, block size = height.
     /// In vertical writing modes, block size = width.
-    pub fn block_size_is_height(&self) -> bool {
+    #[must_use] pub const fn block_size_is_height(&self) -> bool {
         self.is_horizontal()
     }
 
     // +spec:writing-modes:32541a - direction property controls inline text direction via stylesheet
     /// Returns true if the inline direction is reversed (RTL in horizontal,
     /// or bottom-to-top in certain vertical modes).
-    pub fn is_inline_reversed(&self) -> bool {
+    #[must_use] pub fn is_inline_reversed(&self) -> bool {
         self.used_direction() == StyleDirection::Rtl
     }
 }

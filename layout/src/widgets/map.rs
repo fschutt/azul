@@ -50,7 +50,7 @@ use azul_css::AzString;
 // ────────── POD types (api.json + codegen surface) ─────────────────────
 
 /// Identity of one tile in a tiled-map XYZ scheme. Matches Leaflet /
-/// OpenLayers / Mapbox conventions (Web Mercator, origin top-left).
+/// `OpenLayers` / Mapbox conventions (Web Mercator, origin top-left).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct MapTileId {
@@ -64,9 +64,9 @@ pub struct MapTileId {
 }
 
 /// Configuration of one map tile layer — usually the base raster /
-/// vector layer. Additional layers (heatmaps, custom GeoJSON) compose
+/// vector layer. Additional layers (heatmaps, custom `GeoJSON`) compose
 /// as further `MapWidget` instances stacked atop.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct MapTileLayer {
     /// `{z}` / `{x}` / `{y}` placeholders are substituted at fetch
@@ -76,7 +76,7 @@ pub struct MapTileLayer {
     pub min_zoom: u8,
     /// Maximum integer zoom this layer supports.
     pub max_zoom: u8,
-    /// Attribution string the user MUST display (ODbL "© OpenStreetMap
+    /// Attribution string the user MUST display (`ODbL` "© OpenStreetMap
     /// contributors" or similar). Most providers require it.
     pub attribution: AzString,
     /// MapCSS-style stylesheet driving per-layer fill / stroke /
@@ -171,7 +171,7 @@ pub struct MapWidget {
 }
 
 impl MapWidget {
-    pub fn create(layer: MapTileLayer) -> Self {
+    #[must_use] pub fn create(layer: MapTileLayer) -> Self {
         Self {
             layer,
             viewport: MapViewport::default(),
@@ -181,12 +181,12 @@ impl MapWidget {
         }
     }
 
-    pub fn with_viewport(mut self, viewport: MapViewport) -> Self {
+    #[must_use] pub const fn with_viewport(mut self, viewport: MapViewport) -> Self {
         self.viewport = viewport;
         self
     }
 
-    pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
         self.container_style = css;
         self
     }
@@ -242,7 +242,7 @@ impl MapWidget {
     /// angle Mercator (accurate at city zooms). Inverse of
     /// [`px_at_latlon`](Self::px_at_latlon). Exposed so apps don't reimplement
     /// the projection (e.g. to drop a pin where the user tapped).
-    pub fn latlon_at_px(
+    #[must_use] pub fn latlon_at_px(
         viewport: MapViewport,
         px: azul_core::geom::LogicalPosition,
         container: azul_core::geom::LogicalSize,
@@ -261,7 +261,7 @@ impl MapWidget {
 
     /// Inverse of [`latlon_at_px`](Self::latlon_at_px): where `coord` lands in
     /// container pixels at `viewport`.
-    pub fn px_at_latlon(
+    #[must_use] pub fn px_at_latlon(
         viewport: MapViewport,
         coord: MapLatLon,
         container: azul_core::geom::LogicalSize,
@@ -290,7 +290,7 @@ impl MapWidget {
     ///
     /// No tile-fetch worker is wired — tiles render as placeholders.
     /// Use [`dom_with_fetch`](Self::dom_with_fetch) to supply one.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         self.build_dom(None)
     }
 
@@ -302,7 +302,7 @@ impl MapWidget {
     /// `azul_dll::desktop::extra::map::tile_fetch_worker`; wrap it in a
     /// `ThreadCallback` to pass it here. See the recipe in
     /// `MOBILE_SESSION_LOG.md`.
-    pub fn dom_with_fetch(self, cb: crate::thread::ThreadCallback) -> Dom {
+    #[must_use] pub fn dom_with_fetch(self, cb: crate::thread::ThreadCallback) -> Dom {
         self.build_dom(Some(cb))
     }
 
@@ -411,7 +411,7 @@ impl MapWidget {
         if self.container_style.as_slice().is_empty() {
             root
         } else {
-            root.with_css_props(self.container_style.clone())
+            root.with_css_props(self.container_style)
         }
     }
 }
@@ -462,7 +462,7 @@ pub struct MapTileCache {
 }
 
 impl MapTileCache {
-    pub fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
+    #[must_use] pub const fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
         Self {
             layer,
             viewport,
@@ -528,7 +528,7 @@ impl MapTileCache {
             dz * 10_000.0 + dx * dx + dy * dy
         };
 
-        let mut evictable: alloc::vec::Vec<(f64, MapTileId)> = self
+        let mut evictable: Vec<(f64, MapTileId)> = self
             .tiles
             .iter()
             .filter(|(_, e)| !matches!(e, TileEntry::Pending | TileEntry::Fetching))
@@ -556,7 +556,7 @@ pub enum TileEntry {
     /// Distinct from `Pending` so the spawn pass doesn't double-fire.
     Fetching,
     /// Tile decoded into an SVG document. Held as the raw SVG
-    /// string for now; the VirtualView callback will feed it
+    /// string for now; the `VirtualView` callback will feed it
     /// through the framework's svg-to-dom pipeline on the next
     /// re-render.
     Ready { svg: AzString },
@@ -567,7 +567,7 @@ pub enum TileEntry {
 }
 
 /// Worker-thread input: which tile to fetch, the resolved URL, and the
-/// MapCSS stylesheet to apply when converting features to SVG. Boxed
+/// `MapCSS` stylesheet to apply when converting features to SVG. Boxed
 /// into the `Thread::create` init `RefAny`.
 #[derive(Debug, Clone)]
 pub struct TileFetchInit {
@@ -719,7 +719,7 @@ fn invoke_pin_tap(hook: &OptionMapPinTap, info: &CallbackInfo, coord: MapLatLon)
 }
 
 /// Pointer down → record the drag anchor. The widget knows nothing
-/// about the user's overall state RefAny — only its own dataset —
+/// about the user's overall state `RefAny` — only its own dataset —
 /// so the anchor lives in `MapTileCache::drag_anchor`.
 extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
     #[cfg(feature = "std")]
@@ -752,9 +752,8 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
     if std::env::var("AZ_MAP_DEBUG").is_ok() {
         let dragging = data
             .downcast_ref::<MapTileCache>()
-            .map(|c| c.drag_anchor.is_some())
-            .unwrap_or(false);
-        eprintln!("[map] pointer_move fired (dragging={})", dragging);
+            .is_some_and(|c| c.drag_anchor.is_some());
+        eprintln!("[map] pointer_move fired (dragging={dragging})");
     }
     // Active pinch wins over single-finger pan.
     if let Some(pinch) = info.get_pinch().into_option() {
@@ -835,8 +834,7 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
         .map(|p| azul_core::geom::LogicalPosition::new(p.x, p.y));
     let container = info
         .get_hit_node_rect()
-        .map(|r| r.size)
-        .unwrap_or(azul_core::geom::LogicalSize::new(0.0, 0.0));
+        .map_or(azul_core::geom::LogicalSize::new(0.0, 0.0), |r| r.size);
     let (press, viewport, hook) = match data.downcast_mut::<MapTileCache>() {
         Some(mut cache) => {
             let out = (cache.press_origin, cache.viewport, cache.on_pin_tap.clone());
@@ -867,7 +865,7 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
 }
 
 /// Mouse-wheel / trackpad scroll over the map = ZOOM (Leaflet / Google-Maps
-/// convention), not content scroll. The map's VirtualView has no scroll overflow,
+/// convention), not content scroll. The map's `VirtualView` has no scroll overflow,
 /// so the framework's queued wheel deltas would otherwise be wasted — drain them
 /// and apply as a zoom step, then queue + spawn the tiles the new zoom needs and
 /// re-render in place.
@@ -878,13 +876,13 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
     let dy: f32 = {
         let hn = info.get_hit_node();
         match hn.node.into_crate_internal() {
-            Some(nid) => info.get_scroll_delta(hn.dom, nid).map(|d| d.y).unwrap_or(0.0),
+            Some(nid) => info.get_scroll_delta(hn.dom, nid).map_or(0.0, |d| d.y),
             None => 0.0,
         }
     };
     #[cfg(feature = "std")]
     if std::env::var("AZ_MAP_DEBUG").is_ok() {
-        eprintln!("[map] scroll fired dy={}", dy);
+        eprintln!("[map] scroll fired dy={dy}");
     }
     if dy == 0.0 {
         return Update::DoNothing;
@@ -893,8 +891,7 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
     // the new zoom needs).
     let bounds = info
         .get_hit_node_rect()
-        .map(|r| r.size)
-        .unwrap_or(azul_core::geom::LogicalSize::new(0.0, 0.0));
+        .map_or(azul_core::geom::LogicalSize::new(0.0, 0.0), |r| r.size);
     let (vp, hook) = {
         let mut cache = match data.downcast_mut::<MapTileCache>() {
             Some(c) => c,
@@ -999,7 +996,7 @@ fn pan_viewport(
 // (`str_to_dom_unstyled` → `SvgNodeData::Path`) only produces a clip mask, so it
 // cannot paint the feature colours — hence the tiles rendered grey.
 #[cfg(all(feature = "xml", feature = "cpurender"))]
-pub fn svg_string_to_dom(svg: &str) -> Option<Dom> {
+#[must_use] pub fn svg_string_to_dom(svg: &str) -> Option<Dom> {
     let img = crate::cpurender::render_svg_to_imageref(svg.as_bytes(), 256, 256).ok()?;
     Some(
         Dom::create_image(img)
@@ -1024,7 +1021,7 @@ fn svg_string_to_dom(_svg: &str) -> Option<Dom> {
 
 /// Fires once when the widget first mounts. Kicks the initial tile
 /// fetches so the map populates without waiting for a user gesture.
-/// (The VirtualView marks the viewport's tiles `Pending` during the
+/// (The `VirtualView` marks the viewport's tiles `Pending` during the
 /// layout pass that precedes mount-event dispatch; this handler then
 /// spawns the workers for them.) Returns `RefreshDom` so the
 /// `Fetching` state shows immediately.
@@ -1063,7 +1060,7 @@ extern "C" fn map_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
 /// hundreds at once). Each thread gets:
 /// - init `RefAny` = `TileFetchInit { tile, url }`
 /// - writeback `RefAny` = a clone of the cache dataset, so
-///   `map_tile_writeback` mutates the same cache the VirtualView reads.
+///   `map_tile_writeback` mutates the same cache the `VirtualView` reads.
 ///
 /// Tiles transition `Pending → Fetching` here so they aren't
 /// re-spawned next frame. No-op when the cache has no `fetch_callback`.
@@ -1131,14 +1128,14 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     }
     #[cfg(feature = "std")]
     if std::env::var("AZ_MAP_DEBUG").is_ok() {
-        eprintln!("[map] spawn_pending: {} thread(s) spawned", spawn_count);
+        eprintln!("[map] spawn_pending: {spawn_count} thread(s) spawned");
     }
 }
 
 /// Low-frequency timer that spawns fetches for any `Pending` tiles the
-/// VirtualView marked since the last spawn — the path that the
-/// pointer/scroll/after_mount handlers can't cover (a rebuild-driven viewport
-/// change marks tiles `Pending` in the VirtualView render, which has no
+/// `VirtualView` marked since the last spawn — the path that the
+/// `pointer/scroll/after_mount` handlers can't cover (a rebuild-driven viewport
+/// change marks tiles `Pending` in the `VirtualView` render, which has no
 /// `add_thread`). Installed once in `map_on_after_mount`. The `data` clone
 /// tracks the persistent dataset, so writebacks land in the rendered cache.
 /// Cheap no-op when nothing is `Pending`; never `RefreshDom`s (that would
@@ -1156,7 +1153,7 @@ extern "C" fn map_fetch_sweep_tick(
 
 /// `{z}/{x}/{y}` substitution. Mirrors `azul_dll`'s `build_tile_url`
 /// (the widget can't reach the dll, so it's duplicated here — trivial).
-fn build_tile_url(template: &str, tile: MapTileId) -> alloc::string::String {
+fn build_tile_url(template: &str, tile: MapTileId) -> String {
     use alloc::string::ToString;
     template
         .replace("{z}", &tile.z.to_string())
@@ -1168,8 +1165,8 @@ fn build_tile_url(template: &str, tile: MapTileId) -> alloc::string::String {
 /// `writeback_data` handed to `Thread::create` (the same
 /// `MapTileCache` the widget reads); `incoming` is the `TileReadyMsg`
 /// the worker sent. Stamps the tile `Ready` (or `Failed`) and asks for
-/// a relayout so the VirtualView renders the new content.
-pub extern "C" fn map_tile_writeback(
+/// a relayout so the `VirtualView` renders the new content.
+#[must_use] pub extern "C" fn map_tile_writeback(
     mut cache_dataset: RefAny,
     mut incoming: RefAny,
     mut info: CallbackInfo,
@@ -1249,14 +1246,14 @@ fn wrap_tile_x(x: i32, tile_count: u32) -> u32 {
 }
 
 /// `f(view)` — the tile ids a `viewport` needs to fill a `bounds`-sized widget.
-/// Shared by the VirtualView render and the pan/zoom handlers so a handler can
+/// Shared by the `VirtualView` render and the pan/zoom handlers so a handler can
 /// mark + spawn the NEW viewport's tiles immediately, rather than waiting for the
 /// next render pass to discover them. Mirrors `map_widget_render`'s grid math.
 fn map_visible_tiles(
     viewport: &MapViewport,
     bounds: azul_core::geom::LogicalSize,
     layer: &MapTileLayer,
-) -> alloc::vec::Vec<MapTileId> {
+) -> Vec<MapTileId> {
     let z_int =
         (viewport.zoom.floor() as i32).clamp(layer.min_zoom as i32, layer.max_zoom as i32) as u8;
     let tile_count = 1u32 << z_int as u32;
@@ -1266,7 +1263,7 @@ fn map_visible_tiles(
     let centre_y = lat_to_tile_y(viewport.centre_lat_deg, tile_count as f64) as f32;
     let (x_min, x_max, y_min, y_max) =
         visible_tile_range(centre_x, centre_y, bounds.width, bounds.height, zoom_scale, tile_count);
-    let mut tiles = alloc::vec::Vec::new();
+    let mut tiles = Vec::new();
     for x in x_min..=x_max {
         for y in y_min..=y_max {
             tiles.push(MapTileId { z: z_int, x: wrap_tile_x(x, tile_count), y: y as u32 });
@@ -1293,7 +1290,7 @@ extern "C" fn map_widget_render(
     // render nothing until the layout settles to a finite box.
     if !width_px.is_finite() || !height_px.is_finite() || width_px <= 0.0 || height_px <= 0.0 {
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
-            eprintln!("[map] non-finite bounds {}x{} — skipping render", width_px, height_px);
+            eprintln!("[map] non-finite bounds {width_px}x{height_px} — skipping render");
         }
         return VirtualViewReturn {
             dom: OptionDom::None,
@@ -1463,9 +1460,8 @@ extern "C" fn map_widget_render(
                 "background: #e7e9ec; border: 1px solid #d0d4d9;"
             };
             let style = alloc::format!(
-                "position: absolute; left: {}px; top: {}px; \
-                 width: {}px; height: {}px; {}",
-                screen_x, screen_y, size_px, size_px, chrome
+                "position: absolute; left: {screen_x}px; top: {screen_y}px; \
+                 width: {size_px}px; height: {size_px}px; {chrome}"
             );
 
             let mut tile_div = Dom::create_div().with_css(style.as_str());
@@ -1481,7 +1477,7 @@ extern "C" fn map_widget_render(
                     }
                     None => {
                         tile_div = tile_div.with_child(
-                            Dom::create_text(alloc::format!("✓? z{}/{}/{}", z_int, x, y))
+                            Dom::create_text(alloc::format!("✓? z{z_int}/{x}/{y}"))
                                 .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
                         );
                     }
@@ -1492,7 +1488,7 @@ extern "C" fn map_widget_render(
                         _ => "",
                     };
                     tile_div = tile_div.with_child(
-                        Dom::create_text(alloc::format!("{} z{}/{}/{}", state_tag, z_int, x, y))
+                        Dom::create_text(alloc::format!("{state_tag} z{z_int}/{x}/{y}"))
                             .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
                     );
                 }
@@ -1623,9 +1619,9 @@ mod tests {
     fn pan_clamps_latitude_to_mercator_limit() {
         // A huge vertical drag can't push the centre past ±85°.
         let (_, lat_north) = pan_viewport(84.0, 0.0, 0.0, 0.0, 1.0e6);
-        assert!(lat_north <= 85.0 && lat_north >= -85.0);
+        assert!((-85.0..=85.0).contains(&lat_north));
         let (_, lat_south) = pan_viewport(-84.0, 0.0, 0.0, 0.0, -1.0e6);
-        assert!(lat_south <= 85.0 && lat_south >= -85.0);
+        assert!((-85.0..=85.0).contains(&lat_south));
     }
 
     #[test]

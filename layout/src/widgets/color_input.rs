@@ -19,7 +19,7 @@ use azul_css::{
 use crate::callbacks::{Callback, CallbackInfo};
 
 /// Rectangular input that displays a color and triggers a callback when clicked.
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct ColorInput {
     pub color_input_state: ColorInputStateWrapper,
@@ -50,7 +50,7 @@ azul_core::impl_managed_callback! {
 }
 
 /// Wrapper around [`ColorInputState`] that includes a title and an optional value-change callback.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct ColorInputStateWrapper {
     pub inner: ColorInputState,

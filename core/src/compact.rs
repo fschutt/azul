@@ -20,7 +20,7 @@ use alloc::vec::Vec;
 use crate::hash::DefaultHasher;
 
 impl CssPropertyCache {
-    /// Build a CompactLayoutCache from the current property cache state.
+    /// Build a `CompactLayoutCache` from the current property cache state.
     ///
     /// Must be called after `restyle()`, `apply_ua_css()`, and `compute_inherited_values()`.
     /// Resolves all layout-relevant properties for every node in the "normal" state
@@ -427,10 +427,10 @@ impl CssPropertyCache {
     /// Replaces the separate `compute_inherited_values()` + `build_compact_cache()` calls.
     /// For each node (in DOM index order, which is pre-order = parents before children):
     ///   1. Copy parent's compact values for INHERITABLE properties
-    ///   2. Apply this node's CSS properties on top (from css_props + inline + UA)
+    ///   2. Apply this node's CSS properties on top (from `css_props` + inline + UA)
     ///   3. Write directly to compact arrays
     ///
-    /// This eliminates 50K Vec clones from compute_inherited_values and
+    /// This eliminates 50K Vec clones from `compute_inherited_values` and
     /// avoids re-reading properties from 5 separate data structures.
     pub fn build_compact_cache_with_inheritance(
         &self,
@@ -614,7 +614,7 @@ impl CssPropertyCache {
             // would overwrite the inherited `color: red` on a Text child of `<p>`,
             // even though `<p>` correctly got red from `p { color: red }`.
             if !nd.is_text_node() {
-                for prop in self.global_css_props.iter() {
+                for prop in &self.global_css_props {
                     apply_css_property_to_compact(
                         prop,
                         &mut result.tier1_enums[i],
@@ -692,9 +692,9 @@ impl CssPropertyCache {
                     }
                 } else if let CssProperty::Display(v) = prop {
                     if let Some(e) = v.get_property() {
-                        let enc = azul_css::compact_cache::layout_display_to_u8(*e) as u64;
-                        let m = azul_css::compact_cache::DISPLAY_MASK;
-                        let s = azul_css::compact_cache::DISPLAY_SHIFT;
+                        let enc = layout_display_to_u8(*e) as u64;
+                        let m = DISPLAY_MASK;
+                        let s = DISPLAY_SHIFT;
                         result.tier1_enums[i] = (result.tier1_enums[i] & !(m << s)) | ((enc & m) << s);
                     }
                 } else {
@@ -791,7 +791,7 @@ fn apply_ua_css_to_compact(
 
 /// Resolve a node's font-size from relative units (em, %, rem, pt) to absolute px.
 /// CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
-/// Pre-order traversal guarantees parent's font_size is already resolved.
+/// Pre-order traversal guarantees parent's `font_size` is already resolved.
 fn resolve_font_size_to_px(
     tier2_dims: &mut [CompactNodeProps],
     node_idx: usize,
@@ -807,20 +807,17 @@ fn resolve_font_size_to_px(
     };
 
     let parent_font_size_px = parent_id
-        .map(|pid| {
+        .map_or(16.0, |pid| {
             decode_pixel_value_u32(tier2_dims[pid.index()].font_size)
-                .map(|ppv| ppv.number.get())
-                .unwrap_or(16.0)
-        })
-        .unwrap_or(16.0);
+                .map_or(16.0, |ppv| ppv.number.get())
+        });
 
     let resolved_px = match pv.metric {
         SizeMetric::Em => pv.number.get() * parent_font_size_px,
         SizeMetric::Percent => pv.number.get() / 100.0 * parent_font_size_px,
         SizeMetric::Rem => {
             decode_pixel_value_u32(tier2_dims[0].font_size)
-                .map(|rpv| rpv.number.get())
-                .unwrap_or(16.0)
+                .map_or(16.0, |rpv| rpv.number.get())
                 * pv.number.get()
         }
         SizeMetric::Pt => pv.number.get() * 96.0 / 72.0,
@@ -834,7 +831,7 @@ fn resolve_font_size_to_px(
 // Direct CssProperty → compact field writer
 // =============================================================================
 
-/// Apply a single CssProperty directly to the compact representation.
+/// Apply a single `CssProperty` directly to the compact representation.
 /// Called once per property per node — replaces the old 56+ getter approach.
 #[inline]
 fn apply_css_property_to_compact(
@@ -1198,7 +1195,7 @@ fn apply_css_property_to_compact(
 /// per property per node so that when a flag bit is clear, callers
 /// (e.g. `translate_to_text3_constraints`) can skip the cascade walk and use
 /// the default value — the slow walk would never find a declaration anyway.
-fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
+const fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
     // Only mark if the property value is actually "set" (not Auto/Initial/etc.).
     // Using `get_property().is_some()` mirrors the pattern used elsewhere in
     // this builder for has-X bits.
@@ -1234,9 +1231,9 @@ fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
 // Helper encoders for dimension properties
 // =============================================================================
 
-/// Encode a GridLine into i16: Auto=I16_AUTO, Line(n)=n, Span(n)=-(n).
-/// Named lines fall back to I16_SENTINEL (not compact-encodable).
-fn encode_grid_line(line: &azul_css::props::layout::grid::GridLine) -> i16 {
+/// Encode a `GridLine` into i16: `Auto=I16_AUTO`, Line(n)=n, Span(n)=-(n).
+/// Named lines fall back to `I16_SENTINEL` (not compact-encodable).
+const fn encode_grid_line(line: &azul_css::props::layout::grid::GridLine) -> i16 {
     use azul_css::props::layout::grid::GridLine;
     match line {
         GridLine::Auto => I16_AUTO,
@@ -1250,7 +1247,7 @@ fn encode_grid_line(line: &azul_css::props::layout::grid::GridLine) -> i16 {
     }
 }
 
-/// Encode a CssPropertyValue<LayoutWidth> into u32 compact form.
+/// Encode a `CssPropertyValue`<LayoutWidth> into u32 compact form.
 fn encode_layout_width<T: LayoutWidthLike>(val: &CssPropertyValue<T>) -> u32 {
     match val {
         CssPropertyValue::Exact(w) => w.encode_compact_u32(),
@@ -1262,13 +1259,13 @@ fn encode_layout_width<T: LayoutWidthLike>(val: &CssPropertyValue<T>) -> u32 {
     }
 }
 
-/// Encode a CssPropertyValue<LayoutHeight> into u32 compact form.
+/// Encode a `CssPropertyValue`<LayoutHeight> into u32 compact form.
 fn encode_layout_height<T: LayoutWidthLike>(val: &CssPropertyValue<T>) -> u32 {
     encode_layout_width(val)
 }
 
 /// Trait for types that can be encoded as compact u32 dimension values.
-/// Implemented for LayoutWidth, LayoutHeight (which are Auto|Px|MinContent|MaxContent|Calc enums).
+/// Implemented for `LayoutWidth`, `LayoutHeight` (which are Auto|Px|MinContent|MaxContent|Calc enums).
 trait LayoutWidthLike {
     fn encode_compact_u32(&self) -> u32;
 }
@@ -1276,12 +1273,12 @@ trait LayoutWidthLike {
 impl LayoutWidthLike for LayoutWidth {
     fn encode_compact_u32(&self) -> u32 {
         match self {
-            LayoutWidth::Auto => U32_AUTO,
-            LayoutWidth::Px(pv) => encode_pixel_value_u32(pv),
-            LayoutWidth::MinContent => U32_MIN_CONTENT,
-            LayoutWidth::MaxContent => U32_MAX_CONTENT,
-            LayoutWidth::FitContent(_) => U32_SENTINEL,
-            LayoutWidth::Calc(_) => U32_SENTINEL, // Calc → overflow to tier 3
+            Self::Auto => U32_AUTO,
+            Self::Px(pv) => encode_pixel_value_u32(pv),
+            Self::MinContent => U32_MIN_CONTENT,
+            Self::MaxContent => U32_MAX_CONTENT,
+            Self::FitContent(_) => U32_SENTINEL,
+            Self::Calc(_) => U32_SENTINEL, // Calc → overflow to tier 3
         }
     }
 }
@@ -1289,17 +1286,17 @@ impl LayoutWidthLike for LayoutWidth {
 impl LayoutWidthLike for LayoutHeight {
     fn encode_compact_u32(&self) -> u32 {
         match self {
-            LayoutHeight::Auto => U32_AUTO,
-            LayoutHeight::Px(pv) => encode_pixel_value_u32(pv),
-            LayoutHeight::MinContent => U32_MIN_CONTENT,
-            LayoutHeight::MaxContent => U32_MAX_CONTENT,
-            LayoutHeight::FitContent(_) => U32_SENTINEL,
-            LayoutHeight::Calc(_) => U32_SENTINEL,
+            Self::Auto => U32_AUTO,
+            Self::Px(pv) => encode_pixel_value_u32(pv),
+            Self::MinContent => U32_MIN_CONTENT,
+            Self::MaxContent => U32_MAX_CONTENT,
+            Self::FitContent(_) => U32_SENTINEL,
+            Self::Calc(_) => U32_SENTINEL,
         }
     }
 }
 
-/// Encode a CssPropertyValue wrapping a simple PixelValue struct (LayoutMinWidth, etc.)
+/// Encode a `CssPropertyValue` wrapping a simple `PixelValue` struct (`LayoutMinWidth`, etc.)
 fn encode_pixel_prop<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> u32 {
     match val {
         CssPropertyValue::Exact(inner) => encode_pixel_value_u32(&inner.get_inner_pixel()),
@@ -1356,7 +1353,7 @@ impl_has_inner_pixel!(
     azul_css::props::style::text::StyleTabSize
 );
 
-/// Encode a CssPropertyValue<T> where T wraps a PixelValue, as i16 (×10 resolved px).
+/// Encode a `CssPropertyValue`<T> where T wraps a `PixelValue`, as i16 (×10 resolved px).
 /// Delegates to the canonical `azul_css::compact_cache::encode_css_pixel_as_i16`.
 fn encode_css_pixel_as_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> i16 {
     let mapped = match val {
@@ -1370,12 +1367,12 @@ fn encode_css_pixel_as_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> 
     azul_css::compact_cache::encode_css_pixel_as_i16(&mapped)
 }
 
-/// Encode margin: same as encode_css_pixel_as_i16 but Auto is a distinct value.
+/// Encode margin: same as `encode_css_pixel_as_i16` but Auto is a distinct value.
 fn encode_margin_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> i16 {
     encode_css_pixel_as_i16(val)
 }
 
-/// Encode CssPropertyValue<LayoutFlexBasis> — LayoutFlexBasis is Auto | Exact(PixelValue).
+/// Encode `CssPropertyValue`<LayoutFlexBasis> — `LayoutFlexBasis` is Auto | Exact(PixelValue).
 fn encode_flex_basis(val: &CssPropertyValue<LayoutFlexBasis>) -> u32 {
     match val {
         CssPropertyValue::Exact(fb) => match fb {

@@ -385,7 +385,7 @@ fn fingerprint_deterministic() {
 #[test]
 fn text_change_only_affects_content_hash() {
     let a = NodeData::create_text("Hello");
-    let mut b = NodeData::create_text("World");
+    let b = NodeData::create_text("World");
     // Same ids/classes, same CSS, same attrs
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);

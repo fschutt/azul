@@ -67,7 +67,7 @@ pub fn render_svg_to_png(
 }
 
 /// Like [`render_svg_to_png`] but returns the rendered pixmap as an [`ImageRef`]
-/// (RGBA8) directly — no PNG round-trip. The MapWidget uses this to render each
+/// (RGBA8) directly — no PNG round-trip. The `MapWidget` uses this to render each
 /// decoded tile SVG to a colour image node: `SvgNodeData::Path` in the DOM only
 /// produces a clip mask (not a filled shape), so reuse the same `render_svg_group`
 /// rasteriser the tiger uses (which reads SVG fill/stroke attrs) and embed the
@@ -117,7 +117,7 @@ pub fn render_svg_to_imageref(
         height: target_height as usize,
         premultiplied_alpha: false,
         data_format: azul_core::resources::RawImageFormat::RGBA8,
-        tag: alloc::vec::Vec::new().into(),
+        tag: Vec::new().into(),
     };
     ImageRef::new_rawimage(raw).ok_or_else(|| "Failed to build ImageRef from pixmap".to_string())
 }
@@ -204,7 +204,7 @@ fn render_svg_group_with_style(
             .or(parent_style.stroke_width),
     };
 
-    for child in node.children.as_ref().iter() {
+    for child in node.children.as_ref() {
         let child_node = match child {
             XmlNodeChild::Element(e) => e,
             _ => continue,
@@ -323,7 +323,7 @@ fn render_svg_group_with_style(
     }
 }
 
-/// Build an agg PathStorage from an SVG shape element's attributes.
+/// Build an agg `PathStorage` from an SVG shape element's attributes.
 #[cfg(all(feature = "std", feature = "xml"))]
 fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
     let tag = node.node_type.as_str().to_lowercase();
@@ -438,13 +438,13 @@ fn attr_f64(node: &azul_core::xml::XmlNode, key: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Convert SvgMultiPolygon to agg PathStorage.
+/// Convert `SvgMultiPolygon` to agg `PathStorage`.
 #[cfg(all(feature = "std", feature = "xml"))]
 fn svg_multi_polygon_to_path_storage(mp: &azul_core::svg::SvgMultiPolygon) -> PathStorage {
     let mut path = PathStorage::new();
-    for ring in mp.rings.as_ref().iter() {
+    for ring in mp.rings.as_ref() {
         let mut first = true;
-        for item in ring.items.as_ref().iter() {
+        for item in ring.items.as_ref() {
             match item {
                 azul_core::svg::SvgPathElement::Line(l) => {
                     if first {

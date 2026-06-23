@@ -29,7 +29,7 @@ impl crate::codegen::format::FormatAsRustCode for CssDuration {
 
 /// Error returned when parsing a CSS duration string fails.
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum DurationParseError<'a> {
     InvalidValue(&'a str),
     ParseFloat(core::num::ParseFloatError),
@@ -45,7 +45,7 @@ impl_display! { DurationParseError<'a>, {
 
 /// Owned version of [`DurationParseError`] for FFI and storage.
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum DurationParseErrorOwned {
     InvalidValue(AzString),
@@ -53,10 +53,10 @@ pub enum DurationParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-impl<'a> DurationParseError<'a> {
-    pub fn to_contained(&self) -> DurationParseErrorOwned {
+impl DurationParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> DurationParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => DurationParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => DurationParseErrorOwned::InvalidValue((*s).to_string().into()),
             Self::ParseFloat(e) => DurationParseErrorOwned::ParseFloat(e.to_string().into()),
         }
     }
@@ -64,7 +64,7 @@ impl<'a> DurationParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl DurationParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> DurationParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> DurationParseError<'_> {
         match self {
             Self::InvalidValue(s) => DurationParseError::InvalidValue(s),
             Self::ParseFloat(s) => DurationParseError::InvalidValue(s.as_str()),
@@ -74,7 +74,7 @@ impl DurationParseErrorOwned {
 
 /// Parses a CSS duration string (e.g. `"200ms"`, `"1.5s"`) into a [`CssDuration`].
 #[cfg(feature = "parser")]
-pub fn parse_duration<'a>(input: &'a str) -> Result<CssDuration, DurationParseError<'a>> {
+pub fn parse_duration(input: &str) -> Result<CssDuration, DurationParseError<'_>> {
     let trimmed = input.trim().to_lowercase();
     if trimmed == "0" {
         return Ok(CssDuration { inner: 0 });
