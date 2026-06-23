@@ -233,5 +233,8 @@ pub mod modal;
 /// file's TODO2); a near-clone of `alert.rs` positioned as an overlay; see
 /// `toast.rs`.
 pub mod toast;
+/// Breadcrumb widget — a horizontal trail of clickable crumb links separated by
+/// "/", ending in the current (non-clickable) page; see `breadcrumb.rs`.
+pub mod breadcrumb;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
