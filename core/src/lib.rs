@@ -75,6 +75,7 @@ extern crate alloc;
 extern crate azul_css;
 
 /// Internal macros for `Vec`, `Option`, and callback boilerplate.
+///
 #[macro_use]
 pub mod macros;
 /// Debug logging system with category filtering.
@@ -257,17 +258,20 @@ pub mod hash {
 /// Callback types: layout, event, timer, thread, and focus handling.
 #[macro_use]
 pub mod callbacks;
-/// Host-language callback invoker registry — the C-ABI surface managed-FFI
-/// bindings (Lua, Ruby, …) use to register one per-kind invoker + a single
-/// shared releaser, so callbacks can be created via `_createFromHostHandle`
-/// without the host having to generate trampolines for struct-by-value
-/// signatures their FFI library can't handle.
+/// Host-language callback invoker registry.
+///
+/// The C-ABI surface managed-FFI bindings (Lua, Ruby, …) use to register one
+/// per-kind invoker + a single shared releaser, so callbacks can be created via
+/// `_createFromHostHandle` without the host having to generate trampolines for
+/// struct-by-value signatures their FFI library can't handle.
 #[macro_use]
 pub mod host_invoker;
 /// Accessibility types for screen-reader integration (AccessKit).
 pub mod a11y;
 /// Audio POD types — `AudioConfig` (stream format) + `AudioFrame` (interleaved
-/// f32 samples). The unit captured from the mic, played back, and (P8) shared
+/// f32 samples).
+///
+/// The unit captured from the mic, played back, and (P8) shared
 /// over UDP. Backend (rodio / cpal / AVAudioEngine / AAudio) lives dll-side.
 pub mod audio;
 /// Biometric-auth POD types — `BiometricKind` + `BiometricResult` + `BiometricPrompt`.
@@ -275,7 +279,9 @@ pub mod audio;
 /// Stateful manager lives in `azul_layout::managers::biometric`.
 pub mod biometric;
 /// Camera-capture POD types — `CaptureStreamId` + `CameraConfig` +
-/// `CameraFacing` + `StreamState` + … . The stateful `CameraStream` /
+/// `CameraFacing` + `StreamState` + … .
+///
+/// The stateful `CameraStream` /
 /// `CameraManager` (which own the shared `ImageRef` texture) live in
 /// `azul_layout::managers::camera`.
 pub mod camera;
@@ -290,7 +296,9 @@ pub mod drag;
 /// Event filtering: mouse, keyboard, window, and synthetic events.
 pub mod events;
 /// Gamepad POD types — `GamepadId` + `GamepadButton` + `GamepadAxis` +
-/// `GamepadState`. Stateful manager lives in `azul_layout::managers::gamepad`.
+/// `GamepadState`.
+///
+/// Stateful manager lives in `azul_layout::managers::gamepad`.
 pub mod gamepad;
 /// Geolocation POD types — `LocationFix` + `GeolocationProbeConfig`.
 ///
@@ -299,6 +307,7 @@ pub mod geolocation;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
 /// OpenGL context wrappers, shader compilation, and texture cache.
+///
 pub mod gl;
 /// FXAA (Fast Approximate Anti-Aliasing) shader.
 pub mod gl_fxaa;
@@ -308,6 +317,7 @@ pub mod glconst;
 pub mod gpu;
 /// Hit-test results (which DOM nodes are under the cursor) + the type-safe
 /// hit-test tag system for compositor integration (merged from `hit_test_tag`).
+///
 pub mod hit_test;
 /// Icon provider system for loading icons from fonts, images, or zip packs.
 pub mod icon;
@@ -356,7 +366,9 @@ pub mod transform;
 /// Built-in user-agent default stylesheet.
 pub mod ua_css;
 /// UDP chunked-message framing (P8): split a >MTU payload into sequenced
-/// datagrams + reassemble them, tolerating reorder + loss. Pure logic the
+/// datagrams + reassemble them, tolerating reorder + loss.
+///
+/// Pure logic the
 /// dll's `Udp` handle builds on; unit-tested here. See `udp_framing.rs`.
 pub mod udp_framing;
 /// Default font/text constants and small geometry helpers for layout.

@@ -121,6 +121,7 @@ impl Default for OverflowingScrollNode {
 
 /// Extra source identifier within a pipeline, allowing multiple independent
 /// subsystems to generate `PipelineId` values without collision.
+///
 /// All pipelines still share the same `IdNamespace` and `DocumentId`.
 pub type PipelineSourceId = u32;
 
@@ -365,6 +366,7 @@ pub const TAG_TYPE_DOM_NODE: u16 = 0x0100;
 pub const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
 
 /// Marker for text selection hit-test areas (determines text selection regions)
+///
 /// These are pushed for text runs to enable text selection without affecting
 /// other hit-test logic. Selection may trigger re-rendering.
 ///
@@ -374,11 +376,13 @@ pub const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
 pub const TAG_TYPE_SELECTION: u16 = 0x0300;
 
 /// Marker for cursor hit-test areas (determines which cursor icon to show)
+///
 /// These are separate from DOM node tags to allow efficient cursor resolution
 /// without iterating over all DOM nodes. Cursor changes never require re-rendering.
 pub const TAG_TYPE_CURSOR: u16 = 0x0400;
 
 /// Marker for scroll container hit-test areas (for trackpad/wheel scrolling)
+///
 /// These identify scrollable containers even when no DOM node callbacks are registered.
 /// Scroll containers push this tag so the scroll manager can find them during wheel events.
 pub const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;

@@ -135,7 +135,9 @@ std::thread_local! {
 
 /// Drain the per-thread CSS cascade-walk counter populated by
 /// [`CssPropertyCache::get_property`] when `AZ_PROP_COUNT=1` is set
-/// in the environment. Returns `(property_label, count)` pairs
+/// in the environment.
+///
+/// Returns `(property_label, count)` pairs
 /// sorted by count descending. Layout-side instrumentation calls
 /// this after each `layout_document` to print which properties
 /// drove the most cascade walks.

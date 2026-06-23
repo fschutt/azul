@@ -508,6 +508,7 @@ impl Default for TimerCallbackReturn {
 
 /// Gives the `layout()` function access to the `RendererResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
+///
 #[derive(Debug)]
 #[repr(C)]
 /// Reference data container for `LayoutCallbackInfo` (all read-only fields)

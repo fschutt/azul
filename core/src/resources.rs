@@ -1611,7 +1611,9 @@ pub struct RawImage {
     pub tag: U8Vec,
 }
 
-/// A soft round brush for the painting API. The same parameters drive the CPU
+/// A soft round brush for the painting API.
+///
+/// The same parameters drive the CPU
 /// rasterizer ([`RawImage::paint_dot`]) and the GPU brush shader, so a stroke
 /// looks identical whether it lands on a `RawImage` or a `Texture`.
 #[repr(C)]
@@ -2878,7 +2880,9 @@ pub type ParseFontFn = fn(LoadedFontSource) -> Option<FontRef>; // = Option<Box<
 pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture, ExternalImageId);
 
 /// Compute the deterministic `ExternalImageId` that the OpenGL texture cache uses
-/// for a texture bound to a specific DOM node. The same `(DomId, NodeId)` always
+/// for a texture bound to a specific DOM node.
+///
+/// The same `(DomId, NodeId)` always
 /// maps to the same `ExternalImageId`, so cached display lists keep working across
 /// frames.
 #[must_use] pub fn texture_external_image_id(dom_id: DomId, node_id: NodeId) -> ExternalImageId {

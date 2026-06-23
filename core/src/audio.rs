@@ -42,7 +42,9 @@ impl AudioConfig {
     }
 }
 
-/// A chunk of audio - interleaved `f32` samples in `[-1.0, 1.0]`. For stereo
+/// A chunk of audio - interleaved `f32` samples in `[-1.0, 1.0]`.
+///
+/// For stereo
 /// the layout is `L, R, L, R, ...`. This is the unit the mic backend delivers,
 /// playback consumes, and (P8) azul-meet sends over UDP.
 #[repr(C)]

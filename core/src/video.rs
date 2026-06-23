@@ -77,7 +77,9 @@ impl VideoConfig {
 }
 
 /// One captured or decoded frame - tightly-packed RGBA8 pixels
-/// (`width * height * 4`). The unit a capture/decode worker produces, the
+/// (`width * height * 4`).
+///
+/// The unit a capture/decode worker produces, the
 /// `set_on_frame` hook hands to user code (effects / save / send), and (P8)
 /// azul-meet sends over UDP. Defined here (like [`crate::audio::AudioFrame`])
 /// so it crosses the FFI without `azul-layout` as a dependency.

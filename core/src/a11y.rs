@@ -148,7 +148,9 @@ impl_option!(
 );
 
 /// Defines the element's purpose for accessibility APIs, informing assistive technologies
-/// like screen readers about the function of a UI element. Each variant corresponds to a
+/// like screen readers about the function of a UI element.
+///
+/// Each variant corresponds to a
 /// standard control type or UI structure.
 ///
 /// For more details, see the [MSDN Role Constants page](https://docs.microsoft.com/en-us/windows/winauto/object-roles).

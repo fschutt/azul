@@ -62,6 +62,7 @@ macro_rules! impl_display {
 
 /// Helper macro implementing the shared trait impls (`Display`, `Debug`, `Hash`,
 /// `PartialEq`, `Eq`, `PartialOrd`, `Ord`) for callback types.
+///
 /// Used internally by [`impl_callback!`] and [`impl_callback_simple!`].
 #[macro_export]
 macro_rules! impl_callback_traits {
@@ -112,6 +113,7 @@ macro_rules! impl_callback_traits {
 
 /// Implements `Display, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord`
 /// for a callback struct with `.cb` (function pointer) and `.ctx` (`OptionRefAny`) fields.
+///
 /// Also implements `From<$callback_ty>` to create a callback from a raw function pointer.
 ///
 /// For callbacks with only a `.cb` field (no `.ctx`), use [`impl_callback_simple!`] instead.

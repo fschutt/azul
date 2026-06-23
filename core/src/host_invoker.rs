@@ -65,7 +65,9 @@ pub struct HostHandlePayload {
 }
 
 /// A single atomic-pointer slot for one registered host-side function
-/// pointer. `0` means "not registered"; the static thunks bail out (returning
+/// pointer.
+///
+/// `0` means "not registered"; the static thunks bail out (returning
 /// the kind's default value) when they see an unregistered slot rather than
 /// transmuting `0` into a fn pointer and crashing.
 #[repr(C)]
@@ -108,7 +110,9 @@ impl Default for InvokerSlot {
 /// when a host-handle [`RefAny`]'s last clone drops.
 pub static HOST_HANDLE_RELEASER: InvokerSlot = InvokerSlot::new();
 
-/// Process-global slot for the host's *generic* invoker. Set via
+/// Process-global slot for the host's *generic* invoker.
+///
+/// Set via
 /// [`AzApp_setGenericInvoker`]. Used as a fallback in macro-generated
 /// per-kind thunks when the per-kind invoker is not registered, and as
 /// the **only** dispatch path for user-defined custom callback kinds in
@@ -221,7 +225,9 @@ pub fn host_handle_to_refany(id: u64) -> RefAny {
 }
 
 /// Read the host-language id back out of a [`RefAny`] previously created
-/// via [`host_handle_to_refany`]. Returns `None` for any other `RefAny`, so
+/// via [`host_handle_to_refany`].
+///
+/// Returns `None` for any other `RefAny`, so
 /// a static thunk that mistakenly receives a non-host-handle ctx falls
 /// back to the kind's default value rather than reading random bytes.
 #[must_use] pub fn refany_to_host_handle(refany: &RefAny) -> Option<u64> {
@@ -236,7 +242,9 @@ pub fn host_handle_to_refany(id: u64) -> RefAny {
     Some(unsafe { (*ptr).id })
 }
 
-/// C-ABI: build a [`RefAny`] wrapping a host-language id. Lets managed-FFI
+/// C-ABI: build a [`RefAny`] wrapping a host-language id.
+///
+/// Lets managed-FFI
 /// bindings use the same machinery for user data that callbacks already use
 /// — one releaser, one id-keyed table, one lifetime story.
 ///
@@ -265,7 +273,9 @@ pub extern "C" fn AzRefAny_getHostHandle(refany: *const RefAny) -> u64 {
     refany_to_host_handle(r).unwrap_or(0)
 }
 
-/// Macro that expands to the per-callback-kind boilerplate: a static thunk
+/// Macro that expands to the per-callback-kind boilerplate:
+///
+/// a static thunk
 /// (compiled into libazul) that the framework calls with by-value args, a
 /// `<Wrapper>::create_from_host_handle(u64)` constructor, and an
 /// `AzApp_set<Kind>Invoker` setter the host calls once at module load.

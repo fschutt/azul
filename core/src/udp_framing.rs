@@ -21,7 +21,9 @@ pub const DEFAULT_CHUNK_PAYLOAD: usize = 1200;
 /// chunk can never leak memory.
 const MAX_PARTIAL_MESSAGES: usize = 256;
 
-/// Split `data` into chunk datagrams for `msg_id`. Each datagram is
+/// Split `data` into chunk datagrams for `msg_id`.
+///
+/// Each datagram is
 /// `CHUNK_HEADER_LEN + <= max_payload` bytes. An empty payload still produces
 /// one (header-only) chunk, so a zero-length message round-trips.
 #[must_use] pub fn chunk_message(msg_id: u32, data: &[u8], max_payload: usize) -> Vec<Vec<u8>> {
