@@ -200,5 +200,7 @@ pub mod segmented;
 /// Radio-group widget — vertical/horizontal group of mutually-exclusive options
 /// (exactly one selected) with a circular indicator; see `radio_group.rs`.
 pub mod radio_group;
+/// Tooltip widget — shows a small text popup near an anchor on hover; see `tooltip.rs`.
+pub mod tooltip;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
