@@ -24,7 +24,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::{fmt, hash::Hash};
+use core::{fmt, fmt::Write, hash::Hash};
 
 use azul_css::{
     css::{
@@ -5840,11 +5840,12 @@ fn set_stringified_attributes(
         .map(|s| s.split_whitespace().collect::<Vec<_>>())
         .unwrap_or_default()
     {
-        dom_string.push_str(&format!(
+        let _ = write!(
+            dom_string,
             "\r\n{}.with_id(\"{}\")",
             t0,
             format_args_dynamic(id, filtered_xml_attributes)
-        ));
+        );
     }
 
     for class in xml_attributes
@@ -5852,11 +5853,12 @@ fn set_stringified_attributes(
         .map(|s| s.split_whitespace().collect::<Vec<_>>())
         .unwrap_or_default()
     {
-        dom_string.push_str(&format!(
+        let _ = write!(
+            dom_string,
             "\r\n{}.with_class(\"{}\")",
             t0,
             format_args_dynamic(class, filtered_xml_attributes)
-        ));
+        );
     }
 
     if let Some(focusable) = xml_attributes
@@ -5864,9 +5866,9 @@ fn set_stringified_attributes(
         .map(|f| format_args_dynamic(f, filtered_xml_attributes))
         .and_then(|f| parse_bool(&f))
     {
-        if focusable { dom_string.push_str(&format!("\r\n{t}.with_tab_index(TabIndex::Auto)")) } else { dom_string.push_str(&format!(
+        if focusable { let _ = write!(dom_string, "\r\n{t}.with_tab_index(TabIndex::Auto)"); } else { let _ = write!(dom_string,
             "\r\n{t}.with_tab_index(TabIndex::NoKeyboardFocus)"
-        )); }
+        ); }
     }
 
     if let Some(tab_index) = xml_attributes
@@ -5875,14 +5877,14 @@ fn set_stringified_attributes(
         .and_then(|val| val.parse::<isize>().ok())
     {
         match tab_index {
-            0 => dom_string.push_str(&format!("\r\n{t}.with_tab_index(TabIndex::Auto)")),
-            i if i > 0 => dom_string.push_str(&format!(
+            0 => { let _ = write!(dom_string, "\r\n{t}.with_tab_index(TabIndex::Auto)"); },
+            i if i > 0 => { let _ = write!(dom_string,
                 "\r\n{}.with_tab_index(TabIndex::OverrideInParent({}))",
                 t, i as usize
-            )),
-            _ => dom_string.push_str(&format!(
+            ); },
+            _ => { let _ = write!(dom_string,
                 "\r\n{t}.with_tab_index(TabIndex::NoKeyboardFocus)"
-            )),
+            ); },
         }
     }
 }
@@ -6362,7 +6364,7 @@ pub fn compile_body_node_to_rust_code<'a>(
         let inline_css = css_blocks_to_inline_string(&css_blocks_for_this_node);
         if !inline_css.is_empty() {
             let escaped = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            dom_string.push_str(&format!("\r\n{t2}.with_css(\"{escaped}\")"));
+            let _ = write!(dom_string, "\r\n{t2}.with_css(\"{escaped}\")");
         }
         let _ = (&mut *css_blocks, matcher_hash); // retained for signature compat
     }
@@ -6380,7 +6382,7 @@ pub fn compile_body_node_to_rust_code<'a>(
                     matcher.indices_in_parent.push(child_idx);
                     matcher.children_length.push(body_node.children.len());
 
-                    dom_string.push_str(&format!(
+                    let _ = write!(dom_string,
                         "{}{},\r\n",
                         t,
                         compile_node_to_rust_code_inner(
@@ -6392,20 +6394,20 @@ pub fn compile_body_node_to_rust_code<'a>(
                             css,
                             matcher,
                         )?
-                    ));
+                    );
                 }
                 XmlNodeChild::Text(text) => {
                     let text = text.trim();
                     if !text.is_empty() {
                         let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
-                        dom_string.push_str(&format!(
+                        let _ = write!(dom_string,
                             "{t}Dom::create_text(\"{escaped}\"),\r\n"
-                        ));
+                        );
                     }
                 }
             }
         }
-        dom_string.push_str(&format!("\r\n{t}])"));
+        let _ = write!(dom_string, "\r\n{t}])");
     }
 
     let dom_string = dom_string.trim();
@@ -6503,9 +6505,9 @@ fn compile_and_format_dynamic_items(input: &[DynamicItem]) -> String {
                 Var { name, format_spec } => {
                     let variable_name = normalize_casing(name.trim());
                     if let Some(spec) = format_spec {
-                        formatted_str.push_str(&format!("{{{variable_name}:{spec}}}"));
+                        let _ = write!(formatted_str, "{{{variable_name}:{spec}}}");
                     } else {
-                        formatted_str.push_str(&format!("{{{variable_name}}}"));
+                        let _ = write!(formatted_str, "{{{variable_name}}}");
                     }
                     variables.push(variable_name.clone());
                 }
@@ -6611,7 +6613,7 @@ fn compile_node_to_rust_code_inner(
         let inline_css = css_blocks_to_inline_string(&css_blocks_for_this_node);
         if !inline_css.is_empty() {
             let escaped = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            dom_string.push_str(&format!("\r\n{t2}.with_css(\"{escaped}\")"));
+            let _ = write!(dom_string, "\r\n{t2}.with_css(\"{escaped}\")");
         }
         let _ = (&mut *css_blocks, matcher_hash); // retained for signature compat
     }
@@ -6675,9 +6677,9 @@ fn compile_node_to_rust_code_inner(
         .join(",\r\n");
 
     if !children_string.is_empty() {
-        dom_string.push_str(&format!(
+        let _ = write!(dom_string,
             "\r\n{t2}.with_children(vec![\r\n{children_string}\r\n{t2}])"
-        ));
+        );
     }
 
     Ok(dom_string)
@@ -7426,12 +7428,12 @@ fn compile_node_c(
     *counter += 1;
     let ctor = analyze_node_ctor(&component_name, node);
     match ctor.render_c() {
-        Some(expr) => out.push_str(&alloc::format!("    AzDom {var} = {expr};\n")),
-        None => out.push_str(&alloc::format!(
+        Some(expr) => { let _ = write!(out, "    AzDom {var} = {expr};\n"); },
+        None => { let _ = write!(out,
             "    AzDom {} = AzDom_create{}();\n",
             var,
             c_creator_suffix(safe_container_tag(&tag_dbg))
-        )),
+        ); },
     }
 
     matcher.path.push(CssPathSelector::Type(node_type_tag));
@@ -7449,16 +7451,16 @@ fn compile_node_c(
         let inline_css = css_blocks_to_inline_string(&blocks);
         if !inline_css.is_empty() {
             let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            out.push_str(&alloc::format!("    {var} = AzDom_withCss({var}, AZ_STR(\"{esc}\"));\n"));
+            let _ = write!(out, "    {var} = AzDom_withCss({var}, AZ_STR(\"{esc}\"));\n");
         }
     }
     for id in &ids {
         let esc = id.replace('\\', "\\\\").replace('"', "\\\"");
-        out.push_str(&alloc::format!("    {var} = AzDom_withId({var}, AZ_STR(\"{esc}\"));\n"));
+        let _ = write!(out, "    {var} = AzDom_withId({var}, AZ_STR(\"{esc}\"));\n");
     }
     for class in &classes {
         let esc = class.replace('\\', "\\\\").replace('"', "\\\"");
-        out.push_str(&alloc::format!("    {var} = AzDom_withClass({var}, AZ_STR(\"{esc}\"));\n"));
+        let _ = write!(out, "    {var} = AzDom_withClass({var}, AZ_STR(\"{esc}\"));\n");
     }
 
     let mut caption_skipped = false;
@@ -7477,7 +7479,7 @@ fn compile_node_c(
                 m.indices_in_parent.push(child_idx);
                 m.children_length.push(node.children.len());
                 let child_var = compile_node_c(child_node, component_map, css, m, counter, out)?;
-                out.push_str(&alloc::format!("    AzDom_addChild(&{var}, {child_var});\n"));
+                let _ = write!(out, "    AzDom_addChild(&{var}, {child_var});\n");
             }
             XmlNodeChild::Text(text) => {
                 if ctor.consumes_text() {
@@ -7486,9 +7488,9 @@ fn compile_node_c(
                 let text = text.trim();
                 if !text.is_empty() {
                     let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
-                    out.push_str(&alloc::format!(
+                    let _ = write!(out,
                         "    AzDom_addChild(&{var}, AzDom_createText(AZ_STR(\"{esc}\")));\n"
-                    ));
+                    );
                 }
             }
         }
@@ -7508,7 +7510,7 @@ pub fn str_to_c_code<'a>(
     // Emit the body as the root node, then its children.
     let root = alloc::format!("n{counter}");
     counter += 1;
-    body.push_str(&alloc::format!("    AzDom {root} = AzDom_createBody();\n"));
+    let _ = write!(body, "    AzDom {root} = AzDom_createBody();\n");
 
     let mut matcher = body_matcher(body_node);
     matcher.path.push(CssPathSelector::Type(NodeTypeTag::Body));
@@ -7521,7 +7523,7 @@ pub fn str_to_c_code<'a>(
         let inline_css = css_blocks_to_inline_string(&blocks);
         if !inline_css.is_empty() {
             let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            body.push_str(&alloc::format!("    {root} = AzDom_withCss({root}, AZ_STR(\"{esc}\"));\n"));
+            let _ = write!(body, "    {root} = AzDom_withCss({root}, AZ_STR(\"{esc}\"));\n");
         }
     }
     for (child_idx, child) in body_node.children.as_ref().iter().enumerate() {
@@ -7532,15 +7534,15 @@ pub fn str_to_c_code<'a>(
                 m.indices_in_parent.push(child_idx);
                 m.children_length.push(body_node.children.len());
                 let child_var = compile_node_c(child_node, component_map, &global_style, m, &mut counter, &mut body)?;
-                body.push_str(&alloc::format!("    AzDom_addChild(&{root}, {child_var});\n"));
+                let _ = write!(body, "    AzDom_addChild(&{root}, {child_var});\n");
             }
             XmlNodeChild::Text(text) => {
                 let text = text.trim();
                 if !text.is_empty() {
                     let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
-                    body.push_str(&alloc::format!(
+                    let _ = write!(body,
                         "    AzDom_addChild(&{root}, AzDom_createText(AZ_STR(\"{esc}\")));\n"
-                    ));
+                    );
                 }
             }
         }

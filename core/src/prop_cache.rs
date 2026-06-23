@@ -24,6 +24,7 @@
 extern crate alloc;
 
 use alloc::{boxed::Box, string::String, vec::Vec};
+use core::fmt::Write;
 use core::mem::ManuallyDrop;
 
 use crate::dom::NodeType;
@@ -1451,271 +1452,271 @@ impl CssPropertyCache {
     ) -> String {
         let mut s = String::new();
         if let Some(p) = self.get_background_content(node_data, node_id, node_state) {
-            s.push_str(&format!("background: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"background: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_background_position(node_data, node_id, node_state) {
-            s.push_str(&format!("background-position: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"background-position: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_background_size(node_data, node_id, node_state) {
-            s.push_str(&format!("background-size: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"background-size: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_background_repeat(node_data, node_id, node_state) {
-            s.push_str(&format!("background-repeat: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"background-repeat: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_font_size(node_data, node_id, node_state) {
-            s.push_str(&format!("font-size: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"font-size: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_font_family(node_data, node_id, node_state) {
-            s.push_str(&format!("font-family: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"font-family: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_text_color(node_data, node_id, node_state) {
-            s.push_str(&format!("color: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_text_align(node_data, node_id, node_state) {
-            s.push_str(&format!("text-align: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"text-align: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_line_height(node_data, node_id, node_state) {
-            s.push_str(&format!("line-height: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"line-height: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_letter_spacing(node_data, node_id, node_state) {
-            s.push_str(&format!("letter-spacing: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"letter-spacing: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_word_spacing(node_data, node_id, node_state) {
-            s.push_str(&format!("word-spacing: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"word-spacing: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_tab_size(node_data, node_id, node_state) {
-            s.push_str(&format!("tab-size: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"tab-size: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_cursor(node_data, node_id, node_state) {
-            s.push_str(&format!("cursor: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"cursor: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_box_shadow_left(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "-azul-box-shadow-left: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_box_shadow_right(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "-azul-box-shadow-right: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_box_shadow_top(node_data, node_id, node_state) {
-            s.push_str(&format!("-azul-box-shadow-top: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"-azul-box-shadow-top: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_box_shadow_bottom(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "-azul-box-shadow-bottom: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_border_top_color(node_data, node_id, node_state) {
-            s.push_str(&format!("border-top-color: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-top-color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_left_color(node_data, node_id, node_state) {
-            s.push_str(&format!("border-left-color: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-left-color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_right_color(node_data, node_id, node_state) {
-            s.push_str(&format!("border-right-color: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-right-color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_bottom_color(node_data, node_id, node_state) {
-            s.push_str(&format!("border-bottom-color: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-bottom-color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_top_style(node_data, node_id, node_state) {
-            s.push_str(&format!("border-top-style: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-top-style: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_left_style(node_data, node_id, node_state) {
-            s.push_str(&format!("border-left-style: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-left-style: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_right_style(node_data, node_id, node_state) {
-            s.push_str(&format!("border-right-style: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-right-style: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_bottom_style(node_data, node_id, node_state) {
-            s.push_str(&format!("border-bottom-style: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-bottom-style: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_top_left_radius(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "border-top-left-radius: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_border_top_right_radius(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "border-top-right-radius: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_border_bottom_left_radius(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "border-bottom-left-radius: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_border_bottom_right_radius(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "border-bottom-right-radius: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_opacity(node_data, node_id, node_state) {
-            s.push_str(&format!("opacity: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"opacity: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_transform(node_data, node_id, node_state) {
-            s.push_str(&format!("transform: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"transform: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_transform_origin(node_data, node_id, node_state) {
-            s.push_str(&format!("transform-origin: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"transform-origin: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_perspective_origin(node_data, node_id, node_state) {
-            s.push_str(&format!("perspective-origin: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"perspective-origin: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_backface_visibility(node_data, node_id, node_state) {
-            s.push_str(&format!("backface-visibility: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"backface-visibility: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_hyphens(node_data, node_id, node_state) {
-            s.push_str(&format!("hyphens: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"hyphens: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_direction(node_data, node_id, node_state) {
-            s.push_str(&format!("direction: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"direction: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_unicode_bidi(node_data, node_id, node_state) {
-            s.push_str(&format!("unicode-bidi: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"unicode-bidi: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_text_box_trim(node_data, node_id, node_state) {
-            s.push_str(&format!("text-box-trim: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"text-box-trim: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_text_box_edge(node_data, node_id, node_state) {
-            s.push_str(&format!("text-box-edge: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"text-box-edge: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_dominant_baseline(node_data, node_id, node_state) {
-            s.push_str(&format!("dominant-baseline: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"dominant-baseline: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_alignment_baseline(node_data, node_id, node_state) {
-            s.push_str(&format!("alignment-baseline: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"alignment-baseline: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_initial_letter_align(node_data, node_id, node_state) {
-            s.push_str(&format!("initial-letter-align: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"initial-letter-align: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_initial_letter_wrap(node_data, node_id, node_state) {
-            s.push_str(&format!("initial-letter-wrap: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"initial-letter-wrap: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_scrollbar_gutter(node_data, node_id, node_state) {
-            s.push_str(&format!("scrollbar-gutter: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"scrollbar-gutter: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_overflow_clip_margin(node_data, node_id, node_state) {
-            s.push_str(&format!("overflow-clip-margin: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"overflow-clip-margin: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_clip(node_data, node_id, node_state) {
-            s.push_str(&format!("clip: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"clip: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_white_space(node_data, node_id, node_state) {
-            s.push_str(&format!("white-space: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"white-space: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_display(node_data, node_id, node_state) {
-            s.push_str(&format!("display: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"display: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_float(node_data, node_id, node_state) {
-            s.push_str(&format!("float: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"float: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_box_sizing(node_data, node_id, node_state) {
-            s.push_str(&format!("box-sizing: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"box-sizing: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_width(node_data, node_id, node_state) {
-            s.push_str(&format!("width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_height(node_data, node_id, node_state) {
-            s.push_str(&format!("height: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"height: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_min_width(node_data, node_id, node_state) {
-            s.push_str(&format!("min-width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"min-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_min_height(node_data, node_id, node_state) {
-            s.push_str(&format!("min-height: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"min-height: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_max_width(node_data, node_id, node_state) {
-            s.push_str(&format!("max-width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"max-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_max_height(node_data, node_id, node_state) {
-            s.push_str(&format!("max-height: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"max-height: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_position(node_data, node_id, node_state) {
-            s.push_str(&format!("position: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"position: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_top(node_data, node_id, node_state) {
-            s.push_str(&format!("top: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"top: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_bottom(node_data, node_id, node_state) {
-            s.push_str(&format!("bottom: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"bottom: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_right(node_data, node_id, node_state) {
-            s.push_str(&format!("right: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"right: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_left(node_data, node_id, node_state) {
-            s.push_str(&format!("left: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"left: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_padding_top(node_data, node_id, node_state) {
-            s.push_str(&format!("padding-top: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"padding-top: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_padding_bottom(node_data, node_id, node_state) {
-            s.push_str(&format!("padding-bottom: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"padding-bottom: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_padding_left(node_data, node_id, node_state) {
-            s.push_str(&format!("padding-left: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"padding-left: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_padding_right(node_data, node_id, node_state) {
-            s.push_str(&format!("padding-right: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"padding-right: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_margin_top(node_data, node_id, node_state) {
-            s.push_str(&format!("margin-top: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"margin-top: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_margin_bottom(node_data, node_id, node_state) {
-            s.push_str(&format!("margin-bottom: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"margin-bottom: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_margin_left(node_data, node_id, node_state) {
-            s.push_str(&format!("margin-left: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"margin-left: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_margin_right(node_data, node_id, node_state) {
-            s.push_str(&format!("margin-right: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"margin-right: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_top_width(node_data, node_id, node_state) {
-            s.push_str(&format!("border-top-width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-top-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_left_width(node_data, node_id, node_state) {
-            s.push_str(&format!("border-left-width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-left-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_right_width(node_data, node_id, node_state) {
-            s.push_str(&format!("border-right-width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-right-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_bottom_width(node_data, node_id, node_state) {
-            s.push_str(&format!("border-bottom-width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-bottom-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_overflow_x(node_data, node_id, node_state) {
-            s.push_str(&format!("overflow-x: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"overflow-x: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_overflow_y(node_data, node_id, node_state) {
-            s.push_str(&format!("overflow-y: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"overflow-y: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_flex_direction(node_data, node_id, node_state) {
-            s.push_str(&format!("flex-direction: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"flex-direction: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_flex_wrap(node_data, node_id, node_state) {
-            s.push_str(&format!("flex-wrap: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"flex-wrap: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_flex_grow(node_data, node_id, node_state) {
-            s.push_str(&format!("flex-grow: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"flex-grow: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_flex_shrink(node_data, node_id, node_state) {
-            s.push_str(&format!("flex-shrink: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"flex-shrink: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_justify_content(node_data, node_id, node_state) {
-            s.push_str(&format!("justify-content: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"justify-content: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_align_items(node_data, node_id, node_state) {
-            s.push_str(&format!("align-items: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"align-items: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_align_content(node_data, node_id, node_state) {
-            s.push_str(&format!("align-content: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"align-content: {};", p.get_css_value_fmt());
         }
         s
     }
