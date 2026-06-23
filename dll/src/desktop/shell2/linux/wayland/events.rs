@@ -328,6 +328,7 @@ pub(super) extern "C" fn registry_global_handler(
             window.seat = seat;
             unsafe { (window.wayland.wl_seat_add_listener)(seat, &WL_SEAT_LISTENER, data) };
             unsafe { try_init_tablet(window, data) };
+            unsafe { try_init_data_device(window, data) };
         }
         "zwp_tablet_manager_v2" => {
             window.tablet_manager = unsafe {
@@ -339,6 +340,22 @@ pub(super) extern "C" fn registry_global_handler(
                 ) as *mut _
             };
             unsafe { try_init_tablet(window, data) };
+        }
+        "wl_data_device_manager" => {
+            // Bind at version.min(3): v3 adds the DnD-action negotiation
+            // (set_actions/finish/source_actions/action) required by modern
+            // compositors. Lower versions skip those (version-gated below).
+            let v = version.min(3);
+            window.data_device_version = v;
+            window.data_device_manager = unsafe {
+                (window.wayland.wl_registry_bind)(
+                    registry,
+                    name,
+                    &window.wayland.wl_data_device_manager_interface,
+                    v,
+                ) as *mut _
+            };
+            unsafe { try_init_data_device(window, data) };
         }
         "wl_output" => {
             let output = unsafe {
@@ -722,6 +739,314 @@ static ZWP_TABLET_TOOL_LISTENER: zwp_tablet_tool_v2_listener = zwp_tablet_tool_v
     wheel: tool_wheel,
     button: tool_button,
     frame: tool_frame,
+};
+
+// ===== File drag-and-drop DESTINATION (wl_data_device) =====
+
+/// DnD MIME type we accept as a file drop target.
+const URI_LIST_MIME: &str = "text/uri-list";
+/// wl_data_device_manager.dnd_action: copy (bit 1).
+const WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY: u32 = 1;
+
+/// Live state for an in-progress drag over our surface (one drag at a time).
+#[derive(Default)]
+pub struct WaylandDragState {
+    /// The current incoming `wl_data_offer` (set by `data_offer`, consumed/
+    /// destroyed on leave or drop).
+    pub offer: *mut wl_data_offer,
+    /// Serial from the most recent `enter` — required to `accept` the offer.
+    pub enter_serial: u32,
+    /// Whether the current offer advertised `text/uri-list` (i.e. droppable files).
+    pub has_uri_list: bool,
+    /// Last drag position (window-local pixels), updated on enter/motion.
+    pub position: azul_core::geom::LogicalPosition,
+}
+
+/// Create the wl_data_device once both the manager and the seat are bound
+/// (idempotent; called from both registry arms in any order — mirrors
+/// `try_init_tablet`).
+pub(super) unsafe fn try_init_data_device(window: &mut WaylandWindow, data: *mut c_void) {
+    if window.data_device_initialized
+        || window.data_device_manager.is_null()
+        || window.seat.is_null()
+    {
+        return;
+    }
+    let dev = (window.wayland.wl_data_device_manager_get_data_device)(
+        window.data_device_manager,
+        window.seat,
+    );
+    window.data_device = dev;
+    (window.wayland.wl_data_device_add_listener)(dev, &WL_DATA_DEVICE_LISTENER, data);
+    window.data_device_initialized = true;
+}
+
+// --- wl_data_offer events ---
+extern "C" fn data_offer_offer(
+    data: *mut c_void,
+    _offer: *mut wl_data_offer,
+    mime_type: *const c_char,
+) {
+    if mime_type.is_null() {
+        return;
+    }
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let mime = unsafe { CStr::from_ptr(mime_type).to_str().unwrap_or_default() };
+    if mime == URI_LIST_MIME {
+        window.drag.has_uri_list = true;
+    }
+}
+extern "C" fn data_offer_source_actions(
+    _data: *mut c_void,
+    _offer: *mut wl_data_offer,
+    _source_actions: u32,
+) {
+}
+extern "C" fn data_offer_action(_data: *mut c_void, _offer: *mut wl_data_offer, _dnd_action: u32) {}
+static WL_DATA_OFFER_LISTENER: wl_data_offer_listener = wl_data_offer_listener {
+    offer: data_offer_offer,
+    source_actions: data_offer_source_actions,
+    action: data_offer_action,
+};
+
+// --- wl_data_device events ---
+/// A new data offer is incoming — attach the offer listener so its advertised
+/// MIME types arrive (via `offer`) before the `enter`/`selection` that uses it.
+extern "C" fn data_device_data_offer(
+    data: *mut c_void,
+    _dev: *mut wl_data_device,
+    id: *mut wl_data_offer,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // Reset per-offer flags; the `offer` events for this offer follow immediately.
+    window.drag.has_uri_list = false;
+    unsafe { (window.wayland.wl_data_offer_add_listener)(id, &WL_DATA_OFFER_LISTENER, data) };
+}
+
+/// Marshal `wl_data_offer.accept(serial, mime_type)` — opcode 0, signature "u?s".
+unsafe fn data_offer_accept(window: &WaylandWindow, offer: *mut wl_data_offer, serial: u32) {
+    let mime = std::ffi::CString::new(URI_LIST_MIME).unwrap();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32, *const c_char) =
+        std::mem::transmute(window.wayland.wl_proxy_marshal);
+    f(offer as *mut wl_proxy, 0, serial, mime.as_ptr());
+}
+
+/// Marshal `wl_data_offer.set_actions(dnd_actions, preferred)` — opcode 4 (v3+).
+unsafe fn data_offer_set_actions(window: &WaylandWindow, offer: *mut wl_data_offer) {
+    if window.data_device_version < 3 {
+        return;
+    }
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32, u32) =
+        std::mem::transmute(window.wayland.wl_proxy_marshal);
+    f(
+        offer as *mut wl_proxy,
+        4,
+        WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY,
+        WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY,
+    );
+}
+
+extern "C" fn data_device_enter(
+    data: *mut c_void,
+    _dev: *mut wl_data_device,
+    serial: u32,
+    _surface: *mut wl_surface,
+    x: i32,
+    y: i32,
+    id: *mut wl_data_offer,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.drag.offer = id;
+    window.drag.enter_serial = serial;
+    // wl_fixed (24.8) -> logical pixels.
+    let pos = azul_core::geom::LogicalPosition::new(x as f32 / 256.0, y as f32 / 256.0);
+    window.drag.position = pos;
+    if id.is_null() {
+        return;
+    }
+    // MUST accept the offer (and set DnD actions on v3+) or the compositor
+    // rejects the drop. Only accept if the source actually offered files.
+    if window.drag.has_uri_list {
+        unsafe {
+            data_offer_accept(window, id, serial);
+            data_offer_set_actions(window, id);
+        }
+        let r = window.handle_file_drag_entered(pos, vec!["<file>".to_string()]);
+        window.handle_process_event_result(r);
+    } else {
+        // Decline: accept(serial, NULL) clears the selection.
+        unsafe {
+            let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32, *const c_char) =
+                std::mem::transmute(window.wayland.wl_proxy_marshal);
+            f(id as *mut wl_proxy, 0, serial, std::ptr::null());
+        }
+    }
+}
+
+extern "C" fn data_device_motion(
+    data: *mut c_void,
+    _dev: *mut wl_data_device,
+    _time: u32,
+    x: i32,
+    y: i32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let pos = azul_core::geom::LogicalPosition::new(x as f32 / 256.0, y as f32 / 256.0);
+    window.drag.position = pos;
+    if window.drag.has_uri_list && !window.drag.offer.is_null() {
+        // Re-accept with the saved enter serial (compositors expect a response
+        // on each motion to keep the drag alive).
+        unsafe { data_offer_accept(window, window.drag.offer, window.drag.enter_serial) };
+        let r = window.handle_file_drag_entered(pos, vec!["<file>".to_string()]);
+        window.handle_process_event_result(r);
+    }
+}
+
+extern "C" fn data_device_leave(data: *mut c_void, _dev: *mut wl_data_device) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    if !window.drag.offer.is_null() {
+        unsafe { (window.wayland.wl_proxy_destroy)(window.drag.offer as *mut wl_proxy) };
+    }
+    window.drag.offer = std::ptr::null_mut();
+    window.drag.has_uri_list = false;
+    let r = window.handle_file_drag_exited();
+    window.handle_process_event_result(r);
+}
+
+extern "C" fn data_device_drop(data: *mut c_void, _dev: *mut wl_data_device) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let offer = window.drag.offer;
+    let pos = window.drag.position;
+    if offer.is_null() || !window.drag.has_uri_list {
+        return;
+    }
+
+    // Receive the text/uri-list payload through a pipe: receive(mime, write_fd)
+    // [opcode 1, "sh"], flush, close write end, read read end to EOF.
+    let paths = unsafe { receive_uri_list(window, offer) };
+
+    // v3+: finish() [opcode 3] then destroy() [opcode 2].
+    unsafe {
+        if window.data_device_version >= 3 {
+            let f: unsafe extern "C" fn(*mut wl_proxy, u32) =
+                std::mem::transmute(window.wayland.wl_proxy_marshal);
+            f(offer as *mut wl_proxy, 3);
+        }
+        (window.wayland.wl_proxy_destroy)(offer as *mut wl_proxy);
+    }
+    window.drag.offer = std::ptr::null_mut();
+    window.drag.has_uri_list = false;
+
+    if !paths.is_empty() {
+        let r = window.handle_file_drop(pos, paths);
+        window.handle_process_event_result(r);
+    }
+}
+
+/// Ask the source to write `text/uri-list` into a pipe, read it fully, and parse
+/// it into local file paths. Returns empty on any failure.
+unsafe fn receive_uri_list(window: &WaylandWindow, offer: *mut wl_data_offer) -> Vec<String> {
+    let mut fds = [0i32; 2];
+    if libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) != 0 {
+        return Vec::new();
+    }
+    let (read_fd, write_fd) = (fds[0], fds[1]);
+
+    // wl_data_offer.receive(mime_type, fd): opcode 1, signature "sh".
+    let mime = std::ffi::CString::new(URI_LIST_MIME).unwrap();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const c_char, i32) =
+        std::mem::transmute(window.wayland.wl_proxy_marshal);
+    f(offer as *mut wl_proxy, 1, mime.as_ptr(), write_fd);
+
+    // Flush BEFORE closing the write fd, otherwise the request never reaches the
+    // server and the read end blocks forever (deadlock).
+    (window.wayland.wl_display_flush)(window.display);
+    libc::close(write_fd);
+
+    // Read the read end to EOF.
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let n = libc::read(read_fd, chunk.as_mut_ptr() as *mut c_void, chunk.len());
+        if n > 0 {
+            buf.extend_from_slice(&chunk[..n as usize]);
+        } else if n == 0 {
+            break;
+        } else {
+            let err = *libc::__errno_location();
+            if err == libc::EINTR {
+                continue;
+            }
+            break;
+        }
+    }
+    libc::close(read_fd);
+
+    let text = String::from_utf8_lossy(&buf);
+    parse_uri_list(&text)
+}
+
+/// Parse a `text/uri-list` payload (RFC 2483) into local filesystem paths:
+/// CRLF/`\n`-separated, `#` comments skipped, `file://[host]/path` stripped to
+/// path + percent-decoded. Mirrors the X11 XDND parser.
+fn parse_uri_list(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for raw in text.split("\r\n").flat_map(|l| l.split('\n')) {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let path = if let Some(rest) = line.strip_prefix("file://") {
+            match rest.find('/') {
+                Some(idx) => &rest[idx..],
+                None => continue,
+            }
+        } else if line.starts_with('/') {
+            line
+        } else {
+            continue;
+        };
+        out.push(percent_decode(path));
+    }
+    out
+}
+
+/// Minimal `%XX` percent-decoder; invalid escapes pass through unchanged.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(h), Some(l)) = (hi, lo) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+extern "C" fn data_device_selection(
+    _data: *mut c_void,
+    _dev: *mut wl_data_device,
+    _id: *mut wl_data_offer,
+) {
+    // Clipboard selection offers are not consumed here (clipboard.rs owns that).
+}
+
+static WL_DATA_DEVICE_LISTENER: wl_data_device_listener = wl_data_device_listener {
+    data_offer: data_device_data_offer,
+    enter: data_device_enter,
+    leave: data_device_leave,
+    motion: data_device_motion,
+    drop: data_device_drop,
+    selection: data_device_selection,
 };
 
 pub(super) extern "C" fn seat_capabilities_handler(

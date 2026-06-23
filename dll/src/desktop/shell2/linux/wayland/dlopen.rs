@@ -156,6 +156,24 @@ pub struct Wayland {
     pub xdg_popup_grab: unsafe extern "C" fn(*mut xdg_popup, *mut wl_seat, u32),
     pub xdg_popup_destroy: unsafe extern "C" fn(*mut xdg_popup),
 
+    // wl_data_device family (file DnD destination). Interfaces are core
+    // wayland.xml symbols exported by libwayland-client.
+    pub wl_data_device_manager_interface: wl_interface,
+    pub wl_data_device_interface: wl_interface,
+    pub wl_data_offer_interface: wl_interface,
+    pub wl_data_device_manager_get_data_device:
+        unsafe extern "C" fn(*mut wl_data_device_manager, *mut wl_seat) -> *mut wl_data_device,
+    pub wl_data_device_add_listener: unsafe extern "C" fn(
+        *mut wl_data_device,
+        *const wl_data_device_listener,
+        *mut c_void,
+    ) -> i32,
+    pub wl_data_offer_add_listener: unsafe extern "C" fn(
+        *mut wl_data_offer,
+        *const wl_data_offer_listener,
+        *mut c_void,
+    ) -> i32,
+
     pub wl_seat_get_pointer: unsafe extern "C" fn(*mut wl_seat) -> *mut wl_pointer,
     pub wl_seat_get_keyboard: unsafe extern "C" fn(*mut wl_seat) -> *mut wl_keyboard,
     pub wl_seat_add_listener:
@@ -348,6 +366,15 @@ impl Wayland {
             wl_output_interface: unsafe {
                 *load_symbol!(lib_client, *const wl_interface, "wl_output_interface")
             },
+            wl_data_device_manager_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_data_device_manager_interface")
+            },
+            wl_data_device_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_data_device_interface")
+            },
+            wl_data_offer_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_data_offer_interface")
+            },
             // xdg-shell interfaces are NOT exported by libwayland-client (they are
             // wayland-scanner-generated); use our hand-built descriptors instead.
             xdg_wm_base_interface: *get_xdg_wm_base_interface(),
@@ -408,6 +435,10 @@ impl Wayland {
             xdg_popup_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             xdg_popup_grab: xdg_popup_grab_impl,
             xdg_popup_destroy: xdg_popup_destroy_impl,
+
+            wl_data_device_manager_get_data_device: wl_data_device_manager_get_data_device_impl,
+            wl_data_device_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
+            wl_data_offer_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
 
             wl_seat_get_pointer: wl_seat_get_pointer_impl,
             wl_seat_get_keyboard: wl_seat_get_keyboard_impl,
@@ -487,6 +518,7 @@ struct WlMarshalCtx {
     wl_keyboard: *const wl_interface,
     wl_touch: *const wl_interface,
     wl_callback: *const wl_interface,
+    wl_data_device: *const wl_interface,
     wl_region: *const wl_interface,
     wl_shm_pool: *const wl_interface,
     wl_buffer: *const wl_interface,
@@ -514,6 +546,7 @@ fn init_marshal_ctx(w: &Wayland) {
         wl_keyboard: &w.wl_keyboard_interface,
         wl_touch: &w.wl_touch_interface,
         wl_callback: &w.wl_callback_interface,
+        wl_data_device: &w.wl_data_device_interface,
         wl_region: &w.wl_region_interface,
         wl_shm_pool: &w.wl_shm_pool_interface,
         wl_buffer: &w.wl_buffer_interface,
@@ -702,6 +735,17 @@ unsafe extern "C" fn zwp_tablet_manager_v2_get_tablet_seat_impl(
         std::mem::transmute(c.marshal_constructor);
     f(mgr as *mut wl_proxy, 0, get_tablet_seat_v2_interface() as *const _, std::ptr::null_mut(), seat)
         as *mut zwp_tablet_seat_v2
+}
+// wl_data_device_manager.get_data_device: opcode 1 (opcode 0 = create_data_source),
+// signature "no" (new_id<wl_data_device>, object<wl_seat>).
+unsafe extern "C" fn wl_data_device_manager_get_data_device_impl(
+    mgr: *mut wl_data_device_manager,
+    seat: *mut wl_seat,
+) -> *mut wl_data_device {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, *mut wl_seat) -> *mut wl_proxy =
+        std::mem::transmute(c.marshal_constructor);
+    f(mgr as *mut wl_proxy, 1, c.wl_data_device, std::ptr::null_mut(), seat) as *mut wl_data_device
 }
 unsafe extern "C" fn wl_shm_create_pool_impl(shm: *mut wl_shm, fd: i32, size: i32) -> *mut wl_shm_pool {
     let c = ctx();

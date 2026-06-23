@@ -163,6 +163,14 @@ pub struct WaylandWindow {
     tablet_manager: *mut defines::zwp_tablet_manager_v2,
     tablet_seat: *mut defines::zwp_tablet_seat_v2,
     tablet_initialized: bool,
+    // wl_data_device family (file drag-and-drop DESTINATION). Bound from the
+    // registry; the data_device is created once both manager + seat are ready
+    // (see events::try_init_data_device). `drag` holds the live transfer state.
+    data_device_manager: *mut defines::wl_data_device_manager,
+    data_device: *mut defines::wl_data_device,
+    data_device_version: u32,
+    data_device_initialized: bool,
+    drag: events::WaylandDragState,
     tablet_pen: events::TabletPenPending,
     // False until the first poll rebinds all proxy listeners to the stable boxed `self`.
     listeners_rebound: bool,
@@ -678,9 +686,13 @@ impl WaylandWindow {
             self.tablet_manager as _,
             self.tablet_seat as _,
         ];
-        let opt_proxies: [*mut std::ffi::c_void; 2] = [
+        let opt_proxies: [*mut std::ffi::c_void; 3] = [
             self.text_input.map_or(std::ptr::null_mut(), |p| p as _),
             self.toplevel_decoration.map_or(std::ptr::null_mut(), |p| p as _),
+            // wl_data_device (file DnD). The per-drag wl_data_offer proxies are
+            // created by handlers that already hold the stable pointer, so they
+            // inherit it automatically.
+            self.data_device as _,
         ];
         let me = self as *mut Self as *mut std::ffi::c_void;
         for p in proxies.iter().chain(opt_proxies.iter()) {
@@ -1177,6 +1189,11 @@ impl WaylandWindow {
             tablet_manager: std::ptr::null_mut(),
             tablet_seat: std::ptr::null_mut(),
             tablet_initialized: false,
+            data_device_manager: std::ptr::null_mut(),
+            data_device: std::ptr::null_mut(),
+            data_device_version: 0,
+            data_device_initialized: false,
+            drag: events::WaylandDragState::default(),
             tablet_pen: events::TabletPenPending::default(),
             frame_callback_pending: false,
             needs_redraw: false,
@@ -2632,6 +2649,69 @@ impl WaylandWindow {
                 .hover_manager
                 .push_hit_test(InputPointId::Mouse, hit_test);
         }
+    }
+
+    /// wl_data_device drag entering / moving over the surface (emits
+    /// `EventType::FileHover`). `position` is window-local; Wayland does not
+    /// expose the file paths until the drop, so `paths` is a placeholder marker
+    /// so the hover transition fires. Mirrors the X11/macOS handlers.
+    pub fn handle_file_drag_entered(
+        &mut self,
+        position: LogicalPosition,
+        paths: Vec<String>,
+    ) -> ProcessEventResult {
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.common.current_window_state.mouse_state.cursor_position =
+            CursorPosition::InWindow(position);
+        if let Some(first_path) = paths.first() {
+            if let Some(layout_window) = self.common.layout_window.as_mut() {
+                layout_window
+                    .file_drop_manager
+                    .set_hovered_file(Some(first_path.clone().into()));
+            }
+        }
+        self.update_hit_test(position);
+        self.process_window_events(0)
+    }
+
+    /// wl_data_device drag leaving without a drop (emits
+    /// `EventType::FileHoverCancel`). Mirrors the X11/macOS handlers.
+    pub fn handle_file_drag_exited(&mut self) -> ProcessEventResult {
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window.file_drop_manager.set_hovered_file(None);
+        }
+        let result = self.process_window_events(0);
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window.file_drop_manager.clear_hover_cancelled();
+        }
+        result
+    }
+
+    /// wl_data_device drop completed: the real file paths (parsed from
+    /// `text/uri-list`) dropped at window-local `position` (emits
+    /// `EventType::FileDrop`). Mirrors the X11/macOS handlers.
+    pub fn handle_file_drop(
+        &mut self,
+        position: LogicalPosition,
+        paths: Vec<String>,
+    ) -> ProcessEventResult {
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.common.current_window_state.mouse_state.cursor_position =
+            CursorPosition::InWindow(position);
+        if let Some(first_path) = paths.first() {
+            if let Some(layout_window) = self.common.layout_window.as_mut() {
+                layout_window
+                    .file_drop_manager
+                    .set_dropped_file(Some(first_path.clone().into()));
+            }
+        }
+        self.update_hit_test(position);
+        let result = self.process_window_events(0);
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window.file_drop_manager.set_dropped_file(None);
+        }
+        result
     }
 
     /// Try to show context menu for a node at the given position

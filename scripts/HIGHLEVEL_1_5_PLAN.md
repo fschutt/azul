@@ -197,7 +197,39 @@ env — NOT global, which leaks into host build scripts). FileDropManager hooks:
 | 6 | macOS global menu bar + context menu (NSMenu) — missing (azul-paint demo) | dll macOS shell + core Menu API | DONE |
 | 7 | Windows file DnD hover+drop (OLE IDropTarget; today legacy WM_DROPFILES drop-only) | dll windows shell | DONE |
 | 8 | X11 file DnD (XDND protocol) — none today | dll x11 shell | DONE (drop+hover via XDND v5; >3-type XdndTypeList read = TODO2) |
-| 9 | Wayland file DnD (wl_data_device) — none today | dll wayland shell | TODO (research done; see recipe) |
+| 9 | Wayland file DnD (wl_data_device) — none today | dll wayland shell | DONE (drop+hover via wl_data_device v3; compile-verified, needs live Wayland session to runtime-test) |
+
+## Item 9 — Wayland file DnD as a drop target (wl_data_device, recipe D)  (DONE)
+Files: `dll/src/desktop/shell2/linux/wayland/{defines.rs,dlopen.rs,events.rs,mod.rs}`.
+Gap: nothing existed — Wayland was not a file drop target at all.
+- [x] `defines.rs`: opaque `wl_data_device_manager`/`wl_data_device`/`wl_data_offer`
+      proxies + `wl_data_device_listener` (data_offer/enter/leave/motion/drop/selection)
+      + `wl_data_offer_listener` (offer/source_actions/action). Mirrors `wl_seat`.
+- [x] `dlopen.rs`: load `wl_data_device_manager_interface`/`wl_data_device_interface`/
+      `wl_data_offer_interface` (core libwayland-client symbols, like `wl_seat_interface`);
+      `wl_data_device_manager_get_data_device` constructor impl (opcode 1, "no"); the two
+      add_listener fns (transmuted `wl_proxy_add_listener`); `wl_data_device` added to the
+      marshal ctx.
+- [x] Registry: bind `wl_data_device_manager` at `version.min(3)` + `try_init_data_device`
+      (mirrors `try_init_tablet`; called from both the seat arm and the manager arm). Added
+      `data_device`/`data_device_manager`/`data_device_version`/`data_device_initialized` +
+      `drag: WaylandDragState` to `WaylandWindow`; data_device added to `rebind_listeners`.
+- [x] Handlers (`events.rs`): `wl_data_offer.offer` collects MIMEs (flags text/uri-list);
+      `data_offer` attaches the offer listener + resets the per-offer flag; `enter` saves the
+      serial, `accept(serial,"text/uri-list")` + (v3+) `set_actions(copy,copy)`, fires
+      `handle_file_drag_entered` (coords wl_fixed `/256`); `motion` re-accepts + updates
+      hover; `leave` destroys the offer + `handle_file_drag_exited`; `drop` does
+      `pipe2(O_CLOEXEC)` → `receive("text/uri-list",fd)` → flush → close write → read to
+      EOF → `parse_uri_list` (CRLF/`\n`, skip `#`, strip `file://`, percent-decode) →
+      `handle_file_drop` → (v3+) `finish` + `destroy`. set_actions/finish version-gated to
+      v3+; flush before closing write fd; listeners `'static`. Declines (accept NULL) when
+      no text/uri-list is offered.
+- [x] `handle_file_drag_entered`/`handle_file_drag_exited`/`handle_file_drop` added to
+      `WaylandWindow` (explicit position arg; route through `FileDropManager` +
+      `process_window_events`; results fed to `handle_process_event_result`). Mirrors X11.
+- Verify: `cargo check --target x86_64-unknown-linux-gnu -p azul-dll --features build-dll`
+      PASSES (target-scoped `CC_*`/`CXX_*`/`AR_*`/`CARGO_TARGET_*_LINKER`). Runtime drag of
+      a file onto a window needs a live Wayland compositor — not testable on this macOS host.
 
 ## Item 8 — X11 file DnD as a drop target (XDND protocol)  (DONE)
 Files: `dll/src/desktop/shell2/linux/x11/defines.rs`, `dlopen.rs`, `events.rs`, `mod.rs`.

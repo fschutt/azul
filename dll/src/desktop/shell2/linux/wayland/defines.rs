@@ -76,6 +76,53 @@ pub struct wl_keyboard {
 pub struct wl_touch {
     _private: [u8; 0],
 }
+// wl_data_device family (core wayland.xml) — file drag-and-drop DESTINATION.
+#[repr(C)]
+pub struct wl_data_device_manager {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct wl_data_device {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct wl_data_offer {
+    _private: [u8; 0],
+}
+
+/// Listener for `wl_data_offer` events. `offer` enumerates the MIME types the
+/// source advertises; `source_actions`/`action` are v3+ DnD-action negotiation.
+#[repr(C)]
+pub struct wl_data_offer_listener {
+    pub offer: extern "C" fn(data: *mut c_void, offer: *mut wl_data_offer, mime_type: *const c_char),
+    pub source_actions:
+        extern "C" fn(data: *mut c_void, offer: *mut wl_data_offer, source_actions: u32),
+    pub action: extern "C" fn(data: *mut c_void, offer: *mut wl_data_offer, dnd_action: u32),
+}
+
+/// Listener for `wl_data_device` events (drag enter/motion/leave/drop +
+/// data_offer announcement + clipboard selection). Coordinates in `enter`/
+/// `motion` are `wl_fixed` (24.8 fixed point — divide by 256 for pixels).
+#[repr(C)]
+pub struct wl_data_device_listener {
+    pub data_offer: extern "C" fn(data: *mut c_void, dev: *mut wl_data_device, id: *mut wl_data_offer),
+    pub enter: extern "C" fn(
+        data: *mut c_void,
+        dev: *mut wl_data_device,
+        serial: u32,
+        surface: *mut wl_surface,
+        x: i32,
+        y: i32,
+        id: *mut wl_data_offer,
+    ),
+    pub leave: extern "C" fn(data: *mut c_void, dev: *mut wl_data_device),
+    pub motion:
+        extern "C" fn(data: *mut c_void, dev: *mut wl_data_device, time: u32, x: i32, y: i32),
+    pub drop: extern "C" fn(data: *mut c_void, dev: *mut wl_data_device),
+    pub selection:
+        extern "C" fn(data: *mut c_void, dev: *mut wl_data_device, id: *mut wl_data_offer),
+}
+
 #[repr(C)]
 pub struct wl_shm {
     _private: [u8; 0],
