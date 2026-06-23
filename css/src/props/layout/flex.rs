@@ -49,7 +49,7 @@ impl PrintAsCssValue for LayoutFlexGrow {
 impl LayoutFlexGrow {
     #[must_use] pub fn new(value: isize) -> Self {
         Self {
-            inner: FloatValue::new(value as f32),
+            inner: FloatValue::new(crate::cast::isize_to_f32(value)),
         }
     }
 

@@ -71,6 +71,11 @@ extern crate core;
 #[macro_use]
 /// Internal macros for reducing boilerplate in property definitions.
 pub mod macros;
+/// Internal numeric-cast helpers (named, documented `as` conversions).
+/// `pub` + `pub(crate)` fns so it trips neither `unreachable_pub` nor
+/// `redundant_pub_crate` (they conflict); `#[doc(hidden)]` keeps it out of the API.
+#[doc(hidden)]
+pub mod cast;
 /// Multi-language code generation backends (Rust, C++, Python).
 pub mod codegen;
 /// Three-tier numeric property cache for fast style resolution.

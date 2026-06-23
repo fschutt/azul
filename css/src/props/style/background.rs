@@ -1589,11 +1589,11 @@ pub mod parser {
                         };
 
                         let run_len = run_end - run_start;
-                        let step = (next_pos - prev_pos) / (run_len + 1) as f32;
+                        let step = (next_pos - prev_pos) / crate::cast::usize_to_f32(run_len + 1);
 
                         for j in 0..run_len {
                             expanded[run_start + j].1 =
-                                Some(pos_ctor(prev_pos + step * (j + 1) as f32));
+                                Some(pos_ctor(prev_pos + step * crate::cast::usize_to_f32(j + 1)));
                         }
 
                         i = run_end;

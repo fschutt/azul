@@ -161,10 +161,10 @@ impl LayoutRect {
     }
 
     #[must_use] pub fn contains_f32(&self, other_x: f32, other_y: f32) -> bool {
-        self.min_x() as f32 <= other_x
-            && other_x < self.max_x() as f32
-            && self.min_y() as f32 <= other_y
-            && other_y < self.max_y() as f32
+        crate::cast::isize_to_f32(self.min_x()) <= other_x
+            && other_x < crate::cast::isize_to_f32(self.max_x())
+            && crate::cast::isize_to_f32(self.min_y()) <= other_y
+            && other_y < crate::cast::isize_to_f32(self.max_y())
     }
 
     /// Like `contains()`, but returns the (x, y) offset of the hit point
