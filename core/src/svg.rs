@@ -131,11 +131,13 @@ impl SvgLine {
     }
 
     /// Returns the X coordinate at parametric position `t` (0.0 = start, 1.0 = end).
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use] pub fn get_x_at_t(&self, t: f64) -> f64 {
         f64::from(self.start.x) + (f64::from(self.end.x) - f64::from(self.start.x)) * t
     }
 
     /// Returns the Y coordinate at parametric position `t` (0.0 = start, 1.0 = end).
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use] pub fn get_y_at_t(&self, t: f64) -> f64 {
         f64::from(self.start.y) + (f64::from(self.end.y) - f64::from(self.start.y)) * t
     }
@@ -713,6 +715,7 @@ pub struct SvgCircle {
 
 impl SvgCircle {
     /// Returns `true` if the given point lies inside the circle.
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use] pub fn contains_point(&self, x: f32, y: f32) -> bool {
         let x_diff = libm::fabsf(x - self.center_x);
         let y_diff = libm::fabsf(y - self.center_y);

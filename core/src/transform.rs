@@ -120,6 +120,7 @@ impl ComputedTransform3D {
     ///
     /// NOTE: This is a relatively expensive operation.
     #[must_use]
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     pub fn inverse(&self) -> Self {
         let det = self.determinant();
 
@@ -221,6 +222,7 @@ impl ComputedTransform3D {
         m.multiply_scalar(1.0 / det)
     }
 
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     fn determinant(&self) -> f32 {
         self.m[0][3] * self.m[1][2] * self.m[2][1] * self.m[3][0]
             - self.m[0][2] * self.m[1][3] * self.m[2][1] * self.m[3][0]
@@ -559,6 +561,7 @@ impl ComputedTransform3D {
     /// The supplied axis must be normalized.
     #[must_use]
     #[inline]
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     fn new_rotation(x: f32, y: f32, z: f32, theta_radians: f32) -> Self {
         let xx = x * x;
         let yy = y * y;
@@ -880,6 +883,7 @@ impl ComputedTransform3D {
     /// Creates a rotation matrix around the given axis, adjusted for the coordinate system.
     #[must_use]
     #[inline]
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     fn make_rotation(
         rotation_origin: (f32, f32),
         mut degrees: f32,

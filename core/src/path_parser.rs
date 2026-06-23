@@ -251,6 +251,7 @@ impl<'a> PathParser<'a> {
         Ok(())
     }
 
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     fn handle_smooth_cubic_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
         let ctrl_1 = match self.last_control {
             Some(lc) if matches!(self.last_command.to_ascii_uppercase(), b'C' | b'S') => {
@@ -286,6 +287,7 @@ impl<'a> PathParser<'a> {
         Ok(())
     }
 
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     fn handle_smooth_quadratic_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
         let ctrl = match self.last_control {
             Some(lc) if matches!(self.last_command.to_ascii_uppercase(), b'Q' | b'T') => {
@@ -326,6 +328,7 @@ impl<'a> PathParser<'a> {
 /// Each M/m command starts a new subpath (ring). All 14 SVG path commands are
 /// supported including arcs (converted to cubic beziers).
 #[must_use]
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
     let d = d.trim();
     if d.is_empty() {
@@ -490,6 +493,7 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
 /// Convert an SVG arc to 1–4 cubic bezier curves.
 ///
 /// Implements the SVG spec arc endpoint-to-center parameterization (Appendix F.6).
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn arc_to_cubics(
     start: SvgPoint,
     end: SvgPoint,
@@ -592,6 +596,7 @@ fn arc_to_cubics(
 }
 
 /// Compute the angle between two vectors.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn angle_between(ux: f32, uy: f32, vx: f32, vy: f32) -> f32 {
     let dot = ux * vx + uy * vy;
     let len = ((ux * ux + uy * uy) * (vx * vx + vy * vy)).sqrt();
@@ -608,6 +613,7 @@ fn angle_between(ux: f32, uy: f32, vx: f32, vy: f32) -> f32 {
 }
 
 /// Convert a single arc segment (<=90 degrees) to a cubic bezier.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn arc_segment_to_cubic(
     cx: f32,
     cy: f32,

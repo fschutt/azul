@@ -1650,6 +1650,7 @@ impl Brush {
 /// `t` is `distance / radius` in `[0, 1]`; `hardness` in `[0, 1]`. Single source
 /// of truth for the dab profile -- the GPU brush shader computes the identical
 /// `1 - smoothstep(hardness, 1, t)` so CPU and GPU strokes match.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[inline]
 #[must_use] pub fn brush_dab_coverage(t: f32, hardness: f32) -> f32 {
     let edge0 = hardness.clamp(0.0, 1.0);
@@ -1663,6 +1664,7 @@ impl RawImage {
     /// coordinates, alpha-over compositing a radial-falloff disc. Only 8-bit
     /// `RGBA8`/`BGRA8` images are painted (other formats are left untouched).
     /// This is the CPU mirror of the GPU brush shader.
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     pub fn paint_dot(&mut self, cx: f32, cy: f32, brush: Brush) {
         let r = brush.radius;
         if !(r > 0.0) || self.width == 0 || self.height == 0 {
@@ -1719,6 +1721,7 @@ impl RawImage {
     /// CPU painting: stamp a stroke by spacing dabs along the segment
     /// (`x0`,`y0`)->(`x1`,`y1`). Call once per pointer move with the previous and
     /// current positions for a continuous line.
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: Brush) {
         let dx = x1 - x0;
         let dy = y1 - y0;

@@ -3064,6 +3064,7 @@ impl Texture {
     /// GPU painting: stamp dabs along (`x0`,`y0`)->(`x1`,`y1`) into this texture
     /// via an FBO + the soft-brush shader, alpha-over blended. Same spacing +
     /// falloff as the CPU `RawImage::paint_stroke`. No-op if GL is unusable.
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: Brush) {
         let gl = self.gl_context.clone();
         let prog = gl.get_brush_shader();
