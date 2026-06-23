@@ -449,6 +449,17 @@ impl CssPropertyCache {
         prev_font_hashes: &[u64],
         debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
     ) -> CompactLayoutCache {
+        // Inheritable tier1 CSS fields (font-weight/style, text-align, visibility,
+        // white-space, direction, border-collapse). Copied from parent in Step 1.
+        const INHERITABLE_TIER1_MASK: u64 =
+            (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
+            | (FONT_STYLE_MASK << FONT_STYLE_SHIFT)
+            | (TEXT_ALIGN_MASK << TEXT_ALIGN_SHIFT)
+            | (VISIBILITY_MASK << VISIBILITY_SHIFT)
+            | (WHITE_SPACE_MASK << WHITE_SPACE_SHIFT)
+            | (DIRECTION_MASK << DIRECTION_SHIFT)
+            | (BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT);
+
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
@@ -552,15 +563,6 @@ impl CssPropertyCache {
             // Non-inheritable fields (display, position, float, overflow, box-sizing,
             // flex-*, clear, vertical-align, writing-mode) stay at 0 (CSS initial value).
             // They get set by UA CSS (Step 2) and author CSS (Step 3).
-            const INHERITABLE_TIER1_MASK: u64 =
-                (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
-                | (FONT_STYLE_MASK << FONT_STYLE_SHIFT)
-                | (TEXT_ALIGN_MASK << TEXT_ALIGN_SHIFT)
-                | (VISIBILITY_MASK << VISIBILITY_SHIFT)
-                | (WHITE_SPACE_MASK << WHITE_SPACE_SHIFT)
-                | (DIRECTION_MASK << DIRECTION_SHIFT)
-                | (BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT);
-
             let parent_id = node_hierarchy[i].parent_id();
             if let Some(pid) = parent_id {
                 let pi = pid.index();
@@ -681,7 +683,7 @@ impl CssPropertyCache {
                 // to a jump table that remill mis-lifts (never reaches the right arm) — same class as the
                 // CssProperty::clone bug. With the conversion-clone fix the prop discriminant is now
                 // correct, so these compares match and apply the value; everything else falls back.
-                use azul_css::props::property::CssProperty;
+                // (CssProperty is imported at module top.)
                 if let CssProperty::Width(v) = prop {
                     result.tier2_dims[i].width = encode_layout_width(v);
                 } else if let CssProperty::Height(v) = prop {

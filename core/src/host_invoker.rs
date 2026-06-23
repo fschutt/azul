@@ -374,6 +374,12 @@ macro_rules! impl_managed_callback {
             info: $info_ty,
             $( $extra_name : $extra_ty , )*
         ) -> $ret {
+            // Wrapper name as a null-terminated C string. `stringify!`
+            // expands `$wrapper:ty` to e.g. `Callback`,
+            // `ButtonOnClickCallback`, etc. — matching what the host's
+            // dispatch table keys on.
+            const KIND_STR: &str = concat!(stringify!($wrapper), "\0");
+
             let ctx = info.get_ctx();
             let handle = match ctx {
                 $crate::refany::OptionRefAny::Some(ref refany) => {
@@ -401,12 +407,6 @@ macro_rules! impl_managed_callback {
                 // whose parameter is typed as `AzGenericInvoker`.
                 let generic: $crate::host_invoker::AzGenericInvoker =
                     unsafe { core::mem::transmute(generic_addr) };
-
-                // Wrapper name as a null-terminated C string. `stringify!`
-                // expands `$wrapper:ty` to e.g. `Callback`,
-                // `ButtonOnClickCallback`, etc. — matching what the host's
-                // dispatch table keys on.
-                const KIND_STR: &str = concat!(stringify!($wrapper), "\0");
 
                 // Build the args array: pointers to each by-value frame
                 // arg, in declared order (data, info, extras…). Lifetime

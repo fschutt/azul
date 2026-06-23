@@ -1075,7 +1075,8 @@ impl CssPropertyCache {
         html_tree: &NodeDataContainerRef<CascadeInfo>,
     ) -> Vec<TagIdToNodeIdMapping> {
         use azul_css::{
-            css::{CssDeclaration, CssPathPseudoSelector::{Hover, Active, Focus, Dragging, DragOver}},
+            css::{CssDeclaration, CssPathPseudoSelector::{Hover, Active, Focus, Dragging, DragOver}, CssPathSelector, CssRuleBlock},
+            dynamic_selector::{DynamicSelector, PseudoStateType},
             props::layout::LayoutDisplay,
         };
 
@@ -1088,8 +1089,6 @@ impl CssPropertyCache {
             // Global-only rules apply to ALL nodes — push directly into css_props
             // without per-node selector matching (avoids m×n for these rules).
             // Specific rules still go through matches_html_element per-node.
-            use azul_css::css::{CssPathSelector, CssRuleBlock};
-
             let mut global_only_rules: Vec<&CssRuleBlock> = Vec::new();
             let mut specific_rules: Vec<&CssRuleBlock> = Vec::new();
 
@@ -1106,8 +1105,6 @@ impl CssPropertyCache {
 
             // Clear all css_props before assigning
             for entry in self.css_props.build_iter_mut() { entry.clear(); }
-
-            use azul_css::dynamic_selector::PseudoStateType;
 
             // Collect global-only rule declarations ONCE (not per-node).
             // These are stored in self.global_css_props and applied during
@@ -1213,8 +1210,6 @@ impl CssPropertyCache {
             let Some(parent_id) = node_id.into_crate_internal() else {
                 continue;
             };
-
-            use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
             let all_states = [
                 PseudoStateType::Normal,
@@ -2027,13 +2022,6 @@ impl CssPropertyCache {
 
         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
-        // First test if there is some user-defined override for the property
-        if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
-            if let Ok(idx) = v.binary_search_by_key(css_property_type, |(k, _)| *k) {
-                return Some(&v[idx].1);
-            }
-        }
-
         // Helper: do these conditions identify a rule that applies in `state`?
         // Empty conditions = Normal-only. Otherwise all conditions must be
         // PseudoState(state).
@@ -2048,6 +2036,13 @@ impl CssPropertyCache {
                 conditions
                     .iter()
                     .all(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state))
+            }
+        }
+
+        // First test if there is some user-defined override for the property
+        if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
+            if let Ok(idx) = v.binary_search_by_key(css_property_type, |(k, _)| *k) {
+                return Some(&v[idx].1);
             }
         }
 

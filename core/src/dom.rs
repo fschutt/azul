@@ -3046,12 +3046,12 @@ impl NodeData {
     ///
     /// See: <https://html.spec.whatwg.org/multipage/interaction.html#activation-behavior>
     #[must_use] pub fn has_activation_behavior(&self) -> bool {
+        use crate::events::{EventFilter, HoverEventFilter};
+
         // Inherently activatable elements per HTML spec
         if matches!(self.node_type, NodeType::A | NodeType::Button) {
             return true;
         }
-
-        use crate::events::{EventFilter, HoverEventFilter};
 
         // Check for click callback (most common case for Azul)
         // In Azul, "click" is typically LeftMouseUp

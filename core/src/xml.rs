@@ -4859,6 +4859,22 @@ pub fn get_html_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlPars
 /// Find the one and only `<body>` node, return error if
 /// there is no app node or there are multiple app nodes
 pub fn get_body_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlParseError> {
+    fn find_body_recursive(nodes: &[XmlNodeChild]) -> Option<&XmlNode> {
+        for child in nodes {
+            if let XmlNodeChild::Element(node) = child {
+                let node_type_normalized = normalize_casing(&node.node_type);
+                if &node_type_normalized == "body" {
+                    return Some(node);
+                }
+                // Recurse into children
+                if let Some(found) = find_body_recursive(node.children.as_ref()) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
     // First try to find body as a direct child (proper HTML structure)
     let direct_body = root_nodes
         .iter()
@@ -4882,22 +4898,6 @@ pub fn get_body_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlPars
 
     // If not found as direct child, search recursively (for malformed HTML like example.com)
     // where <body> might be nested inside <head> due to missing </head> tag
-    fn find_body_recursive(nodes: &[XmlNodeChild]) -> Option<&XmlNode> {
-        for child in nodes {
-            if let XmlNodeChild::Element(node) = child {
-                let node_type_normalized = normalize_casing(&node.node_type);
-                if &node_type_normalized == "body" {
-                    return Some(node);
-                }
-                // Recurse into children
-                if let Some(found) = find_body_recursive(node.children.as_ref()) {
-                    return Some(found);
-                }
-            }
-        }
-        None
-    }
-
     find_body_recursive(root_nodes).ok_or(DomXmlParseError::NoBodyInHtml)
 }
 
@@ -5063,8 +5063,7 @@ pub fn str_to_dom_unstyled<'a>(
     let body_dom = xml_node_to_dom_fast(body_node, component_map, false)
         .map_err(DomXmlParseError::from)?;
 
-    // Wrap in proper HTML structure
-    use crate::dom::NodeType;
+    // Wrap in proper HTML structure (NodeType is imported at module top)
     let root_node_type = body_dom.root.node_type.clone();
 
     let mut full_dom = match root_node_type {

@@ -450,6 +450,22 @@ pub struct DiffResult {
     dom_id: DomId,
     timestamp: Instant,
 ) -> DiffResult {
+    // Helper: pop the first non-consumed NodeId from a queue.
+    fn pop_first_unconsumed(
+        queue: &mut VecDeque<NodeId>,
+        consumed: &[bool],
+    ) -> Option<NodeId> {
+        while let Some(&old_id) = queue.front() {
+            if consumed[old_id.index()] {
+                queue.pop_front();
+            } else {
+                queue.pop_front();
+                return Some(old_id);
+            }
+        }
+        None
+    }
+
     let mut result = DiffResult::default();
 
     // --- STEP 1: INDEX THE OLD DOM ---
@@ -482,22 +498,6 @@ pub struct DiffResult {
     }
 
     // --- STEP 2: ITERATE NEW DOM AND CLAIM MATCHES ---
-
-    // Helper: pop the first non-consumed NodeId from a queue.
-    fn pop_first_unconsumed(
-        queue: &mut VecDeque<NodeId>,
-        consumed: &[bool],
-    ) -> Option<NodeId> {
-        while let Some(&old_id) = queue.front() {
-            if consumed[old_id.index()] {
-                queue.pop_front();
-            } else {
-                queue.pop_front();
-                return Some(old_id);
-            }
-        }
-        None
-    }
 
     for (new_idx, new_node) in new_node_data.iter().enumerate() {
         let new_id = NodeId::new(new_idx);
