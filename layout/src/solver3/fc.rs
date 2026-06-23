@@ -5264,9 +5264,8 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
         }
 
         // Look up the cell's CSS width via its dom_node_id
-        let dom_id = match tree.get(cell_info.node_index).and_then(|n| n.dom_node_id) {
-            Some(id) => id,
-            None => continue,
+        let Some(dom_id) = tree.get(cell_info.node_index).and_then(|n| n.dom_node_id) else {
+            continue;
         };
 
         let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
@@ -8018,9 +8017,8 @@ fn has_margin_collapse_blocker(
 ///
 /// `true` if the element is empty and its margins can collapse internally
 fn is_empty_block(tree: &LayoutTree, node_index: usize) -> bool {
-    let node = match tree.get(node_index) {
-        Some(n) => n,
-        None => return true,
+    let Some(node) = tree.get(node_index) else {
+        return true;
     };
     // Per CSS 2.2 § 8.3.1: An empty block is one that:
     // - Has zero computed 'min-height'
@@ -8068,9 +8066,8 @@ fn generate_list_marker_text(
     use crate::solver3::counters::format_counter;
 
     // Get the marker node
-    let marker_node = match tree.get(marker_index) {
-        Some(n) => n,
-        None => return String::new(),
+    let Some(marker_node) = tree.get(marker_index) else {
+        return String::new();
     };
 
     // Verify this is actually a ::marker pseudo-element
@@ -8091,7 +8088,7 @@ fn generate_list_marker_text(
     }
 
     // Get the parent list-item node (::marker is first child of list-item)
-    let list_item_index = if let Some(p) = marker_node.parent { p } else {
+    let Some(list_item_index) = marker_node.parent else {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::error(
                 "[generate_list_marker_text] ERROR: Marker has no parent".to_string(),
@@ -8100,12 +8097,11 @@ fn generate_list_marker_text(
         return String::new();
     };
 
-    let list_item_node = match tree.get(list_item_index) {
-        Some(n) => n,
-        None => return String::new(),
+    let Some(list_item_node) = tree.get(list_item_index) else {
+        return String::new();
     };
 
-    let list_item_dom_id = if let Some(id) = list_item_node.dom_node_id { id } else {
+    let Some(list_item_dom_id) = list_item_node.dom_node_id else {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::error(
                 "[generate_list_marker_text] ERROR: List-item has no DOM ID".to_string(),

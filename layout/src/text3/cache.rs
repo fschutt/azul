@@ -712,12 +712,11 @@ impl FontContext {
         // Borrow our shared `parsed_fonts` Arc as a transient
         // FontManager so we can use the helper. `from_arc_shared`
         // returns a manager that mutates the same underlying pool.
-        let manager = match FontManager::<azul_css::props::basic::FontRef>::from_arc_shared(
+        let Ok(manager) = FontManager::<azul_css::props::basic::FontRef>::from_arc_shared(
             self.fc_cache.clone(),
             self.parsed_fonts.clone(),
-        ) {
-            Ok(m) => m,
-            Err(_) => return,
+        ) else {
+            return;
         };
         let loader = PathLoader::new();
         let _failed = manager
@@ -4968,13 +4967,12 @@ impl UnifiedLayout {
             ));
         }
 
-        let current_pos = match self.items.iter().position(|i| {
+        let Some(current_pos) = self.items.iter().position(|i| {
             i.item
                 .as_cluster()
                 .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
-        }) {
-            Some(pos) => pos,
-            None => return cursor,
+        }) else {
+            return cursor;
         };
 
         // Phase 1: Skip whitespace going left
@@ -5053,13 +5051,12 @@ impl UnifiedLayout {
             ));
         }
 
-        let current_pos = match self.items.iter().position(|i| {
+        let Some(current_pos) = self.items.iter().position(|i| {
             i.item
                 .as_cluster()
                 .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
-        }) {
-            Some(pos) => pos,
-            None => return cursor,
+        }) else {
+            return cursor;
         };
 
         let len = self.items.len();
@@ -6713,7 +6710,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
     // Multiple fonts needed — shape each segment separately
     let mut all_clusters = Vec::new();
     for (seg_start, seg_end, font_id) in &segments {
-        let font = if let Some(f) = loaded_fonts.get(font_id) { f } else {
+        let Some(font) = loaded_fonts.get(font_id) else {
             if dbg {
                 eprintln!("[FONT FALLBACK] font {font_id:?} NOT loaded, skipping segment bytes {seg_start}..{seg_end}");
             }
@@ -6853,7 +6850,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         }
                         FontStack::Stack(selectors) => {
                             let cache_key = FontChainKey::from_selectors(selectors);
-                            let font_chain = if let Some(chain) = font_chain_cache.get(&cache_key) { chain } else { idx = coalesce_end; continue; };
+                            let Some(font_chain) = font_chain_cache.get(&cache_key) else { idx = coalesce_end; continue; };
                             // Per-character font fallback: split text by font coverage
                             shape_with_font_fallback(
                                 &merged_text, script, language, direction,
@@ -6943,7 +6940,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         // KEY-CONSTRUCTION divergence (duplicated families on the query side,
                         // deduped on the store side), fixed by routing every key build through
                         // FontChainKey::from_selectors. Verified lifted: lookup path = get.)
-                        let font_chain = if let Some(chain) = font_chain_cache.get(&cache_key) { chain } else {
+                        let Some(font_chain) = font_chain_cache.get(&cache_key) else {
                             if let Some(msgs) = debug_messages {
                                 msgs.push(LayoutDebugMessage::warning(format!(
                                     "[TextLayout] Font chain not pre-resolved for {:?} - text will \
@@ -7128,7 +7125,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         // Build FontChainKey and resolve through fontconfig
                         let cache_key = FontChainKey::from_selectors(selectors);
 
-                        let font_chain = if let Some(chain) = font_chain_cache.get(&cache_key) { chain } else {
+                        let Some(font_chain) = font_chain_cache.get(&cache_key) else {
                             if let Some(msgs) = debug_messages {
                                 msgs.push(LayoutDebugMessage::warning(format!(
                                     "[TextLayout] Font chain not pre-resolved for CombinedText {:?}",
@@ -7143,10 +7140,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         let segments = split_text_by_font_coverage(&text, font_chain, fc_cache, loaded_fonts);
                         let mut all_glyphs = Vec::new();
                         for (seg_start, seg_end, font_id) in &segments {
-                            let font = match loaded_fonts.get(font_id) {
-                                Some(f) => f,
-                                None => continue,
-                            };
+                            let Some(font) = loaded_fonts.get(font_id) else { continue; };
                             let segment_text = &text[*seg_start..*seg_end];
                             let mut seg_glyphs = font.shape_text(
                                 segment_text,

@@ -5010,11 +5010,8 @@ impl LayoutWindow {
             // Context menu - check if node has a menu and trigger right-click event
             AccessibilityAction::ShowContextMenu => {
                 // Check if the node has a context menu attached
-                let layout_result = match self.layout_results.get(&dom_id) {
-                    Some(lr) => lr,
-                    None => {
-                        return affected_nodes;
-                    }
+                let Some(layout_result) = self.layout_results.get(&dom_id) else {
+                    return affected_nodes;
                 };
 
                 // Get the node from the styled DOM

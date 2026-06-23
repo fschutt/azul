@@ -1690,9 +1690,8 @@ get_css_property!(
 #[must_use] pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
     use azul_css::props::layout::position::LayoutZIndex;
 
-    let node_id = match node_id {
-        Some(id) => id,
-        None => return 0,
+    let Some(node_id) = node_id else {
+        return 0;
     };
 
     let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
@@ -1732,9 +1731,8 @@ get_css_property!(
 #[must_use] pub fn is_z_index_auto(styled_dom: &StyledDom, node_id: Option<NodeId>) -> bool {
     use azul_css::props::layout::position::LayoutZIndex;
 
-    let node_id = match node_id {
-        Some(id) => id,
-        None => return true,
+    let Some(node_id) = node_id else {
+        return true;
     };
 
     let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
@@ -3468,15 +3466,12 @@ impl ResolvedFontChains {
 
     let node_data = styled_dom.node_data.as_container();
     let cache = &styled_dom.css_property_cache.ptr;
-    let compact = match cache.compact_cache.as_ref() {
-        Some(c) => c,
-        None => {
-            return CollectedFontStacks {
-                font_stacks,
-                hash_to_index,
-                font_refs,
-            }
-        }
+    let Some(compact) = cache.compact_cache.as_ref() else {
+        return CollectedFontStacks {
+            font_stacks,
+            hash_to_index,
+            font_refs,
+        };
     };
 
     // Phase 1: Scan compact cache arrays (just u64 reads) to find unique
@@ -3555,9 +3550,8 @@ impl ResolvedFontChains {
     let styled_nodes = styled_dom.styled_nodes.as_container();
 
     for (&(fh, _wb, _sb), &repr_idx) in &unique_font_keys {
-        let dom_id = match NodeId::from_usize(repr_idx) {
-            Some(id) => id,
-            None => continue,
+        let Some(dom_id) = NodeId::from_usize(repr_idx) else {
+            continue;
         };
         let node_state = &styled_nodes[dom_id].styled_node_state;
 
@@ -4241,7 +4235,7 @@ where
         // Get font bytes from fc_cache as a shared mmap. Faces backed
         // by the same .ttc all observe the same `Arc<FontBytes>` via
         // rust_fontconfig's `shared_bytes` dedup.
-        let font_bytes = if let Some(bytes) = fc_cache.get_font_bytes(font_id) { bytes } else {
+        let Some(font_bytes) = fc_cache.get_font_bytes(font_id) else {
             failed.push((
                 *font_id,
                 format!("Could not get font bytes for {font_id:?}"),

@@ -386,9 +386,8 @@ struct NodeClickData {
 // ============================================================================
 
 extern "C" fn on_tree_node_click(mut refany: RefAny, info: CallbackInfo) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeClickData>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeClickData>() else {
+        return Update::DoNothing;
     };
 
     let node_index = refany.node_index;

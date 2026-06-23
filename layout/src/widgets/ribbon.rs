@@ -294,9 +294,8 @@ struct TabClickData {
 }
 
 extern "C" fn on_ribbon_tab_click(mut refany: RefAny, info: CallbackInfo) -> Update {
-    let mut data = match refany.downcast_mut::<TabClickData>() {
-        Some(d) => d,
-        None => return Update::DoNothing,
+    let Some(mut data) = refany.downcast_mut::<TabClickData>() else {
+        return Update::DoNothing;
     };
     let idx = data.tab_idx;
     match data.on_tab_click.as_mut() {

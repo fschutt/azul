@@ -135,9 +135,8 @@ pub extern "C" fn scroll_physics_timer_callback(
     mut timer_info: TimerCallbackInfo,
 ) -> TimerCallbackReturn {
     // Downcast the RefAny to our physics state
-    let mut physics = match data.downcast_mut::<ScrollPhysicsState>() {
-        Some(p) => p,
-        None => return TimerCallbackReturn::terminate_unchanged(),
+    let Some(mut physics) = data.downcast_mut::<ScrollPhysicsState>() else {
+        return TimerCallbackReturn::terminate_unchanged();
     };
 
     // Extract physics config values
@@ -240,9 +239,8 @@ pub extern "C" fn scroll_physics_timer_callback(
 
     for ((dom_id, node_id), node_physics) in &mut physics.node_velocities {
         // Get current scroll info for clamping and per-node CSS config
-        let info = match timer_info.get_scroll_node_info(*dom_id, *node_id) {
-            Some(i) => i,
-            None => continue,
+        let Some(info) = timer_info.get_scroll_node_info(*dom_id, *node_id) else {
+            continue;
         };
 
         // Determine if this node allows rubber-banding

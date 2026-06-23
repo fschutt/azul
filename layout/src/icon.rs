@@ -363,17 +363,15 @@ fn load_images_from_zip(zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
     
     let mut result = Vec::new();
     let config = ZipReadConfig::default();
-    let entries = match ZipFile::list(zip_bytes, &config) {
-        Ok(e) => e,
-        Err(_) => return result,
+    let Ok(entries) = ZipFile::list(zip_bytes, &config) else {
+        return result;
     };
     
     for entry in &entries {
         if entry.path.ends_with('/') { continue; } // Skip directories
         
-        let file_bytes = match ZipFile::get_single_file(zip_bytes, entry, &config) {
-            Ok(Some(b)) => b,
-            _ => continue,
+        let Ok(Some(file_bytes)) = ZipFile::get_single_file(zip_bytes, entry, &config) else {
+            continue;
         };
         
         // Decode as image
@@ -458,11 +456,8 @@ pub fn register_embedded_material_icons(
     use crate::parsed_font_to_font_ref;
 
     let mut warnings = Vec::new();
-    let parsed_font = match ParsedFont::from_bytes(font_bytes, 0, &mut warnings) {
-        Some(f) => f,
-        None => {
-            return false;
-        }
+    let Some(parsed_font) = ParsedFont::from_bytes(font_bytes, 0, &mut warnings) else {
+        return false;
     };
 
     let font_ref = parsed_font_to_font_ref(parsed_font);

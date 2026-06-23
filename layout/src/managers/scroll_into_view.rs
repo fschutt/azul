@@ -179,16 +179,14 @@ pub fn scroll_node_into_view(
     now: Instant,
 ) -> Vec<ScrollAdjustment> {
     // Get node's bounding rect from layout
-    let target_rect = match get_node_rect(node_id, layout_results) {
-        Some(rect) => rect,
-        None => return Vec::new(),
+    let Some(target_rect) = get_node_rect(node_id, layout_results) else {
+        return Vec::new();
     };
     
-    let internal_node_id = match node_id.node.into_crate_internal() {
-        Some(nid) => nid,
-        None => return Vec::new(),
+    let Some(internal_node_id) = node_id.node.into_crate_internal() else {
+        return Vec::new();
     };
-    
+
     // Call the core rect-based API
     scroll_rect_into_view(
         target_rect,
@@ -214,9 +212,8 @@ pub fn scroll_cursor_into_view(
     now: Instant,
 ) -> Vec<ScrollAdjustment> {
     // Get node's position to transform cursor_rect to absolute coordinates
-    let node_rect = match get_node_rect(node_id, layout_results) {
-        Some(rect) => rect,
-        None => return Vec::new(),
+    let Some(node_rect) = get_node_rect(node_id, layout_results) else {
+        return Vec::new();
     };
     
     // Transform cursor rect to absolute coordinates
@@ -228,11 +225,10 @@ pub fn scroll_cursor_into_view(
         size: cursor_rect.size,
     };
     
-    let internal_node_id = match node_id.node.into_crate_internal() {
-        Some(nid) => nid,
-        None => return Vec::new(),
+    let Some(internal_node_id) = node_id.node.into_crate_internal() else {
+        return Vec::new();
     };
-    
+
     // Call the core rect-based API
     scroll_rect_into_view(
         absolute_cursor_rect,
@@ -260,9 +256,8 @@ fn find_scrollable_ancestors(
 ) -> Vec<ScrollableAncestor> {
     let mut ancestors = Vec::new();
     
-    let layout_result = match layout_results.get(&dom_id) {
-        Some(lr) => lr,
-        None => return ancestors,
+    let Some(layout_result) = layout_results.get(&dom_id) else {
+        return ancestors;
     };
     
     let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();

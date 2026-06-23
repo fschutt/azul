@@ -380,8 +380,8 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     let mut css_attrs = Vec::new();
                     for s in value.split(';') {
                         let mut s = s.split(':');
-                        let key = match s.next() { Some(s) => s, None => continue };
-                        let val = match s.next() { Some(s) => s, None => continue };
+                        let Some(key) = s.next() else { continue };
+                        let Some(val) = s.next() else { continue };
                         let _ = azul_css::parser2::parse_css_declaration(
                             key.trim(), val.trim(),
                             azul_css::parser2::ErrorLocationRange::default(),

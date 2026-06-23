@@ -980,9 +980,8 @@ impl LayoutTree {
 
         let mut current_index = Some(start_index);
         while let Some(index) = current_index {
-            let cold = match self.cold.get_mut(index) {
-                Some(c) => c,
-                None => break,
+            let Some(cold) = self.cold.get_mut(index) else {
+                break;
             };
             if cold.dirty_flag >= flag {
                 break;
@@ -1056,18 +1055,16 @@ impl LayoutTree {
 
     /// Get the content size of a node (for scrollbar calculations).
     #[must_use] pub fn get_content_size(&self, index: usize) -> LogicalSize {
-        let warm = match self.warm.get(index) {
-            Some(w) => w,
-            None => return LogicalSize::default(),
+        let Some(warm) = self.warm.get(index) else {
+            return LogicalSize::default();
         };
 
         if let Some(content_size) = warm.overflow_content_size {
             return content_size;
         }
 
-        let hot = match self.nodes.get(index) {
-            Some(h) => h,
-            None => return LogicalSize::default(),
+        let Some(hot) = self.nodes.get(index) else {
+            return LogicalSize::default();
         };
 
         let mut content_size = hot.used_size.unwrap_or_default();
@@ -2129,11 +2126,8 @@ fn is_inline_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
 // +spec:display-property:c188d6 - IFC: all inline content within a containing block flows together as continuous text
 pub(crate) fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let hierarchy = styled_dom.node_hierarchy.as_container();
-    let node_hier = match hierarchy.get(node_id) {
-        Some(n) => n,
-        None => {
-            return false;
-        }
+    let Some(node_hier) = hierarchy.get(node_id) else {
+        return false;
     };
 
     // Get the first child

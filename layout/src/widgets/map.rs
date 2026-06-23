@@ -760,9 +760,8 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
     }
     // Active pinch wins over single-finger pan.
     if let Some(pinch) = info.get_pinch().into_option() {
-        let mut cache = match data.downcast_mut::<MapTileCache>() {
-            Some(c) => c,
-            None => return Update::DoNothing,
+        let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
+            return Update::DoNothing;
         };
         let anchor = *cache.pinch_anchor.get_or_insert(pinch.current_distance);
         if anchor > 1.0 && pinch.current_distance > 1.0 {
@@ -790,13 +789,11 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         Some(p) => azul_core::geom::LogicalPosition::new(p.x, p.y),
         None => return Update::DoNothing,
     };
-    let mut cache_guard = match data.downcast_mut::<MapTileCache>() {
-        Some(c) => c,
-        None => return Update::DoNothing,
+    let Some(mut cache_guard) = data.downcast_mut::<MapTileCache>() else {
+        return Update::DoNothing;
     };
-    let anchor = match cache_guard.drag_anchor {
-        Some(a) => a,
-        None => return Update::DoNothing, // no active drag
+    let Some(anchor) = cache_guard.drag_anchor else {
+        return Update::DoNothing; // no active drag
     };
 
     let dx_px = f64::from(pos.x - anchor.x);
@@ -897,9 +894,8 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         .get_hit_node_rect()
         .map_or(azul_core::geom::LogicalSize::new(0.0, 0.0), |r| r.size);
     let (vp, hook) = {
-        let mut cache = match data.downcast_mut::<MapTileCache>() {
-            Some(c) => c,
-            None => return Update::DoNothing,
+        let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
+            return Update::DoNothing;
         };
         let min = f32::from(cache.layer.min_zoom);
         let max = f32::from(cache.layer.max_zoom);
@@ -1082,9 +1078,8 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     // `info.add_thread`.
     let mut to_spawn: Vec<TileFetchInit> = Vec::new();
     {
-        let mut cache = match data.downcast_mut::<MapTileCache>() {
-            Some(c) => c,
-            None => return,
+        let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
+            return;
         };
         if cache.fetch_callback.is_none() {
             return; // no worker wired — leave tiles Pending (placeholder grid)
@@ -1114,9 +1109,8 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     }
 
     let cb = {
-        let cache = match data.downcast_ref::<MapTileCache>() {
-            Some(c) => c,
-            None => return,
+        let Some(cache) = data.downcast_ref::<MapTileCache>() else {
+            return;
         };
         match cache.fetch_callback.as_ref() {
             Some(cb) => cb.clone(),
@@ -1182,9 +1176,8 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
         None => return Update::DoNothing,
     };
     {
-        let mut cache = match cache_dataset.downcast_mut::<MapTileCache>() {
-            Some(c) => c,
-            None => return Update::DoNothing,
+        let Some(mut cache) = cache_dataset.downcast_mut::<MapTileCache>() else {
+            return Update::DoNothing;
         };
         #[cfg(feature = "std")]
         if std::env::var("AZ_MAP_DEBUG").is_ok() {

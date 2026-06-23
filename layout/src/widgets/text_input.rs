@@ -954,16 +954,14 @@ impl TextInput {
 }
 
 extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
-    let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
+        return Update::DoNothing;
     };
 
     let text_input = &mut *text_input;
 
-    let placeholder_text_node_id = match info.get_first_child(info.get_hit_node()) {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
+        return Update::DoNothing;
     };
 
     // hide the placeholder text
@@ -980,16 +978,14 @@ extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: Callba
 }
 
 extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
-    let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
+        return Update::DoNothing;
     };
 
     let text_input = &mut *text_input;
 
-    let placeholder_text_node_id = match info.get_first_child(info.get_hit_node()) {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
+        return Update::DoNothing;
     };
 
     // show the placeholder text
@@ -1115,9 +1111,8 @@ fn default_on_virtual_key_down_inner(
 }
 
 extern "C" fn default_on_mouse_hover(mut text_input: RefAny, _info: CallbackInfo) -> Update {
-    let _text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(_text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
+        return Update::DoNothing;
     };
 
     Update::DoNothing

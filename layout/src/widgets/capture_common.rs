@@ -89,9 +89,8 @@ pub fn present_frame(
     current_id: Option<u32>,
     frame: &VideoFrame,
 ) -> Option<u32> {
-    let gl = match info.get_gl_context().into_option() {
-        Some(g) => g,
-        None => return current_id,
+    let Some(gl) = info.get_gl_context().into_option() else {
+        return current_id;
     };
 
     if let Some(id) = current_id {

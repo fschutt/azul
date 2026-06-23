@@ -135,9 +135,8 @@ const fn frame_dims(config: &CameraConfig) -> (u32, u32) {
 /// `AfterMount`: start the background capture thread exactly once.
 extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let dims = {
-        let mut s = match data.downcast_mut::<CameraWidgetState>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut s) = data.downcast_mut::<CameraWidgetState>() else {
+            return Update::DoNothing;
         };
         if s.started {
             return Update::DoNothing;

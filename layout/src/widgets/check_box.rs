@@ -272,14 +272,12 @@ mod input {
         mut check_box: RefAny,
         mut info: CallbackInfo,
     ) -> Update {
-        let mut check_box = match check_box.downcast_mut::<CheckBoxStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut check_box) = check_box.downcast_mut::<CheckBoxStateWrapper>() else {
+            return Update::DoNothing;
         };
 
-        let checkbox_content_id = match info.get_first_child(info.get_hit_node()) {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(checkbox_content_id) = info.get_first_child(info.get_hit_node()) else {
+            return Update::DoNothing;
         };
 
         check_box.inner.checked = !check_box.inner.checked;

@@ -1883,13 +1883,11 @@ where
     // with visibility:visible inside a hidden parent must still be painted.
     fn is_node_hidden(&self, node_index: usize) -> bool {
         use azul_css::props::style::effects::StyleVisibility;
-        let node = match self.positioned_tree.tree.get(node_index) {
-            Some(n) => n,
-            None => return false,
+        let Some(node) = self.positioned_tree.tree.get(node_index) else {
+            return false;
         };
-        let dom_id = match node.dom_node_id {
-            Some(id) => id,
-            None => return false,
+        let Some(dom_id) = node.dom_node_id else {
+            return false;
         };
         let node_state = self.get_styled_node_state(dom_id);
         match get_visibility(self.ctx.styled_dom, dom_id, &node_state) {
@@ -2830,18 +2828,15 @@ StyleVisibility::Collapse) => true,
         builder: &mut DisplayListBuilder,
         node_index: usize,
     ) -> bool {
-        let node = match self.positioned_tree.tree.get(node_index) {
-            Some(n) => n,
-            None => return false,
+        let Some(node) = self.positioned_tree.tree.get(node_index) else {
+            return false;
         };
-        let dom_id = match node.dom_node_id {
-            Some(id) => id,
-            None => return false,
+        let Some(dom_id) = node.dom_node_id else {
+            return false;
         };
         let node_data_container = self.ctx.styled_dom.node_data.as_container();
-        let node_data = match node_data_container.get(dom_id) {
-            Some(nd) => nd,
-            None => return false,
+        let Some(node_data) = node_data_container.get(dom_id) else {
+            return false;
         };
         match node_data.get_svg_data() {
             Some(azul_core::dom::SvgNodeData::ImageClipMask(clip_mask)) => {

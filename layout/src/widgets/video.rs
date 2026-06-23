@@ -241,9 +241,8 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
     // Mark started exactly once; pull out the streaming decode worker (if any),
     // its source, and any pre-decoded replay frames.
     let (decode_cb, config, frames) = {
-        let mut s = match data.downcast_mut::<VideoWidgetState>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut s) = data.downcast_mut::<VideoWidgetState>() else {
+            return Update::DoNothing;
         };
         if s.started {
             return Update::DoNothing;
@@ -299,14 +298,12 @@ extern "C" fn video_on_resize(mut data: RefAny, mut info: CallbackInfo) -> Updat
         Some(s) => s.thread_id,
         None => return Update::DoNothing,
     };
-    let tid = match tid {
-        Some(t) => t,
-        None => return Update::DoNothing,
+    let Some(tid) = tid else {
+        return Update::DoNothing;
     };
     let node = info.get_hit_node();
-    let size = match info.get_node_size(node) {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(size) = info.get_node_size(node) else {
+        return Update::DoNothing;
     };
     let target = (size.width.max(1.0) as u32, size.height.max(1.0) as u32);
     if let Some(thread) = info.get_thread(&tid) {

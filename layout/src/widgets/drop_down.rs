@@ -327,9 +327,8 @@ struct ChoiceCallbackData {
 // ============================================================================
 
 extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
-    let refany = match refany.downcast_ref::<DropDown>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(refany) = refany.downcast_ref::<DropDown>() else {
+        return Update::DoNothing;
     };
 
     let menu_items: Vec<MenuItem> = refany
@@ -358,9 +357,8 @@ extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) -> U
 }
 
 extern "C" fn on_choice_selected(mut refany: RefAny, info: CallbackInfo) -> Update {
-    let mut refany = match refany.downcast_mut::<ChoiceCallbackData>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<ChoiceCallbackData>() else {
+        return Update::DoNothing;
     };
 
     let choice_id = refany.choice_id;

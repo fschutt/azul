@@ -201,9 +201,8 @@ impl FileInput {
 }
 
 extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
-    let mut fileinputstatewrapper = match refany.downcast_mut::<FileInputStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut fileinputstatewrapper) = refany.downcast_mut::<FileInputStateWrapper>() else {
+        return Update::DoNothing;
     };
     let fileinputstatewrapper = &mut *fileinputstatewrapper;
 
@@ -216,9 +215,8 @@ extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> 
         if let Some(dir) = fileinputstatewrapper.default_dir.as_ref() {
             dialog = dialog.with_path(dir.as_str());
         }
-        let selected_path = match dialog.open_file() {
-            Some(p) => p,
-            None => return Update::DoNothing,
+        let Some(selected_path) = dialog.open_file() else {
+            return Update::DoNothing;
         };
         fileinputstatewrapper.inner.path = Some(selected_path.into()).into();
     }

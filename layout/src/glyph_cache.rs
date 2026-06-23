@@ -244,16 +244,15 @@ fn build_hinted_path(
     let adv_f26dot6 = F26Dot6::from_funits(i32::from(glyph.horz_advance), scale).to_bits();
 
     // Run hinting with unscaled orus for precise IUP interpolation
-    let hinted = match hint.hint_glyph_with_orus(
+    let Ok(hinted) = hint.hint_glyph_with_orus(
         &points_f26dot6,
         Some(raw_points.as_slice()),
         raw_on_curve,
         raw_contour_ends,
         instructions,
         adv_f26dot6,
-    ) {
-        Ok(h) => h,
-        Err(_) => return None,
+    ) else {
+        return None;
     };
 
     // Build path from hinted points using TrueType quadratic contour conventions

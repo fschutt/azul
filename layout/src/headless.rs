@@ -156,9 +156,8 @@ impl CpuHitTester {
             // Walk the layout nodes and their computed positions
             for (idx, node) in nodes.iter().enumerate() {
                 // Only include nodes that map to a real DOM node
-                let node_id = match node.dom_node_id {
-                    Some(id) => id,
-                    None => continue, // skip anonymous boxes
+                let Some(node_id) = node.dom_node_id else {
+                    continue; // skip anonymous boxes
                 };
 
                 // Get the position for this layout node
@@ -168,9 +167,8 @@ impl CpuHitTester {
                 };
 
                 // Get the computed size
-                let size = match node.used_size {
-                    Some(s) => s,
-                    None => continue,
+                let Some(size) = node.used_size else {
+                    continue;
                 };
 
                 let rect = LogicalRect {

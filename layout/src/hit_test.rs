@@ -62,9 +62,8 @@ impl CursorTypeHitTest {
         // Iterate through all hovered nodes across all DOMs
         for (dom_id, hit_nodes) in &hit_test.hovered_nodes {
             // Get the layout result for this DOM
-            let layout_result = match layout_window.get_layout_result(dom_id) {
-                Some(lr) => lr,
-                None => continue,
+            let Some(layout_result) = layout_window.get_layout_result(dom_id) else {
+                continue;
             };
 
             let styled_dom = &layout_result.styled_dom;

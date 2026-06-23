@@ -58,9 +58,8 @@ use std::collections::BTreeMap;
     }
 
     // Get the current key (if any)
-    let current_key = match keyboard_state.current_virtual_keycode.into_option() {
-        Some(key) => key,
-        None => return DefaultActionResult::default(),
+    let Some(current_key) = keyboard_state.current_virtual_keycode.into_option() else {
+        return DefaultActionResult::default();
     };
 
     // Check modifier state

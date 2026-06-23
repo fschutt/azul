@@ -178,9 +178,8 @@ impl ThreadSender {
 
     #[cfg(feature = "std")]
     pub fn send(&mut self, msg: ThreadReceiveMsg) -> bool {
-        let ts = match self.ptr.lock().ok() {
-            Some(s) => s,
-            None => return false,
+        let Some(ts) = self.ptr.lock().ok() else {
+            return false;
         };
         (ts.send_fn.cb)(std::ptr::from_ref(ts.ptr.as_ref()).cast::<core::ffi::c_void>(), msg)
     }

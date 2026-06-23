@@ -145,9 +145,8 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     // never propagates Err. Avoids the lift-fragile Result<(),LayoutError> Ok-niche read.
     for node_index in 0..tree.nodes.len() {
         let node = &tree.nodes[node_index];
-        let dom_id = match node.dom_node_id {
-            Some(id) => id,
-            None => continue,
+        let Some(dom_id) = node.dom_node_id else {
+            continue;
         };
 
         let position_type = get_position_type(ctx.styled_dom, Some(dom_id));
@@ -241,16 +240,15 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             } else {
                 // Element hasn't been sized yet - calculate it now using containing block
                 let intrinsic = tree.warm(node_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
-                let size = match crate::solver3::sizing::calculate_used_size_for_node(
+                let Ok(size) = crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
                     Some(dom_id),
                     &containing_block_rect.size,
                     intrinsic,
                     &node.box_props.unpack(),
                     &ctx.viewport_size,
-                ) {
-                    Ok(s) => s,
-                    Err(_) => continue,
+                ) else {
+                    continue;
                 };
 
                 // Store the calculated size in the tree node
@@ -857,11 +855,10 @@ fn find_nearest_scrollport(
     let mut current_parent_idx = tree.get(node_index).and_then(|n| n.parent);
 
     while let Some(parent_index) = current_parent_idx {
-        let parent_node = match tree.get(parent_index) {
-            Some(n) => n,
-            None => break,
+        let Some(parent_node) = tree.get(parent_index) else {
+            break;
         };
-        let parent_dom_id = if let Some(id) = parent_node.dom_node_id { id } else {
+        let Some(parent_dom_id) = parent_node.dom_node_id else {
             current_parent_idx = parent_node.parent;
             continue;
         };
@@ -971,9 +968,8 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
             continue;
         }
 
-        let dom_id = match node.dom_node_id {
-            Some(id) => id,
-            None => continue,
+        let Some(dom_id) = node.dom_node_id else {
+            continue;
         };
 
         // Find the nearest scrollport for this sticky element

@@ -120,9 +120,8 @@ impl ScreenCaptureWidget {
 /// `AfterMount`: start the background capture thread exactly once.
 extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     {
-        let mut s = match data.downcast_mut::<ScreenCaptureWidgetState>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut s) = data.downcast_mut::<ScreenCaptureWidgetState>() else {
+            return Update::DoNothing;
         };
         if s.started {
             return Update::DoNothing;

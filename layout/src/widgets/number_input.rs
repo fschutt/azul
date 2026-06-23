@@ -272,9 +272,8 @@ extern "C" fn on_focus_lost(
     info: CallbackInfo,
     _state: TextInputState,
 ) -> Update {
-    let mut refany = match refany.downcast_mut::<NumberInputStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NumberInputStateWrapper>() else {
+        return Update::DoNothing;
     };
 
     let number_input = &mut *refany;
@@ -294,14 +293,11 @@ extern "C" fn validate_text_input(
     info: CallbackInfo,
     state: TextInputState,
 ) -> OnTextInputReturn {
-    let mut refany = match refany.downcast_mut::<NumberInputStateWrapper>() {
-        Some(s) => s,
-        None => {
-            return OnTextInputReturn {
-                update: Update::DoNothing,
-                valid: TextInputValid::Yes,
-            };
-        }
+    let Some(mut refany) = refany.downcast_mut::<NumberInputStateWrapper>() else {
+        return OnTextInputReturn {
+            update: Update::DoNothing,
+            valid: TextInputValid::Yes,
+        };
     };
 
     let validated_input: String = state
@@ -311,16 +307,13 @@ extern "C" fn validate_text_input(
         .map(|c| if c == ',' { '.' } else { c })
         .collect();
 
-    let validated_f32 = match validated_input.parse::<f32>() {
-        Ok(s) => s,
-        Err(_) => {
-            // do not re-layout the entire screen,
-            // but don't handle the character
-            return OnTextInputReturn {
-                update: Update::DoNothing,
-                valid: TextInputValid::No,
-            };
-        }
+    let Ok(validated_f32) = validated_input.parse::<f32>() else {
+        // do not re-layout the entire screen,
+        // but don't handle the character
+        return OnTextInputReturn {
+            update: Update::DoNothing,
+            valid: TextInputValid::No,
+        };
     };
 
     let number_input = &mut *refany;

@@ -156,9 +156,8 @@ impl MicrophoneWidget {
 /// `AfterMount`: start the background capture thread exactly once.
 extern "C" fn mic_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let (rate, channels) = {
-        let mut s = match data.downcast_mut::<MicrophoneWidgetState>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut s) = data.downcast_mut::<MicrophoneWidgetState>() else {
+            return Update::DoNothing;
         };
         if s.started {
             return Update::DoNothing;

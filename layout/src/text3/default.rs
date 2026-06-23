@@ -124,9 +124,8 @@ impl FontManager<FontRef> {
     /// exposes it via `--azul-evict-after-each` for measurement.
     pub fn evict_unused(&self, idle: std::time::Duration) -> usize {
         use crate::font::parsed::ParsedFont;
-        let parsed = match self.parsed_fonts.lock() {
-            Ok(p) => p,
-            Err(_) => return 0,
+        let Ok(parsed) = self.parsed_fonts.lock() else {
+            return 0;
         };
         // We compare against the same monotonic clock the font's
         // `last_used` is sampled from. `last_used == 0` means
@@ -753,9 +752,8 @@ fn shape_text_internal(
     {
         let mut ci = 0usize;
         while ci < text.len() {
-            let ch = match text[ci..].chars().next() {
-                Some(c) => c,
-                None => break,
+            let Some(ch) = text[ci..].chars().next() else {
+                break;
             };
             let cluster = ci;
             let glyph_index = parsed_font.lookup_glyph_index(ch as u32).unwrap_or(0);

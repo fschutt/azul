@@ -697,7 +697,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             // If text MEASURES → the forced const pages contained EMPTY_GROUP → systemic fix found.
             let _ = (cl, loaded_fonts.len());
         }
-        let intrinsic_text = match self.text_cache.measure_intrinsic_widths(
+        let Ok(intrinsic_text) = self.text_cache.measure_intrinsic_widths(
             &inline_content,
             &[],
             &constraints,
@@ -705,18 +705,15 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             &self.ctx.font_manager.fc_cache,
             &loaded_fonts,
             self.ctx.debug_messages,
-        ) {
-            Ok(r) => r,
-            Err(_) => {
-                return Ok(IntrinsicSizes {
-                    min_content_width: FALLBACK_MIN_CONTENT_WIDTH,
-                    max_content_width: FALLBACK_MAX_CONTENT_WIDTH,
-                    preferred_width: None,
-                    min_content_height: FALLBACK_MIN_CONTENT_HEIGHT,
-                    max_content_height: FALLBACK_MAX_CONTENT_HEIGHT,
-                    preferred_height: None,
-                });
-            }
+        ) else {
+            return Ok(IntrinsicSizes {
+                min_content_width: FALLBACK_MIN_CONTENT_WIDTH,
+                max_content_width: FALLBACK_MAX_CONTENT_WIDTH,
+                preferred_width: None,
+                min_content_height: FALLBACK_MIN_CONTENT_HEIGHT,
+                max_content_height: FALLBACK_MAX_CONTENT_HEIGHT,
+                preferred_height: None,
+            });
         };
 
         let min_width = intrinsic_text.min_content_width;
@@ -977,7 +974,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // Iterate rows — children may be row groups (thead/tbody/tfoot) or direct rows
         let mut rows: Vec<usize> = Vec::new();
         for &child_idx in tree.children(node_index) {
-            let child = match tree.get(child_idx) { Some(c) => c, None => continue };
+            let Some(child) = tree.get(child_idx) else { continue };
             match child.formatting_context {
                 FormattingContext::TableRow => rows.push(child_idx),
                 FormattingContext::TableRowGroup => {
@@ -1102,7 +1099,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     // visible even though a PRIOR successful call already wrote B8. This is the suspected
     // InvalidTree site (phase stuck at 0xA0 + B8 reached ⇒ a 2nd IFC call fails at this get).
     unsafe { crate::az_mark(0x60754_u32, ((node_index as u32))); }
-    let node = if let Some(n) = tree.get(node_index) { n } else {
+    let Some(node) = tree.get(node_index) else {
         unsafe { crate::az_mark(0x6071C_u32, (0xBADu32)); }
         return Err(LayoutError::InvalidTree);
     };

@@ -528,9 +528,8 @@ pub fn reposition_clean_subtrees(
     }
 
     for parent_idx in parents_to_reposition {
-        let parent_node = match tree.get(parent_idx) {
-            Some(n) => n,
-            None => continue,
+        let Some(parent_node) = tree.get(parent_idx) else {
+            continue;
         };
 
         // Dispatch to the correct repositioning logic based on the parent's layout mode.
@@ -648,9 +647,8 @@ pub fn reposition_block_flow_siblings(
     layout_roots: &BTreeSet<usize>,
     calculated_positions: &mut super::PositionVec,
 ) {
-    let parent_node = match tree.get(parent_idx) {
-        Some(n) => n,
-        None => return,
+    let Some(parent_node) = tree.get(parent_idx) else {
+        return;
     };
     let dom_id = parent_node.dom_node_id.unwrap_or(NodeId::ZERO);
     let styled_node_state = styled_dom
@@ -676,9 +674,8 @@ pub fn reposition_block_flow_siblings(
     let mut main_pen = 0.0;
 
     for &child_idx in tree.children(parent_idx) {
-        let child_node = match tree.get(child_idx) {
-            Some(n) => n,
-            None => continue,
+        let Some(child_node) = tree.get(child_idx) else {
+            continue;
         };
 
         let child_size = child_node.used_size.unwrap_or_default();
@@ -2543,9 +2540,8 @@ fn compute_counters_recursive(
     counter_stacks: &mut HashMap<String, Vec<i32>>,
     scope_stack: &mut Vec<Vec<String>>,
 ) {
-    let node = match tree.get(node_idx) {
-        Some(n) => n,
-        None => return,
+    let Some(node) = tree.get(node_idx) else {
+        return;
     };
 
     // Skip pseudo-elements (::marker, ::before, ::after) for counter processing
@@ -2573,7 +2569,7 @@ fn compute_counters_recursive(
     }
 
     // Only process real DOM nodes, not anonymous boxes
-    let dom_id = if let Some(id) = node.dom_node_id { id } else {
+    let Some(dom_id) = node.dom_node_id else {
         // For anonymous boxes, just recurse to children
         for &child_idx in tree.children(node_idx) {
             compute_counters_recursive(

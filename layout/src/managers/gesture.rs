@@ -675,9 +675,8 @@ impl GestureAndDragManager {
         touch_radius: (f32, f32),
         screen_position: LogicalPosition,
     ) -> bool {
-        let session = match self.input_sessions.last_mut() {
-            Some(s) => s,
-            None => return false,
+        let Some(session) = self.input_sessions.last_mut() else {
+            return false;
         };
 
         if session.ended {
@@ -950,9 +949,8 @@ impl GestureAndDragManager {
 
         let prev_first = prev_session.first_sample();
         let last_first = last_session.first_sample();
-        let (prev_first, last_first) = match (prev_first, last_first) {
-            (Some(p), Some(l)) => (p, l),
-            _ => return false,
+        let (Some(prev_first), Some(last_first)) = (prev_first, last_first) else {
+            return false;
         };
 
         let duration = last_first.timestamp.duration_since(&prev_first.timestamp);
@@ -1011,13 +1009,11 @@ impl GestureAndDragManager {
             let later = recent[i];
             let earlier = recent[i + 1];
 
-            let later_start = match later.first_sample() {
-                Some(s) => s,
-                None => break,
+            let Some(later_start) = later.first_sample() else {
+                break;
             };
-            let earlier_start = match earlier.first_sample() {
-                Some(s) => s,
-                None => break,
+            let Some(earlier_start) = earlier.first_sample() else {
+                break;
             };
 
             let duration = later_start.timestamp.duration_since(&earlier_start.timestamp);

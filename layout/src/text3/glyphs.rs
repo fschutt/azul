@@ -271,9 +271,8 @@ pub struct PdfPositionedGlyph {
 
     for positioned_item in &layout.items {
         // Only process text clusters
-        let cluster = match &positioned_item.item {
-            ShapedItem::Cluster(c) => c,
-            _ => continue, // Skip non-text items
+        let ShapedItem::Cluster(cluster) = &positioned_item.item else {
+            continue; // Skip non-text items
         };
 
         if cluster.glyphs.is_empty() {

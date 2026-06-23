@@ -418,9 +418,8 @@ fn svg_multi_shape_to_lyon_path(polygon: &[SvgSimpleNode]) -> Path {
                     },
                 };
 
-                let nctrl = match raw_line_intersection(&nl1, &nl2) {
-                    Some(s) => s,
-                    None => return *l,
+                let Some(nctrl) = raw_line_intersection(&nl1, &nl2) else {
+                    return *l;
                 };
 
                 SvgPathElement::QuadraticCurve(SvgQuadraticCurve {
@@ -502,14 +501,12 @@ fn svg_multi_shape_to_lyon_path(polygon: &[SvgSimpleNode]) -> Path {
                     },
                 };
 
-                let nctrl_1 = match raw_line_intersection(&nl1, &nl2) {
-                    Some(s) => s,
-                    None => return *l,
+                let Some(nctrl_1) = raw_line_intersection(&nl1, &nl2) else {
+                    return *l;
                 };
 
-                let nctrl_2 = match raw_line_intersection(&nl2, &nl3) {
-                    Some(s) => s,
-                    None => return *l,
+                let Some(nctrl_2) = raw_line_intersection(&nl2, &nl3) else {
+                    return *l;
                 };
 
                 SvgPathElement::CubicCurve(SvgCubicCurve {

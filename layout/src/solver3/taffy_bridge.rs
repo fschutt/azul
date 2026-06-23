@@ -1202,9 +1202,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         };
 
         // Check if parent is a flex or grid container
-        let parent_fc = match self.tree.warm(node_idx).and_then(|w| w.parent_formatting_context.clone()) {
-            Some(fc) => fc,
-            None => return (false, false),
+        let Some(parent_fc) = self.tree.warm(node_idx).and_then(|w| w.parent_formatting_context.clone()) else {
+            return (false, false);
         };
 
         match parent_fc {

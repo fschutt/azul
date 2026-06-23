@@ -205,9 +205,8 @@ fn render_svg_group_with_style(
     };
 
     for child in node.children.as_ref() {
-        let child_node = match child {
-            XmlNodeChild::Element(e) => e,
-            _ => continue,
+        let XmlNodeChild::Element(child_node) = child else {
+            continue;
         };
 
         let tag = child_node.node_type.as_str().to_lowercase();
@@ -217,9 +216,8 @@ fn render_svg_group_with_style(
                 render_svg_group_with_style(child_node, pixmap, &group_transform, &group_style);
             }
             "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline" => {
-                let path_storage = match build_agg_path(child_node) {
-                    Some(p) => p,
-                    None => continue,
+                let Some(path_storage) = build_agg_path(child_node) else {
+                    continue;
                 };
 
                 // Flatten bezier curves into line segments for the rasterizer

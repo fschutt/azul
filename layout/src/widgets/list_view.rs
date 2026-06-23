@@ -1782,9 +1782,8 @@ struct ColumnClickData {
 
 /// `MouseUp` on a row → invoke the app's `on_row_click(state, row_index)`.
 extern "C" fn on_list_view_row_click(mut refany: RefAny, info: CallbackInfo) -> Update {
-    let data = match refany.downcast_ref::<RowClickData>() {
-        Some(d) => d,
-        None => return Update::DoNothing,
+    let Some(data) = refany.downcast_ref::<RowClickData>() else {
+        return Update::DoNothing;
     };
     match data.on_row_click.as_ref() {
         Some(ListViewOnRowClick { refany: user_data, callback }) => {
@@ -1796,9 +1795,8 @@ extern "C" fn on_list_view_row_click(mut refany: RefAny, info: CallbackInfo) -> 
 
 /// `MouseUp` on a column header → invoke the app's `on_column_click(state, col_index)`.
 extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) -> Update {
-    let data = match refany.downcast_ref::<ColumnClickData>() {
-        Some(d) => d,
-        None => return Update::DoNothing,
+    let Some(data) = refany.downcast_ref::<ColumnClickData>() else {
+        return Update::DoNothing;
     };
     match data.on_column_click.as_ref() {
         Some(ListViewOnColumnClick { refany: user_data, callback }) => {

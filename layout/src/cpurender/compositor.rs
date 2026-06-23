@@ -448,9 +448,8 @@ impl CompositorState {
         parent_offset_y: f32,
         dpi_factor: f32,
     ) {
-        let layer = match self.layers.get(&layer_id) {
-            Some(l) => l,
-            None => return,
+        let Some(layer) = self.layers.get(&layer_id) else {
+            return;
         };
 
         let abs_x = parent_offset_x + layer.bounds.origin.x;
@@ -514,9 +513,8 @@ impl CompositorState {
             .find(|(_, l)| l.scroll_id == Some(scroll_id))
             .map(|(id, _)| *id);
 
-        let layer_id = match layer_id {
-            Some(id) => id,
-            None => return Ok(()), // No layer for this scroll ID
+        let Some(layer_id) = layer_id else {
+            return Ok(()); // No layer for this scroll ID
         };
 
         let layer = self.layers.get_mut(&layer_id).unwrap();
@@ -986,9 +984,8 @@ pub fn scroll_fast_path_eligible(
     let start = display_list.items.iter().position(|it| {
         matches!(it, DisplayListItem::PushScrollFrame { scroll_id: sid, .. } if *sid == scroll_id)
     });
-    let start = match start {
-        Some(s) => s,
-        None => return true, // no frame for this id → nothing to shift
+    let Some(start) = start else {
+        return true; // no frame for this id → nothing to shift
     };
     let end = find_matching_pop(&display_list.items, start, MatchKind::ScrollFrame)
         .min(display_list.items.len());

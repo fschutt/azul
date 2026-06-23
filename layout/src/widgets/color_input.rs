@@ -182,9 +182,8 @@ impl ColorInput {
 }
 
 extern "C" fn on_color_input_clicked(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let mut color_input = match data.downcast_mut::<ColorInputStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut color_input) = data.downcast_mut::<ColorInputStateWrapper>() else {
+        return Update::DoNothing;
     };
 
     // No built-in color picker dialog — the on_value_change callback
