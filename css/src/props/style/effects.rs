@@ -551,11 +551,11 @@ mod tests {
 
     #[test]
     fn test_parse_object_position() {
+        use crate::props::style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical};
         let centered = parse_style_object_position("center").unwrap();
         assert_eq!(centered, parse_style_object_position("center center").unwrap());
 
         let lt = parse_style_object_position("left top").unwrap();
-        use crate::props::style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical};
         assert_eq!(lt.horizontal, BackgroundPositionHorizontal::Left);
         assert_eq!(lt.vertical, BackgroundPositionVertical::Top);
 
