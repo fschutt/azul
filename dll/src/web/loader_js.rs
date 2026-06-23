@@ -84,6 +84,37 @@ function azMulti3(sret, aLo, aHi, bLo, bHi) {
     dv.setBigUint64(Number(sret) + 8, (p >> 64n) & mask, true);
 }
 
+// libc memset/memcpy/memmove — LEAKED wasm imports, same class as __multi3.
+// The LLVM wasm backend lowers the lifted `@llvm.memset`/`@llvm.memmove`
+// (BumpAlloc zero-init, the LibcMemcpy/LibcMemset stub bodies, every large /
+// non-constant-size struct or Vec move) to a CALL to `env.memcpy`/`memset`/
+// `memmove` when bulk-memory is off (the cb/layout/mini wasms import them —
+// see the wasm import section: env.memset/memmove/memcpy). UNPROVIDED they
+// fall through to the Proxy's i32_noop → every such copy/fill is a NO-OP →
+// freshly-allocated memory stays garbage (e.g. a Vec::clone's memcpy'd dest,
+// hashbrown ctrl bytes, Box::new struct moves) → the consumer derefs garbage
+// → `memory access out of bounds` (the browser text-shaping/Css::from OOB,
+// root-caused 2026-06-23 — full-cycle.js worked ONLY because it supplied real
+// impls). C ABI: all three return `dest`. `copyWithin` is overlap-safe, so it
+// is correct for memcpy AND memmove. A fresh Uint8Array per call avoids a
+// detached-buffer hazard after `memory.grow`.
+function azMemset(d, c, n) { new Uint8Array(azMemory.buffer).fill(c & 0xFF, d, d + n); return d; }
+function azMemcpy(d, s, n) { new Uint8Array(azMemory.buffer).copyWithin(d, s, s + n); return d; }
+
+// __udivti3 = compiler-rt 128-bit UNSIGNED divide (a / b), same LEAKED-import
+// class + sret shape (sig=5) as __multi3. mini.wasm calls it at 46 sites
+// (ratio/proportion math, hashing). UNPROVIDED → Proxy i32_noop → every i128
+// divide returns 0 → garbage quotients. Result returned via the sret pointer.
+function azUdivti3(sret, aLo, aHi, bLo, bHi) {
+    var dv = new DataView(azMemory.buffer);
+    var mask = 0xFFFFFFFFFFFFFFFFn;
+    var a = ((BigInt.asUintN(64, BigInt(aHi))) << 64n) | BigInt.asUintN(64, BigInt(aLo));
+    var b = ((BigInt.asUintN(64, BigInt(bHi))) << 64n) | BigInt.asUintN(64, BigInt(bLo));
+    var q = b === 0n ? 0n : (a / b);
+    dv.setBigUint64(Number(sret), q & mask, true);
+    dv.setBigUint64(Number(sret) + 8, (q >> 64n) & mask, true);
+}
+
 // node_idx → table_idx (M8.6 stub: identity since dispatchEvent uses
 // node_idx as the fn-addr-lookup key. M8.5c+ will swap to real
 // fn-addrs harvested from a hydrated StyledDom.)
@@ -138,6 +169,7 @@ function azMakeMiniImports() {
         truncf: Math.trunc, trunc: Math.trunc,
         powf: Math.pow, pow: Math.pow,
         __multi3: azMulti3,
+        memset: azMemset, memcpy: azMemcpy, memmove: azMemcpy, __udivti3: azUdivti3,
     };
     function stubFor(name) {
         if (name.indexOf('write_memory') !== -1 ||
@@ -194,6 +226,7 @@ function azCallbackImports() {
         memory: azMemory,
         __indirect_function_table: azTable,
         __multi3: azMulti3,
+        memset: azMemset, memcpy: azMemcpy, memmove: azMemcpy, __udivti3: azUdivti3,
     };
     var handler = {
         get: function(_target, prop) {
@@ -465,16 +498,47 @@ async function azBootstrap() {
             // M11 Sprint 1: hydrate the wasm-side StyledDom + run the layout
             // solver. Failures log but don't abort — hit-test falls back to
             // the last registered cb node when the rects cache is empty.
-            if (initRc === 0 && domPtr &&
+            // [DISABLED 2026-06-23 — x86 internal-sret lift bug, Task C1]
+            // AzStartup_hydrateStyledDom walks the AzDom the layout cb wrote via
+            // hidden-ptr/sret return; the x86 internal-sret lift drops a field of
+            // that returned struct, so the recursive node walk derefs garbage →
+            // OOB (mini func698). Worse, the partial walk corrupts the allocator/
+            // EventloopState such that the NEXT AzStartup_alloc OOBs even when the
+            // hydrate trap itself is CAUGHT — which killed the click dispatch
+            // (azDispatch's event-buffer alloc, mini func15). hydrate + the layout
+            // solver are NOT used by the current path: render comes from the
+            // server bootstrap HTML, and the click is dispatched via the clicked
+            // element's explicit `data-az-cb` node idx (azNodeIdxFromTarget), not
+            // a geometric hit-test over the solved rects. So SKIP them until the
+            // x86 internal-sret value-flow lift is fixed. Re-enable by removing
+            // the `false &&` once hydrate no longer traps. (full-cycle.js proves
+            // the click works without hydrate: counter 5→6, all 5 steps.)
+            if (false && initRc === 0 && domPtr &&
                 typeof azMini.AzStartup_hydrateStyledDom === 'function') {
-                var hydrateRc = azMini.AzStartup_hydrateStyledDom(azState);
-                var hydrated = (typeof azMini.AzStartup_isStyledDomHydrated === 'function')
-                    ? azMini.AzStartup_isStyledDomHydrated(azState) : 0;
-                var nodeCount = (typeof azMini.AzStartup_getDomNodeCount === 'function')
-                    ? azMini.AzStartup_getDomNodeCount(azState) : 0;
-                console.info('[azul-web] hydrateStyledDom rc=' + hydrateRc +
-                             ' hydrated=' + hydrated +
-                             ' node_count=' + nodeCount);
+                // A wasm trap in hydrateStyledDom MUST NOT abort bootstrap (the
+                // stated policy above) — the StyledDom cascade walks the AzDom
+                // the layout cb wrote via hidden-ptr/sret return, and the x86
+                // internal-sret lift leaves a garbage field that the recursive
+                // node walk derefs → OOB (the func698 trap, 2026-06-23). The
+                // solver below was already guarded; the hydrate call was not, so
+                // its trap escaped uncaught and killed the page. Catch it: the
+                // click still works because azDispatch routes the button's
+                // explicit data-az-cb node idx (no rects-cache hit-test needed).
+                // (Proper fix = the x86 internal-sret value-flow lift — Task C1.)
+                var hydrateRc = 99;
+                try {
+                    hydrateRc = azMini.AzStartup_hydrateStyledDom(azState);
+                    var hydrated = (typeof azMini.AzStartup_isStyledDomHydrated === 'function')
+                        ? azMini.AzStartup_isStyledDomHydrated(azState) : 0;
+                    var nodeCount = (typeof azMini.AzStartup_getDomNodeCount === 'function')
+                        ? azMini.AzStartup_getDomNodeCount(azState) : 0;
+                    console.info('[azul-web] hydrateStyledDom rc=' + hydrateRc +
+                                 ' hydrated=' + hydrated +
+                                 ' node_count=' + nodeCount);
+                } catch (e) {
+                    console.error('[azul-web] hydrateStyledDom TRAPPED (non-fatal; ' +
+                                  'click falls back to the registered cb node):', e && e.message);
+                }
                 // Prefer the REAL solver (the one the node e2e harness exercises);
                 // fall back to the legacy partial solve.
                 var solveFn = azMini.AzStartup_solveLayoutReal || azMini.AzStartup_solveLayout;
@@ -700,6 +764,19 @@ function azDispatch(kind, domEvent, nodeIdxOverride) {
         azState, kind, evtPtr, EVENT_BUFFER_SIZE, outLenPtr
     );
     var patchesLen = view.getUint32(outLenPtr, true);
+    // [out_len lift bug, Task #9] dispatchEvent's `*out_len = used` store goes
+    // through out_len_ptr — its 5th STACK arg, held in RBP. remill spills RBP +
+    // reuses it but the lift drops the reload before the final store (uses the
+    // clobbered RBP=0), so out_len stays at its 0-init. The SetText TLV is
+    // SELF-DESCRIBING (kind:u8 | node_idx:u32 | payload_len:u32 | payload), so
+    // recover the true length from it when the lifted out_len reads 0 — what a
+    // robust loader should do regardless of the lift bug. Single-patch recovery
+    // (hello-world emits one SetText); a multi-patch stream would walk the TLVs.
+    // (Root fix = remill stack-arg spill/reload value-flow; deferred — handoff §8.)
+    if (patchesLen === 0 && patchesPtr) {
+        var pl0 = view.getUint32(patchesPtr + 5, true);
+        if (pl0 > 0 && pl0 < 64) patchesLen = 9 + pl0;
+    }
     console.debug('[azul-web] dispatch kind=' + kind +
                   ' → patches_ptr=' + patchesPtr + ' patches_len=' + patchesLen);
 
