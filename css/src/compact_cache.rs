@@ -10,6 +10,14 @@
 //! Non-compact properties (background, box-shadow, transform, etc.) are
 //! resolved via the slow cascade path in `CssPropertyCache::get_property_slow()`.
 
+// The `*_from_u8` decoders below intentionally give an explicit arm for the byte
+// that maps to each enum's default (e.g. `0 => Block`) even though the `_`
+// catch-all returns the same default — this keeps the decode table a 1:1 mirror
+// of the `*_to_u8` encoders. clippy::match_same_arms flags those explicit arms as
+// duplicates of `_`; merging them would drop the encoding documentation, so allow
+// it for this codec module (false positive for the intent here).
+#![allow(clippy::match_same_arms)]
+
 use crate::props::basic::length::{FloatValue, SizeMetric};
 use crate::props::basic::pixel::PixelValue;
 use crate::props::layout::{
