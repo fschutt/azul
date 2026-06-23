@@ -195,9 +195,38 @@ env — NOT global, which leaks into host build scripts). FileDropManager hooks:
 | # | Item | Subsystem | Status |
 |---|------|-----------|--------|
 | 6 | macOS global menu bar + context menu (NSMenu) — missing (azul-paint demo) | dll macOS shell + core Menu API | DONE |
-| 7 | Windows file DnD hover+drop (OLE IDropTarget; today legacy WM_DROPFILES drop-only) | dll windows shell | TODO (research done; recipe B) |
+| 7 | Windows file DnD hover+drop (OLE IDropTarget; today legacy WM_DROPFILES drop-only) | dll windows shell | DONE |
 | 8 | X11 file DnD (XDND protocol) — none today | dll x11 shell | TODO (research done; see recipe) |
 | 9 | Wayland file DnD (wl_data_device) — none today | dll wayland shell | TODO (research done; see recipe) |
+
+## Item 7 — Windows file DnD hover+drop (OLE IDropTarget)  (DONE)
+Files: `dll/src/desktop/shell2/windows/dnd.rs` (new), `dll/src/desktop/shell2/windows/mod.rs`,
+`dll/src/desktop/shell2/run.rs`, `dll/Cargo.toml`.
+Replaced the legacy drop-only `DragAcceptFiles`/`WM_DROPFILES` path with a modern OLE
+`IDropTarget` COM object so Windows gets file-drag HOVER (`FileHover`/`FileHoverCancel`) in
+addition to drop — mirroring macOS item 1 + the cross-platform `FileDropManager`.
+- [x] `mod.rs`: added `handle_file_drag_entered`/`handle_file_drag_exited`/`handle_file_drop`
+      (mirror macOS: save-prev-state → `set_hovered_file`/`set_dropped_file` → hit-test at the
+      cached cursor (OLE drags deliver no `WM_MOUSEMOVE`) → `process_window_events(0)`), plus
+      `register_drag_drop`. Removed the `DragAcceptFiles` call + the entire `WM_DROPFILES` arm;
+      `RevokeDragDrop` added to `WM_DESTROY` (before the HWND dies).
+- [x] `dnd.rs` (new): `#[implement(IDropTarget)]` COM object via `windows::core`. `DragEnter`/
+      `DragOver`→entered, `DragLeave`→exited, `Drop`→drop. Path extraction from
+      `IDataObject::GetData` (`FORMATETC{CF_HDROP, DVASPECT_CONTENT, -1, TYMED_HGLOBAL}`) →
+      HDROP → `DragQueryFileW` loop → `ReleaseStgMedium`. `*pdweffect = DROPEFFECT_COPY`/`NONE`
+      on every call. `OleInitialize` (STA, `Once`) + `RegisterDragDrop`; `.into::<IDropTarget>()`
+      (not Boxed — COM owns lifetime via RegisterDragDrop's AddRef). COM resolves the
+      `Win32Window` from the HWND via the registry, routes via `route_main_window_result`.
+- [x] `run.rs`: `register_drag_drop()` called after the window enters the registry (main + child).
+- [x] `Cargo.toml`: windows features `Win32_System_Ole`/`_SystemServices`/`_Com_StructuredStorage`,
+      `Win32_Graphics_Gdi`, `Win32_UI_Shell`; added a direct `windows-core` 0.62 dep so the
+      `implement` macro's `::windows_core::` paths resolve to 0.62 (cpal pulls 0.54 transitively;
+      two versions otherwise clash → `IUnknownImpl not implemented`).
+- Verify: `cargo check --target x86_64-pc-windows-msvc -p azul-dll --no-default-features
+      --features link-static` PASSES (windows crate is metadata-only). `build-dll` for that target
+      only fails on the pre-existing `vk-mem` C++ cross-toolchain gap (msvc C++ headers absent on
+      this macOS host), unrelated to this change — `link-static` exercises the full windows shell +
+      the `windows` crate. Runtime drag-onto-window still needs a real Windows session.
 
 ## Item 6 — macOS global menu bar + context menu  (DONE)
 Files: `dll/src/desktop/shell2/macos/menu.rs`, `dll/src/desktop/shell2/macos/mod.rs`.
