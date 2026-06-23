@@ -1727,6 +1727,9 @@ impl HoverEventFilter {
         )
     }
 
+    // Exhaustive On -> Option<FocusEventFilter> mapping table; the several `=> None`
+    // rows (window-only events) are intentional 1:1 rows — merging would collapse the table.
+    #[allow(clippy::match_same_arms)]
     #[must_use] pub const fn to_focus_event_filter(&self) -> Option<FocusEventFilter> {
         match self {
             Self::MouseOver => Some(FocusEventFilter::MouseOver),
@@ -2047,6 +2050,8 @@ pub enum WindowEventFilter {
 }
 
 impl WindowEventFilter {
+    // Exhaustive On -> Option<HoverEventFilter> mapping table (see to_focus_event_filter).
+    #[allow(clippy::match_same_arms)]
     #[must_use] pub const fn to_hover_event_filter(&self) -> Option<HoverEventFilter> {
         match self {
             Self::MouseOver => Some(HoverEventFilter::MouseOver),
@@ -2226,6 +2231,10 @@ impl EventFilter {
 /// For example, `On::TextInput` becomes a Focus event filter, while `On::VirtualKeyDown`
 /// becomes a Window event filter (since it's global to the window).
 impl From<On> for EventFilter {
+    // Exhaustive On -> EventFilter mapping table; the a11y events (Default/Collapse/
+    // Expand/Increment/Decrement) all map to MouseUp ("click") as intentional 1:1
+    // documented rows — merging would drop the per-row rationale comments.
+    #[allow(clippy::match_same_arms)]
     fn from(input: On) -> Self {
         use crate::dom::On::{MouseOver, MouseDown, LeftMouseDown, MiddleMouseDown, RightMouseDown, MouseUp, LeftMouseUp, MiddleMouseUp, RightMouseUp, MouseEnter, MouseLeave, Scroll, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, FocusReceived, FocusLost, Default, Collapse, Expand, Increment, Decrement};
         match input {
@@ -2326,6 +2335,9 @@ pub trait EventProvider {
 ///
 /// For mouse button events, returns both generic (`MouseUp`) AND button-specific (LeftMouseUp/RightMouseUp).
 /// The button-specific filter is derived from the `EventData::Mouse` payload.
+// Exhaustive EventType -> Vec<EventFilter> mapping table; some event types map to
+// the same filter set as intentional 1:1 rows — merging would collapse the table.
+#[allow(clippy::match_same_arms)]
 #[must_use] pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter> {
     use EventFilter as EF;
     use EventType as E;
@@ -3190,6 +3202,9 @@ pub trait FocusManagerQuery {
     post_callback_filter_system_changes(prevent_default, pre_changes, old_focus, new_focus)
 }
 
+// SystemChange dispatch table; a few arms incidentally push the same follow-up
+// change but are kept as distinct documented cases.
+#[allow(clippy::match_same_arms)]
 #[must_use] pub fn post_callback_filter_system_changes(
     prevent_default: bool,
     pre_changes: &[SystemChange],

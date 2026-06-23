@@ -1747,7 +1747,9 @@ impl Hash for SvgNodeData {
                 cx.to_bits().hash(state); cy.to_bits().hash(state);
                 rx.to_bits().hash(state); ry.to_bits().hash(state);
             }
-            Self::Line { x1, y1, x2, y2 } => {
+            // Line and LinearGradient share a { x1, y1, x2, y2 } shape and hash
+            // identically (Eq still distinguishes the variants); fold the duplicate bodies.
+            Self::Line { x1, y1, x2, y2 } | Self::LinearGradient { x1, y1, x2, y2 } => {
                 x1.to_bits().hash(state); y1.to_bits().hash(state);
                 x2.to_bits().hash(state); y2.to_bits().hash(state);
             }
@@ -1760,10 +1762,6 @@ impl Hash for SvgNodeData {
             Self::ViewBox { min_x, min_y, width, height } => {
                 min_x.to_bits().hash(state); min_y.to_bits().hash(state);
                 width.to_bits().hash(state); height.to_bits().hash(state);
-            }
-            Self::LinearGradient { x1, y1, x2, y2 } => {
-                x1.to_bits().hash(state); y1.to_bits().hash(state);
-                x2.to_bits().hash(state); y2.to_bits().hash(state);
             }
             Self::RadialGradient { cx, cy, r, fx, fy } => {
                 cx.to_bits().hash(state); cy.to_bits().hash(state);
