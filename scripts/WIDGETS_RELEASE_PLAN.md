@@ -54,7 +54,7 @@ Each = its own file in `layout/src/widgets/`; follow the recipe (struct → call
 `mod.rs` + api.json (via **azul-doc autofix**, NOT hand-edits), compile-verify (`cargo check -p azul-layout`
 + `build-dll`). Tick `[x]` when DONE + committed. Easiest-first order:
 - Tier1: `[x]` switch `[x]` divider `[x]` card `[x]` badge `[x]` slider `[x]` segmented `[x]` radio_group `[x]` tooltip `[x]` text_area
-- Tier2: `[x]` alert `[x]` accordion `[x]` avatar `[ ]` chip `[ ]` spinner `[ ]` popover `[ ]` combobox `[ ]` modal
+- Tier2: `[x]` alert `[x]` accordion `[x]` avatar `[x]` chip `[x]` spinner `[x]` popover `[ ]` combobox `[ ]` modal
 - Tier3: `[ ]` toast `[ ]` breadcrumb `[ ]` pagination `[ ]` stepper `[ ]` split_pane `[ ]` date_picker `[ ]` time_picker
 - Export wins: `[ ]` Label→api.json `[ ]` TabContent→api.json
 
