@@ -43,8 +43,13 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
     const table = new WebAssembly.Table({ initial: 64, element: 'anyfunc' });
     let cbTableIdx = -1;
     let memory = null;
-    function memsetImpl(d, v, n) { new Uint8Array(memory.buffer).fill(v & 0xFF, d, d + n); return d; }
-    function memcpyImpl(d, s, n) { new Uint8Array(memory.buffer).copyWithin(d, s, s + n); return d; }
+    // [AZ_NOOP_MEM=1] Reproduce the BROWSER's bug: loader.js provides NO
+    // memset/memcpy/memmove → they stub to i32_noop (return 0, do nothing).
+    // If this flag makes the harness OOB the way the browser does, the
+    // missing-mem-ops-in-loader.js diagnosis is confirmed.
+    const NOOP_MEM = process.env.AZ_NOOP_MEM === '1';
+    function memsetImpl(d, v, n) { if (NOOP_MEM) return 0; new Uint8Array(memory.buffer).fill(v & 0xFF, d, d + n); return d; }
+    function memcpyImpl(d, s, n) { if (NOOP_MEM) return 0; new Uint8Array(memory.buffer).copyWithin(d, s, s + n); return d; }
     // __multi3 = compiler-rt 128-bit multiply (LEAKED wasm import; same class as the
     // fmaxf/fminf libcall leak). LLVM lowers Rust u128/i128 multiply (Vec/Layout::array
     // overflow checks, ratio math — e.g. Css::from's `cap * elem_size`) to a `__multi3`
@@ -61,6 +66,18 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
         dv.setBigUint64(Number(sret), p & mask, true);
         dv.setBigUint64(Number(sret) + 8, (p >> 64n) & mask, true);
     };
+    // __udivti3 = compiler-rt 128-bit UNSIGNED divide (a/b), same LEAKED-import
+    // class + sret shape (sig=5) as __multi3. mini.wasm imports it (func9).
+    // Unprovided → i32_noop → every i128 divide returns 0 → garbage.
+    const azUdivti3 = (sret, aLo, aHi, bLo, bHi) => {
+        const dv = new DataView(memory.buffer);
+        const mask = 0xFFFFFFFFFFFFFFFFn;
+        const a = (BigInt.asUintN(64, BigInt(aHi)) << 64n) | BigInt.asUintN(64, BigInt(aLo));
+        const b = (BigInt.asUintN(64, BigInt(bHi)) << 64n) | BigInt.asUintN(64, BigInt(bLo));
+        const q = b === 0n ? 0n : (a / b);
+        dv.setBigUint64(Number(sret), q & mask, true);
+        dv.setBigUint64(Number(sret) + 8, (q >> 64n) & mask, true);
+    };
     const realEnv = {
         __indirect_function_table: table,
         // M9-6 resolve_callback hook: maps native fn addr → wasm table_idx.
@@ -74,6 +91,7 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
         memcpy: memcpyImpl,
         memmove: memcpyImpl,
         __multi3: azMulti3,
+        __udivti3: azUdivti3,
     };
     const AZ_MATH = { fmaxf:(a,b)=>a!==a?b:(b!==b?a:Math.max(a,b)), fminf:(a,b)=>a!==a?b:(b!==b?a:Math.min(a,b)), fmax:(a,b)=>a!==a?b:(b!==b?a:Math.max(a,b)), fmin:(a,b)=>a!==a?b:(b!==b?a:Math.min(a,b)), roundf:x=>Math.sign(x)*Math.round(Math.abs(x)), round:x=>Math.sign(x)*Math.round(Math.abs(x)), fabsf:Math.abs, fabs:Math.abs, sqrtf:Math.sqrt, sqrt:Math.sqrt, floorf:Math.floor, floor:Math.floor, ceilf:Math.ceil, ceil:Math.ceil, truncf:Math.trunc, trunc:Math.trunc, powf:Math.pow, pow:Math.pow };
         const stubFor = n => AZ_MATH[n] || (/write_memory|barrier|exception_clear/.test(n)
@@ -91,7 +109,7 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
     });
     const mini = miniI.exports;
     memory = mini.memory;
-    const cbEnv = { memory, __indirect_function_table: table, memset: memsetImpl, memcpy: memcpyImpl, memmove: memcpyImpl, __multi3: azMulti3 };
+    const cbEnv = { memory, __indirect_function_table: table, memset: memsetImpl, memcpy: memcpyImpl, memmove: memcpyImpl, __multi3: azMulti3, __udivti3: azUdivti3 };
 
     if (cbBytes) {
         const { instance: cbI } = await WebAssembly.instantiate(cbBytes, {
@@ -133,9 +151,59 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
     mini.AzStartup_registerCbNode(state, 0);
     mini.AzStartup_setDisplayNode(state, 0);
 
+    // [AZ_FONT=1] Browser-parity: register the REAL fallback font before
+    // initLayoutCache, exactly like loader.js does (fetch /az/fallback.ttf →
+    // alloc → copy → AzStartup_setFallbackFont). Without this the wasm uses
+    // the embedded const font and the Css::from clone OOB (browser-only,
+    // func70) is MASKED. With it, the harness should reproduce the browser
+    // OOB in Node for fast iteration. Diagnosing the text-shaping path.
+    if (process.env.AZ_FONT === '1' && typeof mini.AzStartup_setFallbackFont === 'function') {
+        const fontBytes = new Uint8Array(await fetch_('/az/fallback.ttf'));
+        if (fontBytes.length > 0) {
+            const fontPtr = mini.AzStartup_alloc(fontBytes.length);
+            new Uint8Array(memory.buffer).set(fontBytes, fontPtr);
+            mini.AzStartup_setFallbackFont(fontPtr, fontBytes.length);
+            console.log('[font] registered fallback font (' + fontBytes.length + ' bytes) at ptr ' + fontPtr);
+        } else {
+            console.log('[font] /az/fallback.ttf empty — skipping');
+        }
+    }
+
     const layoutRc = mini.AzStartup_initLayoutCache(state, 800, 600, 0);
     if (layoutRc !== 0) failSync('initLayoutCache rc=' + layoutRc);
     console.log('[2] layout cache populated (rc=' + layoutRc + ')');
+
+    // [AZ_HYDRATE=1] Browser-parity: run AzStartup_hydrateStyledDom after
+    // initLayoutCache (loader.js azBootstrap does this). The browser OOBs HERE
+    // (mini.wasm func698 <- recursive func352 <- ... <- hydrateStyledDom) — the
+    // AzDom tree walk / style cascade over the layout-cb's sret-returned Dom.
+    // full-cycle.js never called it, so this path was untested in Node.
+    if (process.env.AZ_HYDRATE === '1') {
+        const domPtr = (typeof mini.AzStartup_getCurrentDomPtr === 'function')
+            ? mini.AzStartup_getCurrentDomPtr(state) : 0;
+        console.log('[2b] current_dom_ptr=' + domPtr);
+        if (domPtr && typeof mini.AzStartup_hydrateStyledDom === 'function') {
+            // Snapshot the bump pointer (u32 @ 262176, per the BumpAlloc stub).
+            // hydrateStyledDom OOBs (deep x86 sret bug) AFTER a garbage-size Vec
+            // alloc has advanced the bump pointer to a huge value → the next
+            // AzStartup_alloc OOBs. Catch the trap AND restore the bump pointer
+            // so the allocator is clean for the subsequent click dispatch.
+            const BUMP_OFF = 262176;
+            const bumpBefore = new DataView(memory.buffer).getUint32(BUMP_OFF, true);
+            try {
+                const hRc = mini.AzStartup_hydrateStyledDom(state);
+                const nodeCount = (typeof mini.AzStartup_getDomNodeCount === 'function')
+                    ? mini.AzStartup_getDomNodeCount(state) : -1;
+                console.log('[2c] hydrateStyledDom rc=' + hRc + ' node_count=' + nodeCount);
+            } catch (e) {
+                const bumpAfter = new DataView(memory.buffer).getUint32(BUMP_OFF, true);
+                console.log('[2c] hydrateStyledDom TRAPPED: ' + e.message +
+                    ' — bump 0x' + bumpBefore.toString(16) + ' → 0x' + bumpAfter.toString(16) +
+                    (bumpAfter !== bumpBefore ? ' (CORRUPTED — restoring)' : ''));
+                new DataView(memory.buffer).setUint32(BUMP_OFF, bumpBefore, true);
+            }
+        }
+    }
 
     // === STEP 3: synthesize click event ===
     // Event layout (20 bytes):

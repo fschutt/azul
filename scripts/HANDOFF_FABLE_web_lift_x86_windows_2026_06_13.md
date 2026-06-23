@@ -974,3 +974,71 @@ SPILLS out_len_ptr (RBP) to a stack slot + RELOADS it for the final `*out_len=us
 mis-models that spill/reload (reload reads 0). The proper fix is deep x86 stack-slot value-flow in the
 lift, NOT an enforce_sp tweak. TLV workaround holds. DEFERRED — the right fix needs runtime value-flow
 tracing of the spill slot; low priority vs the now-correct layout lift. Task #9 stays open + deferred.
+
+## ★ CDP REALITY CHECK (2026-06-23) — hello-world does NOT render in a real browser yet
+Ran the REAL-browser CDP test (headless Edge + web-events-min-cdp.js, ws polyfill via npm) against the
+live server on 8840 — something never done before (prior validation was full-cycle.js, a Node harness).
+RESULT: bootstrap OK (mini exports, hydrate counter=5, fallback font registered) then
+**RuntimeError: memory access out of bounds** in the LAYOUT path:
+  layout.wasm func72(0x3b732) <- func142 <- func92 <- func52($callback) <- mini func234 <-
+  AzStartup_initLayoutCache <- azBootstrap
+ROOT CAUSE: the layout.wasm imports 13 env funcs incl TWO `env.sub_` (sub_11095e74, sub_11094025) — and
+the server log has **200 distinct `unclassified extern: sub_… — emitting env import` (class=None)**. These
+are real azul.dll .text functions WITHOUT a PDB symbol → SymbolTable.lookup = None → not lifted → loader.js
+stubs them → garbage → OOB. They cluster in the text-shaping region (allsorts / azul_layout::text3::cache
+shape_text_correctly / shape_with_font_fallback). full-cycle.js NEVER registers a font (no setFallbackFont
+call), so it never runs text shaping → it MASKED this entirely. The Task #8 switch-lift fix made the real
+layout run (vs stubbing font-size to 0), which is what reaches the shaping + these stubbed subs.
+HONEST STATUS: the click→callback→state→SetText-patch LOGIC works (full-cycle PASSES). Browser RENDERING
+does NOT — text shaping calls ~200 unlifted class=None functions. This is a BROAD symbol-coverage gap, the
+genuinely-hard remaining work, NOT a quick patch.
+FIX DIRECTION: lift in-.text `class=None` call targets instead of stubbing (transpiler_remill.rs ~7818
+None-case + the dep BFS classify gate; synthesize Recursable entries with size = next_symbol − addr). This
+will grow the graph substantially (200+ fns + their deps), slow relifts, and may surface further
+text-shaping lift bugs (shape_text has a known history). A multi-step effort.
+Tools set up: /c/rb/cdp_deps (ws + wabt via npm); /c/rb/cdp_oob.js captures the wasm OOB stack via CDP;
+Edge headless --remote-debugging-port=9222. Server on 8840 serves the page (open it to repro the OOB).
+
+## ★★★ BROWSER OOB ROOT-CAUSED + FIXED (2026-06-23) — TWO bugs, neither was the symbol-coverage gap
+The CDP-reality-check OOB (`layout.wasm func70 <- ... <- AzStartup_initLayoutCache`, the same chain as the
+prior section's func72) was chased to ground. The earlier "200 class=None subs = symbol-coverage gap"
+hypothesis was WRONG — those subs were recursive-call MARKERS (target+0x10000000), and even after fixing
+THAT, the OOB persisted. The real render bug was in **loader.js**, not the lift. Two independent fixes:
+
+### Fix 1 — x86 recursive-call marker mismatch (transpiler_remill.rs, prereq)
+`x86_scan::rewrite_recursive_call` biases an in-buffer `call rel32` to `+0x1000_0000`, but
+`emit_helper_ir`'s recursive-forwarder detector hard-coded the AArch64 marker `+0x4000000` → every x86
+self-recursive call (allsorts' recursive parsers, CSS/DOM recursive clones) fell to `class=None` →
+env-import stub → garbage → OOB. FIX: cfg-split `REC_MARKER` (aarch64 `0x0400_0000`, x86_64 `0x1000_0000`)
+at transpiler_remill.rs ~7858. PROVEN at lift level: a warm relift went from ~200 `unclassified extern`
+env-imports → **0**, with **91 `recursive-bl forwarder`** emissions. Necessary but NOT sufficient.
+
+### Fix 2 — loader.js never provided memset/memcpy/memmove (THE render OOB) ⟵ root cause
+`grep memset|memcpy|memmove dll/src/web/loader_js.rs` = **nothing**. The cb/layout/mini wasms IMPORT
+`env.memset/memcpy/memmove` (the LLVM wasm backend lowers the lifted `@llvm.memset`/`@llvm.memmove` —
+BumpAlloc zero-init, the LibcMemcpy/LibcMemset stub bodies, every large/non-const struct or Vec move —
+to a CALL to these when bulk-memory is off). loader.js's `azCallbackImports`/`azMakeMiniImports` `realEnv`
+provided only `{memory, table, __multi3}`; everything else fell through the Proxy to **`i32_noop`** (returns
+0, does nothing). So in the BROWSER every such copy/fill was a NO-OP → freshly-allocated memory stayed
+garbage → the `Vec::clone`/struct-move dest was garbage → `[RBP+RDI+0x30]` store OOB at func70.
+full-cycle.js (Node harness) worked ONLY because it supplied real `memsetImpl`/`memcpyImpl`.
+FIX: added top-level `azMemset`/`azMemcpy` (fresh `Uint8Array(azMemory.buffer)` per call — detach-safe;
+`copyWithin` is overlap-safe so memmove=azMemcpy; all return `dest`) and wired `memset/memcpy/memmove`
+into BOTH `realEnv` objects.
+
+### The decisive diagnostic (reusable) — full-cycle.js A/B with AZ_NOOP_MEM
+full-cycle.js MASKED this for months because it supplied real mem ops. Added `AZ_NOOP_MEM=1` (stub
+memsetImpl/memcpyImpl to `return 0`) + `AZ_FONT=1` (register the real /az/fallback.ttf like loader.js).
+Result: `AZ_NOOP_MEM=1` REPRODUCES the exact `RuntimeError: memory access out of bounds` at [2] in Node
+(seconds, no browser, no relift); real mem ops PASS. This A/B nailed loader.js as the culprit without a
+single relift. LESSON: the Node harness's env imports MUST mirror loader.js's, or harness-green ≠ browser-green.
+
+### Fix 3 — loader.js out_len recovery (Task #9 workaround, for the click)
+loader.js read `patchesLen = getUint32(outLenPtr)` directly; the out_len mis-lift (Task #9) leaves it 0 →
+no SetText patch applied → visible counter never updates on click. Mirrored full-cycle.js's TLV recovery:
+when `patchesLen===0 && patchesPtr`, read `payload_len` at `patchesPtr+5` and use `9+payload_len`
+(single-patch; hello-world emits one SetText). Defensive + correct regardless of the lift bug.
+
+Both fixes are loader.js-only (loader_js.rs) → NO relift logic changed → the lift cache stays warm; a dll
+rebuild (~1m17s) + server restart re-emits loader.js. remill fixes unchanged. VERIFICATION: deploy on
+:8845 + CDP (cdp_oob_click.js render+click + cdp_click_hw_port.js counter gate) — IN PROGRESS at write time.
