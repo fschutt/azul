@@ -12,7 +12,7 @@ file, following existing patterns); link the showcase on the releases page.
 | W1 | Paint HiDPI click fix | DONE (ebd19c71a) |
 | W2 | Maps jumbled-tiles fix | DONE — fractional-zoom contiguous tile sizing (map.rs) + f32→f64 MVT projection (mvt.rs); see W2 note |
 | W3 | Widget gap research | DONE (→ scripts/WIDGETS_RESEARCH.md) |
-| W4 | Build new widgets (queue below; one file each) | TODO (cron churns one/fire) |
+| W4 | Build new widgets (queue below; one file each) | DONE — 24/24 widget queue complete (date_picker + time_picker finish Tier3) |
 | W5 | `azul-widgets` showcase demo crate (from widgets.c) | TODO (after W4) |
 | W6 | Release-page swap: remove spirit-level, add azul-widgets | TODO (after W5) |
 
@@ -55,7 +55,7 @@ Each = its own file in `layout/src/widgets/`; follow the recipe (struct → call
 + `build-dll`). Tick `[x]` when DONE + committed. Easiest-first order:
 - Tier1: `[x]` switch `[x]` divider `[x]` card `[x]` badge `[x]` slider `[x]` segmented `[x]` radio_group `[x]` tooltip `[x]` text_area
 - Tier2: `[x]` alert `[x]` accordion `[x]` avatar `[x]` chip `[x]` spinner `[x]` popover `[x]` combobox `[x]` modal
-- Tier3: `[x]` toast `[x]` breadcrumb `[x]` pagination `[x]` stepper `[x]` split_pane `[ ]` date_picker `[ ]` time_picker
+- Tier3: `[x]` toast `[x]` breadcrumb `[x]` pagination `[x]` stepper `[x]` split_pane `[x]` date_picker `[x]` time_picker
 - Export wins: `[ ]` Label→api.json `[ ]` TabContent→api.json
 
 ## W6 — release-page edit (mechanism from investigation; do AFTER the azul-widgets crate exists)
