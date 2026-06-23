@@ -215,5 +215,8 @@ pub mod avatar;
 /// Chip / tag widget — a compact rounded pill with a label + optional removable
 /// "×" (stateful when removable, mirrors alert's dismiss); see `chip.rs`.
 pub mod chip;
+/// Spinner / activity widget — a static indeterminate busy ring (stateless;
+/// no animation — see the file's PARTIAL/TODO2 note); see `spinner.rs`.
+pub mod spinner;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
