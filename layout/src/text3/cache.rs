@@ -6674,15 +6674,15 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
     unsafe { crate::az_mark(0x60850_u32, (segments.len() as u32) as u32); } // [g123] segments count (split_text_by_font_coverage)
     if segments.len() <= 1 {
         // Fast path: all characters use the same font (common case)
-        let (seg_start, seg_end, font_id) = if let Some(s) = segments.first() { unsafe { crate::az_mark(0x60854_u32, 0x00000001u32); } s } else {
-            unsafe { crate::az_mark(0x60854_u32, 0x000000EEu32); } // [g123] split→0 segments (resolve_char failed all)
+        let (seg_start, seg_end, font_id) = if let Some(s) = segments.first() { unsafe { crate::az_mark(0x60854_u32, 0x0000_0001_u32); } s } else {
+            unsafe { crate::az_mark(0x60854_u32, 0x0000_00EE_u32); } // [g123] split→0 segments (resolve_char failed all)
             if dbg {
                 eprintln!("[FONT FALLBACK] no font could render any char in '{}'", text.chars().take(20).collect::<String>());
             }
             return Ok(Vec::new());
         };
-        let font = if let Some(f) = loaded_fonts.get(font_id) { unsafe { crate::az_mark(0x60858_u32, 0x00000001u32); } f } else {
-            unsafe { crate::az_mark(0x60858_u32, 0x000000EEu32); } // [g123] loaded_fonts.get MISS
+        let font = if let Some(f) = loaded_fonts.get(font_id) { unsafe { crate::az_mark(0x60858_u32, 0x0000_0001_u32); } f } else {
+            unsafe { crate::az_mark(0x60858_u32, 0x0000_00EE_u32); } // [g123] loaded_fonts.get MISS
             if dbg {
                 eprintln!("[FONT FALLBACK] font {:?} not in loaded_fonts for '{}'", font_id, text.chars().take(20).collect::<String>());
             }
@@ -6690,7 +6690,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
         };
         // If segment covers the full text (overwhelmingly common), skip substr+fixup
         if *seg_start == 0 && *seg_end == text.len() {
-            unsafe { crate::az_mark(0x60860_u32, 0xC0DE0860u32); } // [g123] reached shape_text_correctly (full-text)
+            unsafe { crate::az_mark(0x60860_u32, 0xC0DE_0860_u32); } // [g123] reached shape_text_correctly (full-text)
             return shape_text_correctly(
                 text, script, language, direction,
                 font, style, source_index, source_node_id,
@@ -6911,7 +6911,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 // Shape text using either FontRef directly or fontconfig-resolved font
                 let shaped_clusters_result: Result<Vec<ShapedCluster>, LayoutError> = match &style.font_stack {
                     FontStack::Ref(font_ref) => {
-                        unsafe { crate::az_mark(0x60820_u32, 0x00000001u32); } // [g121] Ref arm
+                        unsafe { crate::az_mark(0x60820_u32, 0x0000_0001_u32); } // [g121] Ref arm
                         // For FontRef, use the font directly without fontconfig
                         if let Some(msgs) = debug_messages {
                             msgs.push(LayoutDebugMessage::info(format!(
@@ -6931,7 +6931,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         )
                     }
                     FontStack::Stack(selectors) => {
-                        unsafe { crate::az_mark(0x60820_u32, 0x00000002u32); } // [g121] Stack arm
+                        unsafe { crate::az_mark(0x60820_u32, 0x0000_0002_u32); } // [g121] Stack arm
                         // Build FontChainKey and resolve through fontconfig
                         let cache_key = FontChainKey::from_selectors(selectors);
                         unsafe { crate::az_mark(0x60824_u32, font_chain_cache.len() as u32); } // [g121] chain map len
@@ -7281,9 +7281,9 @@ fn shape_text_correctly<T: ParsedFontTrait>(
     source_index: ContentIndex,
     source_node_id: Option<NodeId>,
 ) -> Result<Vec<ShapedCluster>, LayoutError> {
-    unsafe { crate::az_mark(0x60864_u32, 0xC0DE0864u32); } // [g123] shape_text_correctly ENTERED
+    unsafe { crate::az_mark(0x60864_u32, 0xC0DE_0864_u32); } // [g123] shape_text_correctly ENTERED
     let glyphs = font.shape_text(text, script, language, direction, style.as_ref())?;
-    unsafe { crate::az_mark(0x60868_u32, (glyphs.len() as u32) | 0x80000000u32); } // [g123] font.shape_text returned (high bit set); low bits = glyph count
+    unsafe { crate::az_mark(0x60868_u32, (glyphs.len() as u32) | 0x8000_0000_u32); } // [g123] font.shape_text returned (high bit set); low bits = glyph count
 
     if glyphs.is_empty() {
         return Ok(Vec::new());

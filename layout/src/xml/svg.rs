@@ -108,7 +108,7 @@ extern crate agg_rust;
 use azul_core::gl::GL_RESTART_INDEX;
 
 /// Kappa constant for approximating a circle with 4 cubic Bezier curves: 4/3 * (sqrt(2) - 1).
-const CIRCLE_BEZIER_KAPPA: f64 = 0.5522847498;
+const CIRCLE_BEZIER_KAPPA: f64 = 0.552_284_749_8;
 
 /// Default render size (width, height) when no target size is specified for SVG rendering.
 const DEFAULT_SVG_RENDER_SIZE: (u32, u32) = (800, 600);

@@ -248,7 +248,7 @@ impl ProgressBar {
         // Use percentage widths for the progress bar and remaining space.
         // The container uses flex-direction: row, and we set explicit widths
         // on the children using CSS percentages.
-        let percent_done = self.progressbar_state.percent_done.max(0.0).min(100.0);
+        let percent_done = self.progressbar_state.percent_done.clamp(0.0, 100.0);
 
         Dom::create_div()
             .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![

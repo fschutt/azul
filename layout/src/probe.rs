@@ -290,16 +290,16 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
                 .map(|p| {
                     let diff = i128::from(*bytes) - i128::from(p);
                     if diff >= 0 {
-                        format!("  (Δ +{:.2} MiB)", diff as f64 / 1048576.0)
+                        format!("  (Δ +{:.2} MiB)", diff as f64 / 1_048_576.0)
                     } else {
-                        format!("  (Δ -{:.2} MiB)", -diff as f64 / 1048576.0)
+                        format!("  (Δ -{:.2} MiB)", -diff as f64 / 1_048_576.0)
                     }
                 })
                 .unwrap_or_default();
             eprintln!(
                 "[CPU]   {:<28}  {:.2} MiB{}",
                 lbl,
-                *bytes as f64 / 1048576.0,
+                *bytes as f64 / 1_048_576.0,
                 delta
             );
             prev = Some(*bytes);

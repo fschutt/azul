@@ -1652,9 +1652,9 @@ impl Brush {
 /// `1 - smoothstep(hardness, 1, t)` so CPU and GPU strokes match.
 #[inline]
 #[must_use] pub fn brush_dab_coverage(t: f32, hardness: f32) -> f32 {
-    let edge0 = hardness.max(0.0).min(1.0);
+    let edge0 = hardness.clamp(0.0, 1.0);
     let denom = (1.0 - edge0).max(1.0e-4);
-    let x = ((t - edge0) / denom).max(0.0).min(1.0);
+    let x = ((t - edge0) / denom).clamp(0.0, 1.0);
     1.0 - (x * x * (3.0 - 2.0 * x))
 }
 
@@ -1678,7 +1678,7 @@ impl RawImage {
             RawImageData::U8(ref mut v) => v.as_mut(),
             _ => return,
         };
-        let flow = brush.flow.max(0.0).min(1.0) * (f32::from(brush.color.a) / 255.0);
+        let flow = brush.flow.clamp(0.0, 1.0) * (f32::from(brush.color.a) / 255.0);
         let (cr, cg, cb) = (
             f32::from(brush.color.r),
             f32::from(brush.color.g),
@@ -1707,11 +1707,11 @@ impl RawImage {
                     (idx, idx + 1, idx + 2, idx + 3)
                 };
                 let inv = 1.0 - a;
-                buf[ri] = (cr * a + f32::from(buf[ri]) * inv).round().max(0.0).min(255.0) as u8;
-                buf[gi] = (cg * a + f32::from(buf[gi]) * inv).round().max(0.0).min(255.0) as u8;
-                buf[bi] = (cb * a + f32::from(buf[bi]) * inv).round().max(0.0).min(255.0) as u8;
+                buf[ri] = (cr * a + f32::from(buf[ri]) * inv).round().clamp(0.0, 255.0) as u8;
+                buf[gi] = (cg * a + f32::from(buf[gi]) * inv).round().clamp(0.0, 255.0) as u8;
+                buf[bi] = (cb * a + f32::from(buf[bi]) * inv).round().clamp(0.0, 255.0) as u8;
                 buf[ai] =
-                    ((a + (f32::from(buf[ai]) / 255.0) * inv) * 255.0).round().max(0.0).min(255.0) as u8;
+                    ((a + (f32::from(buf[ai]) / 255.0) * inv) * 255.0).round().clamp(0.0, 255.0) as u8;
             }
         }
     }
@@ -2805,7 +2805,7 @@ pub const MIN_AU: i32 = -(1 << 30) - 1;
 impl Au {
     #[must_use] pub fn from_px(px: f32) -> Self {
         let target_app_units = (px * AU_PER_PX as f32) as i32;
-        Self(target_app_units.min(MAX_AU).max(MIN_AU))
+        Self(target_app_units.clamp(MIN_AU, MAX_AU))
     }
     #[must_use] pub fn into_px(&self) -> f32 {
         self.0 as f32 / AU_PER_PX as f32
@@ -2884,7 +2884,7 @@ pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture, ExternalImageId);
     debug_assert!(u32::try_from(dom).is_ok(), "DomId exceeds 32-bit range");
     debug_assert!(u32::try_from(node).is_ok(), "NodeId exceeds 32-bit range");
     ExternalImageId {
-        inner: (dom << 32) | (node & 0xFFFFFFFF),
+        inner: (dom << 32) | (node & 0xFFFF_FFFF),
     }
 }
 

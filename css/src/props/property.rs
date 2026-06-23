@@ -4561,7 +4561,7 @@ impl CssProperty {
         // Map from linear interpolation function to Easing curve
         let t: f32 = interpolate_resolver.interpolate_func.evaluate(f64::from(t));
 
-        let t = t.max(0.0).min(1.0);
+        let t = t.clamp(0.0, 1.0);
 
         match (self, other) {
             (Self::TextColor(col_start), Self::TextColor(col_end)) => {

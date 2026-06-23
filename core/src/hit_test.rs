@@ -629,9 +629,9 @@ impl HitTestTag {
             TAG_TYPE_SCROLLBAR => {
                 // Scrollbar tag: decode DomId, NodeId, and component
                 let dom_id = DomId {
-                    inner: ((tag_value >> 32) & 0xFFFFFFFF) as usize,
+                    inner: ((tag_value >> 32) & 0xFFFF_FFFF) as usize,
                 };
-                let node_id = NodeId::new((tag_value & 0xFFFFFFFF) as usize);
+                let node_id = NodeId::new((tag_value & 0xFFFF_FFFF) as usize);
                 let component_value = (tag_type & 0x00FF) as u8;
                 let component = ScrollbarComponent::from_u8(component_value)?;
 
@@ -644,9 +644,9 @@ impl HitTestTag {
             TAG_TYPE_CURSOR => {
                 // Cursor tag: decode DomId, NodeId, and cursor type
                 let dom_id = DomId {
-                    inner: ((tag_value >> 32) & 0xFFFFFFFF) as usize,
+                    inner: ((tag_value >> 32) & 0xFFFF_FFFF) as usize,
                 };
-                let node_id = NodeId::new((tag_value & 0xFFFFFFFF) as usize);
+                let node_id = NodeId::new((tag_value & 0xFFFF_FFFF) as usize);
                 let cursor_value = (tag_type & 0x00FF) as u8;
                 let cursor_type = CursorType::from_u8(cursor_value);
 
@@ -661,7 +661,7 @@ impl HitTestTag {
                 let dom_id = DomId {
                     inner: ((tag_value >> 48) & 0xFFFF) as usize,
                 };
-                let container_node_id = NodeId::new(((tag_value >> 16) & 0xFFFFFFFF) as usize);
+                let container_node_id = NodeId::new(((tag_value >> 16) & 0xFFFF_FFFF) as usize);
                 let text_run_index = (tag_value & 0xFFFF) as u16;
 
                 Some(Self::Selection {

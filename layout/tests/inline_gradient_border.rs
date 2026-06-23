@@ -148,8 +148,7 @@ fn test_inline_block_with_gradient_background() {
 
     assert!(
         gradient_count >= 1,
-        "Should have at least 1 gradient item for the inline-block element, got {}",
-        gradient_count
+        "Should have at least 1 gradient item for the inline-block element, got {gradient_count}"
     );
 }
 
@@ -196,8 +195,8 @@ fn test_inline_block_with_border() {
                     "      Border bounds: {}x{} @ ({}, {})",
                     bounds.size().width, bounds.size().height, bounds.origin().x, bounds.origin().y
                 );
-                println!("      Border widths: {:?}", widths);
-                println!("      Border colors: {:?}", colors);
+                println!("      Border widths: {widths:?}");
+                println!("      Border colors: {colors:?}");
             }
             _ => {}
         }
@@ -205,8 +204,7 @@ fn test_inline_block_with_border() {
 
     assert!(
         border_count >= 1,
-        "Should have at least 1 border item for the inline-block element, got {}",
-        border_count
+        "Should have at least 1 border item for the inline-block element, got {border_count}"
     );
 }
 
@@ -256,19 +254,17 @@ fn test_inline_block_with_gradient_and_border() {
         println!("  [{}] {:?}", i, std::mem::discriminant(item));
     }
 
-    println!("\nGradient items: {}", gradient_count);
-    println!("Border items: {}", border_count);
+    println!("\nGradient items: {gradient_count}");
+    println!("Border items: {border_count}");
 
     assert!(
         gradient_count >= 1,
-        "Should have at least 1 gradient item, got {}",
-        gradient_count
+        "Should have at least 1 gradient item, got {gradient_count}"
     );
 
     assert!(
         border_count >= 1,
-        "Should have at least 1 border item, got {}",
-        border_count
+        "Should have at least 1 border item, got {border_count}"
     );
 }
 
@@ -321,8 +317,7 @@ fn test_inline_element_with_gradient_background() {
 
     assert!(
         gradient_count >= 1,
-        "Should have at least 1 gradient item for the inline span element, got {}",
-        gradient_count
+        "Should have at least 1 gradient item for the inline span element, got {gradient_count}"
     );
 }
 
@@ -366,8 +361,8 @@ fn test_inline_element_with_border() {
                     "      Border bounds: {}x{} @ ({}, {})",
                     bounds.size().width, bounds.size().height, bounds.origin().x, bounds.origin().y
                 );
-                println!("      Border widths: {:?}", widths);
-                println!("      Border styles: {:?}", styles);
+                println!("      Border widths: {widths:?}");
+                println!("      Border styles: {styles:?}");
             }
             _ => {}
         }
@@ -375,8 +370,7 @@ fn test_inline_element_with_border() {
 
     assert!(
         border_count >= 1,
-        "Should have at least 1 border item for the inline span element, got {}",
-        border_count
+        "Should have at least 1 border item for the inline span element, got {border_count}"
     );
 }
 
@@ -424,14 +418,12 @@ fn test_radial_gradient_on_inline_block() {
         println!("  [{}] {:?}", i, std::mem::discriminant(item));
     }
 
-    println!("\nRadial gradient items: {}", radial_gradient_count);
-    println!("Any gradient items: {}", any_gradient_count);
+    println!("\nRadial gradient items: {radial_gradient_count}");
+    println!("Any gradient items: {any_gradient_count}");
 
     assert!(
         any_gradient_count >= 1 || radial_gradient_count >= 1,
-        "Should have at least 1 gradient item for the radial gradient, got radial={}, any={}",
-        radial_gradient_count,
-        any_gradient_count
+        "Should have at least 1 gradient item for the radial gradient, got radial={radial_gradient_count}, any={any_gradient_count}"
     );
 }
 
@@ -506,8 +498,7 @@ fn test_multiple_inline_blocks_with_different_borders() {
 
     assert!(
         border_count >= 3,
-        "Should have at least 3 border items for the 3 boxes, got {}",
-        border_count
+        "Should have at least 3 border items for the 3 boxes, got {border_count}"
     );
 }
 

@@ -116,8 +116,7 @@ fn test_empty_cell_detection_logic() {
         has_inline_content: bool,
     }
 
-    let cells = vec![
-        CellInfo {
+    let cells = [CellInfo {
             has_children: false,
             has_inline_content: false,
         }, // Empty
@@ -132,8 +131,7 @@ fn test_empty_cell_detection_logic() {
         CellInfo {
             has_children: false,
             has_inline_content: true,
-        }, // Empty with inline result
-    ];
+        }];
 
     for (idx, cell) in cells.iter().enumerate() {
         let is_empty = if !cell.has_children {
@@ -203,7 +201,7 @@ fn test_empty_cells_with_padding() {
 fn test_multiple_empty_cells() {
     // Test multiple cells in a row
 
-    let cells_empty = vec![true, false, true, false];
+    let cells_empty = [true, false, true, false];
 
     let empty_count = cells_empty.iter().filter(|&&e| e).count();
     let non_empty_count = cells_empty.iter().filter(|&&e| !e).count();

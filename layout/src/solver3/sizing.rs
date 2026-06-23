@@ -1173,7 +1173,7 @@ fn process_layout_children<T: ParsedFontTrait>(
     use azul_css::props::layout::{LayoutHeight, LayoutWidth};
 
     // [g73] PLC entry: 0x60708 = 0xC0<<24 | node_index (which node's children we process).
-    unsafe { crate::az_mark(0x60708_u32, ((0xC0000000u32 | (node_index as u32 & 0xFFFFFF)))); }
+    unsafe { crate::az_mark(0x60708_u32, ((0xC000_0000_u32 | (node_index as u32 & 0x00FF_FFFF)))); }
     // Process layout tree children (these are elements with layout properties)
     for &child_index in tree.children(node_index) {
         // [g73] PLC loop: 0x6070C = current child_index being processed.

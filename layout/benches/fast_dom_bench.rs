@@ -18,7 +18,7 @@ fn main() {
             match std::fs::read_to_string(alt) {
                 Ok(c) => c,
                 Err(_) => {
-                    eprintln!("Cannot find benchmark file: {}", e);
+                    eprintln!("Cannot find benchmark file: {e}");
                     return;
                 }
             }
@@ -55,14 +55,14 @@ fn main() {
     let t1 = Instant::now();
     registry.spawn_scout_and_builders();
     let spawn_ms = t1.elapsed().as_secs_f64() * 1000.0;
-    println!("  spawn threads:     {:.2}ms", spawn_ms);
+    println!("  spawn threads:     {spawn_ms:.2}ms");
 
     let t2 = Instant::now();
     let os = rust_fontconfig::OperatingSystem::current();
     let common_stacks = rust_fontconfig::config::tokenize_common_families(os);
     registry.request_fonts(&common_stacks);
     let request_ms = t2.elapsed().as_secs_f64() * 1000.0;
-    println!("  request_fonts:     {:.2}ms (blocks until common fonts parsed)", request_ms);
+    println!("  request_fonts:     {request_ms:.2}ms (blocks until common fonts parsed)");
 
     let t3 = Instant::now();
     let fc_cache = registry.shared_cache();
@@ -100,12 +100,12 @@ fn main() {
         let load_ms = t6.elapsed().as_secs_f64() * 1000.0;
 
         font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
-        println!("  collect+resolve:   {:.2}ms (single pass)", chain_ms);
+        println!("  collect+resolve:   {chain_ms:.2}ms (single pass)");
         println!("  load from disk:    {:.2}ms ({} fonts needed, {} total loaded)",
             load_ms, need_count, font_manager.get_loaded_font_ids().len());
     }
     let total_prefont_ms = t0.elapsed().as_secs_f64() * 1000.0;
-    println!("  TOTAL pre-load:    {:.2}ms\n", total_prefont_ms);
+    println!("  TOTAL pre-load:    {total_prefont_ms:.2}ms\n");
 
     // =========================================================================
     // PER-FRAME BENCHMARK (warm fonts)
@@ -115,7 +115,7 @@ fn main() {
     let dpi = 1.0_f32;
 
     const ITERATIONS: usize = 5;
-    println!("--- Per-frame pipeline ({} iterations, warm fonts) ---", ITERATIONS);
+    println!("--- Per-frame pipeline ({ITERATIONS} iterations, warm fonts) ---");
 
     let mut pipeline_times = Vec::new();
     let mut stage_times = Vec::new(); // (parse+cascade, font_chains, layout+dl, render)
@@ -208,10 +208,10 @@ fn main() {
     let s3_avg = avg(&stage_times.iter().map(|s| s.3).collect::<Vec<_>>());
     let total_avg = avg(&pipeline_times);
 
-    println!("  parse + cascade:   {:.1}ms", s1_avg);
-    println!("  font chains:       {:.1}ms", s1b_avg);
-    println!("  layout + DL:       {:.1}ms", s2_avg);
-    println!("  CPU render:        {:.1}ms", s3_avg);
+    println!("  parse + cascade:   {s1_avg:.1}ms");
+    println!("  font chains:       {s1b_avg:.1}ms");
+    println!("  layout + DL:       {s2_avg:.1}ms");
+    println!("  CPU render:        {s3_avg:.1}ms");
     println!("  ────────────────────────");
-    println!("  TOTAL per-frame:   {:.1}ms", total_avg);
+    println!("  TOTAL per-frame:   {total_avg:.1}ms");
 }

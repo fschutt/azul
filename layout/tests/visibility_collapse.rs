@@ -473,12 +473,10 @@ fn test_fixed_width_with_collapsed_columns() {
 fn test_auto_width_excludes_collapsed_columns() {
     // CSS 2.2 Section 17.6: Collapsed columns excluded from min/max totals
 
-    let columns = vec![
-        (50.0, 100.0), // Col 0: min=50, max=100
+    let columns = [(50.0, 100.0), // Col 0: min=50, max=100
         (30.0, 60.0),  // Col 1: min=30, max=60 (collapsed)
         (40.0, 80.0),  // Col 2: min=40, max=80
-        (20.0, 40.0),  // Col 3: min=20, max=40 (collapsed)
-    ];
+        (20.0, 40.0)];
 
     let mut collapsed_columns: HashSet<usize> = HashSet::new();
     collapsed_columns.insert(1);
@@ -648,11 +646,9 @@ fn test_mixed_row_and_column_collapse() {
 fn test_auto_width_interpolation_with_collapsed() {
     // CSS 2.2 Section 17.5.2.2: Auto layout with available space between min/max
 
-    let columns = vec![
-        (50.0, 100.0), // Col 0
+    let columns = [(50.0, 100.0), // Col 0
         (30.0, 60.0),  // Col 1 (collapsed)
-        (40.0, 80.0),  // Col 2
-    ];
+        (40.0, 80.0)];
 
     let mut collapsed_columns: HashSet<usize> = HashSet::new();
     collapsed_columns.insert(1);
@@ -704,11 +700,9 @@ fn test_auto_width_interpolation_with_collapsed() {
 fn test_auto_width_scale_down_with_collapsed() {
     // CSS 2.2: Not enough space, scale down from min widths
 
-    let columns = vec![
-        (50.0, 100.0), // Col 0
+    let columns = [(50.0, 100.0), // Col 0
         (30.0, 60.0),  // Col 1 (collapsed)
-        (40.0, 80.0),  // Col 2
-    ];
+        (40.0, 80.0)];
 
     let mut collapsed_columns: HashSet<usize> = HashSet::new();
     collapsed_columns.insert(1);

@@ -3097,7 +3097,7 @@ impl Texture {
         gl.blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
         gl.use_program(prog);
 
-        let a = (f32::from(brush.color.a) / 255.0) * brush.flow.max(0.0).min(1.0);
+        let a = (f32::from(brush.color.a) / 255.0) * brush.flow.clamp(0.0, 1.0);
         gl.uniform_4f(
             gl.get_uniform_location(prog, "uColor"),
             f32::from(brush.color.r) / 255.0,

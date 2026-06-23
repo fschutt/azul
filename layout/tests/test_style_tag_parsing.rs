@@ -34,7 +34,7 @@ fn find_element_child<'a>(children: &'a [XmlNodeChild], tag: &str) -> &'a azul_c
             }
         }
     }
-    panic!("No element child with tag '{}' found", tag);
+    panic!("No element child with tag '{tag}' found");
 }
 
 #[test]
@@ -78,7 +78,7 @@ fn test_style_tag_parsing_simple() {
         "STYLE should have 1 text child"
     );
     let css_text = as_text(&style.children.as_ref()[0]);
-    eprintln!("CSS text: '{}'", css_text);
+    eprintln!("CSS text: '{css_text}'");
     assert_eq!(css_text, "body { color: red; }");
 }
 
@@ -108,7 +108,7 @@ fn test_style_tag_parsing_with_quotes() {
 
     assert_eq!(style.children.as_ref().len(), 1);
     let css_text = as_text(&style.children.as_ref()[0]);
-    eprintln!("CSS text: '{}'", css_text);
+    eprintln!("CSS text: '{css_text}'");
     assert!(
         css_text.contains("font-family"),
         "CSS should contain font-family"

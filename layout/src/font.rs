@@ -984,7 +984,7 @@ pub mod parsed {
                         // DIAG: surface the sliced offset (how wrong) as hex — "HO" + 8 hex
                         // of (head_cow.ptr - font_bytes.ptr). garbage→offset-read mis-lift;
                         // 00000000→base; plausible-but-wrong→record mapping. "RF"=bytes-OK.
-                        let m = if magic == 0x5F0F3CF5 {
+                        let m = if magic == 0x5F0F_3CF5 {
                             "RF000000".to_string()
                         } else {
                             let off = (head_cow.as_ref().as_ptr() as usize)

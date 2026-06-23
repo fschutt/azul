@@ -153,7 +153,7 @@ std::thread_local! {
 }
 
 // Unit conversion constants (CSS absolute units → pixels)
-const PT_TO_PX: f32 = 1.333333;
+const PT_TO_PX: f32 = 1.333_333;
 const IN_TO_PX: f32 = 96.0;
 const CM_TO_PX: f32 = 37.795_277;
 const MM_TO_PX: f32 = 3.779_527_7;

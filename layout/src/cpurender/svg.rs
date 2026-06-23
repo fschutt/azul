@@ -384,7 +384,7 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
             let mut ps = svg_multi_polygon_to_path_storage(&multi);
             // Scale ellipse: we'll just build it directly instead
             let mut path = PathStorage::new();
-            const KAPPA: f64 = 0.5522847498;
+            const KAPPA: f64 = 0.552_284_749_8;
             let kx = rx * KAPPA;
             let ky = ry * KAPPA;
             path.move_to(cx, cy - ry);

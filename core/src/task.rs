@@ -206,7 +206,7 @@ impl Instant {
         let duration_total = end.duration_since(&start);
         let duration_current = self.duration_since(&start);
 
-        duration_current.div(&duration_total).max(0.0).min(1.0)
+        duration_current.div(&duration_total).clamp(0.0, 1.0)
     }
 
     /// Adds a duration to the instant, does nothing in undefined cases
