@@ -990,7 +990,7 @@ impl DynamicSelector {
     #[must_use] pub fn matches(&self, ctx: &DynamicSelectorContext) -> bool {
         match self {
             Self::Os(os) => Self::match_os(*os, ctx.os),
-            Self::OsVersion(ver) => Self::match_os_version(ver, &ctx.os_version, &ctx.desktop_env, ctx.de_version),
+            Self::OsVersion(ver) => Self::match_os_version(ver, ctx.os_version, ctx.desktop_env, ctx.de_version),
             Self::Media(media) => *media == ctx.media_type || *media == MediaType::All,
             Self::ViewportWidth(range) => range.matches(ctx.viewport_width),
             Self::ViewportHeight(range) => range.matches(ctx.viewport_height),
@@ -1028,8 +1028,8 @@ impl DynamicSelector {
 
     fn match_os_version(
         condition: &OsVersionCondition,
-        actual: &OsVersion,
-        desktop_env: &OptionLinuxDesktopEnv,
+        actual: OsVersion,
+        desktop_env: OptionLinuxDesktopEnv,
         de_version: u32,
     ) -> bool {
         // de_version == 0 means the runtime hasn't reported a version,

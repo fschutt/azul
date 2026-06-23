@@ -365,10 +365,10 @@ fn format_grid_line(line: &GridLine, _tabs: usize) -> String {
     }
 }
 
-fn format_color_or_system(c: &ColorOrSystem) -> String {
+fn format_color_or_system(c: ColorOrSystem) -> String {
     use crate::props::basic::color::{ColorOrSystem, SystemColorRef};
     match c {
-        ColorOrSystem::Color(color) => format!("ColorOrSystem::Color({})", format_color_value(color)),
+        ColorOrSystem::Color(color) => format!("ColorOrSystem::Color({})", format_color_value(&color)),
         ColorOrSystem::System(system_ref) => {
             let variant = match system_ref {
                 SystemColorRef::Text => "Text",
@@ -748,7 +748,7 @@ impl FormatAsRustCode for StyleOverflowClipMargin {
 
 impl FormatAsRustCode for StyleClipRect {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        fn fmt_edge(o: &OptionF32) -> String {
+        fn fmt_edge(o: OptionF32) -> String {
             match o {
                 OptionF32::None => String::from("OptionF32::None"),
                 OptionF32::Some(v) => format!("OptionF32::Some({v:?})"),
@@ -756,10 +756,10 @@ impl FormatAsRustCode for StyleClipRect {
         }
         format!(
             "StyleClipRect {{ top: {}, right: {}, bottom: {}, left: {} }}",
-            fmt_edge(&self.top),
-            fmt_edge(&self.right),
-            fmt_edge(&self.bottom),
-            fmt_edge(&self.left),
+            fmt_edge(self.top),
+            fmt_edge(self.right),
+            fmt_edge(self.bottom),
+            fmt_edge(self.left),
         )
     }
 }
@@ -926,7 +926,7 @@ fn format_linear_color_stop(g: &NormalizedLinearColorStop) -> String {
     format!(
         "NormalizedLinearColorStop {{ offset: {}, color: {} }}",
         format_percentage_value(&g.offset),
-        format_color_or_system(&g.color),
+        format_color_or_system(g.color),
     )
 }
 
@@ -943,7 +943,7 @@ fn format_radial_color_stop(g: &NormalizedRadialColorStop) -> String {
     format!(
         "RadialColorStop {{ angle: {}, color: {} }}",
         format_angle_value(&g.angle),
-        format_color_or_system(&g.color),
+        format_color_or_system(g.color),
     )
 }
 

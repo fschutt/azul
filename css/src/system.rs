@@ -1313,7 +1313,7 @@ impl SystemStyle {
     #[must_use] pub fn to_json_string(&self) -> AzString {
         use alloc::format;
 
-        fn opt_color(c: &OptionColorU) -> alloc::string::String {
+        fn opt_color(c: OptionColorU) -> alloc::string::String {
             match c.as_ref() {
                 Some(c) => format!("\"#{:02x}{:02x}{:02x}{:02x}\"", c.r, c.g, c.b, c.a),
                 None => "null".into(),
@@ -1325,13 +1325,13 @@ impl SystemStyle {
                 None => "null".into(),
             }
         }
-        fn opt_f32(v: &OptionF32) -> alloc::string::String {
+        fn opt_f32(v: OptionF32) -> alloc::string::String {
             match v.into_option() {
                 Some(v) => format!("{v:.2}"),
                 None => "null".into(),
             }
         }
-        fn opt_u16(v: &OptionU16) -> alloc::string::String {
+        fn opt_u16(v: OptionU16) -> alloc::string::String {
             match v.into_option() {
                 Some(v) => format!("{v}"),
                 None => "null".into(),
@@ -1466,30 +1466,30 @@ r#"{{
             self.prefers_reduced_motion,
             self.prefers_high_contrast,
             // colors
-            opt_color(&self.colors.text),
-            opt_color(&self.colors.secondary_text),
-            opt_color(&self.colors.tertiary_text),
-            opt_color(&self.colors.background),
-            opt_color(&self.colors.accent),
-            opt_color(&self.colors.accent_text),
-            opt_color(&self.colors.button_face),
-            opt_color(&self.colors.button_text),
-            opt_color(&self.colors.disabled_text),
-            opt_color(&self.colors.window_background),
-            opt_color(&self.colors.under_page_background),
-            opt_color(&self.colors.selection_background),
-            opt_color(&self.colors.selection_text),
-            opt_color(&self.colors.selection_background_inactive),
-            opt_color(&self.colors.selection_text_inactive),
-            opt_color(&self.colors.link),
-            opt_color(&self.colors.separator),
-            opt_color(&self.colors.grid),
-            opt_color(&self.colors.find_highlight),
-            opt_color(&self.colors.sidebar_background),
-            opt_color(&self.colors.sidebar_selection),
+            opt_color(self.colors.text),
+            opt_color(self.colors.secondary_text),
+            opt_color(self.colors.tertiary_text),
+            opt_color(self.colors.background),
+            opt_color(self.colors.accent),
+            opt_color(self.colors.accent_text),
+            opt_color(self.colors.button_face),
+            opt_color(self.colors.button_text),
+            opt_color(self.colors.disabled_text),
+            opt_color(self.colors.window_background),
+            opt_color(self.colors.under_page_background),
+            opt_color(self.colors.selection_background),
+            opt_color(self.colors.selection_text),
+            opt_color(self.colors.selection_background_inactive),
+            opt_color(self.colors.selection_text_inactive),
+            opt_color(self.colors.link),
+            opt_color(self.colors.separator),
+            opt_color(self.colors.grid),
+            opt_color(self.colors.find_highlight),
+            opt_color(self.colors.sidebar_background),
+            opt_color(self.colors.sidebar_selection),
             // fonts
             opt_str(&self.fonts.ui_font),
-            opt_f32(&self.fonts.ui_font_size),
+            opt_f32(self.fonts.ui_font_size),
             opt_str(&self.fonts.monospace_font),
             opt_str(&self.fonts.title_font),
             opt_str(&self.fonts.menu_font),
@@ -1500,8 +1500,8 @@ r#"{{
             opt_px(&tm.button_area_width),
             opt_px(&tm.padding_horizontal),
             opt_str(&tm.title_font),
-            opt_f32(&tm.title_font_size),
-            opt_u16(&tm.title_font_weight),
+            opt_f32(tm.title_font_size),
+            opt_u16(tm.title_font_weight),
             tm.buttons.has_close,
             tm.buttons.has_minimize,
             tm.buttons.has_maximize,
