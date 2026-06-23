@@ -920,7 +920,7 @@ fn collect_matching_callbacks(
     let matching = node_callbacks
         .iter()
         .take_while(|_| !event.stopped_immediate)
-        .filter(|filter| matches_filter_phase(filter, event, phase))
+        .filter(|filter| matches_filter_phase(**filter, event, phase))
         .map(|filter| (node_id, *filter));
 
     result.callbacks_to_invoke.extend(matching);
@@ -1087,7 +1087,7 @@ pub trait Focusable {
 /// This is used during event propagation to determine which callbacks
 /// should be invoked at each phase.
 fn matches_filter_phase(
-    filter: &EventFilter,
+    filter: EventFilter,
     event: &SyntheticEvent,
     current_phase: EventPhase,
 ) -> bool {
@@ -1130,7 +1130,7 @@ fn matches_filter_phase(
 /// the single source of truth for that comparison; changing it without
 /// updating `event_type_to_filters` will de-sync dispatch.
 const fn matches_component_filter(
-    filter: &ComponentEventFilter,
+    filter: ComponentEventFilter,
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
@@ -1154,7 +1154,7 @@ fn check_mouse_button(data: &EventData, expected: MouseButton) -> bool {
 
 /// Check if a hover filter matches the event.
 fn matches_hover_filter(
-    filter: &HoverEventFilter,
+    filter: HoverEventFilter,
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
@@ -1210,7 +1210,7 @@ fn matches_hover_filter(
 
 /// Check if a focus filter matches the event.
 fn matches_focus_filter(
-    filter: &FocusEventFilter,
+    filter: FocusEventFilter,
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
@@ -1253,7 +1253,7 @@ fn matches_focus_filter(
 
 /// Check if a window filter matches the event.
 fn matches_window_filter(
-    filter: &WindowEventFilter,
+    filter: WindowEventFilter,
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
