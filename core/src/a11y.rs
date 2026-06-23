@@ -794,7 +794,7 @@ impl SmallAriaInfo {
         self
     }
 
-    pub fn with_description<S: Into<AzString>>(mut self, desc: S) -> Self {
+    #[must_use] pub fn with_description<S: Into<AzString>>(mut self, desc: S) -> Self {
         self.description = OptionString::Some(desc.into());
         self
     }

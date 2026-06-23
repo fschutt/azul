@@ -262,6 +262,9 @@ pub struct LogicalSize {
 
 impl LogicalSize {
     /// Scales the size in-place by the given DPI scale factor and returns self.
+    // Mutates in place; the returned copy is only for optional chaining, so callers
+    // may legitimately discard it (e.g. ui_solver) — #[must_use] would be wrong here.
+    #[allow(clippy::return_self_not_must_use)]
     pub fn scale_for_dpi(&mut self, scale_factor: f32) -> Self {
         self.width *= scale_factor;
         self.height *= scale_factor;

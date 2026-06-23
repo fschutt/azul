@@ -905,6 +905,9 @@ macro_rules! impl_option_inner {
                     $struct_name::Some(t) => Some(t),
                 }
             }
+            // Returns the PREVIOUS value (mem::replace semantics); callers may discard it,
+            // so #[must_use] would be wrong here.
+            #[allow(clippy::return_self_not_must_use)]
             pub const fn replace(&mut self, value: $struct_type) -> $struct_name {
                 ::core::mem::replace(self, $struct_name::Some(value))
             }

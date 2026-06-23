@@ -1988,7 +1988,7 @@ impl StyledDom {
     }
 
     /// Replaces this `StyledDom` with default and returns the old value.
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut new = Self::default();
         core::mem::swap(self, &mut new);
         new

@@ -2831,6 +2831,7 @@ impl NodeData {
         self
     }
     #[inline]
+    #[must_use]
     pub fn with_callback<C: Into<CoreCallback>>(
         mut self,
         event: EventFilter,
@@ -2883,6 +2884,7 @@ impl NodeData {
     ///     .with_key("user-avatar-123");
     /// ```
     #[inline]
+    #[must_use]
     pub fn with_key<K: Hash>(mut self, key: K) -> Self {
         self.set_key(key);
         self
@@ -2919,6 +2921,7 @@ impl NodeData {
     ///     .with_merge_callback(merge_video)
     /// ```
     #[inline]
+    #[must_use]
     pub fn with_merge_callback<C: Into<DatasetMergeCallback>>(mut self, callback: C) -> Self {
         self.set_merge_callback(callback);
         self
@@ -2960,6 +2963,7 @@ impl NodeData {
     }
 
     #[inline]
+    #[must_use]
     pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create_div();
         mem::swap(&mut s, self);
@@ -5623,6 +5627,7 @@ impl Dom {
 
     // Swaps `self` with a default DOM, necessary for builder methods
     #[inline]
+    #[must_use]
     pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self {
             root: NodeData::create_div(),
@@ -5655,6 +5660,7 @@ impl Dom {
         self.estimated_total_children = children_estimated;
     }
 
+    #[must_use]
     pub fn copy_except_for_root(&mut self) -> Self {
         Self {
             root: self.root.copy_special(),
@@ -5712,6 +5718,7 @@ impl Dom {
         self
     }
     #[inline]
+    #[must_use]
     pub fn with_callback<C: Into<CoreCallback>>(
         mut self,
         event: EventFilter,
@@ -5822,6 +5829,7 @@ impl Dom {
     ///     .with_key("user-avatar-123");
     /// ```
     #[inline]
+    #[must_use]
     pub fn with_key<K: Hash>(mut self, key: K) -> Self {
         self.root.set_key(key);
         self
@@ -5836,6 +5844,7 @@ impl Dom {
     /// The callback receives both datasets as `RefAny` (cheap shallow clones) and
     /// returns the `RefAny` that should be used for the new node.
     #[inline]
+    #[must_use]
     pub fn with_merge_callback<C: Into<DatasetMergeCallback>>(mut self, callback: C) -> Self {
         self.root.set_merge_callback(callback);
         self
