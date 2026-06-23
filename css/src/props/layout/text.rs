@@ -93,10 +93,9 @@ pub fn parse_layout_text_justify(
         "auto" => Ok(LayoutTextJustify::Auto),
         "none" => Ok(LayoutTextJustify::None),
         "inter-word" => Ok(LayoutTextJustify::InterWord),
-        "inter-character" => Ok(LayoutTextJustify::InterCharacter),
-        // +spec:text-alignment-spacing:4a88c2 - distribute computes to inter-character (legacy value alias)
-        // +spec:text-alignment-spacing:58c33f - distribute computes to inter-character per spec clarification
-        "distribute" => Ok(LayoutTextJustify::InterCharacter),
+        // "distribute" is a legacy alias that computes to inter-character:
+        // +spec:text-alignment-spacing:4a88c2  +spec:text-alignment-spacing:58c33f
+        "inter-character" | "distribute" => Ok(LayoutTextJustify::InterCharacter),
         other => Err(TextJustifyParseError::InvalidValue(other)),
     }
 }

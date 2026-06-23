@@ -1692,8 +1692,7 @@ impl AttributeMatchOp {
     /// `Eq` returns `""`, `Exists` is unused (no `=` printed at all).
     #[must_use] pub const fn symbol_prefix(&self) -> &'static str {
         match self {
-            Self::Exists => "",
-            Self::Eq => "",
+            Self::Exists | Self::Eq => "",
             Self::Includes => "~",
             Self::DashMatch => "|",
             Self::Prefix => "^",

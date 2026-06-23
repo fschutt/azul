@@ -430,16 +430,14 @@ pub fn parse_font_weight(
     let input = input.trim();
     match input {
         "lighter" => Ok(StyleFontWeight::Lighter),
-        "normal" => Ok(StyleFontWeight::Normal),
-        "bold" => Ok(StyleFontWeight::Bold),
+        "normal" | "400" => Ok(StyleFontWeight::Normal),
+        "bold" | "700" => Ok(StyleFontWeight::Bold),
         "bolder" => Ok(StyleFontWeight::Bolder),
         "100" => Ok(StyleFontWeight::W100),
         "200" => Ok(StyleFontWeight::W200),
         "300" => Ok(StyleFontWeight::W300),
-        "400" => Ok(StyleFontWeight::Normal),
         "500" => Ok(StyleFontWeight::W500),
         "600" => Ok(StyleFontWeight::W600),
-        "700" => Ok(StyleFontWeight::Bold),
         "800" => Ok(StyleFontWeight::W800),
         "900" => Ok(StyleFontWeight::W900),
         _ => Err(InvalidValueErr(input).into()),

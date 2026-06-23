@@ -585,9 +585,8 @@ pub fn parse_layout_grid_auto_flow(
     match input.trim() {
         "row" => Ok(LayoutGridAutoFlow::Row),
         "column" => Ok(LayoutGridAutoFlow::Column),
-        "row dense" => Ok(LayoutGridAutoFlow::RowDense),
+        "row dense" | "dense" => Ok(LayoutGridAutoFlow::RowDense),
         "column dense" => Ok(LayoutGridAutoFlow::ColumnDense),
-        "dense" => Ok(LayoutGridAutoFlow::RowDense),
         _ => Err(GridAutoFlowParseError::InvalidValue(input)),
     }
 }

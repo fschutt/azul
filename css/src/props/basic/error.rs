@@ -91,7 +91,6 @@ impl ParseIntError {
         use core::num::IntErrorKind;
         match e.kind() {
             IntErrorKind::Empty => Self::Empty,
-            IntErrorKind::InvalidDigit => Self::InvalidDigit,
             IntErrorKind::PosOverflow => Self::PosOverflow,
             IntErrorKind::NegOverflow => Self::NegOverflow,
             IntErrorKind::Zero => Self::Zero,

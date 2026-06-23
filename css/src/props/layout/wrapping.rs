@@ -116,8 +116,8 @@ pub fn parse_layout_writing_mode(
     match input {
         "horizontal-tb" => Ok(LayoutWritingMode::HorizontalTb),
         "vertical-rl" => Ok(LayoutWritingMode::VerticalRl),
-        "vertical-lr" => Ok(LayoutWritingMode::VerticalLr),
-        "tb-lr" => Ok(LayoutWritingMode::VerticalLr), // +spec:writing-modes:23147f - SVG1.1 tb-lr maps to vertical-lr
+        // +spec:writing-modes:23147f - SVG1.1 tb-lr maps to vertical-lr
+        "vertical-lr" | "tb-lr" => Ok(LayoutWritingMode::VerticalLr),
         _ => Err(LayoutWritingModeParseError::InvalidValue(input)),
     }
 }
