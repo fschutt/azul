@@ -53,7 +53,7 @@ Each = its own file in `layout/src/widgets/`; follow the recipe (struct → call
 `impl_widget_callback!`+`impl_managed_callback!` → builders → `.dom()`+internal handler), register in
 `mod.rs` + api.json (via **azul-doc autofix**, NOT hand-edits), compile-verify (`cargo check -p azul-layout`
 + `build-dll`). Tick `[x]` when DONE + committed. Easiest-first order:
-- Tier1: `[ ]` switch `[ ]` divider `[ ]` card `[ ]` badge `[ ]` slider `[ ]` segmented `[ ]` radio_group `[ ]` tooltip `[ ]` text_area
+- Tier1: `[x]` switch `[x]` divider `[x]` card `[ ]` badge `[ ]` slider `[ ]` segmented `[ ]` radio_group `[ ]` tooltip `[ ]` text_area
 - Tier2: `[ ]` alert `[ ]` accordion `[ ]` avatar `[ ]` chip `[ ]` spinner `[ ]` popover `[ ]` combobox `[ ]` modal
 - Tier3: `[ ]` toast `[ ]` breadcrumb `[ ]` pagination `[ ]` stepper `[ ]` split_pane `[ ]` date_picker `[ ]` time_picker
 - Export wins: `[ ]` Label→api.json `[ ]` TabContent→api.json
