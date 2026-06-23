@@ -2300,11 +2300,28 @@ impl RemillTranspiler {
                 {
                     Some(e) => e.clone(),
                     None => {
-                        eprintln!(
-                            "[azul-web]     dep: {} synth=0x{:x} not in SymbolTable — skipping",
-                            sym, canonical_synth,
-                        );
-                        continue;
+                        // A1-x86: an unsymboled in-image call target (PDB coverage
+                        // gap). Synthesize a Recursable entry and LIFT it rather
+                        // than stubbing — the stub returns garbage that crashes
+                        // text layout (the aarch64 A1 keystone bug, x86 edition).
+                        match symbol_table::get()
+                            .and_then(|t| t.synthesize_text_entry(canonical_synth))
+                        {
+                            Some(e) => {
+                                eprintln!(
+                                    "[azul-web]     dep: {} synth=0x{:x} — SYNTHESIZED Recursable (PDB coverage gap), size={}",
+                                    sym, canonical_synth, e.size,
+                                );
+                                e
+                            }
+                            None => {
+                                eprintln!(
+                                    "[azul-web]     dep: {} synth=0x{:x} not in any image (external) — skipping",
+                                    sym, canonical_synth,
+                                );
+                                continue;
+                            }
+                        }
                     }
                 };
                 let already_visited = visited.contains(&entry.canonical_addr);
@@ -7821,12 +7838,25 @@ fn emit_helper_ir(
                     .strip_prefix("sub_")
                     .and_then(|h| u64::from_str_radix(h, 16).ok());
                 let is_recursive_marker = parsed_addr.map_or(false, |a| {
-                    // The rewriter shifts the target +0x4000000 bytes
-                    // from the bl's own PC. The bl's PC is somewhere
-                    // in [lift_addr, lift_addr + fn_size). We don't
-                    // have fn_size here but functions are < 16 MiB —
-                    // so target - 0x4000000 should be near lift_addr.
-                    let delta = a.wrapping_sub(0x0400_0000);
+                    // The recursive-call rewriter shifts a same-buffer call's
+                    // target by a FIXED per-arch marker delta — this MUST equal
+                    // the rewriter's constant or the marker lands here as an
+                    // unclassified extern → env-import stub → the recursive call
+                    // dispatches to garbage. aarch64 `rewrite_recursive_bl` uses
+                    // +0x4000000; x86-64 `x86_scan::rewrite_recursive_call` sets
+                    // `new_rel = 0x1000_0000` (+0x10000000). (THE x86 browser
+                    // text-shaping OOB, 2026-06-23: allsorts' recursive parsers
+                    // hit this — the aarch64-hardcoded 0x4000000 never matched on
+                    // x86, so every self-recursive call stubbed to garbage.) The
+                    // call's PC is in [lift_addr, lift_addr + fn_size); functions
+                    // are < 16 MiB, so target − marker lands near lift_addr. The
+                    // forwarder below passes the dynamic %pc through, so the
+                    // lifted body's PC-dispatch resumes at the real target.
+                    #[cfg(target_arch = "aarch64")]
+                    const REC_MARKER: u64 = 0x0400_0000;
+                    #[cfg(target_arch = "x86_64")]
+                    const REC_MARKER: u64 = 0x1000_0000;
+                    let delta = a.wrapping_sub(REC_MARKER);
                     delta >= lift_addr && delta < lift_addr.saturating_add(0x0100_0000)
                 });
                 if is_recursive_marker {
