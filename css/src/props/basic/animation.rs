@@ -2,6 +2,23 @@
 
 use crate::impl_option;
 
+/// Precision-reducing `usize` → `f64` for Bézier sample indices. The step count
+/// is tiny so no precision is actually lost; `as` is the only `usize`→`f64` form,
+/// isolated here behind a documented attribute.
+#[inline]
+#[allow(clippy::cast_precision_loss)]
+fn idx_to_f64(v: usize) -> f64 {
+    v as f64
+}
+
+/// Truncating `f64` → `f32` for SVG curve sample coordinates. Behaviour-preserving
+/// (`as f32` rounds to the nearest representable value); isolates the narrowing.
+#[inline]
+#[allow(clippy::cast_possible_truncation)]
+fn f64_to_f32(v: f64) -> f32 {
+    v as f32
+}
+
 /// Holds context needed to resolve animation interpolation relative to parent and current rects.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -205,10 +222,10 @@ impl SvgCubicCurve {
         let mut prev_point = self.get_start();
 
         for i in 0..STEP_SIZE {
-            let t_next = (i + 1) as f64 * STEP_SIZE_F64;
+            let t_next = idx_to_f64(i + 1) * STEP_SIZE_F64;
             let next_point = SvgPoint {
-                x: self.get_x_at_t(t_next) as f32,
-                y: self.get_y_at_t(t_next) as f32,
+                x: f64_to_f32(self.get_x_at_t(t_next)),
+                y: f64_to_f32(self.get_y_at_t(t_next)),
             };
             arc_length += prev_point.distance(next_point);
             prev_point = next_point;
@@ -227,10 +244,10 @@ impl SvgCubicCurve {
         let mut prev_point = self.get_start();
 
         for i in 0..STEP_SIZE {
-            let t_next = (i + 1) as f64 * STEP_SIZE_F64;
+            let t_next = idx_to_f64(i + 1) * STEP_SIZE_F64;
             let next_point = SvgPoint {
-                x: self.get_x_at_t(t_next) as f32,
-                y: self.get_y_at_t(t_next) as f32,
+                x: f64_to_f32(self.get_x_at_t(t_next)),
+                y: f64_to_f32(self.get_y_at_t(t_next)),
             };
 
             let distance = prev_point.distance(next_point);
@@ -494,6 +511,6 @@ impl AnimationInterpolationFunction {
 
     /// Evaluates the interpolation function at time `t`, returning the eased value.
     #[must_use] pub fn evaluate(self, t: f64) -> f32 {
-        self.get_curve().get_y_at_t(t) as f32
+        f64_to_f32(self.get_curve().get_y_at_t(t))
     }
 }
