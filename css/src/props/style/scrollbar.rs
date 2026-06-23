@@ -72,7 +72,7 @@ impl PrintAsCssValue for OverscrollBehavior {
 ///
 /// This controls how scrolling feels - the "weight" and "friction" of the scroll.
 /// Different platforms have different scroll physics (iOS vs Android vs Windows).
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ScrollPhysics {
     /// Smooth scroll animation duration in milliseconds (default: 300ms)

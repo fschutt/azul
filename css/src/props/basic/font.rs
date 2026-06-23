@@ -650,7 +650,7 @@ impl Panose {
 
 /// Font metrics structure containing all font-related measurements from
 /// the font file tables (head, hhea, and os/2 tables).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct FontMetrics {
     // os/2 version 1 table (u32 fields - align 4, placed first)
