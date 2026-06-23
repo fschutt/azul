@@ -193,6 +193,8 @@ pub mod divider;
 pub mod card;
 /// Badge widget — a small rounded count/status pill (stateless); see `badge.rs`.
 pub mod badge;
+/// Slider / range widget — draggable thumb on a track → numeric value; see `slider.rs`.
+pub mod slider;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 // /// Multi-line text input
