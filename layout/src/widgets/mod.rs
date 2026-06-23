@@ -221,5 +221,9 @@ pub mod spinner;
 /// Popover widget — a click-triggered floating panel holding arbitrary content,
 /// anchored to a `Dom` (the click-toggled sibling of tooltip); see `popover.rs`.
 pub mod popover;
+/// Combobox widget — an editable text field with a click-toggled drop-down list
+/// of options (drop_down's select + text_input's editable field); see
+/// `combobox.rs`.
+pub mod combobox;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
