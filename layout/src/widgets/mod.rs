@@ -191,9 +191,9 @@ pub mod switch;
 pub mod divider;
 /// Card container widget — elevated/bordered content box (no title); see `card.rs`.
 pub mod card;
+/// Badge widget — a small rounded count/status pill (stateless); see `badge.rs`.
+pub mod badge;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
-// /// Slider widget
-// pub mod slider;
 // /// Multi-line text input
 // pub mod text_edit;
