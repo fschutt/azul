@@ -2866,6 +2866,7 @@ pub enum ShapeBoundary {
 }
 
 impl ShapeBoundary {
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use] pub fn inflate(&self, margin: f32) -> Self {
         if margin == 0.0 {
             return self.clone();
@@ -4144,6 +4145,7 @@ impl UnifiedLayout {
     ///
     /// This is the unified hit-testing implementation. The old `hit_test_to_cursor`
     /// method is deprecated in favor of this one.
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use] pub fn hittest_cursor(&self, point: LogicalPosition) -> Option<TextCursor> {
         if self.items.is_empty() {
             return None;
@@ -8636,6 +8638,7 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// - \u274c Full vertical-align support (sub, super, lengths, percentages)
 /// - \u274c white-space: break-spaces alignment behavior
 // +spec:text-alignment-spacing:c8a926 - order of operations: shaping → letter/word-spacing → justification → alignment
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 pub fn position_one_line<T: ParsedFontTrait>(
     line_items: Vec<ShapedItem>,
     line_constraints: &LineConstraints,
@@ -9752,6 +9755,7 @@ fn get_line_constraints(
 
 /// Helper function to get the horizontal spans of any shape at a given y-coordinate.
 /// Returns a list of (`start_x`, `end_x`) tuples.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn get_shape_horizontal_spans(
     shape: &ShapeBoundary,
     y: f32,
@@ -9838,6 +9842,7 @@ fn merge_segments(mut segments: Vec<LineSegment>) -> Vec<LineSegment> {
 }
 
 /// Computes horizontal line segments where a polygon intersects a scanline at the given y range.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn polygon_line_intersection(
     points: &[Point],
     y: f32,

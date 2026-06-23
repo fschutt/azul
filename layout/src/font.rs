@@ -2039,6 +2039,7 @@ pub mod parsed {
         ///
         /// Uses vhea+vmtx tables (same binary format as hhea+hmtx).
         /// Returns None if font has no vertical metrics tables.
+        #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
         pub fn get_vertical_metrics(
             &self,
             glyph_id: u16,
@@ -2073,6 +2074,7 @@ pub mod parsed {
         }
 
         /// Get layout-specific font metrics
+        #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
         pub fn get_font_metrics(&self) -> LayoutFontMetrics {
             // Ensure descent is positive (OpenType may have negative descent)
             let descent = if self.font_metrics.descent > 0.0 {

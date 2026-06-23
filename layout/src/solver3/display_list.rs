@@ -1020,6 +1020,7 @@ impl DisplayListItem {
     /// Return the visual bounding rect including effects that extend beyond
     /// content bounds (e.g. box-shadow spread/blur/offset). Used for damage
     /// rect computation where we need the full repaint area.
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use] pub fn visual_bounds(&self) -> Option<LogicalRect> {
         match self {
             Self::BoxShadow { bounds, shadow, .. } => {
@@ -4096,6 +4097,7 @@ StyleVisibility::Collapse) => true,
     }
 
     /// Converts the rich layout information from `text3` into drawing commands.
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     fn paint_inline_content(
         &self,
         builder: &mut DisplayListBuilder,

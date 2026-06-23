@@ -1083,6 +1083,7 @@ fn opaque_fill_rect(it: &DisplayListItem) -> Option<LogicalRect> {
 /// True if every ~4px sample of `target` lies inside some rect in `covers`.
 /// Point-sampled so sub-4px gaps (imperceptible if dragged) don't force a full
 /// repaint; empty `covers` → not covered.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
     if covers.is_empty() {
         return false;
@@ -1113,6 +1114,7 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
 }
 
 /// Apply CSS filters to a pixbuf at composite time.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_factor: f32) {
     for filter in filters {
         match filter {
@@ -1394,6 +1396,7 @@ fn render_display_list_range(
 }
 
 /// Merge overlapping or adjacent damage rects to reduce overdraw.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
     if rects.len() <= 1 {
         return;

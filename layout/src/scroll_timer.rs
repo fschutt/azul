@@ -129,6 +129,7 @@ impl ScrollPhysicsState {
 /// # C API
 ///
 /// This function has `extern "C"` ABI so it can be used as a `TimerCallbackType`.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 pub extern "C" fn scroll_physics_timer_callback(
     mut data: RefAny,
     mut timer_info: TimerCallbackInfo,

@@ -189,6 +189,7 @@ impl Default for ScrollbarGeometry {
     )
 }
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn compute_thumb_geometry(
     orientation: ScrollbarOrientation,
     track_rect: LogicalRect,

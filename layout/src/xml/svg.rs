@@ -272,6 +272,7 @@ fn svg_multi_shape_to_lyon_path(polygon: &[SvgSimpleNode]) -> Path {
     builder.build()
 }
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[must_use] pub fn raw_line_intersection(p: &SvgLine, q: &SvgLine) -> Option<SvgPoint> {
     let p_min_x = p.start.x.min(p.end.x);
     let p_min_y = p.start.y.min(p.end.y);
@@ -559,6 +560,7 @@ fn svg_multi_shape_to_lyon_path(polygon: &[SvgSimpleNode]) -> Path {
     }
 }
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn shorten_line_end_by(line: SvgLine, distance: f32) -> SvgLine {
     let dx = line.end.x - line.start.x;
     let dy = line.end.y - line.start.y;
@@ -574,6 +576,7 @@ fn shorten_line_end_by(line: SvgLine, distance: f32) -> SvgLine {
     }
 }
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn shorten_line_start_by(line: SvgLine, distance: f32) -> SvgLine {
     let dx = line.end.x - line.start.x;
     let dy = line.end.y - line.start.y;

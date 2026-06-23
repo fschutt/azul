@@ -5508,6 +5508,7 @@ fn calculate_column_widths_auto<T: ParsedFontTrait>(
 // +spec:table-layout:5e1145 - Automatic table layout: MCW/max-content per cell, column min/max, colspan distribution, final width from MIN/MAX
 // +spec:width-calculation:42dfca - CSS 2.2 §17.5.2.2 automatic table layout: MCW/max-content per cell, column min/max, multi-span distribution, final table width
 /// +spec:width-calculation:335ef1 - Automatic table layout: width given by column widths and borders (CSS 2.2 §17.5.2.2)
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
@@ -6166,6 +6167,7 @@ fn calculate_row_heights<T: ParsedFontTrait>(
 }
 
 /// Position all cells in the table grid with calculated widths and heights
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn position_table_cells<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,

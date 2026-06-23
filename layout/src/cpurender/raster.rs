@@ -216,6 +216,7 @@ fn render_linear_gradient(
     Ok(())
 }
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn render_radial_gradient(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -308,6 +309,7 @@ fn render_radial_gradient(
     Ok(())
 }
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn render_conic_gradient(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -375,6 +377,7 @@ fn render_conic_gradient(
 // Box shadow rendering
 // ============================================================================
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn render_box_shadow(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -2084,6 +2087,7 @@ fn render_text(
     Ok(())
 }
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn render_border(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,

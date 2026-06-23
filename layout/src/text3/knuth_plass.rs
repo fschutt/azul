@@ -425,6 +425,7 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
 }
 
 /// Takes the optimal break points and performs the final positioning.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn position_lines_from_breaks(
     nodes: &[LayoutNode],
     breaks: &[usize],

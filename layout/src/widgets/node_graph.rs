@@ -2789,6 +2789,7 @@ const DIST_BETWEEN_NODES: f32 = 10.0;
 const CONNECTION_DOT_HEIGHT: f32 = 15.0;
 
 // calculates the rect on which the connection is drawn in the UI
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn get_rect(
     node_graph: &NodeGraph,
     connection: ConnectionLocalDataset,
@@ -3204,6 +3205,7 @@ extern "C" fn nodegraph_delete_node(mut refany: RefAny, mut info: CallbackInfo) 
     result
 }
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::CursorPosition;
 

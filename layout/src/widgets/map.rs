@@ -242,6 +242,7 @@ impl MapWidget {
     /// angle Mercator (accurate at city zooms). Inverse of
     /// [`px_at_latlon`](Self::px_at_latlon). Exposed so apps don't reimplement
     /// the projection (e.g. to drop a pin where the user tapped).
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use] pub fn latlon_at_px(
         viewport: MapViewport,
         px: azul_core::geom::LogicalPosition,
@@ -261,6 +262,7 @@ impl MapWidget {
 
     /// Inverse of [`latlon_at_px`](Self::latlon_at_px): where `coord` lands in
     /// container pixels at `viewport`.
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use] pub fn px_at_latlon(
         viewport: MapViewport,
         coord: MapLatLon,
@@ -501,6 +503,7 @@ impl MapTileCache {
     /// space), and the farthest are dropped first. IN-FLIGHT tiles
     /// (`Pending`/`Fetching`) are never evicted (their worker would write into a
     /// gone entry), and on-screen tiles score near-zero so they survive.
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     pub fn prune_distant_tiles(&mut self) {
         const MAX_CACHED_TILES: usize = 192;
         if self.tiles.len() <= MAX_CACHED_TILES {
@@ -826,6 +829,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
 /// Pointer up / pointer leave → end the drag *and* the pinch. Either
 /// can be in flight (and pinch supersedes pan in the move handler);
 /// clear both anchors on release.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
     // Cursor + container size for tap projection (read before borrowing data).
     let up_pos = info
@@ -948,6 +952,7 @@ fn lat_to_tile_y(lat_deg: f64, tile_count: f64) -> f64 {
 /// Verified against the forward direction in the tests below; the
 /// upcoming tap-to-pin handler reuses it to turn a tap into a lat/lon.
 #[allow(dead_code)]
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn tile_x_to_lon(x: f64, tile_count: f64) -> f64 {
     x / tile_count * 360.0 - 180.0
 }
@@ -968,6 +973,7 @@ fn tile_y_to_lat(y: f64, tile_count: f64) -> f64 {
 /// poles. Longitude wraps to [-180, 180); latitude clamps to the
 /// Web-Mercator ±85.05° limit. The shared, unit-tested core of
 /// `map_on_pointer_move`.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn pan_viewport(
     centre_lat_deg: f64,
     centre_lon_deg: f64,
@@ -1213,6 +1219,7 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
 /// view is already requested; the result is clamped to the valid
 /// `0..=tile_count-1` grid. The pure core of `map_widget_render`'s grid
 /// loop — what decides which tiles get fetched.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn visible_tile_range(
     centre_x: f32,
     centre_y: f32,
@@ -1249,6 +1256,7 @@ fn wrap_tile_x(x: i32, tile_count: u32) -> u32 {
 /// Shared by the `VirtualView` render and the pan/zoom handlers so a handler can
 /// mark + spawn the NEW viewport's tiles immediately, rather than waiting for the
 /// next render pass to discover them. Mirrors `map_widget_render`'s grid math.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn map_visible_tiles(
     viewport: &MapViewport,
     bounds: azul_core::geom::LogicalSize,
@@ -1274,6 +1282,7 @@ fn map_visible_tiles(
 
 // ────────── VirtualView callback — visible-tile rendering ─────────────
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 extern "C" fn map_widget_render(
     data: RefAny,
     info: VirtualViewCallbackInfo,

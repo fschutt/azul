@@ -577,6 +577,7 @@ impl ScrollManager {
     }
 
     /// Advances scroll animations by one tick, returns repaint info
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     pub fn tick(&mut self, now: Instant) -> ScrollTickResult {
         let mut result = ScrollTickResult::default();
         for ((dom_id, node_id), state) in &mut self.states {
@@ -1200,6 +1201,7 @@ impl AnimatedScrollState {
 
 /// Apply an easing function to a normalized time value (0.0 to 1.0).
 /// Used by `ScrollAnimation::tick()` for smooth scroll animations.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 pub(crate) fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
     match easing {
         EasingFunction::Linear => t,
