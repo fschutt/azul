@@ -80,7 +80,7 @@ impl_vec_hash!(StyleFilter, StyleFilterVec);
 impl_vec_partialeq!(StyleFilter, StyleFilterVec);
 impl_vec_partialord!(StyleFilter, StyleFilterVec);
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleBlur {
     pub width: PixelValue,
@@ -89,7 +89,7 @@ pub struct StyleBlur {
 
 /// Color matrix with 20 float values for color transformation.
 /// Layout: 4 rows × 5 columns (RGBA + offset for each channel)
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleColorMatrix {
     pub m0: FloatValue,
@@ -124,7 +124,7 @@ impl StyleColorMatrix {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleFilterOffset {
     pub x: PixelValue,
@@ -133,7 +133,7 @@ pub struct StyleFilterOffset {
 
 /// Arithmetic coefficients for composite filter (k1, k2, k3, k4).
 /// Result = k1*i1*i2 + k2*i1 + k3*i2 + k4
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ArithmeticCoefficients {
     pub k1: FloatValue,
