@@ -351,23 +351,23 @@ impl IconProviderHandle {
         let mut result = format!("Debug lookup for icon '{icon_name}' (normalized: '{icon_name_lower}'):\n");
 
         // Report registered packs
-        let _ = write!(result, "  Total packs: {}\n", self.inner.icons.len());
+        let _ = writeln!(result, "  Total packs: {}", self.inner.icons.len());
         for (pack_name, pack) in &self.inner.icons {
-            let _ = write!(result, "    Pack '{}': {} icons\n", pack_name, pack.len());
+            let _ = writeln!(result, "    Pack '{}': {} icons", pack_name, pack.len());
             for name in pack.keys() {
-                let _ = write!(result, "      - {name}\n");
+                let _ = writeln!(result, "      - {name}");
             }
         }
 
         // Find the icon using shared lookup helper
         match self.lookup_with_pack(icon_name) {
             Some((pack, data)) => {
-                let _ = write!(result, "\n  FOUND in pack '{pack}'\n");
+                let _ = writeln!(result, "\n  FOUND in pack '{pack}'");
                 let type_name = data.get_type_name();
-                let _ = write!(result, "  RefAny type_name: '{}'\n", type_name.as_str());
+                let _ = writeln!(result, "  RefAny type_name: '{}'", type_name.as_str());
 
                 let debug_info = data.sharing_info.debug_get_refcount_copied();
-                let _ = write!(result, "  RefAny size: {} bytes\n", debug_info._internal_layout_size);
+                let _ = writeln!(result, "  RefAny size: {} bytes", debug_info._internal_layout_size);
 
                 let type_str = type_name.as_str();
                 if type_str.contains(IMAGE_ICON_DATA_TYPE_NAME) {
@@ -375,7 +375,7 @@ impl IconProviderHandle {
                 } else if type_str.contains(FONT_ICON_DATA_TYPE_NAME) {
                     result.push_str("  RefAny type: FontIconData (font-based icon)\n");
                 } else {
-                    let _ = write!(result, "  RefAny type: UNKNOWN ('{type_str}')\n");
+                    let _ = writeln!(result, "  RefAny type: UNKNOWN ('{type_str}')");
                 }
             }
             None => {

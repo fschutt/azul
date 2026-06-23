@@ -7424,9 +7424,9 @@ fn compile_node_c(
     *counter += 1;
     let ctor = analyze_node_ctor(&component_name, node);
     match ctor.render_c() {
-        Some(expr) => { let _ = write!(out, "    AzDom {var} = {expr};\n"); },
-        None => { let _ = write!(out,
-            "    AzDom {} = AzDom_create{}();\n",
+        Some(expr) => { let _ = writeln!(out, "    AzDom {var} = {expr};"); },
+        None => { let _ = writeln!(out,
+            "    AzDom {} = AzDom_create{}();",
             var,
             c_creator_suffix(safe_container_tag(&tag_dbg))
         ); },
@@ -7447,16 +7447,16 @@ fn compile_node_c(
         let inline_css = css_blocks_to_inline_string(&blocks);
         if !inline_css.is_empty() {
             let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            let _ = write!(out, "    {var} = AzDom_withCss({var}, AZ_STR(\"{esc}\"));\n");
+            let _ = writeln!(out, "    {var} = AzDom_withCss({var}, AZ_STR(\"{esc}\"));");
         }
     }
     for id in &ids {
         let esc = id.replace('\\', "\\\\").replace('"', "\\\"");
-        let _ = write!(out, "    {var} = AzDom_withId({var}, AZ_STR(\"{esc}\"));\n");
+        let _ = writeln!(out, "    {var} = AzDom_withId({var}, AZ_STR(\"{esc}\"));");
     }
     for class in &classes {
         let esc = class.replace('\\', "\\\\").replace('"', "\\\"");
-        let _ = write!(out, "    {var} = AzDom_withClass({var}, AZ_STR(\"{esc}\"));\n");
+        let _ = writeln!(out, "    {var} = AzDom_withClass({var}, AZ_STR(\"{esc}\"));");
     }
 
     let mut caption_skipped = false;
@@ -7475,7 +7475,7 @@ fn compile_node_c(
                 m.indices_in_parent.push(child_idx);
                 m.children_length.push(node.children.len());
                 let child_var = compile_node_c(child_node, component_map, css, m, counter, out)?;
-                let _ = write!(out, "    AzDom_addChild(&{var}, {child_var});\n");
+                let _ = writeln!(out, "    AzDom_addChild(&{var}, {child_var});");
             }
             XmlNodeChild::Text(text) => {
                 if ctor.consumes_text() {
@@ -7484,8 +7484,8 @@ fn compile_node_c(
                 let text = text.trim();
                 if !text.is_empty() {
                     let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
-                    let _ = write!(out,
-                        "    AzDom_addChild(&{var}, AzDom_createText(AZ_STR(\"{esc}\")));\n"
+                    let _ = writeln!(out,
+                        "    AzDom_addChild(&{var}, AzDom_createText(AZ_STR(\"{esc}\")));"
                     );
                 }
             }
@@ -7506,7 +7506,7 @@ pub fn str_to_c_code<'a>(
     // Emit the body as the root node, then its children.
     let root = alloc::format!("n{counter}");
     counter += 1;
-    let _ = write!(body, "    AzDom {root} = AzDom_createBody();\n");
+    let _ = writeln!(body, "    AzDom {root} = AzDom_createBody();");
 
     let mut matcher = body_matcher(body_node);
     matcher.path.push(CssPathSelector::Type(NodeTypeTag::Body));
@@ -7519,7 +7519,7 @@ pub fn str_to_c_code<'a>(
         let inline_css = css_blocks_to_inline_string(&blocks);
         if !inline_css.is_empty() {
             let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            let _ = write!(body, "    {root} = AzDom_withCss({root}, AZ_STR(\"{esc}\"));\n");
+            let _ = writeln!(body, "    {root} = AzDom_withCss({root}, AZ_STR(\"{esc}\"));");
         }
     }
     for (child_idx, child) in body_node.children.as_ref().iter().enumerate() {
@@ -7530,14 +7530,14 @@ pub fn str_to_c_code<'a>(
                 m.indices_in_parent.push(child_idx);
                 m.children_length.push(body_node.children.len());
                 let child_var = compile_node_c(child_node, component_map, &global_style, m, &mut counter, &mut body)?;
-                let _ = write!(body, "    AzDom_addChild(&{root}, {child_var});\n");
+                let _ = writeln!(body, "    AzDom_addChild(&{root}, {child_var});");
             }
             XmlNodeChild::Text(text) => {
                 let text = text.trim();
                 if !text.is_empty() {
                     let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
-                    let _ = write!(body,
-                        "    AzDom_addChild(&{root}, AzDom_createText(AZ_STR(\"{esc}\")));\n"
+                    let _ = writeln!(body,
+                        "    AzDom_addChild(&{root}, AzDom_createText(AZ_STR(\"{esc}\")));"
                     );
                 }
             }
