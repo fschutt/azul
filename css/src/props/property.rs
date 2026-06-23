@@ -1514,7 +1514,8 @@ impl CssPropertyType {
         // FontFamily, FontSize, LetterSpacing and LineHeight can affect
         // the text layout and therefore the screen layout
 
-        match self {
+        !matches!(
+            self,
             TextColor
             | Cursor
             | BackgroundContent
@@ -1554,9 +1555,8 @@ impl CssPropertyType {
             | Filter
             | BackdropFilter
             | TextShadow
-            | Clip => false,
-            _ => true,
-        }
+            | Clip
+        )
     }
 
     /// Returns whether the property is a GPU property (currently only opacity and transforms)

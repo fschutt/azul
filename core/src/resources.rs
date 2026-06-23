@@ -948,31 +948,19 @@ impl ImageRef {
     }
 
     #[must_use] pub const fn is_null_image(&self) -> bool {
-        match self.get_data() {
-            DecodedImage::NullImage { .. } => true,
-            _ => false,
-        }
+        matches!(self.get_data(), DecodedImage::NullImage { .. })
     }
 
     #[must_use] pub const fn is_gl_texture(&self) -> bool {
-        match self.get_data() {
-            DecodedImage::Gl(_) => true,
-            _ => false,
-        }
+        matches!(self.get_data(), DecodedImage::Gl(_))
     }
 
     #[must_use] pub const fn is_raw_image(&self) -> bool {
-        match self.get_data() {
-            DecodedImage::Raw((_, _)) => true,
-            _ => false,
-        }
+        matches!(self.get_data(), DecodedImage::Raw((_, _)))
     }
 
     #[must_use] pub const fn is_callback(&self) -> bool {
-        match self.get_data() {
-            DecodedImage::Callback(_) => true,
-            _ => false,
-        }
+        matches!(self.get_data(), DecodedImage::Callback(_))
     }
 
     // OptionRawImage

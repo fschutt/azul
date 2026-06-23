@@ -2189,16 +2189,10 @@ pub enum EventFilter {
 
 impl EventFilter {
     #[must_use] pub const fn is_focus_callback(&self) -> bool {
-        match self {
-            Self::Focus(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::Focus(_))
     }
     #[must_use] pub const fn is_window_callback(&self) -> bool {
-        match self {
-            Self::Window(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::Window(_))
     }
 }
 
