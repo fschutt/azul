@@ -218,5 +218,8 @@ pub mod chip;
 /// Spinner / activity widget — a static indeterminate busy ring (stateless;
 /// no animation — see the file's PARTIAL/TODO2 note); see `spinner.rs`.
 pub mod spinner;
+/// Popover widget — a click-triggered floating panel holding arbitrary content,
+/// anchored to a `Dom` (the click-toggled sibling of tooltip); see `popover.rs`.
+pub mod popover;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
