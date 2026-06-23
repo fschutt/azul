@@ -250,6 +250,8 @@ pub fn parse_style_hyphenation_language(
 
 #[cfg(test)]
 mod tests {
+    // Tests assert that parsed values equal the exact source literals.
+    #![allow(clippy::float_cmp)]
     use super::*;
 
     #[test]

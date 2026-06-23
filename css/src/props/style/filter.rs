@@ -870,6 +870,8 @@ pub use parser::{
 
 #[cfg(all(test, feature = "parser"))]
 mod tests {
+    // Tests assert that parsed values equal the exact source literals.
+    #![allow(clippy::float_cmp)]
     use super::*;
     use crate::props::style::filter::parser::parse_style_filter;
 

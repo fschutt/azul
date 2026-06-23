@@ -312,6 +312,8 @@ fn parse_length(s: &str) -> Result<f32, ShapeParseError> {
 
 #[cfg(test)]
 mod tests {
+    // Tests assert that parsed values equal the exact source literals.
+    #![allow(clippy::float_cmp)]
     use super::*;
     use crate::{
         corety::OptionF32,

@@ -303,6 +303,8 @@ pub fn parse_angle_value(input: &str) -> Result<AngleValue, CssAngleValueParseEr
 
 #[cfg(all(test, feature = "parser"))]
 mod tests {
+    // Tests assert that parsed values equal the exact source literals.
+    #![allow(clippy::float_cmp)]
     use super::*;
 
     #[test]
