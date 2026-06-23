@@ -1181,40 +1181,24 @@ impl SystemFontType {
     
     fn macos_fallback_chain(self) -> Vec<&'static str> {
         match self {
-            // For Normal weight, try System Font first, then Helvetica Neue
+            // Normal weight: System Font first, then Helvetica Neue.
             Self::Ui => vec![
                 apple_fonts::SYSTEM_FONT,
                 apple_fonts::HELVETICA_NEUE,
                 apple_fonts::LUCIDA_GRANDE,
             ],
-            // For Bold weight, use Helvetica Neue first (System Font has no Bold variant in fontconfig)
-            Self::UiBold => vec![
-                apple_fonts::HELVETICA_NEUE, // Will be queried with weight=Bold -> "Helvetica Neue Bold"
+            // Bold weights: Helvetica Neue first (System Font has no Bold variant in fontconfig).
+            Self::UiBold | Self::TitleBold => vec![
+                apple_fonts::HELVETICA_NEUE,
                 apple_fonts::LUCIDA_GRANDE,
             ],
-            // Monospace fonts: Menlo has bold variant
-            Self::Monospace => vec![
+            // Monospace: Menlo (has a Bold variant), then Monaco.
+            Self::Monospace | Self::MonospaceBold | Self::MonospaceItalic => vec![
                 apple_fonts::MENLO,
                 apple_fonts::MONACO,
             ],
-            Self::MonospaceBold | Self::MonospaceItalic => vec![
-                apple_fonts::MENLO, // Menlo Bold exists
-                apple_fonts::MONACO,
-            ],
-            // Title: same strategy - use Helvetica Neue for bold
-            Self::Title => vec![
-                apple_fonts::SYSTEM_FONT,
-                apple_fonts::HELVETICA_NEUE,
-            ],
-            Self::TitleBold => vec![
-                apple_fonts::HELVETICA_NEUE, // Will be queried with weight=Bold
-                apple_fonts::LUCIDA_GRANDE,
-            ],
-            Self::Menu => vec![
-                apple_fonts::SYSTEM_FONT,
-                apple_fonts::HELVETICA_NEUE,
-            ],
-            Self::Small => vec![
+            // Title / Menu / Small: System Font then Helvetica Neue.
+            Self::Title | Self::Menu | Self::Small => vec![
                 apple_fonts::SYSTEM_FONT,
                 apple_fonts::HELVETICA_NEUE,
             ],
