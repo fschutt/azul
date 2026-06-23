@@ -283,8 +283,7 @@ pub fn parse_angle_value(input: &str) -> Result<AngleValue, CssAngleValueParseEr
     ];
 
     for (match_val, metric) in match_values {
-        if input.ends_with(match_val) {
-            let value = &input[..input.len() - match_val.len()];
+        if let Some(value) = input.strip_suffix(match_val) {
             let value = value.trim();
             if value.is_empty() {
                 return Err(CssAngleValueParseError::NoValueGiven(input, *metric));

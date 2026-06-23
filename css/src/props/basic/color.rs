@@ -1119,8 +1119,8 @@ impl CssColorParseErrorOwned {
 #[cfg(feature = "parser")]
 pub fn parse_css_color(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
     let input = input.trim();
-    if input.starts_with('#') {
-        parse_color_no_hash(&input[1..])
+    if let Some(rest) = input.strip_prefix('#') {
+        parse_color_no_hash(rest)
     } else {
         use crate::props::basic::parse::{parse_parentheses, ParenthesisParseError};
         match parse_parentheses(input, &["rgba", "rgb", "hsla", "hsl"]) {

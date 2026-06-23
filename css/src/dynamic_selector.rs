@@ -1639,16 +1639,16 @@ impl CssPropertyWithConditionsVec {
         }
 
         // @media (min-width: 800px), etc.
-        if rule_content.starts_with("media ") {
-            let media_query = rule_content[6..].trim();
+        if let Some(rest) = rule_content.strip_prefix("media ") {
+            let media_query = rest.trim();
             if let Some(media_conds) = Self::parse_media_query(media_query) {
                 return Some(media_conds);
             }
         }
 
         // @theme dark, @theme light
-        if rule_content.starts_with("theme ") {
-            let theme = rule_content[6..].trim();
+        if let Some(rest) = rule_content.strip_prefix("theme ") {
+            let theme = rest.trim();
             match theme {
                 "dark" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Dark)]),
                 "light" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Light)]),
@@ -1657,12 +1657,11 @@ impl CssPropertyWithConditionsVec {
         }
 
         // @lang("de-DE") or @lang de-DE
-        if rule_content.starts_with("lang ") || rule_content.starts_with("lang(") {
-            let lang_str = if rule_content.starts_with("lang(") {
-                rule_content[5..].trim_end_matches(')').trim()
-            } else {
-                rule_content[5..].trim()
-            };
+        let lang_body = rule_content
+            .strip_prefix("lang(")
+            .map(|r| r.trim_end_matches(')').trim())
+            .or_else(|| rule_content.strip_prefix("lang ").map(str::trim));
+        if let Some(lang_str) = lang_body {
             let lang_str = lang_str
                 .strip_prefix('"').and_then(|s| s.strip_suffix('"'))
                 .or_else(|| lang_str.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))

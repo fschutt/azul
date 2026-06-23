@@ -441,10 +441,10 @@ fn parse_grid_track_owned(input: &str) -> Result<GridTrackSizing, ()> {
         return Ok(GridTrackSizing::MaxContent);
     }
 
-    if input.ends_with("fr") {
+    if let Some(num_str) = input.strip_suffix("fr") {
         /// Fr values are stored as integers scaled by this factor (e.g. `1fr` = 100, `0.5fr` = 50).
         const FR_SCALING_FACTOR: f32 = 100.0;
-        let num_str = &input[..input.len() - 2].trim();
+        let num_str = num_str.trim();
         if let Ok(num) = num_str.parse::<f32>() {
             let scaled = num * FR_SCALING_FACTOR;
             if scaled.is_nan() || scaled < crate::cast::i32_to_f32(i32::MIN) || scaled > crate::cast::i32_to_f32(i32::MAX) {
@@ -887,8 +887,8 @@ pub fn parse_grid_line_owned(input: &str) -> Result<GridLine, ()> {
         return Ok(GridLine::Auto);
     }
 
-    if input.starts_with("span ") {
-        let num_str = &input[5..].trim();
+    if let Some(num_str) = input.strip_prefix("span ") {
+        let num_str = num_str.trim();
         if let Ok(num) = num_str.parse::<i32>() {
             return Ok(GridLine::Span(num));
         }
