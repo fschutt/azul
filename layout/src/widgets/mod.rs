@@ -253,5 +253,11 @@ pub mod split_pane;
 /// number_input clamp/retext path + segmented's clickable-cell navigation);
 /// see `time_picker.rs`.
 pub mod time_picker;
+/// Calendar date picker widget — a month header (‹ / `Month YYYY` / ›) above a
+/// weekday-labelled 7-column day grid computed from real calendar math; clicking
+/// a day selects + restyles it (segmented-style), and the per-cell day number is
+/// carried drop_down-style. Month nav fires on_change but cannot rebuild the
+/// grid in-widget (prominent module TODO2); see `date_picker.rs`.
+pub mod date_picker;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
