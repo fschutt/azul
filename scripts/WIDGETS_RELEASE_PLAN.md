@@ -55,7 +55,7 @@ Each = its own file in `layout/src/widgets/`; follow the recipe (struct → call
 + `build-dll`). Tick `[x]` when DONE + committed. Easiest-first order:
 - Tier1: `[x]` switch `[x]` divider `[x]` card `[x]` badge `[x]` slider `[x]` segmented `[x]` radio_group `[x]` tooltip `[x]` text_area
 - Tier2: `[x]` alert `[x]` accordion `[x]` avatar `[x]` chip `[x]` spinner `[x]` popover `[x]` combobox `[x]` modal
-- Tier3: `[ ]` toast `[ ]` breadcrumb `[ ]` pagination `[ ]` stepper `[ ]` split_pane `[ ]` date_picker `[ ]` time_picker
+- Tier3: `[x]` toast `[x]` breadcrumb `[x]` pagination `[ ]` stepper `[ ]` split_pane `[ ]` date_picker `[ ]` time_picker
 - Export wins: `[ ]` Label→api.json `[ ]` TabContent→api.json
 
 ## W6 — release-page edit (mechanism from investigation; do AFTER the azul-widgets crate exists)
