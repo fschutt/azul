@@ -13,10 +13,18 @@ file, following existing patterns); link the showcase on the releases page.
 | W2 | Maps jumbled-tiles fix | DONE — fractional-zoom contiguous tile sizing (map.rs) + f32→f64 MVT projection (mvt.rs); see W2 note |
 | W3 | Widget gap research | DONE (→ scripts/WIDGETS_RESEARCH.md) |
 | W4 | Build new widgets (queue below; one file each) | DONE — 24/24 widget queue complete (date_picker + time_picker finish Tier3) |
-| W5 | `azul-widgets` showcase demo crate (from widgets.c) | **BLOCKED** — needs api.json export of the 24 new widgets first (see BLOCKER below); awaiting user decision |
-| W6 | Release-page swap: remove spirit-level, add azul-widgets | BLOCKED (depends on W5) |
+| WX | API-quality gate + api.json export of 24 widgets | DONE — APIs already exceed gold standard (repr(C)/Default/docs/config/callbacks); 145 types exported additions-only (210e4729d tool fix + e3f16d209 export); build-dll clean |
+| W5 | `azul-widgets` showcase demo crate (from widgets.c) | TODO (UNBLOCKED — widgets now in `azul::widgets`) |
+| W6 | Release-page swap: remove spirit-level, add azul-widgets | TODO (after W5) |
 
-## ⛔ BLOCKER (found 2026-06-23, cron PAUSED here) — W5/W6/export-wins all need api.json export
+## ✅ BLOCKER RESOLVED (2026-06-23) — widgets exported to api.json (was: W5/W6 need export)
+User OK'd the export ("nice API first" gate: PASSED — widgets exceed gold-standard widgets).
+Done via targeted `azul-doc autofix add <T>.*` (NOT the drift-prone broad `autofix run`): 145
+types added, 0 removals, 0 drift of existing types; all 24 mains in `widgets`; build-dll clean.
+Fixed two bugs en route (committed 210e4729d): autofix `add` module mis-routing (new
+`widget_module_for` routes `azul_layout::widgets::*` by convention) + azul-doc's azul-layout dep
+missing the (effectively-mandatory) `a11y` feature. `azul::widgets::Switch` … now resolve.
+Original blocker detail (kept for context):
 `azul::widgets` / `azul::dom::Dom` that every Rust + C demo uses are GENERATED from api.json:
 dll/src/lib.rs:213 `include!(target/codegen/reexports.rs)`, and reexports.rs re-exports the FFI
 MIRROR types (`pub use crate::ffi::dll::Az* as *`), NOT azul_core/azul_layout (grep count = 0).
