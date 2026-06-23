@@ -196,8 +196,42 @@ env — NOT global, which leaks into host build scripts). FileDropManager hooks:
 |---|------|-----------|--------|
 | 6 | macOS global menu bar + context menu (NSMenu) — missing (azul-paint demo) | dll macOS shell + core Menu API | DONE |
 | 7 | Windows file DnD hover+drop (OLE IDropTarget; today legacy WM_DROPFILES drop-only) | dll windows shell | DONE |
-| 8 | X11 file DnD (XDND protocol) — none today | dll x11 shell | TODO (research done; see recipe) |
+| 8 | X11 file DnD (XDND protocol) — none today | dll x11 shell | DONE (drop+hover via XDND v5; >3-type XdndTypeList read = TODO2) |
 | 9 | Wayland file DnD (wl_data_device) — none today | dll wayland shell | TODO (research done; see recipe) |
+
+## Item 8 — X11 file DnD as a drop target (XDND protocol)  (DONE)
+Files: `dll/src/desktop/shell2/linux/x11/defines.rs`, `dlopen.rs`, `events.rs`, `mod.rs`.
+Implemented the full XDND v5 drop-target handshake (nothing existed before; the
+`ClientMessage` arm only handled `WM_DELETE`). Mirrors macOS item 1 + Windows item 7 via the
+cross-platform `FileDropManager`.
+- [x] `defines.rs`: added `XSelectionEvent` (+ `selection` field on the `XEvent` union),
+      `SelectionNotify`=31, `AnyPropertyType`=0, and the `XConvertSelection` type alias.
+- [x] `dlopen.rs`: bound + loaded `XConvertSelection`.
+- [x] `mod.rs`: new `XdndState` struct interns all atoms (`XdndAware`/`Enter`/`Position`/`Status`/
+      `Leave`/`Drop`/`Finished`/`Selection`/`ActionCopy`/`TypeList`, `text/uri-list`, + a private
+      `AzulXdndDrop` target property) and holds the live drag session (source XID, version,
+      type-ok, last hover pos). `XdndAware`=5 (type `XA_ATOM`) set via `XChangeProperty` at window
+      creation so sources will start drags onto us.
+- [x] `ClientMessage` arm now dispatches on `event.message_type` (NOT `data.l[0]` = source XID):
+      `handle_xdnd_client_message` handles Enter (scan `l[2..5]` for `text/uri-list`), Position
+      (translate `l[2]` root coords→window-local, drive `handle_file_drag_entered` FileHover, and
+      reply the MANDATORY `XdndStatus` accept), Leave (`handle_file_drag_exited`), Drop
+      (`XConvertSelection(XdndSelection, text/uri-list, AzulXdndDrop, win, time)` — async, no
+      sync read).
+- [x] New `SelectionNotify` arm → `handle_xdnd_selection_notify`: `XGetWindowProperty` reads the
+      delivered `text/uri-list`, `parse_uri_list` (CRLF/`\n` split, skip `#`, strip `file://`
+      [+host], `percent_decode`), `handle_file_drop` at the last hover pos, then `XdndFinished` to
+      the source.
+- [x] `events.rs`: X11 `handle_file_drag_entered(pos,paths)` / `handle_file_drag_exited()` /
+      `handle_file_drop(pos,paths)` (take an explicit window-local position because XDND delivers
+      no motion events during a drag; otherwise mirror macOS — save-prev-state →
+      hovered/dropped-file → hit-test → `process_window_events(0)` → one-shot clear).
+- TODO2: sources offering **>3 types** advertise them in the `XdndTypeList` property rather than
+  `l[2..5]`; the long-list read is not implemented (we only scan the inline 3 slots — `text/uri-list`
+  is almost always among the first 3). Hover passes a `"<file>"` placeholder path because XDND does
+  not expose the real paths until the drop (only the drop carries them).
+- Verify: `cargo check --target x86_64-unknown-linux-gnu -p azul-dll --features build-dll` PASSES
+  (0 errors; target-scoped cross toolchain). Runtime drag-onto-window needs a real X11 session.
 
 ## Item 7 — Windows file DnD hover+drop (OLE IDropTarget)  (DONE)
 Files: `dll/src/desktop/shell2/windows/dnd.rs` (new), `dll/src/desktop/shell2/windows/mod.rs`,
