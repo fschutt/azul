@@ -194,11 +194,36 @@ env — NOT global, which leaks into host build scripts). FileDropManager hooks:
 
 | # | Item | Subsystem | Status |
 |---|------|-----------|--------|
-| 6 | macOS global menu bar + context menu (NSMenu) — missing (azul-paint demo) | dll macOS shell + core Menu API | BLOCKED→research |
+| 6 | macOS global menu bar + context menu (NSMenu) — missing (azul-paint demo) | dll macOS shell + core Menu API | DONE |
 | 7 | Windows file DnD hover+drop (OLE IDropTarget; today legacy WM_DROPFILES drop-only) | dll windows shell | BLOCKED→research |
 | 8 | X11 file DnD (XDND protocol) — none today | dll x11 shell | BLOCKED→research |
 | 9 | Wayland file DnD (wl_data_device) — none today | dll wayland shell | BLOCKED→research |
 
+## Item 6 — macOS global menu bar + context menu  (DONE)
+Files: `dll/src/desktop/shell2/macos/menu.rs`, `dll/src/desktop/shell2/macos/mod.rs`.
+Investigation: the context-menu path was ALREADY fully wired (`events.rs` `try_show_context_menu`
+→ native `popUpMenuPositioningItem:` / window-based popup; tags allocated via `next_tag` +
+`merge_callbacks`). The real gap was the **app menu bar**: the window ctor used an empty
+`MenuState::new()` (TODO), the launch menu was a hardcoded Quit-only stub, and
+`set_application_menu` had ZERO callers — the DOM root's `menu_bar` was never read. azul-paint
+DOES define both `with_menu_bar` and `with_context_menu`, so it was a framework gap, not a demo
+gap.
+- [x] `menu.rs`: added `build_app_submenu` (standard app submenu = app name + Quit→`terminate:`/
+      Cmd+Q), `create_menubar_nsmenu` (prepends app submenu, then user items), and
+      `MenuState::update_menubar_if_changed` (hash-guarded, allocates tags via the shared
+      `next_tag`).
+- [x] `mod.rs`: `setup_main_menu` (launch stub) now routes through `menu::build_app_submenu`;
+      `set_application_menu` now uses `update_menubar_if_changed`; new `apply_menu_bar_from_dom`
+      reads `NodeData::get_menu_bar()` on the root (`DomId::ROOT_ID` / `NodeId::ZERO`) and
+      installs it — called after initial layout AND at the end of `regenerate_layout` (hash
+      guard makes re-apply cheap).
+- [x] Context menu: confirmed working at framework level (no fix needed); azul-paint already
+      sets one on the canvas + body.
+- Verify: `cargo check -p azul-dll --features build-dll` PASSES (host macOS); `cargo build
+  -p azul-paint` PASSES. Visual confirmation (seeing the bar / clicking File→Import) needs a
+  live GUI session.
+
+Original notes:
 - Item 6 (macOS menu): convert azul `Menu`→`NSMenu` for BOTH `NSApplication.mainMenu` (app
   bar, installed at launch) AND right-click context menu (`rightMouseDown:`→popup); wire
   menu-item clicks back to azul callbacks via the existing objc2 target/ivar bridge. Check

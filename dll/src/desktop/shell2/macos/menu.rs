@@ -135,6 +135,27 @@ impl MenuState {
         }
     }
 
+    /// Update the application menu bar if the user menu changed, returns true if recreated.
+    ///
+    /// Unlike `update_if_changed`, this builds a top-level menu *bar*: the standard
+    /// macOS application submenu (app name + Quit) is prepended as the first item
+    /// (macOS requires the first submenu of the main menu to be the application
+    /// menu), followed by the user's `menu_bar` items. Item callbacks are allocated
+    /// through the same `next_tag` counter as context menus so tags never collide.
+    pub fn update_menubar_if_changed(&mut self, menu: &Menu, mtm: MainThreadMarker) -> bool {
+        let new_hash = menu.get_hash();
+
+        if new_hash != self.current_hash {
+            let (ns_menu, command_map) = create_menubar_nsmenu(menu, &mut self.next_tag, mtm);
+            self.ns_menu = Some(ns_menu);
+            self.command_map = command_map;
+            self.current_hash = new_hash;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Get the current NSMenu (if any)
     pub fn get_nsmenu(&self) -> Option<&Retained<NSMenu>> {
         self.ns_menu.as_ref()
@@ -186,6 +207,55 @@ fn create_nsmenu(
     build_menu_items(menu.items.as_slice(), &ns_menu, &mut command_map, next_tag, mtm);
 
     (ns_menu, command_map)
+}
+
+/// Build the standard macOS application submenu (app name + "Quit <App>") and
+/// add it as the first item of `menubar`.
+///
+/// macOS requires the first submenu of the application's main menu to be the
+/// application menu; the OS substitutes the real process name for the (empty)
+/// title and renders the bold app-name leftmost item. We add an explicit
+/// "Quit" item wired to `terminate:` (Cmd+Q) so the app is always quittable.
+pub(crate) fn build_app_submenu(menubar: &NSMenu, mtm: MainThreadMarker) {
+    let app_item = NSMenuItem::new(mtm);
+    let app_menu = NSMenu::new(mtm);
+
+    let quit_title = NSString::from_str("Quit");
+    let quit_key = NSString::from_str("q");
+    let quit_item = unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            NSMenuItem::alloc(mtm),
+            &quit_title,
+            Some(objc2::sel!(terminate:)),
+            &quit_key,
+        )
+    };
+    app_menu.addItem(&quit_item);
+
+    app_item.setSubmenu(Some(&app_menu));
+    menubar.addItem(&app_item);
+}
+
+/// Create a top-level menu bar NSMenu from an Azul Menu, with the standard
+/// application submenu prepended.
+fn create_menubar_nsmenu(
+    menu: &Menu,
+    next_tag: &mut isize,
+    mtm: MainThreadMarker,
+) -> (
+    Retained<NSMenu>,
+    HashMap<isize, azul_core::menu::CoreMenuCallback>,
+) {
+    let menubar = NSMenu::new(mtm);
+    let mut command_map = HashMap::new();
+
+    // First item MUST be the application menu on macOS.
+    build_app_submenu(&menubar, mtm);
+
+    // Then the user's menu_bar items become the remaining top-level menus.
+    build_menu_items(menu.items.as_slice(), &menubar, &mut command_map, next_tag, mtm);
+
+    (menubar, command_map)
 }
 
 /// Recursively build NSMenu items from Azul MenuItem array

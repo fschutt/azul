@@ -1887,29 +1887,14 @@ pub struct WindowDelegateIvars {
 /// Set up the main menu bar with a Quit item bound to Cmd+Q.
 /// The Quit item sends `terminate:` to NSApp, which stops the run loop.
 pub fn setup_main_menu(app: &NSApplication, mtm: objc2::MainThreadMarker) {
-    unsafe {
-        let menubar = NSMenu::new(mtm);
-
-        // App menu (first item = application menu on macOS)
-        let app_menu_item = NSMenuItem::new(mtm);
-        let app_menu = NSMenu::new(mtm);
-
-        // "Quit <AppName>" with Cmd+Q
-        let quit_title = NSString::from_str("Quit");
-        let quit_key = NSString::from_str("q");
-        let quit_item = NSMenuItem::initWithTitle_action_keyEquivalent(
-            NSMenuItem::alloc(mtm),
-            &quit_title,
-            Some(objc2::sel!(terminate:)),
-            &quit_key,
-        );
-        app_menu.addItem(&quit_item);
-
-        app_menu_item.setSubmenu(Some(&app_menu));
-        menubar.addItem(&app_menu_item);
-
-        app.setMainMenu(Some(&menubar));
-    }
+    // Launch-time stub: install a menu bar containing only the standard
+    // application submenu (app name + Quit). Per-window menu bars built from the
+    // DOM's `menu_bar` replace this via `apply_menu_bar_from_dom` /
+    // `set_application_menu` (both route through `menu::build_app_submenu`, so the
+    // app submenu is identical here and there).
+    let menubar = NSMenu::new(mtm);
+    menu::build_app_submenu(&menubar, mtm);
+    app.setMainMenu(Some(&menubar));
 }
 
 // ============================================================================
@@ -3640,6 +3625,9 @@ impl MacOSWindow {
             );
         }
 
+        // Install the application menu bar from the root DOM's menu_bar (if any).
+        window.apply_menu_bar_from_dom();
+
         // Initialize accessibility adapter after first layout
         #[cfg(feature = "a11y")]
         {
@@ -3829,6 +3817,10 @@ impl MacOSWindow {
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
         self.sync_ime_position_to_os();
+
+        // Re-apply the menu bar in case a DOM regeneration changed the root
+        // menu_bar (hash-guarded, so a no-op when unchanged).
+        self.apply_menu_bar_from_dom();
 
         Ok(result)
     }
@@ -4920,7 +4912,7 @@ impl MacOSWindow {
     /// Updates the macOS menu bar with the provided menu structure.
     /// Uses hash-based diffing to avoid unnecessary menu recreation.
     pub fn set_application_menu(&mut self, menu: &azul_core::menu::Menu) {
-        if self.menu_state.update_if_changed(menu, self.mtm) {
+        if self.menu_state.update_menubar_if_changed(menu, self.mtm) {
             log_debug!(
                 LogCategory::Platform,
                 "[MacOSWindow] Application menu updated"
@@ -4930,6 +4922,37 @@ impl MacOSWindow {
                 app.setMainMenu(Some(ns_menu));
             }
         }
+    }
+
+    /// Read the root DOM node's `menu_bar` and install it as the macOS menu bar.
+    ///
+    /// Called after initial layout and after every relayout/DOM regeneration so
+    /// that menu changes take effect. Cheap on the no-change path: the menu hash
+    /// guard in `set_application_menu` short-circuits identical menus. If the root
+    /// node defines no `menu_bar`, the launch-time app-only stub stays in place.
+    pub fn apply_menu_bar_from_dom(&mut self) {
+        let menu = {
+            let layout_window = match self.common.layout_window.as_ref() {
+                Some(lw) => lw,
+                None => return,
+            };
+            let layout_result =
+                match layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
+                    Some(lr) => lr,
+                    None => return,
+                };
+            let binding = layout_result.styled_dom.node_data.as_container();
+            let root = match binding.get(azul_core::id::NodeId::ZERO) {
+                Some(nd) => nd,
+                None => return,
+            };
+            match root.get_menu_bar() {
+                Some(m) => (**m).clone(),
+                None => return,
+            }
+        };
+
+        self.set_application_menu(&menu);
     }
 
     /// Show a tooltip with the given text at the specified position
