@@ -9,12 +9,34 @@ file, following existing patterns); link the showcase on the releases page.
 ## Workstream status
 | # | Item | Status |
 |---|------|--------|
-| W1 | Paint HiDPI click fix | IN PROGRESS (agent) |
-| W2 | Maps jumbled-tiles fix | QUEUED (after W1 frees cargo) |
-| W3 | Widget gap research | IN PROGRESS (agent) → fills W4 |
-| W4 | Build new widgets (one file each, per gap-list) | PENDING research |
-| W5 | `azul-widgets` showcase demo crate (from widgets.c) | PENDING W4 |
-| W6 | Release-page swap: remove spirit-level, add azul-widgets | PENDING W5 |
+| W1 | Paint HiDPI click fix | DONE (ebd19c71a) |
+| W2 | Maps jumbled-tiles fix | TODO (cron item 1; prior agents died on transient API 500) |
+| W3 | Widget gap research | DONE (→ scripts/WIDGETS_RESEARCH.md) |
+| W4 | Build new widgets (queue below; one file each) | TODO (cron churns one/fire) |
+| W5 | `azul-widgets` showcase demo crate (from widgets.c) | TODO (after W4) |
+| W6 | Release-page swap: remove spirit-level, add azul-widgets | TODO (after W5) |
+
+## CRON QUEUE ORDER (one item per fire; cron self-deletes when ALL done)
+1. **W2 maps fix** (spec below). 2. **W4 widgets** — lowest unchecked in the W4 queue, one per fire,
+per the recipe in `scripts/WIDGETS_RESEARCH.md`. 3. **W5 showcase**. 4. **W6 release-page swap**.
+
+## W2 — maps jumbled tiles (do first)
+azul-maps tiles are present but jumbled/disconnected (no coherent map). Investigate the tile→screen
+grid math + tile-node CSS positioning in `layout/src/widgets/map.rs` + `examples/azul-maps/`. Fix so
+tiles tile contiguously (each at `left = col*tile_px - offset_x`, `top = row*tile_px - offset_y`, sized
+`tile_px`). Likely culprits: tile index used directly instead of `index*tile_size`, missing viewport
+offset, x/y swap, wrong tile size, or tile nodes not `position:absolute` in a positioned container.
+Verify `cargo build -p azul-maps`. (Runtime needs a GUI + live tiles — compile-only here.)
+
+## W4 — widget build queue (recipe + per-widget detail in scripts/WIDGETS_RESEARCH.md)
+Each = its own file in `layout/src/widgets/`; follow the recipe (struct → callbacks via
+`impl_widget_callback!`+`impl_managed_callback!` → builders → `.dom()`+internal handler), register in
+`mod.rs` + api.json (via **azul-doc autofix**, NOT hand-edits), compile-verify (`cargo check -p azul-layout`
++ `build-dll`). Tick `[x]` when DONE + committed. Easiest-first order:
+- Tier1: `[ ]` switch `[ ]` divider `[ ]` card `[ ]` badge `[ ]` slider `[ ]` segmented `[ ]` radio_group `[ ]` tooltip `[ ]` text_area
+- Tier2: `[ ]` alert `[ ]` accordion `[ ]` avatar `[ ]` chip `[ ]` spinner `[ ]` popover `[ ]` combobox `[ ]` modal
+- Tier3: `[ ]` toast `[ ]` breadcrumb `[ ]` pagination `[ ]` stepper `[ ]` split_pane `[ ]` date_picker `[ ]` time_picker
+- Export wins: `[ ]` Label→api.json `[ ]` TabContent→api.json
 
 ## W6 — release-page edit (mechanism from investigation; do AFTER the azul-widgets crate exists)
 The demo list is duplicated in 6 places — sync ALL (same order):
@@ -31,14 +53,6 @@ The demo list is duplicated in 6 places — sync ALL (same order):
 New demo crate `examples/azul-widgets/`: Cargo.toml (bin) + Dockerfile + src/main.rs (+ src/lib.rs if
 Android), mirror `examples/azul-paint/`. The release page is generated programmatically (no HTML
 templates to edit).
-
-## W3/W4 — widget gap-list (TO FILL from research)
-Current azul widgets (layout/src/widgets/): button, check_box, color_input, drop_down, file_input,
-frame, label, list_view, map, menubar, node_graph, number_input, progressbar, ribbon, tabs,
-text_input, titlebar, tree_view (+ media: camera/microphone/screencap/video). widgets.c showcases a
-subset. >> GAP-LIST + the "add a widget" recipe land from the research agent; build each new widget as
-its own file in layout/src/widgets/, register in mod.rs + api.json, follow the existing struct→dom()→
-impl_managed_callback! pattern.
 
 ## Notes
 - Conservative on rendering. Compile-verify each (host build-dll; mobile via cross-compile target-scoped env).
