@@ -1330,7 +1330,7 @@ pub fn calculate_used_size_for_node(
     // A pointer arg lifts cleanly; the body reads only .width/.height (auto-deref).
     containing_block_size: &LogicalSize,
     intrinsic: IntrinsicSizes,
-    _box_props: &BoxProps,
+    box_props: &BoxProps,
     viewport_size: &LogicalSize,
 ) -> Result<LogicalSize> {
     let Some(id) = dom_id else {
@@ -1450,12 +1450,12 @@ pub fn calculate_used_size_for_node(
                 // +spec:width-calculation:a6fd29 - shrink-to-fit width for floats: min(max(preferred minimum, available), preferred)
                 // CSS 2.2 §10.3.5: For floats, auto width = shrink-to-fit
                 let available_width = (containing_block_size.width
-                    - _box_props.margin.left
-                    - _box_props.margin.right
-                    - _box_props.border.left
-                    - _box_props.border.right
-                    - _box_props.padding.left
-                    - _box_props.padding.right)
+                    - box_props.margin.left
+                    - box_props.margin.right
+                    - box_props.border.left
+                    - box_props.border.right
+                    - box_props.padding.left
+                    - box_props.padding.right)
                     .max(0.0);
                 let preferred_minimum = intrinsic.min_content_width;
                 let preferred = intrinsic.max_content_width;
@@ -1469,12 +1469,12 @@ pub fn calculate_used_size_for_node(
                 // +spec:width-calculation:1661b4 - abs-pos non-replaced auto width uses shrink-to-fit (§10.3.7)
                 // shrink-to-fit = min(max(preferred_minimum, available), preferred)
                 let available_width = (containing_block_size.width
-                    - _box_props.margin.left
-                    - _box_props.margin.right
-                    - _box_props.border.left
-                    - _box_props.border.right
-                    - _box_props.padding.left
-                    - _box_props.padding.right)
+                    - box_props.margin.left
+                    - box_props.margin.right
+                    - box_props.border.left
+                    - box_props.border.right
+                    - box_props.padding.left
+                    - box_props.padding.right)
                     .max(0.0);
                 let preferred_minimum = intrinsic.min_content_width;
                 let preferred = intrinsic.max_content_width;
@@ -1514,18 +1514,18 @@ pub fn calculate_used_size_for_node(
                     // return comes back in D0 as the call's SSA result (opt can't forward
                     // the init over it), and with D8-D15 preserved across calc's later
                     // calls the value survives to the return.
-                    auto_block_inline_size(containing_block_size, _box_props)
+                    auto_block_inline_size(containing_block_size, box_props)
                 }
                 LayoutDisplay::InlineBlock | LayoutDisplay::InlineGrid | LayoutDisplay::InlineFlex => {
                     // +spec:width-calculation:c01de8 - inline-block auto width uses shrink-to-fit (§10.3.9)
                     // shrink-to-fit = min(max(preferred_minimum, available), preferred)
                     let available_width = (containing_block_size.width
-                        - _box_props.margin.left
-                        - _box_props.margin.right
-                        - _box_props.border.left
-                        - _box_props.border.right
-                        - _box_props.padding.left
-                        - _box_props.padding.right)
+                        - box_props.margin.left
+                        - box_props.margin.right
+                        - box_props.border.left
+                        - box_props.border.right
+                        - box_props.padding.left
+                        - box_props.padding.right)
                         .max(0.0);
                     let preferred_minimum = intrinsic.min_content_width;
                     let preferred = intrinsic.max_content_width;
@@ -1545,12 +1545,12 @@ pub fn calculate_used_size_for_node(
                         intrinsic.max_content_width
                     } else {
                         (containing_block_size.width
-                            - _box_props.margin.left
-                            - _box_props.margin.right
-                            - _box_props.border.left
-                            - _box_props.border.right
-                            - _box_props.padding.left
-                            - _box_props.padding.right)
+                            - box_props.margin.left
+                            - box_props.margin.right
+                            - box_props.border.left
+                            - box_props.border.right
+                            - box_props.padding.left
+                            - box_props.padding.right)
                             .max(0.0)
                     }
                 }
@@ -1572,9 +1572,9 @@ pub fn calculate_used_size_for_node(
                     Some(p) => resolve_percentage_with_box_model(
                         containing_block_size.width,
                         p.get(),
-                        (_box_props.margin.left, _box_props.margin.right),
-                        (_box_props.border.left, _box_props.border.right),
-                        (_box_props.padding.left, _box_props.padding.right),
+                        (box_props.margin.left, box_props.margin.right),
+                        (box_props.border.left, box_props.border.right),
+                        (box_props.padding.left, box_props.padding.right),
                     ),
                     None => intrinsic.max_content_width,
                 },
@@ -1658,8 +1658,8 @@ pub fn calculate_used_size_for_node(
                         (containing_block_size.height
                             - t
                             - b
-                            - _box_props.margin.top
-                            - _box_props.margin.bottom)
+                            - box_props.margin.top
+                            - box_props.margin.bottom)
                             .max(0.0),
                     ),
                     _ => None,
@@ -1702,9 +1702,9 @@ pub fn calculate_used_size_for_node(
                     Some(p) => resolve_percentage_with_box_model(
                         containing_block_size.height,
                         p.get(),
-                        (_box_props.margin.top, _box_props.margin.bottom),
-                        (_box_props.border.top, _box_props.border.bottom),
-                        (_box_props.padding.top, _box_props.padding.bottom),
+                        (box_props.margin.top, box_props.margin.bottom),
+                        (box_props.border.top, box_props.border.bottom),
+                        (box_props.padding.top, box_props.padding.bottom),
                     ),
                     None => intrinsic.max_content_height,
                 },
@@ -1765,12 +1765,12 @@ pub fn calculate_used_size_for_node(
                 // §6.2 case: both auto, has ratio but no intrinsic width or height
                 // → use block-level non-replaced constraint equation for width
                 let block_width = (containing_block_size.width
-                    - _box_props.margin.left
-                    - _box_props.margin.right
-                    - _box_props.border.left
-                    - _box_props.border.right
-                    - _box_props.padding.left
-                    - _box_props.padding.right)
+                    - box_props.margin.left
+                    - box_props.margin.right
+                    - box_props.border.left
+                    - box_props.border.right
+                    - box_props.padding.left
+                    - box_props.padding.right)
                     .max(0.0);
                 (block_width, block_width / ratio)
             } else {
@@ -1813,7 +1813,7 @@ pub fn calculate_used_size_for_node(
             resolved_height,
             containing_block_size.width,
             containing_block_size.height,
-            _box_props,
+            box_props,
         )
     } else {
         // Non-replaced element: apply width and height constraints independently
@@ -1823,7 +1823,7 @@ pub fn calculate_used_size_for_node(
             node_state,
             resolved_width,
             containing_block_size.width,
-            _box_props,
+            box_props,
         );
 
         let ch = apply_height_constraints(
@@ -1832,7 +1832,7 @@ pub fn calculate_used_size_for_node(
             node_state,
             resolved_height,
             containing_block_size.height,
-            _box_props,
+            box_props,
         );
         (cw, ch)
     };
@@ -1859,14 +1859,14 @@ pub fn calculate_used_size_for_node(
         azul_css::props::layout::LayoutBoxSizing::BorderBox => {
             // +spec:box-sizing:cdfe09 - box-sizing: border-box makes width/height set the border box
             // +spec:box-sizing:3ba6d3 - content-box floors at 0px, so border-box can't be less than padding+border
-            let min_border_box_w = _box_props.padding.left
-                + _box_props.padding.right
-                + _box_props.border.left
-                + _box_props.border.right;
-            let min_border_box_h = _box_props.padding.top
-                + _box_props.padding.bottom
-                + _box_props.border.top
-                + _box_props.border.bottom;
+            let min_border_box_w = box_props.padding.left
+                + box_props.padding.right
+                + box_props.border.left
+                + box_props.border.right;
+            let min_border_box_h = box_props.padding.top
+                + box_props.padding.bottom
+                + box_props.border.top
+                + box_props.border.bottom;
             // +spec:box-model:4f423b - used values refer to the border box when box-sizing: border-box
             // border-box: The width/height values already include border and padding
             // CSS Box Sizing Level 3: "the specified width and height (and respective min/max
@@ -1878,34 +1878,34 @@ pub fn calculate_used_size_for_node(
                 constrained_width.max(min_border_box_w)
             } else {
                 constrained_width
-                    + _box_props.padding.left
-                    + _box_props.padding.right
-                    + _box_props.border.left
-                    + _box_props.border.right
+                    + box_props.padding.left
+                    + box_props.padding.right
+                    + box_props.border.left
+                    + box_props.border.right
             };
             let bh = if height_is_quantitative {
                 constrained_height.max(min_border_box_h)
             } else {
                 constrained_height
-                    + _box_props.padding.top
-                    + _box_props.padding.bottom
-                    + _box_props.border.top
-                    + _box_props.border.bottom
+                    + box_props.padding.top
+                    + box_props.padding.bottom
+                    + box_props.border.top
+                    + box_props.border.bottom
             };
             (bw, bh)
         }
         azul_css::props::layout::LayoutBoxSizing::ContentBox => {
             // +spec:box-sizing:fead70 - content-box: width/height set content size, border+padding added outside
             let border_box_width = constrained_width
-                + _box_props.padding.left
-                + _box_props.padding.right
-                + _box_props.border.left
-                + _box_props.border.right;
+                + box_props.padding.left
+                + box_props.padding.right
+                + box_props.border.left
+                + box_props.border.right;
             let border_box_height = constrained_height
-                + _box_props.padding.top
-                + _box_props.padding.bottom
-                + _box_props.border.top
-                + _box_props.border.bottom;
+                + box_props.padding.top
+                + box_props.padding.bottom
+                + box_props.border.top
+                + box_props.border.bottom;
             (border_box_width, border_box_height)
         }
     };
