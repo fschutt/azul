@@ -880,12 +880,9 @@ impl PlatformWindow for WaylandWindow {
         text: &str,
         position: azul_core::geom::LogicalPosition,
     ) {
-        // Convert logical position to surface-relative coordinates
-        // (Wayland tooltips use subsurfaces positioned relative to parent)
-        let x = position.x as i32;
-        let y = position.y as i32;
-
-        self.show_tooltip(text, x, y);
+        // Wayland tooltips use subsurfaces positioned relative to the parent
+        // surface, so the logical position is passed through directly.
+        self.show_tooltip(text, position);
     }
 
     fn hide_tooltip_from_callback(&mut self) {
@@ -5094,7 +5091,7 @@ impl WaylandWindow {
     }
 
     /// Show a tooltip at the given position (Wayland implementation using subsurface)
-    fn show_tooltip(&mut self, text: &str, x: i32, y: i32) {
+    fn show_tooltip(&mut self, text: &str, position: azul_core::geom::LogicalPosition) {
         // Create tooltip if needed
         if self.tooltip.is_none() {
             let subcompositor = match self.subcompositor {
@@ -5115,6 +5112,7 @@ impl WaylandWindow {
                 self.compositor,
                 self.shm,
                 subcompositor,
+                self.common.fc_cache.clone(),
             ) {
                 Ok(tooltip_window) => {
                     self.tooltip = Some(tooltip_window);
@@ -5131,15 +5129,20 @@ impl WaylandWindow {
         }
 
         // Show tooltip
+        let dpi = azul_core::resources::DpiScaleFactor::new(
+            self.common.current_window_state.size.dpi as f32 / 96.0,
+        );
         if let Some(tooltip) = self.tooltip.as_mut() {
-            tooltip.show(text, x, y);
+            if let Err(e) = tooltip.show(text, position, dpi) {
+                log_error!(LogCategory::Platform, "[Wayland] Failed to show tooltip: {}", e);
+            }
         }
     }
 
     /// Hide the tooltip (Wayland implementation)
     fn hide_tooltip(&mut self) {
         if let Some(tooltip) = self.tooltip.as_mut() {
-            tooltip.hide();
+            let _ = tooltip.hide();
         }
     }
 

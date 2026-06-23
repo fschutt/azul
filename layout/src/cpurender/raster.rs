@@ -3061,6 +3061,129 @@ pub fn render_dom_to_image(
     Ok(result.png_data)
 }
 
+/// Render a short single-line string (e.g. a tooltip label) into a freshly
+/// allocated [`AzulPixmap`], shaping + rasterizing the glyphs through the same
+/// CPU text pipeline ([`render_display_list`] → `render_text`) the rest of the
+/// renderer uses. This is the platform-agnostic text path for shells that have
+/// **no** native server-side text drawing (notably Wayland, which — unlike
+/// X11's `XDrawString`, macOS `NSTextField` or Win32 GDI — must rasterize into
+/// a client `wl_shm` buffer itself).
+///
+/// The returned pixmap is exactly `text + 2*padding` wide and one line tall
+/// (ascent+descent), filled with `bg_color`, with the text drawn in
+/// `text_color`. Pixel data is RGBA8 (see [`AzulPixmap::data`]); callers that
+/// need a different channel order (e.g. ARGB8888 little-endian = BGRA bytes for
+/// Wayland) must swap on copy.
+///
+/// Returns `None` if no usable system font can be resolved or the font has
+/// degenerate metrics — callers should fall back gracefully (no tooltip text).
+#[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
+pub fn render_text_run_to_pixmap(
+    fc_cache: &rust_fontconfig::FcFontCache,
+    text: &str,
+    font_size_px: f32,
+    text_color: ColorU,
+    bg_color: ColorU,
+    padding_px: f32,
+    dpi_factor: f32,
+) -> Option<AzulPixmap> {
+    use azul_core::resources::{FontKey, IdNamespace};
+    use rust_fontconfig::{FcPattern, OwnedFontSource};
+
+    // 1. Resolve a default (sans-serif) system font, falling back to any font.
+    let mut trace = Vec::new();
+    let matched = fc_cache
+        .query(
+            &FcPattern {
+                family: Some("sans-serif".to_string()),
+                ..Default::default()
+            },
+            &mut trace,
+        )
+        .or_else(|| fc_cache.query(&FcPattern::default(), &mut trace))?;
+
+    let bytes = fc_cache.get_font_bytes(&matched.id)?;
+    let font_index = fc_cache
+        .get_font_by_id(&matched.id)
+        .map(|src| match src {
+            OwnedFontSource::Disk(path) => path.font_index,
+            OwnedFontSource::Memory(font) => font.font_index,
+        })
+        .unwrap_or(0);
+
+    let parsed = ParsedFont::from_bytes(bytes.as_slice(), font_index, &mut Vec::new())?
+        .with_source_bytes(bytes.clone());
+
+    let upm = parsed.font_metrics.units_per_em as f32;
+    if upm <= 0.0 {
+        return None;
+    }
+    let scale = font_size_px / upm;
+
+    // 2. Register the font in a throwaway RendererResources so the display-list
+    //    renderer can resolve the glyph run by hash.
+    let mut rr = RendererResources::default();
+    let font_ref = crate::parsed_font_to_font_ref(parsed.clone());
+    let key = FontKey::unique(IdNamespace(0));
+    let hash = crate::font_ref_to_parsed_font(&font_ref).hash;
+    rr.font_hash_map.insert(hash, key);
+    rr.currently_registered_fonts
+        .insert(key, (font_ref, Default::default()));
+    let font_hash = FontHash { font_hash: hash };
+
+    // 3. Shape the string (simple per-char advances; tooltips are short,
+    //    single-line and unstyled, so the full bidi/complex shaper isn't
+    //    reachable here — same simplification as the pagination header path).
+    let ascent = parsed.font_metrics.ascent as f32 * scale;
+    let descent = parsed.font_metrics.descent as f32 * scale; // typically negative
+    let baseline_y = padding_px + ascent;
+    let mut pen_x = padding_px;
+    let mut glyphs = Vec::new();
+    for c in text.chars() {
+        let gid = parsed.lookup_glyph_index(c as u32).unwrap_or(0);
+        let advance = parsed.get_horizontal_advance(gid) as f32 * scale;
+        glyphs.push(GlyphInstance {
+            index: gid as u32,
+            point: LogicalPosition { x: pen_x, y: baseline_y },
+            size: LogicalSize { width: advance, height: font_size_px },
+        });
+        pen_x += advance;
+    }
+
+    // 4. Size the pixmap to the shaped run (logical units; device pixels via dpi).
+    let logical_w = (pen_x + padding_px).max(1.0);
+    let logical_h = (ascent - descent + padding_px * 2.0).max(1.0);
+    let w = ((logical_w * dpi_factor).ceil() as u32).max(1);
+    let h = ((logical_h * dpi_factor).ceil() as u32).max(1);
+
+    let mut pixmap = AzulPixmap::new(w, h)?;
+    pixmap.fill(bg_color.r, bg_color.g, bg_color.b, bg_color.a);
+
+    // 5. Rasterize the run via the shared display-list text path.
+    let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+        origin: LogicalPosition { x: 0.0, y: 0.0 },
+        size: LogicalSize { width: logical_w, height: logical_h },
+    }
+    .into();
+
+    let item = DisplayListItem::Text {
+        glyphs,
+        font_hash,
+        font_size_px,
+        color: text_color,
+        clip_rect,
+        source_node_index: None,
+    };
+    let dl = DisplayList {
+        items: vec![item],
+        ..Default::default()
+    };
+    let mut gc = GlyphCache::new();
+    render_display_list(&dl, &mut pixmap, dpi_factor, &rr, None, &mut gc).ok()?;
+
+    Some(pixmap)
+}
+
 // ============================================================================
 // Direct SVG-to-image renderer (bypasses CSS layout)
 // ============================================================================

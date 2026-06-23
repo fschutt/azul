@@ -4,37 +4,41 @@
 //! A subsurface is a child surface that can be positioned relative to its parent
 //! and is composited together with the parent by the compositor.
 //!
-//! Note: Text rendering is currently a placeholder (solid rectangles per character).
-//!
-//! TODO(superplan): two follow-ups, both currently blocked on files this module
-//! cannot reach from here:
-//!   1. Wire `render_tooltip_content` into Azul's real text-shaping pipeline
-//!      instead of drawing black-bar placeholders. Unlike X11/macOS/Windows —
-//!      which delegate tooltip text to native server-side/UI text drawing
-//!      (`XDrawString` / `NSTextField` / GDI) — Wayland has no native text path,
-//!      so this needs an `FcFontCache` + shaped glyphs (`ParsedFont`) threaded in
-//!      via `new()`/`show()` and rasterized into the ARGB8888 `wl_shm` buffer.
-//!      Needs runtime verification on a real compositor.
-//!   2. Align `show`/`hide` with the other backends' signatures
-//!      (`show(text, position: LogicalPosition, dpi: DpiScaleFactor) -> Result<…>`,
-//!      `hide() -> Result<…>`, plus `is_visible()`). That changes the call sites
-//!      in `linux/wayland/mod.rs` (~:5095, a Group 7 file), so it must land
-//!      together with the per-backend wiring.
+//! Text rendering: shaped glyphs are rasterized through Azul's CPU text pipeline
+//! (`azul_layout::cpurender::render_text_run_to_pixmap`) into the ARGB8888
+//! `wl_shm` buffer. Unlike X11/macOS/Windows — which delegate tooltip text to
+//! native server-side/UI text drawing (`XDrawString` / `NSTextField` / GDI) —
+//! Wayland has no native text path, so the client must rasterize the glyphs
+//! itself. The `FcFontCache` used to resolve the font is threaded in via
+//! `new()`. Runtime verification needs a real Wayland compositor.
 
 use std::ffi::CString;
 use std::rc::Rc;
+use std::sync::Arc;
+
+use azul_core::geom::LogicalPosition;
+use azul_core::resources::DpiScaleFactor;
+use azul_css::props::basic::ColorU;
+use rust_fontconfig::FcFontCache;
 
 use super::{defines::*, dlopen::Wayland};
 
 use super::super::super::common::debug_server::LogCategory;
 use crate::log_error;
 
-/// Approximate width of a single character in pixels (placeholder font metrics)
-const TOOLTIP_CHAR_WIDTH_PX: i32 = 7;
-/// Approximate height of a single character in pixels (placeholder font metrics)
-const TOOLTIP_CHAR_HEIGHT_PX: i32 = 14;
-/// Padding around tooltip text in pixels
-const TOOLTIP_PADDING_PX: i32 = 4;
+/// Tooltip font size in logical pixels.
+const TOOLTIP_FONT_SIZE_PX: f32 = 12.0;
+/// Padding around tooltip text in logical pixels.
+const TOOLTIP_PADDING_PX: f32 = 4.0;
+/// Fallback per-character width (logical px) used only when no system font can
+/// be resolved (so an empty-but-positioned tooltip box still appears).
+const TOOLTIP_FALLBACK_CHAR_WIDTH_PX: f32 = 7.0;
+/// Fallback line height (logical px) for the no-font path.
+const TOOLTIP_FALLBACK_LINE_HEIGHT_PX: f32 = 14.0;
+/// Tooltip background colour (light yellow), matching the X11 backend.
+const TOOLTIP_BG_COLOR: ColorU = ColorU { r: 0xFF, g: 0xFF, b: 0xF0, a: 0xFF };
+/// Tooltip text colour (black), matching the X11 backend.
+const TOOLTIP_TEXT_COLOR: ColorU = ColorU { r: 0x00, g: 0x00, b: 0x00, a: 0xFF };
 
 /// Tooltip window using Wayland wl_subsurface
 ///
@@ -62,6 +66,12 @@ pub struct TooltipWindow {
     mapped_size: usize, // Size of the mmap'd region for proper cleanup
     width: i32,
     height: i32,
+
+    /// Font cache used to resolve + shape the tooltip text (Wayland has no
+    /// native server-side text drawing, so glyphs are rasterized client-side).
+    fc_cache: Arc<FcFontCache>,
+    /// Whether the tooltip is currently mapped/visible.
+    is_visible: bool,
 }
 
 impl TooltipWindow {
@@ -73,6 +83,7 @@ impl TooltipWindow {
         compositor: *mut wl_compositor,
         shm: *mut wl_shm,
         subcompositor: *mut wl_subcompositor,
+        fc_cache: Arc<FcFontCache>,
     ) -> Result<Self, String> {
         if compositor.is_null() {
             return Err("Compositor not available".to_string());
@@ -119,36 +130,76 @@ impl TooltipWindow {
                 mapped_size: 0,
                 width: 0,
                 height: 0,
+                fc_cache,
+                is_visible: false,
             })
         }
     }
 
-    /// Show the tooltip at the given position with text.
+    /// Show the tooltip with `text` at `position`.
     ///
-    /// TODO(superplan): align signature with X11/macOS/Windows
-    /// (`text, position: LogicalPosition, dpi: DpiScaleFactor) -> Result<(), String>`);
-    /// blocked on the `linux/wayland/mod.rs` caller (see module-level note).
-    pub fn show(&mut self, text: &str, x: i32, y: i32) {
+    /// Signature aligned with the X11/macOS/Windows backends
+    /// (`text`, `position: LogicalPosition`, `dpi: DpiScaleFactor`) -> `Result`.
+    /// The text is shaped + rasterized through Azul's CPU text pipeline into the
+    /// `wl_shm` buffer (no native server-side text path exists on Wayland).
+    pub fn show(
+        &mut self,
+        text: &str,
+        position: LogicalPosition,
+        dpi_factor: DpiScaleFactor,
+    ) -> Result<(), String> {
+        let dpi = dpi_factor.inner.get();
+
+        // Shape + rasterize the tooltip text at device resolution. The pixmap is
+        // RGBA8 (`AzulPixmap::data`); it is converted to ARGB8888 (BGRA byte
+        // order) when copied into the `wl_shm` buffer below.
+        let pixmap = azul_layout::cpurender::render_text_run_to_pixmap(
+            &self.fc_cache,
+            text,
+            TOOLTIP_FONT_SIZE_PX,
+            TOOLTIP_TEXT_COLOR,
+            TOOLTIP_BG_COLOR,
+            TOOLTIP_PADDING_PX,
+            dpi,
+        );
+
+        // Determine the device-pixel buffer size: from the shaped pixmap when a
+        // font was available, otherwise a fallback box sized by char count so a
+        // (text-less) tooltip still appears.
+        let (width, height) = match &pixmap {
+            Some(p) => (p.width() as i32, p.height() as i32),
+            None => {
+                let logical_w =
+                    text.chars().count() as f32 * TOOLTIP_FALLBACK_CHAR_WIDTH_PX
+                        + TOOLTIP_PADDING_PX * 2.0;
+                let logical_h = TOOLTIP_FALLBACK_LINE_HEIGHT_PX + TOOLTIP_PADDING_PX * 2.0;
+                (
+                    ((logical_w * dpi).ceil() as i32).max(1),
+                    ((logical_h * dpi).ceil() as i32).max(1),
+                )
+            }
+        };
+
+        if self.width != width || self.height != height || self.buffer.is_none() {
+            self.allocate_shm_buffer(width, height)?;
+        }
+
+        if let Some(data) = self.data {
+            match &pixmap {
+                Some(p) => Self::blit_pixmap(data, self.width, self.height, p),
+                None => Self::render_fallback_background(data, self.width, self.height),
+            }
+        }
+
         unsafe {
-            let text_width = text.len() as i32 * TOOLTIP_CHAR_WIDTH_PX;
-            let width = text_width + TOOLTIP_PADDING_PX * 2;
-            let height = TOOLTIP_CHAR_HEIGHT_PX + TOOLTIP_PADDING_PX * 2;
+            // Position subsurface (surface-local coordinates, relative to parent).
+            (self.wayland.wl_subsurface_set_position)(
+                self.subsurface,
+                position.x as i32,
+                position.y as i32,
+            );
 
-            if self.width != width || self.height != height || self.buffer.is_none() {
-                if let Err(e) = self.allocate_shm_buffer(width, height) {
-                    log_error!(LogCategory::Resources, "[Wayland] {}", e);
-                    return;
-                }
-            }
-
-            if let Some(data) = self.data {
-                Self::render_tooltip_content(data, self.width, self.height, text);
-            }
-
-            // Position subsurface
-            (self.wayland.wl_subsurface_set_position)(self.subsurface, x, y);
-
-            // Attach buffer and commit
+            // Attach buffer and commit.
             if let Some(buffer) = self.buffer {
                 (self.wayland.wl_surface_attach)(self.surface, buffer, 0, 0);
                 (self.wayland.wl_surface_damage)(self.surface, 0, 0, self.width, self.height);
@@ -157,16 +208,26 @@ impl TooltipWindow {
 
             (self.wayland.wl_display_flush)(self.display);
         }
+
+        self.is_visible = true;
+        Ok(())
     }
 
     /// Hide the tooltip
-    pub fn hide(&mut self) {
+    pub fn hide(&mut self) -> Result<(), String> {
         unsafe {
             // Detach buffer to hide the surface
             (self.wayland.wl_surface_attach)(self.surface, std::ptr::null_mut(), 0, 0);
             (self.wayland.wl_surface_commit)(self.surface);
             (self.wayland.wl_display_flush)(self.display);
         }
+        self.is_visible = false;
+        Ok(())
+    }
+
+    /// Whether the tooltip is currently visible.
+    pub fn is_visible(&self) -> bool {
+        self.is_visible
     }
 
     /// Allocate a shared memory buffer for tooltip rendering.
@@ -270,49 +331,54 @@ impl TooltipWindow {
         Ok(())
     }
 
-    /// Render tooltip background and placeholder text into the pixel buffer.
-    ///
-    /// TODO(superplan): replace the per-character black-bar placeholder below
-    /// with glyphs shaped through Azul's text pipeline (needs an `FcFontCache` +
-    /// `ParsedFont` threaded in and rasterized into this ARGB8888 buffer). See
-    /// the module-level note. Needs runtime verification on a real compositor.
-    fn render_tooltip_content(data: *mut u8, width: i32, height: i32, text: &str) {
+    /// Copy a shaped, rasterized [`AzulPixmap`] (RGBA8) into the `wl_shm` buffer
+    /// (ARGB8888 little-endian = BGRA byte order). The pixmap already contains
+    /// the tooltip background + shaped glyphs at device resolution, so this is a
+    /// straight per-pixel channel swap.
+    fn blit_pixmap(
+        data: *mut u8,
+        width: i32,
+        height: i32,
+        pixmap: &azul_layout::cpurender::AzulPixmap,
+    ) {
         let stride = width * 4;
+        let src = pixmap.data();
+        let src_w = pixmap.width() as i32;
+        let src_h = pixmap.height() as i32;
+        let copy_w = width.min(src_w);
+        let copy_h = height.min(src_h);
+        let src_stride = src_w * 4;
 
         unsafe {
-            // Fill background (light yellow: 0xFFFFF0)
+            for y in 0..copy_h {
+                for x in 0..copy_w {
+                    let s = (y * src_stride + x * 4) as usize;
+                    let d = (y * stride + x * 4) as isize;
+                    let r = src[s];
+                    let g = src[s + 1];
+                    let b = src[s + 2];
+                    let a = src[s + 3];
+                    *data.offset(d) = b; // Blue
+                    *data.offset(d + 1) = g; // Green
+                    *data.offset(d + 2) = r; // Red
+                    *data.offset(d + 3) = a; // Alpha
+                }
+            }
+        }
+    }
+
+    /// Fallback for when no system font could be resolved: fill the buffer with
+    /// the tooltip background colour so a positioned (text-less) box still shows.
+    fn render_fallback_background(data: *mut u8, width: i32, height: i32) {
+        let stride = width * 4;
+        unsafe {
             for y in 0..height {
                 for x in 0..width {
                     let offset = (y * stride + x * 4) as isize;
-                    *data.offset(offset + 0) = 0xF0; // Blue
-                    *data.offset(offset + 1) = 0xFF; // Green
-                    *data.offset(offset + 2) = 0xFF; // Red
-                    *data.offset(offset + 3) = 0xFF; // Alpha
-                }
-            }
-
-            // Draw text (very simple - just black pixels)
-            // In a real implementation, you'd use a proper font rendering library
-            let text_x = TOOLTIP_PADDING_PX;
-            let text_y = TOOLTIP_PADDING_PX;
-
-            for (i, _ch) in text.chars().enumerate() {
-                let char_x = text_x + i as i32 * TOOLTIP_CHAR_WIDTH_PX;
-
-                // Draw a simple rectangle as placeholder for each character
-                for dy in 0..TOOLTIP_CHAR_HEIGHT_PX {
-                    for dx in 0..TOOLTIP_CHAR_WIDTH_PX - 1 {
-                        let px = char_x + dx;
-                        let py = text_y + dy;
-
-                        if px >= 0 && px < width && py >= 0 && py < height {
-                            let offset = (py * stride + px * 4) as isize;
-                            *data.offset(offset + 0) = 0x00; // Blue
-                            *data.offset(offset + 1) = 0x00; // Green
-                            *data.offset(offset + 2) = 0x00; // Red
-                            *data.offset(offset + 3) = 0xFF; // Alpha
-                        }
-                    }
+                    *data.offset(offset) = TOOLTIP_BG_COLOR.b; // Blue
+                    *data.offset(offset + 1) = TOOLTIP_BG_COLOR.g; // Green
+                    *data.offset(offset + 2) = TOOLTIP_BG_COLOR.r; // Red
+                    *data.offset(offset + 3) = TOOLTIP_BG_COLOR.a; // Alpha
                 }
             }
         }

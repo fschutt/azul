@@ -17,7 +17,7 @@ clear message; verify before marking done.
 | 1 | macOS file-drop end-to-end | dll macOS shell + file_drop mgr | DONE |
 | 2 | display_list pagination text no-op | layout solver3 display_list | DONE |
 | 3 | cpurender backdrop-filter + text-shadow | layout cpurender | DONE (both) |
-| 4 | Wayland tooltip text shaping | dll wayland shell | TODO |
+| 4 | Wayland tooltip text shaping | dll wayland shell | DONE |
 | 5 | shape-outside path() + ruby shaping | layout text3 | TODO |
 
 ---
@@ -109,10 +109,31 @@ still complete no-ops in the compositor layer path (allocate_layers + composite_
 File: `dll/src/desktop/shell2/linux/wayland/tooltip.rs:~279` (`render_tooltip_content`).
 Gap (audit): draws black-bar placeholders instead of shaped text; signatures not aligned
 with the other backends.
-- [ ] Wire `render_tooltip_content` into Azul's text-shaping pipeline (same as X11/macOS/Windows).
-- [ ] Align `show`/`hide` signatures (`DpiScaleFactor` + `Result`) with the other backends.
-- Verify: `cargo check -p azul-dll --features build-dll --target x86_64-unknown-linux-gnu`
-  (wayland is Linux-only; can't run on macOS host — compile-check + CI).
+- [x] Wired the tooltip text into Azul's CPU text pipeline. Added a reusable
+      helper `azul_layout::cpurender::render_text_run_to_pixmap`
+      (`layout/src/cpurender/raster.rs`) that resolves a sans-serif system font
+      from the `FcFontCache`, parses it (`ParsedFont::from_bytes`), shapes the
+      string (per-char advances — tooltips are short/single-line/unstyled, same
+      simplification as the item-2 pagination header), and rasterizes via the
+      shared display-list text path (`render_display_list` → `render_text`) into
+      an `AzulPixmap`. The wayland tooltip (`linux/wayland/tooltip.rs`) now
+      threads in the `FcFontCache` (via `new()`), calls the helper in `show()`,
+      and blits the RGBA8 pixmap into the ARGB8888 (BGRA-byte) `wl_shm` buffer
+      with a channel swap (`blit_pixmap`). No-font fallback draws a sized,
+      background-only box (`render_fallback_background`).
+- [x] Aligned `show`/`hide`/`is_visible` with X11/macOS/Windows:
+      `show(text, position: LogicalPosition, dpi: DpiScaleFactor) -> Result<…>`,
+      `hide() -> Result<…>`, `is_visible() -> bool`, tracking an `is_visible`
+      field. Updated the call sites in `linux/wayland/mod.rs` (`show_tooltip`
+      now takes a `LogicalPosition` + sources dpi from
+      `current_window_state.size.dpi`, mirroring X11; `show_tooltip_from_callback`
+      passes the logical position through).
+- Verify: `cargo check --target x86_64-unknown-linux-gnu -p azul-dll --features build-dll`
+  PASSES (toolchain via target-scoped `CC_x86_64_unknown_linux_gnu` etc. — the
+  global `CC` form in the original instructions leaks the linux gcc into host
+  build scripts like libz-sys and fails). `cargo check -p azul-layout` PASSES.
+  Runtime (showing a tooltip on a live Wayland compositor) still needs a
+  Linux+Wayland session — not possible on this macOS host.
 
 ## Item 5 — shape-outside path() + ruby shaping  (CSS/text3 stubs)
 File: `layout/src/text3/cache.rs` (shape-outside ~3059/9831; ruby ~7073 magic 0.6, ~1576).
