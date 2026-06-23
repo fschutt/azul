@@ -18,7 +18,7 @@ clear message; verify before marking done.
 | 2 | display_list pagination text no-op | layout solver3 display_list | DONE |
 | 3 | cpurender backdrop-filter + text-shadow | layout cpurender | DONE (both) |
 | 4 | Wayland tooltip text shaping | dll wayland shell | DONE |
-| 5 | shape-outside path() + ruby shaping | layout text3 | TODO |
+| 5 | shape-outside path() + ruby shaping | layout text3 | DONE (path() full; ruby sizing real, annotation-glyph render PARTIAL/TODO2) |
 
 ---
 
@@ -137,9 +137,37 @@ with the other backends.
 
 ## Item 5 — shape-outside path() + ruby shaping  (CSS/text3 stubs)
 File: `layout/src/text3/cache.rs` (shape-outside ~3059/9831; ruby ~7073 magic 0.6, ~1576).
-- [ ] Implement CSS `shape-outside: path()` (currently falls back to rect/empty).
-- [ ] Real ruby shaping (replace the 0.6 magic-ratio stub).
-- Verify: `cargo test -p azul-layout`; add text-layout tests.
+- [x] Implement CSS `shape-outside: path()` (was rect/empty fallback). `from_css_shape`'s
+      `CssShape::Path` arm now parses `path.data` (SVG `d=""`) via
+      `azul_core::path_parser::parse_svg_path_d`, flattens each subpath into
+      `Vec<PathSegment>` (curves arc-length-sampled, ~1 seg/4px capped 64) offset to the
+      reference box (`flatten_svg_to_path_segments`), and emits `ShapeBoundary::Path`.
+      `get_shape_horizontal_spans`'s Path arm now does a real per-line scanline
+      intersection (`path_segments_line_intersection`) over all subpaths with an even-odd
+      fill rule (so reversed rings = holes carve out space) — mirrors the polygon path.
+      Empty/unparseable falls back to the reference rectangle (so shape-inside doesn't
+      collapse). Also fixed the float-bottom `Path => f32::MAX` stub to compute the real
+      max-y from segments.
+- [x] Real ruby shaping (replaced the `0.6` magic-ratio stub = `RUBY_BASE_CHAR_WIDTH_RATIO`,
+      now deleted). Base + annotation are SHAPED to get real inline advances
+      (`measure_run_advance`, reusing the same font-resolution as the main shaper:
+      `FontStack::Ref` direct + `FontStack::Stack` via `shape_with_font_fallback`). The
+      annotation is shaped at its used font-size (`RUBY_ANNOTATION_FONT_SCALE` = 50% of
+      base, the spec UA value — not a fudge). Reserved box = wider of base/annotation
+      inline-size + (base line-height + annotation line-height) block-size so the base
+      reserves vertical space above for the annotation (`ruby_reserved_box`). Fallback
+      estimate (no font chain) is 1em/char, not 0.6em.
+      TODO2 (PARTIAL): the annotation glyphs are sized + reserve space but are NOT yet
+      emitted as a separately-positioned centered run — `ShapedItem::Object` carries only
+      the base `StyledRun`; rendering the centered annotation needs a ruby-aware
+      `ShapedItem` variant (rendering-structural change, deferred to stay layout-safe).
+- Verify: `cargo check -p azul-layout` clean; `cargo test -p azul-layout` all green
+      (lib 134 ok incl. 6 new in `shape_outside_and_ruby_tests`; all integration + doc
+      tests pass). New tests assert REAL non-stub behavior: path() triangle narrows the
+      per-line band as y increases (~89.5px@y=10 vs ~19.5px@y=80, and differs from a
+      full-width rect), a path-with-hole splits the band into 2 spans (even-odd), garbage
+      path falls back to rect, and ruby reserves the max width + stacks annotation height
+      (and the scale is not 0.6).
 
 ---
 

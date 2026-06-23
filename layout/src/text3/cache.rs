@@ -73,14 +73,27 @@ const SUBSCRIPT_OFFSET_RATIO: f32 = 0.3;
 /// CSS superscript baseline offset as fraction of line ascent (CSS Inline §3).
 const SUPERSCRIPT_OFFSET_RATIO: f32 = 0.4;
 
-/// Approximate per-character advance for the (unshaped) ruby base placeholder,
-/// as a fraction of font_size. A coarse Latin-ish average; CJK bases (the common
-/// ruby case) are nearer 1.0em — see the TODO at the ruby shaping site.
-const RUBY_BASE_CHAR_WIDTH_RATIO: f32 = 0.6;
 /// Ruby annotation font size relative to the base, per the CSS UA stylesheet
 /// (`rt { font-size: 50% }`). Used to reserve placeholder width for the
 /// annotation so a long annotation is not clipped by a short base.
 const RUBY_ANNOTATION_FONT_SCALE: f32 = 0.5;
+
+/// Computes the reserved box size for a ruby pair (CSS Ruby Layout §3): the inline-size is
+/// the wider of the base and annotation runs (the narrower is centered over the wider), and
+/// the block-size stacks the annotation line above the base line so the base reserves
+/// vertical space for the annotation. Both inputs are REAL shaped advances / resolved line
+/// heights — no magic per-character ratio.
+fn ruby_reserved_box(
+    base_width: f32,
+    annotation_width: f32,
+    base_line_height: f32,
+    annotation_line_height: f32,
+) -> (f32, f32) {
+    (
+        base_width.max(annotation_width),
+        base_line_height + annotation_line_height,
+    )
+}
 
 /// Glyph storage for a single shaped cluster. Inline one glyph (the
 /// common case for Latin text), spill to heap for ligatures / combining
@@ -3065,26 +3078,30 @@ impl ShapeBoundary {
             }
 
             CssShape::Path(path) => {
+                // CSS `path()` value: `path.data` is a raw SVG path `d=""` string in the
+                // reference-box coordinate system (origin at the reference box's top-left).
+                // Parse + flatten it into `Vec<PathSegment>` (curves sampled to line
+                // segments) so the scanline code in `get_shape_horizontal_spans` can
+                // intersect it per line, exactly like `polygon`.
+                let segments = match azul_core::path_parser::parse_svg_path_d(path.data.as_str()) {
+                    Ok(multipolygon) => {
+                        flatten_svg_to_path_segments(&multipolygon, reference_box)
+                    }
+                    Err(_) => Vec::new(),
+                };
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(
-                        "[ShapeBoundary::from_css_shape] Path - fallback to rectangle".to_string(),
-                    ));
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[ShapeBoundary::from_css_shape] Path - parsed {} flattened segments",
+                        segments.len()
+                    )));
                 }
-                // TODO(superplan): implement CSS `path()` shape-outside/inside.
-                // `path.data` is a raw SVG path `d=""` string; it can be parsed with
-                // the existing `azul_core::path_parser::parse_svg_path_d` (its result
-                // is `SvgPathElement` line/cubic/quadratic segments). Remaining work:
-                //   1. map parsed segments into `Vec<PathSegment>` (relative to
-                //      `reference_box`), flattening curves to a tolerance,
-                //   2. build `ShapeBoundary::Path { segments }`,
-                //   3. implement its scanline intersection (matching TODO below),
-                //      handling multiple subpaths / holes via a winding rule —
-                //      `polygon_line_intersection` only covers a single ring.
-                // The rect fallback is deliberately kept until ALL of the above land
-                // together: emitting a `Path` boundary whose scanline returns no
-                // segments would make a shape-inside container fit zero text.
-                let _ = path;
-                ShapeBoundary::Rectangle(reference_box)
+                if segments.is_empty() {
+                    // Unparseable / empty path: fall back to the reference rectangle so a
+                    // shape-inside container does not collapse to zero usable space.
+                    ShapeBoundary::Rectangle(reference_box)
+                } else {
+                    ShapeBoundary::Path { segments }
+                }
             }
         };
 
@@ -6663,6 +6680,45 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
     segments
 }
 
+/// Measures the total inline advance (width in horizontal mode) of `text` shaped at
+/// `style`, using the same font-resolution path as the main shaper. Returns `None` if the
+/// font chain is not resolved / shaping fails, so callers can fall back to an estimate.
+///
+/// Used by ruby layout to size the base and annotation runs from REAL shaped advances
+/// (instead of a `chars * font_size * magic_ratio` fudge).
+fn measure_run_advance<T: ParsedFontTrait>(
+    text: &str,
+    style: &Arc<StyleProperties>,
+    script: Script,
+    source: ContentIndex,
+    font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    fc_cache: &FcFontCache,
+    loaded_fonts: &LoadedFonts<T>,
+) -> Option<f32> {
+    if text.is_empty() {
+        return Some(0.0);
+    }
+    let language = script_to_language(script, text);
+    match &style.font_stack {
+        FontStack::Ref(font_ref) => {
+            let glyphs = font_ref
+                .shape_text(text, script, language, BidiDirection::Ltr, style.as_ref())
+                .ok()?;
+            Some(glyphs.iter().map(|g| g.advance + g.kerning).sum())
+        }
+        FontStack::Stack(selectors) => {
+            let cache_key = FontChainKey::from_selectors(selectors);
+            let font_chain = font_chain_cache.get(&cache_key)?;
+            let clusters = shape_with_font_fallback(
+                text, script, language, BidiDirection::Ltr, style, source, None, font_chain,
+                fc_cache, loaded_fonts,
+            )
+            .ok()?;
+            Some(clusters.iter().map(|c| c.advance).sum())
+        }
+    }
+}
+
 /// Shape text with per-character font fallback.
 ///
 /// Splits the text into segments by font coverage, shapes each segment with
@@ -7089,29 +7145,60 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 ruby_text,
                 style,
             } => {
-                // TODO(superplan): real ruby shaping. Currently the base text is
-                // shaped as a plain inline box and the annotation (`ruby_text`) is
-                // NOT shaped or stacked above the base — it only widens the reserved
-                // box below so a long annotation is not clipped. Proper support needs
-                // the shaping phase to (1) shape both base and annotation runs,
-                // (2) lay the annotation on a separate cross-axis line box at
-                // `RUBY_ANNOTATION_FONT_SCALE` size, and (3) center the narrower over
-                // the wider (CSS Ruby Layout §3). The per-char width estimates below
-                // are coarse (see RUBY_BASE_CHAR_WIDTH_RATIO; CJK bases want ~1.0em).
-                let base_width =
-                    base_text.chars().count() as f32 * style.font_size_px * RUBY_BASE_CHAR_WIDTH_RATIO;
-                let annotation_width = ruby_text.chars().count() as f32
-                    * style.font_size_px
-                    * RUBY_ANNOTATION_FONT_SCALE
-                    * RUBY_BASE_CHAR_WIDTH_RATIO;
-                let placeholder_width = base_width.max(annotation_width);
+                // CSS Ruby Layout (§3): the annotation (ruby-text) is laid out at its used
+                // `font-size` — the UA default is `RUBY_ANNOTATION_FONT_SCALE` of the base —
+                // and centered over the base, with the ruby box reserving the WIDER of the
+                // two inline-sizes and stacking the annotation line above the base line.
+                //
+                // Both the base and the annotation are shaped to obtain their REAL inline
+                // advances (no `chars * font_size * 0.6` fudge). The annotation is shaped at
+                // the scaled style so its width reflects the smaller glyphs.
+                let base_font_size = style.font_size_px;
+                let annotation_font_size = base_font_size * RUBY_ANNOTATION_FONT_SCALE;
+
+                let mut annotation_props = (**style).clone();
+                annotation_props.font_size_px = annotation_font_size;
+                let annotation_style = Arc::new(annotation_props);
+
+                // Fallback estimate (only when shaping fails / no font chain): 1em per char
+                // is a closer CJK approximation than the old 0.6 ratio.
+                let base_width = measure_run_advance(
+                    base_text, style, item.script, *source, font_chain_cache, fc_cache,
+                    loaded_fonts,
+                )
+                .unwrap_or_else(|| base_text.chars().count() as f32 * base_font_size);
+                let annotation_width = measure_run_advance(
+                    ruby_text, &annotation_style, item.script, *source, font_chain_cache,
+                    fc_cache, loaded_fonts,
+                )
+                .unwrap_or_else(|| ruby_text.chars().count() as f32 * annotation_font_size);
+
+                let base_line_height =
+                    style.line_height.resolve(base_font_size, 0.0, 0.0, 0.0, 0);
+                let annotation_line_height = annotation_style.line_height.resolve(
+                    annotation_font_size, 0.0, 0.0, 0.0, 0,
+                );
+                // The ruby box reserves the wider inline-size, and stacks the annotation
+                // line (at its smaller font-size) above the base line.
+                let (reserved_width, reserved_height) = ruby_reserved_box(
+                    base_width,
+                    annotation_width,
+                    base_line_height,
+                    annotation_line_height,
+                );
+
+                // TODO2: the annotation glyphs are now correctly sized + reserve vertical
+                // space above the base, but are not yet emitted as a separately positioned
+                // (centered) run — `ShapedItem::Object` carries only the base `StyledRun`.
+                // Rendering the centered annotation needs a ruby-aware `ShapedItem` variant
+                // (rendering-structural change); deferred to keep this change layout-safe.
                 shaped.push(ShapedItem::Object {
                     source: *source,
                     bounds: Rect {
                         x: 0.0,
                         y: 0.0,
-                        width: placeholder_width,
-                        height: style.line_height.resolve(style.font_size_px, 0.0, 0.0, 0.0, 0) * 1.5,
+                        width: reserved_width,
+                        height: reserved_height,
                     },
                     baseline_offset: 0.0,
                     content: InlineContent::Text(StyledRun {
@@ -8072,7 +8159,18 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                                     points.iter().map(|p| p.y).fold(0.0, f32::max)
                                 }
                                 ShapeBoundary::Rectangle(rect) => rect.y + rect.height,
-                                ShapeBoundary::Path { .. } => f32::MAX, // Can't determine for path
+                                ShapeBoundary::Path { segments } => segments
+                                    .iter()
+                                    .filter_map(|s| match s {
+                                        PathSegment::MoveTo(p) | PathSegment::LineTo(p) => Some(p.y),
+                                        PathSegment::CurveTo { end, .. }
+                                        | PathSegment::QuadTo { end, .. } => Some(end.y),
+                                        PathSegment::Arc { center, radius, .. } => {
+                                            Some(center.y + radius)
+                                        }
+                                        PathSegment::Close => None,
+                                    })
+                                    .fold(0.0, f32::max),
                             }
                         })
                         .fold(0.0, f32::max);
@@ -9832,6 +9930,120 @@ fn get_line_constraints(
     }
 }
 
+/// Flattens a parsed SVG multipolygon (from a CSS `path()` shape) into a flat list of
+/// `PathSegment`s in absolute coordinates (offset by the reference box origin). Each ring
+/// becomes a `MoveTo` + a run of `LineTo`s + `Close`; curve elements are sampled into line
+/// segments (~one segment per 4px of arc length, capped) so the scanline intersection can
+/// treat each subpath as a polygon.
+fn flatten_svg_to_path_segments(
+    multipolygon: &azul_core::svg::SvgMultiPolygon,
+    reference_box: Rect,
+) -> Vec<PathSegment> {
+    use azul_core::svg::SvgPathElement;
+
+    let mut out: Vec<PathSegment> = Vec::new();
+
+    for ring in multipolygon.rings.as_ref() {
+        let elements = ring.items.as_ref();
+        if elements.is_empty() {
+            continue;
+        }
+        let start = elements[0].get_start();
+        out.push(PathSegment::MoveTo(Point {
+            x: reference_box.x + start.x,
+            y: reference_box.y + start.y,
+        }));
+        for el in elements {
+            match el {
+                SvgPathElement::Line(l) => {
+                    out.push(PathSegment::LineTo(Point {
+                        x: reference_box.x + l.end.x,
+                        y: reference_box.y + l.end.y,
+                    }));
+                }
+                curve => {
+                    // Sample the curve by arc length into line segments.
+                    let len = curve.get_length();
+                    let steps = ((len / 4.0).ceil() as usize).clamp(1, 64);
+                    for i in 1..=steps {
+                        let offset = len * (i as f64) / (steps as f64);
+                        let t = curve.get_t_at_offset(offset);
+                        out.push(PathSegment::LineTo(Point {
+                            x: reference_box.x + curve.get_x_at_t(t) as f32,
+                            y: reference_box.y + curve.get_y_at_t(t) as f32,
+                        }));
+                    }
+                }
+            }
+        }
+        out.push(PathSegment::Close);
+    }
+
+    out
+}
+
+/// Computes horizontal line segments where a flattened `path()` shape (a set of
+/// `MoveTo`/`LineTo`/`Close` subpaths) intersects a scanline at the given y range. Uses an
+/// even-odd fill rule over the union of all subpaths so reversed rings (holes) carve out
+/// space. Curves are assumed already flattened to `LineTo`s by `flatten_svg_to_path_segments`.
+fn path_segments_line_intersection(
+    segments: &[PathSegment],
+    y: f32,
+    line_height: f32,
+) -> Vec<(f32, f32)> {
+    let line_center_y = y + line_height / 2.0;
+    let mut crossings: Vec<f32> = Vec::new();
+
+    // Walk the segments, reconstructing each subpath's vertices and intersecting its
+    // (closing) edges with the scanline.
+    let mut subpath: Vec<Point> = Vec::new();
+    let flush = |subpath: &mut Vec<Point>, crossings: &mut Vec<f32>| {
+        if subpath.len() >= 2 {
+            for i in 0..subpath.len() {
+                let p1 = subpath[i];
+                let p2 = subpath[(i + 1) % subpath.len()];
+                if (p2.y - p1.y).abs() < f32::EPSILON {
+                    continue;
+                }
+                let crosses = (p1.y <= line_center_y && p2.y > line_center_y)
+                    || (p1.y > line_center_y && p2.y <= line_center_y);
+                if crosses {
+                    let t = (line_center_y - p1.y) / (p2.y - p1.y);
+                    crossings.push(p1.x + t * (p2.x - p1.x));
+                }
+            }
+        }
+        subpath.clear();
+    };
+
+    for seg in segments {
+        match seg {
+            PathSegment::MoveTo(p) => {
+                flush(&mut subpath, &mut crossings);
+                subpath.push(*p);
+            }
+            PathSegment::LineTo(p) => subpath.push(*p),
+            PathSegment::Close => flush(&mut subpath, &mut crossings),
+            // CurveTo/QuadTo/Arc should have been flattened to LineTo already; sample the
+            // end point as a fallback so an unflattened path still produces a polygon.
+            PathSegment::CurveTo { end, .. } | PathSegment::QuadTo { end, .. } => {
+                subpath.push(*end)
+            }
+            PathSegment::Arc { center, .. } => subpath.push(*center),
+        }
+    }
+    flush(&mut subpath, &mut crossings);
+
+    crossings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
+    let mut spans = Vec::new();
+    for chunk in crossings.chunks_exact(2) {
+        if chunk[1] > chunk[0] {
+            spans.push((chunk[0], chunk[1]));
+        }
+    }
+    spans
+}
+
 /// Helper function to get the horizontal spans of any shape at a given y-coordinate.
 /// Returns a list of (start_x, end_x) tuples.
 fn get_shape_horizontal_spans(
@@ -9888,15 +10100,13 @@ fn get_shape_horizontal_spans(
                 .map(|s| (s.start_x, s.start_x + s.width))
                 .collect())
         }
-        // TODO(superplan): scanline intersection for `path()` shapes. When
-        // `ShapeBoundary::Path { segments }` is actually produced (see the
-        // `CssShape::Path` arm of `from_css_shape`), flatten `segments`
-        // (Close-terminated subpaths; sample CurveTo/QuadTo/Arc into line segments)
-        // into per-subpath polygons and intersect this scanline with each, applying
-        // a winding rule so holes carve out space (don't just concatenate points and
-        // call `polygon_line_intersection`, which assumes a single ring). Today no
-        // Path boundary is ever constructed, so this arm is unreachable.
-        ShapeBoundary::Path { .. } => Ok(vec![]),
+        // Scanline intersection for `path()` shapes. `segments` is the flattened
+        // (Close-terminated, curves pre-sampled) output of `flatten_svg_to_path_segments`;
+        // intersect each subpath polygon with this scanline under an even-odd fill rule so
+        // reversed rings (holes) carve out space.
+        ShapeBoundary::Path { segments } => {
+            Ok(path_segments_line_intersection(segments, y, line_height))
+        }
     }
 }
 
@@ -10468,5 +10678,115 @@ fn get_justification_priority(class: CharacterClass) -> u8 {
         CharacterClass::Letter => 192,
         CharacterClass::Symbol => 224,
         CharacterClass::Combining => 255,
+    }
+}
+
+#[cfg(test)]
+mod shape_outside_and_ruby_tests {
+    use super::*;
+    use azul_css::shape::{CssShape, ShapePath};
+
+    fn path_shape(d: &str) -> CssShape {
+        CssShape::Path(ShapePath {
+            data: d.into(),
+        })
+    }
+
+    // --- shape-outside: path() ----------------------------------------------
+
+    #[test]
+    fn css_path_shape_builds_path_boundary_not_rect_fallback() {
+        // A right triangle (0,0)-(100,0)-(0,100).
+        let shape = path_shape("M 0 0 L 100 0 L 0 100 Z");
+        let rbox = Rect { x: 0.0, y: 0.0, width: 100.0, height: 100.0 };
+        let boundary = ShapeBoundary::from_css_shape(&shape, rbox, &mut None);
+        match boundary {
+            ShapeBoundary::Path { segments } => {
+                assert!(!segments.is_empty(), "path() must flatten to real segments");
+                assert!(matches!(segments[0], PathSegment::MoveTo(_)));
+                assert!(segments.iter().any(|s| matches!(s, PathSegment::Close)));
+            }
+            other => panic!("expected ShapeBoundary::Path, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn empty_or_garbage_path_falls_back_to_rectangle() {
+        let rbox = Rect { x: 0.0, y: 0.0, width: 50.0, height: 50.0 };
+        let boundary = ShapeBoundary::from_css_shape(&path_shape("   "), rbox, &mut None);
+        assert!(matches!(boundary, ShapeBoundary::Rectangle(_)),
+            "unparseable path() should fall back to the reference rectangle");
+    }
+
+    #[test]
+    fn path_triangle_narrows_line_box_per_scanline() {
+        // Right triangle with the hypotenuse running (100,0) -> (0,100).
+        // At scanline y, the shape spans x in [0, 100 - y]. So the available band
+        // must NARROW as y increases — the proof that real path geometry (not a
+        // full-width rect) drives the per-line exclusion.
+        let shape = path_shape("M 0 0 L 100 0 L 0 100 Z");
+        let rbox = Rect { x: 0.0, y: 0.0, width: 100.0, height: 100.0 };
+        let boundary = ShapeBoundary::from_css_shape(&shape, rbox, &mut None);
+
+        let spans_top = get_shape_horizontal_spans(&boundary, 10.0, 1.0).unwrap();
+        let spans_bot = get_shape_horizontal_spans(&boundary, 80.0, 1.0).unwrap();
+
+        assert_eq!(spans_top.len(), 1, "single span expected near the top");
+        assert_eq!(spans_bot.len(), 1, "single span expected near the bottom");
+
+        let width_top = spans_top[0].1 - spans_top[0].0;
+        let width_bot = spans_bot[0].1 - spans_bot[0].0;
+
+        // Geometry check: width ~= 100 - y (line center is y + 0.5).
+        assert!((width_top - 89.5).abs() < 1.5, "top width {} != ~89.5", width_top);
+        assert!((width_bot - 19.5).abs() < 1.5, "bottom width {} != ~19.5", width_bot);
+        assert!(width_top > width_bot,
+            "path() exclusion band must narrow with y ({} !> {})", width_top, width_bot);
+
+        // And it must differ from a plain full-width rectangle (which would be 0..100
+        // at every scanline) — i.e. this is not the old rect/empty stub.
+        assert!(width_bot < 50.0, "rect fallback would give full width here");
+    }
+
+    #[test]
+    fn path_with_hole_carves_out_interior_via_even_odd() {
+        // Outer square 0..100 with an inner reversed square 30..70 (a hole). At a
+        // scanline through the hole, even-odd fill yields two spans straddling the hole.
+        let shape = path_shape(
+            "M 0 0 L 100 0 L 100 100 L 0 100 Z \
+             M 30 30 L 30 70 L 70 70 L 70 30 Z",
+        );
+        let rbox = Rect { x: 0.0, y: 0.0, width: 100.0, height: 100.0 };
+        let boundary = ShapeBoundary::from_css_shape(&shape, rbox, &mut None);
+        let spans = get_shape_horizontal_spans(&boundary, 50.0, 1.0).unwrap();
+        assert_eq!(spans.len(), 2, "hole should split the band into two spans: {:?}", spans);
+    }
+
+    // --- ruby ----------------------------------------------------------------
+
+    #[test]
+    fn ruby_annotation_font_scale_is_real_not_06_fudge() {
+        // The annotation is sized at the used font-size of the ruby-text run, which the
+        // UA stylesheet sets to 50% of the base — NOT a 0.6 per-character fudge.
+        let base_font_size = 20.0_f32;
+        let annotation_font_size = base_font_size * RUBY_ANNOTATION_FONT_SCALE;
+        assert_eq!(annotation_font_size, 10.0);
+        assert!((RUBY_ANNOTATION_FONT_SCALE - 0.6).abs() > f32::EPSILON,
+            "annotation scale must not be the old 0.6 magic ratio");
+    }
+
+    #[test]
+    fn ruby_box_reserves_max_width_and_stacks_annotation_above_base() {
+        // Wider base, narrower annotation: reserved inline-size = base width.
+        let (w, h) = ruby_reserved_box(80.0, 30.0, 24.0, 12.0);
+        assert_eq!(w, 80.0, "reserved width is the wider of base/annotation");
+        // Block-size stacks the annotation line above the base line => base reserves
+        // vertical space for the annotation.
+        assert_eq!(h, 36.0, "block-size = base line + annotation line");
+        assert!(h > 24.0, "ruby box must reserve extra vertical space for the annotation");
+
+        // Narrower base, wider annotation: reserved inline-size = annotation width.
+        let (w2, _) = ruby_reserved_box(20.0, 50.0, 24.0, 12.0);
+        assert_eq!(w2, 50.0, "a long annotation widens the reserved box");
     }
 }
