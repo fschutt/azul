@@ -195,6 +195,8 @@ pub mod card;
 pub mod badge;
 /// Slider / range widget — draggable thumb on a track → numeric value; see `slider.rs`.
 pub mod slider;
+/// Segmented control widget — joined row of mutually-exclusive buttons; see `segmented.rs`.
+pub mod segmented;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 // /// Multi-line text input
