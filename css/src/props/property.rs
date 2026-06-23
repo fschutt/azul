@@ -3513,13 +3513,7 @@ pub fn parse_combined_css_property(
                 CssPropertyType::BoxShadowBottom,
             ]
         }
-        BackgroundColor => {
-            vec![CssPropertyType::BackgroundContent]
-        }
-        BackgroundImage => {
-            vec![CssPropertyType::BackgroundContent]
-        }
-        Background => {
+        BackgroundColor | BackgroundImage | Background => {
             vec![CssPropertyType::BackgroundContent]
         }
         Flex => {
@@ -3535,10 +3529,7 @@ pub fn parse_combined_css_property(
                 CssPropertyType::GridTemplateRows,
             ]
         }
-        Gap => {
-            vec![CssPropertyType::RowGap, CssPropertyType::ColumnGap]
-        }
-        GridGap => {
+        Gap | GridGap => {
             vec![CssPropertyType::RowGap, CssPropertyType::ColumnGap]
         }
         Font => {
@@ -4358,6 +4349,10 @@ impl CssProperty {
         self.get_type().to_str()
     }
 
+    // Every arm delegates to `v.get_css_value_fmt()`, but each `v` is a different
+    // `CssPropertyValue<T>` — the identical bodies cannot merge into one or-pattern
+    // (mismatched binding types), so clippy::match_same_arms is a false positive here.
+    #[allow(clippy::match_same_arms)]
     #[must_use] pub fn value(&self) -> String {
         match self {
             Self::CaretColor(v) => v.get_css_value_fmt(),
