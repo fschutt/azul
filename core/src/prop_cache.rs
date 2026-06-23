@@ -902,6 +902,11 @@ impl CssPropertyCache {
     /// Look up a CSS property for a specific pseudo-state in a stateful property vec.
     /// Requires the vec to be sorted by (state, `prop_type`).
     #[inline]
+    // prop_cache threads &NodeId/&CssPropertyType uniformly through its hot cascade
+    // lookup API (40+ such params); flipping only clippy's few flags to by-value
+    // would force ref/deref juggling at every boundary with the by-ref majority,
+    // for no measurable hot-path gain — keep the uniform by-ref convention.
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     fn find_in_stateful<'a>(
         props: &'a [StatefulCssProperty],
         state: azul_css::dynamic_selector::PseudoStateType,
@@ -1992,6 +1997,7 @@ impl CssPropertyCache {
     }
 
     #[cfg(feature = "std")]
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
     fn css_prop_type_label(t: &CssPropertyType) -> &'static str {
         // Intern Debug-format labels under a mutex-guarded map so
         // we leak at most one `&'static str` per distinct
@@ -2014,6 +2020,7 @@ impl CssPropertyCache {
     /// Full cascade resolution for any CSS property type.
     /// Walks all cascade layers: user overrides → inline → stylesheet → cascaded → computed → UA.
     /// Also used by restyle functions that need state-aware lookups.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
     pub(crate) fn get_property_slow<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2272,6 +2279,7 @@ impl CssPropertyCache {
     ///
     /// The evaluation follows "last wins" semantics - properties are evaluated
     /// in reverse order and the first matching property wins.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
     pub(crate) fn get_property_with_context<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2454,6 +2462,7 @@ impl CssPropertyCache {
     impl_get_prop!(get_gap, LayoutGapValue, Gap, as_gap);
 
     /// Method for getting grid-gap property
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
     pub(crate) fn get_grid_gap<'a>(
         &'a self,
         node_data: &'a NodeData,
