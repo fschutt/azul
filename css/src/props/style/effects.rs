@@ -968,6 +968,16 @@ impl StyleAspectRatioParseErrorOwned {
     }
 }
 
+/// Truncating `f32` → `u32` for aspect-ratio values (callers validate the input
+/// is positive and bounded, so the value always fits). Rust's `as u32` saturates
+/// out-of-range floats; this isolates the one unavoidable float→int cast.
+#[cfg(feature = "parser")]
+#[inline]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn aspect_f32_to_u32(v: f32) -> u32 {
+    v as u32
+}
+
 /// Parse aspect-ratio: "auto", "16 / 9", "1.5", "4/3"
 #[cfg(feature = "parser")]
 pub fn parse_style_aspect_ratio(
@@ -987,8 +997,8 @@ pub fn parse_style_aspect_ratio(
             return Err(StyleAspectRatioParseError::InvalidValue(input));
         }
         return Ok(StyleAspectRatio::Ratio(AspectRatioValue {
-            width: (w * 1000.0).round() as u32,
-            height: (h * 1000.0).round() as u32,
+            width: aspect_f32_to_u32((w * 1000.0).round()),
+            height: aspect_f32_to_u32((h * 1000.0).round()),
         }));
     }
     // Try single number (width/1)
@@ -997,7 +1007,7 @@ pub fn parse_style_aspect_ratio(
         return Err(StyleAspectRatioParseError::InvalidValue(input));
     }
     Ok(StyleAspectRatio::Ratio(AspectRatioValue {
-        width: (w * 1000.0).round() as u32,
+        width: aspect_f32_to_u32((w * 1000.0).round()),
         height: 1000,
     }))
 }
