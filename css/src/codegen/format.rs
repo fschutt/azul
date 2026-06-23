@@ -269,8 +269,8 @@ impl VecContents {
     // negative value (e.g. -1.5 → -2) caused the wrong reconstruction.
     let abs_val = libm::fabsf(value);
     let sign: isize = if value < 0.0 { -1 } else { 1 };
-    let pre_comma = libm::floorf(abs_val) as isize * sign;
-    let post_comma = libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0) as isize;
+    let pre_comma = f32_to_isize(libm::floorf(abs_val)) * sign;
+    let post_comma = f32_to_isize(libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0));
 
     match p.metric {
         SizeMetric::Pt => format!(
@@ -283,6 +283,16 @@ impl VecContents {
             "PixelValue::const_from_metric_fractional(SizeMetric::{other:?}, {pre_comma}, {post_comma})"
         ),
     }
+}
+
+/// Truncating `f32` → `isize` for the integer / fractional parts of const CSS
+/// dimension values (always small and non-negative after `fabsf`). Rust's
+/// `as isize` saturates out-of-range floats; this isolates the one unavoidable
+/// float→int cast behind a documented attribute. Behaviour-preserving.
+#[inline]
+#[allow(clippy::cast_possible_truncation)]
+fn f32_to_isize(v: f32) -> isize {
+    v as isize
 }
 
 /// Formats a `PixelValueNoPercent` as a const-compatible Rust constructor call.
@@ -298,8 +308,8 @@ impl VecContents {
     let value = f.get();
     let abs_val = libm::fabsf(value);
     let sign: isize = if value < 0.0 { -1 } else { 1 };
-    let pre_comma = libm::floorf(abs_val) as isize * sign;
-    let post_comma = libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0) as isize;
+    let pre_comma = f32_to_isize(libm::floorf(abs_val)) * sign;
+    let post_comma = f32_to_isize(libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0));
     format!(
         "FloatValue::const_new_fractional({pre_comma}, {post_comma})"
     )
@@ -310,8 +320,8 @@ impl VecContents {
     let value = f.normalized() * 100.0;
     let abs_val = libm::fabsf(value);
     let sign: isize = if value < 0.0 { -1 } else { 1 };
-    let pre_comma = libm::floorf(abs_val) as isize * sign;
-    let post_comma = libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0) as isize;
+    let pre_comma = f32_to_isize(libm::floorf(abs_val)) * sign;
+    let post_comma = f32_to_isize(libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0));
     format!(
         "PercentageValue::const_new_fractional({pre_comma}, {post_comma})"
     )
@@ -322,8 +332,8 @@ impl VecContents {
     let value = f.number.get();
     let abs_val = libm::fabsf(value);
     let sign: isize = if value < 0.0 { -1 } else { 1 };
-    let pre_comma = libm::floorf(abs_val) as isize * sign;
-    let post_comma = libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0) as isize;
+    let pre_comma = f32_to_isize(libm::floorf(abs_val)) * sign;
+    let post_comma = f32_to_isize(libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0));
     format!(
         "AngleValue::const_from_metric_fractional(AngleMetric::{:?}, {}, {})",
         f.metric, pre_comma, post_comma
