@@ -1153,6 +1153,10 @@ fn check_mouse_button(data: &EventData, expected: MouseButton) -> bool {
 }
 
 /// Check if a hover filter matches the event.
+// Exhaustive (filter, event-type) truth table: many distinct pairs share the
+// `=> true` body. One arm per pair is intentional; merging into giant or-patterns
+// would destroy the table's readability/maintainability.
+#[allow(clippy::match_same_arms)]
 fn matches_hover_filter(
     filter: HoverEventFilter,
     event: &SyntheticEvent,
@@ -1209,6 +1213,8 @@ fn matches_hover_filter(
 }
 
 /// Check if a focus filter matches the event.
+// Exhaustive (filter, event-type) truth table — see matches_hover_filter.
+#[allow(clippy::match_same_arms)]
 fn matches_focus_filter(
     filter: FocusEventFilter,
     event: &SyntheticEvent,
@@ -1252,6 +1258,8 @@ fn matches_focus_filter(
 }
 
 /// Check if a window filter matches the event.
+// Exhaustive (filter, event-type) truth table — see matches_hover_filter.
+#[allow(clippy::match_same_arms)]
 fn matches_window_filter(
     filter: WindowEventFilter,
     event: &SyntheticEvent,

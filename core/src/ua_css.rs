@@ -534,6 +534,11 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
 /// # Returns
 ///
 /// `Some(CssProperty)` if a default value is defined for this combination, otherwise `None`.
+// Exhaustive (node-type, property-type) → default-value lookup table: many
+// element types share a default (e.g. all block elements → DISPLAY_BLOCK). One
+// arm per (NT, PT) case is intentional for readability; merging into giant
+// or-patterns would collapse the UA stylesheet table.
+#[allow(clippy::match_same_arms)]
 #[must_use] pub fn get_ua_property(
     node_type: &NodeType,
     property_type: CssPropertyType,
