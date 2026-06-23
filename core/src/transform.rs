@@ -783,18 +783,18 @@ impl ComputedTransform3D {
         };
 
         let a: __m128 = mem::transmute(a);
-        let mut result = _mm_mul_ps(_mm_shuffle_ps(a, a, 0x00), mem::transmute(b.m[0]));
+        let mut result = _mm_mul_ps(_mm_shuffle_ps(a, a, 0x00), mem::transmute::<[f32; 4], core::arch::x86_64::__m128>(b.m[0]));
         result = _mm_add_ps(
             result,
-            _mm_mul_ps(_mm_shuffle_ps(a, a, 0x55), mem::transmute(b.m[1])),
+            _mm_mul_ps(_mm_shuffle_ps(a, a, 0x55), mem::transmute::<[f32; 4], core::arch::x86_64::__m128>(b.m[1])),
         );
         result = _mm_add_ps(
             result,
-            _mm_mul_ps(_mm_shuffle_ps(a, a, 0xaa), mem::transmute(b.m[2])),
+            _mm_mul_ps(_mm_shuffle_ps(a, a, 0xaa), mem::transmute::<[f32; 4], core::arch::x86_64::__m128>(b.m[2])),
         );
         result = _mm_add_ps(
             result,
-            _mm_mul_ps(_mm_shuffle_ps(a, a, 0xff), mem::transmute(b.m[3])),
+            _mm_mul_ps(_mm_shuffle_ps(a, a, 0xff), mem::transmute::<[f32; 4], core::arch::x86_64::__m128>(b.m[3])),
         );
 
         mem::transmute(result)
@@ -827,27 +827,27 @@ impl ComputedTransform3D {
 
         let mut result = _mm256_mul_ps(
             _mm256_shuffle_ps(a01, a01, 0x00),
-            _mm256_broadcast_ps(mem::transmute(&b.m[0])),
+            _mm256_broadcast_ps(mem::transmute::<&[f32; 4], &core::arch::x86_64::__m128>(&b.m[0])),
         );
         result = _mm256_add_ps(
             result,
             _mm256_mul_ps(
                 _mm256_shuffle_ps(a01, a01, 0x55),
-                _mm256_broadcast_ps(mem::transmute(&b.m[1])),
+                _mm256_broadcast_ps(mem::transmute::<&[f32; 4], &core::arch::x86_64::__m128>(&b.m[1])),
             ),
         );
         result = _mm256_add_ps(
             result,
             _mm256_mul_ps(
                 _mm256_shuffle_ps(a01, a01, 0xaa),
-                _mm256_broadcast_ps(mem::transmute(&b.m[2])),
+                _mm256_broadcast_ps(mem::transmute::<&[f32; 4], &core::arch::x86_64::__m128>(&b.m[2])),
             ),
         );
         result = _mm256_add_ps(
             result,
             _mm256_mul_ps(
                 _mm256_shuffle_ps(a01, a01, 0xff),
-                _mm256_broadcast_ps(mem::transmute(&b.m[3])),
+                _mm256_broadcast_ps(mem::transmute::<&[f32; 4], &core::arch::x86_64::__m128>(&b.m[3])),
             ),
         );
         result
