@@ -1335,6 +1335,49 @@ fn new_from_str_inner<'a>(
 ) -> Result<(Vec<CssRuleBlock>, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
     use azul_simplecss::{Combinator, Token};
 
+    // Stack entry for nested selectors: accumulated parent paths + the current
+    // declarations at this nesting level.
+    struct NestingLevel<'a> {
+        paths: Vec<Vec<CssPathSelector>>,
+        declarations: BTreeMap<&'a str, (&'a str, ErrorLocationRange)>,
+        nesting_level: usize,
+    }
+
+    // Helper: get parent paths from nesting stack (if any)
+    fn get_parent_paths(nesting_stack: &[NestingLevel<'_>]) -> Vec<Vec<CssPathSelector>> {
+        if let Some(parent) = nesting_stack.last() {
+            parent.paths.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
+    // Helper: combine parent path with child selector for nesting
+    // For .button { :hover { } } -> .button:hover
+    // For .outer { .inner { } } -> .outer .inner (with Children combinator)
+    fn combine_paths(
+        parent_paths: &[Vec<CssPathSelector>],
+        child_path: &[CssPathSelector],
+        is_pseudo_only: bool,
+    ) -> Vec<Vec<CssPathSelector>> {
+        if parent_paths.is_empty() {
+            vec![child_path.to_vec()]
+        } else {
+            parent_paths
+                .iter()
+                .map(|parent| {
+                    let mut combined = parent.clone();
+                    if !is_pseudo_only && !child_path.is_empty() {
+                        // Add implicit descendant combinator for non-pseudo selectors
+                        combined.push(CssPathSelector::Children);
+                    }
+                    combined.extend(child_path.iter().cloned());
+                    combined
+                })
+                .collect()
+        }
+    }
+
     let mut css_blocks = Vec::new();
     let mut warnings = Vec::new();
 
@@ -1354,11 +1397,6 @@ fn new_from_str_inner<'a>(
     // Each entry: (parent_paths, declarations, nesting_level)
     // parent_paths: all accumulated paths at this level (for comma-separated selectors)
     // declarations: current declarations at this level
-    struct NestingLevel<'a> {
-        paths: Vec<Vec<CssPathSelector>>,
-        declarations: BTreeMap<&'a str, (&'a str, ErrorLocationRange)>,
-        nesting_level: usize,
-    }
     let mut nesting_stack: Vec<NestingLevel<'a>> = Vec::new();
     // Current accumulated paths before BlockStart
     let mut current_paths: Vec<Vec<CssPathSelector>> = Vec::new();
@@ -1424,41 +1462,6 @@ fn new_from_str_inner<'a>(
                 });
                 continue;
             }};
-        }
-
-        // Helper: get parent paths from nesting stack (if any)
-        fn get_parent_paths(nesting_stack: &[NestingLevel<'_>]) -> Vec<Vec<CssPathSelector>> {
-            if let Some(parent) = nesting_stack.last() {
-                parent.paths.clone()
-            } else {
-                Vec::new()
-            }
-        }
-
-        // Helper: combine parent path with child selector for nesting
-        // For .button { :hover { } } -> .button:hover
-        // For .outer { .inner { } } -> .outer .inner (with Children combinator)
-        fn combine_paths(
-            parent_paths: &[Vec<CssPathSelector>],
-            child_path: &[CssPathSelector],
-            is_pseudo_only: bool,
-        ) -> Vec<Vec<CssPathSelector>> {
-            if parent_paths.is_empty() {
-                vec![child_path.to_vec()]
-            } else {
-                parent_paths
-                    .iter()
-                    .map(|parent| {
-                        let mut combined = parent.clone();
-                        if !is_pseudo_only && !child_path.is_empty() {
-                            // Add implicit descendant combinator for non-pseudo selectors
-                            combined.push(CssPathSelector::Children);
-                        }
-                        combined.extend(child_path.iter().cloned());
-                        combined
-                    })
-                    .collect()
-            }
         }
 
         match token {
