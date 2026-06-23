@@ -323,7 +323,7 @@ impl OsCondition {
 }
 
 #[repr(C, u8)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum OsVersionCondition {
     /// Minimum version: >= specified version
     /// Format: `OsVersion` { os, `version_id` }

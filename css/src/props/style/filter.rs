@@ -142,7 +142,7 @@ pub struct ArithmeticCoefficients {
     pub k4: FloatValue,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum StyleCompositeFilter {
     Over,

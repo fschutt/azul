@@ -20,7 +20,7 @@ fn f64_to_f32(v: f64) -> f32 {
 }
 
 /// Holds context needed to resolve animation interpolation relative to parent and current rects.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct InterpolateResolver {
     pub interpolate_func: AnimationInterpolationFunction,

@@ -313,7 +313,7 @@ impl fmt::Display for Shape {
 }
 
 /// The sizing keyword for a radial gradient (e.g. `closest-side`, `farthest-corner`).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
 pub enum RadialGradientSize {

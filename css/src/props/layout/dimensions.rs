@@ -40,7 +40,7 @@ use crate::{
 ///
 /// **Resolution**: Walk left to right. When `BraceClose` is hit, resolve everything
 /// back to the matching `BraceOpen`, replace that span with a single `Value`, and continue.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum CalcAstItem {
     /// A literal value (e.g. `10px`, `33.333%`, `2em`)
