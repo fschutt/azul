@@ -162,9 +162,8 @@ fn render_linear_gradient(
 ) -> Result<(), String> {
     use azul_css::props::basic::geometry::{LayoutRect, LayoutSize};
 
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return Ok(());
     };
 
     let stops = gradient.stops.as_ref();
@@ -228,9 +227,8 @@ fn render_radial_gradient(
 ) -> Result<(), String> {
     use azul_css::props::style::background::{RadialGradientSize, Shape};
 
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return Ok(());
     };
 
     let stops = gradient.stops.as_ref();
@@ -319,9 +317,8 @@ fn render_conic_gradient(
     dpi_factor: f32,
     system_colors: Option<&azul_css::system::SystemColors>,
 ) -> Result<(), String> {
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return Ok(());
     };
 
     let stops = gradient.stops.as_ref();
@@ -387,9 +384,8 @@ fn render_box_shadow(
 ) -> Result<(), String> {
     use azul_css::props::style::box_shadow::BoxShadowClipMode;
 
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return Ok(());
     };
 
     let offset_x =
@@ -448,9 +444,8 @@ fn render_box_shadow(
     // The shape origin within the temp buffer
     let shape_x = padding + spread;
     let shape_y = padding + spread;
-    let shape_rect = match AzRect::from_xywh(shape_x, shape_y, rect.width, rect.height) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(shape_rect) = AzRect::from_xywh(shape_x, shape_y, rect.width, rect.height) else {
+        return Ok(());
     };
 
     let agg_color = Rgba8::new(
@@ -1890,9 +1885,8 @@ fn render_rect(
         return Ok(());
     }
 
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return Ok(());
     };
 
     // Early-out if fully outside clip
@@ -1964,9 +1958,8 @@ fn render_text(
 
     // Skip text entirely if its clip_rect is outside the active clip region
     if let Some(ref c) = clip {
-        let text_rect = match logical_rect_to_az_rect(clip_rect, dpi_factor) {
-            Some(r) => r,
-            None => return Ok(()),
+        let Some(text_rect) = logical_rect_to_az_rect(clip_rect, dpi_factor) else {
+            return Ok(());
         };
         if text_rect.clip(c).is_none() {
             return Ok(()); // fully clipped
@@ -1990,7 +1983,7 @@ fn render_text(
             return Ok(());
         }
     } else {
-        let font_key = if let Some(k) = renderer_resources.font_hash_map.get(&font_hash.font_hash) { k } else {
+        let Some(font_key) = renderer_resources.font_hash_map.get(&font_hash.font_hash) else {
             eprintln!(
                 "[cpurender] Font hash {} not found in font_hash_map (available: {:?})",
                 font_hash.font_hash,
@@ -1999,7 +1992,7 @@ fn render_text(
             return Ok(());
         };
 
-        let font_ref = if let Some((font_ref, _instances)) = renderer_resources.currently_registered_fonts.get(font_key) { font_ref } else {
+        let Some((font_ref, _instances)) = renderer_resources.currently_registered_fonts.get(font_key) else {
             eprintln!(
                 "[cpurender] FontKey {font_key:?} not found in currently_registered_fonts"
             );
@@ -2046,9 +2039,8 @@ fn render_text(
         // Lazy decode: first access to a given gid for this face does
         // the allsorts glyf walk + OwnedGlyph conversion; subsequent
         // accesses are an Arc bump + BTreeMap lookup.
-        let glyph_data = match parsed_font.get_or_decode_glyph(glyph_index) {
-            Some(d) => d,
-            None => continue,
+        let Some(glyph_data) = parsed_font.get_or_decode_glyph(glyph_index) else {
+            continue;
         };
 
         let is_hinted = glyph_cache
@@ -2064,7 +2056,7 @@ fn render_text(
         let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
 
-        let (cells, int_x, int_y) = match glyph_cache.get_or_build_cells(
+        let Some((cells, int_x, int_y)) = glyph_cache.get_or_build_cells(
             font_hash.font_hash,
             glyph_index,
             ppem,
@@ -2072,9 +2064,8 @@ fn render_text(
             glyph_baseline_y,
             scale,
             is_hinted,
-        ) {
-            Some(c) => c,
-            None => continue,
+        ) else {
+            continue;
         };
 
         ras.add_cells_offset(cells, int_x, int_y);
@@ -2109,9 +2100,8 @@ fn render_border(
         _ => {}
     }
 
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return Ok(());
     };
 
     // Skip if fully outside clip
@@ -2235,9 +2225,8 @@ fn render_border_sides(
     clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return Ok(());
     };
 
     // Outer corners
@@ -2420,9 +2409,8 @@ fn render_image(
     clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return Ok(());
     };
 
     // Skip if fully outside clip

@@ -1405,13 +1405,11 @@ impl LayoutWindow {
         for (dom_id, lr) in &self.layout_results {
             let node_data_container = lr.styled_dom.node_data.as_container();
             for (idx, node) in lr.layout_tree.nodes.iter().enumerate() {
-                let node_dom_id = match node.dom_node_id {
-                    Some(n) => n,
-                    None => continue,
+                let Some(node_dom_id) = node.dom_node_id else {
+                    continue;
                 };
-                let node_data = match node_data_container.get(node_dom_id) {
-                    Some(nd) => nd,
-                    None => continue,
+                let Some(node_data) = node_data_container.get(node_dom_id) else {
+                    continue;
                 };
                 if let NodeType::Image(image_ref) = node_data.get_node_type() {
                     if !matches!(image_ref.get_data(), DecodedImage::Callback(_)) {
@@ -1690,19 +1688,16 @@ impl LayoutWindow {
 
         // Check with the VirtualViewManager to see if re-invocation is necessary.
         // It handles all 5 conditional rules.
-        let reason = match self.virtual_view_manager.check_reinvoke(
+        let Some(reason) = self.virtual_view_manager.check_reinvoke(
             parent_dom_id,
             node_id,
             &self.scroll_manager,
             bounds,
-        ) {
-            Some(r) => r,
-            None => {
-                // No re-invocation needed, but we still need the child_dom_id for the display list.
-                return self
-                    .virtual_view_manager
-                    .get_nested_dom_id(parent_dom_id, node_id);
-            }
+        ) else {
+            // No re-invocation needed, but we still need the child_dom_id for the display list.
+            return self
+                .virtual_view_manager
+                .get_nested_dom_id(parent_dom_id, node_id);
         };
 
         if let Some(msgs) = debug_messages {
@@ -1821,40 +1816,34 @@ impl LayoutWindow {
 
     /// Get the size of a laid-out node
     pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
-        let layout_result = match self.layout_results.get(&node_id.dom) {
-            Some(r) => r,
-            None => { return None; }
+        let Some(layout_result) = self.layout_results.get(&node_id.dom) else {
+            return None;
         };
         let nid = node_id.node.into_crate_internal()?;
         // Use dom_to_layout mapping since layout tree indices differ from DOM indices
-        let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&nid) {
-            Some(x) => x,
-            None => { return None; }
+        let Some(layout_indices) = layout_result.layout_tree.dom_to_layout.get(&nid) else {
+            return None;
         };
         let layout_index = *layout_indices.first()?;
-        let layout_node = match layout_result.layout_tree.get(layout_index) {
-            Some(n) => n,
-            None => { return None; }
+        let Some(layout_node) = layout_result.layout_tree.get(layout_index) else {
+            return None;
         };
         layout_node.used_size
     }
 
     /// Get the position of a laid-out node
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
-        let layout_result = match self.layout_results.get(&node_id.dom) {
-            Some(r) => r,
-            None => { return None; }
+        let Some(layout_result) = self.layout_results.get(&node_id.dom) else {
+            return None;
         };
         let nid = node_id.node.into_crate_internal()?;
         // Use dom_to_layout mapping since layout tree indices differ from DOM indices
-        let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&nid) {
-            Some(x) => x,
-            None => { return None; }
+        let Some(layout_indices) = layout_result.layout_tree.dom_to_layout.get(&nid) else {
+            return None;
         };
         let layout_index = *layout_indices.first()?;
-        let position = match layout_result.calculated_positions.get(layout_index) {
-            Some(p) => p,
-            None => { return None; }
+        let Some(position) = layout_result.calculated_positions.get(layout_index) else {
+            return None;
         };
         Some(*position)
     }
@@ -2437,9 +2426,8 @@ impl LayoutWindow {
     /// `true` if cursor was initialized, `false` if no pending focus or initialization failed.
     pub fn finalize_pending_focus_changes(&mut self) -> bool {
         // Take the pending focus info (this clears the flag)
-        let pending = match self.focus_manager.take_pending_contenteditable_focus() {
-            Some(p) => p,
-            None => return false,
+        let Some(pending) = self.focus_manager.take_pending_contenteditable_focus() else {
+            return false;
         };
 
         // Bug B+H fix: If process_mouse_click_for_selection already positioned
@@ -2533,9 +2521,8 @@ impl LayoutWindow {
         use azul_core::events::{SelectionMode, SelectionStep, SelectionDirection};
 
         let dom_id = target.dom;
-        let node_id = match target.node.into_crate_internal() {
-            Some(id) => id,
-            None => return false,
+        let Some(node_id) = target.node.into_crate_internal() else {
+            return false;
         };
 
         let layout = match self.get_inline_layout_for_node(dom_id, node_id) {
@@ -2758,14 +2745,12 @@ impl LayoutWindow {
         for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
             // Check if node needs scrollbars
             let warm = layout_tree.warm(node_idx);
-            let scrollbar_info = match warm.and_then(|w| w.scrollbar_info.as_ref()) {
-                Some(info) => info,
-                None => continue,
+            let Some(scrollbar_info) = warm.and_then(|w| w.scrollbar_info.as_ref()) else {
+                continue;
             };
 
-            let node_id = match node.dom_node_id {
-                Some(nid) => nid,
-                None => continue, // Skip anonymous boxes
+            let Some(node_id) = node.dom_node_id else {
+                continue; // Skip anonymous boxes
             };
 
             // Calculate current opacity from ScrollManager
@@ -2990,17 +2975,17 @@ impl LayoutWindow {
         // Find the layout node index corresponding to this DOM node
         // Convert NodeHierarchyItemId to Option<NodeId> for comparison
         let target_node_id = node_id.node.into_crate_internal();
-        let layout_idx = if let Some(i) = layout_tree.nodes.iter().position(|node| node.dom_node_id == target_node_id) { i } else { { let _ = (0xE5_0000FFu32); } return None; };
+        let Some(layout_idx) = layout_tree.nodes.iter().position(|node| node.dom_node_id == target_node_id) else { { let _ = (0xE5_0000FFu32); } return None; };
         { let _ = (0xE5_000003u32 | ((self.layout_cache.calculated_positions.len() as u32 & 0xfff) << 8)); }
 
         // Get the calculated layout position from cache (already in logical units)
-        let calc_pos = if let Some(p) = self.layout_cache.calculated_positions.get(layout_idx) { p } else { { let _ = (0xE5_0000FEu32); } return None; };
+        let Some(calc_pos) = self.layout_cache.calculated_positions.get(layout_idx) else { { let _ = (0xE5_0000FEu32); } return None; };
 
         // Get the layout node for size information
         let layout_node = layout_tree.nodes.get(layout_idx)?;
 
         // Get the used size (the actual laid-out size)
-        let used_size = if let Some(s) = layout_node.used_size { s } else { { let _ = (0xE5_0000FDu32); } return None; };
+        let Some(used_size) = layout_node.used_size else { { let _ = (0xE5_0000FDu32); } return None; };
         { let _ = (0xE5_000004u32); }
 
         // Convert size to logical coordinates
@@ -3101,15 +3086,13 @@ impl LayoutWindow {
         }
 
         // Only worth doing incremental if we have an active editing node
-        let mc = match self.text_edit_manager.multi_cursor.as_ref() {
-            Some(mc) => mc,
-            None => return, // No cursor — nothing to update incrementally
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+            return; // No cursor — nothing to update incrementally
         };
 
         let dom_node_id = mc.node_id;
-        let node_id = match dom_node_id.node.into_crate_internal() {
-            Some(id) => id,
-            None => return,
+        let Some(node_id) = dom_node_id.node.into_crate_internal() else {
+            return;
         };
         let dom_id = dom_node_id.dom;
 
@@ -3118,9 +3101,8 @@ impl LayoutWindow {
             self.extract_text_from_inline_content(&dirty.content)
         } else {
             // Fall back to StyledDom text
-            let lr = match self.layout_results.get(&dom_id) {
-                Some(lr) => lr,
-                None => return self.update_a11y_tree(),
+            let Some(lr) = self.layout_results.get(&dom_id) else {
+                return self.update_a11y_tree();
             };
             let node_data = lr.styled_dom.node_data.as_ref();
             let hierarchy = lr.styled_dom.node_hierarchy.as_ref();
@@ -3321,14 +3303,12 @@ impl LayoutWindow {
     pub fn select_next_occurrence(&mut self) -> bool {
         use crate::text3::selection::select_word_at_cursor;
 
-        let mc = match self.text_edit_manager.multi_cursor.as_mut() {
-            Some(mc) => mc,
-            None => return false,
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
+            return false;
         };
         let node_id = mc.node_id;
-        let dom_node_id = match node_id.node.into_crate_internal() {
-            Some(id) => id,
-            None => return false,
+        let Some(dom_node_id) = node_id.node.into_crate_internal() else {
+            return false;
         };
 
         // Get primary selection text (or word at cursor)
@@ -3346,9 +3326,8 @@ impl LayoutWindow {
         };
 
         // Get the inline layout
-        let inline_layout = match self.get_node_inline_layout(node_id.dom, dom_node_id) {
-            Some(l) => l,
-            None => return false,
+        let Some(inline_layout) = self.get_node_inline_layout(node_id.dom, dom_node_id) else {
+            return false;
         };
 
         // If no range yet, expand to word
@@ -3663,40 +3642,34 @@ impl LayoutWindow {
         };
 
         // Get the focused node (or bail if no focus)
-        let focused_node = match self.focus_manager.focused_node {
-            Some(node) => node,
-            None => return false,
+        let Some(focused_node) = self.focus_manager.focused_node else {
+            return false;
         };
 
         // Find scrollable ancestor
-        let scroll_container = match self.find_scrollable_ancestor(focused_node) {
-            Some(node) => node,
-            None => return false, // No scrollable ancestor
+        let Some(scroll_container) = self.find_scrollable_ancestor(focused_node) else {
+            return false; // No scrollable ancestor
         };
 
         // Get container bounds and current scroll state
-        let layout_tree = match self.layout_cache.tree.as_ref() {
-            Some(tree) => tree,
-            None => return false,
+        let Some(layout_tree) = self.layout_cache.tree.as_ref() else {
+            return false;
         };
 
-        let scrollable_node_internal = match scroll_container.node.into_crate_internal() {
-            Some(id) => id,
-            None => return false,
+        let Some(scrollable_node_internal) = scroll_container.node.into_crate_internal() else {
+            return false;
         };
 
-        let layout_idx = match layout_tree
+        let Some(layout_idx) = layout_tree
             .nodes
             .iter()
             .position(|n| n.dom_node_id == Some(scrollable_node_internal))
-        {
-            Some(idx) => idx,
-            None => return false,
+        else {
+            return false;
         };
 
-        let scrollable_layout_node = match layout_tree.nodes.get(layout_idx) {
-            Some(node) => node,
-            None => return false,
+        let Some(scrollable_layout_node) = layout_tree.nodes.get(layout_idx) else {
+            return false;
         };
 
         let container_pos = self
@@ -3714,12 +3687,11 @@ impl LayoutWindow {
         };
 
         // Get current scroll state
-        let scroll_state = match self
+        let Some(scroll_state) = self
             .scroll_manager
             .get_scroll_state(scroll_container.dom, scrollable_node_internal)
-        {
-            Some(state) => state,
-            None => return false,
+        else {
+            return false;
         };
 
         // Calculate visible area (container rect adjusted by scroll offset)
@@ -4057,9 +4029,8 @@ impl LayoutWindow {
         let thread_ids: Vec<ThreadId> = self.threads.keys().copied().collect();
 
         for thread_id in thread_ids {
-            let thread = match self.threads.get_mut(&thread_id) {
-                Some(t) => t,
-                None => continue,
+            let Some(thread) = self.threads.get_mut(&thread_id) else {
+                continue;
             };
 
             let hit_dom_node = DomNodeId {
@@ -5047,16 +5018,13 @@ impl LayoutWindow {
                 };
 
                 // Get the node from the styled DOM
-                let styled_node = match layout_result
+                let Some(styled_node) = layout_result
                     .styled_dom
                     .node_data
                     .as_ref()
                     .get(node_id.index())
-                {
-                    Some(node) => node,
-                    None => {
-                        return affected_nodes;
-                    }
+                else {
+                    return affected_nodes;
                 };
 
                 // Check if node has context menu
@@ -5197,18 +5165,12 @@ impl LayoutWindow {
         }
 
         // Get focused node
-        let focused_node = match self.focus_manager.get_focused_node().copied() {
-            Some(node) => node,
-            None => {
-                return affected_nodes;
-            }
+        let Some(focused_node) = self.focus_manager.get_focused_node().copied() else {
+            return affected_nodes;
         };
 
-        let node_id = match focused_node.node.into_crate_internal() {
-            Some(id) => id,
-            None => {
-                return affected_nodes;
-            }
+        let Some(node_id) = focused_node.node.into_crate_internal() else {
+            return affected_nodes;
         };
 
         // Get the OLD text before any changes
@@ -5253,7 +5215,7 @@ impl LayoutWindow {
             }
         };
 
-        let node_id = if let Some(id) = changeset.node.node.into_crate_internal() { id } else {
+        let Some(node_id) = changeset.node.node.into_crate_internal() else {
             self.text_input_manager.clear_changeset();
             return empty;
         };
@@ -5261,16 +5223,16 @@ impl LayoutWindow {
         let dom_id = changeset.node.dom;
 
         // Check if node is contenteditable
-        let layout_result = if let Some(lr) = self.layout_results.get(&dom_id) { lr } else {
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
             self.text_input_manager.clear_changeset();
             return empty;
         };
 
-        let styled_node = if let Some(node) = layout_result
+        let Some(styled_node) = layout_result
             .styled_dom
             .node_data
             .as_ref()
-            .get(node_id.index()) { node } else {
+            .get(node_id.index()) else {
             self.text_input_manager.clear_changeset();
             return empty;
         };
@@ -5412,9 +5374,8 @@ impl LayoutWindow {
         dom_id: DomId,
         node_id: NodeId,
     ) -> Vec<DomNodeId> {
-        let layout_result = match self.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return Vec::new(),
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
         };
 
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
@@ -5482,20 +5443,18 @@ impl LayoutWindow {
 
         // Fallback to committed state from StyledDom
         // Get the layout result for this DOM
-        let layout_result = match self.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return Vec::new(),
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
         };
 
         // Get the node data
-        let node_data = match layout_result
+        let Some(node_data) = layout_result
             .styled_dom
             .node_data
             .as_ref()
             .get(node_id.index())
-        {
-            Some(nd) => nd,
-            None => return Vec::new(),
+        else {
+            return Vec::new();
         };
 
         // Extract text content from the node
@@ -5530,9 +5489,8 @@ impl LayoutWindow {
     ) -> Arc<StyleProperties> {
         use alloc::sync::Arc;
 
-        let layout_result = match self.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return Arc::new(Default::default()),
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return Arc::new(Default::default());
         };
 
         // Use the proper CSS property resolution from solver3::getters
@@ -5553,15 +5511,13 @@ impl LayoutWindow {
         dom_id: DomId,
         parent_node_id: NodeId,
     ) -> Vec<InlineContent> {
-        let layout_result = match self.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return Vec::new(),
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
         };
 
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
-        let parent_item = match node_hierarchy.get(parent_node_id.index()) {
-            Some(item) => item,
-            None => return Vec::new(),
+        let Some(parent_item) = node_hierarchy.get(parent_node_id.index()) else {
+            return Vec::new();
         };
 
         let mut result = Vec::new();
@@ -5574,9 +5530,8 @@ impl LayoutWindow {
             result.extend(child_content);
 
             // Move to next sibling
-            let child_item = match node_hierarchy.get(child_id.index()) {
-                Some(item) => item,
-                None => break,
+            let Some(child_item) = node_hierarchy.get(child_id.index()) else {
+                break;
             };
             current_child = child_item.next_sibling_id();
         }
@@ -5654,11 +5609,8 @@ impl LayoutWindow {
         // The IFC may be on this node OR a child — search all mapped layout nodes
         // and their children for one with inline_layout_result.
         let (mut constraints, ifc_layout_index) = {
-            let layout_result = match self.layout_results.get(&dom_id) {
-                Some(r) => r,
-                None => {
-                    return;
-                }
+            let Some(layout_result) = self.layout_results.get(&dom_id) else {
+                return;
             };
 
             // Find the layout node with inline_layout_result via dom_to_layout
@@ -5698,13 +5650,8 @@ impl LayoutWindow {
                 }
             }
 
-            let (ifc_idx, cached_layout) = match found {
-                Some(f) => {
-                    f
-                },
-                None => {
-                    return;
-                }
+            let Some((ifc_idx, cached_layout)) = found else {
+                return;
             };
 
             match &cached_layout.constraints {
@@ -5857,9 +5804,8 @@ impl LayoutWindow {
             }
         };
 
-        let cursor = match self.text_edit_manager.get_primary_cursor() {
-            Some(c) => c,
-            None => return,
+        let Some(cursor) = self.text_edit_manager.get_primary_cursor() else {
+            return;
         };
 
         // Save the original content on the FIRST preedit call so we always
@@ -5912,9 +5858,8 @@ impl LayoutWindow {
         };
 
         // Get all the data we need from the layout result
-        let layout_result = match self.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => { return; }
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return;
         };
 
         let tree = &layout_result.layout_tree;
@@ -6386,13 +6331,11 @@ impl LayoutWindow {
             dom: dom_id,
             node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
         };
-        let scroll_ancestor = match self.find_scrollable_ancestor(dom_node_id) {
-            Some(a) => a,
-            None => return, // No scrollable container
+        let Some(scroll_ancestor) = self.find_scrollable_ancestor(dom_node_id) else {
+            return; // No scrollable container
         };
-        let scroll_node_id = match scroll_ancestor.node.into_crate_internal() {
-            Some(id) => id,
-            None => return,
+        let Some(scroll_node_id) = scroll_ancestor.node.into_crate_internal() else {
+            return;
         };
 
         // Get the scrollable ancestor's bounds and scroll offset
@@ -6673,9 +6616,8 @@ impl LayoutWindow {
         if let Some(hit_test) = self.hover_manager.get_current(&InputPointId::Mouse) {
             // Iterate through hit nodes from the HoverManager
             for (dom_id, hit) in &hit_test.hovered_nodes {
-                let layout_result = match self.layout_results.get(dom_id) {
-                    Some(lr) => lr,
-                    None => continue,
+                let Some(layout_result) = self.layout_results.get(dom_id) else {
+                    continue;
                 };
                 // Use layout tree from layout_result, not layout_cache
                 let tree = &layout_result.layout_tree;
@@ -6711,13 +6653,11 @@ impl LayoutWindow {
 
                     // Find the layout node for this DOM node
                     let layout_node_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(*node_id));
-                    let layout_node_idx = match layout_node_idx {
-                        Some(idx) => idx,
-                        None => continue,
+                    let Some(layout_node_idx) = layout_node_idx else {
+                        continue;
                     };
-                    let warm_node = match tree.warm(layout_node_idx) {
-                        Some(w) => w,
-                        None => continue,
+                    let Some(warm_node) = tree.warm(layout_node_idx) else {
+                        continue;
                     };
 
                     // Get the IFC layout and IFC root NodeId
@@ -6773,18 +6713,15 @@ impl LayoutWindow {
 
                 // Only iterate IFC roots (nodes with inline_layout_result)
                 for (node_idx, layout_node) in tree.nodes.iter().enumerate() {
-                    let warm = match tree.warm(node_idx) {
-                        Some(w) => w,
-                        None => continue,
+                    let Some(warm) = tree.warm(node_idx) else {
+                        continue;
                     };
-                    let cached_layout = match warm.inline_layout_result.as_ref() {
-                        Some(c) => c,
-                        None => continue, // Skip non-IFC-root nodes
+                    let Some(cached_layout) = warm.inline_layout_result.as_ref() else {
+                        continue; // Skip non-IFC-root nodes
                     };
 
-                    let node_id = match layout_node.dom_node_id {
-                        Some(n) => n,
-                        None => continue,
+                    let Some(node_id) = layout_node.dom_node_id else {
+                        continue;
                     };
 
                     // Check if text is selectable
@@ -7176,17 +7113,15 @@ impl LayoutWindow {
         let mut updated_textures = Vec::new();
 
         for (dom_id, node_ids) in image_callbacks_changed {
-            let layout_result = match self.layout_results.get_mut(dom_id) {
-                Some(lr) => lr,
-                None => continue,
+            let Some(layout_result) = self.layout_results.get_mut(dom_id) else {
+                continue;
             };
 
             for node_id in node_ids {
                 // Get the node data - store container ref to extend lifetime
                 let node_data_container = layout_result.styled_dom.node_data.as_container();
-                let node_data = match node_data_container.get(*node_id) {
-                    Some(nd) => nd,
-                    None => continue,
+                let Some(node_data) = node_data_container.get(*node_id) else {
+                    continue;
                 };
 
                 // Check if this is an Image node with a callback
@@ -7214,9 +7149,8 @@ impl LayoutWindow {
                 };
 
                 // Get the layout node to determine size
-                let layout_node = match layout_result.layout_tree.get(layout_index) {
-                    Some(ln) => ln,
-                    None => continue,
+                let Some(layout_node) = layout_result.layout_tree.get(layout_index) else {
+                    continue;
                 };
 
                 // Get the size from the layout node (used_size is the computed size from layout)
@@ -7336,13 +7270,12 @@ impl LayoutWindow {
         node_id: NodeId,
     ) -> bool {
         // Get the VirtualView's current layout bounds (needed for check_reinvoke)
-        let bounds = match Self::get_virtual_view_bounds_from_layout(
+        let Some(bounds) = Self::get_virtual_view_bounds_from_layout(
             &self.layout_results,
             dom_id,
             node_id,
-        ) {
-            Some(b) => b,
-            None => return false, // Not a VirtualView or no layout info
+        ) else {
+            return false; // Not a VirtualView or no layout info
         };
 
         // Ask the VirtualViewManager whether this VirtualView needs re-invocation
@@ -7390,13 +7323,12 @@ impl LayoutWindow {
         for (dom_id, node_ids) in vviews_to_update {
             for node_id in node_ids {
                 // Extract virtualized view bounds from layout result
-                let bounds = match Self::get_virtual_view_bounds_from_layout(
+                let Some(bounds) = Self::get_virtual_view_bounds_from_layout(
                     &self.layout_results,
                     *dom_id,
                     *node_id,
-                ) {
-                    Some(b) => b,
-                    None => continue,
+                ) else {
+                    continue;
                 };
 
                 // Force re-invocation by clearing the "was_invoked" flag

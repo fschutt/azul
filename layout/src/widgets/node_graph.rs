@@ -2668,9 +2668,8 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                     connects_to,
                 } in node.connect_out.as_ref()
                 {
-                    let output_type_id = match node_type_info.outputs.get(*output_index) {
-                        Some(s) => s,
-                        None => continue,
+                    let Some(output_type_id) = node_type_info.outputs.get(*output_index) else {
+                        continue;
                     };
 
                     let output_color = match node_graph
@@ -2699,9 +2698,8 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                             color: output_color,
                         };
 
-                        let (rect, swap_vert, swap_horz) = match get_rect(node_graph, cld) {
-                            Some(s) => s,
-                            None => continue,
+                        let Some((rect, swap_vert, swap_horz)) = get_rect(node_graph, cld) else {
+                            continue;
                         };
 
                         cld.swap_vert = swap_vert;
@@ -2853,15 +2851,13 @@ extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, _info: CallbackInf
 
 // drag either the graph or the currently active nodes
 extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: CallbackInfo) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeGraphLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeGraphLocalDataset>() else {
+        return Update::DoNothing;
     };
     let refany = &mut *refany;
 
-    let prev = match info.get_previous_mouse_state() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(prev) = info.get_previous_mouse_state() else {
+        return Update::DoNothing;
     };
     let cur = info.get_current_mouse_state();
     if !(cur.left_down && prev.left_down) {
@@ -2869,10 +2865,10 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
         return Update::DoNothing;
     }
 
-    let (current_mouse_pos, previous_mouse_pos) = match (cur.cursor_position, prev.cursor_position)
-    {
-        (InWindow(c), InWindow(p)) => (c, p),
-        _ => return Update::DoNothing,
+    let (InWindow(current_mouse_pos), InWindow(previous_mouse_pos)) =
+        (cur.cursor_position, prev.cursor_position)
+    else {
+        return Update::DoNothing;
     };
 
     let dx = (current_mouse_pos.x - previous_mouse_pos.x) * (1.0 / refany.node_graph.scale_factor);
@@ -2910,9 +2906,8 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 None => return Update::DoNothing,
             };
 
-            let visual_node_id = match info.get_node_id_of_root_dataset(data_marker) {
-                Some(s) => s,
-                None => return Update::DoNothing,
+            let Some(visual_node_id) = info.get_node_id_of_root_dataset(data_marker) else {
+                return Update::DoNothing;
             };
 
             let node_transform = StyleTransformTranslate2D {
@@ -2941,11 +2936,11 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             );
 
             // get the NodeId of the node containing all the connection lines
-            let connection_container_nodeid =
-                match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
-                    Some(s) => s,
-                    None => return result,
-                };
+            let Some(connection_container_nodeid) =
+                info.get_node_id_of_root_dataset(node_connection_marker.clone())
+            else {
+                return result;
+            };
 
             // animate all the connections
             let mut first_connection_child = info.get_first_child(connection_container_nodeid);
@@ -2953,19 +2948,16 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             while let Some(connection_nodeid) = first_connection_child {
                 first_connection_child = info.get_next_sibling(connection_nodeid);
 
-                let first_child = match info.get_first_child(connection_nodeid) {
-                    Some(s) => s,
-                    None => continue,
+                let Some(first_child) = info.get_first_child(connection_nodeid) else {
+                    continue;
                 };
 
-                let mut dataset = match info.get_dataset(first_child) {
-                    Some(s) => s,
-                    None => continue,
+                let Some(mut dataset) = info.get_dataset(first_child) else {
+                    continue;
                 };
 
-                let mut cld = match dataset.downcast_mut::<ConnectionLocalDataset>() {
-                    Some(s) => s,
-                    None => continue,
+                let Some(mut cld) = dataset.downcast_mut::<ConnectionLocalDataset>() else {
+                    continue;
                 };
 
                 if !(cld.out_node_id == node_graph_node_id || cld.in_node_id == node_graph_node_id)
@@ -2973,9 +2965,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                     continue; // connection does not need to be modified
                 }
 
-                let (new_rect, swap_vert, swap_horz) = match get_rect(&refany.node_graph, *cld) {
-                    Some(s) => s,
-                    None => continue,
+                let Some((new_rect, swap_vert, swap_horz)) = get_rect(&refany.node_graph, *cld)
+                else {
+                    continue;
                 };
 
                 cld.swap_vert = swap_vert;
@@ -3037,25 +3029,21 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             refany.node_graph.offset.y += dy;
 
             // Update the visual node positions
-            let node_container = match info.get_first_child(nodegraph_node) {
-                Some(s) => s,
-                None => return Update::DoNothing,
+            let Some(node_container) = info.get_first_child(nodegraph_node) else {
+                return Update::DoNothing;
             };
 
-            let node_container = match info.get_next_sibling(node_container) {
-                Some(s) => s,
-                None => return Update::DoNothing,
+            let Some(node_container) = info.get_next_sibling(node_container) else {
+                return Update::DoNothing;
             };
 
-            let mut node = match info.get_first_child(node_container) {
-                Some(s) => s,
-                None => return Update::DoNothing,
+            let Some(mut node) = info.get_first_child(node_container) else {
+                return Update::DoNothing;
             };
 
             loop {
-                let node_first_child = match info.get_first_child(node) {
-                    Some(s) => s,
-                    None => return Update::DoNothing,
+                let Some(node_first_child) = info.get_first_child(node) else {
+                    return Update::DoNothing;
                 };
 
                 let mut node_local_dataset = match info.get_dataset(node_first_child) {
@@ -3063,10 +3051,10 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                     Some(s) => s,
                 };
 
-                let node_graph_node_id = match node_local_dataset.downcast_ref::<NodeLocalDataset>()
-                {
-                    Some(s) => s,
-                    None => continue,
+                let Some(node_graph_node_id) =
+                    node_local_dataset.downcast_ref::<NodeLocalDataset>()
+                else {
+                    continue;
                 };
 
                 let node_graph_node_id = node_graph_node_id.node_id;
@@ -3115,35 +3103,31 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             let node_connection_marker = &mut refany.node_connection_marker;
 
             // Update the connection positions
-            let connection_container_nodeid =
-                match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
-                    Some(s) => s,
-                    None => return result,
-                };
+            let Some(connection_container_nodeid) =
+                info.get_node_id_of_root_dataset(node_connection_marker.clone())
+            else {
+                return result;
+            };
 
             let mut first_connection_child = info.get_first_child(connection_container_nodeid);
 
             while let Some(connection_nodeid) = first_connection_child {
                 first_connection_child = info.get_next_sibling(connection_nodeid);
 
-                let first_child = match info.get_first_child(connection_nodeid) {
-                    Some(s) => s,
-                    None => continue,
+                let Some(first_child) = info.get_first_child(connection_nodeid) else {
+                    continue;
                 };
 
-                let mut dataset = match info.get_dataset(first_child) {
-                    Some(s) => s,
-                    None => continue,
+                let Some(mut dataset) = info.get_dataset(first_child) else {
+                    continue;
                 };
 
-                let cld = match dataset.downcast_ref::<ConnectionLocalDataset>() {
-                    Some(s) => s,
-                    None => continue,
+                let Some(cld) = dataset.downcast_ref::<ConnectionLocalDataset>() else {
+                    continue;
                 };
 
-                let (new_rect, _, _) = match get_rect(&refany.node_graph, *cld) {
-                    Some(s) => s,
-                    None => continue,
+                let Some((new_rect, _, _)) = get_rect(&refany.node_graph, *cld) else {
+                    continue;
                 };
 
                 info.set_css_property(
@@ -3176,25 +3160,22 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
 }
 
 extern "C" fn nodegraph_duplicate_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
-    let _data = match refany.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(_data) = refany.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     Update::DoNothing // TODO
 }
 
 extern "C" fn nodegraph_delete_node(mut refany: RefAny, mut info: CallbackInfo) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = refany.node_id;
 
-    let mut backref = match refany.backref.downcast_mut::<NodeGraphLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut backref) = refany.backref.downcast_mut::<NodeGraphLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let result = match backref.callbacks.on_node_removed.as_ref() {
@@ -3209,21 +3190,19 @@ extern "C" fn nodegraph_delete_node(mut refany: RefAny, mut info: CallbackInfo) 
 extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::CursorPosition;
 
-    let mut refany = match refany.downcast_mut::<ContextMenuEntryLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<ContextMenuEntryLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let new_node_type = refany.node_type;
 
-    let node_graph_wrapper_id = match info.get_node_id_of_root_dataset(refany.backref.clone()) {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(node_graph_wrapper_id) = info.get_node_id_of_root_dataset(refany.backref.clone())
+    else {
+        return Update::DoNothing;
     };
 
-    let mut backref = match refany.backref.downcast_mut::<NodeGraphLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut backref) = refany.backref.downcast_mut::<NodeGraphLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_wrapper_offset = info
@@ -3262,23 +3241,20 @@ extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: Callbac
 extern "C" fn nodegraph_input_output_connect(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     use self::InputOrOutput::{Input, Output};
 
-    let mut refany = match refany.downcast_mut::<NodeInputOutputLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeInputOutputLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let io_id = refany.io_id;
 
-    let mut backref = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut backref) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = backref.node_id;
 
-    let mut backref = match backref.backref.downcast_mut::<NodeGraphLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut backref) = backref.backref.downcast_mut::<NodeGraphLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let (input_node, input_index, output_node, output_index) =
@@ -3337,23 +3313,20 @@ extern "C" fn nodegraph_input_output_connect(mut refany: RefAny, mut info: Callb
 extern "C" fn nodegraph_input_output_disconnect(mut refany: RefAny, info: CallbackInfo) -> Update {
     use self::InputOrOutput::{Input, Output};
 
-    let mut refany = match refany.downcast_mut::<NodeInputOutputLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeInputOutputLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let io_id = refany.io_id;
 
-    let mut backref = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut backref) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = backref.node_id;
 
-    let mut backref = match backref.backref.downcast_mut::<NodeGraphLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut backref) = backref.backref.downcast_mut::<NodeGraphLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let mut result = Update::DoNothing;
@@ -3388,26 +3361,23 @@ extern "C" fn nodegraph_on_textinput_focus_lost(
     info: CallbackInfo,
     textinputstate: TextInputState,
 ) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeFieldLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut node_local_dataset) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = node_local_dataset.node_id;
 
-    let mut node_graph = match node_local_dataset
+    let Some(mut node_graph) = node_local_dataset
         .backref
         .downcast_mut::<NodeGraphLocalDataset>()
-    {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    else {
+        return Update::DoNothing;
     };
 
     let node_type = match node_graph
@@ -3440,26 +3410,23 @@ extern "C" fn nodegraph_on_numberinput_focus_lost(
     info: CallbackInfo,
     numberinputstate: NumberInputState,
 ) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeFieldLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut node_local_dataset) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = node_local_dataset.node_id;
 
-    let mut node_graph = match node_local_dataset
+    let Some(mut node_graph) = node_local_dataset
         .backref
         .downcast_mut::<NodeGraphLocalDataset>()
-    {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    else {
+        return Update::DoNothing;
     };
 
     let node_type = match node_graph
@@ -3492,26 +3459,23 @@ extern "C" fn nodegraph_on_checkbox_value_changed(
     info: CallbackInfo,
     checkboxinputstate: CheckBoxState,
 ) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeFieldLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut node_local_dataset) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = node_local_dataset.node_id;
 
-    let mut node_graph = match node_local_dataset
+    let Some(mut node_graph) = node_local_dataset
         .backref
         .downcast_mut::<NodeGraphLocalDataset>()
-    {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    else {
+        return Update::DoNothing;
     };
 
     let node_type = match node_graph
@@ -3544,25 +3508,22 @@ extern "C" fn nodegraph_on_colorinput_value_changed(
     info: CallbackInfo,
     colorinputstate: ColorInputState,
 ) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeFieldLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut node_local_dataset) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = node_local_dataset.node_id;
-    let mut node_graph = match node_local_dataset
+    let Some(mut node_graph) = node_local_dataset
         .backref
         .downcast_mut::<NodeGraphLocalDataset>()
-    {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    else {
+        return Update::DoNothing;
     };
 
     let node_type = match node_graph
@@ -3595,25 +3556,22 @@ extern "C" fn nodegraph_on_fileinput_button_clicked(
     info: CallbackInfo,
     file: FileInputState,
 ) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeFieldLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut node_local_dataset) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = node_local_dataset.node_id;
-    let mut node_graph = match node_local_dataset
+    let Some(mut node_graph) = node_local_dataset
         .backref
         .downcast_mut::<NodeGraphLocalDataset>()
-    {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    else {
+        return Update::DoNothing;
     };
 
     let node_type = match node_graph

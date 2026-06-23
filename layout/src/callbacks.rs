@@ -1231,20 +1231,17 @@ impl CallbackInfo {
     /// Uses the contiguous node layout for efficient iteration.
     #[must_use] pub fn get_all_children_nodes(&self, dom_id: DomId, node_id: NodeId) -> NodeHierarchyItemIdVec {
         let layout_window = self.get_layout_window();
-        let layout_result = match layout_window.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return NodeHierarchyItemIdVec::from_const_slice(&[]),
+        let Some(layout_result) = layout_window.layout_results.get(&dom_id) else {
+            return NodeHierarchyItemIdVec::from_const_slice(&[]);
         };
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
-        let hier_item = match node_hierarchy.get(node_id) {
-            Some(h) => h,
-            None => return NodeHierarchyItemIdVec::from_const_slice(&[]),
+        let Some(hier_item) = node_hierarchy.get(node_id) else {
+            return NodeHierarchyItemIdVec::from_const_slice(&[]);
         };
 
         // Get first child - if none, return empty
-        let first_child = match hier_item.first_child_id(node_id) {
-            Some(fc) => fc,
-            None => return NodeHierarchyItemIdVec::from_const_slice(&[]),
+        let Some(first_child) = hier_item.first_child_id(node_id) else {
+            return NodeHierarchyItemIdVec::from_const_slice(&[]);
         };
 
         // Collect children by walking the sibling chain
@@ -1268,20 +1265,17 @@ impl CallbackInfo {
     /// Uses the contiguous node layout for efficient counting.
     #[must_use] pub fn get_children_count(&self, dom_id: DomId, node_id: NodeId) -> usize {
         let layout_window = self.get_layout_window();
-        let layout_result = match layout_window.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return 0,
+        let Some(layout_result) = layout_window.layout_results.get(&dom_id) else {
+            return 0;
         };
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
-        let hier_item = match node_hierarchy.get(node_id) {
-            Some(h) => h,
-            None => return 0,
+        let Some(hier_item) = node_hierarchy.get(node_id) else {
+            return 0;
         };
 
         // Get first child - if none, return 0
-        let first_child = match hier_item.first_child_id(node_id) {
-            Some(fc) => fc,
-            None => return 0,
+        let Some(first_child) = hier_item.first_child_id(node_id) else {
+            return 0;
         };
 
         // Count children by walking the sibling chain
@@ -1969,14 +1963,12 @@ impl CallbackInfo {
     /// Check if a node is anonymous (generated for table layout)
     fn is_node_anonymous(&self, dom_id: &DomId, node_id: NodeId) -> bool {
         let layout_window = self.get_layout_window();
-        let layout_result = match layout_window.get_layout_result(dom_id) {
-            Some(lr) => lr,
-            None => return false,
+        let Some(layout_result) = layout_window.get_layout_result(dom_id) else {
+            return false;
         };
         let node_data_cont = layout_result.styled_dom.node_data.as_container();
-        let node_data = match node_data_cont.get(node_id) {
-            Some(nd) => nd,
-            None => return false,
+        let Some(node_data) = node_data_cont.get(node_id) else {
+            return false;
         };
         node_data.is_anonymous()
     }
@@ -2120,9 +2112,8 @@ impl CallbackInfo {
 
         for dom_id in self.get_dom_ids().as_ref().iter().copied() {
             let layout_window = self.get_layout_window();
-            let layout_result = match layout_window.get_layout_result(&dom_id) {
-                Some(lr) => lr,
-                None => continue,
+            let Some(layout_result) = layout_window.get_layout_result(&dom_id) else {
+                continue;
             };
 
             let node_data_cont = layout_result.styled_dom.node_data.as_container();
@@ -2274,18 +2265,15 @@ impl CallbackInfo {
 
     /// Get all classes of a node as a vector of strings
     #[must_use] pub fn get_node_classes(&self, node_id: DomNodeId) -> StringVec {
-        let layout_window = match self.get_layout_window().get_layout_result(&node_id.dom) {
-            Some(lr) => lr,
-            None => return StringVec::from_const_slice(&[]),
+        let Some(layout_window) = self.get_layout_window().get_layout_result(&node_id.dom) else {
+            return StringVec::from_const_slice(&[]);
         };
-        let node_id_internal = match node_id.node.into_crate_internal() {
-            Some(n) => n,
-            None => return StringVec::from_const_slice(&[]),
+        let Some(node_id_internal) = node_id.node.into_crate_internal() else {
+            return StringVec::from_const_slice(&[]);
         };
         let node_data_cont = layout_window.styled_dom.node_data.as_container();
-        let node_data = match node_data_cont.get(node_id_internal) {
-            Some(n) => n,
-            None => return StringVec::from_const_slice(&[]),
+        let Some(node_data) = node_data_cont.get(node_id_internal) else {
+            return StringVec::from_const_slice(&[]);
         };
 
         let classes: Vec<AzString> = node_data
@@ -2458,9 +2446,8 @@ impl CallbackInfo {
         use azul_core::geom::{LogicalPosition, ScreenPosition, OptionScreenPosition};
 
         let ws = self.get_current_window_state();
-        let cursor_local = match ws.mouse_state.cursor_position.get_position() {
-            Some(p) => p,
-            None => return OptionScreenPosition::None,
+        let Some(cursor_local) = ws.mouse_state.cursor_position.get_position() else {
+            return OptionScreenPosition::None;
         };
         match ws.position {
             WindowPosition::Initialized(pos) => {
@@ -2561,9 +2548,8 @@ impl CallbackInfo {
             azul_css::corety::OptionU32::None => return OptionMonitor::None,
         };
         let monitors_arc = unsafe { &(*self.ref_data).monitors };
-        let guard = match monitors_arc.lock() {
-            Ok(g) => g,
-            Err(_) => return OptionMonitor::None,
+        let Ok(guard) = monitors_arc.lock() else {
+            return OptionMonitor::None;
         };
         for m in guard.as_ref() {
             if m.monitor_id.index == monitor_index {
@@ -2919,9 +2905,8 @@ impl CallbackInfo {
     #[cfg(feature = "text_layout")]
     #[must_use] pub fn get_loaded_fonts(&self) -> LoadedFontVec {
         let font_manager = &self.get_layout_window().font_manager;
-        let guard = match font_manager.parsed_fonts.lock() {
-            Ok(g) => g,
-            Err(_) => return Vec::new().into(),
+        let Ok(guard) = font_manager.parsed_fonts.lock() else {
+            return Vec::new().into();
         };
         // BTreeMap-style stable iteration is not guaranteed here (HashMap), so
         // we collect then sort by font_hash for a deterministic order.
@@ -2958,9 +2943,8 @@ impl CallbackInfo {
     #[cfg(feature = "text_layout")]
     #[must_use] pub fn get_loaded_font_bytes(&self, font_hash: u64) -> OptionU8Vec {
         let font_manager = &self.get_layout_window().font_manager;
-        let font_ref = match font_manager.get_font_by_hash(font_hash) {
-            Some(f) => f,
-            None => return OptionU8Vec::None,
+        let Some(font_ref) = font_manager.get_font_by_hash(font_hash) else {
+            return OptionU8Vec::None;
         };
         let parsed = crate::font_ref_to_parsed_font(&font_ref);
         match parsed.source_bytes_for_subset() {
