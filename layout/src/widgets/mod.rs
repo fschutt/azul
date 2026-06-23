@@ -243,5 +243,10 @@ pub mod pagination;
 /// connector lines and an accent/muted restyle on step change (segmented-style +
 /// progressbar-style filled connector); see `stepper.rs`.
 pub mod stepper;
+/// Split-pane / splitter widget — a two-pane (horizontal/vertical) container with
+/// a draggable divider that live-resizes the panes via `set_css_property` (the
+/// frame two-box layout + the map/slider pointer-drag state machine); see
+/// `split_pane.rs`.
+pub mod split_pane;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
