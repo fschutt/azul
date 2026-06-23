@@ -388,6 +388,8 @@ pub fn parse_grid_template(input: &str) -> Result<GridTemplate, GridParseError<'
 /// For `repeat(N, track_list)`, the tracks are expanded inline.
 #[cfg(feature = "parser")]
 fn parse_grid_track_or_repeat(input: &str, tracks: &mut Vec<GridTrackSizing>) -> Result<(), ()> {
+    // Maximum repeat count accepted in `repeat(N, …)` to bound expansion.
+    const MAX_GRID_REPEAT_COUNT: usize = 10_000;
     let input = input.trim();
 
     // Handle repeat(N, track_list)
@@ -399,7 +401,6 @@ fn parse_grid_track_or_repeat(input: &str, tracks: &mut Vec<GridTrackSizing>) ->
         let track_list_str = content[comma_pos + 1..].trim();
 
         let count: usize = count_str.parse().map_err(|_| ())?;
-        const MAX_GRID_REPEAT_COUNT: usize = 10_000;
         if count == 0 || count > MAX_GRID_REPEAT_COUNT {
             return Err(());
         }
@@ -1248,6 +1249,7 @@ impl PrintAsCssValue for GridTemplateAreas {
 /// computed row/column line boundaries (1-based, as taffy expects).
 #[cfg(feature = "parser")]
 pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
+    use alloc::collections::BTreeMap;
     let input = input.trim();
     if input == "none" {
         return Ok(GridTemplateAreas::default());
@@ -1293,7 +1295,6 @@ pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
     }
 
     // Build area map: name -> (min_row, max_row, min_col, max_col) in 0-based indices
-    use alloc::collections::BTreeMap;
     let mut area_map: BTreeMap<String, (usize, usize, usize, usize)> = BTreeMap::new();
 
     for (row_idx, row) in rows.iter().enumerate() {

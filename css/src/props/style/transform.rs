@@ -647,6 +647,25 @@ pub fn parse_style_transform_vec(
 pub fn parse_style_transform(
     input: &str,
 ) -> Result<StyleTransform, CssStyleTransformParseError<'_>> {
+    fn get_numbers(
+        input: &str,
+        expected: usize,
+    ) -> Result<Vec<f32>, CssStyleTransformParseError<'_>> {
+        let numbers: Vec<_> = input
+            .split(',')
+            .map(|s| s.trim().parse::<f32>())
+            .collect::<Result<_, _>>()?;
+        if numbers.len() == expected {
+            Ok(numbers)
+        } else {
+            Err(CssStyleTransformParseError::WrongNumberOfComponents {
+                expected,
+                got: numbers.len(),
+                input,
+            })
+        }
+    }
+
     let (transform_type, transform_values) = parse_parentheses(
         input,
         &[
@@ -673,25 +692,6 @@ pub fn parse_style_transform(
             "perspective",
         ],
     )?;
-
-    fn get_numbers(
-        input: &str,
-        expected: usize,
-    ) -> Result<Vec<f32>, CssStyleTransformParseError<'_>> {
-        let numbers: Vec<_> = input
-            .split(',')
-            .map(|s| s.trim().parse::<f32>())
-            .collect::<Result<_, _>>()?;
-        if numbers.len() == expected {
-            Ok(numbers)
-        } else {
-            Err(CssStyleTransformParseError::WrongNumberOfComponents {
-                expected,
-                got: numbers.len(),
-                input,
-            })
-        }
-    }
 
     match transform_type {
         "matrix" => {
@@ -898,15 +898,6 @@ pub fn parse_style_transform(
 pub fn parse_style_transform_origin(
     input: &str,
 ) -> Result<StyleTransformOrigin, CssStyleTransformOriginParseError<'_>> {
-    let components: Vec<_> = input.split_whitespace().collect();
-    if components.len() != 2 {
-        return Err(CssStyleTransformOriginParseError::WrongNumberOfComponents {
-            expected: 2,
-            got: components.len(),
-            input,
-        });
-    }
-
     // Helper to parse position keywords or pixel values
     fn parse_position_component(
         s: &str,
@@ -920,6 +911,15 @@ pub fn parse_style_transform_origin(
             "bottom" if !is_horizontal => Ok(PixelValue::percent(100.0)),
             _ => parse_pixel_value(s),
         }
+    }
+
+    let components: Vec<_> = input.split_whitespace().collect();
+    if components.len() != 2 {
+        return Err(CssStyleTransformOriginParseError::WrongNumberOfComponents {
+            expected: 2,
+            got: components.len(),
+            input,
+        });
     }
 
     let x = parse_position_component(components[0], true)?;
