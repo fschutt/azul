@@ -184,21 +184,18 @@ fn test_inline_block_with_border() {
     println!("Display list items:");
     for (i, item) in items.iter().enumerate() {
         println!("  [{}] {:?}", i, std::mem::discriminant(item));
-        match item {
-            DisplayListItem::Border {
+        if let DisplayListItem::Border {
                 bounds,
                 widths,
                 colors,
                 ..
-            } => {
-                println!(
-                    "      Border bounds: {}x{} @ ({}, {})",
-                    bounds.size().width, bounds.size().height, bounds.origin().x, bounds.origin().y
-                );
-                println!("      Border widths: {widths:?}");
-                println!("      Border colors: {colors:?}");
-            }
-            _ => {}
+            } = item {
+            println!(
+                "      Border bounds: {}x{} @ ({}, {})",
+                bounds.size().width, bounds.size().height, bounds.origin().x, bounds.origin().y
+            );
+            println!("      Border widths: {widths:?}");
+            println!("      Border colors: {colors:?}");
         }
     }
 
@@ -304,14 +301,11 @@ fn test_inline_element_with_gradient_background() {
     println!("Display list items for inline element with gradient:");
     for (i, item) in items.iter().enumerate() {
         println!("  [{}] {:?}", i, std::mem::discriminant(item));
-        match item {
-            DisplayListItem::LinearGradient { bounds, .. } => {
-                println!(
-                    "      LinearGradient bounds: {}x{} @ ({}, {})",
-                    bounds.size().width, bounds.size().height, bounds.origin().x, bounds.origin().y
-                );
-            }
-            _ => {}
+        if let DisplayListItem::LinearGradient { bounds, .. } = item {
+            println!(
+                "      LinearGradient bounds: {}x{} @ ({}, {})",
+                bounds.size().width, bounds.size().height, bounds.origin().x, bounds.origin().y
+            );
         }
     }
 
@@ -350,21 +344,18 @@ fn test_inline_element_with_border() {
     println!("Display list items for inline element with border:");
     for (i, item) in items.iter().enumerate() {
         println!("  [{}] {:?}", i, std::mem::discriminant(item));
-        match item {
-            DisplayListItem::Border {
+        if let DisplayListItem::Border {
                 bounds,
                 widths,
                 styles,
                 ..
-            } => {
-                println!(
-                    "      Border bounds: {}x{} @ ({}, {})",
-                    bounds.size().width, bounds.size().height, bounds.origin().x, bounds.origin().y
-                );
-                println!("      Border widths: {widths:?}");
-                println!("      Border styles: {styles:?}");
-            }
-            _ => {}
+            } = item {
+            println!(
+                "      Border bounds: {}x{} @ ({}, {})",
+                bounds.size().width, bounds.size().height, bounds.origin().x, bounds.origin().y
+            );
+            println!("      Border widths: {widths:?}");
+            println!("      Border styles: {styles:?}");
         }
     }
 
@@ -472,27 +463,24 @@ fn test_multiple_inline_blocks_with_different_borders() {
 
     println!("Display list items for multiple bordered boxes:");
     for (i, item) in items.iter().enumerate() {
-        match item {
-            DisplayListItem::Border {
+        if let DisplayListItem::Border {
                 bounds,
                 widths,
                 colors,
                 styles,
                 ..
-            } => {
-                println!(
-                    "  [{}] Border: {}x{} @ ({}, {}), widths={:?}, styles={:?}, colors={:?}",
-                    i,
-                    bounds.size().width,
-                    bounds.size().height,
-                    bounds.origin().x,
-                    bounds.origin().y,
-                    widths,
-                    styles,
-                    colors
-                );
-            }
-            _ => {}
+            } = item {
+            println!(
+                "  [{}] Border: {}x{} @ ({}, {}), widths={:?}, styles={:?}, colors={:?}",
+                i,
+                bounds.size().width,
+                bounds.size().height,
+                bounds.origin().x,
+                bounds.origin().y,
+                widths,
+                styles,
+                colors
+            );
         }
     }
 

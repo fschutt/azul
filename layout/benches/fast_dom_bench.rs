@@ -31,7 +31,7 @@ fn main() {
     // =========================================================================
     // PRE-LOAD: Font cache (excluded from benchmark, same as real app startup)
     // =========================================================================
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
     use azul_core::{
         dom::DomId,
         geom::{LogicalPosition, LogicalRect, LogicalSize},

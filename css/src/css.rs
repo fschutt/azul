@@ -1779,7 +1779,7 @@ impl fmt::Display for CssPathPseudoSelector {
 impl Css {
     /// Creates a new, empty CSS.
     #[must_use] pub fn empty() -> Self {
-        Css::default()
+        Self::default()
     }
 
     /// Sort the rules by `(priority, specificity)` so they apply in cascade order.

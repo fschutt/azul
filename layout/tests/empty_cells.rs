@@ -163,21 +163,13 @@ fn test_empty_cells_rendering_behavior() {
     let empty_cells = StyleEmptyCells::Hide;
     let is_cell_empty = true;
 
-    let should_paint_borders = if is_cell_empty && matches!(empty_cells, StyleEmptyCells::Hide) {
-        false
-    } else {
-        true
-    };
+    let should_paint_borders = !(is_cell_empty && matches!(empty_cells, StyleEmptyCells::Hide));
 
     assert!(!should_paint_borders);
 
     // With show, borders are painted even for empty cells
     let empty_cells = StyleEmptyCells::Show;
-    let should_paint_borders = if is_cell_empty && matches!(empty_cells, StyleEmptyCells::Hide) {
-        false
-    } else {
-        true
-    };
+    let should_paint_borders = !(is_cell_empty && matches!(empty_cells, StyleEmptyCells::Hide));
 
     assert!(should_paint_borders);
 }

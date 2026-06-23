@@ -62,7 +62,7 @@ fn test_style_tag_parsing_simple() {
 
     // Head should have 1 child: <style>
     assert!(
-        head.children.as_ref().len() > 0,
+        !head.children.as_ref().is_empty(),
         "HEAD should have children (style tag)"
     );
 
@@ -99,7 +99,7 @@ fn test_style_tag_parsing_with_quotes() {
 
     eprintln!("HEAD has {} children", head.children.as_ref().len());
     assert!(
-        head.children.as_ref().len() > 0,
+        !head.children.as_ref().is_empty(),
         "HEAD should have style child"
     );
 

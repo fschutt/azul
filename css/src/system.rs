@@ -166,11 +166,11 @@ pub struct SystemStyle {
     pub scroll_physics: ScrollPhysics,
     pub theme: Theme,
     /// Detected OS version (e.g., Windows 11 22H2, macOS Sonoma, etc.)
-    pub os_version: crate::dynamic_selector::OsVersion,
+    pub os_version: OsVersion,
     /// User prefers reduced motion (accessibility setting)
-    pub prefers_reduced_motion: crate::dynamic_selector::BoolCondition,
+    pub prefers_reduced_motion: BoolCondition,
     /// User prefers high contrast (accessibility setting)
-    pub prefers_high_contrast: crate::dynamic_selector::BoolCondition,
+    pub prefers_high_contrast: BoolCondition,
     /// Detailed accessibility settings (superset of `prefers_reduced_motion` / `prefers_high_contrast`)
     pub accessibility: AccessibilitySettings,
     /// Input interaction timing / distance thresholds from the OS

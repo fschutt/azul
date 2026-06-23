@@ -7,7 +7,6 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
-use azul_css::css::Css;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
@@ -374,12 +373,11 @@ fn test_hn_header_three_cells_all_nonzero() {
     for i in 0..25 {
         if let Some(rect) = layout_window.get_node_layout_rect(node_id(i)) {
             // Cells should be > 0 width and < total table width
-            if rect.size.width > 0.0 && rect.size.width < 400.0 && rect.size.height > 10.0 {
-                if rect.size.width < min_cell_width {
+            if rect.size.width > 0.0 && rect.size.width < 400.0 && rect.size.height > 10.0
+                && rect.size.width < min_cell_width {
                     min_cell_width = rect.size.width;
                     min_cell_idx = i;
                 }
-            }
         }
     }
     eprintln!("\n  Narrowest cell-like node: node[{min_cell_idx}] w={min_cell_width:.1}");

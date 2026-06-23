@@ -522,7 +522,7 @@ impl MapTileCache {
             let scale = f64::from(tile_count) / f64::from(zt_count);
             let tx = (f64::from(id.x) + 0.5) * scale;
             let ty = (f64::from(id.y) + 0.5) * scale;
-            let dz = (i32::from(id.z) - i32::from(z)).abs() as f64;
+            let dz = f64::from((i32::from(id.z) - i32::from(z)).abs());
             let dx = tx - cx;
             let dy = ty - cy;
             dz * 10_000.0 + dx * dx + dy * dy
