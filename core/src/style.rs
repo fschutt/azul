@@ -81,7 +81,7 @@ impl CascadeInfoVec {
     let is_last_content_group = groups.len() == 1;
     if !selector_group_matches(
         first_group,
-        &html_node_tree[node_id],
+        html_node_tree[node_id],
         &node_data[node_id],
         node_id,
         &expected_path_ending,
@@ -105,7 +105,7 @@ impl CascadeInfoVec {
                 let parent = find_non_anonymous_parent(current_node, node_hierarchy, node_data);
                 match parent {
                     Some(p) if selector_group_matches(
-                        content_group, &html_node_tree[p], &node_data[p], p,
+                        content_group, html_node_tree[p], &node_data[p], p,
                         &expected_path_ending, is_last,
                     ) => { current_node = p; }
                     _ => return false,
@@ -117,7 +117,7 @@ impl CascadeInfoVec {
                 let mut found = false;
                 while let Some(anc) = ancestor {
                     if selector_group_matches(
-                        content_group, &html_node_tree[anc], &node_data[anc], anc,
+                        content_group, html_node_tree[anc], &node_data[anc], anc,
                         &expected_path_ending, is_last,
                     ) {
                         current_node = anc;
@@ -135,7 +135,7 @@ impl CascadeInfoVec {
                 let sibling = find_non_anonymous_prev_sibling(current_node, node_hierarchy, node_data);
                 match sibling {
                     Some(s) if selector_group_matches(
-                        content_group, &html_node_tree[s], &node_data[s], s,
+                        content_group, html_node_tree[s], &node_data[s], s,
                         &expected_path_ending, is_last,
                     ) => { current_node = s; }
                     _ => return false,
@@ -147,7 +147,7 @@ impl CascadeInfoVec {
                 let mut found = false;
                 while let Some(sib) = sibling {
                     if selector_group_matches(
-                        content_group, &html_node_tree[sib], &node_data[sib], sib,
+                        content_group, html_node_tree[sib], &node_data[sib], sib,
                         &expected_path_ending, is_last,
                     ) {
                         current_node = sib;
@@ -423,7 +423,7 @@ impl<'a> Iterator for CssGroupIterator<'a> {
 /// Combinator selectors (>, +, ~, space) should not appear in the group.
 fn selector_group_matches(
     selectors: &[&CssPathSelector],
-    html_node: &CascadeInfo,
+    html_node: CascadeInfo,
     node_data: &NodeData,
     node_id: NodeId,
     expected_path_ending: &Option<CssPathPseudoSelector>,
@@ -444,7 +444,7 @@ fn selector_group_matches(
 /// Matches a single CSS selector against a DOM node.
 fn match_single_selector(
     selector: &CssPathSelector,
-    html_node: &CascadeInfo,
+    html_node: CascadeInfo,
     node_data: &NodeData,
     node_id: NodeId,
     expected_path_ending: &Option<CssPathPseudoSelector>,
@@ -523,7 +523,7 @@ fn match_attribute_selector(sel: &CssAttributeSelector, node_data: &NodeData) ->
 /// Matches a pseudo-selector (:first, :last, :nth-child, :hover, etc.) against a node.
 fn match_pseudo_selector(
     pseudo: &CssPathPseudoSelector,
-    html_node: &CascadeInfo,
+    html_node: CascadeInfo,
     expected_path_ending: &Option<CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
@@ -576,17 +576,17 @@ fn match_pseudo_selector(
 }
 
 /// Returns true if the node is the first child of its parent.
-const fn match_first_child(html_node: &CascadeInfo) -> bool {
+const fn match_first_child(html_node: CascadeInfo) -> bool {
     html_node.index_in_parent == 0
 }
 
 /// Returns true if the node is the last child of its parent.
-const fn match_last_child(html_node: &CascadeInfo) -> bool {
+const fn match_last_child(html_node: CascadeInfo) -> bool {
     html_node.is_last_child
 }
 
 /// Matches :nth-child(n), :nth-child(even), :nth-child(odd), or :nth-child(An+B) patterns.
-fn match_nth_child(html_node: &CascadeInfo, pattern: &CssNthChildSelector) -> bool {
+fn match_nth_child(html_node: CascadeInfo, pattern: &CssNthChildSelector) -> bool {
     use azul_css::css::CssNthChildPattern;
 
     // nth-child is 1-indexed, index_in_parent is 0-indexed
