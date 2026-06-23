@@ -207,5 +207,8 @@ pub mod text_area;
 /// Alert / banner widget — a coloured inline message box with an optional
 /// dismissible close button; see `alert.rs`.
 pub mod alert;
+/// Accordion / expander widget — one or more collapsible titled sections; see
+/// `accordion.rs`.
+pub mod accordion;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
