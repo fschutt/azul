@@ -178,3 +178,30 @@ File: `layout/src/text3/cache.rs` (shape-outside ~3059/9831; ruby ~7073 magic 0.
   leave a `TODO2:` with the reason and mark PARTIAL here.
 - Commit per item; do NOT touch the lint policy (that's the separate master-side Monday work).
 - ENOSPC watch: `rm -rf target` if the disk fills (~38G recurring).
+
+---
+
+## Round 2 — platform integration (research-gated; user request 2026-06-20)
+Research agent `a7fad4ed37b731e3e` is discovering the correct OS APIs + mapping them onto
+azul's shell2 infra. These items are BLOCKED until that report lands, then TODO. Implement
+BLIND (no live runtime test here) — compile-verify per platform + mirror existing patterns
+(item 1 macOS `NSDraggingDestination` is the reference for the FileDropManager wiring).
+Verify: macOS `build-dll` (host); Win/Linux via cross-compile (`--target x86_64-pc-windows-msvc`
+/ `x86_64-unknown-linux-gnu`, **target-scoped** `CC_*`/`CXX_*`/`AR_*`/`CARGO_TARGET_*_LINKER`
+env — NOT global, which leaks into host build scripts). FileDropManager hooks:
+`set_hovered_file`(Some/None)→FileHover/Cancel, `set_dropped_file`+`handle_file_drop`→FileDrop
+(event_determination.rs:641).
+
+| # | Item | Subsystem | Status |
+|---|------|-----------|--------|
+| 6 | macOS global menu bar + context menu (NSMenu) — missing (azul-paint demo) | dll macOS shell + core Menu API | BLOCKED→research |
+| 7 | Windows file DnD hover+drop (OLE IDropTarget; today legacy WM_DROPFILES drop-only) | dll windows shell | BLOCKED→research |
+| 8 | X11 file DnD (XDND protocol) — none today | dll x11 shell | BLOCKED→research |
+| 9 | Wayland file DnD (wl_data_device) — none today | dll wayland shell | BLOCKED→research |
+
+- Item 6 (macOS menu): convert azul `Menu`→`NSMenu` for BOTH `NSApplication.mainMenu` (app
+  bar, installed at launch) AND right-click context menu (`rightMouseDown:`→popup); wire
+  menu-item clicks back to azul callbacks via the existing objc2 target/ivar bridge. Check
+  existing `macos/menu.rs`/menu_state scaffolding + `MenuConversion` (superplan G7).
+- Items 7/8/9: file DnD as a drop *target* — declare support, handle enter/position(hover)/
+  leave/drop, extract `text/uri-list` (CF_HDROP on Windows), route through FileDropManager.
