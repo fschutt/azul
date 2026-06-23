@@ -13,12 +13,25 @@ file, following existing patterns); link the showcase on the releases page.
 | W2 | Maps jumbled-tiles fix | DONE — fractional-zoom contiguous tile sizing (map.rs) + f32→f64 MVT projection (mvt.rs); see W2 note |
 | W3 | Widget gap research | DONE (→ scripts/WIDGETS_RESEARCH.md) |
 | W4 | Build new widgets (queue below; one file each) | DONE — 24/24 widget queue complete (date_picker + time_picker finish Tier3) |
-| W5 | `azul-widgets` showcase demo crate (from widgets.c) | TODO (after W4) |
-| W6 | Release-page swap: remove spirit-level, add azul-widgets | TODO (after W5) |
+| W5 | `azul-widgets` showcase demo crate (from widgets.c) | **BLOCKED** — needs api.json export of the 24 new widgets first (see BLOCKER below); awaiting user decision |
+| W6 | Release-page swap: remove spirit-level, add azul-widgets | BLOCKED (depends on W5) |
 
-## CRON QUEUE ORDER (one item per fire; cron self-deletes when ALL done)
-1. **W2 maps fix** (spec below). 2. **W4 widgets** — lowest unchecked in the W4 queue, one per fire,
-per the recipe in `scripts/WIDGETS_RESEARCH.md`. 3. **W5 showcase**. 4. **W6 release-page swap**.
+## ⛔ BLOCKER (found 2026-06-23, cron PAUSED here) — W5/W6/export-wins all need api.json export
+`azul::widgets` / `azul::dom::Dom` that every Rust + C demo uses are GENERATED from api.json:
+dll/src/lib.rs:213 `include!(target/codegen/reexports.rs)`, and reexports.rs re-exports the FFI
+MIRROR types (`pub use crate::ffi::dll::Az* as *`), NOT azul_core/azul_layout (grep count = 0).
+So `azul::dom::Dom` == `AzDom` (a distinct `#[repr(C)]` mirror), and `azul::widgets::X` exists ONLY
+for widgets in api.json (export generates the `AzX` mirror + the `azul::widgets::X` re-export).
+The 24 new widgets are in `azul_layout::widgets` and produce `azul_core::dom::Dom` — a DIFFERENT type
+from the `AzDom` an `azul` app's layout callback returns. A direct azul-layout dep does NOT compose
+(type mismatch; only unsafe transmute would bridge it — unacceptable). ⇒ The showcase CANNOT display
+the new widgets until they're exported to api.json (via azul-doc autofix — the sanctioned tool, the
+"batch autofix later" the plan always intended). This unblocks W5 + W6 AND makes the widgets usable
+from C/widgets.c + every language binding. Decision needed: run that export now, or defer the showcase.
+
+## CRON QUEUE ORDER (one item per fire) — PAUSED at the BLOCKER above
+1. **W2 maps fix** (DONE). 2. **W4 widgets** (DONE 24/24). 3. **api.json export of 24 widgets** (NEW —
+the unblock step, pending user OK). 4. **W5 showcase**. 5. **W6 release-page swap**.
 
 ## W2 — maps jumbled tiles (do first)
 azul-maps tiles are present but jumbled/disconnected (no coherent map). Investigate the tile→screen
