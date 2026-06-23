@@ -603,11 +603,30 @@ fn render_metaballs_gpu(
 /// RenderImageCallback: produce the canvas image, re-rasterizing strokes only
 /// when `PaintState.rev` differs from the cache's `rendered_rev`.
 extern "C" fn render_canvas(mut data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
-    let size = info.get_bounds().get_physical_size();
+    // HiDPI: rasterize the canvas in LOGICAL pixels, NOT physical.
+    //
+    // The stroke MODEL is logical: the pointer callbacks hand us logical coords
+    // (`get_cursor_relative_to_node()` -> `CursorNodePosition`, documented as
+    // "logical pixels"; `PenState.position` is a `LogicalPosition`), and the SVG
+    // export (`strokes_to_svg`) treats `StrokePoint.x/y` as resolution-independent
+    // model units. So the raster canvas must live in that SAME logical space.
+    //
+    // Using `get_physical_size()` (= logical * hidpi) sized the buffer 2x larger on
+    // a 2.0 retina display, so a click at logical (x, y) was painted at pixel
+    // (x, y) of a 2x buffer; azul then scales that buffer down into the node's
+    // logical box, making the dab land at (x/2, y/2) — the ~2x offset bug. Sizing
+    // the buffer in logical pixels makes click -> painted-pixel exactly 1:1 on
+    // every DPI (on a 1.0 display logical == physical, so this changes nothing
+    // there). Trade-off: on HiDPI the canvas is rasterized at logical resolution
+    // and the compositor upscales it to the physical backing store (slightly softer
+    // than a native-retina canvas). To regain retina sharpness later, KEEP the
+    // model logical but multiply each point + brush radius by
+    // `get_bounds().get_hidpi_factor()` at raster time (CPU + GPU paths).
+    let size = info.get_bounds().get_logical_size();
+    let (w, h) = (size.width.max(1.0) as u32, size.height.max(1.0) as u32);
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
-        eprintln!("[paint] render_canvas bounds = {}x{}", size.width, size.height);
+        eprintln!("[paint] render_canvas logical size = {}x{}", w, h);
     }
-    let (w, h) = (size.width.max(1), size.height.max(1));
     let placeholder = ImageRef::null_image(w as usize, h as usize, RawImageFormat::RGBA8, U8VecRef::from(&[][..]));
     render_canvas_inner(&mut data, &mut info, w, h).unwrap_or(placeholder)
 }
