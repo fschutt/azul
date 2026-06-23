@@ -34,7 +34,9 @@ use crate::thread::{
 // --- User hook: on_frame (backreference DI, FFI-exposed) ---
 
 /// User hook fired once per captured audio chunk - the backreference DI pattern
-/// (see `architecture.md`). The widget's private writeback invokes it with each
+/// (see `architecture.md`).
+///
+/// The widget's private writeback invokes it with each
 /// [`AudioFrame`] so application code can save it, apply effects, or send it
 /// over the network (azul-meet). Returns `Update` like any callback. Wired via
 /// [`MicrophoneWidget::with_on_frame`].

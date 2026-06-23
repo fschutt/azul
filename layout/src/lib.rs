@@ -75,7 +75,9 @@ extern crate core;
 
 /// Web-lift diagnostic marker: a volatile store of `val` to the absolute wasm
 /// linear-memory address `addr` (the 0x40000–0xF0000 free band the e2e harness
-/// peeks via `AzStartup_peekU32`). Compiles to NOTHING without the `web_lift`
+/// peeks via `AzStartup_peekU32`).
+///
+/// Compiles to NOTHING without the `web_lift`
 /// feature — absolute-address stores would segfault native builds (macOS
 /// `__PAGEZERO` covers the low 4 GiB). All in-tree diagnostic markers MUST go
 /// through this helper rather than calling `core::ptr::write_volatile` on a

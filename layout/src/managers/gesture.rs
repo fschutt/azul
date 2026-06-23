@@ -388,7 +388,9 @@ impl Default for PenState {
 
 /// State of a Wacom-style tablet **pad** — the tablet body's own hardware
 /// controls, distinct from the pen ([`PenState`] already covers eraser /
-/// barrel button / barrel roll / tilt / pressure). Populated by the platform
+/// barrel button / barrel roll / tilt / pressure).
+///
+/// Populated by the platform
 /// backend (`dll/src/desktop/extra/wacom_pad/`: Wintab on Windows,
 /// libwacom+libinput on Linux, the driver's `NSEvent` tablet events on macOS).
 #[derive(Debug, Clone, Copy, PartialEq)]

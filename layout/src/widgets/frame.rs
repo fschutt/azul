@@ -1,6 +1,8 @@
 //! Frame widget — a titled border container similar to an HTML `<fieldset>`
-//! or a Windows group box. Renders a header with a centered title flanked by
-//! horizontal border lines, and a bordered content area below.
+//! or a Windows group box.
+//!
+//! Renders a header with a centered title flanked by horizontal border lines,
+//! and a bordered content area below.
 
 use azul_core::dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec};
 use azul_css::{

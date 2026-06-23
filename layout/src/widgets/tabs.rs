@@ -1,6 +1,8 @@
 //! Native-styled tab widget consisting of a [`TabHeader`] (the clickable tab bar)
-//! and [`TabContent`] (the panel shown for the active tab). Styling emulates
-//! the Windows-native tab control appearance via inline CSS constants.
+//! and [`TabContent`] (the panel shown for the active tab).
+//!
+//! Styling emulates the Windows-native tab control appearance via inline CSS
+//! constants.
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},

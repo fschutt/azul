@@ -82,7 +82,9 @@ const RUBY_BASE_CHAR_WIDTH_RATIO: f32 = 0.6;
 /// annotation so a long annotation is not clipped by a short base.
 const RUBY_ANNOTATION_FONT_SCALE: f32 = 0.5;
 
-/// Glyph storage for a single shaped cluster. Inline one glyph (the
+/// Glyph storage for a single shaped cluster.
+///
+/// Inline one glyph (the
 /// common case for Latin text), spill to heap for ligatures / combining
 /// marks / multi-glyph clusters. The `union` feature of smallvec packs
 /// the inline buffer and the heap pointer into the same bytes, so sizeof
@@ -7591,6 +7593,7 @@ const fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
 
 /// Gets the ascent (distance from baseline to top) and descent (distance from baseline to bottom)
 /// for a single item, incorporating half-leading from line-height.
+///
 // +spec:box-model:37aeb2 - inline box margins/borders/padding do not affect line box height (leading model)
 // +spec:display-property:184f0d - Inline box baseline derives from first available font metrics
 // +spec:display-property:238bf5 - Inline box layout bounds from own text metrics, not child boxes
@@ -9469,7 +9472,9 @@ fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: bool) -> f32 {
 // +spec:text-alignment-spacing:456643 - cursive scripts do not admit letter-spacing gaps
 /// Returns true if the cluster's first character belongs to a cursive script
 /// (Arabic, Syriac, Mongolian, N'Ko, Mandaic, Phags Pa, Hanifi Rohingya)
-/// per CSS Text 3 Appendix D. These scripts should not have letter-spacing applied.
+/// per CSS Text 3 Appendix D.
+///
+/// These scripts should not have letter-spacing applied.
 pub fn is_cursive_script_cluster(c: &ShapedCluster) -> bool {
     c.text.chars().next().is_some_and(is_cursive_script_char)
 }
@@ -9563,6 +9568,7 @@ const fn is_word_separator_char(c: char) -> bool {
 
 /// Helper to identify if an item is a zero-width space (U+200B),
 /// which provides a soft wrap opportunity with no visible width.
+///
 /// Used in scripts like Thai, Lao, and Khmer that don't use spaces between words.
 // +spec:line-breaking:fd3164 - U+200B as explicit word delimiter for scripts without space-separated words
 #[must_use] pub fn is_zero_width_space(item: &ShapedItem) -> bool {

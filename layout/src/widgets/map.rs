@@ -648,7 +648,9 @@ use crate::timer::{Timer, TimerCallback, TimerCallbackInfo};
 
 // --- User hook: on_viewport_changed (backreference DI, FFI-exposed) ---
 
-/// User hook fired when the user pans or zooms the map. Lets app code observe
+/// User hook fired when the user pans or zooms the map.
+///
+/// Lets app code observe
 /// or persist the widget-driven `MapViewport` (which otherwise lives only in
 /// the opaque `MapTileCache`). The backreference DI pattern (architecture.md).
 pub type MapViewportChangedCallbackType =
@@ -690,7 +692,9 @@ fn invoke_viewport_changed(
 // --- User hook: on_pin_tap (backreference DI, FFI-exposed) ---
 
 /// User hook fired when the user taps the map (a press + release at ~the same
-/// point, no pan/pinch). Receives the tapped [`MapLatLon`] (projected via
+/// point, no pan/pinch).
+///
+/// Receives the tapped [`MapLatLon`] (projected via
 /// [`MapWidget::latlon_at_px`]) so apps can drop a pin without wiring their own
 /// tap handling + projection. The backreference DI pattern (architecture.md).
 pub type MapPinTapCallbackType = extern "C" fn(RefAny, CallbackInfo, MapLatLon) -> Update;
@@ -987,7 +991,9 @@ fn pan_viewport(
 }
 
 /// Parse a standalone `<svg>…</svg>` string into a `Dom` subtree via
-/// the framework's existing XML→DOM path. The SVG is wrapped in a
+/// the framework's existing XML→DOM path.
+///
+/// The SVG is wrapped in a
 /// minimal `<html><body>` envelope because `str_to_dom_unstyled`
 /// expects a document root; the wrapper divs are zero-impact in
 /// layout. Returns `None` if the `xml` feature is off or parsing
@@ -1161,7 +1167,9 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
         .replace("{y}", &tile.y.to_string())
 }
 
-/// Worker-thread → main-thread writeback. `cache_dataset` is the
+/// Worker-thread → main-thread writeback.
+///
+/// `cache_dataset` is the
 /// `writeback_data` handed to `Thread::create` (the same
 /// `MapTileCache` the widget reads); `incoming` is the `TileReadyMsg`
 /// the worker sent. Stamps the tile `Ready` (or `Failed`) and asks for

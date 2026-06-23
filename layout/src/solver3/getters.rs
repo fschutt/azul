@@ -2503,7 +2503,7 @@ get_css_property!(
     }
 }
 
-/// // +spec:positioning:c31c24 - blockification is a computed-value change for absolute/float/root elements
+// +spec:positioning:c31c24 - blockification is a computed-value change for absolute/float/root elements
 /// Resolves the computed display value for an element, applying blockification
 /// rules per CSS Display Module Level 3 §2.7.
 // +spec:display-property:641ac5 - computed display value applies blockification/inlinification (not "as specified")
@@ -3652,7 +3652,9 @@ impl ResolvedFontChains {
     out
 }
 
-/// Like [`collect_used_codepoints`] but keeps ASCII. The fast-probe
+/// Like [`collect_used_codepoints`] but keeps ASCII.
+///
+/// The fast-probe
 /// path (`FcFontRegistry::request_fonts_fast`) *does* need ASCII:
 /// "the font has to cover every codepoint I will render" is only
 /// true if we tell it every codepoint, and "Segoe UI" not being
@@ -3734,7 +3736,9 @@ pub fn prune_chain_to_used_chars(
 
 /// Scan text-node content in `styled_dom` and return the subset of
 /// [`rust_fontconfig::DEFAULT_UNICODE_FALLBACK_SCRIPTS`] whose code-point
-/// ranges actually appear in any text. Short-circuits once all seven
+/// ranges actually appear in any text.
+///
+/// Short-circuits once all seven
 /// ranges have been seen.
 ///
 /// Callers pass the result as `scripts_hint` to
@@ -3803,7 +3807,9 @@ pub fn prune_chain_to_used_chars(
     resolve_font_chains_with_registry(collected, fc_cache, None, scripts_hint)
 }
 
-/// Registry-aware variant of [`resolve_font_chains`]. When `registry`
+/// Registry-aware variant of [`resolve_font_chains`].
+///
+/// When `registry`
 /// is `Some`, each chain resolution goes through
 /// [`rust_fontconfig::registry::FcFontRegistry::request_and_resolve_with_scripts`]
 /// which priority-bumps the builder for families not yet in the
@@ -4621,7 +4627,9 @@ impl ComputedScrollbarStyle {
 }
 
 /// Cached wrapper for [`get_scrollbar_style`] that reuses the
-/// memo stored on `LayoutContext`. The underlying call performs
+/// memo stored on `LayoutContext`.
+///
+/// The underlying call performs
 /// 9 cascade walks per node (track/thumb/button/corner/width/
 /// color/visibility/fade-delay/fade-duration). The BFC, Taffy,
 /// and display-list callers all hit the same node many times

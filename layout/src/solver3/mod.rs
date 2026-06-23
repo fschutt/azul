@@ -357,7 +357,9 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
 pub static SKIP_DISPLAY_LIST: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
-/// Set [`SKIP_DISPLAY_LIST`]. Provided as a function (rather than the
+/// Set [`SKIP_DISPLAY_LIST`].
+///
+/// Provided as a function (rather than the
 /// caller touching the static directly) so the web backend's
 /// `dll`-crate caller reaches it through a normal `bl` into this
 /// `azul_layout` function — keeping the static's address computation

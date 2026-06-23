@@ -144,22 +144,32 @@ pub mod frame;
 /// List view widget
 pub mod list_view;
 /// Shared core for the video-ish widgets (camera/screencap/video): the
-/// `VideoFrame` type + the GL-texture `present_frame` writeback. See
+/// `VideoFrame` type + the GL-texture `present_frame` writeback.
+///
+/// See
 /// `capture_common.rs`.
 pub mod capture_common;
 /// Camera-preview widget (P6) — a "dumb widget" owning a background capture
-/// thread + a GL-texture ImageRef; no camera logic in core. Same RefAny-
+/// thread + a GL-texture ImageRef; no camera logic in core.
+///
+/// Same RefAny-
 /// dataset + merge-callback design as the map widget. See `camera.rs`.
 pub mod camera;
 /// Screen-capture widget (P6) — identical "dumb widget" architecture to the
-/// camera widget, capturing a display/window instead. See `screencap.rs`.
+/// camera widget, capturing a display/window instead.
+///
+/// See `screencap.rs`.
 pub mod screencap;
 /// Video-playback widget (P6) — same "dumb widget" architecture, decoding a
-/// video source (vk-video) into a GL texture. See `video.rs`.
+/// video source (vk-video) into a GL texture.
+///
+/// See `video.rs`.
 pub mod video;
 /// Microphone-capture widget (P7) — same "dumb widget" architecture as the
 /// capture widgets, audio instead of video (no GL): a background thread feeds
-/// each `AudioFrame` to the user's `on_frame` hook. See `microphone.rs`.
+/// each `AudioFrame` to the user's `on_frame` hook.
+///
+/// See `microphone.rs`.
 pub mod microphone;
 /// Map widget — MVT tile + MapCSS → SVG → DOM (AzulMaps goal app, P3).
 ///

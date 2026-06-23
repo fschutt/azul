@@ -1341,7 +1341,9 @@ fn render_display_list_range(
     Some(damage)
 }
 
-/// Are two display lists visually identical? (same length, same item
+/// Are two display lists visually identical?
+///
+/// (same length, same item
 /// discriminants, every item `is_visually_equal`). Cheaper proxy than a
 /// structural hash, reusing the same per-item comparison the damage diff uses.
 #[must_use] pub fn display_lists_visually_equal(a: &DisplayList, b: &DisplayList) -> bool {

@@ -587,7 +587,9 @@ pub fn delete_forward(
 }
 
 /// Returns the range and text that a delete operation would remove, without
-/// actually modifying the content. Useful for callbacks that need to inspect
+/// actually modifying the content.
+///
+/// Useful for callbacks that need to inspect
 /// pending deletes. Returns `None` if nothing would be deleted.
 #[must_use] pub fn inspect_delete(
     content: &[InlineContent],

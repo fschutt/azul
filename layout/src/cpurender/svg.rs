@@ -67,7 +67,9 @@ pub fn render_svg_to_png(
 }
 
 /// Like [`render_svg_to_png`] but returns the rendered pixmap as an [`ImageRef`]
-/// (RGBA8) directly — no PNG round-trip. The `MapWidget` uses this to render each
+/// (RGBA8) directly — no PNG round-trip.
+///
+/// The `MapWidget` uses this to render each
 /// decoded tile SVG to a colour image node: `SvgNodeData::Path` in the DOM only
 /// produces a clip mask (not a filled shape), so reuse the same `render_svg_group`
 /// rasteriser the tiger uses (which reads SVG fill/stroke attrs) and embed the

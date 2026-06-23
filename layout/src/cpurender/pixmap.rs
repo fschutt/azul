@@ -518,7 +518,9 @@ pub struct AzRect {
     pub(crate) height: f32,
 }
 
-/// Intersect a freshly-pushed clip with the currently-active one. `None`
+/// Intersect a freshly-pushed clip with the currently-active one.
+///
+/// `None`
 /// means "no clip". An EMPTY intersection clips everything (zero-area rect) —
 /// it must NOT degrade to `None`/unclipped, or nested clips could escape
 /// their parents.

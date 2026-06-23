@@ -139,7 +139,9 @@ pub struct StyleBorderStyles {
 pub struct BorderBoxRect(pub LogicalRect);
 
 /// A `LogicalRect` known to be in **absolute window coordinates** (as output
-/// by the layout engine).  All spatial bounds stored in [`DisplayListItem`] use
+/// by the layout engine).
+///
+/// All spatial bounds stored in [`DisplayListItem`] use
 /// this type so that the compositor is *forced* to convert them to
 /// frame-relative coordinates before passing them to `WebRender`.
 ///

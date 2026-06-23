@@ -2614,6 +2614,7 @@ fn collect_box_props(
 }
 
 /// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 1:
+///
 /// "Remove all irrelevant boxes. These are boxes that do not contain table-related boxes
 /// and do not themselves have 'display' set to a table-related value. In this context,
 /// 'irrelevant boxes' means anonymous inline boxes that contain only white space."

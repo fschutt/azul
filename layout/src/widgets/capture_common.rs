@@ -26,7 +26,9 @@ use azul_css::props::basic::ColorU;
 use crate::callbacks::CallbackInfo;
 
 /// User hook fired once per captured/decoded frame - the backreference
-/// dependency-injection pattern (see `architecture.md`). A capture widget's
+/// dependency-injection pattern (see `architecture.md`).
+///
+/// A capture widget's
 /// private writeback invokes it with each [`VideoFrame`], so application code
 /// can apply effects, save the frame into its own data model, or send it over
 /// the network (azul-meet). Returns `Update` like any callback. Wired via
@@ -141,7 +143,9 @@ pub fn upload_rgba(gl: &GlContextPtr, texture_id: u32, frame: &VideoFrame) {
 
 /// A platform frame-capture backend (camera / screen), registered by the dll at
 /// startup so the cross-platform capture widgets can pull **real** frames
-/// instead of their built-in test pattern. The dll provides one per OS (v4l2 on
+/// instead of their built-in test pattern.
+///
+/// The dll provides one per OS (v4l2 on
 /// Linux, `AVFoundation` on macOS, Media Foundation on Windows, `ScreenCaptureKit` /
 /// `PipeWire` / DXGI for screens, ...). These are plain Rust fn pointers - the dll
 /// links azul-layout statically, so registering + calling is a Rust-to-Rust
@@ -186,7 +190,9 @@ pub fn screen_backend() -> Option<CaptureVTable> {
 }
 
 /// A platform **audio**-capture backend (microphone), registered by the dll so
-/// `MicrophoneWidget` can pull real samples instead of the test tone. Like
+/// `MicrophoneWidget` can pull real samples instead of the test tone.
+///
+/// Like
 /// [`CaptureVTable`] but yields interleaved `f32` audio rather than RGBA video.
 #[derive(Clone, Copy)]
 pub struct AudioCaptureVTable {
