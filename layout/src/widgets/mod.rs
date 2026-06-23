@@ -187,6 +187,8 @@ pub mod titlebar;
 pub mod tree_view;
 /// Switch / toggle widget — boolean on/off with a sliding knob; see `switch.rs`.
 pub mod switch;
+/// Divider / separator rule widget (horizontal or vertical); see `divider.rs`.
+pub mod divider;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 // /// Slider widget
