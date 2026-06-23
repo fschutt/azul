@@ -25,7 +25,7 @@ use crate::{
 /// per-rule via `CssRuleBlock::priority`; see [`rule_priority`] for the
 /// slot allocation. There is no separate `Stylesheet` wrapper — to merge
 /// two CSS sources, concatenate their `rules` and re-sort.
-#[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
+#[derive(Debug, Default, PartialEq, Clone)]
 #[repr(C)]
 pub struct Css {
     /// All rule blocks, in source order. Sort by `(priority, specificity)`
@@ -121,6 +121,13 @@ impl From<Vec<CssRuleBlock>> for Css {
 // length-based ordering so the derives keep working — the same pattern the
 // previous `CssPropertyWithConditionsVec` used.
 impl Eq for Css {}
+// PartialOrd delegates to the length-based Ord so the two agree (the derived
+// field-wise PartialOrd diverged from this manual Ord).
+impl PartialOrd for Css {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
 impl Ord for Css {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.rules.as_ref().len().cmp(&other.rules.as_ref().len())

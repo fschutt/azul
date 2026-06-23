@@ -11,7 +11,7 @@ fn cmp_f32(a: f32, b: f32) -> core::cmp::Ordering {
 }
 
 /// A 2D point for shape coordinates (using f32 for precision)
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct ShapePoint {
     pub x: f32,
@@ -35,6 +35,13 @@ impl ShapePoint {
 }
 
 impl Eq for ShapePoint {}
+
+// PartialOrd delegates to Ord (NaN-as-equal) so the two stay consistent.
+impl PartialOrd for ShapePoint {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 impl Ord for ShapePoint {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {

@@ -622,7 +622,7 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 impl_option!(bool, OptionBool, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-impl_option!(f32, OptionF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+impl_option!(f32, OptionF32, [Debug, Copy, Clone, PartialEq]);
 impl_option!(f64, OptionF64, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 // Manual implementations for Hash and Ord on OptionF32 (since f32 doesn't implement these traits)
@@ -639,6 +639,14 @@ impl core::hash::Hash for OptionF32 {
 }
 
 impl Eq for OptionF32 {}
+
+// Manual PartialOrd delegating to Ord keeps the two consistent (the derived
+// PartialOrd would diverge from the manual Ord — see derive_ord_xor_partial_ord).
+impl PartialOrd for OptionF32 {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 impl Ord for OptionF32 {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
