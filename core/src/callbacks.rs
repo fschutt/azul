@@ -252,6 +252,7 @@ pub struct VirtualViewCallbackInfo {
 }
 
 impl Clone for VirtualViewCallbackInfo {
+    #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
     fn clone(&self) -> Self {
         Self {
             reason: self.reason,
@@ -587,6 +588,7 @@ pub struct LayoutCallbackInfo {
 }
 
 impl Clone for LayoutCallbackInfo {
+    #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
     fn clone(&self) -> Self {
         Self {
             ref_data: self.ref_data,

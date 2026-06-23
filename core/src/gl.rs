@@ -1091,6 +1091,7 @@ void main() {
 /// (Retained for diagnostics; the version probe in `GlContextPtr::new` now does
 /// its own status checks.)
 #[allow(dead_code)]
+#[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
 fn check_shader_compile(gl_context: &GenericGlContext, shader: GLuint, _label: &str) {
     let mut status = [0_i32];
     unsafe { gl_context.get_shader_iv(shader, gl::COMPILE_STATUS, &mut status) };
@@ -1105,6 +1106,7 @@ fn check_shader_compile(gl_context: &GenericGlContext, shader: GLuint, _label: &
 
 /// Checks if a program linked successfully. Logs an error under `std`.
 #[allow(dead_code)]
+#[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
 fn check_program_link(gl_context: &GenericGlContext, program: GLuint, _label: &str) {
     let mut status = [0_i32];
     unsafe { gl_context.get_program_iv(program, gl::LINK_STATUS, &mut status) };

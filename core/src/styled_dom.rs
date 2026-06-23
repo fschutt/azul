@@ -354,6 +354,7 @@ impl StyledNodeVec {
 }
 
 #[test]
+#[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
 fn test_css_styling_with_nested_divs() {
     let s = "
         html, body, p {

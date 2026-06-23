@@ -189,6 +189,7 @@ impl Drop for RefCount {
     ///
     /// If this was the last reference (`num_copies` reaches 0), this will also
     /// free the `RefCountInner` and call the custom destructor.
+    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     fn drop(&mut self) {
         // Only decrement if run_destructor is true (meaning this is a clone)
         // and the pointer is valid
@@ -291,6 +292,7 @@ impl RefCount {
     /// Creates a debug snapshot of the current reference counts.
     ///
     /// Loads all atomic values with `SeqCst` ordering to get a consistent view.
+    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     pub(crate) fn debug_get_refcount_copied(&self) -> RefCountInnerDebug {
         let dc = self.downcast();
         RefCountInnerDebug {
@@ -679,6 +681,7 @@ impl RefAny {
     ///
     /// Special case: ZSTs use a null pointer but still track the type info
     /// and call the destructor (which may have side effects even for ZSTs).
+    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     pub fn new_c(
         // *const T
         ptr: *const c_void,
@@ -772,6 +775,7 @@ impl RefAny {
     /// The returned pointer must only be dereferenced after verifying
     /// the type ID matches the expected type. Callers are responsible
     /// for proper type safety checks.
+    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     #[must_use] pub fn get_data_ptr(&self) -> *const c_void {
         self.sharing_info.downcast()._internal_ptr
     }
@@ -779,6 +783,7 @@ impl RefAny {
     /// Returns the byte length of the type-erased payload behind
     /// [`Self::get_data_ptr`] (`size_of::<T>()` of the stored type;
     /// `0` for ZSTs).
+    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     #[must_use] pub fn get_data_len(&self) -> usize {
         self.sharing_info.downcast()._internal_len
     }
@@ -847,6 +852,7 @@ impl RefAny {
     /// simultaneously on the same `RefAny`. The borrow checker enforces this.
     /// Clones of the `RefAny` can call this independently (they share data
     /// but have separate runtime borrow tracking).
+    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     #[inline]
     pub fn downcast_ref<U: 'static>(&mut self) -> Option<Ref<'_, U>> {
         // Runtime type check: prevent downcasting to wrong type
@@ -913,6 +919,7 @@ impl RefAny {
     ///
     /// The `increase_refmut()` uses `SeqCst`, ensuring other threads see
     /// this mutable borrow before they try to acquire any borrow.
+    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     #[inline]
     pub fn downcast_mut<U: 'static>(&mut self) -> Option<RefMut<'_, U>> {
         // Runtime type check
@@ -1135,6 +1142,7 @@ impl RefAny {
     /// - The old destructor is called before deallocation
     /// - Memory is properly allocated with correct alignment
     /// - All metadata is updated while holding the lock
+    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     pub fn replace_contents(&mut self, new_value: Self) -> bool {
         use core::ptr;
 

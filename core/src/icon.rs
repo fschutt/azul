@@ -342,6 +342,7 @@ impl IconProviderHandle {
     }
 
     /// Debug lookup: returns detailed info about an icon's `RefAny` contents
+    #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
     #[must_use] pub fn debug_lookup(&self, icon_name: &str) -> AzString {
         use core::fmt::Write;
 
