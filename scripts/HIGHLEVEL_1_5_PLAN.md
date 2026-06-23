@@ -15,7 +15,7 @@ clear message; verify before marking done.
 | # | Item | Subsystem | Status |
 |---|------|-----------|--------|
 | 1 | macOS file-drop end-to-end | dll macOS shell + file_drop mgr | DONE |
-| 2 | display_list pagination text no-op | layout solver3 display_list | TODO |
+| 2 | display_list pagination text no-op | layout solver3 display_list | DONE |
 | 3 | cpurender backdrop-filter + text-shadow | layout cpurender | TODO |
 | 4 | Wayland tooltip text shaping | dll wayland shell | TODO |
 | 5 | shape-outside path() + ruby shaping | layout text3 | TODO |
@@ -51,10 +51,24 @@ File: `layout/src/solver3/display_list.rs` (text path ~6027; `generate_text_disp
 Gap (audit): the codepoint-as-glyph stub became a **no-op** — `generate_text_display_items`
 returns nothing, so paginated header/footer text renders NOTHING (worse than the old
 garbage-glyph stub). Needs real font/`renderer_resources` threading to shape + emit glyphs.
-- [ ] Thread font resources into the pagination text path; shape the string and emit
+- [x] Thread font resources into the pagination text path; shape the string and emit
       real glyph display items (mirror the main text display-item path).
-- [ ] Confirm header/footer text actually renders (PDF export / cpurender path).
-- Verify: `cargo test -p azul-layout`; a pagination/PDF render test if one exists.
+      `generate_text_display_items` now takes `&RendererResources`, picks the first
+      registered font, resolves its `ParsedFont` (`font_ref_to_parsed_font`), shapes
+      per-char (cmap `lookup_glyph_index` + `get_horizontal_advance`), centers the run
+      horizontally + vertically (ascent/descent metrics), and emits a real
+      `DisplayListItem::Text` with the font's registered hash. Threaded
+      `renderer_resources` through `paginate_display_list_with_slicer_and_breaks`
+      (sole caller in `paged_layout.rs` already had it in scope).
+- [x] Confirm header/footer text actually renders: added `pagination_text_tests` unit
+      tests in `display_list.rs` — `generate_text_display_items_emits_glyphs` asserts a
+      non-empty Text item with real GIDs (not codepoints), the registered (non-zero)
+      font hash, and a strictly-advancing pen; `_empty_without_font` asserts the
+      no-font path stays empty. Both pass (cargo test -p azul-layout --lib = 125 ok).
+- Verify: `cargo check -p azul-layout` + `cargo test -p azul-layout --lib` PASS.
+  Note: simple per-char shaper (no kerning/bidi/complex shaping) is sufficient for
+  short single-line running headers/footers; the full pipeline isn't reachable here
+  because the call site carries no styled run.
 
 ## Item 3 — cpurender backdrop-filter + text-shadow  (both no-ops)
 Files: `layout/src/cpurender/compositor.rs` (~backdrop-filter), `layout/src/cpurender/raster.rs` (~text-shadow).

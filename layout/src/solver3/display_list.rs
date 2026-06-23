@@ -5519,6 +5519,7 @@ impl SlicerConfig {
 pub fn paginate_display_list_with_slicer_and_breaks(
     full_display_list: DisplayList,
     config: &SlicerConfig,
+    renderer_resources: &RendererResources,
 ) -> Result<Vec<DisplayList>> {
     if config.page_content_height <= 0.0 || config.page_content_height >= f32::MAX {
         return Ok(vec![full_display_list]);
@@ -5604,6 +5605,7 @@ pub fn paginate_display_list_with_slicer_and_breaks(
                     config.header_footer.font_size,
                     config.header_footer.text_color,
                     TextAlignment::Center,
+                    renderer_resources,
                 );
                 for item in header_items {
                     page_items.push(item);
@@ -5701,6 +5703,7 @@ pub fn paginate_display_list_with_slicer_and_breaks(
                     config.header_footer.font_size,
                     config.header_footer.text_color,
                     TextAlignment::Center,
+                    renderer_resources,
                 );
                 for item in footer_items {
                     page_items.push(item);
@@ -6078,40 +6081,110 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
 
 /// Generate display list items for simple text (paginated headers/footers).
 ///
-/// TODO(superplan g4): paginated header/footer text is not rendered.
+/// Shapes `text` against a registered font (chosen from `renderer_resources`)
+/// and emits a single [`DisplayListItem::Text`] whose glyph indices are the
+/// font's real GIDs and whose `font_hash` is the font's registered hash, so the
+/// renderer (`cpurender::render_text`) can resolve and paint it.
 ///
-/// The previous implementation fabricated a `DisplayListItem::Text` whose glyph
-/// `index` was the Unicode *codepoint* (`c as u32`) and whose `font_hash` was
-/// `FontHash::from_hash(0)`. Both are invalid: glyph indices are font-specific
-/// (a font's cmap maps codepoint → GID), and hash 0 matches no registered font,
-/// so `cpurender::render_text` resolves no font, logs "Font hash 0 not found"
-/// and paints nothing. The output was therefore invisible *and* noisy — worse
-/// than emitting nothing — so the fabrication is removed here.
+/// This is a deliberately simple shaper for short, single-line running
+/// headers/footers (e.g. "Page 1 of 3"): per-character cmap lookup + horizontal
+/// advance, no complex shaping / kerning / bidi. The full text pipeline is not
+/// used because the pagination call site does not carry a styled run — only the
+/// header/footer string and a font size/color.
 ///
-/// A correct implementation needs a real font, which the pagination API does not
-/// currently carry: `HeaderFooterConfig` has `font_size`/`text_color` but no
-/// font, and `paginate_display_list_with_slicer_and_breaks` (the sole caller, in
-/// `solver3/paged_layout.rs`) has `renderer_resources` in scope but does not
-/// thread it in. To finish:
-///   1. Add the chosen font (or its registered `u64` hash) to
-///      `HeaderFooterConfig` / `SlicerConfig`, and thread `renderer_resources`
-///      (already available in `paged_layout.rs`) into this function.
-///   2. Shape the string against that `ParsedFont`: for each char,
-///      `lookup_glyph_index(c as u32)` gives the GID, advancing the pen by
-///      `get_horizontal_advance(gid) as f32 * font_size / units_per_em`.
-///   3. Emit a `DisplayListItem::Text` with those real GIDs and the font's
-///      registered hash so the renderer can resolve and paint it.
+/// History: a previous stub fabricated glyphs whose `index` was the Unicode
+/// *codepoint* and whose `font_hash` was `0`, which matched no registered font
+/// (the renderer logged "Font hash 0 not found" and painted nothing). A later
+/// revision returned an empty list. Both rendered no header/footer text; this
+/// emits real glyphs.
 ///
-/// Until then this returns nothing rather than unresolvable glyph soup.
+/// Returns an empty list only when `text` is empty, no font is registered, or
+/// the chosen font has degenerate metrics (`units_per_em == 0`).
 fn generate_text_display_items(
     text: &str,
     bounds: LogicalRect,
     font_size: f32,
     color: ColorU,
     alignment: TextAlignment,
+    renderer_resources: &RendererResources,
 ) -> Vec<DisplayListItem> {
-    let _ = (text, bounds, font_size, color, alignment);
-    Vec::new()
+    if text.is_empty() || font_size <= 0.0 {
+        return Vec::new();
+    }
+
+    // Pick the first registered font. Running headers/footers do not carry a
+    // styled run, so there is no per-node font family to resolve; the document's
+    // registered font is a reasonable choice for the page furniture.
+    let Some((_font_key, (font_ref, _instances))) =
+        renderer_resources.currently_registered_fonts.iter().next()
+    else {
+        return Vec::new();
+    };
+
+    let parsed = crate::font_ref_to_parsed_font(font_ref);
+    let units_per_em = parsed.font_metrics.units_per_em as f32;
+    if units_per_em <= 0.0 {
+        return Vec::new();
+    }
+    let scale = font_size / units_per_em;
+    let font_hash = parsed.hash;
+
+    // First pass: shape (cmap lookup + advance) and accumulate total width.
+    let mut shaped: Vec<(u16, f32)> = Vec::new(); // (glyph_id, advance_px)
+    let mut total_width = 0.0f32;
+    for c in text.chars() {
+        let gid = parsed.lookup_glyph_index(c as u32).unwrap_or(0);
+        let advance = parsed.get_horizontal_advance(gid) as f32 * scale;
+        shaped.push((gid, advance));
+        total_width += advance;
+    }
+
+    if shaped.is_empty() {
+        return Vec::new();
+    }
+
+    // Horizontal placement within the box.
+    let start_x = match alignment {
+        TextAlignment::Center => bounds.origin.x + (bounds.size.width - total_width) * 0.5,
+        TextAlignment::Right => bounds.origin.x + (bounds.size.width - total_width),
+        _ => bounds.origin.x,
+    };
+
+    // Vertical placement: center the text's em-box in the header/footer band and
+    // place the baseline accordingly (point.y is the glyph baseline).
+    let ascent_px = parsed.font_metrics.ascent * scale;
+    let descent_px = parsed.font_metrics.descent * scale; // hhea descender, usually negative
+    let text_height = ascent_px - descent_px;
+    let baseline_y = bounds.origin.y + (bounds.size.height - text_height) * 0.5 + ascent_px;
+
+    let mut pen_x = start_x;
+    let mut glyphs: Vec<GlyphInstance> = Vec::with_capacity(shaped.len());
+    for (gid, advance) in shaped {
+        let size = parsed
+            .get_glyph_size(gid, font_size)
+            .unwrap_or(LogicalSize {
+                width: advance,
+                height: font_size,
+            });
+        glyphs.push(GlyphInstance {
+            index: gid as u32,
+            point: LogicalPosition {
+                x: pen_x,
+                y: baseline_y,
+            },
+            size,
+        });
+        pen_x += advance;
+    }
+
+    vec![DisplayListItem::Text {
+        glyphs,
+        font_hash: FontHash::from_hash(font_hash),
+        font_size_px: font_size,
+        color,
+        clip_rect: bounds.into(),
+        source_node_index: None,
+    }]
 }
 
 /// Calculate the total height of a display list (max Y + height of all items).
@@ -6521,4 +6594,106 @@ fn rasterize_svg_clip_to_r8(
         data_format: RawImageFormat::R8,
         tag: Vec::new().into(),
     })
+}
+
+#[cfg(test)]
+mod pagination_text_tests {
+    use super::*;
+    use crate::font::parsed::ParsedFont;
+    use azul_core::resources::{FontKey, IdNamespace};
+
+    /// Loads a system font for testing, retaining source bytes so advances work.
+    fn load_test_font() -> Option<ParsedFont> {
+        let candidates = [
+            "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+        ];
+        for path in candidates {
+            if let Ok(bytes) = std::fs::read(path) {
+                let arc = std::sync::Arc::new(rust_fontconfig::FontBytes::Owned(
+                    std::sync::Arc::from(bytes.as_slice()),
+                ));
+                if let Some(font) =
+                    ParsedFont::from_bytes(&bytes, 0, &mut Vec::new()).map(|f| f.with_source_bytes(arc))
+                {
+                    return Some(font);
+                }
+            }
+        }
+        None
+    }
+
+    fn renderer_resources_with(font: ParsedFont) -> RendererResources {
+        let mut rr = RendererResources::default();
+        let font_ref = crate::parsed_font_to_font_ref(font);
+        let key = FontKey::unique(IdNamespace(0));
+        let hash = crate::font_ref_to_parsed_font(&font_ref).hash;
+        rr.font_hash_map.insert(hash, key);
+        rr.currently_registered_fonts
+            .insert(key, (font_ref, Default::default()));
+        rr
+    }
+
+    /// The pagination header/footer text path must emit real glyph display items
+    /// (the audit flagged it as a no-op rendering nothing).
+    #[test]
+    fn generate_text_display_items_emits_glyphs() {
+        let Some(font) = load_test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let expected_hash = font.hash;
+        let rr = renderer_resources_with(font);
+
+        let bounds = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 400.0, height: 30.0 },
+        };
+        let items = generate_text_display_items(
+            "Page 1 of 3",
+            bounds,
+            14.0,
+            ColorU { r: 0, g: 0, b: 0, a: 255 },
+            TextAlignment::Center,
+            &rr,
+        );
+
+        assert_eq!(items.len(), 1, "expected exactly one Text item");
+        match &items[0] {
+            DisplayListItem::Text { glyphs, font_hash, color, .. } => {
+                assert_eq!(glyphs.len(), "Page 1 of 3".chars().count());
+                assert_eq!(font_hash.font_hash, expected_hash, "must use registered font hash");
+                assert_ne!(font_hash.font_hash, 0, "hash 0 resolves no font");
+                assert_eq!(color.a, 255);
+                // Glyph IDs must be real (cmap-resolved), not raw codepoints.
+                let p_gid = glyphs[0].index;
+                assert_ne!(p_gid, 'P' as u32, "glyph index must be a GID, not a codepoint");
+                // Pen must advance: x coordinates strictly increase across the run.
+                assert!(glyphs[1].point.x > glyphs[0].point.x, "pen did not advance");
+            }
+            other => panic!("expected DisplayListItem::Text, got {other:?}"),
+        }
+    }
+
+    /// With no registered fonts there is nothing to shape against -> empty.
+    #[test]
+    fn generate_text_display_items_empty_without_font() {
+        let rr = RendererResources::default();
+        let bounds = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 400.0, height: 30.0 },
+        };
+        let items = generate_text_display_items(
+            "Header",
+            bounds,
+            14.0,
+            ColorU { r: 0, g: 0, b: 0, a: 255 },
+            TextAlignment::Center,
+            &rr,
+        );
+        assert!(items.is_empty());
+    }
 }

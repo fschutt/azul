@@ -351,6 +351,7 @@ where
     let pages = paginate_display_list_with_slicer_and_breaks(
         full_display_list,
         &slicer_config,
+        renderer_resources,
     )?;
 
     if let Some(msgs) = ctx.debug_messages {
