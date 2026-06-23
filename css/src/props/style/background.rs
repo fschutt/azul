@@ -338,7 +338,7 @@ impl fmt::Display for RadialGradientSize {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NormalizedLinearColorStop {
     pub offset: PercentageValue,
@@ -385,7 +385,7 @@ impl PrintAsCssValue for NormalizedLinearColorStop {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NormalizedRadialColorStop {
     pub angle: AngleValue,

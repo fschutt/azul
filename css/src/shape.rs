@@ -65,7 +65,7 @@ impl_vec_eq!(ShapePoint, ShapePointVec);
 impl_vec_hash!(ShapePoint, ShapePointVec);
 
 /// A circle shape defined by center point and radius
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct ShapeCircle {
     pub center: ShapePoint,
@@ -97,7 +97,7 @@ impl Ord for ShapeCircle {
 }
 
 /// An ellipse shape defined by center point and two radii
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct ShapeEllipse {
     pub center: ShapePoint,
@@ -142,7 +142,7 @@ pub struct ShapePolygon {
 
 /// An inset rectangle with optional border radius
 /// Defined by insets from the reference box edges
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct ShapeInset {
     pub inset_top: f32,
