@@ -228,5 +228,10 @@ pub mod combobox;
 /// Modal / dialog widget — an in-app overlay dialog (backdrop + centred panel +
 /// arbitrary content), shown/hidden via state toggle; see `modal.rs`.
 pub mod modal;
+/// Toast / snackbar widget — a transient floating notification banner pinned to a
+/// corner, manually dismissed via "×" (auto-timeout needs a host timer — see the
+/// file's TODO2); a near-clone of `alert.rs` positioned as an overlay; see
+/// `toast.rs`.
+pub mod toast;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
