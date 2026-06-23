@@ -5004,8 +5004,6 @@ impl CssProperty {
             Self::BorderSpacing(_) => CssPropertyType::BorderSpacing,
             Self::CaptionSide(_) => CssPropertyType::CaptionSide,
             Self::EmptyCells(_) => CssPropertyType::EmptyCells,
-            Self::FontWeight(_) => CssPropertyType::FontWeight,
-            Self::FontStyle(_) => CssPropertyType::FontStyle,
         }
     }
 

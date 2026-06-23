@@ -1132,15 +1132,13 @@ pub fn parse_css_color(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
                 _ => unreachable!(),
             },
             Err(e) => match e {
-                ParenthesisParseError::UnclosedBraces => {
+                ParenthesisParseError::UnclosedBraces
+                | ParenthesisParseError::NoClosingBraceFound => {
                     Err(CssColorParseError::UnclosedColor(input))
                 }
                 ParenthesisParseError::EmptyInput => Err(CssColorParseError::EmptyInput),
                 ParenthesisParseError::StopWordNotFound(stopword) => {
                     Err(CssColorParseError::InvalidFunctionName(stopword))
-                }
-                ParenthesisParseError::NoClosingBraceFound => {
-                    Err(CssColorParseError::UnclosedColor(input))
                 }
                 ParenthesisParseError::NoOpeningBraceFound => parse_color_builtin(input),
             },
@@ -1412,7 +1410,7 @@ fn parse_color_builtin(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
     let (r, g, b, a) = match input.to_lowercase().as_str() {
         "aliceblue" => (240, 248, 255, 255),
         "antiquewhite" => (250, 235, 215, 255),
-        "aqua" => (0, 255, 255, 255),
+        "aqua" | "cyan" => (0, 255, 255, 255),
         "aquamarine" => (127, 255, 212, 255),
         "azure" => (240, 255, 255, 255),
         "beige" => (245, 245, 220, 255),
@@ -1430,7 +1428,6 @@ fn parse_color_builtin(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
         "cornflowerblue" => (100, 149, 237, 255),
         "cornsilk" => (255, 248, 220, 255),
         "crimson" => (220, 20, 60, 255),
-        "cyan" => (0, 255, 255, 255),
         "darkblue" => (0, 0, 139, 255),
         "darkcyan" => (0, 139, 139, 255),
         "darkgoldenrod" => (184, 134, 11, 255),
@@ -1455,7 +1452,7 @@ fn parse_color_builtin(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
         "firebrick" => (178, 34, 34, 255),
         "floralwhite" => (255, 250, 240, 255),
         "forestgreen" => (34, 139, 34, 255),
-        "fuchsia" => (255, 0, 255, 255),
+        "fuchsia" | "magenta" => (255, 0, 255, 255),
         "gainsboro" => (220, 220, 220, 255),
         "ghostwhite" => (248, 248, 255, 255),
         "gold" => (255, 215, 0, 255),
@@ -1489,7 +1486,6 @@ fn parse_color_builtin(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
         "lime" => (0, 255, 0, 255),
         "limegreen" => (50, 205, 50, 255),
         "linen" => (250, 240, 230, 255),
-        "magenta" => (255, 0, 255, 255),
         "maroon" => (128, 0, 0, 255),
         "mediumaquamarine" => (102, 205, 170, 255),
         "mediumblue" => (0, 0, 205, 255),

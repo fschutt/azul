@@ -549,6 +549,9 @@ impl PixelValue {
 
             // Percent units - reference depends on property type
             SizeMetric::Percent => {
+                // Width and Other deliberately both resolve to containing-block width but are
+                // kept as separate arms for documentation / likely future divergence.
+                #[allow(clippy::match_same_arms)]
                 let reference = match property_context {
                     // Font-size %: refers to parent's font-size (CSS 2.1 §15.7)
                     PropertyContext::FontSize => context.parent_font_size,
