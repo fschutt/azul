@@ -196,7 +196,7 @@ env — NOT global, which leaks into host build scripts). FileDropManager hooks:
 |---|------|-----------|--------|
 | 6 | macOS global menu bar + context menu (NSMenu) — missing (azul-paint demo) | dll macOS shell + core Menu API | DONE |
 | 7 | Windows file DnD hover+drop (OLE IDropTarget; today legacy WM_DROPFILES drop-only) | dll windows shell | DONE |
-| 8 | X11 file DnD (XDND protocol) — none today | dll x11 shell | DONE (drop+hover via XDND v5; >3-type XdndTypeList read = TODO2) |
+| 8 | X11 file DnD (XDND protocol) — none today | dll x11 shell | DONE (drop+hover via XDND v5; >3-type XdndTypeList read + real hover path both wired) |
 | 9 | Wayland file DnD (wl_data_device) — none today | dll wayland shell | DONE (drop+hover via wl_data_device v3; compile-verified, needs live Wayland session to runtime-test) |
 
 ## Item 9 — Wayland file DnD as a drop target (wl_data_device, recipe D)  (DONE)
@@ -258,10 +258,18 @@ cross-platform `FileDropManager`.
       `handle_file_drop(pos,paths)` (take an explicit window-local position because XDND delivers
       no motion events during a drag; otherwise mirror macOS — save-prev-state →
       hovered/dropped-file → hit-test → `process_window_events(0)` → one-shot clear).
-- TODO2: sources offering **>3 types** advertise them in the `XdndTypeList` property rather than
-  `l[2..5]`; the long-list read is not implemented (we only scan the inline 3 slots — `text/uri-list`
-  is almost always among the first 3). Hover passes a `"<file>"` placeholder path because XDND does
-  not expose the real paths until the drop (only the drop carries them).
+- [x] **>3-type long list (was TODO2, now done):** when `XdndEnter` `data.l[1]` bit0 is set, the
+      source advertises >3 types in the `XdndTypeList` property on the SOURCE window — `xdnd_type_list_has_uri`
+      reads it (`XGetWindowProperty` type `XA_ATOM`, up to 1024 atoms, format 32) and scans for
+      `text/uri-list` (XFree'd). The inline `l[2..5]` scan is kept for the common ≤3-type case.
+- [x] **Real hover path (was TODO2, now done):** on `XdndEnter` (when uri-list accepted) we
+      speculatively `XConvertSelection(text/uri-list)` with `CurrentTime` so the path arrives before
+      the drop. `XdndState.pending_drop` distinguishes the HOVER fetch from the DROP fetch in
+      `handle_xdnd_selection_notify`: hover → cache `hover_paths` + re-fire hover with the real path
+      (no `XdndFinished`); drop → `FileDrop` + `XdndFinished` as before. `XdndPosition` hovers the
+      cached real path if present, else the `"<file>"` placeholder. Robust: if the source exposes no
+      data until drop (hover conversion empty), the placeholder is kept and the drop conversion still
+      gets the real path. No residual TODO2.
 - Verify: `cargo check --target x86_64-unknown-linux-gnu -p azul-dll --features build-dll` PASSES
   (0 errors; target-scoped cross toolchain). Runtime drag-onto-window needs a real X11 session.
 

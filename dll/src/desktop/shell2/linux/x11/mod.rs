@@ -653,6 +653,15 @@ struct XdndState {
     /// Last hover position in WINDOW-LOCAL coordinates (from `XdndPosition`),
     /// reused as the drop point because `XdndDrop` carries no coordinates.
     last_pos: LogicalPosition,
+    /// True only between `XdndDrop` and the matching `SelectionNotify`, so the
+    /// `SelectionNotify` handler can tell a DROP conversion (→ `FileDrop` +
+    /// `XdndFinished`) apart from a speculative HOVER conversion (→ re-fire the
+    /// hover with the real path, no `XdndFinished`).
+    pending_drop: bool,
+    /// Paths obtained from the speculative HOVER conversion (empty until the
+    /// hover `SelectionNotify` arrives, or if the source only exposes data at
+    /// drop time). Reused by `XdndPosition` so hover shows the real path.
+    hover_paths: Vec<String>,
 }
 
 impl XdndState {
@@ -677,6 +686,8 @@ impl XdndState {
             source_version: 0,
             type_ok: false,
             last_pos: LogicalPosition::new(0.0, 0.0),
+            pending_drop: false,
+            hover_paths: Vec::new(),
         }
     }
 }
@@ -2488,15 +2499,11 @@ impl X11Window {
             let version = (data[1] >> 24) & 0xFF;
             let mut type_ok = false;
             if more_than_three {
-                // TODO2: read the full XdndTypeList property for sources offering
-                // >3 types. Most file managers list <=3 types (text/uri-list is
-                // usually first), so the common case is covered by the inline
-                // l[2..5] scan below; the long-list path is left unimplemented.
-                for i in 2..5 {
-                    if data[i] as Atom == self.xdnd.uri_list {
-                        type_ok = true;
-                    }
-                }
+                // Source offers >3 types: the full list lives in the `XdndTypeList`
+                // property (type `XA_ATOM`) on the SOURCE window — scan it for
+                // `text/uri-list`. (data.l[2..5] still hold the first 3 types but
+                // are not guaranteed to include uri-list when bit0 is set.)
+                type_ok = self.xdnd_type_list_has_uri(source);
             } else {
                 for i in 2..5 {
                     if data[i] as Atom == self.xdnd.uri_list {
@@ -2507,6 +2514,8 @@ impl X11Window {
             self.xdnd.source = source;
             self.xdnd.source_version = version;
             self.xdnd.type_ok = type_ok;
+            self.xdnd.pending_drop = false;
+            self.xdnd.hover_paths.clear();
             log_debug!(
                 LogCategory::Window,
                 "[X11 XDND] Enter from 0x{:x} version={} uri_list_supported={}",
@@ -2514,6 +2523,23 @@ impl X11Window {
                 version,
                 type_ok
             );
+            // Speculatively convert the selection NOW (HOVER fetch) so hover can
+            // show the real path before the drop. Sources that only expose data
+            // at drop time return nothing here; we fall back to the placeholder.
+            // The reply arrives as a `SelectionNotify` (handled below).
+            if type_ok {
+                unsafe {
+                    (self.xlib.XConvertSelection)(
+                        self.display,
+                        self.xdnd.selection,
+                        self.xdnd.uri_list,
+                        self.xdnd.drop_property,
+                        self.window,
+                        defines::CurrentTime,
+                    );
+                    (self.xlib.XFlush)(self.display);
+                }
+            }
             ProcessEventResult::DoNothing
         } else if mtype == self.xdnd.position {
             // data.l[0] = source, data.l[2] = (x<<16)|y root coords,
@@ -2540,12 +2566,20 @@ impl X11Window {
                 return ProcessEventResult::DoNothing;
             }
 
-            // Drive the hover (FileHover). XDND does not expose paths until the
-            // drop, so we hover a placeholder marker so FileHover fires.
-            self.handle_file_drag_entered(local, vec!["<file>".to_string()])
+            // Drive the hover (FileHover). If the speculative Enter conversion
+            // already delivered the real path(s) (`hover_paths`), hover those;
+            // otherwise hover a placeholder marker so FileHover still fires.
+            let hover = if self.xdnd.hover_paths.is_empty() {
+                vec!["<file>".to_string()]
+            } else {
+                self.xdnd.hover_paths.clone()
+            };
+            self.handle_file_drag_entered(local, hover)
         } else if mtype == self.xdnd.leave {
             self.xdnd.source = 0;
             self.xdnd.type_ok = false;
+            self.xdnd.pending_drop = false;
+            self.xdnd.hover_paths.clear();
             self.handle_file_drag_exited()
         } else if mtype == self.xdnd.drop {
             // data.l[0] = source, data.l[2] = timestamp.
@@ -2553,7 +2587,11 @@ impl X11Window {
             let time = data[2] as Time;
             if self.xdnd.type_ok {
                 // Ask the source to write text/uri-list into our drop property.
-                // Do NOT read the property now — wait for SelectionNotify.
+                // Do NOT read the property now — wait for SelectionNotify. Mark
+                // this conversion as the DROP fetch (vs the speculative HOVER
+                // fetch armed on Enter) so SelectionNotify emits FileDrop +
+                // XdndFinished. Uses the drop timestamp from data.l[2].
+                self.xdnd.pending_drop = true;
                 unsafe {
                     (self.xlib.XConvertSelection)(
                         self.display,
@@ -2590,7 +2628,20 @@ impl X11Window {
 
         let paths = self.xdnd_read_uri_list(sel.property);
 
-        // Notify the source we finished (accepted = data.l[1] bit0).
+        if !self.xdnd.pending_drop {
+            // HOVER fetch (armed on XdndEnter): cache the real path(s) and
+            // re-fire the hover with them. Do NOT send XdndFinished — the drag
+            // is still in progress. If nothing came back, keep the placeholder
+            // (some sources only expose data at drop time).
+            if paths.is_empty() {
+                return ProcessEventResult::DoNothing;
+            }
+            self.xdnd.hover_paths = paths.clone();
+            let pos = self.xdnd.last_pos;
+            return self.handle_file_drag_entered(pos, paths);
+        }
+
+        // DROP fetch: notify the source we finished (accepted = data.l[1] bit0).
         let source = self.xdnd.source;
         if source != 0 {
             let accepted = !paths.is_empty();
@@ -2605,6 +2656,8 @@ impl X11Window {
         }
         self.xdnd.source = 0;
         self.xdnd.type_ok = false;
+        self.xdnd.pending_drop = false;
+        self.xdnd.hover_paths.clear();
 
         if paths.is_empty() {
             return ProcessEventResult::DoNothing;
@@ -2648,6 +2701,54 @@ impl X11Window {
             }
         }
         paths
+    }
+
+    /// Read the `XdndTypeList` property (type `XA_ATOM`) from the SOURCE window
+    /// and report whether it advertises `text/uri-list`. Used for the long-list
+    /// path of `XdndEnter` (when `data.l[1]` bit0 is set, the source offers >3
+    /// types and the inline `l[2..5]` slots are insufficient).
+    fn xdnd_type_list_has_uri(&self, source: Window) -> bool {
+        let mut found = false;
+        unsafe {
+            let mut actual_type: Atom = 0;
+            let mut actual_format: c_int = 0;
+            let mut nitems: c_ulong = 0;
+            let mut bytes_after: c_ulong = 0;
+            let mut prop_data: *mut u8 = std::ptr::null_mut();
+            // Request up to 1024 atoms (`long_length` is in 32-bit units).
+            let status = (self.xlib.XGetWindowProperty)(
+                self.display,
+                source,
+                self.xdnd.type_list,
+                0,
+                1024,
+                0, // delete = false
+                defines::XA_ATOM,
+                &mut actual_type,
+                &mut actual_format,
+                &mut nitems,
+                &mut bytes_after,
+                &mut prop_data,
+            );
+            if status == 0
+                && actual_type == defines::XA_ATOM
+                && actual_format == 32
+                && !prop_data.is_null()
+                && nitems > 0
+            {
+                // 32-bit-format properties are returned as an array of C `long`
+                // (Atom = c_ulong), one per item, per Xlib convention.
+                let atoms = std::slice::from_raw_parts(
+                    prop_data as *const Atom,
+                    nitems as usize,
+                );
+                found = atoms.iter().any(|&a| a == self.xdnd.uri_list);
+            }
+            if !prop_data.is_null() {
+                (self.xlib.XFree)(prop_data as *mut c_void);
+            }
+        }
+        found
     }
 
     /// One-time `size_to_content`: lay the DOM out at a tiny viewport so the
