@@ -6163,7 +6163,7 @@ fn calculate_row_heights<T: ParsedFontTrait>(
             // +spec:box-model:0ab9b0 - empty-cells:hide suppresses borders/backgrounds, row gets zero height if all cells hidden+empty
             // Check if ALL cells in this row have empty-cells:hide and are empty
             let all_hidden_empty = row_cells.iter().all(|&cell_idx| {
-                tree.get(cell_idx).map_or(true, |cell_node| {
+                tree.get(cell_idx).is_none_or(|cell_node| {
                     let ec = get_empty_cells_property(ctx, cell_node);
                     ec == StyleEmptyCells::Hide && is_cell_empty(tree, cell_idx)
                 })

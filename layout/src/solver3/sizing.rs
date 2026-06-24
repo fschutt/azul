@@ -922,7 +922,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             let wrap_prop = crate::solver3::getters::get_flex_wrap_prop(
                 self.ctx.styled_dom, dom_id, node_state,
             );
-            wrap_prop.map_or(true, |val| matches!(
+            wrap_prop.is_none_or(|val| matches!(
                     val.get_property_or_default().unwrap_or_default(),
                     LayoutFlexWrap::NoWrap
                 ))

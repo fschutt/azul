@@ -2571,7 +2571,7 @@ StyleVisibility::Collapse) => true,
                 .ok_or(LayoutError::InvalidTree)?;
 
             // Check if this child is being dragged (paint last for z-order)
-            let is_dragging = child_node.dom_node_id.map_or(false, |dom_id| {
+            let is_dragging = child_node.dom_node_id.is_some_and(|dom_id| {
                 let styled_node_state = self.get_styled_node_state(dom_id);
                 styled_node_state.dragging
             });
@@ -2863,7 +2863,7 @@ StyleVisibility::Collapse) => true,
             #[cfg(feature = "cpurender")]
             Some(azul_core::dom::SvgNodeData::Path(svg_clip)) => {
                 let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
-                rasterize_svg_clip_to_r8(svg_clip, &paint_rect).map_or(false, |mask_image| {
+                rasterize_svg_clip_to_r8(svg_clip, &paint_rect).is_some_and(|mask_image| {
                     builder.push_image_mask_clip(paint_rect, mask_image, paint_rect);
                     true
                 })
@@ -2929,7 +2929,7 @@ StyleVisibility::Collapse) => true,
         // This is evaluated before overflow clips; both can be active simultaneously.
         let has_clip_path = super::getters::get_clip_path(
             self.ctx.styled_dom, dom_id, &styled_node_state,
-        ).map_or(false, |clip_path| if let Some((clip_rect, radius)) = resolve_clip_path(&clip_path, paint_rect) {
+        ).is_some_and(|clip_path| if let Some((clip_rect, radius)) = resolve_clip_path(&clip_path, paint_rect) {
                 let br = if radius > 0.0 {
                     BorderRadius {
                         top_left: radius,

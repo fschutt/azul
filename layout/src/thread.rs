@@ -536,7 +536,7 @@ impl Thread {
     /// if the channel is closed (or always, on `no_std`).
     #[cfg(feature = "std")]
     #[must_use] pub fn send_message(&self, msg: ThreadSendMsg) -> bool {
-        self.ptr.lock().map_or(false, |inner| inner.sender.send(msg).is_ok())
+        self.ptr.lock().is_ok_and(|inner| inner.sender.send(msg).is_ok())
     }
     #[cfg(not(feature = "std"))]
     pub fn send_message(&self, _msg: ThreadSendMsg) -> bool {

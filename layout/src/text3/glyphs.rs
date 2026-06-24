@@ -353,7 +353,7 @@ pub struct PdfPositionedGlyph {
             // Font hash change = font change (shaping must break per spec).
             // Border/background change = margin/border/padding non-zero (shaping must break).
             // Text-decoration change = rendering-only break (shaping unaffected per spec).
-            let should_break = current_run.as_ref().map_or(false, |run| run.font_hash != font_hash
+            let should_break = current_run.as_ref().is_some_and(|run| run.font_hash != font_hash
                     || run.color != glyph_color
                     || run.background_color != glyph_background
                     || run.font_size_px != font_size_px

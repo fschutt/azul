@@ -67,7 +67,7 @@ impl BlinkState {
     /// Check if enough time has passed since last input to start blinking.
     #[must_use] pub fn should_blink(&self, now: &Instant) -> bool {
         use azul_core::task::{Duration, SystemTimeDiff};
-        self.last_input_time.as_ref().map_or(true, |last_input| {
+        self.last_input_time.as_ref().is_none_or(|last_input| {
                 let elapsed = now.duration_since(last_input);
                 let blink_interval = Duration::System(SystemTimeDiff::from_millis(CURSOR_BLINK_INTERVAL_MS));
                 elapsed.greater_than(&blink_interval)

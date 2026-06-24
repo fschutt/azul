@@ -898,7 +898,7 @@ impl CallbackInfo {
     #[cfg(feature = "std")]
     #[must_use] pub fn has_pending_relayout_change(&self) -> bool {
         unsafe {
-            (*self.changes).lock().map_or(false, |changes| changes.iter().any(|c| matches!(c,
+            (*self.changes).lock().is_ok_and(|changes| changes.iter().any(|c| matches!(c,
                     CallbackChange::ModifyWindowState { .. } |
                     CallbackChange::ScrollTo { .. }
                 )))
@@ -1790,7 +1790,7 @@ impl CallbackInfo {
         let rect = self
             .get_node_hit_test_bounds(node_id)
             .or_else(|| self.get_node_rect(node_id));
-        rect.map_or(false, |rect| {
+        rect.is_some_and(|rect| {
             // Position menu at bottom-left of the node
             let position = LogicalPosition::new(rect.origin.x, rect.origin.y + rect.size.height);
             self.push_change(CallbackChange::OpenMenu {
