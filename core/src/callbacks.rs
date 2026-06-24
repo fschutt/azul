@@ -620,6 +620,9 @@ impl LayoutCallbackInfo {
         Self::new_with_reason(ref_data, window_size, theme, RelayoutReason::Initial)
     }
 
+    // the `as *const ...<'static>` is a deliberate 'a -> 'static lifetime launder
+    // on the raw pointer (see SAFETY note below), not a redundant cast.
+    #[allow(clippy::unnecessary_cast)]
     #[must_use] pub const fn new_with_reason<'a>(
         ref_data: &'a LayoutCallbackInfoRefData<'a>,
         window_size: WindowSize,

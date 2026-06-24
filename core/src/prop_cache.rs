@@ -3076,6 +3076,9 @@ impl CssPropertyCache {
         target_property: &CssProperty,
         reference_property: &CssProperty,
     ) -> Option<CssProperty> {
+        // wildcard import: this big property-dispatch match references the full set
+        // of layout property types; enumerating them all is unmaintainable.
+        #[allow(clippy::wildcard_imports)]
         use azul_css::{
             css::CssPropertyValue,
             props::{

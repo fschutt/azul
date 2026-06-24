@@ -8,6 +8,9 @@ use crate::dom::{NodeData, NodeId};
 use crate::prop_cache::CssPropertyCache;
 
 use crate::styled_dom::StyledNodeState;
+// wildcard import: this module is the consumer of the whole compact_cache codec
+// (encode/decode helpers + sentinel consts); enumerating them is unmaintainable.
+#[allow(clippy::wildcard_imports)]
 use azul_css::compact_cache::*;
 use azul_css::css::CssPropertyValue;
 use azul_css::props::property::CssProperty;
