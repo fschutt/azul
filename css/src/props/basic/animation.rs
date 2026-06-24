@@ -461,7 +461,7 @@ impl SvgQuadraticCurve {
     }
 
     /// Converts this quadratic curve to an equivalent cubic bezier curve.
-    fn to_cubic(&self) -> SvgCubicCurve {
+    fn to_cubic(self) -> SvgCubicCurve {
         SvgCubicCurve {
             start: self.start,
             ctrl_1: SvgPoint {

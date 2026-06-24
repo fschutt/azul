@@ -647,7 +647,7 @@ pub type BoxOrStaticImageRef = BoxOrStatic<ImageRef>;
 impl_option!(NodeType, OptionNodeType, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl NodeType {
-    fn into_library_owned_nodetype(&self) -> Self {
+    fn to_library_owned_nodetype(&self) -> Self {
         use self::NodeType::{Html, Head, Body, Div, P, Article, Section, Nav, Aside, Header, Footer, Main, Figure, FigCaption, H1, H2, H3, H4, H5, H6, Br, Hr, Pre, BlockQuote, Address, Details, Summary, Dialog, Ul, Ol, Li, Dl, Dt, Dd, Menu, MenuItem, Dir, Table, Caption, THead, TBody, TFoot, Tr, Th, Td, ColGroup, Col, Form, FieldSet, Legend, Label, Input, Button, Select, OptGroup, SelectOption, TextArea, Output, Progress, Meter, DataList, Span, A, Em, Strong, B, I, U, S, Mark, Del, Ins, Code, Samp, Kbd, Var, Cite, Dfn, Abbr, Acronym, Q, Time, Sub, Sup, Small, Big, Bdo, Bdi, Wbr, Ruby, Rt, Rtc, Rp, Data, Canvas, Object, Param, Embed, Audio, Video, Source, Track, Map, Area, Svg, SvgG, SvgDefs, SvgSymbol, SvgUse, SvgSwitch, SvgPath, SvgCircle, SvgRect, SvgEllipse, SvgLine, SvgPolygon, SvgPolyline, SvgText, SvgTspan, SvgTextPath, SvgLinearGradient, SvgRadialGradient, SvgStop, SvgPattern, SvgClipPathElement, SvgMask, SvgFilter, SvgFeBlend, SvgFeColorMatrix, SvgFeComponentTransfer, SvgFeComposite, SvgFeConvolveMatrix, SvgFeDiffuseLighting, SvgFeDisplacementMap, SvgFeDistantLight, SvgFeDropShadow, SvgFeFlood, SvgFeFuncR, SvgFeFuncG, SvgFeFuncB, SvgFeFuncA, SvgFeGaussianBlur, SvgFeImage, SvgFeMerge, SvgFeMergeNode, SvgFeMorphology, SvgFeOffset, SvgFePointLight, SvgFeSpecularLighting, SvgFeSpotLight, SvgFeTile, SvgFeTurbulence, SvgMarker, SvgImage, SvgForeignObject, SvgTitle, SvgDesc, SvgMetadata, SvgA, SvgView, SvgStyle, SvgScript, SvgAnimate, SvgAnimateMotion, SvgAnimateTransform, SvgSet, SvgMpath, Title, Meta, Link, Script, Style, Base, Before, After, Marker, Placeholder, Text, Image, VirtualView, Icon, GeolocationProbe};
         match self {
             Html => Html,
@@ -1898,7 +1898,7 @@ impl Clone for NodeData {
     #[inline]
     fn clone(&self) -> Self {
         Self {
-            node_type: self.node_type.into_library_owned_nodetype(),
+            node_type: self.node_type.to_library_owned_nodetype(),
             style: self.style.clone(),
             callbacks: self.callbacks.clone(),
             flags: self.flags,
@@ -2982,7 +2982,7 @@ impl NodeData {
     #[inline]
     #[must_use] pub fn copy_special(&self) -> Self {
         Self {
-            node_type: self.node_type.into_library_owned_nodetype(),
+            node_type: self.node_type.to_library_owned_nodetype(),
             style: self.style.clone(),
             callbacks: self.callbacks.clone(),
             flags: self.flags,
@@ -3006,7 +3006,7 @@ impl NodeData {
     /// `copy_special` then clones an EMPTY style + `None` extra (no broken clone runs), and we
     /// restore the moved-out values afterward. Mirrors the pre-existing `style`-only fix.
     pub(crate) fn copy_special_moving_complex(&mut self) -> Self {
-        // WEB-LIFT (2026-06-03): `copy_special`'s `into_library_owned_nodetype()` RECONSTRUCTS the
+        // WEB-LIFT (2026-06-03): `copy_special`'s `to_library_owned_nodetype()` RECONSTRUCTS the
         // node_type (Text/Image arms clone the boxed AzString + rebuild the variant); the lifted
         // sret store of that data-bearing variant DROPS the whole thing (disc 177->0 AND the box
         // ptr -> styled_dom text node_type = all-zero, box LOST). Earlier attempts to fix this
