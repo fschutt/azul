@@ -196,6 +196,14 @@ impl ops::Sub for LogicalPosition {
 /// Provides ~0.001 precision, sufficient for sub-pixel layout coordinates.
 const DECIMAL_MULTIPLIER: f32 = 1000.0;
 
+/// Quantizes an f32 coordinate to fixed-point for stable `Ord`/`Hash`
+/// (comparing raw f32 bit patterns would be unstable / non-total).
+// intentional fixed-point quantization: the truncation IS the rounding step.
+#[allow(clippy::cast_possible_truncation)]
+fn quantize(value: f32) -> isize {
+    (value * DECIMAL_MULTIPLIER) as isize
+}
+
 impl_option!(
     LogicalPosition,
     OptionLogicalPosition,
@@ -211,10 +219,10 @@ impl PartialOrd for LogicalPosition {
 }
 impl Ord for LogicalPosition {
     fn cmp(&self, other: &Self) -> Ordering {
-        let self_x = (self.x * DECIMAL_MULTIPLIER) as isize;
-        let self_y = (self.y * DECIMAL_MULTIPLIER) as isize;
-        let other_x = (other.x * DECIMAL_MULTIPLIER) as isize;
-        let other_y = (other.y * DECIMAL_MULTIPLIER) as isize;
+        let self_x = quantize(self.x);
+        let self_y = quantize(self.y);
+        let other_x = quantize(other.x);
+        let other_y = quantize(other.y);
         self_x.cmp(&other_x).then(self_y.cmp(&other_y))
     }
 }
@@ -226,8 +234,8 @@ impl Hash for LogicalPosition {
     where
         H: Hasher,
     {
-        let self_x = (self.x * DECIMAL_MULTIPLIER) as isize;
-        let self_y = (self.y * DECIMAL_MULTIPLIER) as isize;
+        let self_x = quantize(self.x);
+        let self_y = quantize(self.y);
         self_x.hash(state);
         self_y.hash(state);
     }
@@ -320,10 +328,10 @@ impl PartialOrd for LogicalSize {
 }
 impl Ord for LogicalSize {
     fn cmp(&self, other: &Self) -> Ordering {
-        let self_width = (self.width * DECIMAL_MULTIPLIER) as isize;
-        let self_height = (self.height * DECIMAL_MULTIPLIER) as isize;
-        let other_width = (other.width * DECIMAL_MULTIPLIER) as isize;
-        let other_height = (other.height * DECIMAL_MULTIPLIER) as isize;
+        let self_width = quantize(self.width);
+        let self_height = quantize(self.height);
+        let other_width = quantize(other.width);
+        let other_height = quantize(other.height);
         self_width
             .cmp(&other_width)
             .then(self_height.cmp(&other_height))
@@ -337,8 +345,8 @@ impl Hash for LogicalSize {
     where
         H: Hasher,
     {
-        let self_width = (self.width * DECIMAL_MULTIPLIER) as isize;
-        let self_height = (self.height * DECIMAL_MULTIPLIER) as isize;
+        let self_width = quantize(self.width);
+        let self_height = quantize(self.height);
         self_width.hash(state);
         self_height.hash(state);
     }
@@ -449,6 +457,7 @@ impl LogicalPosition {
     }
     /// Converts to physical pixel coordinates by multiplying by the DPI factor.
     #[inline]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     #[must_use] pub fn to_physical(self, hidpi_factor: f32) -> PhysicalPosition<u32> {
         PhysicalPosition {
             x: libm::roundf(self.x * hidpi_factor) as u32,
@@ -471,6 +480,7 @@ impl PhysicalPosition<i32> {
     }
     /// Converts to logical coordinates by dividing by the DPI factor.
     #[inline]
+    #[allow(clippy::cast_precision_loss)]
     #[must_use] pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
         LogicalPosition {
             x: self.x as f32 / hidpi_factor,
@@ -486,6 +496,7 @@ impl PhysicalPosition<f64> {
     }
     /// Converts to logical coordinates by dividing by the DPI factor.
     #[inline]
+    #[allow(clippy::cast_possible_truncation)]
     #[must_use] pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
         LogicalPosition {
             x: self.x as f32 / hidpi_factor,
@@ -505,6 +516,7 @@ impl LogicalSize {
     }
     /// Converts to physical pixel size by multiplying by the DPI factor.
     #[inline]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     #[must_use] pub fn to_physical(self, hidpi_factor: f32) -> PhysicalSize<u32> {
         PhysicalSize {
             width: libm::roundf(self.width * hidpi_factor) as u32,
@@ -527,6 +539,7 @@ impl PhysicalSize<u32> {
     }
     /// Converts to logical coordinates by dividing by the DPI factor.
     #[inline]
+    #[allow(clippy::cast_precision_loss)]
     #[must_use] pub fn to_logical(self, hidpi_factor: f32) -> LogicalSize {
         LogicalSize {
             width: self.width as f32 / hidpi_factor,
