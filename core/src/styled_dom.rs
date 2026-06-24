@@ -1583,9 +1583,9 @@ impl StyledDom {
                         } else {
                             Some(ChangedCssProperty {
                                 previous_state: *old_node_state,
-                                previous_prop: old.map_or_else(|| CssProperty::auto(*prop), |s| s.clone()),
+                                previous_prop: old.map_or_else(|| CssProperty::auto(*prop), Clone::clone),
                                 current_state: *new_node_state,
-                                current_prop: new.map_or_else(|| CssProperty::auto(*prop), |s| s.clone()),
+                                current_prop: new.map_or_else(|| CssProperty::auto(*prop), Clone::clone),
                             })
                         }
                     })
@@ -1764,7 +1764,7 @@ impl StyledDom {
                         &new_prop.get_type(),
                     );
 
-                    let old_prop = old_prop.map_or_else(|| CssProperty::auto(new_prop.get_type()), |s| s.clone());
+                    let old_prop = old_prop.map_or_else(|| CssProperty::auto(new_prop.get_type()), Clone::clone);
 
                     if old_prop == *new_prop {
                         None

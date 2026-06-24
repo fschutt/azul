@@ -827,27 +827,27 @@ impl ComputedTransform3D {
 
         let mut result = _mm256_mul_ps(
             _mm256_shuffle_ps(a01, a01, 0x00),
-            _mm256_broadcast_ps(&*(&b.m[0] as *const [f32; 4] as *const core::arch::x86_64::__m128)),
+            _mm256_broadcast_ps(&*(&raw const b.m[0] as *const core::arch::x86_64::__m128)),
         );
         result = _mm256_add_ps(
             result,
             _mm256_mul_ps(
                 _mm256_shuffle_ps(a01, a01, 0x55),
-                _mm256_broadcast_ps(&*(&b.m[1] as *const [f32; 4] as *const core::arch::x86_64::__m128)),
+                _mm256_broadcast_ps(&*(&raw const b.m[1] as *const core::arch::x86_64::__m128)),
             ),
         );
         result = _mm256_add_ps(
             result,
             _mm256_mul_ps(
                 _mm256_shuffle_ps(a01, a01, 0xaa),
-                _mm256_broadcast_ps(&*(&b.m[2] as *const [f32; 4] as *const core::arch::x86_64::__m128)),
+                _mm256_broadcast_ps(&*(&raw const b.m[2] as *const core::arch::x86_64::__m128)),
             ),
         );
         result = _mm256_add_ps(
             result,
             _mm256_mul_ps(
                 _mm256_shuffle_ps(a01, a01, 0xff),
-                _mm256_broadcast_ps(&*(&b.m[3] as *const [f32; 4] as *const core::arch::x86_64::__m128)),
+                _mm256_broadcast_ps(&*(&raw const b.m[3] as *const core::arch::x86_64::__m128)),
             ),
         );
         result
@@ -864,8 +864,8 @@ impl ComputedTransform3D {
 
         _mm256_zeroupper();
 
-        let a01: __m256 = _mm256_loadu_ps(&self.m[0][0] as *const f32);
-        let a23: __m256 = _mm256_loadu_ps(&self.m[2][0] as *const f32);
+        let a01: __m256 = _mm256_loadu_ps(&raw const self.m[0][0]);
+        let a23: __m256 = _mm256_loadu_ps(&raw const self.m[2][0]);
 
         let out01x = Self::linear_combine_avx8(a01, other);
         let out23x = Self::linear_combine_avx8(a23, other);
@@ -874,8 +874,8 @@ impl ComputedTransform3D {
             m: [self.m[0], self.m[1], self.m[2], self.m[3]],
         };
 
-        _mm256_storeu_ps(&mut out.m[0][0] as *mut f32, out01x);
-        _mm256_storeu_ps(&mut out.m[2][0] as *mut f32, out23x);
+        _mm256_storeu_ps(&raw mut out.m[0][0], out01x);
+        _mm256_storeu_ps(&raw mut out.m[2][0], out23x);
 
         out
     }}

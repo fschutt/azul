@@ -972,7 +972,7 @@ impl ImageRef {
                         // Clone the SharedRawImageData (increments ref count),
                         // then try to extract or convert to U8Vec
                         let data_clone = shared_data.clone();
-                        data_clone.into_inner().map_or_else(|| RawImageData::U8(shared_data.as_ref().to_vec().into()), |u8vec| RawImageData::U8(u8vec))
+                        data_clone.into_inner().map_or_else(|| RawImageData::U8(shared_data.as_ref().to_vec().into()), RawImageData::U8)
                     }
                     ImageData::External(_) => return None,
                 },

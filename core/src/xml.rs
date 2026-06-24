@@ -3161,7 +3161,7 @@ fn data_field(
     ComponentDataField {
         name: AzString::from(name),
         field_type: ft,
-        default_value: default.map_or_else(|| OptionComponentDefaultValue::None, |d| OptionComponentDefaultValue::Some(d)),
+        default_value: default.map_or_else(|| OptionComponentDefaultValue::None, OptionComponentDefaultValue::Some),
         required,
         description: AzString::from(description),
     }

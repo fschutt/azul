@@ -1344,7 +1344,7 @@ impl CssPropertyCache {
                             Some(TabIndex::Auto)
                         } else {
                             None
-                        }, |s| Some(s));
+                        }, Some);
 
                 let mut need_tag = false;
 

@@ -312,7 +312,7 @@ impl Json {
     /// Get as integer (returns None if not a number or not an integer)
     #[must_use] pub fn as_i64(&self) -> OptionI64 {
         if self.value_type == JsonType::Number {
-            f64_as_i64(self.internal.number_value).map_or(OptionI64::None, |i| OptionI64::Some(i))
+            f64_as_i64(self.internal.number_value).map_or(OptionI64::None, OptionI64::Some)
         } else {
             OptionI64::None
         }
