@@ -8391,24 +8391,6 @@ fn apply_segment_break_transform(text: &str) -> String {
 // ============================================================================
 // +spec:white-space-processing:b64e38 - parser may normalize/collapse whitespace before CSS; CSS cannot restore
 
-/// Splits text content into `InlineContent` items based on white-space CSS property.
-///
-///
-/// For `white-space: pre`, `pre-wrap`, and `pre-line`, newlines (`\n`) are treated as
-/// forced line breaks per CSS Text Level 3 specification:
-/// <https://www.w3.org/TR/css-text-3/#white-space-property>
-///
-/// Additionally, Unicode characters with BK or NL line breaking class (VT, FF, NEL, LS, PS)
-/// are always treated as forced line breaks regardless of the white-space value.
-///
-/// This function:
-/// 1. Checks the white-space property of the node (or its parent for text nodes)
-/// 2. If `pre`, `pre-wrap`, or `pre-line`: splits text by `\n` and inserts `InlineContent::LineBreak`
-/// 3. Otherwise: returns the text as a single `InlineContent::Text`
-/// 4. In ALL modes: BK/NL class chars (VT, FF, NEL, LS, PS) produce forced breaks
-///
-/// Returns a Vec of `InlineContent` items that correctly represent line breaks.
-
 // +spec:display-property:1389e3 - bidi control characters per UAX #9 for Unicode bidirectional algorithm
 // +spec:display-property:aad99b - inline boxes can be split into fragments due to bidi text processing
 // Bidi_Control property (UAX #9). These characters are ignored during white-space processing.
@@ -8444,6 +8426,22 @@ const fn is_css_document_whitespace(c: char) -> bool {
 // white space characters are processed prior to line breaking and bidi reordering
 // +spec:inline-block:381c0c - white-space property: collapsing, wrapping, and forced breaks per mode
 // +spec:display-property:8acfaa - Phase I white-space collapsing for each inline in an IFC, ignoring bidi controls
+/// Splits text content into `InlineContent` items based on white-space CSS property.
+///
+/// For `white-space: pre`, `pre-wrap`, and `pre-line`, newlines (`\n`) are treated as
+/// forced line breaks per CSS Text Level 3 specification:
+/// <https://www.w3.org/TR/css-text-3/#white-space-property>
+///
+/// Additionally, Unicode characters with BK or NL line breaking class (VT, FF, NEL, LS, PS)
+/// are always treated as forced line breaks regardless of the white-space value.
+///
+/// This function:
+/// 1. Checks the white-space property of the node (or its parent for text nodes)
+/// 2. If `pre`, `pre-wrap`, or `pre-line`: splits text by `\n` and inserts `InlineContent::LineBreak`
+/// 3. Otherwise: returns the text as a single `InlineContent::Text`
+/// 4. In ALL modes: BK/NL class chars (VT, FF, NEL, LS, PS) produce forced breaks
+///
+/// Returns a Vec of `InlineContent` items that correctly represent line breaks.
 pub fn split_text_for_whitespace(
     styled_dom: &StyledDom,
     dom_id: NodeId,

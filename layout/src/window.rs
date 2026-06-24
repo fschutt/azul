@@ -2673,24 +2673,6 @@ impl LayoutWindow {
         crate::hit_test::CursorTypeHitTest::new(hit_test, self)
     }
 
-    /// Synchronize scrollbar opacity values with the GPU value cache.
-    ///
-    /// This method updates GPU opacity keys for all scrollbars based on scroll activity
-    /// tracked by the `ScrollManager`. It enables smooth scrollbar fading without
-    /// requiring display list regeneration.
-    ///
-    /// # Arguments
-    ///
-    /// * `dom_id` - The DOM to synchronize scrollbar opacity for
-    /// * `layout_tree` - The layout tree containing scrollbar information
-    /// * `now` - Current timestamp for calculating fade progress
-    /// * `fade_delay` - Delay before scrollbar starts fading (e.g., 500ms)
-    /// * `fade_duration` - Duration of the fade animation (e.g., 200ms)
-    ///
-    /// # Returns
-    ///
-    /// A vector of GPU scrollbar opacity change events
-
     /// Helper function to calculate scrollbar opacity based on activity time
     fn calculate_scrollbar_opacity(
         last_activity: Option<Instant>,
@@ -2719,8 +2701,22 @@ impl LayoutWindow {
 
     /// Synchronize scrollbar opacity values with the GPU value cache.
     ///
-    /// Static method that takes individual components instead of &mut self to avoid borrow
-    /// conflicts.
+    /// This method updates GPU opacity keys for all scrollbars based on scroll activity
+    /// tracked by the `ScrollManager`. It enables smooth scrollbar fading without
+    /// requiring display list regeneration. Static method that takes individual
+    /// components instead of `&mut self` to avoid borrow conflicts.
+    ///
+    /// # Arguments
+    ///
+    /// * `dom_id` - The DOM to synchronize scrollbar opacity for
+    /// * `layout_tree` - The layout tree containing scrollbar information
+    /// * `now` - Current timestamp for calculating fade progress
+    /// * `fade_delay` - Delay before scrollbar starts fading (e.g., 500ms)
+    /// * `fade_duration` - Duration of the fade animation (e.g., 200ms)
+    ///
+    /// # Returns
+    ///
+    /// A vector of GPU scrollbar opacity change events
     pub fn synchronize_scrollbar_opacity(
         gpu_state_manager: &mut GpuStateManager,
         scroll_manager: &ScrollManager,

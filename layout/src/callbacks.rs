@@ -685,18 +685,6 @@ impl From<OptionCallback> for Option<Callback> {
     }
 }
 
-/// Information about the callback that is passed to the callback whenever a callback is invoked
-///
-/// # Architecture
-///
-/// `CallbackInfo` uses a transaction-based system:
-/// - **Read-only pointers**: Access to layout data, window state, managers for queries
-/// - **Change vector**: All modifications are recorded as `CallbackChange` items
-/// - **Processing**: Changes are applied atomically after callback returns
-///
-/// This design provides clear separation between queries and modifications, makes debugging
-/// easier, and allows for future extensibility.
-
 /// Reference data container for `CallbackInfo` (all read-only fields)
 ///
 /// This struct consolidates all readonly references that callbacks need to query window state.
@@ -744,6 +732,18 @@ pub struct CallbackInfoRefData<'a> {
 /// data lives on the stack and outlives the callback invocation.
 /// This allows callbacks to "consume" `CallbackInfo` by value while the caller
 /// retains access to the same underlying data.
+///
+/// Information about the callback that is passed to the callback whenever a callback is invoked
+///
+/// # Architecture
+///
+/// `CallbackInfo` uses a transaction-based system:
+/// - **Read-only pointers**: Access to layout data, window state, managers for queries
+/// - **Change vector**: All modifications are recorded as `CallbackChange` items
+/// - **Processing**: Changes are applied atomically after callback returns
+///
+/// This design provides clear separation between queries and modifications, makes debugging
+/// easier, and allows for future extensibility.
 ///
 /// The `changes` field uses a pointer to Arc<Mutex<...>> so that cloned `CallbackInfo` instances
 /// (e.g., passed to timer callbacks) still push changes to the original collection,
