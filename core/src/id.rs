@@ -287,6 +287,9 @@ impl<'a> NodeHierarchyRef<'a> {
     /// the first element.
     ///
     /// Runtime: O(n) max
+    // the `.drain(..)` calls intentionally empty current/next_children to REUSE
+    // their allocations across the BFS levels; `into_iter()` would move them.
+    #[allow(clippy::iter_with_drain)]
     #[must_use] pub fn get_parents_sorted_by_depth(&self) -> NodeDepths {
         let mut non_leaf_nodes = Vec::new();
         let mut current_children = vec![(0, NodeId::new(0))];

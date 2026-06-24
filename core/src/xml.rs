@@ -5071,9 +5071,7 @@ pub fn str_to_dom_unstyled<'a>(
 
     // Attach CSS to the Dom's css field instead of applying it immediately
     if let Some(css) = global_style {
-        let mut css_vec: Vec<Css> = Vec::new();
-        css_vec.push(css);
-        full_dom.css = css_vec.into();
+        full_dom.css = alloc::vec![css].into();
     }
 
     Ok(full_dom)
@@ -5424,7 +5422,7 @@ fn apply_xml_node_attributes(
                 use azul_css::dynamic_selector::CssPropertyWithConditions;
                 match s {
                     CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
-                    _ => None,
+                    CssDeclaration::Dynamic(_) => None,
                 }
             })
             .collect::<Vec<_>>();
@@ -6827,7 +6825,7 @@ fn node_direct_text(node: &XmlNode) -> String {
                 let t = t.trim();
                 if t.is_empty() { None } else { Some(t.to_string()) }
             }
-            _ => None,
+            XmlNodeChild::Element(_) => None,
         })
         .collect::<Vec<_>>()
         .join(" ")

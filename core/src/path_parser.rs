@@ -740,6 +740,9 @@ pub fn svg_circle_to_paths(cx: f32, cy: f32, r: f32) -> SvgPath {
 /// If `rx` and `ry` are both 0, produces 4 line segments.
 /// Otherwise, produces lines for straight edges and cubic curves for corners.
 #[must_use]
+// builds the rounded-rect path segment-by-segment with a matching capacity hint;
+// a `vec![..]` literal of the 8 multi-line elements would be less readable here.
+#[allow(clippy::vec_init_then_push)]
 pub fn svg_rect_to_path(x: f32, y: f32, w: f32, h: f32, rx: f32, ry: f32) -> SvgPath {
     let rx = rx.min(w / 2.0);
     let ry = ry.min(h / 2.0);
