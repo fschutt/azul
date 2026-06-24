@@ -1011,6 +1011,7 @@ impl ImageRef {
     }
 
     /// NOTE: returns (0, 0) for a Callback
+    #[allow(clippy::cast_precision_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
     #[must_use] pub const fn get_size(&self) -> LogicalSize {
         match self.get_data() {
             DecodedImage::NullImage { width, height, .. } => {
@@ -1325,6 +1326,7 @@ impl RendererResources {
             })
     }
 
+    #[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit casts
     pub fn get_font_instance_key_for_text(
         &self,
         font_size_px: f32,
@@ -1650,6 +1652,8 @@ impl RawImage {
     /// `RGBA8`/`BGRA8` images are painted (other formats are left untouched).
     /// This is the CPU mirror of the GPU brush shader.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
+    #[allow(clippy::cast_possible_wrap)] // image/graphics: bounded pixel/colour casts
     pub fn paint_dot(&mut self, cx: f32, cy: f32, brush: Brush) {
         let r = brush.radius;
         if !(r > 0.0) || self.width == 0 || self.height == 0 {
@@ -1707,6 +1711,7 @@ impl RawImage {
     /// (`x0`,`y0`)->(`x1`,`y1`). Call once per pointer move with the previous and
     /// current positions for a continuous line.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
     pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: Brush) {
         let dx = x1 - x0;
         let dy = y1 - y0;
@@ -1729,6 +1734,7 @@ impl RawImage {
 /// From webrender/wrench. These are slow. Gecko's gfx/2d/Swizzle.cpp has better
 /// versions.
 #[inline]
+#[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit casts
 fn premultiply_alpha(array: &mut [u8]) {
     if array.len() != 4 {
         return;
@@ -1740,6 +1746,8 @@ fn premultiply_alpha(array: &mut [u8]) {
 }
 
 #[inline]
+#[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit casts
+#[allow(clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour casts
 fn normalize_u16(i: u16) -> u8 {
     ((f32::from(core::u16::MAX) / f32::from(i)) * f32::from(core::u8::MAX)) as u8
 }
@@ -1763,6 +1771,7 @@ impl RawImage {
     }
 
     /// Allocates a width * height, single-channel mask, used for drawing CPU image masks
+    #[allow(clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
     #[must_use] pub fn allocate_mask(size: LayoutSize) -> Self {
         Self {
             pixels: RawImageData::U8(
@@ -2165,6 +2174,8 @@ impl RawImage {
         Some((bytes, is_opaque))
     }
 
+    #[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit casts
+    #[allow(clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour casts
     fn load_rgbf32(pixels: RawImageData, expected_len: usize) -> Option<(U8Vec, bool)> {
         let pixels = pixels.get_f32_vec_ref()?;
 
@@ -2189,6 +2200,8 @@ impl RawImage {
         Some((px.into(), true))
     }
 
+    #[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit casts
+    #[allow(clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour casts
     fn load_rgbaf32(
         pixels: RawImageData,
         expected_len: usize,
@@ -2791,10 +2804,12 @@ pub const MAX_AU: i32 = (1 << 30) - 1;
 pub const MIN_AU: i32 = -(1 << 30) - 1;
 
 impl Au {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
     #[must_use] pub fn from_px(px: f32) -> Self {
         let target_app_units = (px * AU_PER_PX as f32) as i32;
         Self(target_app_units.clamp(MIN_AU, MAX_AU))
     }
+    #[allow(clippy::cast_precision_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
     #[must_use] pub fn into_px(&self) -> f32 {
         self.0 as f32 / AU_PER_PX as f32
     }
