@@ -498,21 +498,25 @@ async function azBootstrap() {
             // M11 Sprint 1: hydrate the wasm-side StyledDom + run the layout
             // solver. Failures log but don't abort — hit-test falls back to
             // the last registered cb node when the rects cache is empty.
-            // [DISABLED 2026-06-23 — x86 internal-sret lift bug, Task C1]
-            // AzStartup_hydrateStyledDom walks the AzDom the layout cb wrote via
-            // hidden-ptr/sret return; the x86 internal-sret lift drops a field of
-            // that returned struct, so the recursive node walk derefs garbage →
-            // OOB (mini func698). Worse, the partial walk corrupts the allocator/
-            // EventloopState such that the NEXT AzStartup_alloc OOBs even when the
-            // hydrate trap itself is CAUGHT — which killed the click dispatch
-            // (azDispatch's event-buffer alloc, mini func15). hydrate + the layout
-            // solver are NOT used by the current path: render comes from the
-            // server bootstrap HTML, and the click is dispatched via the clicked
-            // element's explicit `data-az-cb` node idx (azNodeIdxFromTarget), not
-            // a geometric hit-test over the solved rects. So SKIP them until the
-            // x86 internal-sret value-flow lift is fixed. Re-enable by removing
-            // the `false &&` once hydrate no longer traps. (full-cycle.js proves
-            // the click works without hydrate: counter 5→6, all 5 steps.)
+            // [RE-ENABLED 2026-06-24 — the func698 hydrate OOB is FIXED]
+            // The trap was NOT an internal-sret field drop. Root cause: the
+            // recursive-bl forwarder (transpiler_remill.rs `is_recursive_marker`)
+            // passed the incoming %pc straight through to the recursive fn. But
+            // `rewrite_recursive_call` rewrites a self-recursive `call rel32` to
+            // rel32=0x1000_0000 (REC_MARKER) so remill won't infinite-inline it,
+            // so that %pc carries +0x1000_0000. On x86 the lifted body uses %pc for
+            // PC-relative DATA (switch jump tables `[%pc+disp]`), so the marker
+            // accumulated +256MB per recursion level until the cascade's recursive
+            // node walk (mini func698) indexed a jump table at ~768MB → OOB. Fix =
+            // the forwarder now passes the constant entry pc (lift_addr), not %pc.
+            // hydrate now returns rc=0 node_count=5 (full-cycle.js) — the cascade
+            // is FIXED (commit 2ba1b59de). STILL GATED on a SEPARATE, newly-reachable
+            // solver bug: AzStartup_solveLayoutReal (mini func232, chain 69→68→116→232)
+            // derefs a garbage pointer field — `[[State.R14]+48]+16` where the +48
+            // field is garbage. Font-INDEPENDENT (layout, not text-shaping); it was
+            // latent until the REC_MARKER fix let the text-shaping recursion lift at
+            // all. Re-enable (drop the `false &&`) once the solver no longer traps →
+            // then real geometric hit-test over solved rects. try/catch = defence.
             if (false && initRc === 0 && domPtr &&
                 typeof azMini.AzStartup_hydrateStyledDom === 'function') {
                 // A wasm trap in hydrateStyledDom MUST NOT abort bootstrap (the

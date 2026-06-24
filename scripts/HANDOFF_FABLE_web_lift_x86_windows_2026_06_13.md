@@ -1236,3 +1236,22 @@ deterministic + content-independent. This is the real lifted-StyledDom::create l
 names). Memory note: [[windows-weblift-hydrate-trap]]. NEXT: trace local6's garbage source (which cascade
 store is dropped/miscomputed); or instrument StyledDom::create sub-phases; the fix is a remill/transpiler lift
 fix, then re-enable hydrate + CDP-verify.
+
+### 2026-06-24 tick 9 — HYDRATE FIXED (REC_MARKER pc-pollution) + committed; NEXT = solver func232
+ROOT CAUSE of func698: the recursive-bl forwarder (transpiler_remill.rs ~7862 `is_recursive_marker`) passed
+the incoming %pc through to `@sub_<lift_addr>`. But `x86_scan::rewrite_recursive_call` rewrites a self-recursive
+`call rel32`→rel32=0x1000_0000 (REC_MARKER) so remill won't infinite-inline it — so that %pc carries
++0x1000_0000. On x86 the lifted body uses %pc for PC-relative DATA (switch jump tables `[%pc+disp]`), so the
+marker accumulated +256MB PER RECURSION LEVEL; after ~3 levels of StyledDom::create's recursive node walk
+(func352) the pc hit ~768MB and func698's `i64.load32_s [%pc+0x9FB888+idx*4]` blew past linear memory. Traced
+via `e.stack` in full-cycle.js's [2c] catch: func57(hydrate)→56→98→182→352(recurses)→712→698; func352's
+recursive call passes `local8 + 0x1000005D` (= entry + 0x5D + REC_MARKER). FIX (commit 2ba1b59de): forwarder
+passes `i64 {lift_addr}` (constant entry = real self-recursion target), x86-only; aarch64 keeps %pc
+passthrough. VERIFIED: (a) cold re-lift now COMPLETES past transitive[1248]/[1249] (allsorts
+median3_rec/quicksort) which crashed deterministically before; (b) `AZ_HYDRATE=1 full-cycle.js` → `[2c]
+hydrateStyledDom rc=0 node_count=5`. The whole 2026-06-23 "garbage children / dropped-movups in Button::dom"
+hypothesis was WRONG (dom tree valid at DOM_SIZE=240; Button::dom clean). NEXT BUG (newly reachable, separate):
+`AzStartup_solveLayoutReal` (mini func232, chain 69→68→116→232) TRAPS — derefs garbage pointer field
+`[[State.R14]+48]+16` (R14 valid, +48 field garbage); FONT-INDEPENDENT (layout, not shaping). Disasm in
+/c/rb/new_disasm.txt (CODE-rel = V8 file-offset − 0x869c). hydrate gate stays `false &&` until solver fixed.
+full-cycle.js [2d] probe added for the solver.
