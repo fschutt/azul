@@ -823,6 +823,7 @@ pub fn gl_textures_remove_active_pipeline(document_id: &DocumentId) {
 }
 
 /// Destroys all textures, usually done before destroying the OpenGL context
+#[allow(clippy::cast_precision_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
 pub fn gl_textures_clear_opengl_cache() {
     unsafe {
         ACTIVE_GL_TEXTURES = None;
@@ -839,6 +840,7 @@ pub fn gl_textures_clear_opengl_cache() {
 // we encounter an invalid ID, webrender simply won't draw anything,
 // but at least it won't crash. Usually invalid textures are also 0x0
 // pixels large - so it's not like we had anything to draw anyway.
+#[allow(clippy::cast_precision_loss)] // OpenGL/graphics binding: GL-bounded numeric casts
 #[must_use] pub fn get_opengl_texture(image_key: &ExternalImageId) -> Option<(GLuint, (f32, f32))> {
     let active_textures = unsafe { ACTIVE_GL_TEXTURES.as_ref()? };
     active_textures
@@ -1100,6 +1102,7 @@ void main() {
 /// its own status checks.)
 #[allow(dead_code)]
 #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
+#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
 fn check_shader_compile(gl_context: &GenericGlContext, shader: GLuint, _label: &str) {
     let mut status = [0_i32];
     unsafe { gl_context.get_shader_iv(shader, gl::COMPILE_STATUS, &mut status) };
@@ -1115,6 +1118,7 @@ fn check_shader_compile(gl_context: &GenericGlContext, shader: GLuint, _label: &
 /// Checks if a program linked successfully. Logs an error under `std`.
 #[allow(dead_code)]
 #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
+#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
 fn check_program_link(gl_context: &GenericGlContext, program: GLuint, _label: &str) {
     let mut status = [0_i32];
     unsafe { gl_context.get_program_iv(program, gl::LINK_STATUS, &mut status) };
@@ -2738,6 +2742,7 @@ pub struct Texture {
 }
 
 impl Clone for Texture {
+    #[allow(clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     fn clone(&self) -> Self {
         unsafe {
             (*self.refcount).fetch_add(1, AtomicOrdering::SeqCst);
@@ -2787,6 +2792,7 @@ impl Texture {
     // GLint/GLsizei (i32); the values are GL-bounded and the `as i32` casts are the
     // idiomatic form for the gl API.
     #[allow(clippy::cast_possible_wrap)]
+    #[allow(clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts
     #[must_use] pub fn allocate_rgba8(
         gl_context: GlContextPtr,
         size: PhysicalSizeU32,
@@ -3083,6 +3089,7 @@ impl Texture {
     /// via an FBO + the soft-brush shader, alpha-over blended. Same spacing +
     /// falloff as the CPU `RawImage::paint_stroke`. No-op if GL is unusable.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: Brush) {
         let gl = self.gl_context.clone();
         let prog = gl.get_brush_shader();
@@ -3173,6 +3180,7 @@ impl Texture {
 
     /// Read this texture's pixels back into an RGBA8 `RawImage` (top-left origin)
     /// -- for exporting the painted canvas to disk. Binds an FBO + glReadPixels.
+    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts
     #[must_use] pub fn copy_to_raw_image(&self) -> RawImage {
         let gl = self.gl_context.clone();
         let (w, h) = (self.size.width as i32, self.size.height as i32);
@@ -3258,6 +3266,7 @@ impl VertexLayout {
     // OpenGL binding: vertex-attribute layout (locations, item counts, strides,
     // offsets) passed to the gl API as GLuint/GLint/GLsizei; values are GL-bounded.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     pub fn bind(&self, gl_context: &Rc<GenericGlContext>, program_id: GLuint) {
         const VERTICES_ARE_NORMALIZED: bool = false;
 
@@ -3290,6 +3299,8 @@ impl VertexLayout {
     }
 
     /// Unsets the vertex buffer description
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+    #[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts
     pub fn unbind(&self, gl_context: &Rc<GenericGlContext>, program_id: GLuint) {
         for vertex_attribute in &self.fields {
             let attribute_location = vertex_attribute
@@ -3488,6 +3499,7 @@ impl VertexBuffer {
     // OpenGL binding: buffer sizes / vertex counts passed to the gl API as
     // GLsizeiptr/GLint; values are GL-bounded.
     #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+    #[allow(clippy::cast_possible_truncation)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     pub fn new<T: VertexLayoutDescription>(
         gl_context: GlContextPtr,
         shader_program_id: GLuint,
@@ -3582,6 +3594,7 @@ pub enum GlApiVersion {
 
 impl GlApiVersion {
     /// Returns the OpenGL version of the context
+    #[allow(clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts
     #[must_use] pub fn get(gl_context: &GlContextPtr) -> Self {
         let mut major = [0];
         gl_context.get_integer_v(gl::MAJOR_VERSION, (&mut major[..]).into());
@@ -3818,6 +3831,7 @@ impl GlShader {
     ///
     /// If the shader fails to compile, the shader object gets automatically deleted, no cleanup
     /// necessary.
+    #[allow(clippy::cast_possible_truncation)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     pub fn new(
         gl_context: &GlContextPtr,
         vertex_shader: &str,
@@ -3903,6 +3917,7 @@ impl GlShader {
     }
 
     /// Draws vertex buffers, index buffers + uniforms to the texture
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     pub fn draw(
         // shader to use for drawing
         shader_program_id: GLuint,
@@ -4100,6 +4115,7 @@ impl GlShader {
     }
 }
 
+#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
 fn get_gl_shader_error(context: &GlContextPtr, shader_object: GLuint) -> Option<i32> {
     let mut err = [0];
     context.get_shader_iv(shader_object, gl::COMPILE_STATUS, (&mut err[..]).into());
@@ -4111,6 +4127,7 @@ fn get_gl_shader_error(context: &GlContextPtr, shader_object: GLuint) -> Option<
     }
 }
 
+#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
 fn get_gl_program_error(context: &GlContextPtr, shader_object: GLuint) -> Option<i32> {
     let mut err = [0];
     context.get_program_iv(shader_object, gl::LINK_STATUS, (&mut err[..]).into());
