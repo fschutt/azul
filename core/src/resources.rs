@@ -429,6 +429,7 @@ impl_option!(RouteMatch, OptionRouteMatch, copy = false, [Debug, Clone, PartialE
 /// - pattern `"/user/:id"`, path `"/user/42"` → `Some(RouteMatch { params: [("id","42")] })`
 /// - pattern `"/"`, path `"/"` → `Some(RouteMatch { params: [] })`
 /// - pattern `"/about"`, path `"/settings"` → `None`
+#[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
 #[must_use] pub fn match_route(pattern: &str, path: &str) -> Option<RouteMatch> {
     let pat_segs: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
     let path_segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();

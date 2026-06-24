@@ -37,6 +37,7 @@ impl CssPropertyCache {
     // fixed-point encoders: z-index and line-height (%×10) are range-checked
     // against the i16 sentinel threshold before the deliberate narrowing cast.
     #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
     pub fn build_compact_cache(
         &self,
         node_data: &[NodeData],

@@ -1954,6 +1954,7 @@ impl GlContextPtr {
         self.get()
             .framebuffer_texture_layer(target, attachment, texture, level, layer);
     }
+    #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
     pub fn blit_framebuffer(
         &self,
         src_x0: GLint,

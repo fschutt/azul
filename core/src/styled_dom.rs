@@ -1017,6 +1017,7 @@ impl StyledDom {
     /// Internal: creates `StyledDom` from a `CompactDom` + CSS + pre-built hierarchy items.
     /// Shared by both the Slow path (create → `convert_dom_into_compact_dom` → this)
     /// and the Fast path (`create_from_fast_dom` → this).
+    #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
     fn create_from_compact_dom(
         compact_dom: CompactDom,
         mut css: Css,

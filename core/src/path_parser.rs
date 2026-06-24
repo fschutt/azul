@@ -236,6 +236,7 @@ impl<'a> PathParser<'a> {
         Ok(())
     }
 
+    #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
     fn handle_cubic_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
         let (c1x, c1y) = self.parse_coordinate_pair()?;
         let (c2x, c2y) = self.parse_coordinate_pair()?;
@@ -252,6 +253,7 @@ impl<'a> PathParser<'a> {
     }
 
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
     fn handle_smooth_cubic_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
         let ctrl_1 = match self.last_control {
             Some(lc) if matches!(self.last_command.to_ascii_uppercase(), b'C' | b'S') => {
@@ -501,6 +503,7 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
     clippy::cast_precision_loss,
     clippy::cast_sign_loss
 )]
+#[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
 fn arc_to_cubics(
     start: SvgPoint,
     end: SvgPoint,
@@ -621,6 +624,7 @@ fn angle_between(ux: f32, uy: f32, vx: f32, vy: f32) -> f32 {
 
 /// Convert a single arc segment (<=90 degrees) to a cubic bezier.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
 fn arc_segment_to_cubic(
     cx: f32,
     cy: f32,
