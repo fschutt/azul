@@ -39,6 +39,7 @@ pub const IDENTITY_EPSILON_F64: f64 = 0.0001;
 }
 
 /// Blit `src` onto `dst` at pixel position (`px_x`, `px_y`) with opacity.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32, opacity: f32) {
     let sw = src.width as i32;
     let sh = src.height as i32;
@@ -87,6 +88,7 @@ pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32,
 }
 
 /// Shift pixel data in a pixmap by (dx, dy) pixels, clearing exposed regions.
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
     let w = pixmap.width as i32;
     let h = pixmap.height as i32;
@@ -181,6 +183,7 @@ impl AzulPixmap {
     }
 
     /// Fill a rectangular region with a single color (pixel coordinates).
+    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
     pub fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8, a: u8) {
         let pw = self.width as i32;
         let ph = self.height as i32;
@@ -427,6 +430,7 @@ impl PixelDiffResult {
     }
 
     /// Fraction of pixels that differ (0.0 = identical, 1.0 = all different).
+    #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
     #[must_use] pub fn diff_ratio(&self) -> f64 {
         if self.total_pixels == 0 {
             0.0
@@ -440,6 +444,7 @@ impl PixelDiffResult {
 ///
 /// `threshold` is the maximum allowed per-channel difference (0 = exact match,
 /// 2-3 = anti-aliasing tolerance, 10+ = loose match).
+#[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
 #[must_use] pub fn pixel_diff(reference: &AzulPixmap, test: &AzulPixmap, threshold: u8) -> PixelDiffResult {
     let dimensions_match = reference.width == test.width && reference.height == test.height;
     if !dimensions_match {
@@ -600,6 +605,7 @@ pub fn agg_fill_path(
 /// scanline output to the clip region.  This handles scroll-frame clips,
 /// border-radius is TODO (would need a mask), transforms are handled by
 /// transforming the clip box through the inverse transform before setting it.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded pixel/coord/colour/glyph cast
 pub fn agg_fill_path_clipped(
     pixmap: &mut AzulPixmap,
     path: &mut dyn VertexSource,
@@ -670,6 +676,7 @@ fn agg_fill_gradient<G: GradientFunction>(
     agg_fill_gradient_clipped(pixmap, path, lut, gradient_fn, transform, d1, d2, None);
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded pixel/coord/colour/glyph cast
 pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     pixmap: &mut AzulPixmap,
     path: &mut dyn VertexSource,
@@ -710,6 +717,7 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
 // ============================================================================
 
 /// Alpha-blend one premultiplied-alpha RGBA buffer onto another at (dx, dy).
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx: i32, dy: i32) {
     let dw = dst.width as i32;
     let dh = dst.height as i32;
@@ -761,6 +769,7 @@ pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx:
 // ============================================================================
 
 /// Take a snapshot of a rectangular region of the pixmap.
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 #[must_use] pub fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> Vec<u8> {
     let pw = pixmap.width as i32;
     let ph = pixmap.height as i32;

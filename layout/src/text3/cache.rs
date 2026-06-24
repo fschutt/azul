@@ -1239,6 +1239,7 @@ impl Default for UnifiedConstraints {
 
 // UnifiedConstraints
 impl Hash for UnifiedConstraints {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.shape_boundaries.hash(state);
         self.shape_exclusions.hash(state);
@@ -1805,6 +1806,7 @@ pub enum InitialLetterAlign {
 impl Eq for InitialLetter {}
 
 impl Hash for InitialLetter {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Per the request, round the f32 to a usize for hashing.
         // This is a lossy conversion; values like 2.3 and 2.4 will produce
@@ -1842,6 +1844,7 @@ pub enum PathSegment {
 
 // PathSegment
 impl Hash for PathSegment {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Hash the enum variant's discriminant first to distinguish them
         discriminant(self).hash(state);
@@ -2492,6 +2495,7 @@ impl PartialEq for Rect {
 impl Eq for Rect {}
 
 impl Hash for Rect {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         // The order in which you hash the fields matters.
         // A consistent order is crucial.
@@ -2509,6 +2513,7 @@ pub struct Size {
 }
 
 impl Ord for Size {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn cmp(&self, other: &Self) -> Ordering {
         (self.width.round() as isize)
             .cmp(&(other.width.round() as isize))
@@ -2518,6 +2523,7 @@ impl Ord for Size {
 
 // Size
 impl Hash for Size {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         (self.width.round() as isize).hash(state);
         (self.height.round() as isize).hash(state);
@@ -2547,6 +2553,7 @@ pub struct Point {
 
 // Point
 impl Hash for Point {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         (self.x.round() as isize).hash(state);
         (self.y.round() as isize).hash(state);
@@ -2583,6 +2590,7 @@ pub enum ShapeDefinition {
 
 // ShapeDefinition
 impl Hash for ShapeDefinition {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         discriminant(self).hash(state);
         match self {
@@ -2817,6 +2825,7 @@ pub struct Stroke {
 
 // Stroke
 impl Hash for Stroke {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.color.hash(state);
         (self.width.round() as isize).hash(state);
@@ -2853,6 +2862,7 @@ impl PartialEq for Stroke {
 impl Eq for Stroke {}
 
 // Helper function to round f32 for comparison
+#[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
 fn round_eq(a: f32, b: f32) -> bool {
     (a.round() as isize) == (b.round() as isize)
 }
@@ -2892,6 +2902,7 @@ impl ShapeBoundary {
 
 // ShapeBoundary
 impl Hash for ShapeBoundary {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         discriminant(self).hash(state);
         match self {
@@ -3351,6 +3362,7 @@ impl Default for StyleProperties {
 }
 
 impl Hash for StyleProperties {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.font_stack.hash(state);
         self.color.hash(state);
@@ -3388,6 +3400,7 @@ impl StyleProperties {
     /// properties change (e.g., color changes on hover).
     // (family, weight, style) so that shaping runs break at element boundaries where font
     // properties differ, preventing impossible cross-boundary ligatures (e.g. "and" → "&").
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     #[must_use] pub fn layout_hash(&self) -> u64 {
         use std::hash::Hasher;
         let mut hasher = DefaultHasher::new();
@@ -5999,6 +6012,7 @@ impl TextShapingCache {
 }
 
 // --- Stage 1 Implementation ---
+#[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
 pub fn create_logical_items(
     content: &[InlineContent],
     style_overrides: &[StyleOverride],
@@ -6637,6 +6651,7 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
 /// Splits the text into segments by font coverage, shapes each segment with
 /// its resolved font, and fixes byte offsets so they're relative to the
 /// original `text` (not the segment substring).
+#[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
 fn shape_with_font_fallback<T: ParsedFontTrait>(
     text: &str,
     script: Script,
@@ -6740,6 +6755,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
     Ok(all_clusters)
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn shape_visual_items<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
@@ -7269,6 +7285,7 @@ fn is_hanging_punctuation(item: &ShapedItem) -> bool {
     }
 }
 
+#[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
 fn shape_text_correctly<T: ParsedFontTrait>(
     text: &str,
     script: Script,
@@ -7780,6 +7797,7 @@ fn calculate_line_metrics(
 /// - § 4 Baseline Alignment: vertical-align property not fully supported
 /// - § 5 Line Spacing: line-height implemented, but line-fit-edge missing
 /// - § 6 Trimming Leading: text-box-trim not implemented
+#[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn perform_fragment_layout<T: ParsedFontTrait>(
     cursor: &mut BreakCursor,
     logical_items: &[LogicalItem],
@@ -8403,6 +8421,7 @@ pub struct HyphenationBreak {
 }
 
 /// A "word" is defined as a sequence of one or more adjacent `ShapedClusters`.
+#[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 #[must_use] pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
     word_clusters: &[ShapedCluster],
     hyphenator: &Standard,
@@ -8636,6 +8655,7 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// - \u274c white-space: break-spaces alignment behavior
 // +spec:text-alignment-spacing:c8a926 - order of operations: shaping → letter/word-spacing → justification → alignment
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn position_one_line<T: ParsedFontTrait>(
     line_items: Vec<ShapedItem>,
     line_constraints: &LineConstraints,
@@ -9171,6 +9191,7 @@ fn calculate_alignment_offset(
 // +spec:display-contents:654278 - distributes remaining space to fill line box when justifying
 // +spec:text-alignment-spacing:56c7f4 - equal distribution of justification space within priority level
 // +spec:text-alignment-spacing:f17bbc - justification opportunities controlled by text-justify value (inter-word = word separators, inter-character = character juxtaposition)
+#[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 fn calculate_justification_spacing(
     items: &[ShapedItem],
     line_constraints: &LineConstraints,
@@ -9224,6 +9245,7 @@ fn calculate_justification_spacing(
 /// This function is non-mutating with respect to its inputs. It takes ownership of the
 /// original items and returns a completely new `Vec`. This is necessary because Kashida
 /// justification changes the number of items on the line, and must not modify cached data.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
     items: Vec<ShapedItem>,
     line_constraints: &LineConstraints,

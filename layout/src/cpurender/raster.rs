@@ -151,6 +151,7 @@ fn resolve_background_position(
     (x, y)
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // software rasterizer: bounded pixel/coord/colour casts
 fn render_linear_gradient(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -375,6 +376,7 @@ fn render_conic_gradient(
 // ============================================================================
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 fn render_box_shadow(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -498,6 +500,7 @@ pub enum MaskEntry {
 }
 
 /// Extract and scale mask image data (R8) to target dimensions.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Option<Vec<u8>> {
     let image_data = mask_image.get_data();
     let (mask_bytes, src_w, src_h) = match image_data {
@@ -558,6 +561,7 @@ fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Opt
 
 /// Apply a mask: for each pixel in the mask region, blend between the snapshot
 /// (pre-mask state) and the current pixmap state using the mask value.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
     let (snapshot, mask_data, origin_x, origin_y, width, height) = match entry {
         MaskEntry::ImageMask {
@@ -634,6 +638,7 @@ fn acquire_pixmap(retained: Option<AzulPixmap>, w: u32, h: u32) -> Result<AzulPi
     AzulPixmap::new(w, h).ok_or_else(|| "cannot create pixmap".to_string())
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 pub fn render(
     dl: &DisplayList,
     res: &RendererResources,
@@ -695,6 +700,7 @@ pub fn render_with_font_manager_and_scroll(
 /// Render with optional retained pixmap. If `retained` is Some and matches
 /// the target dimensions, it is reused (cleared to white) instead of
 /// allocating a fresh buffer. The pixmap is returned regardless.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 pub fn render_with_font_manager_and_scroll_retained(
     dl: &DisplayList,
     res: &RendererResources,
@@ -990,6 +996,7 @@ const fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
 /// 3. Render intersecting items clipped to the damage rect.
 ///
 /// Push/Pop state commands are always processed (they maintain clip/scroll stacks).
+#[allow(clippy::cast_possible_truncation)] // software rasterizer: bounded pixel/coord/colour casts
 pub fn render_display_list_damaged(
     display_list: &DisplayList,
     pixmap: &mut AzulPixmap,
@@ -1086,6 +1093,7 @@ pub fn render_display_list_damaged(
     Ok(())
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 pub fn render_single_item(
     item: &DisplayListItem,
     pixmap: &mut AzulPixmap,
@@ -1873,6 +1881,7 @@ pub fn render_single_item(
     Ok(())
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer: bounded pixel/coord/colour casts
 fn render_rect(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -1938,6 +1947,7 @@ fn render_rect(
     Ok(())
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 fn render_text(
     glyphs: &[GlyphInstance],
     font_hash: FontHash,
@@ -2079,6 +2089,7 @@ fn render_text(
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer: bounded pixel/coord/colour casts
 fn render_border(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -2215,6 +2226,7 @@ fn render_border(
 
 /// Render border with per-side colors/widths/styles using CSS trapezoid model.
 /// Each side is a trapezoid: outer edge → inner edge with 45° miters at corners.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer: bounded pixel/coord/colour casts
 fn render_border_sides(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -2402,6 +2414,7 @@ fn render_border_sides(
     Ok(())
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 fn render_image(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -2691,6 +2704,7 @@ fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
 
 /// Render a `StyledDom` to a PNG image for component preview.
 #[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 pub fn render_component_preview(
     styled_dom: azul_core::styled_dom::StyledDom,
     font_manager: &FontManager<FontRef>,

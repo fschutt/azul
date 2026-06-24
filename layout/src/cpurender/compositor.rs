@@ -83,6 +83,7 @@ pub enum LayerReason {
 
 impl CompositorState {
     /// Create a new compositor with a root layer sized to the viewport.
+    #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
     #[must_use] pub fn new(width: u32, height: u32) -> Self {
         let root_id = LayerId(0);
         let root_layer = Layer::new(
@@ -121,6 +122,7 @@ impl CompositorState {
 
     /// Walk the display list and create layers for scroll frames, filters, opacity, transforms.
     /// Returns a mapping from display-list item index to the `LayerId` it should render into.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
     pub fn allocate_layers_from_display_list(
         &mut self,
         display_list: &DisplayList,
@@ -440,6 +442,7 @@ impl CompositorState {
         self.composite_layer_recursive(self.root_layer, output, 0.0, 0.0, dpi_factor);
     }
 
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn composite_layer_recursive(
         &self,
         layer_id: LayerId,
@@ -496,6 +499,7 @@ impl CompositorState {
     }
 
     /// Handle scroll by shifting pixels and re-rendering the exposed strip.
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     pub fn scroll_layer(
         &mut self,
         scroll_id: LocalScrollId,
@@ -757,6 +761,7 @@ fn compute_exposed_rects(bounds: &LogicalRect, dx: f32, dy: f32) -> Vec<LogicalR
 /// not opaque over its clip can drag whatever showed through. Real scroll
 /// containers paint an opaque background or fully cover their box, so this is a
 /// known, documented limitation rather than a correctness bug for the common case.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn scroll_shift_region(
     pixmap: &mut AzulPixmap,
     clip_bounds: &LogicalRect,
@@ -856,6 +861,7 @@ pub fn scroll_shift_region(
 /// Iteration order is chosen so a row read as a source is never already
 /// overwritten (src and dst row SETS overlap, so order matters).
 #[inline]
+#[allow(clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 fn shift_vertical_1d(
     data: &mut [u8],
     stride_px: i32,
@@ -887,6 +893,7 @@ fn shift_vertical_1d(
 /// (`px_dx`<0). Source and dest overlap WITHIN a row, so `copy_within`'s memmove
 /// semantics handle it directly — no per-row ordering needed.
 #[inline]
+#[allow(clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 fn shift_horizontal_1d(
     data: &mut [u8],
     stride_px: i32,
@@ -921,6 +928,7 @@ fn shift_horizontal_1d(
 /// `px_dy` sign) matters, exactly as in the vertical case. This does the work of
 /// the two 1-D passes with half the memory traffic.
 #[inline]
+#[allow(clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 fn shift_diagonal_2d(
     data: &mut [u8],
     stride_px: i32,
@@ -1112,6 +1120,7 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
 
 /// Apply CSS filters to a pixbuf at composite time.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_factor: f32) {
     for filter in filters {
         match filter {
@@ -1485,6 +1494,7 @@ fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
 
 /// Compare a rectangular sub-region of two pixmaps pixel-by-pixel.
 /// Returns the number of pixels that differ by more than `threshold` per channel.
+#[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
 #[must_use] pub fn compare_region(
     a: &AzulPixmap,
     b: &AzulPixmap,
