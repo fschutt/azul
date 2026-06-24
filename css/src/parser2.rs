@@ -651,16 +651,7 @@ impl fmt::Display for CssParseError<'_> {
 /// always receives a (possibly empty) stylesheet.
 #[must_use] pub fn new_from_str(css_string: &str) -> (Css, Vec<CssParseWarnMsg<'_>>) {
     let mut tokenizer = Tokenizer::new(css_string);
-    let (rules, warnings) = match new_from_str_inner(css_string, &mut tokenizer) {
-        Ok((rules, warnings)) => (rules, warnings),
-        Err(error) => {
-            let warning = CssParseWarnMsg {
-                warning: CssParseWarnMsgInner::ParseError(error.error),
-                location: error.location,
-            };
-            (Vec::<CssRuleBlock>::new(), vec![warning])
-        }
-    };
+    let (rules, warnings) = new_from_str_inner(css_string, &mut tokenizer);
 
     (
         Css { rules: rules.into() },
@@ -1326,7 +1317,7 @@ fn parse_lang_condition(content: &str) -> Option<DynamicSelector> {
 fn new_from_str_inner<'a>(
     css_string: &'a str,
     tokenizer: &mut Tokenizer<'a>,
-) -> Result<(Vec<CssRuleBlock>, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
+) -> (Vec<CssRuleBlock>, Vec<CssParseWarnMsg<'a>>) {
     use azul_simplecss::{Combinator, Token};
 
     // Stack entry for nested selectors: accumulated parent paths + the current
@@ -1661,7 +1652,7 @@ fn new_from_str_inner<'a>(
     let (stylesheet, mut block_warnings) = css_blocks_to_stylesheet(css_blocks, css_string);
     warnings.append(&mut block_warnings);
 
-    Ok((stylesheet, warnings))
+    (stylesheet, warnings)
 }
 
 fn css_blocks_to_stylesheet<'a>(
