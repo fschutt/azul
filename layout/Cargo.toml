@@ -6,6 +6,7 @@
 # those crate unnecessarily heavy
 
 [package]
+readme = "../README.md"
 name = "azul-layout"
 version = "0.0.9"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]

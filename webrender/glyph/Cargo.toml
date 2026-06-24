@@ -1,4 +1,8 @@
 [package]
+readme = "../../README.md"
+keywords = ["webrender", "glyph", "rasterizer", "graphics"]
+categories = ["rendering"]
+repository = "https://github.com/servo/webrender"
 name = "wr_azul_glyph_rasterizer"
 version = "0.1.0"
 authors = ["The Mozilla Project Developers", "Azul Developers"]

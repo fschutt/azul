@@ -1,4 +1,5 @@
 [package]
+readme = "../README.md"
 name = "azul-dll"
 version = "0.0.8"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
