@@ -376,6 +376,8 @@ pub fn set_skip_display_list(skip: bool) {
 // source fn — and may itself prevent the inlining-induced fold. No perf cost on
 // desktop (called once per layout).
 #[inline(never)]
+// node counts / indices / tree-len values fed to az_mark debug markers as u32; bounded.
+#[allow(clippy::cast_possible_truncation)]
 pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
