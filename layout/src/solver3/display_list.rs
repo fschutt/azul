@@ -2434,7 +2434,7 @@ StyleVisibility::Collapse) => true,
         // TODO: CSS Overflow 3 says overflow clips should NOT apply to abs-pos descendants
         // whose containing block is above this clipper. Currently all descendants are clipped.
         // The containing_block_index field on LayoutNode is set for this purpose.
-        let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node)?;
+        let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node);
 
         // +spec:display-contents:434de8 - E.2 painting order: negative z-index, in-flow, z-index 0/auto, positive z-index
         // 3. Paint child stacking contexts with negative z-indices.
@@ -2510,7 +2510,7 @@ StyleVisibility::Collapse) => true,
                     builder.push_virtual_view_placeholder(dom_id, node_bounds, node_bounds);
                 }
             }
-            self.pop_node_clips(builder, node)?;
+            self.pop_node_clips(builder, node);
         } else {
             // Even without clips, emit VirtualViewPlaceholder for VirtualView nodes
             if let Some(dom_id) = node.dom_node_id {
@@ -2647,7 +2647,7 @@ StyleVisibility::Collapse) => true,
             self.paint_node_background_and_border(builder, child_index)?;
 
             // Push clips and scroll frames AFTER painting background
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
+            let did_push_clip = self.push_node_clips(builder, child_index, child_node);
 
             // Paint descendants inside the clip/scroll frame
             self.paint_in_flow_descendants(builder, child_index, self.positioned_tree.tree.children(child_index))?;
@@ -2662,7 +2662,7 @@ StyleVisibility::Collapse) => true,
 
             // Pop the child's clips.
             if did_push_clip {
-                self.pop_node_clips(builder, child_node)?;
+                self.pop_node_clips(builder, child_node);
             }
 
             // Pop image mask clip
@@ -2720,7 +2720,7 @@ StyleVisibility::Collapse) => true,
             // Same as above: push image mask, paint background, then clips
             let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
             self.paint_node_background_and_border(builder, child_index)?;
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
+            let did_push_clip = self.push_node_clips(builder, child_index, child_node);
             self.paint_in_flow_descendants(builder, child_index, self.positioned_tree.tree.children(child_index))?;
 
             // For VirtualView children: emit placeholder INSIDE the clip
@@ -2732,7 +2732,7 @@ StyleVisibility::Collapse) => true,
             }
 
             if did_push_clip {
-                self.pop_node_clips(builder, child_node)?;
+                self.pop_node_clips(builder, child_node);
             }
             if did_push_child_image_mask {
                 builder.pop_image_mask_clip();
@@ -2787,7 +2787,7 @@ StyleVisibility::Collapse) => true,
             // Same as above: push image mask, paint background, then clips
             let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
             self.paint_node_background_and_border(builder, child_index)?;
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
+            let did_push_clip = self.push_node_clips(builder, child_index, child_node);
             self.paint_in_flow_descendants(builder, child_index, self.positioned_tree.tree.children(child_index))?;
 
             // For VirtualView children: emit placeholder INSIDE the clip
@@ -2799,7 +2799,7 @@ StyleVisibility::Collapse) => true,
             }
 
             if did_push_clip {
-                self.pop_node_clips(builder, child_node)?;
+                self.pop_node_clips(builder, child_node);
             }
             if did_push_child_image_mask {
                 builder.pop_image_mask_clip();
@@ -2896,9 +2896,9 @@ StyleVisibility::Collapse) => true,
         builder: &mut DisplayListBuilder,
         node_index: usize,
         node: &LayoutNodeHot,
-    ) -> Result<bool> {
+    ) -> bool {
         let Some(dom_id) = node.dom_node_id else {
-            return Ok(false);
+            return false;
         };
 
         let styled_node_state = self.get_styled_node_state(dom_id);
@@ -2951,7 +2951,7 @@ StyleVisibility::Collapse) => true,
         let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
 
         if !needs_clip {
-            return Ok(has_clip_path);
+            return has_clip_path;
         }
 
         // +spec:overflow:c52f2a - clipping region is rounded to element's border-radius
@@ -3043,13 +3043,13 @@ StyleVisibility::Collapse) => true,
             builder.push_clip(clip_rect, border_radius);
         }
 
-        Ok(true)
+        true
     }
 
     /// Pops any clip/scroll commands associated with a node.
-    fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNodeHot) -> Result<()> {
+    fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNodeHot) {
         let Some(dom_id) = node.dom_node_id else {
-            return Ok(());
+            return;
         };
 
         let styled_node_state = self.get_styled_node_state(dom_id);
@@ -3121,7 +3121,6 @@ StyleVisibility::Collapse) => true,
             }
         }
 
-        Ok(())
     }
 
     /// Calculates the final paint-time rectangle for a node.
@@ -3424,11 +3423,11 @@ StyleVisibility::Collapse) => true,
             if let Some(node) = child_node {
                 if matches!(node.formatting_context, FormattingContext::TableColumnGroup) {
                     // Paint column group background
-                    self.paint_element_background(builder, child_idx)?;
+                    self.paint_element_background(builder, child_idx);
 
                     // Paint backgrounds of individual columns within this group
                     for &col_idx in self.positioned_tree.tree.children(child_idx) {
-                        self.paint_element_background(builder, col_idx)?;
+                        self.paint_element_background(builder, col_idx);
                     }
                 }
             }
@@ -3443,16 +3442,16 @@ StyleVisibility::Collapse) => true,
                 match node.formatting_context {
                     FormattingContext::TableRowGroup => {
                         // Paint row group background
-                        self.paint_element_background(builder, child_idx)?;
+                        self.paint_element_background(builder, child_idx);
 
                         // Paint rows within this group
                         for &row_idx in self.positioned_tree.tree.children(child_idx) {
-                            self.paint_table_row_and_cells(builder, row_idx)?;
+                            self.paint_table_row_and_cells(builder, row_idx);
                         }
                     }
                     FormattingContext::TableRow => {
                         // Direct row child (no row group wrapper)
-                        self.paint_table_row_and_cells(builder, child_idx)?;
+                        self.paint_table_row_and_cells(builder, child_idx);
                     }
                     _ => {}
                 }
@@ -3475,7 +3474,7 @@ StyleVisibility::Collapse) => true,
         &self,
         builder: &mut DisplayListBuilder,
         row_idx: usize,
-    ) -> Result<()> {
+    ) {
         // Layer 5: Paint row background.
         // Rows don't have entries in calculated_positions (adding them would
         // double-offset cells during position recursion). Compute the row rect
@@ -3512,11 +3511,10 @@ StyleVisibility::Collapse) => true,
         // Layer 6: Paint cell backgrounds (topmost layer)
         if let Some(_node) = self.positioned_tree.tree.get(row_idx) {
             for &cell_idx in self.positioned_tree.tree.children(row_idx) {
-                self.paint_element_background(builder, cell_idx)?;
+                self.paint_element_background(builder, cell_idx);
             }
         }
 
-        Ok(())
     }
 
     /// Helper function to paint an element's background (used for all table elements)
@@ -3525,16 +3523,16 @@ StyleVisibility::Collapse) => true,
         &self,
         builder: &mut DisplayListBuilder,
         node_index: usize,
-    ) -> Result<()> {
+    ) {
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
-            return Ok(());
+            return;
         };
 
         let Some(node) = self.positioned_tree.tree.get(node_index) else {
-            return Ok(());
+            return;
         };
         let Some(dom_id) = node.dom_node_id else {
-            return Ok(());
+            return;
         };
 
         let styled_node_state = self.get_styled_node_state(dom_id);
@@ -3542,7 +3540,7 @@ StyleVisibility::Collapse) => true,
 
         // Only paint if background color has alpha > 0 (optimization)
         if bg_color.a == 0 {
-            return Ok(());
+            return;
         }
 
         let element_size = PhysicalSizeImport {
@@ -3559,7 +3557,6 @@ StyleVisibility::Collapse) => true,
 
         builder.push_rect(paint_rect, bg_color, border_radius);
 
-        Ok(())
     }
 
     /// Emits drawing commands for the foreground content, including hit-test areas and scrollbars.
@@ -3684,7 +3681,7 @@ StyleVisibility::Collapse) => true,
                 }
             }
 
-            self.paint_inline_content(builder, content_box_rect, viewport_clip_rect, inline_layout, node_index)?;
+            self.paint_inline_content(builder, content_box_rect, viewport_clip_rect, inline_layout, node_index);
 
             if pushed_text_shadow {
                 builder.push_item(DisplayListItem::PopTextShadow);
@@ -4099,7 +4096,7 @@ StyleVisibility::Collapse) => true,
         viewport_clip_rect: LogicalRect,
         layout: &UnifiedLayout,
         source_node_index: usize,
-    ) -> Result<()> {
+    ) {
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
         // NOTE: Text decorations (underline, strikethrough, overline) are handled in push_text_layout_to_display_list
@@ -4344,9 +4341,8 @@ StyleVisibility::Collapse) => true,
         // These are positioned by the text3 engine and need to be rendered at their calculated
         // positions
         for positioned_item in &layout.items {
-            self.paint_inline_object(builder, container_rect.origin, positioned_item)?;
+            self.paint_inline_object(builder, container_rect.origin, positioned_item);
         }
-        Ok(())
     }
 
     /// Paints a single inline object (image, shape, or inline-block)
@@ -4355,13 +4351,13 @@ StyleVisibility::Collapse) => true,
         builder: &mut DisplayListBuilder,
         base_pos: LogicalPosition,
         positioned_item: &PositionedItem,
-    ) -> Result<()> {
+    ) {
         let ShapedItem::Object {
             content, bounds, ..
         } = &positioned_item.item
         else {
             // Other item types (e.g., breaks) don't produce painted output.
-            return Ok(());
+            return;
         };
 
         // Calculate the absolute position of this object
@@ -4385,11 +4381,10 @@ StyleVisibility::Collapse) => true,
                 }
             }
             InlineContent::Shape(shape) => {
-                self.paint_inline_shape(builder, object_bounds, shape, bounds)?;
+                self.paint_inline_shape(builder, object_bounds, shape, bounds);
             }
             _ => {}
         }
-        Ok(())
     }
 
     // +spec:inline-block:a60a89 - inline-block painted atomically as pseudo-stacking-context per E.2
@@ -4400,11 +4395,11 @@ StyleVisibility::Collapse) => true,
         object_bounds: LogicalRect,
         shape: &InlineShape,
         bounds: &crate::text3::cache::Rect,
-    ) -> Result<()> {
+    ) {
         // Render inline-block backgrounds and borders using their CSS styling
         // The text3 engine positions these correctly in the inline flow
         let Some(node_id) = shape.source_node_id else {
-            return Ok(());
+            return;
         };
 
         // If this inline-block establishes a stacking context, its background was
@@ -4414,7 +4409,7 @@ StyleVisibility::Collapse) => true,
         if let Some(indices) = self.positioned_tree.tree.dom_to_layout.get(&node_id) {
             if let Some(&idx) = indices.first() {
                 if self.establishes_stacking_context(idx) {
-                    return Ok(());
+                    return;
                 }
             }
         }
@@ -4488,7 +4483,6 @@ StyleVisibility::Collapse) => true,
             builder.push_hit_test_area(border_box_bounds, tag_id);
         }
 
-        Ok(())
     }
 
     // +spec:overflow:d1d5f6 - CSS 2.2 §9.9.1 stacking context creation and 7-layer paint order
