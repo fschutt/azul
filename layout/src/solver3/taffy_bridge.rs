@@ -788,12 +788,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         taffy_style.gap = cache.compact_cache.as_ref().map_or_else(|| cache
                 .get_property(node_data, &id, node_state, &CssPropertyType::Gap)
                 .and_then(|p| if let CssProperty::Gap(v) = p { Some(v) } else { None })
-                .map(|v| {
+                .map_or_else(Size::zero, |v| {
                     let val = v.get_property_or_default().unwrap_or_default().inner;
                     let gap_lp = pixel_to_lp(val);
                     Size { width: gap_lp, height: gap_lp }
-                })
-                .unwrap_or_else(Size::zero), |cc| {
+                }), |cc| {
             let row = cc.tier2_dims[id.index()].row_gap;
             let col = cc.tier2_dims[id.index()].column_gap;
             let decode = |raw: i16| -> LengthPercentage {

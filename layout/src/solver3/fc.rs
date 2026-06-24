@@ -4354,7 +4354,7 @@ fn get_border_info<T: ParsedFontTrait>(
     let top = cache
         .get_border_top_style(node_data, &dom_id, &node_state)
         .and_then(|s| s.get_property())
-        .map(|style_val| {
+        .map_or_else(|| default_border.clone(), |style_val| {
             let width = cache
                 .get_border_top_width(node_data, &dom_id, &node_state)
                 .and_then(|w| w.get_property())
@@ -4372,14 +4372,13 @@ fn get_border_info<T: ParsedFontTrait>(
                     a: 255,
                 }, |c| c.inner);
             BorderInfo::new(width, style_val.inner, color, source)
-        })
-        .unwrap_or_else(|| default_border.clone());
+        });
 
     // Right border
     let right = cache
         .get_border_right_style(node_data, &dom_id, &node_state)
         .and_then(|s| s.get_property())
-        .map(|style_val| {
+        .map_or_else(|| default_border.clone(), |style_val| {
             let width = cache
                 .get_border_right_width(node_data, &dom_id, &node_state)
                 .and_then(|w| w.get_property())
@@ -4397,14 +4396,13 @@ fn get_border_info<T: ParsedFontTrait>(
                     a: 255,
                 }, |c| c.inner);
             BorderInfo::new(width, style_val.inner, color, source)
-        })
-        .unwrap_or_else(|| default_border.clone());
+        });
 
     // Bottom border
     let bottom = cache
         .get_border_bottom_style(node_data, &dom_id, &node_state)
         .and_then(|s| s.get_property())
-        .map(|style_val| {
+        .map_or_else(|| default_border.clone(), |style_val| {
             let width = cache
                 .get_border_bottom_width(node_data, &dom_id, &node_state)
                 .and_then(|w| w.get_property())
@@ -4422,14 +4420,13 @@ fn get_border_info<T: ParsedFontTrait>(
                     a: 255,
                 }, |c| c.inner);
             BorderInfo::new(width, style_val.inner, color, source)
-        })
-        .unwrap_or_else(|| default_border.clone());
+        });
 
     // Left border
     let left = cache
         .get_border_left_style(node_data, &dom_id, &node_state)
         .and_then(|s| s.get_property())
-        .map(|style_val| {
+        .map_or_else(|| default_border.clone(), |style_val| {
             let width = cache
                 .get_border_left_width(node_data, &dom_id, &node_state)
                 .and_then(|w| w.get_property())
@@ -4447,8 +4444,7 @@ fn get_border_info<T: ParsedFontTrait>(
                     a: 255,
                 }, |c| c.inner);
             BorderInfo::new(width, style_val.inner, color, source)
-        })
-        .unwrap_or_else(|| default_border.clone());
+        });
 
     (top, right, bottom, left)
 }
@@ -5470,12 +5466,11 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
     // intrinsic sizing — that would make every column appear infinitely wide.
     let content_width = tree.warm(cell_index)
         .and_then(|w| w.overflow_content_size)
-        .map(|s| s.width)
-        .unwrap_or_else(|| {
+        .map_or_else(|| {
             tree.get(cell_index)
                 .and_then(|n| n.used_size)
                 .map_or(0.0, |s| s.width)
-        });
+        }, |s| s.width);
 
     Ok(content_width
         + padding.cross_start(wm) + padding.cross_end(wm)
