@@ -494,6 +494,13 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
 ///
 /// Implements the SVG spec arc endpoint-to-center parameterization (Appendix F.6).
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+// n_segs is a tiny arc-quadrant count (<= ~6) and its loop index; the float<->usize
+// casts are exact for these bounded values.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
 fn arc_to_cubics(
     start: SvgPoint,
     end: SvgPoint,

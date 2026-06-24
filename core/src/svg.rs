@@ -906,6 +906,10 @@ impl_vec_partialeq!(SvgColoredVertex, SvgColoredVertexVec);
 ///
 /// Converts `StyleTransform` list into column-major `[f32; 16]` for OpenGL,
 /// and packages it along with the bbox size uniform.
+// target_size is physical pixel dimensions (u32); GL uniforms are f32. Pixel
+// counts are always well within f32's exact-integer range (2^24), so the
+// precision loss the lint warns about cannot occur for any real render target.
+#[allow(clippy::cast_precision_loss)]
 fn compute_svg_transform_uniforms(
     target_size: PhysicalSizeU32,
     transforms: &[StyleTransform],
