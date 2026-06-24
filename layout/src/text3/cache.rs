@@ -321,7 +321,7 @@ impl FontChainKeyOrRef {
     #[must_use] pub const fn as_ref_ptr(&self) -> Option<usize> {
         match self {
             Self::Ref(ptr) => Some(*ptr),
-            _ => None,
+            Self::Chain(_) => None,
         }
     }
     
@@ -329,7 +329,7 @@ impl FontChainKeyOrRef {
     #[must_use] pub const fn as_chain(&self) -> Option<&FontChainKey> {
         match self {
             Self::Chain(key) => Some(key),
-            _ => None,
+            Self::Ref(_) => None,
         }
     }
 }
@@ -1447,7 +1447,7 @@ impl FontStack {
     #[must_use] pub const fn as_ref(&self) -> Option<&azul_css::props::basic::font::FontRef> {
         match self {
             Self::Ref(r) => Some(r),
-            _ => None,
+            Self::Stack(_) => None,
         }
     }
 
@@ -1455,7 +1455,7 @@ impl FontStack {
     #[must_use] pub fn as_stack(&self) -> Option<&[FontSelector]> {
         match self {
             Self::Stack(s) => Some(s),
-            _ => None,
+            Self::Ref(_) => None,
         }
     }
 

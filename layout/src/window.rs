@@ -7013,7 +7013,7 @@ impl LayoutWindow {
         // Collect range selections (collapsed cursors contribute nothing to a copy).
         let ranges: Vec<_> = mc.selections.iter().filter_map(|s| match &s.selection {
             Selection::Range(r) => Some(*r),
-            _ => None,
+            Selection::Cursor(_) => None,
         }).collect();
         if ranges.is_empty() {
             return None;

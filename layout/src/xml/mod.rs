@@ -411,7 +411,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                         use azul_css::dynamic_selector::CssPropertyWithConditions;
                         match s {
                             CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
-                            _ => None,
+                            CssDeclaration::Dynamic(_) => None,
                         }
                     }).collect::<Vec<_>>();
                     if !props.is_empty() {

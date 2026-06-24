@@ -513,7 +513,7 @@ fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Opt
             }
             let bytes = match data {
                 azul_core::resources::ImageData::Raw(shared) => shared.as_ref(),
-                _ => return None,
+                azul_core::resources::ImageData::External(_) => return None,
             };
             match descriptor.format {
                 azul_core::resources::RawImageFormat::R8 => (bytes.to_vec(), w, h),
@@ -580,7 +580,7 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
             *width,
             *height,
         ),
-        _ => return,
+        MaskEntry::Opacity{ .. } => return,
     };
 
     let pw = pixmap.width as i32;
@@ -2441,7 +2441,7 @@ fn render_image(
             }
             let bytes = match data {
                 azul_core::resources::ImageData::Raw(shared) => shared.as_ref(),
-                _ => return Ok(()),
+                azul_core::resources::ImageData::External(_) => return Ok(()),
             };
 
             let rgba = match descriptor.format {
@@ -2486,7 +2486,7 @@ fn render_image(
             agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
             return Ok(());
         }
-        _ => return Ok(()),
+        DecodedImage::Gl(_) => return Ok(()),
     };
 
     // Simple nearest-neighbor blit with scaling

@@ -2328,7 +2328,7 @@ impl CallbackInfo {
             .text_edit_manager.multi_cursor.as_ref()
             .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
                 Selection::Range(r) => Some(*r),
-                _ => None,
+                Selection::Cursor(_) => None,
             }).collect()).unwrap_or_default();
         ranges.into()
     }
@@ -3874,7 +3874,7 @@ impl CallbackInfo {
             .text_edit_manager.multi_cursor.as_ref()
             .and_then(|mc| mc.selections.iter().find_map(|s| match &s.selection {
                 Selection::Range(r) => Some(*r),
-                _ => None,
+                Selection::Cursor(_) => None,
             }))
     }
 
@@ -3943,7 +3943,7 @@ impl CallbackInfo {
         let selection = if let Some(mc) = layout_window.text_edit_manager.multi_cursor.as_ref() {
             if let Some(range) = mc.selections.iter().find_map(|s| match &s.selection {
                 Selection::Range(r) => Some(*r),
-                _ => None,
+                Selection::Cursor(_) => None,
             }) {
                 Selection::Range(range)
             } else if let Some(cursor) = mc.get_primary_cursor() {
@@ -4129,7 +4129,7 @@ impl CallbackInfo {
             .text_edit_manager.multi_cursor.as_ref()
             .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
                 Selection::Range(r) => Some(*r),
-                _ => None,
+                Selection::Cursor(_) => None,
             }).collect()).unwrap_or_default();
         ranges.into()
     }

@@ -4424,7 +4424,7 @@ impl ComputedScrollbarStyle {
 
         let (thumb_color, track_color) = match ua.color {
             StyleScrollbarColor::Custom(c) => (c.thumb, c.track),
-            _ => (ColorU::TRANSPARENT, ColorU::TRANSPARENT),
+            StyleScrollbarColor::Auto => (ColorU::TRANSPARENT, ColorU::TRANSPARENT),
         };
 
         // Compute hover / active variants:
