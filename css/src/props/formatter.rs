@@ -25,6 +25,9 @@ use crate::props::{
 /// Unlike `PrintAsCssValue` (which returns a `String`), this trait writes
 /// directly into a formatter and is suitable for `Display` impl delegation.
 pub trait FormatAsCssValue {
+    /// # Errors
+    ///
+    /// Returns an error if writing to the formatter `f` fails.
     fn format_as_css_value(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 

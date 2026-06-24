@@ -183,6 +183,9 @@ macro_rules! define_offset_parse_error {
         }
 
         #[cfg(feature = "parser")]
+        /// # Errors
+        ///
+        /// Returns an error if `input` is not a valid CSS value for this property.
         pub fn $parse_fn(input: &str) -> Result<$struct_name, $error_name<'_>> {
             parse_pixel_value(input)
                 .map(|v| $struct_name { inner: v })

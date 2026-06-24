@@ -418,6 +418,9 @@ pub mod parser {
                 }
             }
 
+            /// # Errors
+            ///
+            /// Returns an error if `input` is not a valid CSS value for this property.
             pub fn $fn_name(input: &str) -> Result<$struct_name, $error_name<'_>> {
                 match input.trim() {
                     $( $val => Ok($variant), )+

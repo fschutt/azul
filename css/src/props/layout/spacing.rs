@@ -355,6 +355,9 @@ macro_rules! typed_pixel_value_parser {
         #[doc = $import_str]
         #[doc = $test_str]
         ///```
+        /// # Errors
+        ///
+        /// Returns an error if `input` is not a valid CSS value for this property.
         pub fn $fn(input: &str) -> Result<$return, CssPixelValueParseError<'_>> {
             crate::props::basic::parse_pixel_value(input).map(|e| $return { inner: e })
         }

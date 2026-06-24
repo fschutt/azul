@@ -354,6 +354,9 @@ pub mod parser {
                 }
             }
 
+            /// # Errors
+            ///
+            /// Returns an error if `input` is not a valid CSS value for this property.
             pub fn $fn_name(input: &str) -> Result<$struct_name, $error_name<'_>> {
                 let trimmed = input.trim();
                 let val: i32 = trimmed.parse().map_err(|e| $error_name::ParseInt(e, trimmed))?;

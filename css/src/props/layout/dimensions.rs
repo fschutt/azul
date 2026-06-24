@@ -392,6 +392,9 @@ pub mod parser {
                 }
             }
 
+            /// # Errors
+            ///
+            /// Returns an error if `input` is not a valid CSS value for this property.
             pub fn $fn_name(input: &str) -> Result<$struct_name, $error_name<'_>> {
                 parse_pixel_value(input)
                     .map(|v| $struct_name { inner: v })
@@ -449,6 +452,9 @@ pub mod parser {
                 }
             }
 
+            /// # Errors
+            ///
+            /// Returns an error if `input` is not a valid CSS value for this property.
             pub fn $fn_name(
                 input: &str,
             ) -> Result<$enum_name, $error_name<'_>> {

@@ -255,6 +255,9 @@ pub struct QuoteStripped<'a>(pub &'a str);
 ///     Err(UnclosedQuotesError("\"Arial'"))
 /// );
 /// ```
+/// # Errors
+///
+/// Returns an error if `input` has an opening quote with no matching closing quote.
 pub fn strip_quotes(input: &str) -> Result<QuoteStripped<'_>, UnclosedQuotesError<'_>> {
     let mut double_quote_iter = input.splitn(2, '"');
     double_quote_iter.next();

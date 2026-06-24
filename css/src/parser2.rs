@@ -416,6 +416,9 @@ impl DynamicCssParseErrorOwned {
 
 /// "selector" contains the actual selector such as "nth-child" while "value" contains
 /// an optional value - for example "nth-child(3)" would be: selector: "nth-child", value: "3".
+/// # Errors
+///
+/// Returns an error if `selector` (with optional `value`) is not a recognized CSS pseudo-selector.
 pub fn pseudo_selector_from_str<'a>(
     selector: &'a str,
     value: Option<&'a str>,

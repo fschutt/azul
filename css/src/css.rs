@@ -1034,6 +1034,9 @@ impl NodeTypeTagParseErrorOwned {
 /// Parses the node type from a CSS string such as `"div"` => `NodeTypeTag::Div`
 impl NodeTypeTag {
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    /// # Errors
+    ///
+    /// Returns an error if `css_key` is not a recognized HTML node-type tag.
     pub fn from_str(css_key: &str) -> Result<Self, NodeTypeTagParseError<'_>> {
         match css_key {
             // Document structure
