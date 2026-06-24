@@ -2342,24 +2342,19 @@ impl LayoutWindow {
     ) -> CursorBlinkTimerAction {
         // Check if the new focus is on a contenteditable element
         // Use the inherited check for W3C conformance
-        let contenteditable_info = match new_focus {
-            Some(focus_node) => {
-                if let Some(node_id) = focus_node.node.into_crate_internal() {
-                    // Check if this node or any ancestor is contenteditable
-                    if self.is_node_contenteditable_inherited_internal(focus_node.dom, node_id) {
-                        // Find the text node where the cursor should be placed
-                        let text_node_id = self.find_last_text_child(focus_node.dom, node_id)
-                            .unwrap_or(node_id);
-                        Some((focus_node.dom, node_id, text_node_id))
-                    } else {
-                        None
-                    }
+        let contenteditable_info = new_focus.and_then(|focus_node| {
+            focus_node.node.into_crate_internal().and_then(|node_id| {
+                // Check if this node or any ancestor is contenteditable
+                if self.is_node_contenteditable_inherited_internal(focus_node.dom, node_id) {
+                    // Find the text node where the cursor should be placed
+                    let text_node_id = self.find_last_text_child(focus_node.dom, node_id)
+                        .unwrap_or(node_id);
+                    Some((focus_node.dom, node_id, text_node_id))
                 } else {
                     None
                 }
-            }
-            None => None,
-        };
+            })
+        });
 
         // Determine the action based on current state and new focus
         let timer_was_active = self.text_edit_manager.blink.is_blink_timer_active();
@@ -4880,39 +4875,35 @@ impl LayoutWindow {
                 let is_increment = matches!(action, AccessibilityAction::Increment);
 
                 // Get the current value
-                let current_value = if let Some(layout_result) = self.layout_results.get(&dom_id) {
-                    if let Some(styled_node) = layout_result
+                let current_value = self.layout_results.get(&dom_id).and_then(|layout_result| {
+                    layout_result
                         .styled_dom
                         .node_data
                         .as_ref()
                         .get(node_id.index())
-                    {
-                        // Try "value" attribute first
-                        styled_node
-                            .attributes()
-                            .as_ref()
-                            .iter()
-                            .find_map(|attr| {
-                                if let AttributeType::Value(v) = attr {
-                                    Some(v.as_str().to_string())
-                                } else {
-                                    None
-                                }
-                            })
-                            .or_else(|| {
-                                // Fallback to text content
-                                if let NodeType::Text(text) = styled_node.get_node_type() {
-                                    Some(text.as_str().to_string())
-                                } else {
-                                    None
-                                }
-                            })
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
+                        .and_then(|styled_node| {
+                            // Try "value" attribute first
+                            styled_node
+                                .attributes()
+                                .as_ref()
+                                .iter()
+                                .find_map(|attr| {
+                                    if let AttributeType::Value(v) = attr {
+                                        Some(v.as_str().to_string())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .or_else(|| {
+                                    // Fallback to text content
+                                    if let NodeType::Text(text) = styled_node.get_node_type() {
+                                        Some(text.as_str().to_string())
+                                    } else {
+                                        None
+                                    }
+                                })
+                        })
+                });
 
                 // Parse as number, increment/decrement, convert back to string
                 if let Some(value_str) = current_value {
