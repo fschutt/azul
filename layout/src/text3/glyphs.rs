@@ -52,6 +52,7 @@ pub struct SimpleGlyphRun {
 
 /// Groups glyphs into runs without requiring font references.
 /// Use this when you only need glyph positions and don't need font references.
+#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 #[must_use] pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
     let mut runs: Vec<SimpleGlyphRun> = Vec::new();
     let mut current_run: Option<SimpleGlyphRun> = None;
@@ -262,6 +263,7 @@ pub struct PdfPositionedGlyph {
 /// - Breaks runs at line boundaries (different `line_index`)
 /// - Preserves absolute positioning for each glyph (critical for RTL and complex scripts)
 /// - Includes cluster text for proper CID/Unicode mapping
+#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 #[must_use] pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
     layout: &UnifiedLayout,
     fonts: &LoadedFonts<T>,

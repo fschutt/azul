@@ -1581,6 +1581,7 @@ mod scroll_shift_tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
     fn vertical_scroll_one_strip_and_translates() {
         let mut p = xy_pixmap(200, 100);
         // Scroll DOWN by 30 → content moves UP → bottom strip exposed.
@@ -1597,6 +1598,7 @@ mod scroll_shift_tests {
 
     #[test]
     #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
     fn diagonal_pan_two_strips_and_translates() {
         let mut p = xy_pixmap(200, 100);
         // Diagonal scroll down-right by (20, 30): content moves up-left.
@@ -1639,6 +1641,7 @@ mod scroll_shift_tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)] // test asserts exact float equality on deterministic values
     fn shift_larger_than_region_returns_full_clip() {
         let mut p = xy_pixmap(64, 64);
         let clip = rect(0.0, 0.0, 64.0, 64.0);

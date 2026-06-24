@@ -426,6 +426,7 @@ extern "C" fn video_replay_worker(mut init: RefAny, mut sender: ThreadSender, _r
 }
 
 /// Carry live state forward across relayout.
+#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     {
         let new_guard = new_data.downcast_mut::<VideoWidgetState>();

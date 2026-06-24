@@ -1044,6 +1044,7 @@ struct ConnectionLocalDataset {
     color: ColorU,
 }
 
+#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 fn render_node(
     node: &Node,
     graph_offset: (f32, f32),
@@ -2855,6 +2856,7 @@ extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, _info: CallbackInf
 }
 
 // drag either the graph or the currently active nodes
+#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut refany) = refany.downcast_mut::<NodeGraphLocalDataset>() else {
         return Update::DoNothing;

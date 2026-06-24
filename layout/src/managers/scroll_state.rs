@@ -1279,6 +1279,7 @@ mod natural_scroll_tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)] // test asserts exact float equality on deterministic values
     fn default_is_traditional_and_inverts_raw_delta() {
         // With AZ_NATURAL_SCROLL unset, the default is traditional: the offset
         // delta is the NEGATION of the raw input — exactly what the per-platform
@@ -1293,6 +1294,7 @@ mod natural_scroll_tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)] // test asserts exact float equality on deterministic values
     fn natural_passes_raw_delta_through() {
         let mut m = ScrollManager::new();
         m.set_natural_scroll(true);
@@ -1305,6 +1307,7 @@ mod natural_scroll_tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)] // test asserts exact float equality on deterministic values
     fn toggling_flips_sign_for_subsequent_input() {
         // Same raw input, opposite directions before/after the toggle — proves the
         // single flag is the only thing controlling direction.

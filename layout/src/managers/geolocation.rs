@@ -294,6 +294,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)] // test asserts exact float equality on deterministic values
     fn async_fixes_round_trip_through_manager() {
         // The channel is process-global; clear any residue first.
         let _ = drain_location_fixes();

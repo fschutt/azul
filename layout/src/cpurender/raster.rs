@@ -1099,6 +1099,7 @@ pub fn render_display_list_damaged(
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 pub fn render_single_item(
     item: &DisplayListItem,
     pixmap: &mut AzulPixmap,
