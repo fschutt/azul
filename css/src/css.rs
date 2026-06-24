@@ -317,7 +317,11 @@ impl<T> BoxOrStatic<T> {
     }
 
     /// Return a mutable reference to the inner value (only for Boxed).
-    /// Panics if called on Static.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on a `Static` variant: static values are immutable
+    /// and cannot hand out a `&mut`.
     #[inline]
     pub fn as_mut(&mut self) -> &mut T {
         match self {

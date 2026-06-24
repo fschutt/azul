@@ -559,6 +559,11 @@ impl CombinedCssPropertyType {
     }
 
     /// Returns the original string that was used to construct this `CssPropertyType`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` is not present in `map` (i.e. `map` is not the
+    /// `CssKeyMap` this property type was constructed from).
     #[must_use] pub fn to_str(&self, map: &CssKeyMap) -> &'static str {
         map.shorthands
             .iter()

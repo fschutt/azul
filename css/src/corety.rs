@@ -741,6 +741,12 @@ impl StringArena {
     /// bytes live inside the arena. The returned `AzString` owns a cloned
     /// `Arc` reference; dropping it decrements the refcount, and the
     /// arena frees its chunks when the final reference is released.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the arena's internal chunk list is unexpectedly empty when
+    /// appending a non-oversized string (an invariant violation that cannot
+    /// occur through the public API, since a chunk is allocated on demand).
     pub fn intern(&mut self, s: &str) -> AzString {
         let bytes = s.as_bytes();
         let len = bytes.len();
