@@ -1838,35 +1838,23 @@ impl LayoutWindow {
 
     /// Get the size of a laid-out node
     pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
-        let Some(layout_result) = self.layout_results.get(&node_id.dom) else {
-            return None;
-        };
+        let layout_result = self.layout_results.get(&node_id.dom)?;
         let nid = node_id.node.into_crate_internal()?;
         // Use dom_to_layout mapping since layout tree indices differ from DOM indices
-        let Some(layout_indices) = layout_result.layout_tree.dom_to_layout.get(&nid) else {
-            return None;
-        };
+        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&nid)?;
         let layout_index = *layout_indices.first()?;
-        let Some(layout_node) = layout_result.layout_tree.get(layout_index) else {
-            return None;
-        };
+        let layout_node = layout_result.layout_tree.get(layout_index)?;
         layout_node.used_size
     }
 
     /// Get the position of a laid-out node
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
-        let Some(layout_result) = self.layout_results.get(&node_id.dom) else {
-            return None;
-        };
+        let layout_result = self.layout_results.get(&node_id.dom)?;
         let nid = node_id.node.into_crate_internal()?;
         // Use dom_to_layout mapping since layout tree indices differ from DOM indices
-        let Some(layout_indices) = layout_result.layout_tree.dom_to_layout.get(&nid) else {
-            return None;
-        };
+        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&nid)?;
         let layout_index = *layout_indices.first()?;
-        let Some(position) = layout_result.calculated_positions.get(layout_index) else {
-            return None;
-        };
+        let position = layout_result.calculated_positions.get(layout_index)?;
         Some(*position)
     }
 

@@ -329,9 +329,7 @@ impl VirtualViewState {
         container_size: LogicalSize,
     ) -> Option<VirtualViewCallbackReason> {
         // Need scroll_size to determine if we can scroll at all
-        let Some(scroll_size) = self.virtual_view_scroll_size else {
-            return None;
-        };
+        let scroll_size = self.virtual_view_scroll_size?;
 
         // Check 1: Container grew larger than content - need more content
         if !self.invoked_for_current_expansion
