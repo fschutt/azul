@@ -3120,23 +3120,15 @@ impl NodeData {
     /// - `Some(0)`: In natural tab order
     /// - `Some(n > 0)`: In tab order with priority n (higher = later)
     #[must_use] pub fn get_effective_tabindex(&self) -> Option<i32> {
-        match self.flags.get_tab_index() {
-            None => {
-                // Check if naturally focusable (has focus callback)
-                if self.get_callbacks().iter().any(|cb| cb.event.is_focus_callback()) {
+        self.flags.get_tab_index().map_or_else(|| if self.get_callbacks().iter().any(|cb| cb.event.is_focus_callback()) {
                     Some(0)
                 } else {
                     None
-                }
-            }
-            Some(tab_idx) => {
-                match tab_idx {
+                }, |tab_idx| match tab_idx {
                     TabIndex::Auto => Some(0),
                     TabIndex::OverrideInParent(n) => Some(n as i32),
                     TabIndex::NoKeyboardFocus => Some(-1),
-                }
-            }
-        }
+                })
     }
 
     /// Returns the accessible label for this node.

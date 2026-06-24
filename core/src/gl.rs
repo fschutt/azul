@@ -1229,7 +1229,13 @@ impl GlContextPtr {
                         break;
                     }
                 }
-                if let Some(ver) = chosen {
+                chosen.map_or_else(|| {
+                    eprintln!(
+                        "azul: GL context UNUSABLE -- no GLSL version ({gl_type:?}) compiled the SVG \
+                         shaders; the window should fall back to CPU rendering (is_gl_usable()=false)"
+                    );
+                    (0, 0, 0, 0, AzString::from_const_str(""))
+                }, |ver| {
                     // "150" / "300 es": the directive minus "#version " and newline.
                     let ver_str: AzString = core::str::from_utf8(ver)
                         .unwrap_or("")
@@ -1253,13 +1259,7 @@ impl GlContextPtr {
                         &[(0, "aPos"), (1, "aUv")],
                     ).unwrap_or(0);
                     (svg, mc, fxaa, brush, ver_str)
-                } else {
-                    eprintln!(
-                        "azul: GL context UNUSABLE -- no GLSL version ({gl_type:?}) compiled the SVG \
-                         shaders; the window should fall back to CPU rendering (is_gl_usable()=false)"
-                    );
-                    (0, 0, 0, 0, AzString::from_const_str(""))
-                }
+                })
             } else {
                 (0, 0, 0, 0, AzString::from_const_str(""))
             };

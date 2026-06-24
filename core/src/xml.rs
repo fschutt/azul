@@ -2729,29 +2729,21 @@ fn builtin_compile_fn(
 
     let r: Result<AzString, CompileError> = match target {
         CompileTarget::Rust => {
-            if let Some(text_str) = text {
-                Ok(format!(
+            text.map_or_else(|| Ok(format!("Dom::create_node(NodeType::{type_name})").into()), |text_str| Ok(format!(
                     "Dom::create_node(NodeType::{}).with_children(vec![Dom::create_text(\"{}\")])",
                     type_name,
                     text_str.as_str().replace('\\', "\\\\").replace('"', "\\\"")
-                ).into())
-            } else {
-                Ok(format!("Dom::create_node(NodeType::{type_name})").into())
-            }
+                ).into()))
         }
         CompileTarget::C => {
-            if let Some(text_str) = text {
-                Ok(format!(
+            text.map_or_else(|| Ok(format!("AzDom_create{type_name}()").into()), |text_str| Ok(format!(
                     "AzDom_createText(AZ_STR(\"{}\"))",
                     text_str
                         .as_str()
                         .replace('\\', "\\\\")
                         .replace('"', "\\\"")
                 )
-                .into())
-            } else {
-                Ok(format!("AzDom_create{type_name}()").into())
-            }
+                .into()))
         }
         CompileTarget::Cpp => Ok(format!("Dom::create_{}()", type_name.to_lowercase()).into()),
         CompileTarget::Python => Ok(format!("Dom.create_{}()", type_name.to_lowercase()).into()),
@@ -6556,10 +6548,10 @@ fn compile_node_to_rust_code_inner(
     // Interactive/data tags (Button/Input/…) whose NodeType carries data fall
     // back to `div`, matching the C/C++/Python walkers (`safe_container_tag`).
     let ctor = analyze_node_ctor(&component_name, node);
-    let mut dom_string = if let Some(expr) = ctor.render_rust() { format!("{t2}{expr}") } else {
+    let mut dom_string = ctor.render_rust().map_or_else(|| {
         let tag = safe_container_tag(&format!("{:?}", tag_to_node_type(&component_name)));
         format!("{t2}Dom::create_node(NodeType::{tag})")
-    };
+    }, |expr| format!("{t2}{expr}"));
 
     matcher.path.push(node_type);
     let ids = node
@@ -7389,13 +7381,10 @@ pub fn str_to_python_code<'a>(
 /// matching `AzDom_create<Suffix>` in azul.h.
 fn c_creator_suffix(tag_dbg: &str) -> String {
     let mut chars = tag_dbg.chars();
-    match chars.next() {
-        Some(first) => {
+    chars.next().map_or_else(|| "Div".to_string(), |first| {
             let rest: String = chars.as_str().to_lowercase();
             alloc::format!("{first}{rest}")
-        }
-        None => "Div".to_string(),
-    }
+        })
 }
 
 fn compile_node_c(

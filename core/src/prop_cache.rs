@@ -1340,16 +1340,11 @@ impl CssPropertyCache {
                     .iter()
                     .any(|cb| cb.event.is_focus_callback());
 
-                let tab_index = match node_data.get_tab_index() {
-                    Some(s) => Some(s),
-                    None => {
-                        if should_auto_insert_tabindex {
+                let tab_index = node_data.get_tab_index().map_or(if should_auto_insert_tabindex {
                             Some(TabIndex::Auto)
                         } else {
                             None
-                        }
-                    }
-                };
+                        }, |s| Some(s));
 
                 let mut need_tag = false;
 
@@ -3542,20 +3537,17 @@ impl CssPropertyCache {
                     .map(|idx| &p[idx].1)
             });
 
-        match parent_font_size {
-            Some(pfs) => Self::resolve_property_dependency(prop, &pfs.property).unwrap_or_else(
+        parent_font_size.map_or_else(|| Self::resolve_font_size_to_pixels(
+                prop,
+                azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+            ), |pfs| Self::resolve_property_dependency(prop, &pfs.property).unwrap_or_else(
                 || {
                     Self::resolve_font_size_to_pixels(
                         prop,
                         azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                     )
                 },
-            ),
-            None => Self::resolve_font_size_to_pixels(
-                prop,
-                azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
-            ),
-        }
+            ))
     }
 
     /// Resolve other properties (uses current node's font-size as reference)

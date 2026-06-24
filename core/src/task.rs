@@ -212,8 +212,7 @@ impl Instant {
     /// Adds a duration to the instant, does nothing in undefined cases
     /// (i.e. trying to add a `Duration::Tick` to an `Instant::System`)
     #[must_use] pub fn add_optional_duration(&self, duration: Option<&Duration>) -> Self {
-        match duration {
-            Some(d) => match (self, d) {
+        duration.map_or_else(|| self.clone(), |d| match (self, d) {
                 (Self::System(i), Duration::System(d)) => {
                     #[cfg(feature = "std")]
                     {
@@ -236,9 +235,7 @@ impl Instant {
                         d, self
                     );
                 }
-            },
-            None => self.clone(),
-        }
+            })
     }
 
     /// Converts to `std::time::Instant` (panics if Tick variant).

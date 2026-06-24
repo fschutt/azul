@@ -397,24 +397,18 @@ impl<'a> Iterator for CssGroupIterator<'a> {
         )
     }
 
-    match target {
-        None => match path.selectors.as_ref().last() {
-            None => false,
-            Some(q) => match q {
-                // Only reject interactive pseudo-selectors (hover, active, focus)
-                // Structural pseudo-selectors (nth-child, first, last) should be allowed
-                CssPathSelector::PseudoSelector(p) => !is_interactive_pseudo(p),
-                _ => true,
-            },
+    let Some(last) = path.selectors.as_ref().last() else {
+        return false;
+    };
+    target.map_or_else(
+        || match last {
+            // Only reject interactive pseudo-selectors (hover, active, focus).
+            // Structural pseudo-selectors (nth-child, first, last) should be allowed.
+            CssPathSelector::PseudoSelector(p) => !is_interactive_pseudo(p),
+            _ => true,
         },
-        Some(s) => match path.selectors.as_ref().last() {
-            None => false,
-            Some(q) => match q {
-                CssPathSelector::PseudoSelector(q) => *q == s,
-                _ => false,
-            },
-        },
-    }
+        |s| matches!(last, CssPathSelector::PseudoSelector(q) if *q == s),
+    )
 }
 
 /// Matches a single group of CSS selectors against a DOM node.

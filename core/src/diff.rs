@@ -897,7 +897,7 @@ pub fn transfer_states(
     // Calculate nth-of-type (count siblings of same node type before this one)
     // We compare discriminants directly without hashing
     let node_discriminant = core::mem::discriminant(node.get_node_type());
-    let nth_of_type = if let Some(parent_id) = hierarchy.get(node_id.index()).and_then(NodeHierarchyItem::parent_id) {
+    let nth_of_type = hierarchy.get(node_id.index()).and_then(NodeHierarchyItem::parent_id).map_or(0, |parent_id| {
         // Count siblings with same node type that come before this node
         let mut count = 0u32;
         let mut sibling_id = hierarchy.get(parent_id.index()).and_then(|h| h.first_child_id(parent_id));
@@ -912,9 +912,7 @@ pub fn transfer_states(
             sibling_id = hierarchy.get(sib_id.index()).and_then(NodeHierarchyItem::next_sibling_id);
         }
         count
-    } else {
-        0
-    };
+    });
     
     hasher.write(&nth_of_type.to_le_bytes());
     
