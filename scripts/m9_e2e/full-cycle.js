@@ -373,6 +373,12 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
                     console.log('[2d] solveLayout rc=' + solveRc + ' solved=' + solved + ' rects_len=' + rectsLen);
                 } else { console.log('[2d] solveLayout: no solver export'); }
             } catch (e) {
+                const dv2 = new DataView(memory.buffer);
+                const m = (a) => '0x' + dv2.getUint32(a, true).toString(16);
+                // eventloop.rs solver markers: css cache, font-parse pre-with_memory_fonts,
+                // font-parse post-with_memory_fonts (set only if WMF didn't trap), resolve chain.
+                console.log('[2d-markers] css(40578)=' + m(0x40578) + ' fontParsePre(40670)=' + m(0x40670) +
+                    ' fontParsePostWMF(40650)=' + m(0x40650) + ' resolveChain(40690)=' + m(0x40690));
                 console.log('[2d] solveLayout TRAPPED: ' + (e.stack || e.message));
             }
         }

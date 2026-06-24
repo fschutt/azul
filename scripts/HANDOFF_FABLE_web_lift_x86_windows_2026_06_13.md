@@ -1252,6 +1252,12 @@ median3_rec/quicksort) which crashed deterministically before; (b) `AZ_HYDRATE=1
 hydrateStyledDom rc=0 node_count=5`. The whole 2026-06-23 "garbage children / dropped-movups in Button::dom"
 hypothesis was WRONG (dom tree valid at DOM_SIZE=240; Button::dom clean). NEXT BUG (newly reachable, separate):
 `AzStartup_solveLayoutReal` (mini func232, chain 69→68→116→232) TRAPS — derefs garbage pointer field
-`[[State.R14]+48]+16` (R14 valid, +48 field garbage); FONT-INDEPENDENT (layout, not shaping). Disasm in
-/c/rb/new_disasm.txt (CODE-rel = V8 file-offset − 0x869c). hydrate gate stays `false &&` until solver fixed.
-full-cycle.js [2d] probe added for the solver.
+`[[State.R14]+48]+16` (R14 valid, +48 field garbage). LOCALIZED via eventloop.rs solver markers (full-cycle.js
+[2d-markers]): css(0x40578)✓ fontParsePre(0x40670)✓ fontParsePostWMF(0x40650)✓ resolveChain(0x40690)✗ → so
+`with_memory_fonts` PASSES; the trap is in the FONT-CACHE RESOLUTION `fc_cache.resolve_font_chain_with_scripts`
+(eventloop.rs:1642) / resolve_char/list. The garbage +48 field is the font cache's patterns Vec ptr — a KNOWN
+PRE-EXISTING 2026-06-02 issue (eventloop.rs:1654-1658 comments: "query() reaches an outlined-epilogue
+missing_block → traps"; "Vec ITERATION mis-lifts — len field ok, ptr/content wrong"; line 1585: "the lift DROPS
+elements of a `vec!` of a complex nested struct"). Runs even without AZ_FONT (embedded fallback). SEPARATE deep
+investigation from the hydrate REC_MARKER fix. Disasm in /c/rb/new_disasm.txt (CODE-rel = V8 file-offset −
+0x869c). hydrate gate stays `false &&` until the solver is fixed. full-cycle.js [2d]+[2d-markers] probes added.
