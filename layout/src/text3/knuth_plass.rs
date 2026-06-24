@@ -79,12 +79,12 @@ pub(crate) fn kp_layout<T: ParsedFontTrait>(
     constraints: &UnifiedConstraints,
     hyphenator: Option<&Standard>,
     fonts: &LoadedFonts<T>,
-) -> Result<UnifiedLayout, LayoutError> {
+) -> UnifiedLayout {
     if items.is_empty() {
-        return Ok(UnifiedLayout {
+        return UnifiedLayout {
             items: Vec::new(),
             overflow: OverflowInfo::default(),
-        });
+        };
     }
 
     // Convert ShapedItems into a sequence of Boxes, Glue, and Penalties
@@ -97,7 +97,7 @@ pub(crate) fn kp_layout<T: ParsedFontTrait>(
     let final_layout: UnifiedLayout =
         position_lines_from_breaks(&nodes, &breaks, logical_items, constraints);
 
-    Ok(final_layout)
+    final_layout
 }
 
 /// Converts a slice of `ShapedItems` into the Box/Glue/Penalty model.

@@ -5083,7 +5083,8 @@ impl LayoutWindow {
                         selection.selection_end as u32,
                     );
 
-                    if let (Some(start), Some(end)) = (start_cursor, end_cursor) {
+                    {
+                        let (start, end) = (start_cursor, end_cursor);
                         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
                         let dom_node_id = DomNodeId {
                             dom: dom_id,
@@ -5101,8 +5102,6 @@ impl LayoutWindow {
                                 mc.set_single_cursor(start);
                             }
                         }
-                    } else {
-                        // Could not convert byte offsets to cursors - silently ignore
                     }
                 } else {
                     // No text layout available for node - silently ignore
@@ -6407,26 +6406,26 @@ impl LayoutWindow {
     fn byte_offset_to_cursor(
         text_layout: &UnifiedLayout,
         byte_offset: u32,
-    ) -> Option<TextCursor> {
+    ) -> TextCursor {
         // Handle offset 0 as special case (start of text)
         if byte_offset == 0 {
             // Find first cluster in items
             for item in &text_layout.items {
                 if let ShapedItem::Cluster(cluster) = &item.item {
-                    return Some(TextCursor {
+                    return TextCursor {
                         cluster_id: cluster.source_cluster_id,
                         affinity: CursorAffinity::Trailing,
-                    });
+                    };
                 }
             }
             // No clusters found - return default
-            return Some(TextCursor {
+            return TextCursor {
                 cluster_id: GraphemeClusterId {
                     source_run: 0,
                     start_byte_in_run: 0,
                 },
                 affinity: CursorAffinity::Trailing,
-            });
+            };
         }
 
         // Iterate through items to find which cluster contains this byte offset
@@ -6441,10 +6440,10 @@ impl LayoutWindow {
                 // Check if our target byte offset falls within this cluster
                 if byte_offset >= current_byte_offset && byte_offset <= cluster_end_byte {
                     // Found the cluster
-                    return Some(TextCursor {
+                    return TextCursor {
                         cluster_id: cluster.source_cluster_id,
                         affinity: CursorAffinity::Trailing,
-                    });
+                    };
                 }
 
                 current_byte_offset = cluster_end_byte;
@@ -6454,21 +6453,21 @@ impl LayoutWindow {
         // Offset is beyond the end of all text - return cursor at end of last cluster
         for item in text_layout.items.iter().rev() {
             if let ShapedItem::Cluster(cluster) = &item.item {
-                return Some(TextCursor {
+                return TextCursor {
                     cluster_id: cluster.source_cluster_id,
                     affinity: CursorAffinity::Trailing,
-                });
+                };
             }
         }
 
         // No clusters at all - return default position
-        Some(TextCursor {
+        TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,
             },
             affinity: CursorAffinity::Trailing,
-        })
+        }
     }
 
     /// Get the inline layout result for a specific node

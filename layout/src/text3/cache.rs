@@ -7839,13 +7839,13 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         };
 
         // Use the Knuth-Plass algorithm for optimal line breaking
-        return crate::text3::knuth_plass::kp_layout(
+        return Ok(crate::text3::knuth_plass::kp_layout(
             &shaped_items,
             logical_items,
             fragment_constraints,
             hyphenator.as_ref(),
             fonts,
-        );
+        ));
     }
 
     // +spec:intrinsic-sizing:57e02d - hyphenation opportunities considered in min-content sizing

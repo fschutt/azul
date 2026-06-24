@@ -503,7 +503,7 @@ fn find_first_matching_focusable_node(
     layout: &DomLayoutResult,
     dom_id: &DomId,
     css_path: &azul_css::css::CssPath,
-) -> Result<Option<DomNodeId>, UpdateFocusWarning> {
+) -> Option<DomNodeId> {
     let styled_dom = &layout.styled_dom;
     let node_hierarchy = styled_dom.node_hierarchy.as_container();
     let node_data = styled_dom.node_data.as_container();
@@ -528,10 +528,10 @@ fn find_first_matching_focusable_node(
             node_data[node_id].is_focusable()
         });
 
-    Ok(matching_node.map(|node_id| DomNodeId {
+    matching_node.map(|node_id| DomNodeId {
         dom: *dom_id,
         node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-    }))
+    })
 }
 
 /// Resolve a `FocusTarget` to an actual `DomNodeId`
@@ -551,7 +551,7 @@ pub fn resolve_focus_target(
     match focus_target {
         Path(FocusTargetPath { dom, css_path }) => {
             let layout = ctx.get_layout(dom)?;
-            find_first_matching_focusable_node(layout, dom, css_path)
+            Ok(find_first_matching_focusable_node(layout, dom, css_path))
         }
 
         Id(dom_node_id) => {

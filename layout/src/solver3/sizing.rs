@@ -609,7 +609,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 }
             }
             FormattingContext::Table => {
-                self.calculate_table_intrinsic_sizes(tree, node_index, child_intrinsics)
+                Ok(self.calculate_table_intrinsic_sizes(tree, node_index, child_intrinsics))
             }
             FormattingContext::Flex => {
                 self.calculate_flex_intrinsic_sizes(tree, node_index, child_intrinsics)
@@ -962,7 +962,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         tree: &LayoutTree,
         node_index: usize,
         child_intrinsics: &[(usize, IntrinsicSizes)],
-    ) -> Result<IntrinsicSizes> {
+    ) -> IntrinsicSizes {
         // Collect per-column min/max widths and total row heights.
         // Table structure: table > row-group? > row > cell
         let mut col_min: Vec<f32> = Vec::new();
@@ -1032,14 +1032,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let min_width: f32 = col_min.iter().sum();
         let max_width: f32 = col_max.iter().sum();
 
-        Ok(IntrinsicSizes {
+        IntrinsicSizes {
             min_content_width: min_width,
             max_content_width: max_width,
             min_content_height: total_height,
             max_content_height: total_height,
             preferred_width: None,
             preferred_height: None,
-        })
+        }
     }
 }
 
