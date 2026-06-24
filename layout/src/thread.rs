@@ -78,7 +78,7 @@ pub enum OptionThreadReceiveMsg {
 
 impl From<Option<ThreadReceiveMsg>> for OptionThreadReceiveMsg {
     fn from(inner: Option<ThreadReceiveMsg>) -> Self {
-        inner.map_or_else(|| Self::None, |v| Self::Some(v))
+        inner.map_or_else(|| Self::None, Self::Some)
     }
 }
 
@@ -439,7 +439,9 @@ azul_core::impl_managed_callback! {
     wrapper:        ThreadCallback,
     info_ty:        ThreadSender,
     return_ty:      (),
-    default_ret:    (),
+    // unit default-return; written via Default::default() so clippy's unused_unit
+    // doesn't fire on a bare `()` in this macro-argument position.
+    default_ret:    Default::default(),
     invoker_static: THREAD_CALLBACK_INVOKER,
     invoker_ty:     AzThreadCallbackInvoker,
     thunk_fn:       az_thread_callback_thunk,
@@ -879,7 +881,7 @@ pub enum OptionThread {
 
 impl From<Option<Thread>> for OptionThread {
     fn from(o: Option<Thread>) -> Self {
-        o.map_or_else(|| Self::None, |t| Self::Some(t))
+        o.map_or_else(|| Self::None, Self::Some)
     }
 }
 
