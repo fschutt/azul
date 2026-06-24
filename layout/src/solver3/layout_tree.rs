@@ -521,8 +521,8 @@ pub struct LayoutNode {
     /// - For abs-pos elements: nearest positioned (non-static) ancestor
     /// - For fixed elements: root / None (viewport)
     /// - For normal-flow: parent (None = implicit)
-    /// Used for clip exemption: abs-pos elements whose containing block
-    /// is above an overflow clipper should not be clipped.
+    ///   Used for clip exemption: abs-pos elements whose containing block
+    ///   is above an overflow clipper should not be clipped.
     pub containing_block_index: Option<usize>,
 
     // ── COLD tier: construction / reconciliation / debugging only ────────

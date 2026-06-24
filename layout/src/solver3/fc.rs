@@ -2443,7 +2443,7 @@ fn layout_bfc<T: ParsedFontTrait>(
 ///
 /// 3. **Invoke Text Layout**: Call the `text3` cache's `layout_flow` method to perform the complex
 ///    tasks of BIDI analysis, shaping, line breaking, justification, and vertical alignment.
-/// +spec:display-property:e96c82 - inline formatting context: flow of elements/text wrapped into lines
+///    +spec:display-property:e96c82 - inline formatting context: flow of elements/text wrapped into lines
 ///
 /// 4. **Integrate Results**: Process the `UnifiedLayout` returned by `text3`:
 ///

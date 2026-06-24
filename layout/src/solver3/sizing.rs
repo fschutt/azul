@@ -1299,16 +1299,16 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
 /// 4. A final `LogicalSize` is constructed from these logical dimensions.
 // +spec:overflow:3c4f25 - auto box sizes: four auto-determined size types resolved here
 // +spec:width-calculation:fb0629 - width/margin used values depend on box type, auto replaced by suitable value
-/// M12.7: out-of-line auto-width-block inline size — `(cb.width - margins - borders -
+///    M12.7: out-of-line auto-width-block inline size — `(cb.width - margins - borders -
 /// padding).max(0.0)`. Extracted from `calc_used_size`'s auto-width Block arm so the
-/// `.max(0.0)` runs in a small fn (proven to lift correctly), with a FRESH pointer
-/// deref (the huge `calc_used_size` body hoists/spills cb.width and the remill lift then
-/// reads it back 0). Returns by f32 (D0/V0 — the standard scalar return), NOT an out-ptr:
-/// the out-ptr version computed 800 correctly but the caller's reload was opt-forwarded
-/// to the init 0.0 across the opaque call (the helper's `*out` lowers to a direct
-/// linear-mem store not modeled as aliasing the caller's slot). The f32 return is the
-/// call's SSA result, which opt cannot replace. (The earlier "f32-return mis-lift" worry
-/// was the 2×f32 *struct* HFA — a single scalar f32 return is fine.)
+///    `.max(0.0)` runs in a small fn (proven to lift correctly), with a FRESH pointer
+///    deref (the huge `calc_used_size` body hoists/spills cb.width and the remill lift then
+///    reads it back 0). Returns by f32 (D0/V0 — the standard scalar return), NOT an out-ptr:
+///    the out-ptr version computed 800 correctly but the caller's reload was opt-forwarded
+///    to the init 0.0 across the opaque call (the helper's `*out` lowers to a direct
+///    linear-mem store not modeled as aliasing the caller's slot). The f32 return is the
+///    call's SSA result, which opt cannot replace. (The earlier "f32-return mis-lift" worry
+///    was the 2×f32 *struct* HFA — a single scalar f32 return is fine.)
 #[inline(never)]
 #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn auto_block_inline_size(cb: &LogicalSize, bp: &BoxProps) -> f32 {

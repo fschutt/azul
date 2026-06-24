@@ -18,9 +18,9 @@
 //!     `lw.gesture_drag_manager` instead of `lw.drag_drop_manager`.
 //!   - `layout/src/window.rs`: drop the `drag_drop_manager` field (~:371/:578).
 //!   - `event.rs`: remove the sync at ~:2545/:2668 (see the TODO there).
-//! Once those readers no longer touch `active_drag`, this whole struct can be
-//! reduced to the stateless `DragState`/`DragType` conversion helpers (which
-//! are public API and must stay).
+//!     Once those readers no longer touch `active_drag`, this whole struct can be
+//!     reduced to the stateless `DragState`/`DragType` conversion helpers (which
+//!     are public API and must stay).
 
 use azul_core::dom::{DomNodeId, OptionDomNodeId};
 use azul_core::drag::{ActiveDragType, DragContext};

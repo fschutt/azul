@@ -1090,14 +1090,14 @@ pub(crate) struct CursorBoundsError {
 /// ## \u00a7 5 Line Spacing (line-height property)
 /// - `line_height`: \u2705 Implemented
 /// - \u274c MISSING: line-fit-edge for controlling which edges contribute to line height
-/// +spec:box-model:51342f - inline box margins/borders/padding do not affect line box height (default leading mode)
-/// +spec:font-metrics:618776 - line-fit-edge (cap, ex, ideographic, alphabetic edge selection) not yet implemented
+///   +spec:box-model:51342f - inline box margins/borders/padding do not affect line box height (default leading mode)
+///   +spec:font-metrics:618776 - line-fit-edge (cap, ex, ideographic, alphabetic edge selection) not yet implemented
 ///
 /// ## \u00a7 6 Trimming Leading (text-box-trim)
 /// - \u274c NOT IMPLEMENTED: text-box-trim property
 /// - \u274c NOT IMPLEMENTED: text-box-edge property
-/// +spec:box-model:c09331 - text-box-trim trims block container first/last line to font metrics
-/// // +spec:overflow:dc2196 - text-box-trim overflow handled as normal overflow (no special handling needed)
+///   +spec:box-model:c09331 - text-box-trim trims block container first/last line to font metrics
+///   // +spec:overflow:dc2196 - text-box-trim overflow handled as normal overflow (no special handling needed)
 ///
 /// ## CSS Text Module Level 3
 /// - `text_indent`: \u2705 First line indentation
@@ -1127,7 +1127,7 @@ pub(crate) struct CursorBoundsError {
 /// 3. [TODO] initial-letter (drop caps) not implemented
 // +spec:box-model:415ef3 - initial letters use standard margin/padding/border box model; exclusion area = margin box
 // +spec:box-model:d53ea3 - when block-start padding+border are zero, content edge coincides with over alignment point
-/// +spec:positioning:fb233a - initial letter block-axis: if size < sink, use over alignment
+///    +spec:positioning:fb233a - initial letter block-axis: if size < sink, use over alignment
 #[derive(Debug, Clone)]
 pub struct UnifiedConstraints {
     // Shape definition
@@ -8202,7 +8202,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 /// \u26a0\ufe0f PARTIAL: Basic punctuation handling
 /// - \u274c TODO: hanging-punctuation is declared in `UnifiedConstraints` but not used here
 /// - \u274c TODO: Should implement punctuation trimming at line edges
-/// // +spec:intrinsic-sizing:6085cf - hanging glyphs must be excluded from intrinsic size computation
+///   // +spec:intrinsic-sizing:6085cf - hanging glyphs must be excluded from intrinsic size computation
 ///
 /// ## \u00a7 5.4 Hyphenation
 /// \u2705 IMPLEMENTED: Automatic hyphenation with hyphenator library
@@ -8648,7 +8648,7 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// # Missing Features:
 /// - \u274c \u00a7 6 Trimming Leading (text-box-trim, text-box-edge)
 /// - \u274c \u00a7 3.3 Initial Letters (drop caps)
-/// // +spec:display-property:265c04 - initial letter exclusion area must continue into subsequent blocks when paragraph is shorter than drop cap
+///   // +spec:display-property:265c04 - initial letter exclusion area must continue into subsequent blocks when paragraph is shorter than drop cap
 /// - \u274c Full vertical-align support (sub, super, lengths, percentages)
 /// - \u274c white-space: break-spaces alignment behavior
 // +spec:text-alignment-spacing:c8a926 - order of operations: shaping → letter/word-spacing → justification → alignment
