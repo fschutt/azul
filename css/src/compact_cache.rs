@@ -1030,7 +1030,7 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 /// Range: ±134,217.727 at 0.001 precision (28-bit signed = ±2^27 = ±134,217,728 / 1000).
 ///
 /// Sentinel values use the top of the u32 range (0xFFFFFFF9..0xFFFFFFFF).
-
+///
 /// Encode a `PixelValue` into u32 with `SizeMetric`. Returns `U32_SENTINEL` if out of range.
 #[inline]
 #[must_use] pub fn encode_pixel_value_u32(pv: &PixelValue) -> u32 {
@@ -1402,11 +1402,11 @@ impl Default for CompactTextProps {
 // Tier 3: Overflow map — rare/complex properties
 // =============================================================================
 
-/// Overflow properties that couldn't fit in Tier 1/2 encoding.
-/// Contains the original `CssProperty` values for properties that:
-/// - Have `calc()` expressions
-/// - Exceed the numeric range of compact encoding
-/// - Are rare CSS properties (grid, transforms, etc.)
+// Overflow properties that couldn't fit in Tier 1/2 encoding.
+// Contains the original `CssProperty` values for properties that:
+// - Have `calc()` expressions
+// - Exceed the numeric range of compact encoding
+// - Are rare CSS properties (grid, transforms, etc.)
 // =============================================================================
 // CompactLayoutCache — the top-level container
 // =============================================================================
