@@ -532,6 +532,9 @@ impl Duration {
     }
 
     /// Divides this duration by another, returning the ratio as f32.
+    // the f64 ratio is intentionally narrowed to the f32 return type; the value
+    // is a duration ratio, far inside f32's range.
+    #[allow(clippy::cast_possible_truncation)]
     #[must_use] pub fn div(&self, other: &Self) -> f32 {
         use self::Duration::{System, Tick};
         match (self, other) {
@@ -611,6 +614,8 @@ pub struct SystemTickDiff {
 impl SystemTickDiff {
     /// Divide duration A by duration B.
     /// Returns `Inf` or `NaN` if `other` is zero.
+    // tick counts -> f64 for the ratio; precision only degrades past 2^53 ticks.
+    #[allow(clippy::cast_precision_loss)]
     #[must_use] pub fn div(&self, other: &Self) -> f64 {
         self.tick_diff as f64 / other.tick_diff as f64
     }
@@ -630,6 +635,8 @@ impl SystemTimeDiff {
     #[must_use] pub fn div(&self, other: &Self) -> f64 {
         self.as_secs_f64() / other.as_secs_f64()
     }
+    // secs (u64) -> f64 loses precision only past 2^53 seconds (~285M years).
+    #[allow(clippy::cast_precision_loss)]
     fn as_secs_f64(&self) -> f64 {
         (self.secs as f64) + (f64::from(self.nanos) / f64::from(NANOS_PER_SEC))
     }
@@ -669,6 +676,9 @@ impl SystemTimeDiff {
         }
     }
     /// Creates a duration from nanoseconds.
+    // const fn (no const TryFrom); `nanos % NANOS_PER_SEC` is always < 10^9, which
+    // fits u32, so the narrowing cast cannot truncate.
+    #[allow(clippy::cast_possible_truncation)]
     #[must_use] pub const fn from_nanos(nanos: u64) -> Self {
         Self {
             secs: nanos / (NANOS_PER_SEC as u64),
