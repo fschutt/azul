@@ -2789,7 +2789,6 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
         match &field.default_value {
             OptionComponentDefaultValue::None => {
                 // Required field with no value — skip in preview
-                continue;
             }
             OptionComponentDefaultValue::Some(default_val) => {
                 match default_val {
@@ -2904,7 +2903,6 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                     }
                     ComponentDefaultValue::None => {
                         // No default, skip
-                        continue;
                     }
                 }
             }
