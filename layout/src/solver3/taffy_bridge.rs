@@ -637,6 +637,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 
     /// Translates CSS properties from the `StyledDom` into a `taffy::Style` struct.
     /// This is the core of the integration, mapping one style system to another.
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
     fn translate_style_to_taffy(&self, dom_id: Option<NodeId>) -> Style {
         let Some(id) = dom_id else {
             return Style::default();

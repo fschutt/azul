@@ -2459,6 +2459,7 @@ fn layout_bfc<T: ParsedFontTrait>(
 // +spec:display-property:574e7b - text-box-trim for inline boxes trims block-end to content edge (TODO: implement trimming per text-box-edge metric)
 // +spec:display-property:da284a - IFC: flow inline-level boxes into line boxes, size/position each fragment
 // +spec:inline-formatting-context:275f64 - IFC: boxes laid out horizontally into line boxes, respecting margins/borders/padding
+#[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
 fn layout_ifc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,

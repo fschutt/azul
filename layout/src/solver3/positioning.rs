@@ -60,6 +60,7 @@ pub(crate) struct PositionOffsets {
 /// Reads and resolves `top`, `right`, `bottom`, `left` properties,
 /// including percentages relative to the containing block's size, and em/rem units.
 // +spec:positioning:7ec143 - top/right/bottom/left offset resolution with percentage against containing block
+#[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
 pub(crate) fn resolve_position_offsets(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,

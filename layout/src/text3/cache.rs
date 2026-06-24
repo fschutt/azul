@@ -5412,6 +5412,7 @@ impl TextShapingCache {
     }
 
     /// Approximate per-stage heap-byte breakdown.
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
     #[must_use] pub fn memory_report(&self) -> TextCacheMemoryReport {
         let mut r = TextCacheMemoryReport::default();
         r.logical_items_entries = self.logical_items.len();

@@ -236,6 +236,7 @@ mod tests {
     use azul_core::styled_dom::NodeHierarchyItemId;
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
     fn test_tab_focus_next() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();
@@ -252,6 +253,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
     fn test_shift_tab_focus_previous() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();
@@ -269,6 +271,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
     fn test_escape_clears_focus() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Escape).into();
@@ -289,6 +292,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
     fn test_prevented_returns_no_action() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();

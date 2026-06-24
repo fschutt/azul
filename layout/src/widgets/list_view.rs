@@ -1848,6 +1848,7 @@ mod list_view_click_tests {
     /// Rows must carry a click callback exactly when `on_row_click` is set —
     /// previously `dom()` wired nothing, so the hook was dead.
     #[test]
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
     fn rows_get_a_click_callback_only_when_on_row_click_is_set() {
         let mut lv = ListView::default();
         lv.rows = ListViewRowVec::from_vec(vec![empty_row(), empty_row()]);
