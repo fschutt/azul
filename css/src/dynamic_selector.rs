@@ -1473,12 +1473,12 @@ impl CssPropertyWithConditionsVec {
     /// ```
     #[cfg(feature = "parser")]
     #[must_use] pub fn parse(style: &str) -> Self {
-        Self::parse_with_conditions(style, Vec::new())
+        Self::parse_with_conditions(style, &[])
     }
     
     /// Internal recursive parser with inherited conditions
     #[cfg(feature = "parser")]
-    fn parse_with_conditions(style: &str, inherited_conditions: Vec<DynamicSelector>) -> Self {
+    fn parse_with_conditions(style: &str, inherited_conditions: &[DynamicSelector]) -> Self {
         use crate::props::property::{
             parse_combined_css_property, parse_css_property, CombinedCssPropertyType, CssKeyMap,
             CssPropertyType,
@@ -1512,7 +1512,7 @@ impl CssPropertyWithConditionsVec {
                         let segment = current_segment.trim().to_string();
                         current_segment.clear();
                         
-                        if let Some(parsed) = Self::parse_block_segment(&segment, &inherited_conditions, &key_map) {
+                        if let Some(parsed) = Self::parse_block_segment(&segment, inherited_conditions, &key_map) {
                             props.extend(parsed);
                         }
                     }
@@ -1523,7 +1523,7 @@ impl CssPropertyWithConditionsVec {
                     current_segment.clear();
                     
                     if !segment.is_empty() {
-                        if let Some(parsed) = Self::parse_property_segment(&segment, &inherited_conditions, &key_map) {
+                        if let Some(parsed) = Self::parse_property_segment(&segment, inherited_conditions, &key_map) {
                             props.extend(parsed);
                         }
                     }
@@ -1537,7 +1537,7 @@ impl CssPropertyWithConditionsVec {
         // Handle any remaining segment (property without trailing semicolon)
         let remaining = current_segment.trim();
         if !remaining.is_empty() && !remaining.contains('{') {
-            if let Some(parsed) = Self::parse_property_segment(remaining, &inherited_conditions, &key_map) {
+            if let Some(parsed) = Self::parse_property_segment(remaining, inherited_conditions, &key_map) {
                 props.extend(parsed);
             }
         }
@@ -1575,7 +1575,7 @@ impl CssPropertyWithConditionsVec {
         }
         
         // Recursively parse the content with the new conditions
-        let parsed = Self::parse_with_conditions(content, conditions);
+        let parsed = Self::parse_with_conditions(content, &conditions);
         Some(parsed.into_library_owned_vec())
     }
     

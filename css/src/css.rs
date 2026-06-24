@@ -66,6 +66,9 @@ impl Css {
     }
 
     #[cfg(feature = "parser")]
+    // takes the owned C-ABI `AzString` by value by FFI ownership-transfer convention,
+    // even though only a string slice is read here.
+    #[allow(clippy::needless_pass_by_value)]
     #[must_use] pub fn from_string(s: AzString) -> Self {
         crate::parser2::new_from_str(s.as_str()).0
     }
@@ -92,6 +95,9 @@ impl Css {
     }
 
     #[cfg(feature = "parser")]
+    // takes the owned C-ABI `AzString` by value by FFI ownership-transfer convention,
+    // even though only a string slice is read here.
+    #[allow(clippy::needless_pass_by_value)]
     #[must_use] pub fn from_string_with_warnings(
         s: AzString,
     ) -> (Self, Vec<crate::parser2::CssParseWarnMsgOwned>) {
