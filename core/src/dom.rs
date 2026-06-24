@@ -647,6 +647,7 @@ pub type BoxOrStaticImageRef = BoxOrStatic<ImageRef>;
 impl_option!(NodeType, OptionNodeType, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl NodeType {
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     fn to_library_owned_nodetype(&self) -> Self {
         use self::NodeType::{Html, Head, Body, Div, P, Article, Section, Nav, Aside, Header, Footer, Main, Figure, FigCaption, H1, H2, H3, H4, H5, H6, Br, Hr, Pre, BlockQuote, Address, Details, Summary, Dialog, Ul, Ol, Li, Dl, Dt, Dd, Menu, MenuItem, Dir, Table, Caption, THead, TBody, TFoot, Tr, Th, Td, ColGroup, Col, Form, FieldSet, Legend, Label, Input, Button, Select, OptGroup, SelectOption, TextArea, Output, Progress, Meter, DataList, Span, A, Em, Strong, B, I, U, S, Mark, Del, Ins, Code, Samp, Kbd, Var, Cite, Dfn, Abbr, Acronym, Q, Time, Sub, Sup, Small, Big, Bdo, Bdi, Wbr, Ruby, Rt, Rtc, Rp, Data, Canvas, Object, Param, Embed, Audio, Video, Source, Track, Map, Area, Svg, SvgG, SvgDefs, SvgSymbol, SvgUse, SvgSwitch, SvgPath, SvgCircle, SvgRect, SvgEllipse, SvgLine, SvgPolygon, SvgPolyline, SvgText, SvgTspan, SvgTextPath, SvgLinearGradient, SvgRadialGradient, SvgStop, SvgPattern, SvgClipPathElement, SvgMask, SvgFilter, SvgFeBlend, SvgFeColorMatrix, SvgFeComponentTransfer, SvgFeComposite, SvgFeConvolveMatrix, SvgFeDiffuseLighting, SvgFeDisplacementMap, SvgFeDistantLight, SvgFeDropShadow, SvgFeFlood, SvgFeFuncR, SvgFeFuncG, SvgFeFuncB, SvgFeFuncA, SvgFeGaussianBlur, SvgFeImage, SvgFeMerge, SvgFeMergeNode, SvgFeMorphology, SvgFeOffset, SvgFePointLight, SvgFeSpecularLighting, SvgFeSpotLight, SvgFeTile, SvgFeTurbulence, SvgMarker, SvgImage, SvgForeignObject, SvgTitle, SvgDesc, SvgMetadata, SvgA, SvgView, SvgStyle, SvgScript, SvgAnimate, SvgAnimateMotion, SvgAnimateTransform, SvgSet, SvgMpath, Title, Meta, Link, Script, Style, Base, Before, After, Marker, Placeholder, Text, Image, VirtualView, Icon, GeolocationProbe};
         match self {
@@ -835,6 +836,7 @@ impl NodeType {
     }
 
     /// Returns the `NodeTypeTag` for CSS selector matching.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     #[must_use] pub const fn get_path(&self) -> NodeTypeTag {
         match self {
             Self::Html => NodeTypeTag::Html,

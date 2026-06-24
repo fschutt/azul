@@ -2915,6 +2915,7 @@ pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture, ExternalImageId);
 /// otherwise (if removing fonts would happen after every DOM) we'd constantly
 /// add-and-remove fonts after every `VirtualViewCallback`, which would cause a lot of
 /// I/O waiting.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 pub fn build_add_font_resource_updates(
     renderer_resources: &mut RendererResources,
     dpi: DpiScaleFactor,

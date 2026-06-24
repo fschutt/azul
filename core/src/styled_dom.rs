@@ -1018,6 +1018,7 @@ impl StyledDom {
     /// Shared by both the Slow path (create → `convert_dom_into_compact_dom` → this)
     /// and the Fast path (`create_from_fast_dom` → this).
     #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     fn create_from_compact_dom(
         compact_dom: CompactDom,
         mut css: Css,

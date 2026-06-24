@@ -372,6 +372,7 @@ impl Xml {
         }
     }
 
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     fn scan_node(node: &XmlNode, resources: &mut Vec<ExternalResource>) {
         let tag_name = node.node_type.inner.as_str().to_lowercase();
 
@@ -2772,6 +2773,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
 ///    - StructRef/EnumRef → recursively renders sub-components if found in `ComponentMap`
 ///    - Other scalar fields → text display of the value
 /// 3. Applies the component's scoped CSS
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use] pub fn user_defined_render_fn(
     def: &ComponentDef,
     data: &ComponentDataModel,
@@ -2933,6 +2935,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
 /// - Scalar fields → formatted display
 /// - `ComponentInstance` → function call to sub-component's render function
 /// - `StyledDom` slots → child parameter pass-through
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use] pub fn user_defined_compile_fn(
     def: &ComponentDef,
     target: &CompileTarget,
@@ -3171,6 +3174,7 @@ fn data_field(
 /// what the component needs as configuration (e.g., `href` for `<a>`,
 /// `src` for `<img>`). Universal HTML attributes (id, class, style, etc.)
 /// are NOT included here — they are added separately by the debug server.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
     use ComponentDefaultValue as D;
     use ComponentFieldType::{String, Bool, I32};
@@ -4217,6 +4221,7 @@ fn builtin_map_compile_fn(
 ///
 /// Called once during `AppConfig::create()` — the framework dogfoods
 /// its own component registration system for builtins.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use] pub extern "C" fn register_builtin_components() -> ComponentLibrary {
     ComponentLibrary {
         name: AzString::from_const_str("builtin"),
@@ -5304,6 +5309,7 @@ fn parse_svg_points(pts: &str, close: bool) -> Option<crate::svg::SvgMultiPolygo
 /// verbatim between [`xml_node_to_dom_fast`] (operating on `dom.root`) and
 /// [`xml_node_to_fast_dom`] (operating on the arena `NodeData`). `component_name`
 /// must already be normalized (lowercased); the caller computes `child_inside_svg`.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 fn apply_xml_node_attributes(
     node: &mut crate::dom::NodeData,
     xml_node: &XmlNode,
@@ -6534,6 +6540,7 @@ fn format_args_for_rust_code(input: &str) -> String {
 // component_map is forwarded through the codegen recursion for parity with the
 // component-expanding path; this Rust-codegen path only threads it into recursive calls.
 #[allow(clippy::only_used_in_recursion)]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 fn compile_node_to_rust_code_inner(
     node: &XmlNode,
     component_map: &ComponentMap,
@@ -6881,6 +6888,7 @@ const WITH_TEXT_TAGS: &[&str] = &[
 ];
 
 /// Pick the semantic constructor for `tag` (lowercase HTML tag) + `node`.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 fn analyze_node_ctor(tag: &str, node: &XmlNode) -> NodeCtor {
     // Helper for the common "no caption skip" case.
     fn sem(suffix: impl Into<String>, args: Vec<CtorArg>, consumes_text: bool) -> NodeCtor {

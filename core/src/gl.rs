@@ -3925,6 +3925,7 @@ impl GlShader {
 
     /// Draws vertex buffers, index buffers + uniforms to the texture
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn draw(
         // shader to use for drawing
         shader_program_id: GLuint,

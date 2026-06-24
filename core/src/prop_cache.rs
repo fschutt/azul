@@ -1079,6 +1079,7 @@ impl CssPropertyCache {
     /// Returns tag IDs for hit-testing. If `compact_cache` is available,
     /// uses it for fast display/overflow checks; otherwise falls back to slow path.
     #[must_use]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn restyle(
         &mut self,
         css: &mut Css,
@@ -1446,6 +1447,7 @@ impl CssPropertyCache {
         tag_ids
     }
 
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn get_computed_css_style_string(
         &self,
         node_data: &NodeData,
@@ -2022,6 +2024,7 @@ impl CssPropertyCache {
     /// Walks all cascade layers: user overrides → inline → stylesheet → cascaded → computed → UA.
     /// Also used by restyle functions that need state-aware lookups.
     #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub(crate) fn get_property_slow<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -3072,6 +3075,7 @@ impl CssPropertyCache {
             .unwrap_or(0.0)
     }
 
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     fn resolve_property_dependency(
         target_property: &CssProperty,
         reference_property: &CssProperty,

@@ -41,6 +41,7 @@ impl CssPropertyCache {
     // against the i16 sentinel threshold before the deliberate narrowing cast.
     #[allow(clippy::cast_possible_truncation)]
     #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn build_compact_cache(
         &self,
         node_data: &[NodeData],
@@ -448,6 +449,7 @@ impl CssPropertyCache {
     }
 
     /// Same as `build_compact_cache_with_inheritance` but with optional debug logging.
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn build_compact_cache_with_inheritance_debug(
         &self,
         node_data: &[NodeData],
@@ -851,6 +853,7 @@ fn resolve_font_size_to_px(
 // fixed-point encoders: z-index / line-height are range-checked before the
 // narrowing cast, and opacity is clamped to [0,1] then scaled to [0,254] (u8).
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 fn apply_css_property_to_compact(
     prop: &CssProperty,
     tier1: &mut u64,

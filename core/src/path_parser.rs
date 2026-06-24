@@ -330,6 +330,7 @@ impl<'a> PathParser<'a> {
 /// Each M/m command starts a new subpath (ring). All 14 SVG path commands are
 /// supported including arcs (converted to cubic beziers).
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
     let d = d.trim();
     if d.is_empty() {
@@ -742,6 +743,7 @@ pub fn svg_circle_to_paths(cx: f32, cy: f32, r: f32) -> SvgPath {
 // builds the rounded-rect path segment-by-segment with a matching capacity hint;
 // a `vec![..]` literal of the 8 multi-line elements would be less readable here.
 #[allow(clippy::vec_init_then_push)]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 pub fn svg_rect_to_path(x: f32, y: f32, w: f32, h: f32, rx: f32, ry: f32) -> SvgPath {
     let rx = rx.min(w / 2.0);
     let ry = ry.min(h / 2.0);

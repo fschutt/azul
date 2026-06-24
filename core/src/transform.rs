@@ -332,6 +332,7 @@ impl ComputedTransform3D {
     /// Creates a new transform from a style transform using the
     /// parent width as a way to resolve for percentages
     #[allow(clippy::many_single_char_names)] // domain-standard colour/coordinate component names
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     fn from_style_transform(
         t: &StyleTransform,
         transform_origin: &StyleTransformOrigin,
@@ -654,6 +655,7 @@ impl ComputedTransform3D {
     /// Multiplies this matrix by `other`, applying `other` AFTER the current matrix.
     #[must_use]
     #[inline]
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn then(&self, other: &Self) -> Self {
         Self::new(
             self.m[0][0].mul_add(

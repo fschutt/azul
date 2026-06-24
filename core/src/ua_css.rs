@@ -539,6 +539,7 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
 // arm per (NT, PT) case is intentional for readability; merging into giant
 // or-patterns would collapse the UA stylesheet table.
 #[allow(clippy::match_same_arms)]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use] pub fn get_ua_property(
     node_type: &NodeType,
     property_type: CssPropertyType,

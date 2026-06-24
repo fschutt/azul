@@ -157,6 +157,7 @@ pub struct ExtendedDiffResult {
 
 /// Compare two matched `NodeData` instances field-by-field and return
 /// a `NodeChangeSet` describing what changed.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use] pub fn compute_node_changes(
     old_node: &NodeData,
     new_node: &NodeData,
@@ -441,6 +442,7 @@ pub struct DiffResult {
 /// * `dom_id` - The DOM identifier
 /// * `timestamp` - Current timestamp for events
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use] pub fn reconcile_dom(
     old_node_data: &[NodeData],
     new_node_data: &[NodeData],
