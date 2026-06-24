@@ -2874,6 +2874,7 @@ impl KeyboardShortcut {
 /// Backspace/Delete, Ctrl+C/V/A/Z, mouse clicks, and drag selection.
 /// Replace it on `LayoutWindow` to implement vim, game controls, etc.
 /// `extern "C"` trampoline for `default_input_interpreter`.
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
 #[must_use] pub extern "C" fn default_input_interpreter_extern(
     _user_data: crate::refany::RefAny,
     info_ptr: *const InputInterpreterInfo<'static>,

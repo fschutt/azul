@@ -264,6 +264,7 @@ pub extern "C" fn AzRefAny_newHostHandle(id: u64) -> RefAny {
 /// `0` if the host's id allocator starts at `1` (the convention used by
 /// every binding in this repo).
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
 pub extern "C" fn AzRefAny_getHostHandle(refany: *const RefAny) -> u64 {
     if refany.is_null() {
         return 0;

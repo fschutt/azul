@@ -519,6 +519,7 @@ impl U8Vec {
     /// - `ptr` must be valid for reading `start + len` bytes
     /// - `start + len` must not overflow
     #[inline] // web-lift: inline through the sret-in-X0 chain (see AzString::copy_from_bytes)
+    #[allow(clippy::not_unsafe_ptr_arg_deref)] // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
     #[must_use] pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
         if ptr.is_null() || len == 0 {
             return Self::new();
