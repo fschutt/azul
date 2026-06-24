@@ -2233,6 +2233,7 @@ impl NodeData {
 
     /// Creates a button `NodeData` with accessibility information.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_button(aria: SmallAriaInfo) -> Self {
         let mut nd = Self::create_node(NodeType::Button);
         nd.set_accessibility_info(aria.to_full_info());
@@ -2247,6 +2248,7 @@ impl NodeData {
 
     /// Creates an anchor `NodeData` with an href and accessibility information.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_a(href: AzString, aria: SmallAriaInfo) -> Self {
         let mut nd = Self::create_node(NodeType::A).with_attribute(AttributeType::Href(href));
         nd.set_accessibility_info(aria.to_full_info());
@@ -2261,6 +2263,7 @@ impl NodeData {
 
     /// Creates an input `NodeData` with accessibility information.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_input(
         input_type: AzString,
         name: AzString,
@@ -2286,6 +2289,7 @@ impl NodeData {
 
     /// Creates a textarea `NodeData` with accessibility information.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_textarea(name: AzString, label: AzString, aria: SmallAriaInfo) -> Self {
         let mut nd = Self::create_node(NodeType::TextArea)
             .with_attribute(AttributeType::Name(name))
@@ -2304,6 +2308,7 @@ impl NodeData {
 
     /// Creates a select `NodeData` with accessibility information.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_select(name: AzString, label: AzString, aria: SmallAriaInfo) -> Self {
         let mut nd = Self::create_node(NodeType::Select)
             .with_attribute(AttributeType::Name(name))
@@ -2322,6 +2327,7 @@ impl NodeData {
 
     /// Creates a table `NodeData` with accessibility information.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_table(aria: SmallAriaInfo) -> Self {
         let mut nd = Self::create_node(NodeType::Table);
         nd.set_accessibility_info(aria.to_full_info());
@@ -2337,6 +2343,7 @@ impl NodeData {
     /// Creates a label `NodeData` with an associated control ID and accessibility
     /// information.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_label(for_id: AzString, aria: SmallAriaInfo) -> Self {
         let mut nd = Self::create_node(NodeType::Label).with_attribute(AttributeType::Custom(
             AttributeNameValue {
@@ -2360,6 +2367,7 @@ impl NodeData {
 
     /// Checks whether this node is of the given node type (div, image, text).
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn is_node_type(&self, searched_type: NodeType) -> bool {
         self.node_type == searched_type
     }
@@ -2492,6 +2500,7 @@ impl NodeData {
     /// `AttributeType::Id`/`AttributeType::Class` and merging them into `self.attributes`.
     /// Any existing Id/Class attributes are removed first.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec) {
         // Remove existing Id/Class from attributes
         let mut v: AttributeTypeVec = Vec::new().into();
@@ -3657,6 +3666,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_details_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_details(aria: SmallAriaInfo) -> Self {
         Self::create_details_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -3682,6 +3692,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_summary_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_summary(aria: SmallAriaInfo) -> Self {
         Self::create_summary_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -3702,6 +3713,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_summary_with_text_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_summary_with_text<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
         Self::create_summary_with_text_no_a11y(text).with_accessibility_info(aria.to_full_info())
     }
@@ -3728,6 +3740,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_dialog_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_dialog(aria: DialogAriaInfo) -> Self {
         Self::create_dialog_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -4629,6 +4642,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_option_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_option(value: AzString, text: AzString, aria: SmallAriaInfo) -> Self {
         Self::create_option_no_a11y(value, text).with_accessibility_info(aria.to_full_info())
     }
@@ -4737,6 +4751,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_form_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_form(aria: SmallAriaInfo) -> Self {
         Self::create_form_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -4757,6 +4772,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_fieldset_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_fieldset(aria: SmallAriaInfo) -> Self {
         Self::create_fieldset_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -4776,6 +4792,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_legend_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_legend(aria: SmallAriaInfo) -> Self {
         Self::create_legend_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -4880,6 +4897,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_optgroup_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_optgroup(label: AzString, aria: SmallAriaInfo) -> Self {
         Self::create_optgroup_no_a11y(label).with_accessibility_info(aria.to_full_info())
     }
@@ -4938,6 +4956,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_menu_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_menu(aria: SmallAriaInfo) -> Self {
         Self::create_menu_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -4962,6 +4981,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_menuitem_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_menuitem(aria: SmallAriaInfo) -> Self {
         Self::create_menuitem_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -4982,6 +5002,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_menuitem_with_text_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_menuitem_with_text<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
         Self::create_menuitem_with_text_no_a11y(text).with_accessibility_info(aria.to_full_info())
     }
@@ -5007,6 +5028,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_output_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_output(aria: SmallAriaInfo) -> Self {
         Self::create_output_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -5039,6 +5061,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_progress_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_progress(aria: ProgressAriaInfo) -> Self {
         let mut node = Self::create_node(NodeType::Progress);
         if !aria.indeterminate {
@@ -5091,6 +5114,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_meter_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_meter(aria: MeterAriaInfo) -> Self {
         let mut node = Self::create_meter_no_a11y(aria.current_value, aria.min, aria.max);
         if let azul_css::OptionF32::Some(v) = aria.low {
@@ -5134,6 +5158,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_datalist_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_datalist(aria: SmallAriaInfo) -> Self {
         Self::create_datalist_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -5162,6 +5187,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_canvas_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_canvas(aria: SmallAriaInfo) -> Self {
         Self::create_canvas_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -5225,6 +5251,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_audio_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_audio(aria: SmallAriaInfo) -> Self {
         Self::create_audio_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -5249,6 +5276,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_video_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_video(aria: SmallAriaInfo) -> Self {
         Self::create_video_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -5319,6 +5347,7 @@ impl Dom {
     ///
     /// Use [`Dom::create_area_no_a11y`] only as a deliberate escape hatch.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_area(aria: SmallAriaInfo) -> Self {
         Self::create_area_no_a11y().with_accessibility_info(aria.to_full_info())
     }
@@ -5479,6 +5508,7 @@ impl Dom {
     /// - `text`: The visible button text
     /// - `aria`: Accessibility information (role, description, etc.)
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_button<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
         let mut btn = Self::create_button_no_a11y(text.into());
         btn.root.set_accessibility_info(aria.to_full_info());
@@ -5495,6 +5525,7 @@ impl Dom {
     /// - `text`: The visible link text
     /// - `aria`: Accessibility information (expanded description, etc.)
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_a<S1: Into<AzString>, S2: Into<AzString>>(
         href: S1,
         text: S2,
@@ -5515,6 +5546,7 @@ impl Dom {
     /// - `label`: Base accessibility label
     /// - `aria`: Additional accessibility information (description, etc.)
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_input<S1: Into<AzString>, S2: Into<AzString>, S3: Into<AzString>>(
         input_type: S1,
         name: S2,
@@ -5535,6 +5567,7 @@ impl Dom {
     /// - `label`: Base accessibility label
     /// - `aria`: Additional accessibility information (description, etc.)
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_textarea<S1: Into<AzString>, S2: Into<AzString>>(
         name: S1,
         label: S2,
@@ -5554,6 +5587,7 @@ impl Dom {
     /// - `label`: Base accessibility label
     /// - `aria`: Additional accessibility information (description, etc.)
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_select<S1: Into<AzString>, S2: Into<AzString>>(
         name: S1,
         label: S2,
@@ -5573,6 +5607,7 @@ impl Dom {
     /// - `caption`: Table caption (visible title)
     /// - `aria`: Accessibility information describing table purpose
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_table<S: Into<AzString>>(caption: S, aria: SmallAriaInfo) -> Self {
         let mut table = Self::create_table_no_a11y()
             .with_child(Self::create_caption().with_child(Self::create_text(caption)));
@@ -5589,6 +5624,7 @@ impl Dom {
     /// - `text`: The visible label text
     /// - `aria`: Additional accessibility information (description, etc.)
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_label<S1: Into<AzString>, S2: Into<AzString>>(
         for_id: S1,
         text: S2,
