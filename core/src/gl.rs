@@ -1146,6 +1146,8 @@ fn shader_with_glsl_version(src: &[u8], version_line: &[u8]) -> Vec<u8> {
 /// unable to compile our shaders (broken driver, or a GLES context that rejects
 /// the desktop `#version 150`).
 #[cfg(feature = "std")]
+// OpenGL binding: gl::* enum constants passed to the gl API as GLint/GLenum.
+#[allow(clippy::cast_possible_wrap)]
 fn try_compile_program(
     gl_context: &GenericGlContext,
     vert_src: &[u8],
@@ -2698,6 +2700,8 @@ impl GlStateSave {
         s
     }
 
+    // OpenGL binding: state values passed to the gl API as GLuint/GLsizei.
+    #[allow(clippy::cast_sign_loss)]
     fn restore(&self, gl_context: &GlContextPtr) {
         if u32::from(self.current_multisample[0]) == gl::TRUE {
             gl_context.enable(gl::MULTISAMPLE);
@@ -2779,6 +2783,10 @@ impl Texture {
         }
     }
 
+    // OpenGL binding: gl::* enum constants and texture dimensions are passed as
+    // GLint/GLsizei (i32); the values are GL-bounded and the `as i32` casts are the
+    // idiomatic form for the gl API.
+    #[allow(clippy::cast_possible_wrap)]
     #[must_use] pub fn allocate_rgba8(
         gl_context: GlContextPtr,
         size: PhysicalSizeU32,
@@ -2822,6 +2830,9 @@ impl Texture {
         )
     }
 
+    // OpenGL binding: gl::* enum constants and texture dimensions passed as
+    // GLint/GLsizei (i32); values are GL-bounded, `as i32` is the idiomatic form.
+    #[allow(clippy::cast_possible_wrap)]
     pub fn clear(&mut self) {
         let saved = GlStateSave::save(&self.gl_context);
 
@@ -3244,6 +3255,9 @@ impl_vec_hash!(VertexAttribute, VertexAttributeVec);
 
 impl VertexLayout {
     /// Submits the vertex buffer description to OpenGL
+    // OpenGL binding: vertex-attribute layout (locations, item counts, strides,
+    // offsets) passed to the gl API as GLuint/GLint/GLsizei; values are GL-bounded.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn bind(&self, gl_context: &Rc<GenericGlContext>, program_id: GLuint) {
         const VERTICES_ARE_NORMALIZED: bool = false;
 
@@ -3471,6 +3485,9 @@ impl Drop for VertexBuffer {
 }
 
 impl VertexBuffer {
+    // OpenGL binding: buffer sizes / vertex counts passed to the gl API as
+    // GLsizeiptr/GLint; values are GL-bounded.
+    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
     pub fn new<T: VertexLayoutDescription>(
         gl_context: GlContextPtr,
         shader_program_id: GLuint,
