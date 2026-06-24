@@ -736,6 +736,8 @@ impl TextInput {
         self
     }
 
+    // owned AzString passed by value per the azul FFI / api.json setter convention.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn set_text(&mut self, text: AzString) {
         self.text_input_state.inner.text = text
             .as_str()

@@ -106,6 +106,8 @@ azul_css::impl_vec_partialord!(FmtArg, FmtArgVec);
 
 /// Formats `format` by substituting placeholders with values from `args`.
 /// Returns the error message as a string on failure (for C FFI ergonomics).
+// FFI-exported formatter: owned AzString/FmtArgVec args are the api.json signature.
+#[allow(clippy::needless_pass_by_value)]
 #[must_use] pub fn fmt_string(format: AzString, args: FmtArgVec) -> String {
     use strfmt::Format;
     let format_map = args

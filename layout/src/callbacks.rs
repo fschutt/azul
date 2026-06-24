@@ -994,6 +994,8 @@ impl CallbackInfo {
     /// ```c
     /// AzString id = AzCallbackInfo_getRouteParam(&info, AzString_fromConstStr("id"));
     /// ```
+    // FFI-exported (AzCallbackInfo_getRouteParam): the owned AzString key is the api.json signature.
+    #[allow(clippy::needless_pass_by_value)]
     #[must_use] pub fn get_route_param(&self, key: AzString) -> AzString {
         match &self.get_current_window_state().active_route {
             azul_core::resources::OptionRouteMatch::Some(rm) => {
@@ -2097,6 +2099,8 @@ impl CallbackInfo {
     }
 
     /// Find the root-level node whose dataset matches the type of `search_key`
+    // owned RefAny passed by value per the azul FFI / api.json convention.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn get_node_id_of_root_dataset(&mut self, search_key: RefAny) -> Option<DomNodeId> {
         let mut found: Option<(u64, DomNodeId)> = None;
         let search_type_id = search_key.get_type_id();
