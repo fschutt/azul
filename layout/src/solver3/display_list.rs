@@ -4426,15 +4426,13 @@ StyleVisibility::Collapse) => true,
 
         // FIX: object_bounds is the margin-box position from text3.
         // We need to convert to border-box for painting backgrounds/borders.
-        let margins = if let Some(indices) = self.positioned_tree.tree.dom_to_layout.get(&node_id) {
-            if let Some(&idx) = indices.first() {
-                self.positioned_tree.tree.nodes[idx].box_props.unpack().margin
-            } else {
-                crate::solver3::geometry::EdgeSizes::default()
-            }
-        } else {
-            crate::solver3::geometry::EdgeSizes::default()
-        };
+        let margins = self.positioned_tree.tree.dom_to_layout.get(&node_id).map_or_else(
+            crate::solver3::geometry::EdgeSizes::default,
+            |indices| indices.first().map_or_else(
+                crate::solver3::geometry::EdgeSizes::default,
+                |&idx| self.positioned_tree.tree.nodes[idx].box_props.unpack().margin,
+            ),
+        );
 
         // Convert margin-box bounds to border-box bounds
         let border_box_bounds = LogicalRect {

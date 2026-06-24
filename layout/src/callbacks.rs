@@ -875,11 +875,10 @@ impl CallbackInfo {
     #[must_use] pub fn take_changes(&self) -> Vec<CallbackChange> {
         // SAFETY: The pointer is valid for the lifetime of the callback
         unsafe {
-            if let Ok(mut changes) = (*self.changes).lock() {
-                core::mem::take(&mut *changes)
-            } else {
-                Vec::new()
-            }
+            (*self.changes).lock().map_or_else(
+                |_| Vec::new(),
+                |mut changes| core::mem::take(&mut *changes),
+            )
         }
     }
 

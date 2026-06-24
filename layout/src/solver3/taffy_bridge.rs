@@ -2020,15 +2020,10 @@ fn from_layout_width(
 ) -> Dimension {
     match val {
         LayoutWidth::Auto => Dimension::auto(),
-        LayoutWidth::Px(px) => {
-            match pixel_value_to_pixels_fallback(&px) {
-                Some(pixels) => Dimension::length(pixels),
-                None => match px.to_percent() {
-                    Some(p) => Dimension::percent(p.get()),
-                    None => Dimension::auto(),
-                },
-            }
-        }
+        LayoutWidth::Px(px) => pixel_value_to_pixels_fallback(&px).map_or_else(
+            || px.to_percent().map_or_else(Dimension::auto, |p| Dimension::percent(p.get())),
+            Dimension::length,
+        ),
         LayoutWidth::MinContent | LayoutWidth::MaxContent | LayoutWidth::FitContent(_) => Dimension::auto(),
         LayoutWidth::Calc(items) => store_calc_and_make_dimension(items, calc_storage, em_size, rem_size),
     }
@@ -2043,15 +2038,10 @@ fn from_layout_height(
 ) -> Dimension {
     match val {
         LayoutHeight::Auto => Dimension::auto(),
-        LayoutHeight::Px(px) => {
-            match pixel_value_to_pixels_fallback(&px) {
-                Some(pixels) => Dimension::length(pixels),
-                None => match px.to_percent() {
-                    Some(p) => Dimension::percent(p.get()),
-                    None => Dimension::auto(),
-                },
-            }
-        }
+        LayoutHeight::Px(px) => pixel_value_to_pixels_fallback(&px).map_or_else(
+            || px.to_percent().map_or_else(Dimension::auto, |p| Dimension::percent(p.get())),
+            Dimension::length,
+        ),
         LayoutHeight::MinContent | LayoutHeight::MaxContent | LayoutHeight::FitContent(_) => Dimension::auto(),
         LayoutHeight::Calc(items) => store_calc_and_make_dimension(items, calc_storage, em_size, rem_size),
     }

@@ -218,15 +218,13 @@ extern "C" fn video_widget_render(
     {
         OptionDom::None
     } else {
-        match data.downcast_ref::<VideoWidgetState>() {
-            Some(s) => match &s.current_frame {
-                Some(img) => OptionDom::Some(
+        data.downcast_ref::<VideoWidgetState>().map_or(OptionDom::None, |s| {
+            s.current_frame.as_ref().map_or(OptionDom::None, |img| {
+                OptionDom::Some(
                     Dom::create_image(img.clone()).with_css("width: 100%; height: 100%;"),
-                ),
-                None => OptionDom::None,
-            },
-            None => OptionDom::None,
-        }
+                )
+            })
+        })
     };
     VirtualViewReturn {
         dom,
