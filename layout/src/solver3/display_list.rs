@@ -4432,10 +4432,10 @@ StyleVisibility::Collapse) => true,
             if let Some(&idx) = indices.first() {
                 self.positioned_tree.tree.nodes[idx].box_props.unpack().margin
             } else {
-                Default::default()
+                crate::solver3::geometry::EdgeSizes::default()
             }
         } else {
-            Default::default()
+            crate::solver3::geometry::EdgeSizes::default()
         };
 
         // Convert margin-box bounds to border-box bounds

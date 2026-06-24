@@ -555,7 +555,7 @@ impl LayoutWindow {
                 scroll_id_to_node_id: HashMap::new(),
                 counters: HashMap::new(),
                 float_cache: HashMap::new(),
-                cache_map: Default::default(),
+                cache_map: crate::solver3::cache::LayoutCacheMap::default(),
                 previous_positions: Vec::new(),
                 cached_display_list: None,
                 prev_dom_ptr: 0,
@@ -1523,7 +1523,7 @@ impl LayoutWindow {
             scroll_id_to_node_id: HashMap::new(),
             counters: HashMap::new(),
             float_cache: HashMap::new(),
-            cache_map: Default::default(),
+            cache_map: crate::solver3::cache::LayoutCacheMap::default(),
             previous_positions: Vec::new(),
                 cached_display_list: None,
                 prev_dom_ptr: 0,
@@ -5478,7 +5478,7 @@ impl LayoutWindow {
         use alloc::sync::Arc;
 
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
-            return Arc::new(Default::default());
+            return Arc::new(StyleProperties::default());
         };
 
         // Use the proper CSS property resolution from solver3::getters

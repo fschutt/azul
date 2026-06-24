@@ -3373,7 +3373,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        LayoutTextJustify::default()
     };
 
     // Get font-size for resolving line-height
@@ -3388,7 +3388,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        azul_css::props::style::text::StyleLineHeight::default()
     };
 
     let hyphenation = if dom_declared & DOM_HAS_HYPHENS != 0 {
@@ -3399,7 +3399,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        StyleHyphens::default()
     };
 
     let word_break_css = if dom_declared & DOM_HAS_WORD_BREAK != 0 {
@@ -3410,7 +3410,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        StyleWordBreak::default()
     };
 
     let overflow_wrap_css = if dom_declared & DOM_HAS_OVERFLOW_WRAP != 0 {
@@ -3421,7 +3421,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        StyleOverflowWrap::default()
     };
 
     let line_break_css = if dom_declared & DOM_HAS_LINE_BREAK != 0 {
@@ -3432,7 +3432,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        StyleLineBreak::default()
     };
 
     let text_align_last_css = if dom_declared & DOM_HAS_TEXT_ALIGN_LAST != 0 {
@@ -3443,7 +3443,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        StyleTextAlignLast::default()
     };
 
     let overflow_behaviour = get_overflow_x(styled_dom, id, node_state).unwrap_or_default();

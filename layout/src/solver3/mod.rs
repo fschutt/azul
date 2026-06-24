@@ -256,7 +256,7 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
             messages.push(LayoutDebugMessage {
                 message: message.into(),
                 location: "solver3".into(),
-                message_type: Default::default(),
+                message_type: LayoutDebugMessageType::default(),
             });
         }
     }

@@ -340,7 +340,7 @@ where
         allow_clipping: true,
         header_footer,
         page_width,
-        table_headers: Default::default(),
+        table_headers: crate::solver3::pagination::TableHeaderTracker::default(),
     };
 
     // Step 3: Paginate with CSS break property support
