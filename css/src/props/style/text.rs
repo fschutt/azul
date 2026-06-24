@@ -656,6 +656,9 @@ impl StyleTextColorParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-color` value.
 pub fn parse_style_text_color(input: &str) -> Result<StyleTextColor, StyleTextColorParseError<'_>> {
     parse_css_color(input)
         .map(|inner| StyleTextColor { inner })
@@ -702,6 +705,9 @@ impl StyleTextAlignParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-align` value.
 pub fn parse_style_text_align(input: &str) -> Result<StyleTextAlign, StyleTextAlignParseError<'_>> {
     match input.trim() {
         "left" => Ok(StyleTextAlign::Left),
@@ -759,6 +765,9 @@ impl StyleLetterSpacingParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `letter-spacing` value.
 pub fn parse_style_letter_spacing(
     input: &str,
 ) -> Result<StyleLetterSpacing, StyleLetterSpacingParseError<'_>> {
@@ -915,6 +924,9 @@ impl StyleTextIndentParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-indent` value.
 pub fn parse_style_text_indent(input: &str) -> Result<StyleTextIndent, StyleTextIndentParseError<'_>> {
     let mut each_line = false;
     let mut hanging = false;
@@ -1035,6 +1047,9 @@ impl_display! { StyleInitialLetterParseErrorOwned, {
 }}
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `initial-letter` value.
 pub fn parse_style_initial_letter(
     input: &str,
 ) -> Result<StyleInitialLetter, StyleInitialLetterParseError<'_>> {
@@ -1143,6 +1158,9 @@ impl_display! { StyleLineClampParseErrorOwned, {
 }}
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `line-clamp` value.
 pub fn parse_style_line_clamp(
     input: &str,
 ) -> Result<StyleLineClamp, StyleLineClampParseError<'_>> {
@@ -1250,6 +1268,9 @@ impl_display! { StyleHangingPunctuationParseErrorOwned, {
 }}
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `hanging-punctuation` value.
 pub fn parse_style_hanging_punctuation(
     input: &str,
 ) -> Result<StyleHangingPunctuation, StyleHangingPunctuationParseError<'_>> {
@@ -1369,6 +1390,9 @@ impl_display! { StyleTextCombineUprightParseErrorOwned, {
 }}
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-combine-upright` value.
 pub fn parse_style_text_combine_upright(
     input: &str,
 ) -> Result<StyleTextCombineUpright, StyleTextCombineUprightParseError<'_>> {
@@ -1441,6 +1465,9 @@ impl StyleWordSpacingParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `word-spacing` value.
 pub fn parse_style_word_spacing(
     input: &str,
 ) -> Result<StyleWordSpacing, StyleWordSpacingParseError<'_>> {
@@ -1489,6 +1516,9 @@ impl StyleLineHeightParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `line-height` value.
 pub fn parse_style_line_height(input: &str) -> Result<StyleLineHeight, StyleLineHeightParseError> {
     // Try <number> or <percentage> first (multiplier of font-size)
     if let Ok(inner) = crate::props::basic::length::parse_percentage_value(input) {
@@ -1553,6 +1583,9 @@ impl StyleTabSizeParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `tab-size` value.
 pub fn parse_style_tab_size(input: &str) -> Result<StyleTabSize, StyleTabSizeParseError<'_>> {
     input.trim().parse::<f32>().map_or_else(
         |_| {
@@ -1608,6 +1641,9 @@ impl StyleWhiteSpaceParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `white-space` value.
 pub fn parse_style_white_space(input: &str) -> Result<StyleWhiteSpace, StyleWhiteSpaceParseError<'_>> {
     match input.trim() {
         "normal" => Ok(StyleWhiteSpace::Normal),
@@ -1662,6 +1698,9 @@ impl StyleHyphensParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `hyphens` value.
 pub fn parse_style_hyphens(input: &str) -> Result<StyleHyphens, StyleHyphensParseError<'_>> {
     match input.trim() {
         "none" => Ok(StyleHyphens::None),
@@ -1713,6 +1752,9 @@ impl StyleLineBreakParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `line-break` value.
 pub fn parse_style_line_break(input: &str) -> Result<StyleLineBreak, StyleLineBreakParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleLineBreak::Auto),
@@ -1766,6 +1808,9 @@ impl StyleWordBreakParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `word-break` value.
 pub fn parse_style_word_break(input: &str) -> Result<StyleWordBreak, StyleWordBreakParseError<'_>> {
     match input.trim() {
         "normal" => Ok(StyleWordBreak::Normal),
@@ -1818,6 +1863,9 @@ impl StyleOverflowWrapParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `overflow-wrap` value.
 pub fn parse_style_overflow_wrap(input: &str) -> Result<StyleOverflowWrap, StyleOverflowWrapParseError<'_>> {
     match input.trim() {
         "normal" => Ok(StyleOverflowWrap::Normal),
@@ -1869,6 +1917,9 @@ impl StyleTextAlignLastParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-align-last` value.
 pub fn parse_style_text_align_last(input: &str) -> Result<StyleTextAlignLast, StyleTextAlignLastParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleTextAlignLast::Auto),
@@ -1922,6 +1973,9 @@ impl StyleDirectionParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `direction` value.
 pub fn parse_style_direction(input: &str) -> Result<StyleDirection, StyleDirectionParseError<'_>> {
     match input.trim() {
         "ltr" => Ok(StyleDirection::Ltr),
@@ -1972,6 +2026,9 @@ impl StyleUserSelectParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `user-select` value.
 pub fn parse_style_user_select(input: &str) -> Result<StyleUserSelect, StyleUserSelectParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleUserSelect::Auto),
@@ -2029,6 +2086,9 @@ impl StyleTextDecorationParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-decoration` value.
 pub fn parse_style_text_decoration(
     input: &str,
 ) -> Result<StyleTextDecoration, StyleTextDecorationParseError<'_>> {
@@ -2088,6 +2148,9 @@ impl StyleVerticalAlignParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `vertical-align` value.
 pub fn parse_style_vertical_align(
     input: &str,
 ) -> Result<StyleVerticalAlign, StyleVerticalAlignParseError<'_>> {
@@ -2146,6 +2209,9 @@ impl FormatAsRustCode for CaretColor {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `caret-color` value.
 pub fn parse_caret_color(input: &str) -> Result<CaretColor, CssColorParseError<'_>> {
     parse_css_color(input).map(|inner| CaretColor { inner })
 }
@@ -2182,6 +2248,9 @@ impl FormatAsRustCode for CaretAnimationDuration {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `caret-animation-duration` value.
 pub fn parse_caret_animation_duration(
     input: &str,
 ) -> Result<CaretAnimationDuration, DurationParseError<'_>> {
@@ -2224,6 +2293,9 @@ impl FormatAsRustCode for CaretWidth {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `caret-width` value.
 pub fn parse_caret_width(input: &str) -> Result<CaretWidth, CssPixelValueParseError<'_>> {
     use crate::props::basic::pixel::parse_pixel_value;
 
@@ -2438,6 +2510,9 @@ impl StyleUnicodeBidiParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `unicode-bidi` value.
 pub fn parse_style_unicode_bidi(input: &str) -> Result<StyleUnicodeBidi, StyleUnicodeBidiParseError<'_>> {
     match input.trim() {
         "normal" => Ok(StyleUnicodeBidi::Normal),
@@ -2525,6 +2600,9 @@ impl StyleTextBoxTrimParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-box-trim` value.
 pub fn parse_style_text_box_trim(input: &str) -> Result<StyleTextBoxTrim, StyleTextBoxTrimParseError<'_>> {
     match input.trim() {
         "none" => Ok(StyleTextBoxTrim::None),
@@ -2613,6 +2691,9 @@ impl StyleTextBoxEdgeParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-box-edge` value.
 pub fn parse_style_text_box_edge(input: &str) -> Result<StyleTextBoxEdge, StyleTextBoxEdgeParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleTextBoxEdge::Auto),
@@ -2713,6 +2794,9 @@ impl StyleDominantBaselineParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `dominant-baseline` value.
 pub fn parse_style_dominant_baseline(input: &str) -> Result<StyleDominantBaseline, StyleDominantBaselineParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleDominantBaseline::Auto),
@@ -2819,6 +2903,9 @@ impl StyleAlignmentBaselineParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `alignment-baseline` value.
 pub fn parse_style_alignment_baseline(input: &str) -> Result<StyleAlignmentBaseline, StyleAlignmentBaselineParseError<'_>> {
     match input.trim() {
         "baseline" => Ok(StyleAlignmentBaseline::Baseline),
@@ -2908,6 +2995,9 @@ impl StyleInitialLetterAlignParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `initial-letter-align` value.
 pub fn parse_style_initial_letter_align(input: &str) -> Result<StyleInitialLetterAlign, StyleInitialLetterAlignParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleInitialLetterAlign::Auto),
@@ -2993,6 +3083,9 @@ impl StyleInitialLetterWrapParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `initial-letter-wrap` value.
 pub fn parse_style_initial_letter_wrap(input: &str) -> Result<StyleInitialLetterWrap, StyleInitialLetterWrapParseError<'_>> {
     match input.trim() {
         "none" => Ok(StyleInitialLetterWrap::None),
