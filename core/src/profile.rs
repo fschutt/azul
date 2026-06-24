@@ -54,6 +54,9 @@
 use std::sync::OnceLock;
 
 /// Set of active `AZ_PROFILE` tokens. Parsed once from the env var.
+// independent profile toggles parsed from the env var; a bitflags type would
+// not improve this flat set of named booleans.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProfileFlags {
     pub memory: bool,

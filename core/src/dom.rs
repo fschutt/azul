@@ -1639,8 +1639,7 @@ impl Ord for ComponentOrigin {
 impl Hash for ComponentOrigin {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.component_id.hash(state);
-        let s = alloc::format!("{}", self.data_model_json);
-        s.hash(state);
+        alloc::format!("{}", self.data_model_json).hash(state);
     }
 }
 

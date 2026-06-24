@@ -1104,6 +1104,7 @@ pub struct PlatformSpecificOptions {
 // SAFETY: PlatformSpecificOptions contains raw pointers (X11Visual) that are
 // opaque platform handles, not dereferenced across threads.
 unsafe impl Sync for PlatformSpecificOptions {}
+#[allow(clippy::non_send_fields_in_send_ty)] // opaque platform handles, not dereferenced across threads (see note above)
 unsafe impl Send for PlatformSpecificOptions {}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]

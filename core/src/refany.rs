@@ -543,6 +543,7 @@ impl_option!(
 // - The data pointer points to heap memory (can be sent between threads)
 // - All shared state (RefCountInner) uses atomic operations
 // - No thread-local storage is used
+#[allow(clippy::non_send_fields_in_send_ty)] // see SAFETY note above: atomic refcount, no TLS, no cross-thread deref
 unsafe impl Send for RefAny {}
 
 // SAFETY: RefAny is Sync because:

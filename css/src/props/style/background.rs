@@ -1048,6 +1048,9 @@ pub mod parser {
     #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
     use super::*;
 
+    // the `*Gradient` suffix mirrors the CSS gradient function names this enum
+    // parses (linear-gradient, radial-gradient, conic-gradient, …).
+    #[allow(clippy::enum_variant_names)]
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     enum GradientType {
         LinearGradient,
