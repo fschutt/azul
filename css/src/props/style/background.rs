@@ -1045,6 +1045,7 @@ impl CssBackgroundPositionParseErrorOwned {
 
 #[cfg(feature = "parser")]
 pub mod parser {
+    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
     use super::*;
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]

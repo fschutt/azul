@@ -14,7 +14,11 @@ use crate::{
     css::{BoxOrStatic, CssPropertyValue},
     props::basic::{error::InvalidValueErr, pixel::PixelValueWithAuto},
 };
-// Import all property types from their new locations
+// Import all property types from their new locations.
+// wildcard imports: this is the property aggregator module that pulls in every
+// property type from its sub-modules; enumerating them all explicitly would be
+// unmaintainable and defeats the purpose of the per-category modules.
+#[allow(clippy::wildcard_imports)]
 use crate::{
     codegen::format::FormatAsRustCode,
     props::{

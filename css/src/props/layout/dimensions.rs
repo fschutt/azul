@@ -350,6 +350,7 @@ pub mod parser {
     use alloc::string::ToString;
     use crate::corety::AzString;
 
+    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
     use super::*;
     use crate::props::basic::pixel::parse_pixel_value;
 

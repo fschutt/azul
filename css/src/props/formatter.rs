@@ -9,6 +9,9 @@ use core::fmt;
 
 // Re-export the PrintAsCssValue trait from the css module
 pub use crate::css::PrintAsCssValue;
+// wildcard imports: this formatter pulls in every layout/style value type it
+// renders; enumerating them all explicitly is unmaintainable.
+#[allow(clippy::wildcard_imports)]
 use crate::props::{
     layout::{dimensions::*, spacing::*},
     style::{

@@ -208,6 +208,7 @@ impl PrintAsCssValue for StyleCursor {
 
 #[cfg(feature = "parser")]
 pub mod parsers {
+    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
     use super::*;
     use crate::corety::AzString;
     use crate::props::basic::error::{InvalidValueErr, InvalidValueErrOwned};

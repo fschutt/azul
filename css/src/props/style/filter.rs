@@ -234,6 +234,7 @@ impl PrintAsCssValue for StyleCompositeFilter {
 
 #[cfg(feature = "parser")]
 pub mod parser {
+    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
     use super::*;
     use crate::props::basic::parse_percentage_value;
     use crate::corety::AzString;

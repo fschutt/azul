@@ -263,6 +263,7 @@ impl crate::codegen::format::FormatAsRustCode for ShapeImageThreshold {
 pub mod parser {
     use core::num::ParseFloatError;
 
+    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
     use super::*;
     use crate::shape_parser::{parse_shape, ShapeParseError};
 

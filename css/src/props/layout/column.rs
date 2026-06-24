@@ -261,6 +261,7 @@ impl crate::codegen::format::FormatAsRustCode for ColumnRuleColor {
 
 #[cfg(feature = "parser")]
 pub mod parser {
+    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
     use super::*;
     use crate::corety::AzString;
 

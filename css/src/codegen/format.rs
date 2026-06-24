@@ -11,6 +11,9 @@ use alloc::{collections::btree_map::BTreeMap, format, string::String, string::To
 use core::fmt::Write;
 use core::hash::Hash;
 
+// wildcard imports: the code generator references the full set of property types
+// across every css sub-module; listing them all explicitly is unmaintainable.
+#[allow(clippy::wildcard_imports)]
 use crate::{
     corety::*,
     css::*,
