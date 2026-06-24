@@ -1278,10 +1278,9 @@ pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
                 return Err(());
             }
             rows.push(cells);
-            i += 1; // skip closing quote
-        } else {
-            i += 1;
         }
+        // advance past the closing quote (quoted branch) or the current char (else)
+        i += 1;
     }
 
     if rows.is_empty() {

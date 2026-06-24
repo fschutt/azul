@@ -1686,6 +1686,7 @@ pub enum ComponentFieldValueSource {
 /// to `ComponentFieldType` (which is the "class" / type descriptor).
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
+#[allow(clippy::large_enum_variant)] // #[repr(C,u8)] FFI enum: boxing a variant changes the C ABI/api.json
 pub enum ComponentFieldValue {
     String(AzString),
     Bool(bool),

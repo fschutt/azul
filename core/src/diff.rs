@@ -457,10 +457,8 @@ pub struct DiffResult {
         consumed: &[bool],
     ) -> Option<NodeId> {
         while let Some(&old_id) = queue.front() {
-            if consumed[old_id.index()] {
-                queue.pop_front();
-            } else {
-                queue.pop_front();
+            queue.pop_front();
+            if !consumed[old_id.index()] {
                 return Some(old_id);
             }
         }
