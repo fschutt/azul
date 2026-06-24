@@ -124,6 +124,7 @@ impl MicrophoneWidget {
     }
 
     /// Builder form of [`set_on_frame`](Self::set_on_frame).
+    #[must_use]
     pub fn with_on_frame<C: Into<OnAudioFrameCallback>>(
         mut self,
         data: RefAny,

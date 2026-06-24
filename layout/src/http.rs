@@ -199,12 +199,14 @@ impl HttpRequestConfig {
     }
     
     /// Set User-Agent header
+    #[must_use]
     pub fn with_user_agent(mut self, ua: impl Into<String>) -> Self {
         self.user_agent = AzString::from(ua.into());
         self
     }
     
     /// Add a header
+    #[must_use]
     pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.push(HttpHeader::new(name, value));
         self

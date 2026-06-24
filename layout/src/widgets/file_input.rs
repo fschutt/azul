@@ -128,6 +128,7 @@ impl FileInput {
     }
 
     #[inline]
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(None.into());
         core::mem::swap(&mut s, self);
@@ -159,6 +160,7 @@ impl FileInput {
     }
 
     #[inline]
+    #[must_use]
     pub fn with_on_path_change<I: Into<FileInputOnPathChangeCallback>>(
         mut self,
         refany: RefAny,

@@ -208,6 +208,7 @@ impl ProgressBar {
 
     /// Replaces `self` with a default (0%) progress bar, returning the previous value.
     #[inline]
+    #[must_use]
     pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(0.0);
         core::mem::swap(&mut s, self);

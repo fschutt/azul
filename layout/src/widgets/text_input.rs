@@ -766,6 +766,7 @@ impl TextInput {
         .into();
     }
 
+    #[must_use]
     pub fn with_on_text_input<C: Into<TextInputOnTextInputCallback>>(
         mut self,
         refany: RefAny,
@@ -787,6 +788,7 @@ impl TextInput {
         .into();
     }
 
+    #[must_use]
     pub fn with_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
         mut self,
         refany: RefAny,
@@ -808,6 +810,7 @@ impl TextInput {
         .into();
     }
 
+    #[must_use]
     pub fn with_on_focus_lost<C: Into<TextInputOnFocusLostCallback>>(
         mut self,
         refany: RefAny,
@@ -844,6 +847,7 @@ impl TextInput {
         self
     }
 
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::default();
         core::mem::swap(&mut s, self);

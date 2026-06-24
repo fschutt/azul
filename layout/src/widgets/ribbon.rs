@@ -227,6 +227,7 @@ impl Ribbon {
     }
 
     /// Builder method: registers a tab-click callback and returns `self`.
+    #[must_use]
     pub fn with_on_tab_click<C: Into<RibbonOnTabClickCallback>>(mut self, data: RefAny, cb: C) -> Self {
         self.set_on_tab_click(data, cb);
         self

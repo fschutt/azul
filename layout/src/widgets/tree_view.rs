@@ -245,6 +245,7 @@ impl TreeView {
     }
 
     /// Builder method: sets the node-click callback.
+    #[must_use]
     pub fn with_on_node_click<C: Into<TreeViewOnNodeClickCallback>>(
         mut self,
         data: RefAny,

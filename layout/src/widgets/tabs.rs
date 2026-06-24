@@ -1213,6 +1213,7 @@ impl TabHeader {
         }
     }
 
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut default = Self::default();
         core::mem::swap(&mut default, self);
@@ -1236,6 +1237,7 @@ impl TabHeader {
         .into();
     }
 
+    #[must_use]
     pub fn with_on_click<C: Into<TabOnClickCallback>>(
         mut self,
         refany: RefAny,
@@ -1402,6 +1404,7 @@ impl TabContent {
         }
     }
 
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut default = Self::default();
         core::mem::swap(&mut default, self);

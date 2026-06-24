@@ -334,6 +334,7 @@ impl Button {
     }
 
     #[inline]
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut m = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut m, self);
@@ -355,6 +356,7 @@ impl Button {
     }
 
     #[inline]
+    #[must_use]
     pub fn with_on_click<C: Into<ButtonOnClickCallback>>(
         mut self,
         data: RefAny,

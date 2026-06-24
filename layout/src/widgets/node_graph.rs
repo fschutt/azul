@@ -484,6 +484,7 @@ pub struct NodeDragAmount {
 }
 
 impl NodeGraph {
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut default = Self::default();
         ::core::mem::swap(&mut default, self);

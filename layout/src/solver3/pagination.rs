@@ -226,6 +226,7 @@ impl HeaderFooterConfig {
     }
 
     /// Set custom header text.
+    #[must_use]
     pub fn with_header_text(mut self, text: impl Into<String>) -> Self {
         self.show_header = true;
         self.header_content = MarginBoxContent::Text(text.into());
@@ -233,6 +234,7 @@ impl HeaderFooterConfig {
     }
 
     /// Set custom footer text.
+    #[must_use]
     pub fn with_footer_text(mut self, text: impl Into<String>) -> Self {
         self.show_footer = true;
         self.footer_content = MarginBoxContent::Text(text.into());
@@ -406,6 +408,7 @@ impl FakePageConfig {
     }
 
     /// Set custom header text.
+    #[must_use]
     pub fn with_header_text(mut self, text: impl Into<String>) -> Self {
         self.show_header = true;
         self.header_text = Some(text.into());
@@ -413,6 +416,7 @@ impl FakePageConfig {
     }
 
     /// Set custom footer text.
+    #[must_use]
     pub fn with_footer_text(mut self, text: impl Into<String>) -> Self {
         self.show_footer = true;
         self.footer_text = Some(text.into());

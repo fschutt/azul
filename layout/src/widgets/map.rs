@@ -207,6 +207,7 @@ impl MapWidget {
     }
 
     /// Builder form of [`set_on_viewport_changed`](Self::set_on_viewport_changed).
+    #[must_use]
     pub fn with_on_viewport_changed<C: Into<MapViewportChangedCallback>>(
         mut self,
         data: RefAny,
@@ -228,6 +229,7 @@ impl MapWidget {
     }
 
     /// Builder form of [`set_on_pin_tap`](Self::set_on_pin_tap).
+    #[must_use]
     pub fn with_on_pin_tap<C: Into<MapPinTapCallback>>(
         mut self,
         data: RefAny,

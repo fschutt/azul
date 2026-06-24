@@ -146,6 +146,7 @@ impl NumberInput {
         self.text_input.set_on_text_input(refany, callback);
     }
 
+    #[must_use]
     pub fn with_on_text_input<C: Into<TextInputOnTextInputCallback>>(
         mut self,
         refany: RefAny,
@@ -163,6 +164,7 @@ impl NumberInput {
         self.text_input.set_on_virtual_key_down(refany, callback);
     }
 
+    #[must_use]
     pub fn with_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
         mut self,
         refany: RefAny,
@@ -212,6 +214,7 @@ impl NumberInput {
         .into();
     }
 
+    #[must_use]
     pub fn with_on_value_change<C: Into<NumberInputOnValueChangeCallback>>(
         mut self,
         refany: RefAny,
@@ -233,6 +236,7 @@ impl NumberInput {
         .into();
     }
 
+    #[must_use]
     pub fn with_on_focus_lost<C: Into<NumberInputOnFocusLostCallback>>(
         mut self,
         refany: RefAny,
@@ -242,6 +246,7 @@ impl NumberInput {
         self
     }
 
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(0.0);
         core::mem::swap(&mut s, self);

@@ -1350,6 +1350,7 @@ pub mod parsed {
         /// pair with [`rust_fontconfig::FcFontCache::get_font_bytes`].
         /// For ad-hoc PDF callers that have raw heap bytes, wrap them
         /// via `Arc::new(FontBytes::Owned(Arc::from(vec)))`.
+        #[must_use]
         pub fn with_source_bytes(mut self, bytes: Arc<rust_fontconfig::FontBytes>) -> Self {
             self.original_bytes = Some(bytes);
             self

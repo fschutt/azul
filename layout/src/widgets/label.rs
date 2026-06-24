@@ -94,6 +94,7 @@ impl Label {
 
     /// Replaces `self` with an empty default label, returning the original.
     #[inline]
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);

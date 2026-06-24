@@ -832,6 +832,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// Attach a `FcFontRegistry` to this `FontManager` so subsequent
     /// chain-resolution calls use the on-demand path
     /// ([`rust_fontconfig::registry::FcFontRegistry::request_and_resolve_with_scripts`]).
+    #[must_use]
     pub fn with_registry(
         mut self,
         registry: Arc<rust_fontconfig::registry::FcFontRegistry>,

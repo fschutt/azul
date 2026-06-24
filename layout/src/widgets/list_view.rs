@@ -1521,6 +1521,7 @@ impl ListView {
         }
     }
 
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut m = Self::default();
         core::mem::swap(&mut m, self);
@@ -1615,6 +1616,7 @@ impl ListView {
         self.column_context_menu = Some(column_context_menu).into();
     }
 
+    #[must_use]
     pub fn with_on_column_click<C: Into<ListViewOnColumnClickCallback>>(
         mut self,
         refany: RefAny,
@@ -1636,6 +1638,7 @@ impl ListView {
         .into();
     }
 
+    #[must_use]
     pub fn with_on_row_click<C: Into<ListViewOnRowClickCallback>>(
         mut self,
         refany: RefAny,

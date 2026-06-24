@@ -257,12 +257,14 @@ impl DropDown {
     }
 
     /// Builder variant of [`Self::set_on_choice_change`].
+    #[must_use]
     pub fn with_on_choice_change<C: Into<DropDownOnChoiceChangeCallback>>(mut self, data: RefAny, callback: C) -> Self {
         self.set_on_choice_change(data, callback);
         self
     }
 
     /// Replaces `self` with the default value and returns the original.
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut m = Self::default();
         core::mem::swap(&mut m, self);

@@ -328,6 +328,7 @@ impl Frame {
     }
 
     /// Replaces `self` with a default frame and returns the original.
+    #[must_use]
     pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""), Dom::create_div());
         core::mem::swap(&mut s, self);

@@ -204,6 +204,7 @@ impl CheckBox {
     }
 
     #[inline]
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(false);
         core::mem::swap(&mut s, self);
@@ -220,6 +221,7 @@ impl CheckBox {
     }
 
     #[inline]
+    #[must_use]
     pub fn with_on_toggle<C: Into<CheckBoxOnToggleCallback>>(
         mut self,
         data: RefAny,

@@ -166,6 +166,7 @@ impl Titlebar {
 
     /// Swap this titlebar with a default instance, returning the old value.
     #[inline]
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::new(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);

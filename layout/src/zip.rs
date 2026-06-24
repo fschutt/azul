@@ -88,6 +88,7 @@ impl ZipWriteConfig {
         }
     }
     
+    #[must_use]
     pub fn with_comment(mut self, comment: impl Into<String>) -> Self {
         self.comment = comment.into();
         self

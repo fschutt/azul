@@ -39,6 +39,7 @@ pub use stub::TextLayoutCache;
 /// Trait for types that support cheap, shallow cloning (e.g., reference-counted types).
 pub trait ShallowClone {
     /// Create a shallow clone (increment reference count, don't copy data)
+    #[must_use]
     fn shallow_clone(&self) -> Self;
 }
 
