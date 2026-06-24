@@ -136,6 +136,9 @@ pub(crate) fn resolve_position_offsets(
 // +spec:positioning:ebff77 - absolute positioning layout model (replaces old §6 abspos model)
 // +spec:positioning:3b3ba4 - Absolute positioning: box offset from containing block, removed from normal flow; fixed positioning: CB = viewport
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics if a resolved offset (`top`/`bottom`) is None where both edges are expected.
 pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,

@@ -2582,6 +2582,9 @@ get_css_property!(
 
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics only on an internal indexing invariant (an in-range `get().unwrap()` over the font-family list).
 pub fn get_style_properties(
     styled_dom: &StyledDom,
     dom_id: NodeId,

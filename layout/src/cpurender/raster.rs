@@ -2713,6 +2713,9 @@ fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
 #[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics if `opts.width` or `opts.height` is None.
 pub fn render_component_preview(
     styled_dom: &azul_core::styled_dom::StyledDom,
     font_manager: &FontManager<FontRef>,
