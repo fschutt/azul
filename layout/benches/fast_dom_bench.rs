@@ -1,10 +1,10 @@
-/// Benchmark: Full rendering pipeline for 50K-node XHTML document.
-///
-/// Measures per-frame cost with warm font cache (matching real-world usage).
-/// Font loading is excluded — in a real app, FcFontRegistry loads fonts in
-/// background threads during app init.
-///
-/// Run with: cargo bench -p azul-layout --bench fast_dom_bench
+//! Benchmark: Full rendering pipeline for 50K-node XHTML document.
+//!
+//! Measures per-frame cost with warm font cache (matching real-world usage).
+//! Font loading is excluded — in a real app, FcFontRegistry loads fonts in
+//! background threads during app init.
+//!
+//! Run with: cargo bench -p azul-layout --bench fast_dom_bench
 
 use std::time::Instant;
 
