@@ -5815,7 +5815,7 @@ impl TextShapingCache {
         // This orients all text based on the constraints of the *first* fragment.
         // A more advanced system could defer orientation until inside the loop if
         // fragments can have different writing modes.
-        let oriented_items = apply_text_orientation(shaped_items, first_constraints)?;
+        let oriented_items = apply_text_orientation(shaped_items, first_constraints);
 
         // --- Stage 5: The Flow Loop ---
         let mut fragment_layouts = HashMap::new();
@@ -5955,7 +5955,7 @@ impl TextShapingCache {
         };
 
         // Stage 4: Text orientation
-        let oriented_items = apply_text_orientation(shaped_items, constraints)?;
+        let oriented_items = apply_text_orientation(shaped_items, constraints);
 
         // Stage 5 bypass: scan items for min/max contributions.
         let word_break = constraints.word_break;
@@ -7486,9 +7486,9 @@ fn measure_inline_object(item: &InlineContent) -> Result<(Rect, f32), LayoutErro
 fn apply_text_orientation(
     items: Arc<Vec<ShapedItem>>,
     constraints: &UnifiedConstraints,
-) -> Result<Arc<Vec<ShapedItem>>, LayoutError> {
+) -> Arc<Vec<ShapedItem>> {
     if !constraints.is_vertical() {
-        return Ok(items);
+        return items;
     }
 
     let mut oriented_items = Vec::with_capacity(items.len());
@@ -7541,7 +7541,7 @@ fn apply_text_orientation(
         }
     }
 
-    Ok(Arc::new(oriented_items))
+    Arc::new(oriented_items)
 }
 
 // --- Stage 5 & 6 Implementation: Combined Layout Pass ---
@@ -9712,7 +9712,7 @@ fn get_line_constraints(
             )));
         }
         let exclusion_spans =
-            get_shape_horizontal_spans(exclusion, line_y, line_height).unwrap_or_default();
+            get_shape_horizontal_spans(exclusion, line_y, line_height);
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
                 "  Exclusion spans at y={line_y}: {exclusion_spans:?}"
@@ -9784,7 +9784,7 @@ fn get_shape_horizontal_spans(
     shape: &ShapeBoundary,
     y: f32,
     line_height: f32,
-) -> Result<Vec<(f32, f32)>, LayoutError> {
+) -> Vec<(f32, f32)> {
     match shape {
         ShapeBoundary::Rectangle(rect) => {
             // Check for any overlap between the line box [y, y + line_height]
@@ -9795,9 +9795,9 @@ fn get_shape_horizontal_spans(
             let rect_end = rect.y + rect.height;
 
             if line_start < rect_end && line_end > rect_start {
-                Ok(vec![(rect.x, rect.x + rect.width)])
+                vec![(rect.x, rect.x + rect.width)]
             } else {
-                Ok(vec![])
+                vec![]
             }
         }
         ShapeBoundary::Circle { center, radius } => {
@@ -9805,9 +9805,9 @@ fn get_shape_horizontal_spans(
             let dy = (line_center_y - center.y).abs();
             if dy <= *radius {
                 let dx = (radius.powi(2) - dy.powi(2)).sqrt();
-                Ok(vec![(center.x - dx, center.x + dx)])
+                vec![(center.x - dx, center.x + dx)]
             } else {
-                Ok(vec![])
+                vec![]
             }
         }
         ShapeBoundary::Ellipse { center, radii } => {
@@ -9819,20 +9819,20 @@ fn get_shape_horizontal_spans(
                 let x_term_squared = 1.0 - y_term.powi(2);
                 if x_term_squared >= 0.0 {
                     let dx = radii.width * x_term_squared.sqrt();
-                    Ok(vec![(center.x - dx, center.x + dx)])
+                    vec![(center.x - dx, center.x + dx)]
                 } else {
-                    Ok(vec![])
+                    vec![]
                 }
             } else {
-                Ok(vec![])
+                vec![]
             }
         }
         ShapeBoundary::Polygon { points } => {
-            let segments = polygon_line_intersection(points, y, line_height)?;
-            Ok(segments
+            let segments = polygon_line_intersection(points, y, line_height);
+            segments
                 .iter()
                 .map(|s| (s.start_x, s.start_x + s.width))
-                .collect())
+                .collect()
         }
         // TODO(superplan): scanline intersection for `path()` shapes. When
         // `ShapeBoundary::Path { segments }` is actually produced (see the
@@ -9842,7 +9842,7 @@ fn get_shape_horizontal_spans(
         // a winding rule so holes carve out space (don't just concatenate points and
         // call `polygon_line_intersection`, which assumes a single ring). Today no
         // Path boundary is ever constructed, so this arm is unreachable.
-        ShapeBoundary::Path { .. } => Ok(vec![]),
+        ShapeBoundary::Path { .. } => vec![],
     }
 }
 
@@ -9871,9 +9871,9 @@ fn polygon_line_intersection(
     points: &[Point],
     y: f32,
     line_height: f32,
-) -> Result<Vec<LineSegment>, LayoutError> {
+) -> Vec<LineSegment> {
     if points.len() < 3 {
-        return Ok(vec![]);
+        return vec![];
     }
 
     let line_center_y = y + line_height / 2.0;
@@ -9918,7 +9918,7 @@ fn polygon_line_intersection(
         }
     }
 
-    Ok(segments)
+    segments
 }
 
 // ADDITION: A helper function to get a hyphenator.
@@ -10330,9 +10330,9 @@ fn perform_bidi_analysis<'a, 'b: 'a>(
     styled_runs: &'a [TextRunInfo],
     full_text: &'b str,
     force_lang: Option<Language>,
-) -> Result<(Vec<VisualRun<'a>>, BidiDirection), LayoutError> {
+) -> (Vec<VisualRun<'a>>, BidiDirection) {
     if full_text.is_empty() {
-        return Ok((Vec::new(), BidiDirection::Ltr));
+        return (Vec::new(), BidiDirection::Ltr);
     }
 
     let bidi_info = BidiInfo::new(full_text, None);
@@ -10405,7 +10405,7 @@ fn perform_bidi_analysis<'a, 'b: 'a>(
         });
     }
 
-    Ok((final_visual_runs, base_direction))
+    (final_visual_runs, base_direction)
 }
 
 const fn get_justification_priority(class: CharacterClass) -> u8 {
