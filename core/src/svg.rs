@@ -973,6 +973,7 @@ impl TessellatedGPUSvgNode {
     }
 
     /// Draw the vertex buffer to the texture with the given color and transform
+    #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
     pub fn draw(
         &self,
         texture: &mut Texture,
@@ -1026,6 +1027,7 @@ impl TessellatedColoredGPUSvgNode {
     }
 
     /// Draw the vertex buffer to the texture with the given color and transform
+    #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
     pub fn draw(
         &self,
         texture: &mut Texture,

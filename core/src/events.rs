@@ -1326,6 +1326,7 @@ fn matches_window_filter(
 /// use `detect_lifecycle_events_with_reconciliation`.
 ///
 /// Generates Mount, Unmount, and Resize events by comparing DOM hierarchies.
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
 #[must_use] pub fn detect_lifecycle_events(
     old_dom_id: DomId,
     new_dom_id: DomId,

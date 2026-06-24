@@ -2176,6 +2176,7 @@ impl RawImage {
 
     #[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit casts
     #[allow(clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour casts
+    #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
     fn load_rgbf32(pixels: RawImageData, expected_len: usize) -> Option<(U8Vec, bool)> {
         let pixels = pixels.get_f32_vec_ref()?;
 
@@ -2202,6 +2203,7 @@ impl RawImage {
 
     #[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit casts
     #[allow(clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour casts
+    #[allow(clippy::needless_pass_by_value)] // owned RawImageData taken by value (image decode entry point)
     fn load_rgbaf32(
         pixels: RawImageData,
         expected_len: usize,
@@ -3162,6 +3164,7 @@ pub fn build_add_image_resource_updates(
 /// Extends `currently_registered_images` and `currently_registered_fonts` by the
 /// `last_frame_image_keys` and `last_frame_font_keys`, so that we don't lose track of
 /// what font and image keys are currently in the API.
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
 pub fn add_resources(
     renderer_resources: &mut RendererResources,
     all_resource_updates: &mut Vec<ResourceUpdate>,

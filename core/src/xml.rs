@@ -5169,6 +5169,7 @@ fn main() {
 }
 
 // Compile all components to source code
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
 fn compile_components(
     components: Vec<(
         ComponentName,

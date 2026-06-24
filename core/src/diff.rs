@@ -440,6 +440,7 @@ pub struct DiffResult {
 /// * `old_layout` / `new_layout` - Layout bounds used to detect Resize events
 /// * `dom_id` - The DOM identifier
 /// * `timestamp` - Current timestamp for events
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
 #[must_use] pub fn reconcile_dom(
     old_node_data: &[NodeData],
     new_node_data: &[NodeData],

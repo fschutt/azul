@@ -599,7 +599,7 @@ fn apply_single_node_replacement(
 fn apply_multi_node_replacement(
     styled_dom: &mut StyledDom,
     node_idx: usize,
-    replacement: StyledDom,
+    replacement: &StyledDom,
 ) {
     let replacement_len = replacement.node_data.as_ref().len();
     if replacement_len == 0 {
@@ -611,7 +611,7 @@ fn apply_multi_node_replacement(
     }
     
     // For now, just apply the root node (same as single-node)
-    apply_single_node_replacement(styled_dom, node_idx, &replacement);
+    apply_single_node_replacement(styled_dom, node_idx, replacement);
     
     if replacement_len > 1 {
         // TODO: Full subtree splicing requires inserting nodes into arrays
@@ -659,7 +659,7 @@ pub fn resolve_icons_in_styled_dom(
             apply_multi_node_replacement(
                 styled_dom,
                 replacement.node_idx,
-                replacement.replacement
+                &replacement.replacement
             );
         }
     }
