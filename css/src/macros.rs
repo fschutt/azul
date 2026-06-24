@@ -10,7 +10,7 @@ macro_rules! impl_vec {
     ($struct_type:ident, $struct_name:ident, $destructor_name:ident, $destructor_type_name:ident, $slice_name:ident, $option_type:ident) => {
         pub type $destructor_type_name = extern "C" fn(*mut $struct_name);
 
-        /// C-compatible slice type for $struct_name.
+        /// C-compatible slice type for `$struct_name`.
         /// This is a non-owning view into a Vec's data.
         #[repr(C)]
         #[derive(Debug, Copy, Clone)]

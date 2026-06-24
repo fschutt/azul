@@ -3358,8 +3358,6 @@ pub fn parse_css_property(
     })
 }
 
-#[cfg(feature = "parser")]
-
 /// Parses a combined CSS property or a CSS property shorthand, for example "margin"
 /// (as a shorthand for setting all four properties of "margin-top", "margin-bottom",
 /// "margin-left" and "margin-right")
