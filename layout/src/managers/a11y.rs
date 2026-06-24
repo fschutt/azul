@@ -151,7 +151,7 @@ impl A11yManager {
                         Some((hot, layout_idx, abs_pos))
                     });
 
-                let a11y_info_ref = a11y_info.as_ref().map(AsRef::as_ref);
+                let a11y_info_ref = a11y_info;
                 let mut node = if let Some((layout_node, _layout_idx, abs_pos)) = layout_info {
                     Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref, hidpi_factor, window_size)
                 } else {

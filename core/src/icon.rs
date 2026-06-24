@@ -581,7 +581,7 @@ fn apply_single_node_replacement(
             
             // Copy accessibility info if present
             if let Some(a11y) = replacement_root.get_accessibility_info() {
-                node.set_accessibility_info(*a11y.clone());
+                node.set_accessibility_info(a11y.clone());
             }
         }
         

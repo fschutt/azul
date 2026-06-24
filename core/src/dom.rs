@@ -2459,16 +2459,16 @@ impl NodeData {
         self.flags.get_tab_index()
     }
     #[inline]
-    #[must_use] pub const fn get_accessibility_info(&self) -> Option<&Box<AccessibilityInfo>> {
-        self.accessibility.as_ref()
+    #[must_use] pub fn get_accessibility_info(&self) -> Option<&AccessibilityInfo> {
+        self.accessibility.as_deref()
     }
     #[inline]
-    #[must_use] pub fn get_menu_bar(&self) -> Option<&Box<Menu>> {
-        self.extra.as_ref().and_then(|e| e.menu_bar.as_ref())
+    #[must_use] pub fn get_menu_bar(&self) -> Option<&Menu> {
+        self.extra.as_ref().and_then(|e| e.menu_bar.as_deref())
     }
     #[inline]
-    #[must_use] pub fn get_context_menu(&self) -> Option<&Box<Menu>> {
-        self.extra.as_ref().and_then(|e| e.context_menu.as_ref())
+    #[must_use] pub fn get_context_menu(&self) -> Option<&Menu> {
+        self.extra.as_ref().and_then(|e| e.context_menu.as_deref())
     }
 
     /// Returns whether this node is an anonymous box generated for table layout.

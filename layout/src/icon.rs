@@ -154,7 +154,7 @@ fn create_image_icon_from_original(
         
         // Copy accessibility info
         if let Some(a11y) = original_node.get_accessibility_info() {
-            dom = dom.with_accessibility_info(*a11y.clone());
+            dom = dom.with_accessibility_info(a11y.clone());
         }
     } else {
         // No original node, use default dimensions
@@ -202,7 +202,7 @@ fn create_font_icon_from_original(
         
         // Copy accessibility info
         if let Some(a11y) = original_node.get_accessibility_info() {
-            dom = dom.with_accessibility_info(*a11y.clone());
+            dom = dom.with_accessibility_info(a11y.clone());
         }
     } else {
         // No original node, just set the font
