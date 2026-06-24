@@ -159,6 +159,8 @@ use xmlparser::Tokenizer;
 /// Returns an unstyled `Dom` suitable for use in layout callbacks (which return `Dom`,
 /// not `StyledDom`). The CSS from `<style>` tags is attached to the `Dom.css` field
 /// and will be applied during the cascade pass.
+// FFI-exported (api.json fn_body azul_layout::xml::dom_from_parsed_xml(xml)): owned Xml by value.
+#[allow(clippy::needless_pass_by_value)]
 #[must_use] pub fn dom_from_parsed_xml(xml: Xml) -> Dom {
     let component_map = ComponentMap::with_builtin();
     match str_to_dom_unstyled(xml.root.as_ref(), &component_map) {

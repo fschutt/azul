@@ -329,13 +329,13 @@ impl ZipFile {
     /// Load a ZIP archive from bytes
     /// 
     /// # Arguments
-    /// * `data` - ZIP file bytes (consumed)
+    /// * `data` - ZIP file bytes (borrowed)
     /// * `config` - Read configuration
     #[cfg(feature = "zip")]
-    pub fn from_bytes(data: Vec<u8>, config: &ZipReadConfig) -> Result<Self, ZipReadError> {
+    pub fn from_bytes(data: &[u8], config: &ZipReadConfig) -> Result<Self, ZipReadError> {
         use std::io::{Cursor, Read};
-        
-        let cursor = Cursor::new(&data);
+
+        let cursor = Cursor::new(data);
         let mut archive = zip::ZipArchive::new(cursor)
             .map_err(|e| ZipReadError::InvalidFormat(e.to_string()))?;
         
@@ -384,7 +384,7 @@ impl ZipFile {
     pub fn from_file(path: &Path, config: &ZipReadConfig) -> Result<Self, ZipReadError> {
         let data = std::fs::read(path)
             .map_err(|e| ZipReadError::IoError(e.to_string()))?;
-        Self::from_bytes(data, config)
+        Self::from_bytes(&data, config)
     }
     
     /// Write the ZIP archive to bytes
@@ -516,7 +516,7 @@ pub fn zip_create_from_files(
 /// Extract all files from ZIP data
 #[cfg(feature = "zip")]
 pub fn zip_extract_all(data: &[u8], config: &ZipReadConfig) -> Result<Vec<ZipFileEntry>, ZipReadError> {
-    let zip = ZipFile::from_bytes(data.to_vec(), config)?;
+    let zip = ZipFile::from_bytes(data, config)?;
     Ok(zip.entries)
 }
 

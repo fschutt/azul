@@ -63,6 +63,9 @@ impl FileError {
     }
     
     #[cfg(feature = "std")]
+    // taken by value so it can be used directly as `.map_err(FileError::from_io_error)`
+    // (map_err yields an owned io::Error); a &-param would break every such call site.
+    #[allow(clippy::needless_pass_by_value)]
     #[must_use] pub fn from_io_error(e: std::io::Error) -> Self {
         use std::io::ErrorKind;
         
