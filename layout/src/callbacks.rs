@@ -2985,6 +2985,9 @@ impl CallbackInfo {
     /// }
     /// ```
     #[cfg(feature = "cpurender")]
+    /// # Errors
+    ///
+    /// Returns an error message if the screenshot cannot be captured or encoded.
     pub fn take_screenshot(&self, dom_id: DomId) -> Result<alloc::vec::Vec<u8>, AzString> {
         use crate::cpurender::{render_with_font_manager_and_scroll, CpuRenderState, RenderOptions, ScrollOffsetMap};
 
@@ -3061,6 +3064,9 @@ impl CallbackInfo {
     /// * `Ok(())` - Screenshot saved successfully
     /// * `Err(String)` - Error message if rendering or saving failed
     #[cfg(all(feature = "std", feature = "cpurender"))]
+    /// # Errors
+    ///
+    /// Returns an error message if the screenshot cannot be captured or encoded.
     pub fn take_screenshot_to_file(&self, dom_id: DomId, path: &str) -> Result<(), AzString> {
         let png_data = self.take_screenshot(dom_id)?;
         std::fs::write(path, png_data)
@@ -3077,6 +3083,9 @@ impl CallbackInfo {
     /// # Returns
     /// * `Err(String)` - Always returns an error directing to use the extension trait
     #[cfg(feature = "std")]
+    /// # Errors
+    ///
+    /// Returns an error message if the screenshot cannot be captured or encoded.
     pub fn take_native_screenshot(&self, _path: &str) -> Result<(), AzString> {
         Err(AzString::from(
             "Native screenshot requires the NativeScreenshotExt trait from azul-dll crate. \
@@ -3093,6 +3102,9 @@ impl CallbackInfo {
     /// * `Ok(Vec<u8>)` - PNG-encoded image data
     /// * `Err(String)` - Error message if screenshot failed
     #[cfg(feature = "std")]
+    /// # Errors
+    ///
+    /// Returns an error message if the screenshot cannot be captured or encoded.
     pub fn take_native_screenshot_bytes(&self) -> Result<alloc::vec::Vec<u8>, AzString> {
         // Create a temporary file, take screenshot, read bytes, delete file
         let temp_path = std::env::temp_dir().join("azul_screenshot_temp.png");
@@ -3118,6 +3130,9 @@ impl CallbackInfo {
     /// * `Err(String)` - Error message if screenshot failed
     ///
     #[cfg(feature = "std")]
+    /// # Errors
+    ///
+    /// Returns an error message if the screenshot cannot be captured or encoded.
     pub fn take_native_screenshot_base64(&self) -> Result<AzString, AzString> {
         let png_bytes = self.take_native_screenshot_bytes()?;
         let base64_str = base64_encode(&png_bytes);
@@ -3135,6 +3150,9 @@ impl CallbackInfo {
     /// * `Ok(String)` - Base64 data URI string
     /// * `Err(String)` - Error message if rendering failed
     #[cfg(feature = "cpurender")]
+    /// # Errors
+    ///
+    /// Returns an error message if the screenshot cannot be captured or encoded.
     pub fn take_screenshot_base64(&self, dom_id: DomId) -> Result<AzString, AzString> {
         let png_bytes = self.take_screenshot(dom_id)?;
         let base64_str = base64_encode(&png_bytes);

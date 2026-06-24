@@ -145,6 +145,9 @@ fn subtree_contains_text(styled_dom: &StyledDom, dom_id: NodeId) -> bool {
 // the inlined entry/frame-setup was mis-lifting SP. (g60's inline(always) was a no-op — already inlined.)
 #[inline(never)]
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+/// # Errors
+///
+/// Returns a `LayoutError` if intrinsic sizing fails.
 pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -1274,6 +1277,9 @@ fn process_layout_children<T: ParsedFontTrait>(
 }
 
 // Keep old name as an alias for backward compatibility
+/// # Errors
+///
+/// Returns a `LayoutError` if collecting inline content fails.
 pub fn collect_inline_content<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -1325,6 +1331,9 @@ fn auto_block_inline_size(cb: &LogicalSize, bp: &BoxProps) -> f32 {
 
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if computing the used size fails.
 pub fn calculate_used_size_for_node(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,

@@ -1723,6 +1723,9 @@ impl DisplayListBuilder {
 
 /// Main entry point for generating the display list.
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
+/// # Errors
+///
+/// Returns a `LayoutError` if display-list generation fails.
 pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     ctx: &mut LayoutContext<T>,
     tree: &LayoutTree,
@@ -5513,6 +5516,9 @@ impl SlicerConfig {
 /// **Key insight**: Items are NEVER shifted. Instead, page boundaries are adjusted
 /// to honor break properties.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if paginating the display list fails.
 pub fn paginate_display_list_with_slicer_and_breaks(
     full_display_list: DisplayList,
     config: &SlicerConfig,

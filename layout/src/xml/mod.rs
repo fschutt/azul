@@ -180,6 +180,9 @@ use xmlparser::Tokenizer;
 ///
 /// This is the fastest XML→DOM path: XML tokens feed directly into
 /// `CompactDomBuilder`, and `<style>` text is collected inline.
+/// # Errors
+///
+/// Returns an `XmlError` if the XML cannot be parsed.
 pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlError> {
     let (fast_dom, _css) = parse_xml_to_fast_dom_with_css(xml)?;
     Ok(fast_dom)
@@ -187,6 +190,9 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
 
 /// Parse XML directly into `FastDom` + extracted CSS, ready for `StyledDom`.
 #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
+/// # Errors
+///
+/// Returns an `XmlError` if the XML cannot be parsed.
 pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
     // Optional per-phase RSS/timing breakdown.
     // Gated on AZ_MEM_BREAKDOWN=1 — prints
@@ -644,6 +650,9 @@ pub fn domxml_from_file<I: AsRef<Path>>(
 /// children recursively.
 #[cfg(feature = "xml")]
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns an `XmlError` if the XML cannot be parsed.
 pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
     use xmlparser::{ElementEnd::{Empty, Close}, Token::{ElementStart, ElementEnd, Attribute, Text}, Tokenizer};
 
@@ -901,6 +910,9 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
 }
 
 #[cfg(feature = "xml")]
+/// # Errors
+///
+/// Returns an `XmlError` if the XML cannot be parsed.
 pub fn parse_xml(s: &str) -> Result<Xml, XmlError> {
     Ok(Xml {
         root: parse_xml_string(s)?.into(),

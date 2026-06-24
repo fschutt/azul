@@ -780,6 +780,9 @@ pub struct FontManager<T> {
 }
 
 impl<T: ParsedFontTrait> FontManager<T> {
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the font cache cannot be initialized.
     pub fn new(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
         Ok(Self {
             fc_cache,
@@ -798,6 +801,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// layout pass are cached and will be available on subsequent calls
     /// if you clone the `parsed_fonts` Arc before creating the next instance.
     /// For full sharing, prefer `from_arc_shared()`.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the font cache cannot be initialized.
     pub fn from_shared(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
         Ok(Self {
             fc_cache,
@@ -815,6 +821,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
     ///
     /// This avoids re-reading and re-parsing font files from disk when
     /// rendering multiple documents that use the same fonts.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the font cache cannot be initialized.
     pub fn from_arc_shared(
         fc_cache: FcFontCache,
         parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>,
@@ -5708,6 +5717,9 @@ impl TextShapingCache {
     /// # Panics
     ///
     /// Panics if bidi reordering of the logical items fails (an internal invariant).
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if text flow layout fails.
     pub fn layout_flow<T: ParsedFontTrait>(
         &mut self,
         content: &[InlineContent],
@@ -5910,6 +5922,9 @@ impl TextShapingCache {
     /// # Panics
     ///
     /// Panics if bidi reordering of the logical items fails (an internal invariant).
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if measuring intrinsic widths fails.
     pub fn measure_intrinsic_widths<T: ParsedFontTrait>(
         &mut self,
         content: &[InlineContent],
@@ -6358,6 +6373,9 @@ pub fn create_logical_items(
 // +spec:writing-modes:8e7281 - unicode-bidi property: bidi control codes inserted via BidiInfo
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if bidi reordering fails.
 pub fn reorder_logical_items(
     logical_items: &[LogicalItem],
     base_direction: BidiDirection,
@@ -6530,6 +6548,9 @@ pub fn reorder_logical_items(
 /// This is the incremental shaping path: when one word changes in a paragraph,
 /// only that word's item misses the per-item cache; all other items hit.
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
+/// # Errors
+///
+/// Returns a `LayoutError` if shaping the visual items fails.
 pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     per_item_cache: &mut HashMap<u64, Arc<PerItemShapedEntry>>,
@@ -6793,6 +6814,9 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if shaping the visual items fails.
 pub fn shape_visual_items<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
@@ -7838,6 +7862,9 @@ fn calculate_line_metrics(
 /// - § 6 Trimming Leading: text-box-trim not implemented
 #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if fragment layout fails.
 pub fn perform_fragment_layout<T: ParsedFontTrait>(
     cursor: &mut BreakCursor,
     logical_items: &[LogicalItem],

@@ -1089,6 +1089,9 @@ impl LayoutTree {
 }
 
 /// Generate layout tree from styled DOM with proper anonymous box generation
+/// # Errors
+///
+/// Returns a `LayoutError` if the layout tree cannot be built.
 pub fn generate_layout_tree<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
 ) -> Result<LayoutTree> {

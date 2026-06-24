@@ -835,6 +835,9 @@ fn layout_relevant_child_count(
     count
 }
 
+/// # Errors
+///
+/// Returns a `LayoutError` if layout reconciliation fails.
 pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     cache: &LayoutCache,
@@ -965,6 +968,9 @@ StyleWhiteSpace::PreLine)
 /// Recursively traverses the new DOM and old tree, building a new tree and marking dirty nodes.
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/counter/fixed-point cast
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if recursive reconciliation fails.
 pub fn reconcile_recursive(
     styled_dom: &StyledDom,
     new_dom_id: NodeId,
@@ -1953,6 +1959,9 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
 /// mechanism ensuring O(n) total complexity across both passes.
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if laying out the subtree fails.
 pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,

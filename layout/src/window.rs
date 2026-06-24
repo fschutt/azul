@@ -622,6 +622,9 @@ impl LayoutWindow {
     /// Create a new layout window with empty caches.
     ///
     /// For full initialization with `WindowInternal` compatibility, use `new_full()`.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the layout window cannot be initialized.
     pub fn new(fc_cache: FcFontCache) -> Result<Self, solver3::LayoutError> {
         Ok(Self::from_font_manager(FontManager::new(fc_cache)?))
     }
@@ -629,6 +632,9 @@ impl LayoutWindow {
     /// Create a new layout window that shares already-parsed fonts with
     /// Create a `LayoutWindow` from a `FontContext` — shares all font data,
     /// starts with fresh layout cache, text cache, and all other state.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the layout window cannot be initialized.
     pub fn from_font_context(ctx: &crate::text3::cache::FontContext) -> Result<Self, solver3::LayoutError> {
         let fm = ctx.to_font_manager();
         let fc_cache = fm.fc_cache.clone();
@@ -639,6 +645,9 @@ impl LayoutWindow {
     }
 
     /// Create from shared `fc_cache` + `parsed_fonts` Arcs.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the layout window cannot be initialized.
     pub fn new_with_shared_fonts(
         fc_cache: FcFontCache,
         parsed_fonts: Arc<std::sync::Mutex<HashMap<rust_fontconfig::FontId, FontRef>>>,
@@ -688,6 +697,9 @@ impl LayoutWindow {
     ///
     /// # Returns
     /// The display list ready for rendering, or an error if layout fails.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if layout fails.
     pub fn layout_and_generate_display_list(
         &mut self,
         root_dom: StyledDom,
@@ -758,6 +770,9 @@ impl LayoutWindow {
     /// is hot-patched out at lift time (web emits TLV patches, not a
     /// display list); positions are written to the cache *before* that
     /// step, so the lifted path still produces correct geometry.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if recursive layout fails.
     pub fn layout_dom_recursive(
         &mut self,
         styled_dom: StyledDom,
@@ -1483,6 +1498,9 @@ impl LayoutWindow {
     /// relayout only the affected parts of the tree when the window size changes.
     ///
     /// Returns the new display list after the resize.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if relayout on resize fails.
     pub fn resize_window(
         &mut self,
         styled_dom: StyledDom,

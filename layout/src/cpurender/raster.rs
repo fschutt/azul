@@ -642,6 +642,9 @@ fn acquire_pixmap(retained: Option<AzulPixmap>, w: u32, h: u32) -> Result<AzulPi
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render(
     dl: &DisplayList,
     res: &RendererResources,
@@ -668,6 +671,9 @@ pub fn render(
 
 /// Render a display list using fonts from `FontManager` directly.
 /// This is used in reftest scenarios where `RendererResources` doesn't have fonts registered.
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render_with_font_manager(
     dl: &DisplayList,
     res: &RendererResources,
@@ -681,6 +687,9 @@ pub fn render_with_font_manager(
 
 /// Render with `FontManager` and explicit render state (scroll offsets + GPU values).
 /// Used by `take_screenshot` to render with the current scroll/transform/opacity state.
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render_with_font_manager_and_scroll(
     dl: &DisplayList,
     res: &RendererResources,
@@ -704,6 +713,9 @@ pub fn render_with_font_manager_and_scroll(
 /// the target dimensions, it is reused (cleared to white) instead of
 /// allocating a fresh buffer. The pixmap is returned regardless.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render_with_font_manager_and_scroll_retained(
     dl: &DisplayList,
     res: &RendererResources,
@@ -1004,6 +1016,9 @@ const fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
 /// # Panics
 ///
 /// Panics if the damage-rect iterator is unexpectedly empty.
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render_display_list_damaged(
     display_list: &DisplayList,
     pixmap: &mut AzulPixmap,
@@ -1108,6 +1123,9 @@ pub fn render_display_list_damaged(
 /// # Panics
 ///
 /// Panics if the clip stack is empty when an item expects an active clip.
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render_single_item(
     item: &DisplayListItem,
     pixmap: &mut AzulPixmap,
@@ -2716,6 +2734,9 @@ fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
 /// # Panics
 ///
 /// Panics if `opts.width` or `opts.height` is None.
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render_component_preview(
     styled_dom: &azul_core::styled_dom::StyledDom,
     font_manager: &FontManager<FontRef>,
@@ -2892,6 +2913,9 @@ pub fn render_component_preview(
 /// This is a convenience API that creates a `StyledDom`, lays it out,
 /// and rasterizes via the CPU renderer.
 #[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render_dom_to_image(
     mut dom: azul_core::dom::Dom,
     css: azul_css::css::Css,

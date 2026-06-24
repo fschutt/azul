@@ -49,6 +49,9 @@ pub trait ShallowClone {
 /// the layout solver to work with different font backends.
 pub trait ParsedFontTrait: Send + Clone + ShallowClone {
     /// Shape the given text into a sequence of glyphs using the font's shaping tables.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the text cannot be shaped.
     fn shape_text(
         &self,
         text: &str,
@@ -92,6 +95,9 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
 /// This allows different font loading strategies (e.g., allsorts, freetype, mock)
 /// to be used with the layout engine.
 pub trait FontLoaderTrait<T>: Send + core::fmt::Debug {
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the font cannot be loaded.
     fn load_font(&self, font_bytes: &[u8], font_index: usize) -> Result<T, LayoutError>;
 }
 

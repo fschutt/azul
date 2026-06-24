@@ -351,6 +351,9 @@ impl CompositorState {
     /// # Panics
     ///
     /// Panics if a referenced layer id is not present in the layer map.
+    /// # Errors
+    ///
+    /// Returns an error string if the layers cannot be composited.
     pub fn render_layers(
         &mut self,
         display_list: &DisplayList,
@@ -512,6 +515,9 @@ impl CompositorState {
     /// # Panics
     ///
     /// Panics if `layer_id` is not present in the layer map.
+    /// # Errors
+    ///
+    /// Returns an error string if the layer cannot be scrolled.
     pub fn scroll_layer(
         &mut self,
         scroll_id: LocalScrollId,

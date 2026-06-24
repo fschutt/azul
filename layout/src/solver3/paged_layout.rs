@@ -58,6 +58,9 @@ use crate::{
 /// A vector of `DisplayLists`, one per page. Each `DisplayList` contains the
 /// elements that fit on that page, with Y-coordinates relative to the page origin.
 #[cfg(feature = "text_layout")]
+/// # Errors
+///
+/// Returns a `LayoutError` if paged layout fails.
 pub fn layout_document_paged<T, F>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
@@ -119,6 +122,9 @@ where
 // dll PDF backend and the test suite; taking it by value keeps that one-shot API ergonomic.
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if paged layout fails.
 pub fn layout_document_paged_with_config<T, F>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,

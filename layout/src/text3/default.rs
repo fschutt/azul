@@ -97,6 +97,9 @@ impl PathLoader {
     /// per-face loca+glyf materialisation entirely; with
     /// `FontBytes::Mmapped` the unread pages also never count
     /// toward RSS.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the font cannot be loaded.
     pub fn load_font_shared(
         &self,
         font_bytes: Arc<rust_fontconfig::FontBytes>,
@@ -903,6 +906,9 @@ fn shape_text_internal(
 
 /// Public helper function to shape text for `ParsedFont`, returning Glyph
 /// This is used by the `ParsedFontTrait` implementation for `ParsedFont`
+/// # Errors
+///
+/// Returns a `LayoutError` if the text cannot be shaped.
 pub fn shape_text_for_parsed_font(
     parsed_font: &ParsedFont,
     text: &str,

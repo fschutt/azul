@@ -535,6 +535,9 @@ fn find_first_matching_focusable_node(
 }
 
 /// Resolve a `FocusTarget` to an actual `DomNodeId`
+/// # Errors
+///
+/// Returns an `UpdateFocusWarning` if the focus target cannot be resolved.
 pub fn resolve_focus_target(
     focus_target: &FocusTarget,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,

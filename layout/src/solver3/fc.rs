@@ -366,6 +366,9 @@ struct BfcLayoutState {
 // +spec:block-formatting-context:b04653 - dispatches layout by formatting context type (BFC, IFC, Table, Flex, Grid)
 // +spec:block-formatting-context:e46499 - inner display type determines formatting context (BFC, IFC, table, flex, grid)
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
+/// # Errors
+///
+/// Returns a `LayoutError` if laying out the formatting context fails.
 pub fn layout_formatting_context<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -4677,6 +4680,9 @@ fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
 /// # Panics
 ///
 /// Panics if the table's root node has no associated DOM node id.
+/// # Errors
+///
+/// Returns a `LayoutError` if laying out the table fails.
 pub fn layout_table_fc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,

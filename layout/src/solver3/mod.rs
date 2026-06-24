@@ -379,6 +379,9 @@ pub fn set_skip_display_list(skip: bool) {
 // node counts / indices / tree-len values fed to az_mark debug markers as u32; bounded.
 #[allow(clippy::cast_possible_truncation)]
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if document layout fails.
 pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
