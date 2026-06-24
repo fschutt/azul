@@ -86,9 +86,9 @@ pub enum Update {
 
 impl Update {
     pub fn max_self(&mut self, other: Self) {
-        if *self == Self::DoNothing && other != Self::DoNothing {
-            *self = other;
-        } else if *self == Self::RefreshDom && other == Self::RefreshDomAllWindows {
+        if (*self == Self::DoNothing && other != Self::DoNothing)
+            || (*self == Self::RefreshDom && other == Self::RefreshDomAllWindows)
+        {
             *self = other;
         }
     }

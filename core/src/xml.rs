@@ -4867,21 +4867,18 @@ pub fn get_body_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlPars
     }
 
     // First try to find body as a direct child (proper HTML structure)
-    let direct_body = root_nodes
-        .iter()
-        .filter_map(|child| {
-            if let XmlNodeChild::Element(node) = child {
-                let node_type_normalized = normalize_casing(&node.node_type);
-                if &node_type_normalized == "body" {
-                    Some(node)
-                } else {
-                    None
-                }
+    let direct_body = root_nodes.iter().find_map(|child| {
+        if let XmlNodeChild::Element(node) = child {
+            let node_type_normalized = normalize_casing(&node.node_type);
+            if &node_type_normalized == "body" {
+                Some(node)
             } else {
                 None
             }
-        })
-        .next();
+        } else {
+            None
+        }
+    });
 
     if let Some(body) = direct_body {
         return Ok(body);

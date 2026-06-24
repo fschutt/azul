@@ -1278,7 +1278,7 @@ pub struct RendererResources {
     /// whether the font will actually be successfully loaded
     pub last_frame_registered_fonts:
         OrderedMap<FontKey, OrderedMap<(Au, DpiScaleFactor), FontInstanceKey>>,
-    /// Map from the calculated families vec (["Arial", "Helvetica"])
+    /// Map from the calculated families vec (`["Arial", "Helvetica"]`)
     /// to the final loaded font that could be loaded
     /// (in this case "Arial" on Windows and "Helvetica" on Mac,
     /// because the fonts are loaded in fallback-order)
