@@ -1334,7 +1334,7 @@ fn new_from_str_inner<'a>(
     struct NestingLevel<'a> {
         paths: Vec<Vec<CssPathSelector>>,
         declarations: BTreeMap<&'a str, (&'a str, ErrorLocationRange)>,
-        nesting_level: usize,
+        depth: usize,
     }
 
     // Helper: get parent paths from nesting stack (if any)
@@ -1531,7 +1531,7 @@ fn new_from_str_inner<'a>(
                     nesting_stack.push(NestingLevel {
                         paths: combined_paths,
                         declarations: std::mem::take(&mut current_declarations),
-                        nesting_level: block_nesting,
+                        depth: block_nesting,
                     });
                     current_paths.clear();
                 }

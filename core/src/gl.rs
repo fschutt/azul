@@ -2674,6 +2674,9 @@ impl Ord for GlContextPtr {
 /// Saved OpenGL state for save/restore around framebuffer operations.
 /// Used by `Texture::clear()` and `GlShader::draw()` to avoid corrupting
 /// the caller's GL state.
+// the `current_` prefix is intentional: each field holds the saved CURRENT GL
+// binding captured at save() to be restored in restore().
+#[allow(clippy::struct_field_names)]
 struct GlStateSave {
     current_multisample: [u8; 1],
     current_index_buffer: [i32; 1],
