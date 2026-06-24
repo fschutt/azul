@@ -162,16 +162,16 @@ fn render_linear_gradient(
     clip: Option<AzRect>,
     dpi_factor: f32,
     system_colors: Option<&azul_css::system::SystemColors>,
-) -> Result<(), String> {
+) {
     use azul_css::props::basic::geometry::{LayoutRect, LayoutSize};
 
     let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
-        return Ok(());
+        return;
     };
 
     let stops = gradient.stops.as_ref();
     if stops.is_empty() {
-        return Ok(());
+        return;
     }
 
     let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
@@ -196,7 +196,7 @@ fn render_linear_gradient(
     let dy = y2 - y1;
     let len = dx.hypot(dy);
     if len < 0.001 {
-        return Ok(());
+        return;
     }
 
     // gradient-space (0..100, 0) → pixel-space line (x1,y1)→(x2,y2). Use agg's
@@ -215,7 +215,6 @@ fn render_linear_gradient(
     agg_fill_gradient_clipped(
         pixmap, &mut path, &lut, GradientX, transform, 0.0, 100.0, clip,
     );
-    Ok(())
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
@@ -229,16 +228,16 @@ fn render_radial_gradient(
     clip: Option<AzRect>,
     dpi_factor: f32,
     system_colors: Option<&azul_css::system::SystemColors>,
-) -> Result<(), String> {
+) {
     use azul_css::props::style::background::{RadialGradientSize, Shape};
 
     let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
-        return Ok(());
+        return;
     };
 
     let stops = gradient.stops.as_ref();
     if stops.is_empty() {
-        return Ok(());
+        return;
     }
 
     let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
@@ -283,7 +282,7 @@ fn render_radial_gradient(
     };
 
     if radius < 0.001 {
-        return Ok(());
+        return;
     }
 
     // Gradient-space (radius=100 at distance=100) → pixel-space around (cx, cy).
@@ -309,7 +308,6 @@ fn render_radial_gradient(
         100.0,
         clip,
     );
-    Ok(())
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
@@ -322,14 +320,14 @@ fn render_conic_gradient(
     clip: Option<AzRect>,
     dpi_factor: f32,
     system_colors: Option<&azul_css::system::SystemColors>,
-) -> Result<(), String> {
+) {
     let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
-        return Ok(());
+        return;
     };
 
     let stops = gradient.stops.as_ref();
     if stops.is_empty() {
-        return Ok(());
+        return;
     }
 
     let lut = build_gradient_lut_radial(&gradient.stops, system_colors);
@@ -373,7 +371,6 @@ fn render_conic_gradient(
         d2,
         clip,
     );
-    Ok(())
 }
 
 // ============================================================================
@@ -1152,7 +1149,7 @@ pub fn render_single_item(
                 border_radius,
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::SelectionRect {
             bounds,
@@ -1167,7 +1164,7 @@ pub fn render_single_item(
                 border_radius,
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::CursorRect { bounds, color } => {
             let clip = *clip_stack.last().unwrap();
@@ -1178,7 +1175,7 @@ pub fn render_single_item(
                 &BorderRadius::default(),
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::Border {
             bounds,
@@ -1304,7 +1301,7 @@ pub fn render_single_item(
                     &simple_radius,
                     clip,
                     dpi_factor,
-                )?;
+                );
             } else {
                 // Per-side rendering: render each side separately
                 render_border_sides(
@@ -1316,7 +1313,7 @@ pub fn render_single_item(
                     &simple_radius,
                     clip,
                     dpi_factor,
-                )?;
+                );
             }
         }
         DisplayListItem::Underline {
@@ -1332,7 +1329,7 @@ pub fn render_single_item(
                 &BorderRadius::default(),
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::Strikethrough {
             bounds,
@@ -1347,7 +1344,7 @@ pub fn render_single_item(
                 &BorderRadius::default(),
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::Overline {
             bounds,
@@ -1362,7 +1359,7 @@ pub fn render_single_item(
                 &BorderRadius::default(),
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::Text {
             glyphs,
@@ -1386,7 +1383,7 @@ pub fn render_single_item(
                 dpi_factor,
                 glyph_cache,
                 (scroll_dx, scroll_dy),
-            )?;
+            );
         }
         DisplayListItem::TextLayout {
             layout,
@@ -1411,7 +1408,7 @@ pub fn render_single_item(
                 resolved.unwrap_or(image),
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::ScrollBar {
             bounds,
@@ -1428,7 +1425,7 @@ pub fn render_single_item(
                 &BorderRadius::default(),
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::ScrollBarStyled { info } => {
             let clip = *clip_stack.last().unwrap();
@@ -1453,7 +1450,7 @@ pub fn render_single_item(
                         &BorderRadius::default(),
                         clip,
                         dpi_factor,
-                    )?;
+                    );
                 }
 
                 // Render decrement button
@@ -1466,7 +1463,7 @@ pub fn render_single_item(
                             &BorderRadius::default(),
                             clip,
                             dpi_factor,
-                        )?;
+                        );
                     }
                 }
 
@@ -1480,7 +1477,7 @@ pub fn render_single_item(
                             &BorderRadius::default(),
                             clip,
                             dpi_factor,
-                        )?;
+                        );
                     }
                 }
 
@@ -1511,7 +1508,7 @@ pub fn render_single_item(
                         &info.thumb_border_radius,
                         clip,
                         dpi_factor,
-                    )?;
+                    );
                 }
             } // end scrollbar_opacity > 0
         }
@@ -1666,7 +1663,7 @@ pub fn render_single_item(
                 clip,
                 dpi_factor,
                 render_state.system_style.as_deref().map(|s| &s.colors),
-            )?;
+            );
         }
         DisplayListItem::RadialGradient {
             bounds,
@@ -1682,7 +1679,7 @@ pub fn render_single_item(
                 clip,
                 dpi_factor,
                 render_state.system_style.as_deref().map(|s| &s.colors),
-            )?;
+            );
         }
         DisplayListItem::ConicGradient {
             bounds,
@@ -1698,7 +1695,7 @@ pub fn render_single_item(
                 clip,
                 dpi_factor,
                 render_state.system_style.as_deref().map(|s| &s.colors),
-            )?;
+            );
         }
 
         // BoxShadow
@@ -1895,19 +1892,19 @@ fn render_rect(
     border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
-) -> Result<(), String> {
+) {
     if color.a == 0 {
-        return Ok(());
+        return;
     }
 
     let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
-        return Ok(());
+        return;
     };
 
     // Early-out if fully outside clip
     if let Some(ref c) = clip {
         if rect.clip(c).is_none() {
-            return Ok(());
+            return;
         }
     }
 
@@ -1950,7 +1947,6 @@ fn render_rect(
         agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
     }
 
-    Ok(())
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
@@ -1967,18 +1963,18 @@ fn render_text(
     dpi_factor: f32,
     glyph_cache: &mut GlyphCache,
     scroll_offset: (f32, f32),
-) -> Result<(), String> {
+) {
     if color.a == 0 || glyphs.is_empty() {
-        return Ok(());
+        return;
     }
 
     // Skip text entirely if its clip_rect is outside the active clip region
     if let Some(ref c) = clip {
         let Some(text_rect) = logical_rect_to_az_rect(clip_rect, dpi_factor) else {
-            return Ok(());
+            return;
         };
         if text_rect.clip(c).is_none() {
-            return Ok(()); // fully clipped
+            return; // fully clipped
         }
     }
 
@@ -1996,7 +1992,7 @@ fn render_text(
                 "[cpurender] Font hash {} not found in FontManager",
                 font_hash.font_hash
             );
-            return Ok(());
+            return;
         }
     } else {
         let Some(font_key) = renderer_resources.font_hash_map.get(&font_hash.font_hash) else {
@@ -2005,14 +2001,14 @@ fn render_text(
                 font_hash.font_hash,
                 renderer_resources.font_hash_map.keys().collect::<Vec<_>>()
             );
-            return Ok(());
+            return;
         };
 
         let Some((font_ref, _instances)) = renderer_resources.currently_registered_fonts.get(font_key) else {
             eprintln!(
                 "[cpurender] FontKey {font_key:?} not found in currently_registered_fonts"
             );
-            return Ok(());
+            return;
         };
 
         unsafe { &*font_ref.get_parsed().cast::<ParsedFont>() }
@@ -2020,7 +2016,7 @@ fn render_text(
 
     let units_per_em = f32::from(parsed_font.font_metrics.units_per_em);
     if units_per_em <= 0.0 {
-        return Ok(());
+        return;
     }
 
     let scale = (font_size_px * dpi_factor) / units_per_em;
@@ -2091,7 +2087,6 @@ fn render_text(
     let mut sl = ScanlineU8::new();
     render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
 
-    Ok(())
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
@@ -2105,26 +2100,26 @@ fn render_border(
     border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
-) -> Result<(), String> {
+) {
     use azul_css::props::style::border::BorderStyle;
 
     if color.a == 0 || width <= 0.0 {
-        return Ok(());
+        return;
     }
 
     match border_style {
-        BorderStyle::None | BorderStyle::Hidden => return Ok(()),
+        BorderStyle::None | BorderStyle::Hidden => return,
         _ => {}
     }
 
     let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
-        return Ok(());
+        return;
     };
 
     // Skip if fully outside clip
     if let Some(ref c) = clip {
         if rect.clip(c).is_none() {
-            return Ok(());
+            return;
         }
     }
 
@@ -2227,7 +2222,6 @@ fn render_border(
         }
     }
 
-    Ok(())
 }
 
 /// Render border with per-side colors/widths/styles using CSS trapezoid model.
@@ -2242,9 +2236,9 @@ fn render_border_sides(
     _border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
-) -> Result<(), String> {
+) {
     let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
-        return Ok(());
+        return;
     };
 
     // Outer corners
@@ -2417,7 +2411,6 @@ fn render_border_sides(
         }
     }
 
-    Ok(())
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
@@ -2428,15 +2421,15 @@ fn render_image(
     image: &ImageRef,
     clip: Option<AzRect>,
     dpi_factor: f32,
-) -> Result<(), String> {
+) {
     let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
-        return Ok(());
+        return;
     };
 
     // Skip if fully outside clip
     if let Some(ref c) = clip {
         if rect.clip(c).is_none() {
-            return Ok(());
+            return;
         }
     }
 
@@ -2446,11 +2439,11 @@ fn render_image(
             let w = descriptor.width as u32;
             let h = descriptor.height as u32;
             if w == 0 || h == 0 {
-                return Ok(());
+                return;
             }
             let bytes = match data {
                 azul_core::resources::ImageData::Raw(shared) => shared.as_ref(),
-                azul_core::resources::ImageData::External(_) => return Ok(()),
+                azul_core::resources::ImageData::External(_) => return,
             };
 
             let rgba = match descriptor.format {
@@ -2483,7 +2476,7 @@ fn render_image(
                     let gray = Rgba8::new(200, 200, 200, 255);
                     let mut path = build_rect_path(&rect);
                     agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
-                    return Ok(());
+                    return;
                 }
             };
 
@@ -2493,9 +2486,9 @@ fn render_image(
             let gray = Rgba8::new(200, 200, 200, 255);
             let mut path = build_rect_path(&rect);
             agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
-            return Ok(());
+            return;
         }
-        DecodedImage::Gl(_) => return Ok(()),
+        DecodedImage::Gl(_) => return,
     };
 
     // Simple nearest-neighbor blit with scaling
@@ -2559,7 +2552,6 @@ fn render_image(
         }
     }
 
-    Ok(())
 }
 
 fn build_rect_path(rect: &AzRect) -> PathStorage {
