@@ -645,7 +645,7 @@ macro_rules! impl_vec_mut {
 
             pub fn append(&mut self, other: &mut Self) {
                 unsafe {
-                    self.append_elements(other.as_slice() as _);
+                    self.append_elements(core::ptr::from_ref(other.as_slice()));
                     other.set_len(0);
                 }
             }
