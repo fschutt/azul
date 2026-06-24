@@ -624,6 +624,7 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
 // Public API
 // ============================================================================
 
+#[derive(Debug, Clone, Copy)]
 pub struct RenderOptions {
     pub width: f32,
     pub height: f32,
@@ -2620,6 +2621,7 @@ fn build_rounded_rect_path(
 // ============================================================================
 
 /// Options for rendering a component preview.
+#[derive(Debug, Clone, Copy)]
 pub struct ComponentPreviewOptions {
     /// Optional width constraint. If None, size to content (uses 4096px max).
     pub width: Option<f32>,
@@ -2702,7 +2704,7 @@ fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
 #[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 pub fn render_component_preview(
-    styled_dom: azul_core::styled_dom::StyledDom,
+    styled_dom: &azul_core::styled_dom::StyledDom,
     font_manager: &FontManager<FontRef>,
     opts: ComponentPreviewOptions,
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
@@ -2905,7 +2907,7 @@ pub fn render_dom_to_image(
         },
     };
 
-    let result = render_component_preview(styled_dom, &font_manager, opts, None)?;
+    let result = render_component_preview(&styled_dom, &font_manager, opts, None)?;
     Ok(result.png_data)
 }
 

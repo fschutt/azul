@@ -9956,7 +9956,7 @@ fn process_debug_event(
 
             // --- 8. Render to PNG ---
             match azul_layout::cpurender::render_component_preview(
-                styled_dom,
+                &styled_dom,
                 font_manager,
                 opts,
                 Some(system_style),
