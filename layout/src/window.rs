@@ -3302,6 +3302,9 @@ impl LayoutWindow {
     /// Returns true if a new selection was added.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// # Panics
+    ///
+    /// Panics if there is no active multi-cursor.
     pub fn select_next_occurrence(&mut self) -> bool {
         use crate::text3::selection::select_word_at_cursor;
 
@@ -3916,6 +3919,9 @@ impl LayoutWindow {
     /// If the timer should terminate, a `RemoveTimer` change is appended.
     // Instant is a ref-counted FFI clock handle threaded through the event loop by value.
     #[allow(clippy::needless_pass_by_value)]
+    /// # Panics
+    ///
+    /// Panics if `timer_id` does not correspond to a registered timer.
     pub fn run_single_timer(
         &mut self,
         timer_id: usize,
@@ -5786,6 +5792,9 @@ impl LayoutWindow {
     /// text content, splices the preedit string at the cursor position, then
     /// re-shapes and regenerates the display list so the preedit glyphs appear
     /// inline with an underline.
+    /// # Panics
+    ///
+    /// Panics if there is no saved pre-preedit content to restore.
     pub fn apply_preedit_to_text_cache(&mut self, dom_id: DomId, node_id: NodeId) {
         let preedit = match &self.text_edit_manager.preedit_text {
             Some(p) if !p.is_empty() => p.clone(),

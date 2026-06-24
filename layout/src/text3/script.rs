@@ -165,6 +165,9 @@ const SCRIPT_CHECKERS: [ScriptChecker; 24] = [
 ];
 
 /// Detect only a script by a given text
+/// # Panics
+///
+/// Panics only if the internal script-counter table were empty, which cannot happen (it is a fixed-size array).
 pub fn detect_script(text: &str) -> Option<Script> {
     let mut script_counters: [ScriptCounter; 24] = SCRIPT_CHECKERS.map(|(s, f)| (s, f, 0));
 

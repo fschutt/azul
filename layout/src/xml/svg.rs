@@ -1492,6 +1492,9 @@ pub fn tessellate_node_stroke(node: &SvgNode, ss: SvgStrokeStyle) -> Tessellated
 
 // NOTE: This is a separate step both in order to reuse GPU textures
 // and also because texture allocation is heavy and can be offloaded to a different thread
+/// # Panics
+///
+/// Panics if the GL driver returned no texture id.
 #[must_use] pub fn allocate_clipmask_texture(
     gl_context: GlContextPtr,
     size: PhysicalSizeU32,

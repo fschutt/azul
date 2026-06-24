@@ -173,6 +173,9 @@ impl UndoRedoManager {
     }
 
     /// Get or create a stack for a specific node
+    /// # Panics
+    ///
+    /// Panics if the per-node stack list is unexpectedly empty after insertion.
     pub fn get_or_create_stack_mut(&mut self, node_id: NodeId) -> &mut NodeUndoRedoStack {
         if let Some(pos) = self.node_stacks.iter().position(|s| s.node_id == node_id) {
             &mut self.node_stacks[pos]
@@ -200,6 +203,9 @@ impl UndoRedoManager {
     /// ## Arguments
     /// * `changeset` - The changeset that was applied
     /// * `pre_state` - Node state before the changeset
+    /// # Panics
+    ///
+    /// Panics if the changeset's target node is None.
     pub fn record_operation(&mut self, changeset: TextChangeset, pre_state: NodeStateSnapshot) {
         // Convert DomNodeId to NodeId for indexing
         // NodeHierarchyItemId.into_crate_internal() decodes the 1-based encoding to Option<NodeId>
@@ -271,6 +277,9 @@ impl UndoRedoManager {
     /// Push an operation to the redo stack (after successful undo)
     ///
     /// This should be called AFTER an undo operation has been successfully applied.
+    /// # Panics
+    ///
+    /// Panics if the operation's changeset target node is None.
     pub fn push_redo(&mut self, operation: UndoableOperation) {
         let node_id = operation
             .changeset
@@ -285,6 +294,9 @@ impl UndoRedoManager {
     /// Push an operation to the undo stack (after successful redo)
     ///
     /// This should be called AFTER a redo operation has been successfully applied.
+    /// # Panics
+    ///
+    /// Panics if the operation's changeset target node is None.
     pub fn push_undo(&mut self, operation: UndoableOperation) {
         let node_id = operation
             .changeset

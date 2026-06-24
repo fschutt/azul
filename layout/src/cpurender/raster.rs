@@ -1001,6 +1001,9 @@ const fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
 /// Push/Pop state commands are always processed (they maintain clip/scroll stacks).
 #[allow(clippy::cast_possible_truncation)] // software rasterizer: bounded pixel/coord/colour casts
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+/// # Panics
+///
+/// Panics if the damage-rect iterator is unexpectedly empty.
 pub fn render_display_list_damaged(
     display_list: &DisplayList,
     pixmap: &mut AzulPixmap,
@@ -1102,6 +1105,9 @@ pub fn render_display_list_damaged(
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics if the clip stack is empty when an item expects an active clip.
 pub fn render_single_item(
     item: &DisplayListItem,
     pixmap: &mut AzulPixmap,

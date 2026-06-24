@@ -125,6 +125,9 @@ impl CompositorState {
     /// Returns a mapping from display-list item index to the `LayerId` it should render into.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// # Panics
+    ///
+    /// Panics if the internal layer stack underflows (a malformed display list).
     pub fn allocate_layers_from_display_list(
         &mut self,
         display_list: &DisplayList,
@@ -345,6 +348,9 @@ impl CompositorState {
     }
 
     /// Render display list items into their respective layer pixbufs.
+    /// # Panics
+    ///
+    /// Panics if a referenced layer id is not present in the layer map.
     pub fn render_layers(
         &mut self,
         display_list: &DisplayList,
@@ -503,6 +509,9 @@ impl CompositorState {
     /// Handle scroll by shifting pixels and re-rendering the exposed strip.
     #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    /// # Panics
+    ///
+    /// Panics if `layer_id` is not present in the layer map.
     pub fn scroll_layer(
         &mut self,
         scroll_id: LocalScrollId,

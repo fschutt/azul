@@ -1301,6 +1301,9 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 ///
 /// This function now accepts a `text_cache` parameter so that IFC layout can be
 /// performed inline during Taffy's measure callbacks, rather than as a post-processing step.
+/// # Panics
+///
+/// Panics if `node_idx` is not present in the layout tree.
 pub fn layout_taffy_subtree<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,

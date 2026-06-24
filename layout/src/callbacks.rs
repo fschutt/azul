@@ -1317,6 +1317,9 @@ impl CallbackInfo {
     /// # Arguments
     /// * `node_id` - The node to set the property on (uses hit node's DOM ID)
     /// * `property` - The CSS property to set
+    /// # Panics
+    ///
+    /// Panics if `node_id.node` is None; the target must reference a concrete node.
     pub fn set_css_property(&mut self, node_id: DomNodeId, property: CssProperty) {
         let dom_id = node_id.dom;
         let internal_node_id = node_id
@@ -1347,6 +1350,9 @@ impl CallbackInfo {
 
     /// Convenience wrapper for `override_node_css_properties` that targets a
     /// single property on the hit node's DOM (typical for animation callbacks).
+    /// # Panics
+    ///
+    /// Panics if `node_id.node` is None; the target must reference a concrete node.
     pub fn override_css_property(&mut self, node_id: DomNodeId, property: CssProperty) {
         let dom_id = node_id.dom;
         let internal_node_id = node_id
