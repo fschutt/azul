@@ -1042,3 +1042,197 @@ when `patchesLen===0 && patchesPtr`, read `payload_len` at `patchesPtr+5` and us
 Both fixes are loader.js-only (loader_js.rs) → NO relift logic changed → the lift cache stays warm; a dll
 rebuild (~1m17s) + server restart re-emits loader.js. remill fixes unchanged. VERIFICATION: deploy on
 :8845 + CDP (cdp_oob_click.js render+click + cdp_click_hw_port.js counter gate) — IN PROGRESS at write time.
+
+## ★ hydrateStyledDom OOB ROOT-CAUSED (2026-06-23) — Button::dom sret children-field drop
+Debugged the deferred deep bug (the reason hydrate is disabled in loader.js). Repro: `AZ_PORT=88xx
+AZ_FONT=1 AZ_HYDRATE=1 AZ_DUMP_DOM=1 node scripts/m9_e2e/full-cycle.js` (Node, seconds, no browser).
+A safe JS replica of count_az_dom_nodes walks the layout-cb's sret-returned AzDom and pinpoints it:
+```
+[root]   @0xa037a00 disc=2 children{ptr=0xa03aaa0 len=2 cap=4}      body (az_0), VALID
+  [root.0] @0xa03aaa0 disc=3 children{ptr=0xa038ce8 len=1 cap=4}    label_wrapper div (az_1), VALID
+    [root.0.0] @0xa038ce8 disc=177 children{ptr=0x8 len=0}          text "5" (177=Text), VALID leaf
+  [root.1] @0xa03ab80 disc=0 children{ptr=0x0 len=168011704 cap=168009808}  <<< GARBAGE (button)
+```
+**The button Dom (body's 2nd child) has a corrupt `children` DomVec: ptr=0, len/cap = STALE HEAP
+POINTERS** (~0xa03xxxx) where {ptr=<text child>, len=1, cap=…} belongs. The sibling div (built by
+AzDom_createDiv + addCssProperty + addChild) is PERFECTLY valid; only the button is wrong. Per
+hello-world.c:70-78, root.1 = `AzButton_dom(button)`; `AzDom_addChild` is proven fine (it built the
+valid div sibling). So the garbage originates in **AzButton_dom → azul_layout::widgets::button::Button::dom**
+(native 0x7ffc36c19560, synth 0x1d8560, file_VA 0x1800c9560, size 2848 — AzButton_dom @0x...b58640 is a
+64-B sret-forwarding wrapper). count_az_dom_nodes SURVIVES (root.1's child ptr=0 → its null-check skips);
+the recursive **StyledDom::create cascade** is what derefs the garbage len → OOB (mini func698).
+
+Button::dom is a HEAVY SSE struct constructor — dozens of `movups`/`movaps` 16-byte stores build the Dom
+on the stack + copy it through the Win-x64 sret pointer (many UNALIGNED, e.g. `movups %xmm,0x1(%r15)`,
+`0x11(%r15)`, `0x31(%r15)`). **This is the exact x86 analog of the aarch64 STP_Q-sret bug** the remill
+fork already fixed (m11-complex-struct-box-new-lift / the M12.8 "STP_Q PRE/POST … struct fields written
+through X8 read back uninitialised" note): one struct-field `movups` store (the one writing the button's
+`children` DomVec, Dom+0x98) is dropped/mis-lifted, so `children` reads back uninitialised. Standalone
+remill-lift of Button::dom (/c/rb/btndom.ll) has 18 __remill_* markers but they're indirect-branch
+fallbacks (no --extra_data) + ud2/int3 padding — NOT the dropped store; the drop is on a normal SSE path.
+NEXT to pinpoint the exact store: §M2 native harness (compile btndom.ll to the x86 host, mock a Button
+input, run, inspect the output Dom+0x98) OR AZ_WRITE_TRACE the children store in a relift; then fix
+remill's x86 movups/sret lifting (fork) or a transpiler store-replay workaround. Verify = COLD relift.
+hello-world is UNAFFECTED (hydrate disabled; render+click work) — this is robustness for richer DOMs.
+
+### UPDATE 2026-06-23 — hydrate OOB is a RAW remill-lift drop (NOT opt), confirmed via LOWOPT
+Ran a relift with `AZ_LOWOPT_FNS=Button` (forces every Button fn through opt `-O0`; 31 hits; relift was
+only 36s — warm cache, env-knob relifts are now cheap). The button-Dom `children` garbage is IDENTICAL
+(`root.1 children{ptr=0 len=168011704}`). So `-O0` does NOT fix it ⇒ the children-field store is dropped
+in the RAW remill lift (remill output, pre-opt), NOT by an LLVM opt pass. The fix is in remill's x86
+lifter (sret/SSE-store value-flow), the direct analog of the committed aarch64 STP_Q-sret fork fix — a
+B1-SSE-class remill grind, not a transpiler/opt knob. NEXT to pinpoint the exact dropped movups:
+§M2 native harness on /c/rb/btndom.ll (the raw lift reproduces it, per the LOWOPT result) with a captured
+Button input, OR a custom guest-write trace pass filtered to the children offset (Dom+0x98). Then fix
+remill's x86 movups/sret lift + cold relift + re-enable hydrate in loader.js. Servers up: :8845 (working
+e2e build) + :8846 (LOWOPT). hello-world UNAFFECTED (render+click work; hydrate disabled).
+
+### UPDATE 2026-06-24 — native harness for Button::dom BUILT + running (user: "make a better harness, no shortcuts")
+/c/rb/btn_harness.cpp + /c/rb/btndom.ll (= the raw lift of Button::dom sub_1d8560) compile to a native
+x86-64 exe (btndom.ll triple is x86_64-windows-msvc-coff → clang++ compiles it host-native; 35KB .o).
+Identity host-ptr memory model + __remill_*memory* shims that log W/R with symbolic regions (BTN/RET/
+HEAP/STK), x86 State reg offsets hardcoded (RCX=2248 sret, RDX=2264 button, RSP=2312, RIP=2472).
+add_child (sub_2271e0) is STUBBED to build a known-valid children {ptr=heap,len=1} (it's proven-correct:
+root.0 div is valid live), so the test isolates Button::dom's SRET-RETURN copy: does it preserve children?
+BLOCKER: the standalone lift lacks production's --extra_data (the fn's jump-table .rodata that the fork's
+x86 ForEachDevirtualizedTarget reads), so a button_type switch hits `MISSING_BLOCK pc=1d9076` early —
+BEFORE the Dom build — and aborts (sret untouched, all 0xAA). build_extra_data (transpiler_remill.rs:8755)
+= ";"-joined "synth:hex" of each rip-relative .rodata range (x86 scan_guest_data_accesses); synth =
+file_VA − 0x17FEF1000. NEXT (cron 26e95b19): extract Button::dom's rip-relative lea/.rodata targets from
+/c/rb/btndom.disasm, read their bytes via objdump -s, build --extra_data, re-lift btndom2.ll, recompile +
+relink the harness, run → verdict (children PRESERVED=lift OK→bug is production/classification; LOST=the
+sret movups copy drops it→remill x86 fork fix). Harness = the §M2 tool the user asked for; reusable.
+
+### UPDATE 2026-06-24 tick 2 — harness RUNS on the FAITHFUL production IR; iterating stubs
+Switched the harness from the standalone btndom.ll (had missing_blocks, no extra_data) to the CACHED
+PRODUCTION lift: /c/rb/btndom_prod.ll = az-lift-cache/c4497ceed19c189f_1d8560_v4_*.lifted.ll (0
+missing_block — devirt'd with extra_data). Added the 4 extra callee stubs it needs (sub_10717f0/.18,
+sub_107b3f0, sub_126afa0) + __remill_function_return. Compiles + runs (btn_repro2.exe = btn_harness.cpp
++ btndom_prod.o). Iteration so far:
+  - no-op stubs → into_option/no_alloc_shim/sub_58dbd0 → REMILL_ERROR pc=1d9078 (alloc-failure/panic
+    path: sub_58dbd0 returned null RAX → Button::dom took the handle_error branch).
+  - made sub_58dbd0(+.2/.5/.7) ALLOC-ISH (return a fresh 4KB heap ptr in RAX=2216) → got PAST the error,
+    now BUILDING the Dom on the heap (W8 HEAP+0<-0 = node_type disc, W32 HEAP+4<-5, f32 zeros = style),
+    reading button fields (R32 BTN+48) → SEGFAULT (identity-ptr deref of a still-garbage value).
+NEXT (cron 26e95b19): keep tuning — (a) set more AzButton input fields (label@0 done; image/button_type/
+3×CssPropertyWithConditionsVec/on_click — offsets from azul.h:33488; empty Vecs = {ptr=8,len=0,cap=0}) so
+reads past BTN+0x20 aren't garbage; (b) give result-producing callees valid returns (into_option sub_bf9990,
+Css::from sub_12738d0 → empty Vec, the drops → no-op). GOAL: clean Button::dom run → read RETBUF+0x98
+(children) → VERDICT: preserved (lift OK → bug is production/classification) vs LOST (sret movups copy drops
+it → remill x86 fork fix). Harness files: /c/rb/btn_harness.cpp, btndom_prod.ll/.o, btn_trace2.txt.
+
+### ★★★ 2026-06-24 tick 3 — HARNESS VERDICT: Button::dom lift is CORRECT; the bug is SP-DRIFT
+The native harness (btn_harness.cpp + btndom_prod.ll, run via btn_repro2.exe) settled it. Button::dom
+SPILLS its Win-x64 sret pointer (RCX) to a stack slot and RELOADS it before the final 240-byte Dom copy
+to the caller's buffer. With the harness's callee stubs NOT modeling the guest call's ret-pop, RSP drifts
+down 8 per call (the trace shows the retaddr pushes: W64 [STK-510]<-1d859d ...) → the sret-ptr reload
+reads a DRIFTED slot (STK-358, =0/uninit in the harness; stale heap garbage in the live run) →
+memcpy(dst=0/garbage) → the real button_dom gets stale garbage children = the live bug.
+FIX in the harness: add `REG(O_RSP)+=8` to every callee stub (model the ret-pop production's
+inject_helper_ret_pop does). RESULT FLIPS: `children{ptr=HEAP+3000 len=1 cap=1}` — VERDICT children
+PRESERVED, final copy dst=RET+0. So **Button::dom's remill lift is CORRECT**; the "raw-lift drop" / 62-vs-100
+movups store-count diff was a RED HERRING. The garbage is caused by SP DRIFT in the live run: some callee
+in Button::dom's path does NOT net +8 (push −8 by the guest call, +8 by the callee's ret/ret-pop), so RSP
+drifts and the spilled sret-ptr reload reads the wrong absolute slot. **SAME class as Task #9 (out_len_ptr
+spill/reload) — proven general.** The fix is SP-balancing (ensure every lifted/stub callee in this path
+balances the guest call's pushed retaddr), NOT a remill movups/sret fork fix — and it should fix BOTH the
+button children AND out_len. NEXT (cron 26e95b19): find which production callee of Button::dom drifts SP
+(AZ_REG_TRACE SP on the live run, OR audit inject_helper_ret_pop / enforce_sp coverage for the layout.wasm
+path) → close the gap → cold relift → re-enable hydrate. Harness is the reusable proof tool.
+
+### 2026-06-24 tick 4 — production reg-trace: Button::dom SP is BALANCED (SP-drift was a harness artifact)
+Reg-traced the LIVE Button::dom SP (AZ_REG_TRACE="button::Button::dom" AZ_REG_TRACE_NOWRAP=1 relift 48s +
+full-cycle.js AZ_HYDRATE AZ_DUMP_REGTRACE, dump moved to right-after-[2] since the post-hydrate alloc-OOB
+aborts before the old after-[4] dump). count=123, SP id99: body STABLE at 0x6f188 (oscillates ±8 =
+call push/pop, returns each time), epilogue pops cleanly, function returns SP=entry+8 (retaddr popped).
+So the LIVE calls DO balance (real callee rets pop) — the harness's "SP-drift fixes it" (tick 3) was a
+HARNESS ARTIFACT (my stubs didn't pop). Reconciliation: the harness ran btndom_prod.ll and with BALANCED
+SP + SIMPLE stubs gave correct children; production has BALANCED SP too yet still garbage → the difference
+is the REAL callees, NOT SP. Back to the mechb lesson: a real callee (Css::from sub_12738d0 / a drop /
+add_child) misbehaves — clobbers button_div.children or the spilled sret slot, OR the children write
+lands somewhere the sret copy doesn't include. NEXT (cron 26e95b19): (a) run the harness with the REAL
+callees linked (compile their cached .lifted.ll + transitive deps, replace the no-op stubs) to find which
+real callee flips children→garbage; OR (b) AZ_WRITE_TRACE Button::dom in production filtered to the
+button_div.children offset (Dom+0x98) to watch the write + any later clobber. The harness + the SP-balance
+proof stand; the cause is a real-callee value-flow, not SP-drift and not a movups drop. (full-cycle.js
+gained an after-[2] regtrace SP dump — keep, env-gated.)
+
+### 2026-06-24 tick 5 — narrowed to a REAL-CALLEE CLOBBER in the style/Css::from path (3 theories ruled out)
+The harness (btndom_prod.ll, balanced-SP stubs, MINIMAL button input = label only/empty styles) gives
+children PRESERVED. Crucially the harness's stubs are MOSTLY NO-OPS (Css::from sub_12738d0, the drops,
+etc.) → so a no-op/Leaf-STUBBED callee does NOT produce the garbage (the mechb "stale garbage from a
+no-op callee" lesson is RULED OUT here). Eliminations so far:
+  ✗ remill movups/sret drop  (harness: lift correct w/ balanced SP)
+  ✗ SP-drift                 (production reg-trace: Button::dom SP balanced, returns entry+8)
+  ✗ no-op/Leaf-stub callee   (harness no-op stubs → children PRESERVED)
+⇒ the bug needs a callee that RUNS and CLOBBERS button_div.children — most likely Css::from /
+the style application, which the harness no-op'd AND the minimal input skipped (empty style Vecs). The
+REAL button has populated container_style/label_style/image_style (AzButton_create) → Button::dom runs
+the real Css::from + applies styles → that path clobbers the children (realloc/overwrite/value-flow).
+Note: root.1 == button_dom (addChild just memcpy-copies it; addChild proven fine via root.0), so
+AzButton_dom's OUTPUT is already known garbage — a hello-world.c probe of button_dom pre-addChild is
+redundant + crashed the cb re-lift (reverted). NEXT (cron 26e95b19): link the REAL Css::from (sub_12738d0
+cached .lifted.ll + stub its deps) into btn_harness.cpp WITH a populated-style button input, OR a
+production write-trace of the button_div.children slot (Dom+0x98) — find the exact clobbering write in the
+style path → fix that lift → cold relift → re-enable hydrate. Harness infra (btn_harness.cpp, the cached
+.lifted.ll loader, reg-trace) all reusable.
+
+### 2026-06-24 tick 6 — the harness's MINIMAL-INPUT path is clobber-free; the bug is INPUT-DEPENDENT
+Tested the "Css::from sret-dest overlaps the dom" theory: made the harness Css::from stub (sub_12738d0
++.8/.13) write a 0xCAFE sentinel to its sret (RCX). Result: children STILL {ptr=HEAP+3000,len=1}
+PRESERVED — NOT the sentinel. Why: from the call-order trace, Css::from.13's sret (STK-4b8) is a STALE
+dom copy (the live dom-with-children was memcpy'd STK-4b8→STK-278 at line 263 BEFORE Css::from.13, then
+copied back STK-278→STK-4b8 at 289 AFTER, overwriting the sentinel) → no overlap with the live dom. So
+Css::from sret-overlap is RULED OUT. ★ The real lesson: the harness PRESERVES the children no matter what
+the stubs do, because the MINIMAL button input (label only, empty style Vecs) makes Button::dom take a
+short, clobber-free path. The production clobber is INPUT-DEPENDENT — it needs the REAL populated styles
+(container_style/label_style/image_style from AzButton_create), which drive a longer path (more memcpy
+shuffles / the real Css::from + style application) where the children gets clobbered. Eliminations now:
+movups-drop ✗, SP-drift ✗, no-op/Leaf-stub ✗, Css::from-sret-overlap ✗. ⇒ NEXT: there is NO shortcut around
+a FAITHFUL real-input reproduction. Two paths: (a) capture the real AzButton bytes from the live run (a
+small probe in hello-world.c copying `button` to a marker BEFORE AzButton_dom + read in full-cycle.js +
+feed to btn_harness.cpp as the RDX input; last probe crashed the cb COLD re-lift — retry, it's likely the
+known parallel-subprocess hazard); OR (b) AZ_WRITE_TRACE Button::dom with an ALL-WRITES mode (widen
+instrument_guest_writes' filter via an env knob) → relift → full-cycle.js → read the ring → find the write
+that clobbers the (validly-built) children slot. Then fix that lift site → cold relift → re-enable hydrate.
+
+### 2026-06-24 tick 7 — Button::dom + wrapper BOTH proven clean; production button_dom broadly garbage; harness can't reproduce
+More eliminations via the native harness (btn_repro2.exe = btn_harness.cpp + btndom_prod.o):
+  - Css::from stub returning a VALID non-empty Css, style Vecs len=1..32 (AZ_STYLES/AZ_STYLE_LEN at the
+    computed offsets 72/104/136) → children ALWAYS PRESERVED. So Button::dom's lift produces a valid
+    button_dom regardless of input/stub behaviour (with balanced SP).
+  - Harnessed the WRAPPER AzButton_dom (sub_117640, /c/rb/wrapper.ll, 0 missing_block): its disasm shows
+    it just memcpy's 0x110=272B (the AzButton INPUT) to a stack temp then calls Button::dom with the cb's
+    sret directly — a thin shim, NO result copy. Not the bug.
+Production heap dump (full-cycle.js AZ_DUMP_DOM, garbage root.1 button @0xa03ab80): children =
+{ptr=0, len=0xa03a7b8, cap=0xa03a050} where len/cap are HEAP POINTERS — 0xa03a7b8 → a DomVec
+{ptr=0xa03a940,len=2,cap=4}, 0xa03a050 → {ptr,0,ptr,0}. AND root.1.node_type disc=0 (vs the harness's
+valid button_dom disc=0x34). So the PRODUCTION button_dom is BROADLY garbage (node_type AND children),
+but the harness button_dom is valid across all inputs. ⇒ IMPASSE: the bug is real-input/real-callee/
+real-context-dependent and the harness can't reproduce it (the real CSS content can't be cheaply
+constructed; the input-capture probe crashes the cb COLD re-lift DETERMINISTICALLY at transitive[1248]
+even with no contention — a separate cold-lift crash of a text-shaping sort fn). Eliminations total:
+movups-drop ✗, SP-drift ✗, no-op/Leaf-stub ✗, Css::from-overlap ✗, wrapper ✗, Button::dom-lift ✗.
+Remaining (all HEAVY): (a) faithful harness = link the FULL real callee chain (add_child+Css::from+drops
++ their transitive deps) AND capture/construct the real CSS content; (b) transpiler write-trace with a
+custom filter on the button_dom buffer (rebuild + the runtime-address problem); (c) the cold-lift crash
+of the text-shaping sort fn at transitive[1248] may itself be a related lift bug worth chasing. Working
+server restored on :8845 (READY 348s — slow repopulate after the probe2 cache damage).
+
+### 2026-06-24 tick 8 — GROUND TRUTH: hydrate OOB is in lifted StyledDom::create (func[698]), NOT Button::dom
+Tick 7's "production button_dom broadly garbage" was the DOM_SIZE=224 misread (it's 240). Re-ran full-cycle.js
+against a real-lift server :8800 (`AZ_HYDRATE=1 AZ_DUMP_DOM=1 AZ_DOM_SIZE=240 AZ_CHILD_OFF=152`). The dom tree
+is STRUCTURALLY VALID node-by-node (body→label_wrapper→text"5" / button→text, all children vecs sane, leaves
+empty `{ptr=8,len=0}`). Phantoms KILLED (do not re-chase): (1) node_type `0x..b1` upper bytes = benign disc
+padding (native does `movups label; movb $0xb1` too; disc read as u8) — zeroing it doesn't fix the trap; (2)
+button-text style vec `{len=4}` @+88 is legit (harness builds it) — zeroing it doesn't fix; (3) "stack
+overflow" was the SECONDARY crash: `func[15]:0x89c0`=AzStartup_alloc is the NEXT alloc after the *caught*
+hydrate trap; patching mini SP 192KB→8MB (full-cycle.js `AZ_PATCH_STACK=8388608`) makes the script reach PASS
+but hydrate STILL traps. The PRIMARY trap (via `e.stack` in the [2c] catch) = `func[698]:0x6c5668`, chain
+hydrate(57)→56→98→182→**352(recurses,=tree walk)**→712→698. Trap insn = `i64.load32_s [local1+local6*4]` in
+an offset-chase loop `local6=local1+arr[local6]`, `local1=X+0x9FB888` → **garbage node-array index → OOB**,
+deterministic + content-independent. This is the real lifted-StyledDom::create lift bug. Tools: llvm-objdump
+-d (CODE-relative = V8 file-offset − 0x8681), `/c/rb/wasmsec.js` (sections), `/c/rb/wasmnames.js` (export
+names). Memory note: [[windows-weblift-hydrate-trap]]. NEXT: trace local6's garbage source (which cascade
+store is dropped/miscomputed); or instrument StyledDom::create sub-phases; the fix is a remill/transpiler lift
+fix, then re-enable hydrate + CDP-verify.

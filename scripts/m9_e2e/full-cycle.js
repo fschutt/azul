@@ -104,7 +104,31 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
         has: () => true,
     });
 
-    const { instance: miniI } = await WebAssembly.instantiate(miniBytes, {
+    // [AZ_PATCH_STACK=<bytes>] DIAGNOSTIC: patch mini's stack-pointer global[0]
+    // i32.const init to a larger value. The transpiler inits mini's SP at 192 KiB
+    // (STACK_BASE_FIRST), but each lifted wrapper frame is 128 KiB (STACK_BUF_SIZE),
+    // so 2 nested wrappers (hydrate→AzStartup_alloc) overflow → the State-init store
+    // traps OOB. If raising the SP makes hydrate succeed, the fix = bigger wasm stack.
+    function patchStackPointer(bytes, newSP) {
+        bytes = Buffer.from(bytes); let p = 8;
+        const rLEB = () => { let r=0,s=0,b; do{b=bytes[p++];r|=(b&0x7f)<<s;s+=7;}while(b&0x80); return r>>>0; };
+        const uLEB = (v) => { const a=[]; do{let b=v&0x7f; v>>>=7; if(v)b|=0x80; a.push(b);}while(v); return Buffer.from(a); };
+        const sLEB = (v) => { const a=[]; let more=true; while(more){let b=v&0x7f; v>>=7; if((v===0&&!(b&0x40))||(v===-1&&(b&0x40)))more=false; else b|=0x80; a.push(b&0xff);} return Buffer.from(a); };
+        while (p < bytes.length) {
+            const id = bytes[p++]; const sizeStart = p; const size = rLEB(); const cs = p; p = cs + size;
+            if (id === 6) {
+                let q = cs; const cR = () => { let r=0,s=0,b; do{b=bytes[q++];r|=(b&0x7f)<<s;s+=7;}while(b&0x80); return r>>>0; };
+                cR(); q += 2; const op = bytes[q++]; const vs = q; const oldV = cR(); const ve = q;
+                const nv = sLEB(newSP); const newSize = size - (ve - vs) + nv.length;
+                console.log('[patch-sp] global[0] SP init ' + oldV + ' -> ' + newSP + ' (op=0x' + op.toString(16) + ')');
+                return Buffer.concat([bytes.slice(0, sizeStart), uLEB(newSize), bytes.slice(cs, vs), nv, bytes.slice(ve, cs + size), bytes.slice(cs + size)]);
+            }
+        }
+        return bytes;
+    }
+    let mb = miniBytes;
+    if (process.env.AZ_PATCH_STACK) mb = patchStackPointer(miniBytes, parseInt(process.env.AZ_PATCH_STACK));
+    const { instance: miniI } = await WebAssembly.instantiate(mb, {
         env: new Proxy({}, h(realEnv)),
     });
     const mini = miniI.exports;
@@ -173,6 +197,23 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
     if (layoutRc !== 0) failSync('initLayoutCache rc=' + layoutRc);
     console.log('[2] layout cache populated (rc=' + layoutRc + ')');
 
+    // [AZ_DUMP_REGTRACE] dump the reg-trace ring right after [2] (Button::dom ran
+    // inside initLayoutCache here, BEFORE the hydrate that later crashes). Show
+    // the SP (id 99) progression — if SP drifts (doesn't return to its entry
+    // value after the call sequence), the sret-ptr reload reads the wrong slot.
+    if (process.env.AZ_DUMP_REGTRACE) {
+        const dvr = new DataView(memory.buffer);
+        const CNT = dvr.getUint32(983024, true), base = 983040, N = Math.min(CNT, 8191);
+        const nm = id => ({99:'SP',0:'RAX',50:'RCX',52:'RDX',53:'R8',54:'RBX',55:'R12',56:'R14',57:'R13',58:'RBP',59:'RSI',61:'R15',70:'RDI'}[id] || ('r'+id));
+        console.log('[regtrace@2] count=' + CNT + ' (showing SP=id99 stores)');
+        let first=null, last=null, n=0;
+        for (let k = 0; k < N; k++) {
+            const id = dvr.getUint32(base+k*8, true), v = dvr.getUint32(base+k*8+4, true);
+            if (id === 99) { if(first===null)first=v; last=v; if(n<40)console.log('  ['+k+'] SP=0x'+v.toString(16)); n++; }
+        }
+        console.log('[regtrace@2] SP stores=' + n + ' first=0x' + (first||0).toString(16) + ' last=0x' + (last||0).toString(16) + ' net_drift=' + ((last||0)-(first||0)));
+    }
+
     // [AZ_HYDRATE=1] Browser-parity: run AzStartup_hydrateStyledDom after
     // initLayoutCache (loader.js azBootstrap does this). The browser OOBs HERE
     // (mini.wasm func698 <- recursive func352 <- ... <- hydrateStyledDom) — the
@@ -190,17 +231,149 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
             // so the allocator is clean for the subsequent click dispatch.
             const BUMP_OFF = 262176;
             const bumpBefore = new DataView(memory.buffer).getUint32(BUMP_OFF, true);
+            // [AZ_DUMP_DOM] Dump the root Dom blob the layout cb wrote via sret,
+            // as 8-byte words, so we can spot the garbage children-DomVec
+            // {ptr@0,len@8,cap@16} (heap ptrs are ~0xa0xxxxx). Dom = { root:
+            // NodeData, children: DomVec, css: CssVec, est: usize }.
+            if (process.env.AZ_DUMP_DOM === '1') {
+                const dv = new DataView(memory.buffer);
+                const memSize = memory.buffer.byteLength;
+                // [PROBE 0x40800] hello-world-probe2.exe captured the REAL AzButton
+                // input bytes (256B) before AzButton_dom — dump as hex for the harness.
+                const ibytes = new Uint8Array(memory.buffer, 0x40800, 256);
+                const ihex = [...ibytes].map(b => b.toString(16).padStart(2, '0')).join('');
+                if (!/^0+$/.test(ihex)) console.log('[BTNINPUT] ' + ihex);
+                // children DomVec is at offset size_of::<NodeData>(); the dump
+                // showed a heap ptr at +152, so CHILDREN_OFF=152; Dom = NodeData
+                // (152) + DomVec(32) + CssVec(32) + usize(8) = 224.
+                const CHILDREN_OFF = +(process.env.AZ_CHILD_OFF || 152);
+                const DOM_SIZE = +(process.env.AZ_DOM_SIZE || 224);
+                const HEAP_LO = 0x6000000;
+                const bad = [];
+                function walk(node, depth, path) {
+                    if (depth > 12) return;
+                    const disc = dv.getUint32(node, true);
+                    const cptr = dv.getUint32(node + CHILDREN_OFF, true);
+                    const clen = dv.getUint32(node + CHILDREN_OFF + 8, true);
+                    const ccap = dv.getUint32(node + CHILDREN_OFF + 16, true);
+                    // Empty Vec (len==0) is VALID regardless of ptr (Rust dangling
+                    // ptr = align). Only a non-empty Vec with an out-of-heap ptr or
+                    // an absurd len is garbage. count_az_dom_nodes recurses ONLY
+                    // when ptr!=0 && len>0, so that's the exact OOB condition.
+                    const willRecurse = cptr !== 0 && clen !== 0;
+                    const ptrBad = willRecurse && (cptr < HEAP_LO || cptr + clen * DOM_SIZE + 24 > memSize);
+                    const lenBad = clen > 100000;
+                    const flag = (ptrBad || lenBad) ? '  <<< GARBAGE (will OOB)' : '';
+                    console.log('  '.repeat(depth) + '[' + path + '] @0x' + node.toString(16) + ' disc=' + disc +
+                        ' children{ptr=0x' + cptr.toString(16) + ' len=' + clen + ' cap=' + ccap + '}' + flag);
+                    if (flag) { bad.push({ node, cptr, clen, path }); return; }
+                    if (!willRecurse) return;
+                    for (let i = 0; i < Math.min(clen, 16); i++) walk(cptr + i * DOM_SIZE, depth + 1, path + '.' + i);
+                }
+                console.log('[dom] walk from root @0x' + domPtr.toString(16) + ' (CHILD_OFF=' + CHILDREN_OFF + ' DOM_SIZE=' + DOM_SIZE + '):');
+                walk(domPtr, 0, 'root');
+                bad.forEach(b => {
+                    console.log('[dom] GARBAGE node @0x' + b.node.toString(16) + ' path=' + b.path + ' children.ptr=0x' + b.cptr.toString(16) + ' len=' + b.clen);
+                    // What does the garbage children.len/.cap point AT? (identify the overflow/shift source)
+                    for (const lbl of ['len', 'cap']) {
+                        const addr = Number(lbl === 'len' ? b.clen : dv.getBigUint64(b.node + CHILDREN_OFF + 16, true));
+                        if (addr > 0x6000000 && addr + 48 < memSize) {
+                            const w = []; for (let o = 0; o < 48; o += 8) w.push('0x' + dv.getBigUint64(addr + o, true).toString(16));
+                            console.log('  [' + lbl + ' points @0x' + addr.toString(16) + ']: ' + w.join(' '));
+                        }
+                    }
+                });
+                // Full word dump of the two body children (valid div vs garbage
+                // button) — same DOM_SIZE-byte Dom struct, side by side, to see
+                // if the button slot is all-zero (missing write) or shifted.
+                const c0 = dv.getUint32(domPtr + CHILDREN_OFF, true); // body.children.ptr
+                const dumpNode = (base, tag) => {
+                    const ws = [];
+                    for (let o = 0; o < DOM_SIZE; o += 8) {
+                        const lo = dv.getUint32(base + o, true), hi = dv.getUint32(base + o + 4, true);
+                        ws.push('+' + String(o).padStart(3) + ':0x' + hi.toString(16).padStart(8, '0') + lo.toString(16).padStart(8, '0'));
+                    }
+                    console.log('[dom] ' + tag + ' @0x' + base.toString(16) + ':\n  ' + ws.join('\n  '));
+                };
+                if (c0) {
+                    const divNode = c0, btnNode = c0 + DOM_SIZE;
+                    const divTxt = dv.getUint32(divNode + CHILDREN_OFF, true);   // root.0.0 valid text "5"
+                    const btnTxt = dv.getUint32(btnNode + CHILDREN_OFF, true);   // root.1.0 garbage button text
+                    dumpNode(divTxt, 'root.0.0 VALID text child @0x' + divTxt.toString(16));
+                    dumpNode(btnTxt, 'root.1.0 GARBAGE button text child @0x' + btnTxt.toString(16));
+                    // Compare the style:Css vec @+88 of valid div-text vs button-text.
+                    [[divTxt,'div'],[btnTxt,'btn']].forEach(([n,t]) => {
+                        const p = dv.getUint32(n + 88, true), l = dv.getUint32(n + 96, true), c = dv.getUint32(n + 104, true);
+                        let body = '';
+                        if (p > 0x100000 && p + 64 < memSize) { const w=[]; for(let o=0;o<64;o+=8) w.push('0x'+dv.getBigUint64(p+o,true).toString(16)); body=' data['+w.join(' ')+']'; }
+                        console.log('[styvec ' + t + '] @+88 {ptr=0x' + p.toString(16) + ' len=' + l + ' cap=' + c + '}' + body);
+                    });
+                    // [AZ_FIX_PADDING=1] DIAGNOSTIC: zero the node_type field's upper 7
+                    // bytes (keep byte0 = the u8 disc) on every node. If hydrate then
+                    // SUCCEEDS, the heap-ptr padding in the button-text node_type is the
+                    // OOB trigger → the lifted cascade reads node_type wider than u8.
+                    // [AZ_FIX_STYLE=1] zero the button-text's style:Css stylesheets vec
+                    // (+88 ptr/+96 len/+104 cap) → empty Css. If hydrate then SUCCEEDS, the
+                    // cascade's style-application on the button-text's len=4 style is the OOB.
+                    if (process.env.AZ_FIX_STYLE === '1' && btnTxt) {
+                        const u8 = new Uint8Array(memory.buffer);
+                        for (let k = 88; k < 112; k++) u8[btnTxt + k] = 0;
+                        console.log('[fixstyle] zeroed btnTxt.style vec @+88..112 → empty Css');
+                    }
+                    // [AZ_FIX_STYLE_ALL=1] same, but for every node in the tree.
+                    if (process.env.AZ_FIX_STYLE_ALL === '1') {
+                        const u8 = new Uint8Array(memory.buffer);
+                        [domPtr, divNode, btnNode, divTxt, btnTxt].forEach(n => { if (n) for (let k = 88; k < 112; k++) u8[n + k] = 0; });
+                        console.log('[fixstyle-all] zeroed style vec on all 5 nodes');
+                    }
+                    if (process.env.AZ_FIX_PADDING === '1') {
+                        const u8 = new Uint8Array(memory.buffer);
+                        const zpad = (base, tag) => {
+                            if (!base) return;
+                            const disc = u8[base];
+                            for (let k = 1; k < 8; k++) u8[base + k] = 0;
+                            console.log('[fixpad] ' + tag + ' @0x' + base.toString(16) + ' disc=0x' + disc.toString(16) + ' upper7 zeroed');
+                        };
+                        zpad(domPtr, 'root'); zpad(divNode, 'root.0'); zpad(btnNode, 'root.1');
+                        zpad(divTxt, 'root.0.0'); zpad(btnTxt, 'root.1.0');
+                    }
+                }
+            }
             try {
                 const hRc = mini.AzStartup_hydrateStyledDom(state);
                 const nodeCount = (typeof mini.AzStartup_getDomNodeCount === 'function')
                     ? mini.AzStartup_getDomNodeCount(state) : -1;
                 console.log('[2c] hydrateStyledDom rc=' + hRc + ' node_count=' + nodeCount);
             } catch (e) {
-                const bumpAfter = new DataView(memory.buffer).getUint32(BUMP_OFF, true);
+                const dv = new DataView(memory.buffer);
+                const bumpAfter = dv.getUint32(BUMP_OFF, true);
+                // count_az_dom_nodes's built-in probe: 0x406E4 = root node_type
+                // disc, 0x406E8 = first child node_type disc (written at count==1
+                // before the OOB). Sane discs = the structure is partially valid.
+                const rootDisc = dv.getUint32(0x406E4, true), childDisc = dv.getUint32(0x406E8, true);
+                const hx = (a) => '0x' + dv.getUint32(a, true).toString(16);
+                console.log('[2c-markers] bodychildlen=' + hx(0x40620) + ' body.rules=' + hx(0x40624) +
+                    ' child0.rules=' + hx(0x40628) + ' child0.childlen=' + hx(0x4062c) + ' precascade=' + hx(0x40634));
+                console.log('[2c-stack] PRIMARY hydrate trap:\n' + (e.stack || e));
                 console.log('[2c] hydrateStyledDom TRAPPED: ' + e.message +
                     ' — bump 0x' + bumpBefore.toString(16) + ' → 0x' + bumpAfter.toString(16) +
-                    (bumpAfter !== bumpBefore ? ' (CORRUPTED — restoring)' : ''));
+                    (bumpAfter !== bumpBefore ? ' (advanced)' : '') +
+                    ' | probe rootDisc=' + rootDisc + ' firstChildDisc=' + childDisc);
                 new DataView(memory.buffer).setUint32(BUMP_OFF, bumpBefore, true);
+            }
+            // [2d solver] After hydrate, run the real layout solver (the browser
+            // path) + report positioned-rects count — the cache geometric hit-test
+            // reads. Exercises the full post-hydrate path end-to-end.
+            try {
+                const solveFn = mini.AzStartup_solveLayoutReal || mini.AzStartup_solveLayout;
+                if (typeof solveFn === 'function') {
+                    const solveRc = solveFn(state, 800, 600);
+                    const solved = (typeof mini.AzStartup_isLayoutSolved === 'function') ? mini.AzStartup_isLayoutSolved(state) : -1;
+                    const rectsLen = (typeof mini.AzStartup_getPositionedRectsLen === 'function') ? mini.AzStartup_getPositionedRectsLen(state) : -1;
+                    console.log('[2d] solveLayout rc=' + solveRc + ' solved=' + solved + ' rects_len=' + rectsLen);
+                } else { console.log('[2d] solveLayout: no solver export'); }
+            } catch (e) {
+                console.log('[2d] solveLayout TRAPPED: ' + (e.stack || e.message));
             }
         }
     }

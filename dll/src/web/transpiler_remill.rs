@@ -7860,15 +7860,39 @@ fn emit_helper_ir(
                     delta >= lift_addr && delta < lift_addr.saturating_add(0x0100_0000)
                 });
                 if is_recursive_marker {
+                    // [x86 recursive-pc fix, 2026-06-24] Pass the recursive fn's
+                    // ENTRY pc (lift_addr) as the callee %pc, NOT the incoming %pc.
+                    // The lifted body computes the recursive target as
+                    // `next_pc + REC_MARKER` (the rewriter's 0x1000_0000 sentinel,
+                    // baked into the lifted call-target arithmetic), so the incoming
+                    // %pc carries +0x1000_0000. On x86 the lifted body uses %pc for
+                    // PC-relative DATA (switch jump tables `[%pc + disp]`), so the
+                    // marker both points those loads at garbage AND ACCUMULATES
+                    // +0x1000_0000 per recursion depth (each frame re-adds the
+                    // sentinel) → after ~3 levels %pc ≈ 768 MB and the jump-table
+                    // load blows past linear memory → trap (the hydrate
+                    // StyledDom::create cascade OOB: func698 `i64.load32_s
+                    // [%pc+0x9FB888+idx*4]`, root-caused 2026-06-24). Forcing
+                    // %pc == lift_addr makes every recursion frame's pc identical to
+                    // the first (non-recursive) call's pc (= the entry), so
+                    // PC-relative data + PC-dispatch both resolve correctly. aarch64
+                    // keeps %pc passthrough (its body uses %pc only for PC-dispatch,
+                    // not data — ADRP-based; verified-good, do not change).
+                    let rec_pc_arg = if cfg!(target_arch = "x86_64") {
+                        format!("i64 {}", lift_addr)
+                    } else {
+                        "i64 %pc".to_string()
+                    };
                     branch_stubs.push_str(&format!(
-                        "; recursive-bl forwarder for {sym} (rewriter sentinel +0x4000000)\n\
+                        "; recursive-bl forwarder for {sym} (rewriter sentinel; pc→entry on x86)\n\
                          define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
-                           %r_{n} = tail call ptr @sub_{lift_hex}(ptr %state, i64 %pc, ptr %memory)\n  \
+                           %r_{n} = tail call ptr @sub_{lift_hex}(ptr %state, {rec_pc_arg}, ptr %memory)\n  \
                            ret ptr %r_{n}\n\
                          }}\n",
                         sym = ext.sym_name,
                         n = n_suffix,
                         lift_hex = format!("{:x}", lift_addr),
+                        rec_pc_arg = rec_pc_arg,
                     ));
                     eprintln!(
                         "[azul-web]   recursive-bl forwarder: {} → sub_{:x}",
