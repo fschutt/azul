@@ -5029,7 +5029,7 @@ impl LayoutWindow {
                 let nodes = self.edit_text_node(
                     dom_id,
                     node_id,
-                    TextEditType::ReplaceSelection(text.as_str().to_string()),
+                    &TextEditType::ReplaceSelection(text.as_str().to_string()),
                 );
                 for node in nodes {
                     affected_nodes.insert(node, (Vec::new(), true)); // true = needs re-layout
@@ -5039,7 +5039,7 @@ impl LayoutWindow {
                 let nodes = self.edit_text_node(
                     dom_id,
                     node_id,
-                    TextEditType::SetValue(text.as_str().to_string()),
+                    &TextEditType::SetValue(text.as_str().to_string()),
                 );
                 for node in nodes {
                     affected_nodes.insert(node, (Vec::new(), true));
@@ -5049,7 +5049,7 @@ impl LayoutWindow {
                 let nodes = self.edit_text_node(
                     dom_id,
                     node_id,
-                    TextEditType::SetNumericValue(f64::from(value.get())),
+                    &TextEditType::SetNumericValue(f64::from(value.get())),
                 );
                 for node in nodes {
                     affected_nodes.insert(node, (Vec::new(), true));
@@ -6504,12 +6504,12 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        edit_type: TextEditType,
+        edit_type: &TextEditType,
     ) -> Vec<DomNodeId> {
         use crate::managers::text_input::TextInputSource;
 
         // Convert TextEditType to string
-        let text_input = match &edit_type {
+        let text_input = match edit_type {
             TextEditType::ReplaceSelection(text) => text.clone(),
             TextEditType::SetValue(text) => text.clone(),
             TextEditType::SetNumericValue(value) => value.to_string(),
