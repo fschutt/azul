@@ -518,7 +518,7 @@ impl<T> FlatVecVec<T> {
                 }
             }
 
-            let start = flat_data.len() as u32;
+            let start = u32::try_from(flat_data.len()).unwrap_or(u32::MAX);
             // Drain inner and push only kept items
             for (i, item) in inner.drain(..).enumerate() {
                 if keep[i] {
@@ -526,7 +526,7 @@ impl<T> FlatVecVec<T> {
                 }
             }
 
-            let len = (flat_data.len() as u32) - start;
+            let len = u32::try_from(flat_data.len()).unwrap_or(u32::MAX) - start;
             offsets.push((start, len));
         }
 
@@ -545,8 +545,8 @@ impl<T> FlatVecVec<T> {
         let mut offsets = Vec::with_capacity(node_count);
 
         for inner in &mut self.build {
-            let start = flat_data.len() as u32;
-            let len = inner.len() as u32;
+            let start = u32::try_from(flat_data.len()).unwrap_or(u32::MAX);
+            let len = u32::try_from(inner.len()).unwrap_or(u32::MAX);
             offsets.push((start, len));
             flat_data.append(inner);
         }
@@ -566,7 +566,7 @@ impl<T> FlatVecVec<T> {
         for &(start, len) in &self.offsets {
             let s = start as usize;
             let l = len as usize;
-            let new_start = new_data.len() as u32;
+            let new_start = u32::try_from(new_data.len()).unwrap_or(u32::MAX);
             let slice = &self.data[s..s + l];
             let mut kept = 0u32;
             for item in slice {
@@ -595,7 +595,7 @@ impl<T> FlatVecVec<T> {
         for (node_idx, &(start, len)) in self.offsets.iter().enumerate() {
             let s = start as usize;
             let l = len as usize;
-            let new_start = new_data.len() as u32;
+            let new_start = u32::try_from(new_data.len()).unwrap_or(u32::MAX);
             let slice = &self.data[s..s + l];
             let mut kept = 0u32;
             for item in slice {
@@ -626,7 +626,7 @@ impl<T> FlatVecVec<T> {
     pub fn extend_from(&mut self, other: &mut Self) {
         if !self.offsets.is_empty() && !other.offsets.is_empty() {
             // Both flattened: extend flat data with offset adjustment
-            let base = self.data.len() as u32;
+            let base = u32::try_from(self.data.len()).unwrap_or(u32::MAX);
             self.data.append(&mut other.data);
             self.offsets.extend(other.offsets.drain(..).map(|(s, l)| (s + base, l)));
         } else {
@@ -1164,7 +1164,7 @@ impl CssPropertyCache {
                     }
                     for (decl_idx, decl) in rule_block.declarations.as_slice().iter().enumerate() {
                         if matches!(decl, CssDeclaration::Static(_)) {
-                            out.push((rule_idx as u16, decl_idx as u16));
+                            out.push((u16::try_from(rule_idx).unwrap_or(u16::MAX), u16::try_from(decl_idx).unwrap_or(u16::MAX)));
                         }
                     }
                 }
