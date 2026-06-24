@@ -69,6 +69,11 @@ impl UdpReassembler {
 
     /// Ingest one datagram. Returns the fully-reassembled message if this
     /// datagram completed one, else `None`. Malformed datagrams are ignored.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal partial-message map is missing an entry that was
+    /// just inserted (an invariant violation that cannot occur in practice).
     pub fn ingest(&mut self, datagram: &[u8]) -> Option<Vec<u8>> {
         if datagram.len() < CHUNK_HEADER_LEN {
             return None;

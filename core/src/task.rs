@@ -211,6 +211,11 @@ impl Instant {
 
     /// Adds a duration to the instant, does nothing in undefined cases
     /// (i.e. trying to add a `Duration::Tick` to an `Instant::System`)
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` and `duration` are of mismatched kinds (e.g. adding a
+    /// `Duration::Tick` to an `Instant::System` or vice versa).
     #[must_use] pub fn add_optional_duration(&self, duration: Option<&Duration>) -> Self {
         duration.map_or_else(|| self.clone(), |d| match (self, d) {
                 (Self::System(i), Duration::System(d)) => {
@@ -248,6 +253,8 @@ impl Instant {
     }
 
     /// Calculates the duration since an earlier point in time
+    ///
+    /// # Panics
     ///
     /// - Panics if the earlier Instant was created after the current Instant
     /// - Panics if the two enums do not have the same variant (tick / std)
@@ -553,7 +560,12 @@ impl Duration {
         }
     }
 
-    /// Returns true if self > other (panics if variants differ).
+    /// Returns true if self > other.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` and `other` are of different kinds (comparing a System
+    /// duration with a Tick duration).
     #[allow(unused_variables)]
     #[must_use] pub fn greater_than(&self, other: &Self) -> bool {
         match (self, other) {
@@ -577,7 +589,12 @@ impl Duration {
         }
     }
 
-    /// Returns true if self < other (panics if variants differ).
+    /// Returns true if self < other.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` and `other` are of different kinds (comparing a System
+    /// duration with a Tick duration).
     #[allow(unused_variables)]
     #[must_use] pub fn smaller_than(&self, other: &Self) -> bool {
         // self < other

@@ -685,6 +685,11 @@ impl RefAny {
     ///
     /// Special case: ZSTs use a null pointer but still track the type info
     /// and call the destructor (which may have side effects even for ZSTs).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ptr` is null while `len > 0` (a non-empty value must have a
+    /// valid backing pointer).
     #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     pub fn new_c(
         // *const T
@@ -1146,6 +1151,11 @@ impl RefAny {
     /// - The old destructor is called before deallocation
     /// - Memory is properly allocated with correct alignment
     /// - All metadata is updated while holding the lock
+    ///
+    /// # Panics
+    ///
+    /// Panics if a memory `Layout` for the replacement value cannot be
+    /// constructed (its size overflows `isize::MAX`).
     #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     pub fn replace_contents(&mut self, new_value: Self) -> bool {
         use core::ptr;

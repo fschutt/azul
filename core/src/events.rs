@@ -824,6 +824,10 @@ pub struct PropagationResult {
 ///
 /// The event can be stopped at any point via `stopPropagation()` or
 /// `stopImmediatePropagation()`.
+///
+/// # Panics
+///
+/// Panics if `path` is empty; it must contain at least the target node.
 pub fn propagate_event(
     event: &mut SyntheticEvent,
     node_hierarchy: &crate::id::NodeHierarchy,

@@ -329,6 +329,11 @@ impl<'a> PathParser<'a> {
 ///
 /// Each M/m command starts a new subpath (ring). All 14 SVG path commands are
 /// supported including arcs (converted to cubic beziers).
+///
+/// # Panics
+///
+/// Panics if the path tokenizer signals a command but then yields no token
+/// (an internal parser invariant that should not occur for any input).
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {

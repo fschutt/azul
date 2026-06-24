@@ -4387,6 +4387,11 @@ impl DomXml {
     /// let dom = DomXml::mock("<div id='test' />");
     /// dom.assert_eq(Dom::create_div().with_id("test"));
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rendered DOM does not equal `other` (this is a test-only
+    /// assertion helper).
     #[cfg(test)]
     pub fn assert_eq(self, other: StyledDom) {
         let mut body = Dom::create_body();

@@ -746,6 +746,10 @@ static mut ACTIVE_GL_TEXTURES: Option<OrderedMap<DocumentId, GlTextureStorage>> 
 /// for the inserted texture
 ///
 /// This function exists so azul doesn't have to use `lazy_static` as a dependency
+///
+/// # Panics
+///
+/// Panics if the global active-GL-texture table has not been initialized.
 pub fn insert_into_active_gl_textures(
     document_id: DocumentId,
     epoch: Epoch,
@@ -2848,6 +2852,9 @@ impl Texture {
         )
     }
 
+    /// # Panics
+    ///
+    /// Panics if no framebuffer/depthbuffer was allocated (the GL object lists are empty).
     // OpenGL binding: gl::* enum constants and texture dimensions passed as
     // GLint/GLsizei (i32); values are GL-bounded, `as i32` is the idiomatic form.
     #[allow(clippy::cast_possible_wrap)]
@@ -3503,6 +3510,10 @@ impl Drop for VertexBuffer {
 }
 
 impl VertexBuffer {
+    /// # Panics
+    ///
+    /// Panics if the GL driver failed to create the vertex-array/buffer objects
+    /// (the returned id lists are empty).
     // OpenGL binding: buffer sizes / vertex counts passed to the gl API as
     // GLsizeiptr/GLint; values are GL-bounded.
     #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
@@ -3924,6 +3935,10 @@ impl GlShader {
     }
 
     /// Draws vertex buffers, index buffers + uniforms to the texture
+    ///
+    /// # Panics
+    ///
+    /// Panics if no framebuffer/depthbuffer was allocated (the GL object lists are empty).
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn draw(
