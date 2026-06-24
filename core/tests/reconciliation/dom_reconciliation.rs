@@ -31,6 +31,7 @@ fn make_layout(n: usize) -> OrderedMap<NodeId, LogicalRect> {
 /// Flat-DOM wrapper for `reconcile_dom_with_changes`. These tests don't model
 /// parent/sibling pointers, so we pass empty hierarchy slices; the reconciliation
 /// key degrades to `(node_type discriminant + classes)`.
+#[allow(clippy::too_many_arguments)] // test helper threading the full flat-reconcile inputs
 fn reconcile_dom_with_changes_flat(
     old_data: &[NodeData],
     new_data: &[NodeData],

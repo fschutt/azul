@@ -5154,8 +5154,7 @@ fn main() {
     use azul::dom::{{NodeType, TabIndex, SmallAriaInfo}};
     use azul::str::String as AzString;
 
-    pub fn render() -> Dom {{\r\n{}\r\n    }}\r\n}}",
-        app_source
+    pub fn render() -> Dom {{\r\n{app_source}\r\n    }}\r\n}}"
     );
     let source_code = format!(
         "#![windows_subsystem = \"windows\"]\r\n//! Auto-generated UI source \
