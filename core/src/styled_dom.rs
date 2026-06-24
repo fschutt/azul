@@ -1237,7 +1237,8 @@ impl StyledDom {
         let other_root_id = other.root.into_crate_internal().unwrap_or(NodeId::ZERO);
 
         // Use provided index instead of counting children
-        other.cascade_info.as_mut()[other_root_id.index()].index_in_parent = child_index as u32;
+        other.cascade_info.as_mut()[other_root_id.index()].index_in_parent =
+            u32::try_from(child_index).unwrap_or(u32::MAX);
         other.cascade_info.as_mut()[other_root_id.index()].is_last_child = true;
 
         self.cascade_info.append(&mut other.cascade_info);

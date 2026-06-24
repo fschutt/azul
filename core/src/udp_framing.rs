@@ -33,7 +33,7 @@ const MAX_PARTIAL_MESSAGES: usize = 256;
     } else {
         data.len().div_ceil(max_payload)
     };
-    let count_u16 = count.min(u16::MAX as usize) as u16;
+    let count_u16 = u16::try_from(count).unwrap_or(u16::MAX);
     let mut out = Vec::with_capacity(count_u16 as usize);
     for idx in 0..count_u16 {
         let start = idx as usize * max_payload;
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn chunk_reassemble_roundtrip() {
-        let data: Vec<u8> = (0..3000u32).map(|i| (i % 256) as u8).collect();
+        let data: Vec<u8> = (0..3000u32).map(|i| u8::try_from(i % 256).unwrap_or(0)).collect();
         let chunks = chunk_message(7, &data, DEFAULT_CHUNK_PAYLOAD);
         assert_eq!(chunks.len(), 3, "3000 bytes / 1200 = 3 chunks");
 

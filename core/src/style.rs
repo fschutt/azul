@@ -321,7 +321,8 @@ impl<'a> Iterator for CssGroupIterator<'a> {
             .count();
 
         let parent_html_matcher = CascadeInfo {
-            index_in_parent: (element_index_in_parent.saturating_sub(1)) as u32,
+            index_in_parent: u32::try_from(element_index_in_parent.saturating_sub(1))
+                .unwrap_or(u32::MAX),
             // Necessary for :last selectors — find last element sibling
             is_last_child: {
                 let mut is_last_element = true;

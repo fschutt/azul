@@ -1971,6 +1971,9 @@ impl_option!(
 
 impl TabIndex {
     /// Returns the HTML-compatible number of the `tabindex` element.
+    // const fn: TryFrom isn't const, and u32 -> isize is lossless on every
+    // supported (>= 32-bit) target, so the `as` cast cannot actually wrap here.
+    #[allow(clippy::cast_possible_wrap)]
     #[must_use] pub const fn get_index(&self) -> isize {
         use self::TabIndex::{Auto, OverrideInParent, NoKeyboardFocus};
         match self {
@@ -3126,7 +3129,7 @@ impl NodeData {
                     None
                 }, |tab_idx| match tab_idx {
                     TabIndex::Auto => Some(0),
-                    TabIndex::OverrideInParent(n) => Some(n as i32),
+                    TabIndex::OverrideInParent(n) => Some(i32::try_from(n).unwrap_or(i32::MAX)),
                     TabIndex::NoKeyboardFocus => Some(-1),
                 })
     }
