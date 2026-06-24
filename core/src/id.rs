@@ -417,6 +417,15 @@ impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
     }
 }
 
+impl<'a, T> IntoIterator for &NodeDataContainerRef<'a, T> {
+    type Item = &'a T;
+    type IntoIter = Iter<'a, T>;
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.internal.iter()
+    }
+}
+
 impl<'a, T: 'a> NodeDataContainerRef<'a, T> {
     #[inline]
     pub const fn from_slice(data: &'a [T]) -> Self {
@@ -522,7 +531,7 @@ macro_rules! impl_node_iterator {
 
 /// An linear iterator, does not respect the DOM in any way,
 /// it just iterates over the nodes like a Vec
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct LinearIterator {
     arena_len: usize,
     position: usize,

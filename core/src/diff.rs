@@ -225,10 +225,10 @@ pub struct ExtendedDiffResult {
         }
 
         // Check new props against old.
-        let mut seen_types = OrderedMap::default();
+        let mut seen_types = alloc::collections::BTreeSet::new();
         for (prop, conds) in new_node.style.iter_inline_properties() {
             let prop_type = prop.get_type();
-            seen_types.insert(prop_type, ());
+            seen_types.insert(prop_type);
             match old_map.get(&prop_type) {
                 Some(&(old_prop, old_conds))
                     if old_prop == prop
@@ -246,7 +246,7 @@ pub struct ExtendedDiffResult {
 
         // Check for removed properties
         for prop_type in old_map.keys() {
-            if !seen_types.contains_key(prop_type) {
+            if !seen_types.contains(prop_type) {
                 let scope = prop_type.relayout_scope(true);
                 if scope == RelayoutScope::None {
                     has_paint = true;
