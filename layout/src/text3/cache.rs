@@ -898,6 +898,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
 
     /// Get an embedded font by its hash (used for `WebRender` registration)
     /// Returns the `FontRef` if it exists in the `embedded_fonts` cache.
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn get_embedded_font_by_hash(&self, font_hash: u64) -> Option<azul_css::props::basic::FontRef> {
         let embedded = self.embedded_fonts.lock().unwrap();
         embedded.get(&font_hash).cloned()
@@ -905,6 +908,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
 
     /// Get a parsed font by its hash (used for `WebRender` registration)
     /// Returns the parsed font if it exists in the `parsed_fonts` cache.
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn get_font_by_hash(&self, font_hash: u64) -> Option<T> {
         let parsed = self.parsed_fonts.lock().unwrap();
         // Linear search through all cached fonts to find one with matching hash
@@ -918,6 +924,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
 
     /// Register an embedded `FontRef` for later lookup by hash
     /// This is called when using `FontStack::Ref` during shaping
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn register_embedded_font(&self, font_ref: &azul_css::props::basic::FontRef) {
         let hash = font_ref.get_hash();
         let mut embedded = self.embedded_fonts.lock().unwrap();
@@ -930,6 +939,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// No locking is required after this call - the returned `HashMap` is independent.
     ///
     /// NOTE: This should be called AFTER loading all required fonts for a layout pass.
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn get_loaded_fonts(&self) -> LoadedFonts<T> {
         let parsed = self.parsed_fonts.lock().unwrap();
         parsed
@@ -942,6 +954,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
     ///
     /// This is useful for computing which fonts need to be loaded
     /// (diff with required fonts).
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn get_loaded_font_ids(&self) -> HashSet<FontId> {
         let parsed = self.parsed_fonts.lock().unwrap();
         // M12.7: skip hashbrown's RawIterRange on an empty map — its NEON
@@ -960,6 +975,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// Insert a loaded font into the cache
     ///
     /// Returns the old font if one was already present for this `FontId`.
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn insert_font(&self, font_id: FontId, font: T) -> Option<T> {
         let mut parsed = self.parsed_fonts.lock().unwrap();
         parsed.insert(font_id, font)
@@ -969,6 +987,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
     ///
     /// This is more efficient than calling `insert_font` multiple times
     /// because it only acquires the lock once.
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn insert_fonts(&self, fonts: impl IntoIterator<Item = (FontId, T)>) {
         let mut parsed = self.parsed_fonts.lock().unwrap();
         for (font_id, font) in fonts {
@@ -1012,6 +1033,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// Remove a font from the cache
     ///
     /// Returns the removed font if it was present.
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn remove_font(&self, font_id: &FontId) -> Option<T> {
         let mut parsed = self.parsed_fonts.lock().unwrap();
         parsed.remove(font_id)
@@ -5681,6 +5705,9 @@ impl TextShapingCache {
     /// A `FlowLayout` struct containing the positioned items for each fragment that
     /// was filled, and any content that did not fit in the final fragment.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// # Panics
+    ///
+    /// Panics if bidi reordering of the logical items fails (an internal invariant).
     pub fn layout_flow<T: ParsedFontTrait>(
         &mut self,
         content: &[InlineContent],
@@ -5880,6 +5907,9 @@ impl TextShapingCache {
     /// opportunities and tracks the maximum; max-content is the sum of all
     /// advances (as if the flow were laid out on a single infinitely-wide line).
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// # Panics
+    ///
+    /// Panics if bidi reordering of the logical items fails (an internal invariant).
     pub fn measure_intrinsic_widths<T: ParsedFontTrait>(
         &mut self,
         content: &[InlineContent],
@@ -6022,6 +6052,9 @@ impl TextShapingCache {
 // --- Stage 1 Implementation ---
 #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics if the scan cursor advances past the end of `text` (an internal invariant).
 pub fn create_logical_items(
     content: &[InlineContent],
     style_overrides: &[StyleOverride],
@@ -8235,6 +8268,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 // it allows breaking before the first space of a sequence
 // +spec:line-breaking:722f3b - wrapping only at soft wrap opportunities, minimizing overflow
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics if a break unit is unexpectedly empty (an internal invariant).
 pub fn break_one_line<T: ParsedFontTrait>(
     cursor: &mut BreakCursor,
     line_constraints: &LineConstraints,
@@ -8430,6 +8466,9 @@ pub struct HyphenationBreak {
 
 /// A "word" is defined as a sequence of one or more adjacent `ShapedClusters`.
 #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+/// # Panics
+///
+/// Panics if a word's cluster or glyph list is unexpectedly empty (an internal invariant).
 #[must_use] pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
     word_clusters: &[ShapedCluster],
     hyphenator: &Standard,
