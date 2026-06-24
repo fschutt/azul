@@ -376,6 +376,7 @@ impl DisplayList {
 
     /// Compute a damage rect from the difference between old and new text
     /// layout results, starting from a given line index.
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
     pub(crate) fn compute_text_damage_rect(
         old_items: &[PositionedItem],
         new_items: &[PositionedItem],
@@ -878,6 +879,7 @@ impl DisplayListItem {
     // so any bit-level change in a coordinate/color/thickness SHOULD force a redraw.
     // An epsilon comparison would wrongly skip sub-epsilon visual updates.
     #[allow(clippy::float_cmp)]
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
     #[must_use] pub fn is_visually_equal(&self, other: &Self) -> bool {
         if std::mem::discriminant(self) != std::mem::discriminant(other) {
             return false;
@@ -2884,6 +2886,7 @@ StyleVisibility::Collapse) => true,
     /// `PushScrollFrame` / `PopScrollFrame`. `VirtualView` scroll state is managed by
     /// `ScrollManager`, not `WebRender`'s APZ. Instead we emit only a `PushClip`
     /// and later an `VirtualViewPlaceholder` (see `generate_for_stacking_context`).
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
     fn push_node_clips(
         &self,
         builder: &mut DisplayListBuilder,
@@ -6265,6 +6268,7 @@ pub(crate) fn apply_text_overflow_ellipsis(
 /// Note: Circle, ellipse, and polygon shapes are approximated as axis-aligned
 /// bounding boxes. A full implementation would use path-based clipping in the
 /// renderer, but rectangular clips work for the most common use cases.
+#[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
 pub(crate) fn resolve_clip_path(
     clip_path: &azul_css::props::layout::shape::ClipPath,
     node_bounds: LogicalRect,

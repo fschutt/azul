@@ -273,6 +273,7 @@ fn svg_multi_shape_to_lyon_path(polygon: &[SvgSimpleNode]) -> Path {
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[must_use] pub fn raw_line_intersection(p: &SvgLine, q: &SvgLine) -> Option<SvgPoint> {
     let p_min_x = p.start.x.min(p.end.x);
     let p_min_y = p.start.y.min(p.end.y);
@@ -1524,6 +1525,7 @@ pub fn apply_fxaa(texture: &mut Texture) -> Option<()> {
 
 /// Applies FXAA with custom configuration parameters.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 pub fn apply_fxaa_with_config(
     texture: &mut Texture,
     config: azul_core::gl_fxaa::FxaaConfig,
@@ -1750,6 +1752,7 @@ pub fn render_node_clipmask_cpu(
         trans_affine::TransAffine,
     };
 
+    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
     fn agg_translate_node(node: &SvgNode) -> Option<PathStorage> {
         macro_rules! build_path {
             ($path:expr, $p:expr) => {{

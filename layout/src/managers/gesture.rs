@@ -1103,6 +1103,7 @@ impl GestureAndDragManager {
     ///
     /// Returns Some if two touch points are active and distance is changing
     /// significantly. Scale < 1.0 = pinch in, scale > 1.0 = pinch out.
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
     #[must_use] pub fn detect_pinch(&self) -> Option<DetectedPinch> {
         if let Some(NativeGestureEvent::Pinch(p)) = self.native_gesture {
             return Some(p);
@@ -1178,6 +1179,7 @@ impl GestureAndDragManager {
     ///
     /// Returns Some if two touch points are rotating around center.
     /// Positive angle = clockwise, negative = counterclockwise.
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
     #[must_use] pub fn detect_rotation(&self) -> Option<DetectedRotation> {
         const PI: f32 = core::f32::consts::PI;
         if let Some(NativeGestureEvent::Rotation(r)) = self.native_gesture {

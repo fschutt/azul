@@ -501,6 +501,7 @@ impl CompositorState {
 
     /// Handle scroll by shifting pixels and re-rendering the exposed strip.
     #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
     pub fn scroll_layer(
         &mut self,
         scroll_id: LocalScrollId,
@@ -763,6 +764,7 @@ fn compute_exposed_rects(bounds: &LogicalRect, dx: f32, dy: f32) -> Vec<LogicalR
 /// containers paint an opaque background or fully cover their box, so this is a
 /// known, documented limitation rather than a correctness bug for the common case.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 pub fn scroll_shift_region(
     pixmap: &mut AzulPixmap,
     clip_bounds: &LogicalRect,
@@ -863,6 +865,7 @@ pub fn scroll_shift_region(
 /// overwritten (src and dst row SETS overlap, so order matters).
 #[inline]
 #[allow(clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn shift_vertical_1d(
     data: &mut [u8],
     stride_px: i32,
@@ -895,6 +898,7 @@ fn shift_vertical_1d(
 /// semantics handle it directly — no per-row ordering needed.
 #[inline]
 #[allow(clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn shift_horizontal_1d(
     data: &mut [u8],
     stride_px: i32,
@@ -930,6 +934,7 @@ fn shift_horizontal_1d(
 /// the two 1-D passes with half the memory traffic.
 #[inline]
 #[allow(clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn shift_diagonal_2d(
     data: &mut [u8],
     stride_px: i32,
@@ -983,6 +988,7 @@ fn shift_diagonal_2d(
 /// opaque fills (stored at content coords) into viewport space for the coverage
 /// test. A scroll frame over nothing-but-the-clear-color is always eligible (no
 /// backdrop to drag). Returns `true` when there is no such frame (nothing to do).
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 pub fn scroll_fast_path_eligible(
     display_list: &DisplayList,
     scroll_id: LocalScrollId,
@@ -1496,6 +1502,7 @@ fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
 /// Compare a rectangular sub-region of two pixmaps pixel-by-pixel.
 /// Returns the number of pixels that differ by more than `threshold` per channel.
 #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
 #[must_use] pub fn compare_region(
     a: &AzulPixmap,
     b: &AzulPixmap,
@@ -1535,6 +1542,7 @@ mod scroll_shift_tests {
     /// Pixmap where every pixel encodes its own coords: R = x&0xFF, G = y&0xFF.
     /// After a shift, a pixel's (R,G) tells you which source pixel landed there,
     /// so we can assert the move is an exact translation.
+    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
     fn xy_pixmap(w: u32, h: u32) -> AzulPixmap {
         let mut p = AzulPixmap::new(w, h).unwrap();
         let d = p.data_mut();
@@ -1549,6 +1557,7 @@ mod scroll_shift_tests {
         }
         p
     }
+    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
     fn at(p: &AzulPixmap, x: u32, y: u32) -> [u8; 4] {
         let w = p.width();
         let d = p.data();
@@ -1587,6 +1596,7 @@ mod scroll_shift_tests {
     }
 
     #[test]
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
     fn diagonal_pan_two_strips_and_translates() {
         let mut p = xy_pixmap(200, 100);
         // Diagonal scroll down-right by (20, 30): content moves up-left.
@@ -1656,6 +1666,7 @@ mod scroll_shift_tests {
     fn wr(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {
         rect(x, y, w, h).into()
     }
+    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
     fn fill(x: f32, y: f32, w: f32, h: f32, a: u8) -> DisplayListItem {
         DisplayListItem::Rect {
             bounds: wr(x, y, w, h),

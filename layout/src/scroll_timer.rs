@@ -493,6 +493,7 @@ fn friction_from_deceleration(deceleration_rate: f32) -> f32 {
 /// Calculate spring constant from bounce-back duration.
 /// Higher k = faster spring back. Approximate: k ≈ (2π / duration)²
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn spring_constant_from_bounce_duration(duration_ms: u32) -> f32 {
     let duration_s = duration_ms.max(50) as f32 / 1000.0;
     let omega = core::f32::consts::TAU / duration_s;

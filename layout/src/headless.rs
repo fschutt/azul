@@ -249,6 +249,7 @@ fn point_in_rect(point: LogicalPosition, rect: &LogicalRect) -> bool {
 /// ancestor box used is the border box (`used_size`); CSS clips at the padding
 /// edge, but the slightly larger border box is a safe over-inclusion for point
 /// hit-testing and avoids resolving padding/border here.
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn compute_node_clip(
     styled_dom: &StyledDom,
     nodes: &[LayoutNodeHot],

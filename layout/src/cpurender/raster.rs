@@ -218,6 +218,7 @@ fn render_linear_gradient(
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn render_radial_gradient(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -310,6 +311,7 @@ fn render_radial_gradient(
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn render_conic_gradient(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -998,6 +1000,7 @@ const fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
 ///
 /// Push/Pop state commands are always processed (they maintain clip/scroll stacks).
 #[allow(clippy::cast_possible_truncation)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 pub fn render_display_list_damaged(
     display_list: &DisplayList,
     pixmap: &mut AzulPixmap,
@@ -1095,6 +1098,7 @@ pub fn render_display_list_damaged(
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 pub fn render_single_item(
     item: &DisplayListItem,
     pixmap: &mut AzulPixmap,
@@ -2413,6 +2417,7 @@ fn render_border_sides(
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::many_single_char_names, clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn render_image(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,

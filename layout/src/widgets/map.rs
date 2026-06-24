@@ -756,6 +756,7 @@ extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Updat
 /// `dz = log2(current_distance / pinch_anchor)`. The next move resets
 /// the anchor to the current distance so the gesture stays
 /// continuous across many frames.
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     #[cfg(feature = "std")]
     if std::env::var("AZ_MAP_DEBUG").is_ok() {
@@ -970,6 +971,7 @@ fn tile_y_to_lat(y: f64, tile_count: f64) -> f64 {
 /// Web-Mercator ±85.05° limit. The shared, unit-tested core of
 /// `map_on_pointer_move`.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn pan_viewport(
     centre_lat_deg: f64,
     centre_lon_deg: f64,

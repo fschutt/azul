@@ -4224,6 +4224,7 @@ impl BorderInfo {
 }
 
 /// Get border information for a node
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn get_border_info<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,

@@ -1876,6 +1876,7 @@ impl Hash for PathSegment {
 }
 
 impl PartialEq for PathSegment {
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::MoveTo(a), Self::MoveTo(b)) => a == b,

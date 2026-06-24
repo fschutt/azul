@@ -345,6 +345,7 @@ fn check_if_scrollable(
 }
 
 /// Calculate the scroll delta needed to bring target into view within container
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn calculate_scroll_delta(
     target: LogicalRect,
     container: LogicalRect,

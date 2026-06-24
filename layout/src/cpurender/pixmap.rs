@@ -184,6 +184,7 @@ impl AzulPixmap {
 
     /// Fill a rectangular region with a single color (pixel coordinates).
     #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
     pub fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8, a: u8) {
         let pw = self.width as i32;
         let ph = self.height as i32;
