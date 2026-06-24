@@ -242,6 +242,9 @@ impl HeaderFooterConfig {
     }
 
     /// Generate the text content for a margin box given page info.
+    // `&self` is only reached via the recursive Combined arm; it is kept because this is a
+    // public method and converting to an associated fn would break the `x.generate_content(..)` API.
+    #[allow(clippy::only_used_in_recursion)]
     #[must_use] pub fn generate_content(&self, content: &MarginBoxContent, info: PageInfo) -> String {
         match content {
             MarginBoxContent::None => String::new(),

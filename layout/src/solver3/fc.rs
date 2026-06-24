@@ -6727,7 +6727,6 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     dom_id,
                     span_style,
                     content,
-                    child_map,
                     &children,
                     constraints,
                 )?;
@@ -7461,7 +7460,6 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 dom_id,
                 span_style,
                 content,
-                child_map,
                 &children,
                 constraints,
             )?;
@@ -7498,7 +7496,6 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
     span_dom_id: NodeId,
     span_style: StyleProperties,
     content: &mut Vec<InlineContent>,
-    child_map: &mut HashMap<ContentIndex, usize>,
     parent_children: &[usize], // Layout tree children of parent IFC
     constraints: &LayoutConstraints,
 ) -> Result<()> {
@@ -7625,7 +7622,6 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     child_dom_id,
                     child_style,
                     content,
-                    child_map,
                     parent_children,
                     constraints,
                 )?;
@@ -7744,7 +7740,6 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     child_dom_id,
                     child_style,
                     content,
-                    child_map,
                     parent_children,
                     constraints,
                 )?;

@@ -5530,6 +5530,10 @@ impl LayoutWindow {
     /// Extract plain text string from inline content
     ///
     /// This is a helper for building the changeset's `resulting_text` field.
+    // `&self` is only reached via the recursive Ruby arm; it is kept because this is a public
+    // method called as `lw.extract_text_from_inline_content(..)` across dll and layout, and
+    // converting to an associated fn would break that API at every call site.
+    #[allow(clippy::only_used_in_recursion)]
     pub fn extract_text_from_inline_content(&self, content: &[InlineContent]) -> String {
         let mut result = String::new();
 

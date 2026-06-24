@@ -1801,15 +1801,11 @@ fn process_inflow_child<T: ParsedFontTrait>(
         if is_flex_or_grid {
             // For Flex/Grid: Taffy already set used_size. Only recurse for grandchildren.
             position_flex_child_descendants(
-                ctx,
                 tree,
-                text_cache,
                 child_index,
                 child_content_box_pos,
                 child_inner_size,
                 calculated_positions,
-                reflow_needed_for_scrollbars,
-                float_cache,
             )?;
         } else {
             // For Block/Inline/Table: The formatting context already laid out children.
@@ -2358,16 +2354,12 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
 /// `used_size` and `relative_position` set, but their GRANDCHILDREN don't have positions
 /// in `calculated_positions` yet. This function traverses down the tree and positions
 /// all descendants properly.
-fn position_flex_child_descendants<T: ParsedFontTrait>(
-    ctx: &mut LayoutContext<'_, T>,
+fn position_flex_child_descendants(
     tree: &mut LayoutTree,
-    text_cache: &mut TextLayoutCache,
     node_index: usize,
     content_box_pos: LogicalPosition,
     available_size: LogicalSize,
     calculated_positions: &mut super::PositionVec,
-    reflow_needed_for_scrollbars: &mut bool,
-    float_cache: &mut HashMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
     let children: Vec<usize> = tree.children(node_index).to_vec();
 
@@ -2405,15 +2397,11 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
 
         // Recurse
         position_flex_child_descendants(
-            ctx,
             tree,
-            text_cache,
             child_index,
             child_content_box,
             child_inner_size,
             calculated_positions,
-            reflow_needed_for_scrollbars,
-            float_cache,
         )?;
     }
 
