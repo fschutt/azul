@@ -3408,7 +3408,7 @@ impl CssPropertyCache {
                 self.apply_cascade_properties(
                     &mut ctx,
                     node_id,
-                    &parent_computed,
+                    parent_computed.as_ref(),
                     node_data,
                     node_index,
                 );
@@ -3446,7 +3446,7 @@ impl CssPropertyCache {
         &self,
         ctx: &mut InheritanceContext,
         node_id: NodeId,
-        parent_computed: &Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
+        parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
         node_data: &[NodeData],
         node_index: usize,
     ) {
@@ -3513,7 +3513,7 @@ impl CssPropertyCache {
         &self,
         ctx: &mut InheritanceContext,
         prop: &CssProperty,
-        parent_computed: &Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
+        parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
     ) {
         let prop_type = prop.get_type();
 
@@ -3537,10 +3537,9 @@ impl CssPropertyCache {
     fn resolve_font_size_property(
         &self,
         prop: &CssProperty,
-        parent_computed: &Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
+        parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
     ) -> CssProperty {
         let parent_font_size = parent_computed
-            .as_ref()
             .and_then(|p| {
                 p.binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k)
                     .ok()

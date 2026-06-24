@@ -84,7 +84,7 @@ impl CascadeInfoVec {
         html_node_tree[node_id],
         &node_data[node_id],
         node_id,
-        &expected_path_ending,
+        expected_path_ending.as_ref(),
         is_last_content_group,
     ) {
         return false;
@@ -106,7 +106,7 @@ impl CascadeInfoVec {
                 match parent {
                     Some(p) if selector_group_matches(
                         content_group, html_node_tree[p], &node_data[p], p,
-                        &expected_path_ending, is_last,
+                        expected_path_ending.as_ref(), is_last,
                     ) => { current_node = p; }
                     _ => return false,
                 }
@@ -118,7 +118,7 @@ impl CascadeInfoVec {
                 while let Some(anc) = ancestor {
                     if selector_group_matches(
                         content_group, html_node_tree[anc], &node_data[anc], anc,
-                        &expected_path_ending, is_last,
+                        expected_path_ending.as_ref(), is_last,
                     ) {
                         current_node = anc;
                         found = true;
@@ -136,7 +136,7 @@ impl CascadeInfoVec {
                 match sibling {
                     Some(s) if selector_group_matches(
                         content_group, html_node_tree[s], &node_data[s], s,
-                        &expected_path_ending, is_last,
+                        expected_path_ending.as_ref(), is_last,
                     ) => { current_node = s; }
                     _ => return false,
                 }
@@ -148,7 +148,7 @@ impl CascadeInfoVec {
                 while let Some(sib) = sibling {
                     if selector_group_matches(
                         content_group, html_node_tree[sib], &node_data[sib], sib,
-                        &expected_path_ending, is_last,
+                        expected_path_ending.as_ref(), is_last,
                     ) {
                         current_node = sib;
                         found = true;
@@ -426,7 +426,7 @@ fn selector_group_matches(
     html_node: CascadeInfo,
     node_data: &NodeData,
     node_id: NodeId,
-    expected_path_ending: &Option<CssPathPseudoSelector>,
+    expected_path_ending: Option<&CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
     selectors.iter().all(|selector| {
@@ -447,7 +447,7 @@ fn match_single_selector(
     html_node: CascadeInfo,
     node_data: &NodeData,
     node_id: NodeId,
-    expected_path_ending: &Option<CssPathPseudoSelector>,
+    expected_path_ending: Option<&CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
     use self::CssPathSelector::{Global, Root, Type, Class, Id, PseudoSelector, Attribute, DirectChildren, Children, AdjacentSibling, GeneralSibling};
@@ -524,7 +524,7 @@ fn match_attribute_selector(sel: &CssAttributeSelector, node_data: &NodeData) ->
 fn match_pseudo_selector(
     pseudo: &CssPathPseudoSelector,
     html_node: CascadeInfo,
-    expected_path_ending: &Option<CssPathPseudoSelector>,
+    expected_path_ending: Option<&CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
     match pseudo {
@@ -613,8 +613,8 @@ fn match_nth_child(html_node: CascadeInfo, pattern: &CssNthChildSelector) -> boo
 /// These only apply if they appear in the last content group of the CSS path.
 fn match_interactive_pseudo(
     pseudo: &CssPathPseudoSelector,
-    expected_path_ending: &Option<CssPathPseudoSelector>,
+    expected_path_ending: Option<&CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
-    is_last_content_group && expected_path_ending.as_ref() == Some(pseudo)
+    is_last_content_group && expected_path_ending == Some(pseudo)
 }
