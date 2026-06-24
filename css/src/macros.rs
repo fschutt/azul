@@ -73,6 +73,24 @@ macro_rules! impl_vec {
         unsafe impl Send for $slice_name {}
         unsafe impl Sync for $slice_name {}
 
+        impl<'a> IntoIterator for &'a $slice_name {
+            type Item = &'a $struct_type;
+            type IntoIter = core::slice::Iter<'a, $struct_type>;
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                self.iter()
+            }
+        }
+
+        impl<'a> IntoIterator for &'a $struct_name {
+            type Item = &'a $struct_type;
+            type IntoIter = core::slice::Iter<'a, $struct_type>;
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                self.iter()
+            }
+        }
+
         #[repr(C)]
         pub struct $struct_name {
             ptr: *const $struct_type,
@@ -428,6 +446,15 @@ macro_rules! impl_vec_as_hashmap {
 #[macro_export]
 macro_rules! impl_vec_mut {
     ($struct_type:ident, $struct_name:ident) => {
+        impl<'a> IntoIterator for &'a mut $struct_name {
+            type Item = &'a mut $struct_type;
+            type IntoIter = core::slice::IterMut<'a, $struct_type>;
+            #[inline]
+            fn into_iter(self) -> Self::IntoIter {
+                self.iter_mut()
+            }
+        }
+
         impl AsMut<[$struct_type]> for $struct_name {
             fn as_mut(&mut self) -> &mut [$struct_type] {
                 unsafe { core::slice::from_raw_parts_mut(self.ptr.cast_mut(), self.len) }
