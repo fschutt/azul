@@ -880,6 +880,7 @@ impl DisplayListItem {
     // An epsilon comparison would wrongly skip sub-epsilon visual updates.
     #[allow(clippy::float_cmp)]
     #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     #[must_use] pub fn is_visually_equal(&self, other: &Self) -> bool {
         if std::mem::discriminant(self) != std::mem::discriminant(other) {
             return false;
@@ -1061,6 +1062,7 @@ impl DisplayListItem {
 
     /// Return the bounding rect of this item, or None for push/pop commands
     /// that don't have their own visual bounds.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     #[must_use] pub fn bounds(&self) -> Option<LogicalRect> {
         match self {
             Self::Rect { bounds, .. }
@@ -1901,6 +1903,7 @@ StyleVisibility::Collapse) => true,
 
     /// Gets the cursor type for a text node from its CSS properties.
     /// Defaults to Text (I-beam) cursor if no explicit cursor is set.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     fn get_cursor_type_for_text_node(&self, node_id: NodeId) -> CursorType {
         use azul_css::props::style::effects::StyleCursor;
         
@@ -4712,6 +4715,7 @@ fn get_display_item_bounds(item: &DisplayListItem) -> Option<WindowLogicalRect> 
 
 /// Clip a display list item to page bounds and offset to page-relative coordinates.
 /// Returns None if the item is completely outside the page bounds.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn clip_and_offset_display_item(
     item: &DisplayListItem,
     page_top: f32,

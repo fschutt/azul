@@ -41,6 +41,7 @@ const CSS_PX_PER_INCH: f32 = 96.0;
 
 /// Convert `PixelValue` to pixels, only for absolute units (no %, and em/rem use fallback)
 /// Used where proper resolution context is not available (grid tracks, etc.)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn pixel_value_to_pixels_fallback(pv: &PixelValue) -> Option<f32> {
     match pv.metric {
         SizeMetric::Px => Some(pv.number.get()),
@@ -171,6 +172,7 @@ fn layout_display_to_taffy(val: LayoutDisplayValue) -> Display {
 }
 
 // to determine their CB; Taffy's Position::Absolute handles this for both flex and grid
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn layout_position_to_taffy(val: LayoutPositionValue) -> Position {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutPosition::Absolute => Position::Absolute,
@@ -524,6 +526,7 @@ fn multi_value_to_lp(mv: MultiValue<PixelValue>) -> LengthPercentage {
 /// Taffy only has Visible, Clip, Hidden, Scroll (no Auto).
 /// CSS `auto` behaves like `scroll` from a layout perspective —
 /// it constrains the container and enables scrolling.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 const fn azul_overflow_to_taffy(ov: MultiValue<azul_css::props::layout::LayoutOverflow>) -> taffy::Overflow {
     use azul_css::props::layout::LayoutOverflow;
     match ov {
@@ -1194,6 +1197,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// ONLY if the item's cross-size is 'auto' AND the item has no intrinsic cross-size.
     ///
     /// Returns (`suppress_width`, `suppress_height`) booleans.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     fn should_suppress_cross_intrinsic(&self, node_idx: usize, style: &Style) -> (bool, bool) {
         let Some(node) = self.tree.get(node_idx) else {
             return (false, false);
@@ -1581,6 +1585,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
 impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     /// Compute layout for non-flex/grid nodes by delegating to `layout_formatting_context`.
     /// This handles Block, Inline, Table, `InlineBlock` formatting contexts recursively.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     fn compute_non_flex_layout(&mut self, node_idx: usize, inputs: LayoutInput) -> LayoutOutput {
         // Taffy's known_dimensions are BORDER-BOX sizes (the child's outer size
         // as determined by the parent flex/grid algorithm, e.g. via stretch alignment).
@@ -2006,6 +2011,7 @@ impl<T: ParsedFontTrait> LayoutGridContainer for TaffyBridge<'_, '_, T> {
 
 // --- Conversion Functions ---
 
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn from_layout_width(
     val: LayoutWidth,
     calc_storage: &std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
@@ -2028,6 +2034,7 @@ fn from_layout_width(
     }
 }
 
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn from_layout_height(
     val: LayoutHeight,
     calc_storage: &std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
@@ -2068,6 +2075,7 @@ fn store_calc_and_make_dimension(
     Dimension::calc(ptr.cast::<()>())
 }
 
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 const fn from_layout_position(val: LayoutPosition) -> Position {
     match val {
         LayoutPosition::Static => Position::Relative, // Taffy treats Static as Relative

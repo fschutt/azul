@@ -220,6 +220,7 @@ fn render_linear_gradient(
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn render_radial_gradient(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -1101,6 +1102,7 @@ pub fn render_display_list_damaged(
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 pub fn render_single_item(
     item: &DisplayListItem,
     pixmap: &mut AzulPixmap,
@@ -2664,6 +2666,7 @@ pub struct ComponentPreviewResult {
 }
 
 /// Compute the tight bounding box of all display list items.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
     let mut min_x = f32::MAX;
     let mut min_y = f32::MAX;

@@ -360,6 +360,7 @@ impl CachedInlineLayout {
     const LAYOUT_WIDTH_EPSILON: f32 = 0.1;
 
     /// Checks if the width constraint matches.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     fn width_constraint_matches(&self, new_width: AvailableSpace) -> bool {
         match (self.available_width, new_width) {
             // Definite widths must match within a small epsilon
@@ -2845,6 +2846,7 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
 // +spec:display-property:80f43f - inner display type defines formatting context for non-replaced elements
 // +spec:display-property:46e71c - Maps outer display (block/inline) and inner display (flow/flow-root/table/flex/grid) to FormattingContext
 // +spec:display-property:aa582d - maps display types to formatting contexts (inline-level, block-level, atomic inline, block container)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn determine_formatting_context_for_display(
     styled_dom: &StyledDom,
     node_id: NodeId,

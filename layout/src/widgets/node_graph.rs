@@ -3194,6 +3194,7 @@ extern "C" fn nodegraph_delete_node(mut refany: RefAny, mut info: CallbackInfo) 
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::CursorPosition;
 

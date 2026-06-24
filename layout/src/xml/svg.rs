@@ -1753,6 +1753,7 @@ pub fn render_node_clipmask_cpu(
     };
 
     #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     fn agg_translate_node(node: &SvgNode) -> Option<PathStorage> {
         macro_rules! build_path {
             ($path:expr, $p:expr) => {{

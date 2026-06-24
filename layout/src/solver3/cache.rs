@@ -512,6 +512,7 @@ impl ReconciliationResult {
 /// and calling the appropriate repositioning algorithm. For complex layout modes
 /// like Flexbox or Grid, this optimization is skipped, as a full relayout is
 /// often required to correctly recalculate spacing and sizing for all siblings.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 pub fn reposition_clean_subtrees(
     styled_dom: &StyledDom,
     tree: &LayoutTree,
@@ -2420,6 +2421,7 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
 }
 
 /// Checks if the given CSS height value should use content-based sizing
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn should_use_content_height(css_height: &MultiValue<LayoutHeight>) -> bool {
     match css_height {
         MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {

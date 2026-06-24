@@ -1161,6 +1161,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
 
 /// Helper to process layout tree children for inline content collection
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn process_layout_children<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -1321,6 +1322,7 @@ fn auto_block_inline_size(cb: &LogicalSize, bp: &BoxProps) -> f32 {
     aw.max(0.0)
 }
 
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 pub fn calculate_used_size_for_node(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,

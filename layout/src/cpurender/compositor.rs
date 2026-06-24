@@ -625,6 +625,7 @@ enum MatchKind {
 }
 
 /// Find the matching Pop for a given Push at index `start`.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn find_matching_pop(items: &[DisplayListItem], start: usize, kind: MatchKind) -> usize {
     let mut depth = 1u32;
     for i in (start + 1)..items.len() {
@@ -989,6 +990,7 @@ fn shift_diagonal_2d(
 /// test. A scroll frame over nothing-but-the-clear-color is always eligible (no
 /// backdrop to drag). Returns `true` when there is no such frame (nothing to do).
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 pub fn scroll_fast_path_eligible(
     display_list: &DisplayList,
     scroll_id: LocalScrollId,

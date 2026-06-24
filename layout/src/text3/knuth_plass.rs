@@ -271,6 +271,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 }
 
 /// Uses dynamic programming to find the optimal set of line breaks.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstraints) -> Vec<usize> {
     // For Knuth-Plass, we need a definite line width.
     //
@@ -427,6 +428,7 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
 /// Takes the optimal break points and performs the final positioning.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn position_lines_from_breaks(
     nodes: &[LayoutNode],
     breaks: &[usize],

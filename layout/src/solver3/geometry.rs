@@ -146,6 +146,7 @@ impl UnresolvedMargin {
     /// - `Auto` returns 0.0 (actual auto margin calculation happens in layout)
     /// - `Zero` returns 0.0
     /// - `Length` is resolved using the resolution context
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     #[must_use] pub fn resolve(&self, ctx: &ResolutionContext) -> f32 {
         match self {
             Self::Zero => 0.0,

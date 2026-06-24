@@ -408,6 +408,7 @@ const FALLBACK_SCALE: f32 = 0.01;
 ///
 /// This is designed to be stable and explicit - we control exactly which features
 /// are enabled rather than relying on allsorts' defaults which may change.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn build_feature_mask_for_script(script: Script) -> FeatureMask {
     use Script::{Arabic, Devanagari, Bengali, Gujarati, Gurmukhi, Kannada, Malayalam, Oriya, Tamil, Telugu, Myanmar, Khmer, Thai, Hebrew, Hangul, Ethiopic, Latin, Greek, Cyrillic, Georgian, Hiragana, Katakana, Mandarin, Sinhala};
 
@@ -515,6 +516,7 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
 }
 
 /// Maps the layout engine's `Script` enum to an OpenType script tag `u32`.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 const fn to_opentype_script_tag(script: Script) -> u32 {
     use Script::{Arabic, Bengali, Cyrillic, Devanagari, Ethiopic, Georgian, Greek, Gujarati, Gurmukhi, Hangul, Hebrew, Hiragana, Kannada, Katakana, Khmer, Latin, Malayalam, Mandarin, Myanmar, Oriya, Sinhala, Tamil, Telugu, Thai};
     // Tags from https://docs.microsoft.com/en-us/typography/opentype/spec/scripttags
@@ -625,6 +627,7 @@ fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>
 
 /// Maps the `hyphenation::Language` enum to an OpenType language tag `u32`.
 #[cfg(feature = "text_layout_hyphenation")]
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
     use hyphenation::Language::{Afrikaans, Albanian, Armenian, Assamese, Basque, Belarusian, Bengali, Bulgarian, Catalan, Chinese, Coptic, Croatian, Czech, Danish, Dutch, EnglishGB, EnglishUS, Esperanto, Estonian, Ethiopic, Finnish, FinnishScholastic, French, Friulan, Galician, Georgian, German1901, German1996, GermanSwiss, GreekAncient, GreekMono, GreekPoly, Gujarati, Hindi, Hungarian, Icelandic, Indonesian, Interlingua, Irish, Italian, Kannada, Kurmanji, Latin, LatinClassic, LatinLiturgical, Latvian, Lithuanian, Macedonian, Malayalam, Marathi, Mongolian, NorwegianBokmal, NorwegianNynorsk, Occitan, Oriya, Pali, Panjabi, Piedmontese, Polish, Portuguese, Romanian, Romansh, Russian, Sanskrit, SerbianCyrillic, SerbocroatianCyrillic, SerbocroatianLatin, SlavonicChurch, Slovak, Slovenian, Spanish, Swedish, Tamil, Telugu, Thai, Turkish, Turkmen, Ukrainian, Uppersorbian, Welsh};
     // A complete list of language tags can be found at:

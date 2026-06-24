@@ -1370,6 +1370,7 @@ get_css_property!(
 // Hand-rolled fast path: 99% of nodes don't set scrollbar-gutter, and the
 // default is `auto`. The compact cache stores the enum in 2 bits of
 // tier2_cold.hot_flags, so we can return the answer without a cascade walk.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[must_use] pub fn get_scrollbar_gutter_property(
     styled_dom: &StyledDom,
     node_id: NodeId,
@@ -1784,6 +1785,7 @@ get_css_property!(
 /// Implementation: When requesting the background of an `<html>` node, we first check if it
 /// has a transparent background with no image. If so, we look for a `<body>` child and use
 /// its background instead.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[must_use] pub fn get_background_color(
     styled_dom: &StyledDom,
     node_id: NodeId,
@@ -2478,6 +2480,7 @@ get_css_property!(
 /// When an element is floated, absolutely positioned, or is the root element,
 /// its computed display value may be "blockified" per the table in CSS Display 3 §2.7.
 /// This function returns the blockified display value without mutating any state.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[must_use] pub const fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
     match raw_display {
         // Inline-level display types become their block-level equivalents

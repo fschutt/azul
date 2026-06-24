@@ -186,6 +186,7 @@ const fn translate_cursor_type(cursor_type: azul_core::hit_test::CursorType) -> 
 }
 
 /// Translate CSS cursor value to `MouseCursorType`
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 const fn translate_cursor(cursor: StyleCursor) -> MouseCursorType {
     use azul_css::props::style::effects::StyleCursor;
 

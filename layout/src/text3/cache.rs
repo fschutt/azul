@@ -229,6 +229,7 @@ impl AvailableSpace {
     /// For intrinsic sizing, we use a large value to let text lay out fully,
     /// then measure the result. The distinction between min/max-content is handled
     /// by the line breaking algorithm, not by constraining the available width.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     #[must_use] pub fn to_f32_for_layout(self) -> f32 {
         match self {
             Self::Definite(v) => v,
@@ -1355,6 +1356,7 @@ pub struct LineConstraints {
 
 impl WritingMode {
     #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     const fn get_direction(&self) -> Option<BidiDirection> {
         match self {
             // determined by text content
@@ -1841,6 +1843,7 @@ pub enum PathSegment {
 // PathSegment
 impl Hash for PathSegment {
     #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Hash the enum variant's discriminant first to distinguish them
         discriminant(self).hash(state);
@@ -1879,6 +1882,7 @@ impl Hash for PathSegment {
 
 impl PartialEq for PathSegment {
     #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::MoveTo(a), Self::MoveTo(b)) => a == b,
@@ -3918,6 +3922,7 @@ impl ShapedItem {
     /// The origin of the returned `Rect` is `(0,0)`, representing the top-left corner
     /// of the item's layout space before final positioning. The size represents the
     /// item's total advance (width in horizontal mode) and its line height (ascent + descent).
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     #[must_use] pub fn bounds(&self) -> Rect {
         match self {
             Self::Cluster(cluster) => {
@@ -5119,6 +5124,7 @@ impl UnifiedLayout {
     }
 }
 
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn get_baseline_for_item(item: &ShapedItem) -> Option<f32> {
     match item {
         ShapedItem::CombinedBlock {
@@ -6312,6 +6318,7 @@ pub fn create_logical_items(
 // +spec:writing-modes:330b8f - text ordered according to Unicode bidi algorithm after white-space processing
 // +spec:writing-modes:7a9e7d - bidi control translation: text passed to unicode_bidi for reordering
 // +spec:writing-modes:8e7281 - unicode-bidi property: bidi control codes inserted via BidiInfo
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 pub fn reorder_logical_items(
     logical_items: &[LogicalItem],
     base_direction: BidiDirection,
@@ -6745,6 +6752,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 pub fn shape_visual_items<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
@@ -7557,6 +7565,7 @@ const fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
 
 /// Approximate version of `get_item_vertical_metrics` for use without constraints (e.g. `bounds()`).
 /// Uses 80/20 ascent/descent ratio as fallback for empty-glyph strut case.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[must_use] pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
     // For non-empty clusters, delegate to the font-metrics-based calculation
     if let ShapedItem::Cluster(c) = item {
@@ -8645,6 +8654,7 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 // +spec:text-alignment-spacing:c8a926 - order of operations: shaping → letter/word-spacing → justification → alignment
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 pub fn position_one_line<T: ParsedFontTrait>(
     line_items: Vec<ShapedItem>,
     line_constraints: &LineConstraints,
@@ -9546,6 +9556,7 @@ pub fn is_word_separator(item: &ShapedItem) -> bool {
 /// Punctuation and fixed-width spaces (U+3000, U+2000 through U+200A) are NOT
 /// word-separator characters even though they may visually separate words.
 // +spec:text-alignment-spacing:3e0655 - word-separator characters for word-spacing
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 const fn is_word_separator_char(c: char) -> bool {
     match c {
         // Standard ASCII space
@@ -9607,6 +9618,7 @@ fn can_justify_after(item: &ShapedItem) -> bool {
 // +spec:font-metrics:b8eb97 - Script group classification for justification/letter-spacing behavior
 /// Classifies a character for layout purposes (e.g., justification behavior).
 /// Copied from `mod.rs`.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 const fn classify_character(codepoint: u32) -> CharacterClass {
     match codepoint {
         0x0020 | 0x00A0 | 0x3000 => CharacterClass::Space,
@@ -9646,6 +9658,7 @@ const fn classify_character(codepoint: u32) -> CharacterClass {
 
 /// Calculates the available horizontal segments for a line at a given vertical position,
 /// considering both shape boundaries and exclusions.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn get_line_constraints(
     line_y: f32,
     line_height: f32,
@@ -10045,6 +10058,7 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
 // - normal: allows breaks before small kana (CJ); allows CJK hyphen breaks for CJK writing systems
 // - loose: additionally allows breaks before hyphens U+2010/U+2013 after ID-class chars
 // - anywhere: allows soft wrap around every typographic character unit
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 const fn is_cjk_break_allowed_by_strictness(
     ch: char,
     _prev_ch: Option<char>,

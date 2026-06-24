@@ -186,6 +186,7 @@ impl EventProvider for TextInputManager {
     /// If there's a pending changeset, returns an Input event for the affected node.
     /// The event data includes the old text and inserted text so callbacks can
     /// query the changeset.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
         let mut events = Vec::new();
 

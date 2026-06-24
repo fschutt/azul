@@ -1965,6 +1965,7 @@ impl LayoutWindow {
     /// and collects the deterministic `FontKey` derived from the font hash.
     /// Callers can diff the result against `renderer_resources.currently_registered_fonts`
     /// to find fonts that are no longer used.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     pub fn scan_used_fonts(&self) -> BTreeSet<FontKey> {
         use crate::solver3::display_list::DisplayListItem;
 
@@ -6510,6 +6511,7 @@ impl LayoutWindow {
     /// for re-layout. The caller MUST use this return value to trigger layout.
     #[must_use = "Returned nodes must be marked dirty for re-layout"]
     #[cfg(feature = "a11y")]
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     pub fn edit_text_node(
         &mut self,
         dom_id: DomId,

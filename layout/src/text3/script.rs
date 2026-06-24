@@ -289,6 +289,7 @@ fn detect_greek_language(text: &str) -> Language {
     Language::GreekMono
 }
 
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn detect_latin_language(text: &str) -> Language {
     // Flags for languages checked near the end of the original if-else chain.
     let mut has_french_c = false;
@@ -348,6 +349,7 @@ fn detect_latin_language(text: &str) -> Language {
     Language::EnglishUS
 }
 
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[must_use] pub fn script_to_language(script: Script, text: &str) -> Language {
     match script {
         Script::Ethiopic => Language::Ethiopic,
