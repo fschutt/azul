@@ -465,8 +465,8 @@ impl SvgMultiPolygon {
             return SvgRect::default();
         };
 
-        for ring in self.rings.iter() {
-            for item in ring.items.iter() {
+        for ring in &self.rings {
+            for item in &ring.items {
                 first_bounds.union_with(&item.get_bounds());
             }
         }
@@ -589,7 +589,7 @@ impl SvgNode {
     #[must_use] pub fn is_closed(&self) -> bool {
         match self {
             Self::MultiPolygonCollection(a) => {
-                for mp in a.iter() {
+                for mp in a {
                     for p in mp.rings.as_ref() {
                         if !p.is_closed() {
                             return false;

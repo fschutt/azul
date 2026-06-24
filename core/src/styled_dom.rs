@@ -1144,7 +1144,7 @@ impl StyledDom {
                 if !cbs.is_empty() || has_dataset {
                     datasets.push(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))));
                 }
-                for cb in cbs.iter() {
+                for cb in cbs {
                     if let EventFilter::Window(_) = cb.event {
                         win_cbs.push(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))));
                         break;
@@ -1289,20 +1289,20 @@ impl StyledDom {
 
         // Tag IDs are globally unique (AtomicUsize counter) and never collide,
         // so we only shift node_id (which changes when DOMs are merged).
-        for tag_id_node_id in other.tag_ids_to_node_ids.iter_mut() {
+        for tag_id_node_id in &mut other.tag_ids_to_node_ids {
             tag_id_node_id.node_id.inner += self_len;
         }
 
         self.tag_ids_to_node_ids
             .append(&mut other.tag_ids_to_node_ids);
 
-        for nid in other.nodes_with_window_callbacks.iter_mut() {
+        for nid in &mut other.nodes_with_window_callbacks {
             nid.inner += self_len;
         }
         self.nodes_with_window_callbacks
             .append(&mut other.nodes_with_window_callbacks);
 
-        for nid in other.nodes_with_datasets.iter_mut() {
+        for nid in &mut other.nodes_with_datasets {
             nid.inner += self_len;
         }
         self.nodes_with_datasets
@@ -1311,7 +1311,7 @@ impl StyledDom {
         // edge case: if the other StyledDom consists of only one node
         // then it is not a parent itself
         if other_len != 1 {
-            for other_non_leaf_node in other.non_leaf_nodes.iter_mut() {
+            for other_non_leaf_node in &mut other.non_leaf_nodes {
                 other_non_leaf_node.node_id.inner += self_len;
                 other_non_leaf_node.depth += 1;
             }
@@ -2165,11 +2165,11 @@ fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
 /// This means outer CSS has higher cascade priority when applied in order.
 fn collect_css_from_dom(dom: &Dom, out: &mut Vec<Css>) {
     // First, recurse into children (inner CSS = lower priority)
-    for child in dom.children.iter() {
+    for child in &dom.children {
         collect_css_from_dom(child, out);
     }
     // Then, add this node's CSS objects (outer CSS = higher priority)
-    for css in dom.css.iter() {
+    for css in &dom.css {
         out.push(css.clone());
     }
 }

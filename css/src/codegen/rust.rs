@@ -64,7 +64,7 @@ impl CodegenBackend for RustBackend {
     output.push_str("const CSS: Css = Css {\r\n");
     output.push_str("\trules: [\r\n");
 
-    for block in css.rules.iter() {
+    for block in &css.rules {
         output.push_str("\t\tCssRuleBlock {\r\n");
         let _ = write!(output,
             "\t\t\tpath: {},\r\n",
@@ -76,7 +76,7 @@ impl CodegenBackend for RustBackend {
         );
 
         output.push_str("\t\t\tdeclarations: [\r\n");
-        for declaration in block.declarations.iter() {
+        for declaration in &block.declarations {
             let _ = write!(output,
                 "\t\t\t\t{},\r\n",
                 print_declaration(declaration, 4)

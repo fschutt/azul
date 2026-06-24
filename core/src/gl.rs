@@ -3252,7 +3252,7 @@ impl VertexLayout {
         let stride_between_vertices: usize =
             self.fields.iter().map(VertexAttribute::get_stride).sum();
 
-        for vertex_attribute in self.fields.iter() {
+        for vertex_attribute in &self.fields {
             let attribute_location = vertex_attribute
                 .layout_location
                 .as_option()
@@ -3277,7 +3277,7 @@ impl VertexLayout {
 
     /// Unsets the vertex buffer description
     pub fn unbind(&self, gl_context: &Rc<GenericGlContext>, program_id: GLuint) {
-        for vertex_attribute in self.fields.iter() {
+        for vertex_attribute in &self.fields {
             let attribute_location = vertex_attribute
                 .layout_location
                 .as_option()

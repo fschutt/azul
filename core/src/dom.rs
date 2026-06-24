@@ -5993,7 +5993,7 @@ impl fmt::Debug for Dom {
                 d.estimated_total_children
             )?;
             write!(f, "\tchildren: [\r\n")?;
-            for c in d.children.iter() {
+            for c in &d.children {
                 print_dom(c, f)?;
             }
             write!(f, "\t]\r\n")?;

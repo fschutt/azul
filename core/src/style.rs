@@ -508,7 +508,7 @@ fn match_attribute_selector(sel: &CssAttributeSelector, node_data: &NodeData) ->
         }
     };
 
-    for attr in node_data.attributes().iter() {
+    for attr in node_data.attributes() {
         if attr.name() != name {
             continue;
         }

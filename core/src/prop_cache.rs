@@ -1120,7 +1120,7 @@ impl CssPropertyCache {
             self.global_css_props.clear();
             for rule in &global_only_rules {
                 if crate::style::rule_ends_with(&rule.path, None) {
-                    for d in rule.declarations.iter() {
+                    for d in &rule.declarations {
                         if let CssDeclaration::Static(s) = d {
                             self.global_css_props.push(s.clone());
                         }
@@ -1213,7 +1213,7 @@ impl CssPropertyCache {
 
         // Inheritance: Inherit all values of the parent to the children, but
         // only if the property is inheritable and isn't yet set
-        for ParentWithNodeDepth { depth: _, node_id } in non_leaf_nodes.iter() {
+        for ParentWithNodeDepth { depth: _, node_id } in non_leaf_nodes {
             let Some(parent_id) = node_id.into_crate_internal() else {
                 continue;
             };

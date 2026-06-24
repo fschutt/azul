@@ -187,7 +187,7 @@ impl VecContents {
     pub fn insert_from_css_property(&mut self, prop: &CssProperty) {
         match prop {
             CssProperty::FontFamily(CssPropertyValue::Exact(v)) => {
-                for family in v.iter() {
+                for family in v {
                     match family {
                         StyleFontFamily::System(s) => {
                             // if the font-family is surrounded by quotes, strip them ("Arial" ->
@@ -231,7 +231,7 @@ impl VecContents {
                     .insert(v.get_hash(), v.clone());
             }
             CssProperty::BackgroundContent(CssPropertyValue::Exact(ref v)) => {
-                for background in v.iter() {
+                for background in v {
                     match background {
                         StyleBackgroundContent::Image(id) => {
                             self.strings.insert(id.get_hash(), id.clone());
