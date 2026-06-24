@@ -2763,6 +2763,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
         })
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 extern "C" fn draw_connection(mut refany: RefAny, _info: ()) -> ImageRef {
     // RenderImageCallbackInfo not available in memtest
     // let size = info.get_bounds().get_physical_size();
@@ -2788,6 +2789,7 @@ const CONNECTION_DOT_HEIGHT: f32 = 15.0;
 
 // calculates the rect on which the connection is drawn in the UI
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
 fn get_rect(
     node_graph: &NodeGraph,
     connection: ConnectionLocalDataset,

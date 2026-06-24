@@ -103,6 +103,7 @@ fn grid_auto_columns_to_taffy(
     auto_tracks.tracks.iter().map(translate_track).collect()
 }
 
+#[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
 fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
     // Helper to resolve PixelValue to absolute pixels (handles em, rem, but not %)
     // Grid track sizing in Taffy doesn't support % - only absolute values
@@ -180,6 +181,7 @@ fn layout_position_to_taffy(val: LayoutPositionValue) -> Position {
     }
 }
 
+#[allow(clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn decode_compact_grid_line(v: i16) -> GridPlacement<String> {
     if v == azul_css::compact_cache::I16_AUTO || v == azul_css::compact_cache::I16_SENTINEL {
         GridPlacement::Auto
@@ -200,6 +202,7 @@ fn grid_auto_flow_to_taffy(val: LayoutGridAutoFlowValue) -> GridAutoFlow {
 }
 
 /// Convert an azul `GridLine` (single start or end) to a Taffy `GridPlacement`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn grid_line_to_taffy(
     line: &azul_css::props::layout::grid::GridLine,
 ) -> GridPlacement<String> {

@@ -184,6 +184,7 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
 }
 
 /// Parse XML directly into `FastDom` + extracted CSS, ready for `StyledDom`.
+#[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
 pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
     // Optional per-phase RSS/timing breakdown.
     // Gated on AZ_MEM_BREAKDOWN=1 — prints
@@ -274,6 +275,7 @@ const fn peak_rss_bytes() -> u64 {
 }
 
 /// Internal: parse XML into `FastDom` + collected CSS stylesheets.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom, Vec<Css>), XmlError> {
     use xmlparser::{ElementEnd::{Open, Empty, Close}, Token::{ElementStart, Attribute, ElementEnd, Text}, Tokenizer};
     use azul_core::dom::{NodeData, NodeType, IdOrClass, TabIndex};

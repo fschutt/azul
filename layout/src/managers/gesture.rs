@@ -47,6 +47,7 @@ pub fn allocate_event_id() -> u64 {
 ///
 /// `CoreDuration` is an enum with System (`std::time::Duration`) and Tick variants.
 /// We need to handle both cases for proper time calculations.
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 fn duration_to_millis(duration: CoreDuration) -> u64 {
     match duration {
         #[cfg(feature = "std")]
@@ -1057,6 +1058,7 @@ impl GestureAndDragManager {
     }
 
     /// Get average velocity of current gesture (pixels per second)
+    #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
     #[must_use] pub fn get_gesture_velocity(&self) -> Option<f32> {
         let session = self.get_current_session()?;
 
@@ -1499,6 +1501,7 @@ impl GestureAndDragManager {
     ///
     /// Returns (`delta_x`, `delta_y`) to apply to window position.
     /// Returns None if no window drag is active or drag hasn't moved.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     #[must_use] pub fn get_window_drag_delta(&self) -> Option<(i32, i32)> {
         let drag = self.active_drag.as_ref()?.as_window_move()?;
 
@@ -1514,6 +1517,7 @@ impl GestureAndDragManager {
     /// Get the new window position based on current drag
     ///
     /// Returns the absolute window position to set.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     #[must_use] pub fn get_window_position_from_drag(&self) -> Option<WindowPosition> {
         let drag = self.active_drag.as_ref()?.as_window_move()?;
 

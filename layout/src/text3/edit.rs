@@ -56,6 +56,7 @@ fn sort_selections_back_to_front(selections: &[Selection]) -> Vec<Selection> {
 
 /// Shifts every already-processed cursor sitting at or after `edit_byte` in
 /// `edit_run` by `byte_offset_change`, clamping to zero.
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn adjust_cursors(
     selections: &mut [Selection],
     edit_run: u32,
@@ -84,6 +85,7 @@ fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
 
 /// The primary entry point for text modification. Takes the current content and selections,
 /// applies an edit, and returns the new content and the resulting cursor positions.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render numeric cast
 #[must_use] pub fn edit_text(
     content: &[InlineContent],
     selections: &[Selection],
@@ -204,6 +206,7 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
 /// Non-text items (images, etc.) at the boundaries are left intact (their text
 /// offset resolves to 0), while intermediate non-text items are dropped along
 /// with the rest of the spanned content.
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 #[must_use] pub fn delete_range(
     content: &[InlineContent],
     range: &SelectionRange,
@@ -323,6 +326,7 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
 /// The cursor's affinity determines the exact insertion point:
 /// - `Leading`: Insert at the start of the referenced cluster (`start_byte_in_run`)
 /// - `Trailing`: Insert at the end of the referenced cluster (after the grapheme)
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 pub fn insert_text(
     content: &mut Vec<InlineContent>,
     cursor: &TextCursor,
@@ -380,6 +384,7 @@ pub fn insert_text(
 /// The cursor's affinity determines the actual cursor position:
 /// - `Leading`: Cursor is at start of cluster, delete the previous grapheme
 /// - `Trailing`: Cursor is at end of cluster, delete the current grapheme
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 pub fn delete_backward(
     content: &mut Vec<InlineContent>,
     cursor: &TextCursor,
@@ -456,6 +461,7 @@ pub fn delete_backward(
 /// The cursor's affinity determines the actual cursor position:
 /// - `Leading`: Cursor is at start of cluster, delete the current grapheme
 /// - `Trailing`: Cursor is at end of cluster, delete the next grapheme
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 pub fn delete_forward(
     content: &mut Vec<InlineContent>,
     cursor: &TextCursor,
@@ -528,6 +534,7 @@ pub fn delete_forward(
 /// # Panics
 ///
 /// Panics if `texts.len() != selections.len()`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render numeric cast
 #[must_use] pub fn edit_text_multi(
     content: &[InlineContent],
     selections: &[Selection],
@@ -614,6 +621,7 @@ pub fn delete_forward(
 }
 
 /// Inspect what would be deleted by delete-forward (Delete key)
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 fn inspect_delete_forward(
     content: &[InlineContent],
     cursor: &TextCursor,
@@ -678,6 +686,7 @@ fn inspect_delete_forward(
 }
 
 /// Inspect what would be deleted by delete-backward (Backspace key)
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 fn inspect_delete_backward(
     content: &[InlineContent],
     cursor: &TextCursor,

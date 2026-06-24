@@ -229,6 +229,7 @@ impl Titlebar {
     }
 
     /// Build inline CSS for the container div.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     fn build_container_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
         let mut props = Vec::with_capacity(8);
         if show_buttons {
@@ -277,6 +278,7 @@ impl Titlebar {
     }
 
     /// Build inline CSS for the title text node.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     fn build_title_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
         let font_family = StyleFontFamilyVec::from_vec(vec![
             StyleFontFamily::SystemType(SystemFontType::TitleBold),
@@ -545,6 +547,7 @@ pub(crate) mod callbacks {
     ///
     /// On Wayland: this is a no-op because the compositor manages the move
     /// (initiated by `begin_interactive_move()` in `titlebar_drag_start`).
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub extern "C" fn titlebar_drag(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {

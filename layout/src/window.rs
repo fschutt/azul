@@ -100,6 +100,7 @@ static DOCUMENT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static ID_NAMESPACE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// Helper function to create a unique `DocumentId`
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 fn new_document_id() -> DocumentId {
     let namespace_id = new_id_namespace();
     let id = DOCUMENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed) as u32;
@@ -134,6 +135,7 @@ pub enum TooltipTimerAction {
 }
 
 /// Helper function to create a unique `IdNamespace`
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 fn new_id_namespace() -> IdNamespace {
     let id = ID_NAMESPACE_COUNTER.fetch_add(1, Ordering::Relaxed) as u32;
     IdNamespace(id)
@@ -512,6 +514,7 @@ const fn default_duration_200ms() -> Duration {
 ///
 /// Duration is an enum with System (`std::time::Duration`) and Tick variants.
 /// We need to handle both cases for proper time calculations.
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 fn duration_to_millis(duration: Duration) -> u64 {
     match duration {
         #[cfg(feature = "std")]
@@ -795,6 +798,7 @@ impl LayoutWindow {
         )
     }
 
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
     fn layout_dom_recursive_impl(
         &mut self,
         styled_dom: StyledDom,
@@ -2964,6 +2968,7 @@ impl LayoutWindow {
     /// for positioning menus, tooltips, or other overlays.
     ///
     /// Returns None if the node is not currently laid out (e.g., display:none)
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn get_node_layout_rect(
         &self,
         node_id: DomNodeId,
@@ -3079,6 +3084,7 @@ impl LayoutWindow {
     /// updated value + cursor/selection.  Falls back to full rebuild if the
     /// tree hasn't been initialized yet or there's no active editing.
     #[cfg(feature = "a11y")]
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn update_a11y_tree_incremental(&mut self) {
         if !self.a11y_manager.tree_initialized {
             // First time — need full tree
@@ -3300,6 +3306,7 @@ impl LayoutWindow {
     /// new multi-cursor selection.
     ///
     /// Returns true if a new selection was added.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn select_next_occurrence(&mut self) -> bool {
         use crate::text3::selection::select_word_at_cursor;
 
@@ -4708,6 +4715,7 @@ impl LayoutWindow {
     ///
     /// Empty map = action was not applicable or nothing changed
     #[cfg(feature = "a11y")]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
     pub fn process_accessibility_action(
         &mut self,
         dom_id: DomId,
@@ -6173,6 +6181,7 @@ impl LayoutWindow {
     }
 
     /// Get the layout bounds (position and size) of a specific node
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn get_node_bounds(
         &self,
         dom_id: DomId,
@@ -6205,6 +6214,7 @@ impl LayoutWindow {
 
     /// Scroll a node into view if it's not currently visible in the viewport
     #[cfg(feature = "a11y")]
+    #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
     fn scroll_to_node_if_needed(
         &mut self,
         dom_id: DomId,
@@ -6292,6 +6302,7 @@ impl LayoutWindow {
     /// 2. Checks if the cursor is visible in the current viewport
     /// 3. If not, calculates the minimum scroll offset needed
     /// 4. Animates the scroll to bring the cursor into view
+    #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
     fn scroll_cursor_into_view_if_needed(
         &mut self,
         dom_id: DomId,
@@ -6408,6 +6419,7 @@ impl LayoutWindow {
     ///
     /// A `TextCursor` positioned at the given byte offset, or None if the offset
     /// is out of bounds.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     fn byte_offset_to_cursor(
         &self,
         text_layout: &UnifiedLayout,
@@ -7099,6 +7111,7 @@ impl LayoutWindow {
     /// # Returns
     ///
     /// Vector of (`DomId`, `NodeId`, Texture) tuples for textures that were updated
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn process_image_callback_updates(
         &mut self,
         image_callbacks_changed: &BTreeMap<DomId, FastBTreeSet<NodeId>>,

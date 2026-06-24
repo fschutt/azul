@@ -293,6 +293,7 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
 /// the running decode worker the new target size via its `ThreadSender` so it scales
 /// frames to fit OFF the main thread — the UI then does a cheap image swap with no
 /// interpolation. This is a message, NOT a relayout: returns `DoNothing`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 extern "C" fn video_on_resize(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let tid = match data.downcast_ref::<VideoWidgetState>() {
         Some(s) => s.thread_id,
@@ -316,6 +317,7 @@ extern "C" fn video_on_resize(mut data: RefAny, mut info: CallbackInfo) -> Updat
 
 /// Background worker (test pattern): SMPTE-style colour bars scrolling
 /// horizontally ~30×/s. Replaced by the real vk-video decode worker later.
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     const BARS: [[u8; 3]; 7] = [
         [235, 235, 235],

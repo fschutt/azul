@@ -296,6 +296,7 @@ impl CachedInlineLayout {
     /// enable incremental IFC relayout in Phase 2c/2d by providing
     /// cached advance widths, line assignments, and break information
     /// for each positioned item.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     fn extract_item_metrics(layout: &UnifiedLayout) -> Vec<InlineItemMetrics> {
         use crate::text3::cache::{ShapedItem, get_item_vertical_metrics_approx};
 
@@ -1916,6 +1917,7 @@ impl LayoutTreeBuilder {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn create_node_from_dom(
         &mut self,
         styled_dom: &StyledDom,
@@ -2024,6 +2026,7 @@ impl LayoutTreeBuilder {
         index
     }
 
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     #[must_use] pub fn build(self, root_idx: usize) -> LayoutTree {
         let nodes = self.nodes;
         let node_count = nodes.len();

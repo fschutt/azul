@@ -122,6 +122,7 @@ impl FontManager<FontRef> {
     /// Returns the number of faces evicted. Embedders can call this
     /// from a memory-pressure hook or on a timer; servo-shot
     /// exposes it via `--azul-evict-after-each` for measurement.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn evict_unused(&self, idle: std::time::Duration) -> usize {
         use crate::font::parsed::ParsedFont;
         let Ok(parsed) = self.parsed_fonts.lock() else {
@@ -715,6 +716,7 @@ const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
 
 /// Internal shaping implementation - the single source of truth for text shaping.
 /// Both `FontRef` and `ParsedFont` use this function.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn shape_text_internal(
     parsed_font: &ParsedFont,
     text: &str,

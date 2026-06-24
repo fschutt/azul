@@ -263,6 +263,7 @@ impl MapWidget {
     /// Inverse of [`latlon_at_px`](Self::latlon_at_px): where `coord` lands in
     /// container pixels at `viewport`.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     #[must_use] pub fn px_at_latlon(
         viewport: MapViewport,
         coord: MapLatLon,
@@ -504,6 +505,7 @@ impl MapTileCache {
     /// (`Pending`/`Fetching`) are never evicted (their worker would write into a
     /// gone entry), and on-screen tiles score near-zero so they survive.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
     pub fn prune_distant_tiles(&mut self) {
         const MAX_CACHED_TILES: usize = 192;
         if self.tiles.len() <= MAX_CACHED_TILES {
@@ -1221,6 +1223,7 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
 /// `0..=tile_count-1` grid. The pure core of `map_widget_render`'s grid
 /// loop — what decides which tiles get fetched.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render numeric cast
 fn visible_tile_range(
     centre_x: f32,
     centre_y: f32,
@@ -1249,6 +1252,7 @@ fn visible_tile_range(
 /// `0..tile_count` band — the horizontal world-wrap. `rem_euclid` (not `%`)
 /// so columns west of the antimeridian map to the east side: at `tile_count`
 /// = 4, column `-1` → `3`, column `4` → `0`.
+#[allow(clippy::cast_possible_wrap)] // bounded layout/render numeric cast
 fn wrap_tile_x(x: i32, tile_count: u32) -> u32 {
     x.rem_euclid(tile_count.max(1) as i32) as u32
 }
@@ -1258,6 +1262,7 @@ fn wrap_tile_x(x: i32, tile_count: u32) -> u32 {
 /// mark + spawn the NEW viewport's tiles immediately, rather than waiting for the
 /// next render pass to discover them. Mirrors `map_widget_render`'s grid math.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn map_visible_tiles(
     viewport: &MapViewport,
     bounds: azul_core::geom::LogicalSize,
@@ -1284,6 +1289,7 @@ fn map_visible_tiles(
 // ────────── VirtualView callback — visible-tile rendering ─────────────
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 extern "C" fn map_widget_render(
     data: RefAny,
     info: VirtualViewCallbackInfo,
@@ -1578,6 +1584,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
     fn projection_round_trips() {
         // Forward then inverse must return the original coordinate, for
         // a handful of real-world points across several zooms.

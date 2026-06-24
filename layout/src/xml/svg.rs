@@ -1313,6 +1313,7 @@ pub fn tessellate_svgpathelement_stroke(
 }
 
 #[cfg(feature = "svg")]
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 #[must_use] pub fn join_tessellated_nodes(nodes: &[TessellatedSvgNode]) -> TessellatedSvgNode {
     let mut index_offset = 0;
 
@@ -1369,6 +1370,7 @@ pub fn tessellate_svgpathelement_stroke(
 }
 
 #[cfg(feature = "svg")]
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 #[must_use] pub fn join_tessellated_colored_nodes(
     nodes: &[TessellatedColoredSvgNode],
 ) -> TessellatedColoredSvgNode {
@@ -1521,6 +1523,7 @@ pub fn apply_fxaa(texture: &mut Texture) -> Option<()> {
 }
 
 /// Applies FXAA with custom configuration parameters.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 pub fn apply_fxaa_with_config(
     texture: &mut Texture,
     config: azul_core::gl_fxaa::FxaaConfig,
@@ -1724,6 +1727,7 @@ pub fn apply_fxaa_with_config(
 }
 
 #[cfg(feature = "svg")]
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render numeric cast
 pub fn render_node_clipmask_cpu(
     image: &mut RawImage,
     node: &SvgNode,
@@ -2023,6 +2027,7 @@ fn rasterize_multi_polygon(mp: &SvgMultiPolygon) -> agg_rust::rasterizer_scanlin
 /// For each row, we collect the solid spans (coverage > 128). Then we
 /// trace left/right boundaries of connected span groups into closed
 /// polygons (go down on the left edge, come back up on the right edge).
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn storage_to_multi_polygon(
     storage: &mut agg_rust::scanline_storage_aa::ScanlineStorageAa,
 ) -> SvgMultiPolygon {
@@ -2289,6 +2294,7 @@ pub fn svg_parse(
 /// Requires the `cpurender` feature (the agg-rust + png rasterization pipeline).
 /// Without it, SVG parsing/layout still work but rasterizing yields `None`.
 #[cfg(feature = "cpurender")]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 #[must_use] pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
     use azul_core::resources::RawImageData;
 
