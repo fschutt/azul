@@ -1274,7 +1274,7 @@ impl LayoutWindow {
 
         // Scan for VirtualViews *after* the initial layout pass
         // Pass styled_dom directly — layout_results isn't populated yet at this point
-        let vviews = self.scan_for_virtual_views(&styled_dom, &tree, &self.layout_cache.calculated_positions);
+        let vviews = Self::scan_for_virtual_views(&styled_dom, &tree, &self.layout_cache.calculated_positions);
 
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
             eprintln!("[vview] scan found {} VirtualView node(s): {:?}", vviews.len(),
@@ -1358,7 +1358,6 @@ impl LayoutWindow {
     }
 
     fn scan_for_virtual_views(
-        &self,
         styled_dom: &StyledDom,
         layout_tree: &LayoutTree,
         calculated_positions: &solver3::PositionVec,
@@ -4573,9 +4572,9 @@ impl LayoutWindow {
             let node_id = NodeId::new(i);
 
             // Check if node has text content
-            if self.node_has_text_content(styled_dom, node_id) {
+            if Self::node_has_text_content(styled_dom, node_id) {
                 // Check if text is selectable
-                if self.is_text_selectable(styled_dom, node_id) {
+                if Self::is_text_selectable(styled_dom, node_id) {
                     return Some((*dom_id, node_id));
                 }
             }
@@ -4611,9 +4610,9 @@ impl LayoutWindow {
             let node_id = NodeId::new(i);
 
             // Check if node has text content
-            if self.node_has_text_content(styled_dom, node_id) {
+            if Self::node_has_text_content(styled_dom, node_id) {
                 // Check if text is selectable
-                if self.is_text_selectable(styled_dom, node_id) {
+                if Self::is_text_selectable(styled_dom, node_id) {
                     return Some((*dom_id, node_id));
                 }
             }
@@ -4655,7 +4654,7 @@ impl LayoutWindow {
     }
 
     /// Checks if a node has text content.
-    fn node_has_text_content(&self, styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    fn node_has_text_content(styled_dom: &StyledDom, node_id: NodeId) -> bool {
         // Check if node itself is a text node
         let node_data_container = styled_dom.node_data.as_container();
         let node_type = node_data_container[node_id].get_node_type();
@@ -4683,7 +4682,7 @@ impl LayoutWindow {
     }
 
     /// Checks if text in a node is selectable based on CSS user-select property.
-    fn is_text_selectable(&self, styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    fn is_text_selectable(styled_dom: &StyledDom, node_id: NodeId) -> bool {
         let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
         solver3::getters::is_text_selectable(styled_dom, node_id, node_state)
     }
@@ -5075,11 +5074,11 @@ impl LayoutWindow {
 
                 if let Some(inline_layout) = text_layout {
                     // Convert byte offsets to TextCursor positions
-                    let start_cursor = self.byte_offset_to_cursor(
+                    let start_cursor = Self::byte_offset_to_cursor(
                         inline_layout.as_ref(),
                         selection.selection_start as u32,
                     );
-                    let end_cursor = self.byte_offset_to_cursor(
+                    let end_cursor = Self::byte_offset_to_cursor(
                         inline_layout.as_ref(),
                         selection.selection_end as u32,
                     );
@@ -6402,7 +6401,6 @@ impl LayoutWindow {
     /// is out of bounds.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     fn byte_offset_to_cursor(
-        &self,
         text_layout: &UnifiedLayout,
         byte_offset: u32,
     ) -> Option<TextCursor> {
@@ -6637,7 +6635,7 @@ impl LayoutWindow {
 
                 for (node_id, hit_item) in sorted_hits {
                     // Check if text is selectable
-                    if !self.is_text_selectable(&layout_result.styled_dom, *node_id) {
+                    if !Self::is_text_selectable(&layout_result.styled_dom, *node_id) {
                         continue;
                     }
 
@@ -6715,7 +6713,7 @@ impl LayoutWindow {
                     };
 
                     // Check if text is selectable
-                    if !self.is_text_selectable(&layout_result.styled_dom, node_id) {
+                    if !Self::is_text_selectable(&layout_result.styled_dom, node_id) {
                         continue;
                     }
 

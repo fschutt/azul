@@ -301,7 +301,6 @@ impl<'a> FocusSearchContext<'a> {
     ///
     /// Returns an error if the node ID is out of bounds.
     fn validate_node(
-        &self,
         layout: &DomLayoutResult,
         node_id: NodeId,
         _dom_id: DomId,
@@ -321,7 +320,7 @@ impl<'a> FocusSearchContext<'a> {
     }
 
     /// Get the valid node ID range for a layout: `(min, max)`.
-    const fn node_bounds(&self, layout: &DomLayoutResult) -> (NodeId, NodeId) {
+    const fn node_bounds(layout: &DomLayoutResult) -> (NodeId, NodeId) {
         (
             NodeId::ZERO,
             NodeId::new(layout.styled_dom.node_data.len() - 1),
@@ -329,12 +328,12 @@ impl<'a> FocusSearchContext<'a> {
     }
 
     /// Check if a node can receive keyboard focus.
-    fn is_focusable(&self, layout: &DomLayoutResult, node_id: NodeId) -> bool {
+    fn is_focusable(layout: &DomLayoutResult, node_id: NodeId) -> bool {
         layout.styled_dom.node_data.as_container()[node_id].is_focusable()
     }
 
     /// Construct a `DomNodeId` from DOM and node IDs.
-    const fn make_dom_node_id(&self, dom_id: DomId, node_id: NodeId) -> DomNodeId {
+    const fn make_dom_node_id(dom_id: DomId, node_id: NodeId) -> DomNodeId {
         DomNodeId {
             dom: dom_id,
             node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
@@ -372,9 +371,9 @@ fn search_focusable_node(
 ) -> Result<Option<DomNodeId>, UpdateFocusWarning> {
     loop {
         let layout = ctx.get_layout(&dom_id)?;
-        ctx.validate_node(layout, node_id, dom_id)?;
+        FocusSearchContext::validate_node(layout, node_id, dom_id)?;
 
-        let (min_node, max_node) = ctx.node_bounds(layout);
+        let (min_node, max_node) = FocusSearchContext::node_bounds(layout);
 
         loop {
             let next_node = NodeId::new(direction.step_node(node_id.index()))
@@ -394,8 +393,8 @@ fn search_focusable_node(
             }
 
             // Check for focusable node (we made progress, so this is a different node)
-            if ctx.is_focusable(layout, next_node) {
-                return Ok(Some(ctx.make_dom_node_id(dom_id, next_node)));
+            if FocusSearchContext::is_focusable(layout, next_node) {
+                return Ok(Some(FocusSearchContext::make_dom_node_id(dom_id, next_node)));
             }
 
             // Detect if we've hit the boundary (at min/max node)
@@ -579,8 +578,8 @@ pub fn resolve_focus_target(
                 let (last_dom_id, last_node_id) = get_last_start(layout_results)?;
                 // First check if the last node itself is focusable
                 let last_layout = ctx.get_layout(&last_dom_id)?;
-                if ctx.is_focusable(last_layout, last_node_id) {
-                    Ok(Some(ctx.make_dom_node_id(last_dom_id, last_node_id)))
+                if FocusSearchContext::is_focusable(last_layout, last_node_id) {
+                    Ok(Some(FocusSearchContext::make_dom_node_id(last_dom_id, last_node_id)))
                 } else {
                     // Otherwise search backward from last node
                     search_focusable_node(&ctx, last_dom_id, last_node_id, SearchDirection::Backward)
@@ -597,8 +596,8 @@ pub fn resolve_focus_target(
             if result.is_none() {
                 // First check if the first node itself is focusable
                 let first_layout = ctx.get_layout(&DomId::ROOT_ID)?;
-                if ctx.is_focusable(first_layout, NodeId::ZERO) {
-                    Ok(Some(ctx.make_dom_node_id(DomId::ROOT_ID, NodeId::ZERO)))
+                if FocusSearchContext::is_focusable(first_layout, NodeId::ZERO) {
+                    Ok(Some(FocusSearchContext::make_dom_node_id(DomId::ROOT_ID, NodeId::ZERO)))
                 } else {
                     search_focusable_node(&ctx, DomId::ROOT_ID, NodeId::ZERO, SearchDirection::Forward)
                 }
@@ -610,8 +609,8 @@ pub fn resolve_focus_target(
         First => {
             // First check if the first node itself is focusable
             let first_layout = ctx.get_layout(&DomId::ROOT_ID)?;
-            if ctx.is_focusable(first_layout, NodeId::ZERO) {
-                Ok(Some(ctx.make_dom_node_id(DomId::ROOT_ID, NodeId::ZERO)))
+            if FocusSearchContext::is_focusable(first_layout, NodeId::ZERO) {
+                Ok(Some(FocusSearchContext::make_dom_node_id(DomId::ROOT_ID, NodeId::ZERO)))
             } else {
                 search_focusable_node(&ctx, DomId::ROOT_ID, NodeId::ZERO, SearchDirection::Forward)
             }
@@ -621,8 +620,8 @@ pub fn resolve_focus_target(
             let (dom_id, node_id) = get_last_start(layout_results)?;
             // First check if the last node itself is focusable
             let last_layout = ctx.get_layout(&dom_id)?;
-            if ctx.is_focusable(last_layout, node_id) {
-                Ok(Some(ctx.make_dom_node_id(dom_id, node_id)))
+            if FocusSearchContext::is_focusable(last_layout, node_id) {
+                Ok(Some(FocusSearchContext::make_dom_node_id(dom_id, node_id)))
             } else {
                 search_focusable_node(&ctx, dom_id, node_id, SearchDirection::Backward)
             }
