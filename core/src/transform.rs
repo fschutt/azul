@@ -816,6 +816,9 @@ impl ComputedTransform3D {
     }}
 
     /// Dual linear combination using AVX instructions on YMM registers.
+    // _mm256_broadcast_ps reads the row as a 128-bit lane via an unaligned-tolerant
+    // x86 load; the `*const [f32;4]` -> `*const __m128` cast is intentional here.
+    #[allow(clippy::cast_ptr_alignment)]
     #[cfg(target_arch = "x86_64")]
     unsafe fn linear_combine_avx8(
         a01: core::arch::x86_64::__m256,

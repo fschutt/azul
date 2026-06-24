@@ -617,6 +617,9 @@ macro_rules! impl_vec_mut {
             }
 
             #[inline]
+            // the reallocated pointer comes from the global allocator with a Layout
+            // computed for `$struct_type`, so it is correctly aligned for the cast.
+            #[allow(clippy::cast_ptr_alignment)]
             fn try_reserve(
                 &mut self,
                 used_cap: usize,
