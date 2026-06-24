@@ -1297,6 +1297,11 @@ impl GlContextPtr {
     }
 }
 
+// This impl is the OpenGL API wrapper: every method mirrors a C/gleam GL call and
+// takes the C-ABI argument types (GlVoidPtrConst, *VecRef, …) BY VALUE to match that
+// ABI/FFI calling convention. Switching them to references would break the contract,
+// so needless_pass_by_value is allowed for the whole GL-binding impl.
+#[allow(clippy::needless_pass_by_value)]
 impl GlContextPtr {
     #[must_use] pub fn get_type(&self) -> GlType {
         self.get().get_type().into()
