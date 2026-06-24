@@ -398,12 +398,12 @@ impl<'a, T: 'a> NodeDataContainerRefMut<'a, T> {
 }
 
 impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
-    pub fn transform_nodeid_optional<U: Send, F: Send + Sync>(
+    pub fn transform_nodeid_optional<U: Send, F>(
         &self,
         closure: F,
     ) -> NodeDataContainer<U>
     where
-        F: Fn(NodeId) -> Option<U>,
+        F: Send + Sync + Fn(NodeId) -> Option<U>,
     {
         let len = self.len();
         NodeDataContainer {

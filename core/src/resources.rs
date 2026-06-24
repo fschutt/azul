@@ -1657,6 +1657,8 @@ impl RawImage {
     #[allow(clippy::cast_possible_wrap)] // image/graphics: bounded pixel/colour casts
     pub fn paint_dot(&mut self, cx: f32, cy: f32, brush: Brush) {
         let r = brush.radius;
+        // `!(r > 0.0)` intentionally also rejects NaN (`r <= 0.0` would not).
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
         if !(r > 0.0) || self.width == 0 || self.height == 0 {
             return;
         }

@@ -705,7 +705,7 @@ impl fmt::Debug for GLsyncPtr {
 impl GLsyncPtr {
     #[must_use] pub const fn new(p: GLsync) -> Self {
         Self {
-            ptr: p as *const c_void,
+            ptr: p,
             run_destructor: true,
         }
     }
@@ -3104,6 +3104,8 @@ impl Texture {
         let gl = self.gl_context.clone();
         let prog = gl.get_brush_shader();
         let (tw, th) = (self.size.width as f32, self.size.height as f32);
+        // `!(radius > 0.0)` intentionally also rejects NaN (`radius <= 0.0` would not).
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
         if prog == 0 || self.texture_id == 0 || !(brush.radius > 0.0) || tw <= 0.0 || th <= 0.0 {
             return;
         }
@@ -3286,14 +3288,10 @@ impl VertexLayout {
             self.fields.iter().map(VertexAttribute::get_stride).sum();
 
         for vertex_attribute in &self.fields {
-            let attribute_location = vertex_attribute
-                .layout_location
-                .as_option()
-                .map(|ll| *ll as i32)
-                .unwrap_or_else(|| {
-                    gl_context
-                        .get_attrib_location(program_id, vertex_attribute.va_name.as_str())
-                });
+            let attribute_location = vertex_attribute.layout_location.as_option().map_or_else(
+                || gl_context.get_attrib_location(program_id, vertex_attribute.va_name.as_str()),
+                |ll| *ll as i32,
+            );
 
             gl_context.vertex_attrib_pointer(
                 attribute_location as u32,
@@ -3313,14 +3311,10 @@ impl VertexLayout {
     #[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts
     pub fn unbind(&self, gl_context: &Rc<GenericGlContext>, program_id: GLuint) {
         for vertex_attribute in &self.fields {
-            let attribute_location = vertex_attribute
-                .layout_location
-                .as_option()
-                .map(|ll| *ll as i32)
-                .unwrap_or_else(|| {
-                    gl_context
-                        .get_attrib_location(program_id, vertex_attribute.va_name.as_str())
-                });
+            let attribute_location = vertex_attribute.layout_location.as_option().map_or_else(
+                || gl_context.get_attrib_location(program_id, vertex_attribute.va_name.as_str()),
+                |ll| *ll as i32,
+            );
             gl_context.disable_vertex_attrib_array(attribute_location as u32);
         }
     }
