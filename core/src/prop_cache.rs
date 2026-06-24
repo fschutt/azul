@@ -3500,10 +3500,7 @@ impl CssPropertyCache {
             }
         }
 
-        match computed.binary_search_by_key(&prop_type, |(k, _)| *k) {
-            Err(_) => true,
-            Ok(idx) => computed[idx].1.origin == CssPropertyOrigin::Inherited,
-        }
+        computed.binary_search_by_key(&prop_type, |(k, _)| *k).map_or(true, |idx| computed[idx].1.origin == CssPropertyOrigin::Inherited)
     }
 
     /// Process a single property: resolve and store

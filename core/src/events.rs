@@ -1071,10 +1071,7 @@ pub trait Focusable {
 
     /// Returns true if this element should be in the tab order
     fn is_in_tab_order(&self) -> bool {
-        match self.get_tabindex() {
-            None => self.is_naturally_focusable(),
-            Some(i) => i >= 0,
-        }
+        self.get_tabindex().map_or_else(|| self.is_naturally_focusable(), |i| i >= 0)
     }
 
     /// Returns true if this element type is naturally focusable

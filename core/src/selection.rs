@@ -350,11 +350,7 @@ impl MultiCursorState {
 
     /// Set all selections to a single cursor (e.g., on plain click without Ctrl).
     pub fn set_single_cursor(&mut self, cursor: TextCursor) {
-        let id = if let Some(primary) = self.selections.last() {
-            primary.id
-        } else {
-            SelectionId::new()
-        };
+        let id = self.selections.last().map_or_else(SelectionId::new, |primary| primary.id);
         self.selections.clear();
         self.selections.push(IdentifiedSelection {
             id,
@@ -364,11 +360,7 @@ impl MultiCursorState {
 
     /// Set all selections to a single range.
     pub fn set_single_range(&mut self, range: SelectionRange) {
-        let id = if let Some(primary) = self.selections.last() {
-            primary.id
-        } else {
-            SelectionId::new()
-        };
+        let id = self.selections.last().map_or_else(SelectionId::new, |primary| primary.id);
         self.selections.clear();
         self.selections.push(IdentifiedSelection {
             id,

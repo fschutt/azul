@@ -3169,10 +3169,7 @@ fn data_field(
     ComponentDataField {
         name: AzString::from(name),
         field_type: ft,
-        default_value: match default {
-            Some(d) => OptionComponentDefaultValue::Some(d),
-            None => OptionComponentDefaultValue::None,
-        },
+        default_value: default.map_or_else(|| OptionComponentDefaultValue::None, |d| OptionComponentDefaultValue::Some(d)),
         required,
         description: AzString::from(description),
     }
@@ -6778,10 +6775,7 @@ enum NodeCtor {
 /// spelling.
 fn cap_first(tag: &str) -> String {
     let mut c = tag.chars();
-    match c.next() {
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-        None => String::new(),
-    }
+    c.next().map_or_else(String::new, |f| f.to_uppercase().collect::<String>() + c.as_str())
 }
 
 /// CamelCase → `snake_case` for the C++/Python/Rust method names
@@ -7197,10 +7191,7 @@ fn compile_node_fluent(
     // Interactive/data tags (whose creators need args) fall back to `div`. Any
     // element text shows up as a Text child below and is handled there.
     let ctor = analyze_node_ctor(&component_name, node);
-    let mut s = match ctor.render_fluent(&syntax.target) {
-        Some(expr) => expr,
-        None => (syntax.create_node)(safe_container_tag(&tag_dbg)),
-    };
+    let mut s = ctor.render_fluent(&syntax.target).map_or_else(|| (syntax.create_node)(safe_container_tag(&tag_dbg)), |expr| expr);
 
     matcher.path.push(CssPathSelector::Type(node_type_tag));
     let ids: Vec<String> = node.attributes.get_key("id")

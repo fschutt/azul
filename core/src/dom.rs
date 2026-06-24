@@ -2159,10 +2159,7 @@ impl NodeData {
     #[inline]
     #[must_use] pub fn attributes(&self) -> &AttributeTypeVec {
         static EMPTY: AttributeTypeVec = AttributeTypeVec::from_const_slice(&[]);
-        match &self.extra {
-            Some(ext) => &ext.attributes,
-            None => &EMPTY,
-        }
+        self.extra.as_ref().map_or(&EMPTY, |ext| &ext.attributes)
     }
 
     /// Returns a mutable reference to the node's attributes,

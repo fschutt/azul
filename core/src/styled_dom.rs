@@ -722,10 +722,7 @@ impl NodeDataContainerRef<'_, NodeHierarchyItem> {
     #[inline]
     #[must_use] pub fn subtree_len(&self, parent_id: NodeId) -> usize {
         let self_item_index = parent_id.index();
-        let next_item_index = match self[parent_id].next_sibling_id() {
-            None => self.len(),
-            Some(s) => s.index(),
-        };
+        let next_item_index = self[parent_id].next_sibling_id().map_or_else(|| self.len(), |s| s.index());
         next_item_index - self_item_index - 1
     }
 }
@@ -1585,15 +1582,9 @@ impl StyledDom {
                         } else {
                             Some(ChangedCssProperty {
                                 previous_state: *old_node_state,
-                                previous_prop: match old {
-                                    None => CssProperty::auto(*prop),
-                                    Some(s) => s.clone(),
-                                },
+                                previous_prop: old.map_or_else(|| CssProperty::auto(*prop), |s| s.clone()),
                                 current_state: *new_node_state,
-                                current_prop: match new {
-                                    None => CssProperty::auto(*prop),
-                                    Some(s) => s.clone(),
-                                },
+                                current_prop: new.map_or_else(|| CssProperty::auto(*prop), |s| s.clone()),
                             })
                         }
                     })
@@ -1772,10 +1763,7 @@ impl StyledDom {
                         &new_prop.get_type(),
                     );
 
-                    let old_prop = match old_prop {
-                        None => CssProperty::auto(new_prop.get_type()),
-                        Some(s) => s.clone(),
-                    };
+                    let old_prop = old_prop.map_or_else(|| CssProperty::auto(new_prop.get_type()), |s| s.clone());
 
                     if old_prop == *new_prop {
                         None

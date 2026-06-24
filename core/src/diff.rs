@@ -891,11 +891,7 @@ pub fn transfer_states(
     let mut hasher = crate::hash::DefaultHasher::new(); // Different seed for structural keys
     
     // Get parent and calculate its key recursively
-    let parent_key = if let Some(parent_id) = hierarchy.get(node_id.index()).and_then(NodeHierarchyItem::parent_id) {
-        calculate_contenteditable_key(node_data, hierarchy, parent_id)
-    } else {
-        0u64 // Root node
-    };
+    let parent_key = hierarchy.get(node_id.index()).and_then(NodeHierarchyItem::parent_id).map_or(0u64, |parent_id| calculate_contenteditable_key(node_data, hierarchy, parent_id));
     hasher.write(&parent_key.to_le_bytes());
     
     // Calculate nth-of-type (count siblings of same node type before this one)
