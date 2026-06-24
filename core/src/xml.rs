@@ -5573,6 +5573,11 @@ fn apply_xml_node_attributes(
 }
 
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+// component_map is threaded through the whole fast-DOM pipeline for parity with the
+// component-expanding interpreter path (see ~xml.rs:2845); this fast path never expands
+// components, so it only forwards the map into recursive calls. Removing it here would
+// cascade unused-param removals up the entire pipeline.
+#[allow(clippy::only_used_in_recursion)]
 fn xml_node_to_dom_fast<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,
@@ -5727,6 +5732,8 @@ impl CompactDomBuilder {
 /// Convert an XML node tree into a `FastDom` (arena-based) in a single DFS pass.
 /// This is the fast path equivalent of `xml_node_to_dom_fast`.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+// See xml_node_to_dom_fast: component_map is forwarded for pipeline parity, not read here.
+#[allow(clippy::only_used_in_recursion)]
 fn xml_node_to_fast_dom<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,
@@ -6524,6 +6531,9 @@ fn format_args_for_rust_code(input: &str) -> String {
 }
 
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+// component_map is forwarded through the codegen recursion for parity with the
+// component-expanding path; this Rust-codegen path only threads it into recursive calls.
+#[allow(clippy::only_used_in_recursion)]
 fn compile_node_to_rust_code_inner(
     node: &XmlNode,
     component_map: &ComponentMap,
@@ -7169,6 +7179,8 @@ const PYTHON_SYNTAX: FluentSyntax = FluentSyntax {
 /// Walk one element node, emitting a fluent create-expression for `syntax`'s
 /// language. Mirrors `compile_node_to_rust_code_inner` but token-parameterized.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+// See compile_node_to_rust_code_inner: component_map is forwarded for codegen-path parity.
+#[allow(clippy::only_used_in_recursion)]
 fn compile_node_fluent(
     node: &XmlNode,
     syntax: &FluentSyntax,
