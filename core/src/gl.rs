@@ -2083,6 +2083,9 @@ impl GlContextPtr {
     pub fn blend_equation_separate(&self, mode_rgb: GLenum, mode_alpha: GLenum) {
         self.get().blend_equation_separate(mode_rgb, mode_alpha);
     }
+    // mirrors glColorMask(GLboolean, GLboolean, GLboolean, GLboolean) — the four
+    // RGBA write-mask flags are the GL API, not a refactorable bool soup.
+    #[allow(clippy::fn_params_excessive_bools)]
     pub fn color_mask(&self, r: bool, g: bool, b: bool, a: bool) {
         self.get().color_mask(r, g, b, a);
     }

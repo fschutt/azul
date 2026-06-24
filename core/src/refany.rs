@@ -226,7 +226,7 @@ impl Drop for RefCount {
         {
             let mut _dummy: [u8; 0] = [];
             // Call destructor even for ZSTs (may have side effects)
-            (sharing_info.custom_destructor)(_dummy.as_ptr() as *mut c_void);
+            (sharing_info.custom_destructor)(_dummy.as_mut_ptr().cast::<c_void>());
         } else {
             // Reconstruct the layout used during allocation
             let layout = unsafe {

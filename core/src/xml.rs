@@ -5147,21 +5147,22 @@ fn main() {
     app.run(window);
 }";
 
-    let source_code = format!(
-        "#![windows_subsystem = \"windows\"]\r\n//! Auto-generated UI source \
-         code\r\n{}\r\n{}\r\n\r\n{}{}",
-        imports,
-        compile_components(Vec::new()), // no user-defined components to compile
-        format!(
-            "#[allow(unused_imports)]\r\npub mod ui {{
+    let ui_module = format!(
+        "#[allow(unused_imports)]\r\npub mod ui {{
 
     use azul::prelude::*;
     use azul::dom::{{NodeType, TabIndex, SmallAriaInfo}};
     use azul::str::String as AzString;
 
     pub fn render() -> Dom {{\r\n{}\r\n    }}\r\n}}",
-            app_source
-        ),
+        app_source
+    );
+    let source_code = format!(
+        "#![windows_subsystem = \"windows\"]\r\n//! Auto-generated UI source \
+         code\r\n{}\r\n{}\r\n\r\n{}{}",
+        imports,
+        compile_components(Vec::new()), // no user-defined components to compile
+        ui_module,
         main_func,
     );
 
