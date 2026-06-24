@@ -356,6 +356,7 @@ pub fn register_font_icon(provider: &mut IconProviderHandle, pack_name: &str, ic
 
 /// Load all images from a ZIP file, returning (`icon_name`, `ImageRef`, width, height)
 #[cfg(all(feature = "zip_support", feature = "image_decoding"))]
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 fn load_images_from_zip(zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
     use crate::zip::{ZipFile, ZipReadConfig};
     use crate::image::decode::{decode_raw_image_from_any_bytes, ResultRawImageDecodeImageError};

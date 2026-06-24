@@ -191,6 +191,7 @@ extern "C" fn mic_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
 /// Background worker (test tone): a 440 Hz sine in ~20 ms chunks until the
 /// widget unmounts. The real `AVAudioEngine` / `AAudio` / cpal capture loop
 /// replaces it (dll-side).
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 extern "C" fn mic_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     let (rate, channels) = init
         .downcast_ref::<MicThreadInit>()

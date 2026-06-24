@@ -130,6 +130,7 @@ impl ScrollPhysicsState {
 ///
 /// This function has `extern "C"` ABI so it can be used as a `TimerCallbackType`.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 pub extern "C" fn scroll_physics_timer_callback(
     mut data: RefAny,
     mut timer_info: TimerCallbackInfo,
@@ -497,6 +498,7 @@ fn friction_from_deceleration(deceleration_rate: f32) -> f32 {
 
 /// Calculate spring constant from bounce-back duration.
 /// Higher k = faster spring back. Approximate: k ≈ (2π / duration)²
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 fn spring_constant_from_bounce_duration(duration_ms: u32) -> f32 {
     let duration_s = duration_ms.max(50) as f32 / 1000.0;
     let omega = core::f32::consts::TAU / duration_s;

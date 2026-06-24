@@ -475,6 +475,7 @@ impl PackedBoxProps {
     }
 
     #[inline]
+    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/counter/fixed-point cast
     fn pack_edge(e: &EdgeSizes) -> [i16; 4] {
         const MIN: f32 = i16::MIN as f32;
         const MAX: f32 = i16::MAX as f32;

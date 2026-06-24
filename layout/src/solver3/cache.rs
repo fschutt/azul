@@ -592,6 +592,7 @@ const fn style_text_align_to_fc(text_align: StyleTextAlign) -> fc::TextAlign {
 ///
 /// This is a helper function that flattens the sibling iteration into a simple loop.
 /// Children with `display: none` are filtered out since they generate no boxes.
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/counter/fixed-point cast
 #[must_use] pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -> Vec<NodeId> {
     let hierarchy_container = styled_dom.node_hierarchy.as_container();
     let mut children = Vec::new();
@@ -961,6 +962,7 @@ StyleWhiteSpace::PreLine)
 }
 
 /// Recursively traverses the new DOM and old tree, building a new tree and marking dirty nodes.
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/counter/fixed-point cast
 pub fn reconcile_recursive(
     styled_dom: &StyledDom,
     new_dom_id: NodeId,

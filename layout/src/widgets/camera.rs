@@ -161,6 +161,7 @@ extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) ->
 
 /// Background worker (test pattern): a colour-cycling solid frame ~30x/s until
 /// the widget unmounts. The real AVFoundation/Camera2 capture loop replaces it.
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/counter/fixed-point cast
 extern "C" fn camera_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     let (w, h) = init
         .downcast_ref::<CameraThreadInit>()

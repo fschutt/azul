@@ -318,7 +318,7 @@ impl ZipFile {
             return Ok(Some(Vec::new()));
         }
         
-        let mut contents = Vec::with_capacity(entry.size as usize);
+        let mut contents = Vec::with_capacity(usize::try_from(entry.size).unwrap_or(0));
         file.read_to_end(&mut contents)
             .map_err(|e| ZipReadError::IoError(e.to_string()))?;
         

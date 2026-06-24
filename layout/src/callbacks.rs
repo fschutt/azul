@@ -2445,6 +2445,7 @@ impl CallbackInfo {
     /// | **Win32**   | Exact when DPI-aware; approximate otherwise |
     /// | **X11**     | Exact (pixels) |
     /// | **Wayland** | Falls back to window-local (compositor hides global position) |
+    #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
     #[must_use] pub fn get_cursor_position_screen(&self) -> azul_core::geom::OptionScreenPosition {
         use azul_core::window::WindowPosition;
         use azul_core::geom::{LogicalPosition, ScreenPosition, OptionScreenPosition};
@@ -3914,7 +3915,7 @@ impl CallbackInfo {
         let end_cursor = TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
-                start_byte_in_run: text.len() as u32,
+                start_byte_in_run: u32::try_from(text.len()).unwrap_or(u32::MAX),
             },
             affinity: CursorAffinity::Leading,
         };
@@ -4321,7 +4322,7 @@ impl CallbackInfo {
         Some(TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
-                start_byte_in_run: text_len as u32,
+                start_byte_in_run: u32::try_from(text_len).unwrap_or(u32::MAX),
             },
             affinity: CursorAffinity::Leading,
         })

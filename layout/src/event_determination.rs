@@ -96,6 +96,7 @@ pub fn determine_events_from_managers(
 /// - Window focus changed
 ///
 /// Node-level events (hover, focus, scroll, text) come from managers.
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 fn detect_window_state_events(
     current: &FullWindowState,
     previous: &FullWindowState,
@@ -248,6 +249,7 @@ fn get_all_hovered_nodes(
 /// ## Returns
 ///
 /// - Deduplicated vector of `SyntheticEvents` ready for dispatch
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 pub fn determine_all_events(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,

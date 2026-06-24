@@ -182,8 +182,8 @@ extern "C" fn screencap_worker(_init: RefAny, mut sender: ThreadSender, _recv: T
             }
         }
         let frame = VideoFrame {
-            width: w as u32,
-            height: h as u32,
+            width: u32::try_from(w).unwrap_or(0),
+            height: u32::try_from(h).unwrap_or(0),
             bytes: bytes.into(),
         };
         let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(

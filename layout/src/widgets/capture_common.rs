@@ -126,6 +126,7 @@ pub fn present_frame(
 }
 
 /// Upload tightly-packed RGBA8 pixels into the GL texture `texture_id`.
+#[allow(clippy::cast_possible_wrap)] // bounded graphics/coord/counter/fixed-point cast
 pub fn upload_rgba(gl: &GlContextPtr, texture_id: u32, frame: &VideoFrame) {
     gl.bind_texture(TEXTURE_2D, texture_id);
     gl.tex_image_2d(

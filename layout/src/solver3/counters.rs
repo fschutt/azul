@@ -40,6 +40,7 @@ pub fn format_counter(value: i32, style: StyleListStyleType) -> String {
 ///
 /// Avoids the lossy `value as u32` cast: a negative counter such as `-3` in
 /// `lower-roman` formats as `-iii` instead of wrapping to a huge unsigned value.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/counter/fixed-point cast
 fn with_sign<F: Fn(usize) -> String>(value: i32, format: F) -> String {
     if value < 0 {
         let magnitude = i64::from(value).unsigned_abs() as usize;
@@ -52,6 +53,7 @@ fn with_sign<F: Fn(usize) -> String>(value: i32, format: F) -> String {
 /// Converts a number to alphabetic representation (a, b, c, ..., z, aa, ab, ...).
 ///
 /// This implements the CSS `lower-alpha` and `upper-alpha` counter styles.
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/counter/fixed-point cast
 pub(crate) fn to_alphabetic(mut num: usize, uppercase: bool) -> String {
     if num == 0 {
         return String::new();
