@@ -1309,6 +1309,7 @@ impl SystemStyle {
     ///
     /// This does NOT use serde — it manually formats the most important fields
     /// so that they can be verified against OS-reported values in a test script.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub fn to_json_string(&self) -> AzString {
         use alloc::format;
 

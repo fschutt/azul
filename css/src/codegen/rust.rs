@@ -93,6 +93,7 @@ impl CodegenBackend for RustBackend {
     output.replace('\t', "    ")
 }
 
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
 #[must_use] pub const fn format_node_type(n: &NodeTypeTag) -> &'static str {
     match n {
         // Document structure

@@ -297,6 +297,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::cognitive_complexity)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     fn test_parse_layout_display() {
         assert_eq!(parse_layout_display("block").unwrap(), LayoutDisplay::Block);
         assert_eq!(

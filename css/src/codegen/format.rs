@@ -1041,6 +1041,7 @@ fn format_style_transforms(stops: &[StyleTransform], tabs: usize) -> String {
         .join(&format!(",\r\n{t}"))
 }
 
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
 fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
     let tabs_minus_one = String::from("    ").repeat(tabs);
     let tabs = String::from("    ").repeat(tabs + 1);

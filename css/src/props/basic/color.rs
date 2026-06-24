@@ -1408,6 +1408,7 @@ fn parse_alpha_component<'a>(
 }
 
 #[cfg(feature = "parser")]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
 fn parse_color_builtin(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
     let (r, g, b, a) = match input.to_lowercase().as_str() {
         "aliceblue" => (240, 248, 255, 255),

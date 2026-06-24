@@ -1029,6 +1029,7 @@ impl NodeTypeTagParseErrorOwned {
 
 /// Parses the node type from a CSS string such as `"div"` => `NodeTypeTag::Div`
 impl NodeTypeTag {
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     pub fn from_str(css_key: &str) -> Result<Self, NodeTypeTagParseError<'_>> {
         match css_key {
             // Document structure
@@ -1260,6 +1261,7 @@ impl NodeTypeTag {
 }
 
 impl fmt::Display for NodeTypeTag {
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             // Document structure

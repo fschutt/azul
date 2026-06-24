@@ -1314,6 +1314,7 @@ fn parse_lang_condition(content: &str) -> Option<DynamicSelector> {
 /// May return "warning" messages, i.e. messages that just serve as a warning,
 /// instead of being actual errors. These warnings may be ignored by the caller,
 /// but can be useful for debugging.
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
 fn new_from_str_inner<'a>(
     css_string: &'a str,
     tokenizer: &mut Tokenizer<'a>,

@@ -644,6 +644,7 @@ pub fn parse_style_transform_vec(
 }
 
 #[cfg(feature = "parser")]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
 pub fn parse_style_transform(
     input: &str,
 ) -> Result<StyleTransform, CssStyleTransformParseError<'_>> {

@@ -1234,6 +1234,7 @@ impl CssPropertyType {
     }
 
     /// Returns the original string that was used to construct this `CssPropertyType`.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub const fn to_str(&self) -> &'static str {
         match self {
             Self::CaretColor => "caret-color",
@@ -2468,6 +2469,7 @@ impl<'a> From<StyleVerticalAlignParseError<'a>> for CssParsingError<'a> {
 }
 
 impl CssParsingError<'_> {
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub fn to_contained(&self) -> CssParsingErrorOwned {
         match self {
             CssParsingError::CaretColor(e) => CssParsingErrorOwned::CaretColor(e.to_contained()),
@@ -2728,6 +2730,7 @@ impl CssParsingError<'_> {
 }
 
 impl CssParsingErrorOwned {
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub fn to_shared(&self) -> CssParsingError<'_> {
         match self {
             Self::CaretColor(e) => CssParsingError::CaretColor(e.to_shared()),
@@ -2958,6 +2961,7 @@ impl CssParsingErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
 pub fn parse_css_property(
     key: CssPropertyType,
     value: &str,
@@ -3391,6 +3395,7 @@ pub fn parse_css_property(
 /// )
 /// ```
 #[cfg(feature = "parser")]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
 pub fn parse_combined_css_property(
     key: CombinedCssPropertyType,
     value: &str,
@@ -4355,6 +4360,7 @@ impl CssProperty {
     // `CssPropertyValue<T>` — the identical bodies cannot merge into one or-pattern
     // (mismatched binding types), so clippy::match_same_arms is a false positive here.
     #[allow(clippy::match_same_arms)]
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub fn value(&self) -> String {
         match self {
             Self::CaretColor(v) => v.get_css_value_fmt(),
@@ -4543,6 +4549,7 @@ impl CssProperty {
         format!("{}: {};", self.key(), self.value())
     }
 
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub fn interpolate(
         &self,
         other: &Self,
@@ -4824,6 +4831,7 @@ impl CssProperty {
     }
 
     /// Return the type (key) of this property as a statically typed enum
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub const fn get_type(&self) -> CssPropertyType {
         match &self {
             Self::CaretColor(_) => CssPropertyType::CaretColor,
@@ -6481,6 +6489,7 @@ impl CssProperty {
     // Cross-type dispatch: each `c` is a different `CssPropertyValue<T>`, so the
     // identical `c.is_initial()` bodies can't merge (clippy::match_same_arms FP).
     #[allow(clippy::match_same_arms)]
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub const fn is_initial(&self) -> bool {
         use self::CssProperty::{CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
         match self {
@@ -6996,6 +7005,7 @@ impl CssProperty {
 // Cross-type dispatch over CssProperty variants; identical format! bodies bind
 // different value types and can't merge (clippy::match_same_arms false positive).
 #[allow(clippy::match_same_arms)]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
 #[must_use] pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
     match prop {
         CssProperty::CaretColor(p) => format!(
