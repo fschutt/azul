@@ -295,10 +295,11 @@ pub fn parse_angle_value(input: &str) -> Result<AngleValue, CssAngleValueParseEr
         }
     }
 
-    match input.parse::<f32>() {
-        Ok(o) => Ok(AngleValue::from_metric(AngleMetric::Degree, o)), // bare number is degrees
-        Err(_) => Err(CssAngleValueParseError::InvalidAngle(input)),
-    }
+    // bare number is degrees
+    input.parse::<f32>().map_or_else(
+        |_| Err(CssAngleValueParseError::InvalidAngle(input)),
+        |o| Ok(AngleValue::from_metric(AngleMetric::Degree, o)),
+    )
 }
 
 #[cfg(all(test, feature = "parser"))]

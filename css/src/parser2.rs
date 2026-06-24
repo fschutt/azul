@@ -291,10 +291,9 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
         a pattern (such as \"2n+3\") or the values \"even\" or \"odd\"."
     ),
     UnknownSelector(selector, value) => {
-        let format_str = match value {
-            Some(v) => format!("{selector}({v})"),
-            None => (*selector).to_string(),
-        };
+        let format_str = value
+            .as_ref()
+            .map_or_else(|| (*selector).to_string(), |v| format!("{selector}({v})"));
         format!("Invalid or unknown CSS pseudo-selector: ':{format_str}'")
     },
     InvalidNthChildPattern(selector) => format!(
@@ -465,22 +464,20 @@ pub fn pseudo_selector_from_str<'a>(
         return None;
     }
 
-    // Find the operator (the longest match wins).
-    let (op, op_pos): (AttributeMatchOp, Option<usize>) = if let Some(i) = s.find("~=") {
-        (AttributeMatchOp::Includes, Some(i))
-    } else if let Some(i) = s.find("|=") {
-        (AttributeMatchOp::DashMatch, Some(i))
-    } else if let Some(i) = s.find("^=") {
-        (AttributeMatchOp::Prefix, Some(i))
-    } else if let Some(i) = s.find("$=") {
-        (AttributeMatchOp::Suffix, Some(i))
-    } else if let Some(i) = s.find("*=") {
-        (AttributeMatchOp::Substring, Some(i))
-    } else if let Some(i) = s.find('=') {
-        (AttributeMatchOp::Eq, Some(i))
-    } else {
-        (AttributeMatchOp::Exists, None)
-    };
+    // Find the operator (the longest match wins): try the compound operators
+    // first (in order), then the bare `=`, otherwise it is an existence check.
+    let compound_ops: [(&str, AttributeMatchOp); 5] = [
+        ("~=", AttributeMatchOp::Includes),
+        ("|=", AttributeMatchOp::DashMatch),
+        ("^=", AttributeMatchOp::Prefix),
+        ("$=", AttributeMatchOp::Suffix),
+        ("*=", AttributeMatchOp::Substring),
+    ];
+    let (op, op_pos): (AttributeMatchOp, Option<usize>) = compound_ops
+        .iter()
+        .find_map(|(pat, op)| s.find(pat).map(|i| (*op, Some(i))))
+        .or_else(|| s.find('=').map(|i| (AttributeMatchOp::Eq, Some(i))))
+        .unwrap_or((AttributeMatchOp::Exists, None));
 
     let (name, value) = match op_pos {
         None => (s, None),
@@ -504,10 +501,8 @@ pub fn pseudo_selector_from_str<'a>(
     Some(CssAttributeSelector {
         name: name.to_string().into(),
         op,
-        value: match value {
-            Some(v) => OptionString::Some(v.to_string().into()),
-            None => OptionString::None,
-        },
+        value: value
+            .map_or_else(|| OptionString::None, |v| OptionString::Some(v.to_string().into())),
     })
 }
 
@@ -1177,12 +1172,11 @@ fn parse_media_feature(feature: &str) -> Option<DynamicSelector> {
 /// Parses a pixel value like "800px" and returns the numeric value
 fn parse_px_value(value: &str) -> Option<f32> {
     let value = value.trim();
-    if let Some(num_str) = value.strip_suffix("px") {
-        num_str.trim().parse::<f32>().ok()
-    } else {
+    value.strip_suffix("px").map_or_else(
         // Try parsing as a bare number
-        value.parse::<f32>().ok()
-    }
+        || value.parse::<f32>().ok(),
+        |num_str| num_str.trim().parse::<f32>().ok(),
+    )
 }
 
 /// Parses a ratio value like "16/9" or "1.777" and returns it as f32
@@ -1345,11 +1339,9 @@ fn new_from_str_inner<'a>(
 
     // Helper: get parent paths from nesting stack (if any)
     fn get_parent_paths(nesting_stack: &[NestingLevel<'_>]) -> Vec<Vec<CssPathSelector>> {
-        if let Some(parent) = nesting_stack.last() {
-            parent.paths.clone()
-        } else {
-            Vec::new()
-        }
+        nesting_stack
+            .last()
+            .map_or_else(Vec::new, |parent| parent.paths.clone())
     }
 
     // Helper: combine parent path with child selector for nesting

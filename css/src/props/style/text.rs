@@ -1554,15 +1554,18 @@ impl StyleTabSizeParseErrorOwned {
 
 #[cfg(feature = "parser")]
 pub fn parse_style_tab_size(input: &str) -> Result<StyleTabSize, StyleTabSizeParseError<'_>> {
-    if let Ok(number) = input.trim().parse::<f32>() {
-        Ok(StyleTabSize {
-            inner: PixelValue::em(number),
-        })
-    } else {
-        crate::props::basic::pixel::parse_pixel_value(input)
-            .map(|v| StyleTabSize { inner: v })
-            .map_err(StyleTabSizeParseError::PixelValue)
-    }
+    input.trim().parse::<f32>().map_or_else(
+        |_| {
+            crate::props::basic::pixel::parse_pixel_value(input)
+                .map(|v| StyleTabSize { inner: v })
+                .map_err(StyleTabSizeParseError::PixelValue)
+        },
+        |number| {
+            Ok(StyleTabSize {
+                inner: PixelValue::em(number),
+            })
+        },
+    )
 }
 
 #[cfg(feature = "parser")]
@@ -2099,17 +2102,15 @@ pub fn parse_style_vertical_align(
         "text-bottom" => Ok(StyleVerticalAlign::TextBottom),
         other if other.ends_with('%') => {
             let num_str = other.trim_end_matches('%').trim();
-            match num_str.parse::<f32>() {
-                Ok(val) => Ok(StyleVerticalAlign::Percentage(PercentageValue::new(val))),
-                Err(_) => Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(other))),
-            }
+            num_str.parse::<f32>().map_or_else(
+                |_| Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(other))),
+                |val| Ok(StyleVerticalAlign::Percentage(PercentageValue::new(val))),
+            )
         }
-        other => match crate::props::basic::pixel::parse_pixel_value(other) {
-            Ok(pv) => Ok(StyleVerticalAlign::Length(pv)),
-            Err(_) => Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(
-                other,
-            ))),
-        },
+        other => crate::props::basic::pixel::parse_pixel_value(other).map_or_else(
+            |_| Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(other))),
+            |pv| Ok(StyleVerticalAlign::Length(pv)),
+        ),
     }
 }
 

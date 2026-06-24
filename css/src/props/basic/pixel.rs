@@ -779,10 +779,10 @@ fn parse_pixel_value_inner<'a>(
         }
     }
 
-    match input.trim().parse::<f32>() {
-        Ok(o) => Ok(PixelValue::px(o)),
-        Err(_) => Err(CssPixelValueParseError::InvalidPixelValue(input)),
-    }
+    input.trim().parse::<f32>().map_or_else(
+        |_| Err(CssPixelValueParseError::InvalidPixelValue(input)),
+        |o| Ok(PixelValue::px(o)),
+    )
 }
 
 pub fn parse_pixel_value(input: &str) -> Result<PixelValue, CssPixelValueParseError<'_>> {

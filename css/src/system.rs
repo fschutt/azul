@@ -1313,34 +1313,28 @@ impl SystemStyle {
         use alloc::format;
 
         fn opt_color(c: OptionColorU) -> alloc::string::String {
-            match c.as_ref() {
-                Some(c) => format!("\"#{:02x}{:02x}{:02x}{:02x}\"", c.r, c.g, c.b, c.a),
-                None => "null".into(),
-            }
+            c.as_ref().map_or_else(
+                || "null".into(),
+                |c| format!("\"#{:02x}{:02x}{:02x}{:02x}\"", c.r, c.g, c.b, c.a),
+            )
         }
         fn opt_str(s: &OptionString) -> alloc::string::String {
-            match s.as_ref() {
-                Some(s) => format!("\"{}\"", s.as_str()),
-                None => "null".into(),
-            }
+            s.as_ref()
+                .map_or_else(|| "null".into(), |s| format!("\"{}\"", s.as_str()))
         }
         fn opt_f32(v: OptionF32) -> alloc::string::String {
-            match v.into_option() {
-                Some(v) => format!("{v:.2}"),
-                None => "null".into(),
-            }
+            v.into_option()
+                .map_or_else(|| "null".into(), |v| format!("{v:.2}"))
         }
         fn opt_u16(v: OptionU16) -> alloc::string::String {
-            match v.into_option() {
-                Some(v) => format!("{v}"),
-                None => "null".into(),
-            }
+            v.into_option()
+                .map_or_else(|| "null".into(), |v| format!("{v}"))
         }
         fn opt_px(v: &OptionPixelValue) -> alloc::string::String {
-            match v.as_ref() {
-                Some(v) => format!("{:.1}", v.to_pixels_internal(0.0, 0.0, 0.0)),
-                None => "null".into(),
-            }
+            v.as_ref().map_or_else(
+                || "null".into(),
+                |v| format!("{:.1}", v.to_pixels_internal(0.0, 0.0, 0.0)),
+            )
         }
 
         let tm = &self.metrics.titlebar;

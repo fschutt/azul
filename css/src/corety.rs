@@ -380,10 +380,7 @@ impl AzString {
             .map(|chunk| from_bytes([chunk[0], chunk[1]]))
             .collect();
 
-        match String::from_utf16(&code_units) {
-            Ok(s) => Self::from_string(s),
-            Err(_) => Self::default(),
-        }
+        String::from_utf16(&code_units).map_or_else(|_| Self::default(), Self::from_string)
     }}
 
     /// Creates a new `AzString` from UTF-16 encoded bytes (little-endian).
@@ -444,10 +441,8 @@ impl AzString {
         }
         
         let byte_slice = core::slice::from_raw_parts(ptr, len);
-        match core::str::from_utf8(byte_slice) {
-            Ok(s) => Self::from_string(s.to_string()),
-            Err(_) => Self::default(),
-        }
+        core::str::from_utf8(byte_slice)
+            .map_or_else(|_| Self::default(), |s| Self::from_string(s.to_string()))
     }}
 }
 

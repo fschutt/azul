@@ -393,13 +393,15 @@ impl CodegenBackend for RustBackend {
 }
 
 #[must_use] pub fn format_attribute_selector(a: &CssAttributeSelector) -> String {
-    let value = match a.value.as_ref() {
-        Some(v) => format!(
-            "OptionString::Some(AzString::from_const_str({:?}))",
-            v.as_str()
-        ),
-        None => "OptionString::None".to_string(),
-    };
+    let value = a.value.as_ref().map_or_else(
+        || "OptionString::None".to_string(),
+        |v| {
+            format!(
+                "OptionString::Some(AzString::from_const_str({:?}))",
+                v.as_str()
+            )
+        },
+    );
     format!(
         "CssAttributeSelector {{ name: AzString::from_const_str({:?}), op: {}, value: {} }}",
         a.name.as_str(),

@@ -257,11 +257,10 @@ fn parse_inset(args: &str) -> Result<CssShape, ShapeParseError> {
         }
     };
 
-    if let Some(radius) = border_radius {
-        Ok(CssShape::inset_rounded(top, right, bottom, left, radius))
-    } else {
-        Ok(CssShape::inset(top, right, bottom, left))
-    }
+    border_radius.map_or_else(
+        || Ok(CssShape::inset(top, right, bottom, left)),
+        |radius| Ok(CssShape::inset_rounded(top, right, bottom, left, radius)),
+    )
 }
 
 /// Parses a path: `path("svg-path-data")`

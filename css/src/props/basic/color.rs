@@ -1120,29 +1120,28 @@ impl CssColorParseErrorOwned {
 pub fn parse_css_color(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
     let input = input.trim();
     if let Some(rest) = input.strip_prefix('#') {
-        parse_color_no_hash(rest)
-    } else {
-        use crate::props::basic::parse::{parse_parentheses, ParenthesisParseError};
-        match parse_parentheses(input, &["rgba", "rgb", "hsla", "hsl"]) {
-            Ok((stopword, inner_value)) => match stopword {
-                "rgba" => parse_color_rgb(inner_value, true),
-                "rgb" => parse_color_rgb(inner_value, false),
-                "hsla" => parse_color_hsl(inner_value, true),
-                "hsl" => parse_color_hsl(inner_value, false),
-                _ => unreachable!(),
-            },
-            Err(e) => match e {
-                ParenthesisParseError::UnclosedBraces
-                | ParenthesisParseError::NoClosingBraceFound => {
-                    Err(CssColorParseError::UnclosedColor(input))
-                }
-                ParenthesisParseError::EmptyInput => Err(CssColorParseError::EmptyInput),
-                ParenthesisParseError::StopWordNotFound(stopword) => {
-                    Err(CssColorParseError::InvalidFunctionName(stopword))
-                }
-                ParenthesisParseError::NoOpeningBraceFound => parse_color_builtin(input),
-            },
-        }
+        return parse_color_no_hash(rest);
+    }
+
+    use crate::props::basic::parse::{parse_parentheses, ParenthesisParseError};
+    match parse_parentheses(input, &["rgba", "rgb", "hsla", "hsl"]) {
+        Ok((stopword, inner_value)) => match stopword {
+            "rgba" => parse_color_rgb(inner_value, true),
+            "rgb" => parse_color_rgb(inner_value, false),
+            "hsla" => parse_color_hsl(inner_value, true),
+            "hsl" => parse_color_hsl(inner_value, false),
+            _ => unreachable!(),
+        },
+        Err(e) => match e {
+            ParenthesisParseError::UnclosedBraces | ParenthesisParseError::NoClosingBraceFound => {
+                Err(CssColorParseError::UnclosedColor(input))
+            }
+            ParenthesisParseError::EmptyInput => Err(CssColorParseError::EmptyInput),
+            ParenthesisParseError::StopWordNotFound(stopword) => {
+                Err(CssColorParseError::InvalidFunctionName(stopword))
+            }
+            ParenthesisParseError::NoOpeningBraceFound => parse_color_builtin(input),
+        },
     }
 }
 

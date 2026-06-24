@@ -460,10 +460,8 @@ impl StyleClipRect {
 impl PrintAsCssValue for StyleClipRect {
     fn print_as_css_value(&self) -> String {
         fn fmt_edge(o: OptionF32) -> String {
-            match o.into_option() {
-                Some(v) => format!("{v}px"),
-                None => String::from("auto"),
-            }
+            o.into_option()
+                .map_or_else(|| String::from("auto"), |v| format!("{v}px"))
         }
         format!(
             "rect({}, {}, {}, {})",
