@@ -165,7 +165,7 @@ impl GpuValueCache {
                         // (no probe), so the result is identical on desktop.
                         if !cc.has_transform(node_id.index())
                             && (self.css_current_transform_values.is_empty()
-                                || self.css_current_transform_values.get(&node_id).is_none())
+                                || !self.css_current_transform_values.contains_key(&node_id))
                         {
                             return None;
                         }

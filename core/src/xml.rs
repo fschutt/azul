@@ -6237,10 +6237,9 @@ fn group_matches(
     for selector in a {
         match selector {
             // always matches
-            Global
-            | PseudoSelector(CssPathPseudoSelector::Hover)
-            | PseudoSelector(CssPathPseudoSelector::Active)
-            | PseudoSelector(CssPathPseudoSelector::Focus) => {}
+            Global |
+PseudoSelector(CssPathPseudoSelector::Hover | CssPathPseudoSelector::Active |
+CssPathPseudoSelector::Focus) => {}
 
             Type(tag) => {
                 if !b.iter().any(|t| **t == Type(*tag)) {

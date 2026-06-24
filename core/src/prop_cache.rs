@@ -3625,7 +3625,7 @@ impl CssPropertyCache {
             .computed_values
             .get(ctx.node_id.index()) != Some(&ctx.computed_values);
 
-        self.computed_values[ctx.node_id.index()] = ctx.computed_values.clone();
+        self.computed_values[ctx.node_id.index()].clone_from(&ctx.computed_values);
 
         values_changed
     }

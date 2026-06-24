@@ -423,7 +423,7 @@ static BREAK_AFTER_AVOID: CssProperty = CssProperty::break_after(PageBreak::Avoi
 /// 1. `::marker` pseudo-elements are children of <li>, not <ul>/<ol>
 /// 2. The marker needs to be positioned relative to the list item's content box
 /// 3. Padding on <li> creates space between the marker and the text content
-/// TODO: Change to `PaddingInlineStart` once logical property resolution is implemented
+///    TODO: Change to `PaddingInlineStart` once logical property resolution is implemented
 static PADDING_INLINE_START_40PX: CssProperty =
     CssProperty::PaddingLeft(CssPropertyValue::Exact(LayoutPaddingLeft {
         inner: PixelValue::const_px(40),

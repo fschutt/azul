@@ -358,7 +358,7 @@ macro_rules! impl_managed_callback {
         /// by pointer, no aggregate-by-value anywhere). The static thunk
         /// in libazul does the by-value plumbing on the C ABI side.
         ///
-        /// LuaJIT FFI in particular cannot return aggregates larger than
+        /// `LuaJIT` FFI in particular cannot return aggregates larger than
         /// 8 bytes from a callback, so we use an out-pointer for the
         /// return value uniformly across kinds — even for `Update` which
         /// would fit in a register, so the macro stays homogeneous.

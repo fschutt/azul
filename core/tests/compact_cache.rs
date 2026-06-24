@@ -1,6 +1,5 @@
 /// Tests for compact cache correctness: verify that CSS properties
 /// are correctly resolved through the cascade pipeline.
-
 use azul_core::dom::{Dom, NodeType};
 use azul_core::styled_dom::StyledDom;
 use azul_css::css::Css;

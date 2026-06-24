@@ -156,12 +156,11 @@ macro_rules! impl_callback_simple {
     ($callback_value:ident) => {
         $crate::impl_callback_traits!($callback_value);
 
+        // the macro impls Clone for an externally-defined type, so #[derive(Clone)]
+        // isn't available here; the explicit `*self` impl is required.
+        #[allow(clippy::expl_impl_clone_on_copy)]
         impl Clone for $callback_value {
-            fn clone(&self) -> Self {
-                $callback_value {
-                    cb: self.cb.clone(),
-                }
-            }
+            fn clone(&self) -> Self { *self }
         }
 
         impl Copy for $callback_value {}
