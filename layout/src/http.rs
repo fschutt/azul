@@ -386,6 +386,9 @@ pub fn http_get(url: &str) -> HttpResult<HttpResponse> {
 
 /// Stub: `http` feature disabled.
 #[cfg(not(feature = "http"))]
+/// # Errors
+///
+/// Returns an `HttpError` if the request fails (network/status error, or the networking feature is disabled).
 pub fn http_get(_url: &str) -> HttpResult<HttpResponse> {
     Err(HttpError::other("http feature not enabled".into()))
 }
@@ -524,6 +527,9 @@ pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult
 
 /// Stub: `http` feature disabled.
 #[cfg(not(feature = "http"))]
+/// # Errors
+///
+/// Returns an `HttpError` if the request fails (network/status error, or the networking feature is disabled).
 pub fn http_get_with_config(_url: &str, _config: &HttpRequestConfig) -> HttpResult<HttpResponse> {
     Err(HttpError::other("http feature not enabled".into()))
 }
@@ -542,6 +548,9 @@ pub fn download_bytes(url: &str) -> HttpResult<U8Vec> {
 
 /// Stub: `http` feature disabled.
 #[cfg(not(feature = "http"))]
+/// # Errors
+///
+/// Returns an `HttpError` if the request fails (network/status error, or the networking feature is disabled).
 pub fn download_bytes(_url: &str) -> HttpResult<U8Vec> {
     Err(HttpError::other("http feature not enabled".into()))
 }
@@ -571,6 +580,9 @@ pub fn download_bytes_with_config(url: &str, config: &HttpRequestConfig) -> Http
 
 /// Stub: `http` feature disabled.
 #[cfg(not(feature = "http"))]
+/// # Errors
+///
+/// Returns an `HttpError` if the request fails (network/status error, or the networking feature is disabled).
 pub fn download_bytes_with_config(_url: &str, _config: &HttpRequestConfig) -> HttpResult<U8Vec> {
     Err(HttpError::other("http feature not enabled".into()))
 }

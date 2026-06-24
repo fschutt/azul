@@ -2213,6 +2213,9 @@ impl Drop for ParsedSvgXmlNode {
     fn drop(&mut self) { self.run_destructor = false; }
 }
 
+/// # Errors
+///
+/// Returns a `SvgParseError` if the input is not valid SVG.
 pub fn svgxmlnode_parse(
     svg_file_data: &[u8],
     _options: SvgParseOptions,
@@ -2261,6 +2264,9 @@ impl fmt::Debug for ParsedSvg {
 }
 
 impl ParsedSvg {
+    /// # Errors
+    ///
+    /// Returns a `SvgParseError` if the input is not valid SVG.
     pub fn from_string(
         svg_string: &str,
         parse_options: SvgParseOptions,
@@ -2268,6 +2274,9 @@ impl ParsedSvg {
         svg_parse(svg_string.as_bytes(), parse_options)
     }
 
+    /// # Errors
+    ///
+    /// Returns a `SvgParseError` if the input is not valid SVG.
     pub fn from_bytes(
         svg_bytes: &[u8],
         parse_options: SvgParseOptions,
@@ -2289,6 +2298,9 @@ impl ParsedSvg {
 }
 
 /// Parse SVG data into a `ParsedSvg` (validates XML, stores bytes for deferred rendering).
+/// # Errors
+///
+/// Returns a `SvgParseError` if the input is not valid SVG.
 pub fn svg_parse(
     svg_file_data: &[u8],
     _options: SvgParseOptions,

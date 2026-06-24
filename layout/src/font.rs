@@ -2114,6 +2114,9 @@ pub mod parsed {
         ///
         /// # Arguments
         /// * `tags` - Optional list of specific table tags to include (None = all tables)
+        /// # Errors
+        ///
+        /// Returns an error string if serializing the font fails.
         pub fn to_bytes(&self, tags: Option<&[u32]>) -> Result<Vec<u8>, String> {
             let source = self.source_bytes_for_subset().ok_or_else(|| {
                 "ParsedFont::to_bytes requires source bytes; construct via \
@@ -2155,6 +2158,9 @@ pub mod parsed {
         /// A tuple of (`subset_font_bytes`, `glyph_mapping`) where `glyph_mapping` maps
         /// `original_glyph_id` -> (`new_glyph_id`, `original_char`)
         #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+        /// # Errors
+        ///
+        /// Returns an error string if subsetting the font fails.
         pub fn subset(
             &self,
             glyph_ids: &[(u16, char)],

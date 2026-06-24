@@ -333,6 +333,9 @@ impl AzulPixmap {
     }
 
     /// Encode to PNG using the `png` crate.
+    /// # Errors
+    ///
+    /// Returns an error string if PNG encoding fails.
     pub fn encode_png(&self) -> Result<Vec<u8>, String> {
         let mut buf = Vec::new();
         {
@@ -350,6 +353,9 @@ impl AzulPixmap {
     }
 
     /// Decode a PNG byte slice into an `AzulPixmap`.
+    /// # Errors
+    ///
+    /// Returns an error string if `png_bytes` is not a valid PNG.
     pub fn decode_png(png_bytes: &[u8]) -> Result<Self, String> {
         let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
         let mut reader = decoder
@@ -501,6 +507,9 @@ impl PixelDiffResult {
 ///
 /// Returns `Ok(result)` with the diff stats, or `Err` if the reference
 /// file cannot be read/decoded.
+/// # Errors
+///
+/// Returns an error string if the images cannot be loaded or compared.
 pub fn compare_against_reference(
     rendered: &AzulPixmap,
     reference_png_path: &str,

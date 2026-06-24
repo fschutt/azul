@@ -15,6 +15,9 @@ use agg_rust::trans_affine::TransAffine;
 /// fill/stroke attributes, and rasterizes via agg-rust directly (no CSS
 /// layout involved).
 #[cfg(all(feature = "std", feature = "xml"))]
+/// # Errors
+///
+/// Returns an error string if the SVG cannot be parsed or rendered.
 pub fn render_svg_to_png(
     svg_data: &[u8],
     target_width: u32,
@@ -75,6 +78,9 @@ pub fn render_svg_to_png(
 /// produces a clip mask (not a filled shape), so reuse the same `render_svg_group`
 /// rasteriser the tiger uses (which reads SVG fill/stroke attrs) and embed the
 /// result as an image.
+/// # Errors
+///
+/// Returns an error string if the SVG cannot be parsed or rendered.
 pub fn render_svg_to_imageref(
     svg_data: &[u8],
     target_width: u32,
