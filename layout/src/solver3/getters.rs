@@ -2575,6 +2575,7 @@ get_css_property!(
     }
 }
 
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 pub fn get_style_properties(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -3449,6 +3450,7 @@ impl ResolvedFontChains {
 ///
 /// # Returns
 /// A `CollectedFontStacks` containing all unique font stacks and a hash-to-index mapping
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[must_use] pub fn collect_font_stacks_from_styled_dom(
     styled_dom: &StyledDom,
     platform: &azul_css::system::Platform,

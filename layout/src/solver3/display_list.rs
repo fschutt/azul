@@ -2045,6 +2045,7 @@ StyleVisibility::Collapse) => true,
     /// Emits drawing commands for all text cursors (carets).
     /// Iterates over `ctx.cursor_locations` to support multi-cursor rendering.
     /// Preedit underline is only rendered for the primary (last) cursor.
+    #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     fn paint_cursor(
         &self,
         builder: &mut DisplayListBuilder,
@@ -4652,6 +4653,7 @@ fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<DisplayListTagId> {
 ///
 /// `target_size` is the object's logical box size, used only to size the raster
 /// when rasterizing an SVG source.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn get_image_ref_for_image_source(
     source: &ImageSource,
     image_cache: &azul_core::resources::ImageCache,
@@ -5488,6 +5490,7 @@ impl SlicerConfig {
     }
 
     /// Calculate which page a Y coordinate falls on.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     #[must_use] pub fn page_for_y(&self, y: f32) -> usize {
         if self.page_slot_height() <= 0.0 {
             return 0;
@@ -5496,6 +5499,7 @@ impl SlicerConfig {
     }
 
     /// Get the Y range for a specific page (in infinite canvas coordinates).
+    #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     #[must_use] pub fn page_bounds(&self, page_index: usize) -> (f32, f32) {
         let start = page_index as f32 * self.page_slot_height();
         let end = start + self.page_content_height;
@@ -6407,6 +6411,7 @@ pub(crate) fn apply_clip_path(
 ///
 /// Returns `None` if the rect has zero size.
 #[cfg(feature = "cpurender")]
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn rasterize_svg_clip_to_r8(
     svg_clip: &azul_core::svg::SvgMultiPolygon,
     paint_rect: &LogicalRect,

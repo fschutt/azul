@@ -3156,6 +3156,7 @@ fn is_block_level_replaced<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node:
 }
 
 /// Translates solver3 layout constraints into the text3 engine's unified constraints.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     constraints: &'a LayoutConstraints<'a>,
@@ -4663,6 +4664,7 @@ fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
 /// Main function to layout a table formatting context
 // +spec:table-layout:235e8e - CSS 2.2 §17.1-17.2 table model: fixed/auto algorithms, row/column/cell/caption structure
 // +spec:table-layout:a6422d - CSS table model: table structure analysis, row/column/cell layout, caption, border-collapse
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 pub fn layout_table_fc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -5136,6 +5138,7 @@ fn analyze_table_colgroup<T: ParsedFontTrait>(
 /// These are HTML presentational attributes (`AttributeType::ColSpan`/`RowSpan`
 /// on `NodeData`), not CSS properties. Missing or non-positive values default to
 /// 1 per the HTML parsing rules.
+#[allow(clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn get_cell_spans(styled_dom: &StyledDom, dom_id: NodeId) -> (usize, usize) {
     let mut colspan = 1usize;
     let mut rowspan = 1usize;
@@ -5229,6 +5232,7 @@ fn analyze_table_row<T: ParsedFontTrait>(
 /// from width calculations
 // +spec:table-layout:c5e446 - Fixed table layout algorithm: column widths from col elements or first-row cells, remaining columns divide equally
 /// +spec:width-calculation:8c958a - Fixed table layout: column widths from col elements, first-row cells, then equal distribution (CSS 2.2 §17.5.2.1)
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn calculate_column_widths_fixed<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -5513,6 +5517,7 @@ fn calculate_column_widths_auto<T: ParsedFontTrait>(
 // +spec:width-calculation:42dfca - CSS 2.2 §17.5.2.2 automatic table layout: MCW/max-content per cell, column min/max, multi-span distribution, final table width
 /// +spec:width-calculation:335ef1 - Automatic table layout: width given by column widths and borders (CSS 2.2 §17.5.2.2)
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
@@ -5705,6 +5710,7 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
 }
 
 /// Distribute a multi-column cell's width across the columns it spans
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn distribute_cell_width_across_columns(
     columns: &mut [TableColumnInfo],
     start_col: usize,
@@ -5975,6 +5981,7 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
 //   rowspan distribution, vertical-align in table cells, cell baseline definition
 /// Calculate row heights based on cell content after column widths are determined
 // +spec:inline-formatting-context:87b90d - Table height algorithms: row height = max(computed height, cell heights, MIN); vertical-align in cells (baseline/top/middle/bottom, sub/super/etc. fall back to baseline)
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn calculate_row_heights<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
@@ -6172,6 +6179,7 @@ fn calculate_row_heights<T: ParsedFontTrait>(
 
 /// Position all cells in the table grid with calculated widths and heights
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn position_table_cells<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
@@ -6558,6 +6566,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     Ok((content, child_map))
 }
 
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,
@@ -8736,6 +8745,7 @@ fn apply_text_transform(text: &str, transform: text3::cache::TextTransform) -> S
 /// The caller should use these dimensions to create a float-like exclusion at the
 /// start of the block container, causing subsequent lines to wrap around the letter.
 // +spec:width-calculation:7f4f68 - initial-letter-wrap exclusion area (none behavior; first/grid require glyph outlines)
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[must_use] pub fn layout_initial_letter(
     initial_letter_size: f32,
     initial_letter_sink: u32,

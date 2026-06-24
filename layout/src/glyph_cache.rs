@@ -67,6 +67,7 @@ pub struct GlyphCache {
 
 /// Quantize a fractional pixel position to 1/4 pixel (0..3).
 #[inline]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn quantize_subpx(frac: f32) -> u8 {
     let f = frac - frac.floor();
     (f * 4.0).min(3.0) as u8
@@ -133,6 +134,7 @@ impl GlyphCache {
     /// - `is_hinted`: whether the path is in pixel coords (hinted) or font units
     ///
     /// Returns the cached cells and the integer pixel offset to apply.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     pub fn get_or_build_cells(
         &mut self,
         font_hash: u64,
@@ -355,6 +357,7 @@ fn build_hinted_path(
 
 /// Convert `F26Dot6` value to pixel coordinate (f32).
 #[inline]
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn f26_to_px(v: i32) -> f32 {
     v as f32 / 64.0
 }

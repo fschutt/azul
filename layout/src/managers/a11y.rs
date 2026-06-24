@@ -81,6 +81,7 @@ impl A11yManager {
     ///
     /// This should be called after each layout pass to synchronize the
     /// accessibility tree with the visual representation.
+    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     #[must_use] pub fn update_tree(
         root_id: A11yNodeId,
         layout_results: &std::collections::BTreeMap<DomId, DomLayoutResult>,
@@ -335,6 +336,7 @@ impl A11yManager {
     }
 
     /// Builds an accesskit Node from Azul's `NodeData` and layout information.
+    #[allow(clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     fn build_node(
         node_data: &NodeData,
         layout_node: &LayoutNodeHot,
@@ -743,6 +745,7 @@ impl A11yManager {
 ///
 /// Returns `None` if the action requires data that was not provided or is invalid.
 #[cfg(feature = "a11y")]
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[must_use] pub fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction> {
     use azul_css::{props::basic::FloatValue, AzString};
 

@@ -163,6 +163,7 @@ pub mod parsed {
     /// face get touched in the last N seconds" decisions. Exposed
     /// `pub(crate)` so `FontManager::evict_unused` reads from the
     /// same clock as `last_used` writes.
+    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     pub(crate) fn monotonic_now_nanos() -> u64 {
         // Safe: `Instant::elapsed` against the same launch instant is
         // monotonic and never overflows in any realistic process
@@ -231,6 +232,7 @@ pub mod parsed {
     }
 
     impl OutlineSink for GlyphOutlineCollector {
+        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
         fn move_to(&mut self, to: Vector2F) {
             if !self.current_contour.is_empty() {
                 self.contours.push(GlyphOutline {
@@ -243,6 +245,7 @@ pub mod parsed {
             }));
         }
 
+        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
         fn line_to(&mut self, to: Vector2F) {
             self.current_contour.push(GlyphOutlineOperation::LineTo(OutlineLineTo {
                 x: to.x() as i16,
@@ -250,6 +253,7 @@ pub mod parsed {
             }));
         }
 
+        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
         fn quadratic_curve_to(&mut self, ctrl: Vector2F, to: Vector2F) {
             self.current_contour.push(GlyphOutlineOperation::QuadraticCurveTo(
                 OutlineQuadTo {
@@ -261,6 +265,7 @@ pub mod parsed {
             ));
         }
 
+        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
         fn cubic_curve_to(&mut self, ctrl: LineSegment2F, to: Vector2F) {
             self.current_contour.push(GlyphOutlineOperation::CubicCurveTo(
                 OutlineCubicTo {
@@ -928,6 +933,7 @@ pub mod parsed {
         /// `OffsetTableFontProvider` (direct `table_data` calls that lift correctly on
         /// the web backend) rather than `FontData::table_provider`'s `Box<dyn>`, whose
         /// trait-object vtable dispatch mis-lifts (wrong impl → Owned garbage → parse fail).
+        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
         fn from_provider<P: FontTableProvider>(
             provider: P,
             font_bytes: &[u8],
@@ -1017,6 +1023,7 @@ pub mod parsed {
                     //   T6164 H6164 f0 → the u32 == comparison mis-lifts
                     //   T!=6164        → read_item table_tag FIELD garbage (tuple read mis-lift)
                     //   H!=6164        → tag::HEAD const mis-lifts
+                    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
                     fn hx(m: &mut String, val: u32, nibbles: i32) {
                         let mut sh = (nibbles - 1) * 4;
                         while sh >= 0 {
@@ -1601,6 +1608,7 @@ pub mod parsed {
         /// [`ParsedFont::for_each_decoded_glyph`] or
         /// [`ParsedFont::glyph_cache_snapshot`] to observe the
         /// populated cache.
+        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
         pub fn prime_glyph_cache(&mut self) {
             let n = self.num_glyphs as usize;
             for glyph_index in 0..n {
@@ -1658,6 +1666,7 @@ pub mod parsed {
                 .map_or(&[], |b| &b.as_ref()[off..off+len])
         }
 
+        #[allow(clippy::cast_possible_wrap)] // bounded graphics/coord/font/fixed-point/debug-marker cast
         fn decode_glyph_inner(&self, gid: u16) -> OwnedGlyph {
             let _p = crate::probe::Probe::span("decode_glyph");
             // [az-web-lift] use get_horizontal_advance (reads hmtx directly on the web build)
@@ -1962,6 +1971,7 @@ pub mod parsed {
         /// `FreeType`'s behavior.
         ///
         /// Returns `None` if hinting is not available or fails.
+        #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
         pub fn get_hinted_advance_px(&self, glyph_index: u16, ppem: u16) -> Option<f32> {
             // [az-web-lift] No pixel grid-fitting on the web (measure-only): return None so the
             // caller falls back to the plain scaled advance. Hard-cfg (not a runtime `if cfg!`)
@@ -2146,6 +2156,7 @@ pub mod parsed {
         /// # Returns
         /// A tuple of (`subset_font_bytes`, `glyph_mapping`) where `glyph_mapping` maps
         /// `original_glyph_id` -> (`new_glyph_id`, `original_char`)
+        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
         pub fn subset(
             &self,
             glyph_ids: &[(u16, char)],

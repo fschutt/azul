@@ -170,6 +170,7 @@ fn render_svg_group(
 }
 
 #[cfg(all(feature = "std", feature = "xml"))]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn render_svg_group_with_style(
     node: &azul_core::xml::XmlNode,
     pixmap: &mut AzulPixmap,
@@ -325,6 +326,7 @@ fn render_svg_group_with_style(
 
 /// Build an agg `PathStorage` from an SVG shape element's attributes.
 #[cfg(all(feature = "std", feature = "xml"))]
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
     const KAPPA: f64 = 0.552_284_749_8;
     let tag = node.node_type.as_str().to_lowercase();

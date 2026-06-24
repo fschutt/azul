@@ -208,6 +208,7 @@ impl Probe {
 /// LRU stamping. Re-exported here so any caller that wants raw nanos
 /// without going through a span guard has one source of truth.
 #[inline]
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 pub fn monotonic_now_nanos() -> u64 {
     use std::sync::OnceLock;
     use std::time::Instant;
@@ -227,6 +228,7 @@ pub fn monotonic_now_nanos() -> u64 {
 ///
 /// Called by `AZ_PROFILE=cpu` dumps (both initial layout and relayout),
 /// and also by external consumers like `servo-shot --azul-trace`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 pub fn print_drained_events(label: &str, events: &[Event]) {
     use std::collections::BTreeMap;
 

@@ -144,6 +144,7 @@ fn subtree_contains_text(styled_dom: &StyledDom, dom_id: NodeId) -> bool {
 // @sub_ → enforce_sp_preservation save/restores SP around it. If new_tree survives (sizingEntry=2),
 // the inlined entry/frame-setup was mis-lifting SP. (g60's inline(always) was a no-op — already inlined.)
 #[inline(never)]
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -248,6 +249,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     fn calculate_intrinsic_recursive(
         &mut self,
         tree: &mut LayoutTree,
@@ -620,6 +622,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
     /// Calculate intrinsic sizes for an IFC root (a block containing inline content).
     /// This collects ALL inline descendants' text and measures it ONCE.
     // +spec:intrinsic-sizing:8f3c0c - hanging glyphs must be excluded from intrinsic size measurement
+    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     fn calculate_ifc_root_intrinsic_sizes(
         &mut self,
         tree: &LayoutTree,
@@ -1088,6 +1091,7 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait>(
 /// - Collects text from DOM children (text nodes may not be in layout tree)
 /// - Recursively collects from inline children (display: inline)
 /// - Treats non-inline children as atomic inline-level boxes
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn collect_inline_content_recursive<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -1161,6 +1165,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
 }
 
 /// Helper to process layout tree children for inline content collection
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn process_layout_children<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
