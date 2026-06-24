@@ -4001,6 +4001,9 @@ impl LayoutWindow {
 
     #[cfg(feature = "std")]
     /// Run all thread writeback callbacks and return raw changes + update.
+    // system_style is an Arc<SystemStyle> handed to this layout entry point by every dll backend;
+    // taking the Arc by value (one refcount) matches that boundary and avoids a cross-backend &-ripple.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn run_all_threads(
         &mut self,
         data: &mut RefAny,
@@ -5568,6 +5571,10 @@ impl LayoutWindow {
     /// 1. Stores the new content in `dirty_text_nodes` for tracking
     /// 2. Re-runs the text3 layout pipeline (`create_logical_items` -> reorder -> shape -> fragment)
     /// 3. Updates the `inline_layout_result` on the IFC root node in the layout tree
+    // called by the dll text-edit backends (event.rs/macos) with freshly-built content;
+    // it is both cloned into the dirty-node cache and re-read for relayout, so it is taken
+    // owned at this boundary rather than rippling a &[InlineContent] across the backends.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn update_text_cache_after_edit(
         &mut self,
         dom_id: DomId,

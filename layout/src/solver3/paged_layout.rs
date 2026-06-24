@@ -115,6 +115,9 @@ where
 /// * `page_config` - Configuration for page headers/footers (see `FakePageConfig`)
 /// * Other arguments same as `layout_document_paged()`
 #[cfg(feature = "text_layout")]
+// page_config is a small owned config struct passed once per paged-layout invocation by the
+// dll PDF backend and the test suite; taking it by value keeps that one-shot API ergonomic.
+#[allow(clippy::needless_pass_by_value)]
 pub fn layout_document_paged_with_config<T, F>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
