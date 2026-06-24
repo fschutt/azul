@@ -6482,6 +6482,7 @@ pub fn reorder_logical_items(
 ///
 /// This is the incremental shaping path: when one word changes in a paragraph,
 /// only that word's item misses the per-item cache; all other items hit.
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     per_item_cache: &mut HashMap<u64, Arc<PerItemShapedEntry>>,
@@ -6742,6 +6743,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 pub fn shape_visual_items<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,

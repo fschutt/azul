@@ -1953,6 +1953,7 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
 /// then Pass 2 provides R as a `known_dimension`, `get_size()` / `get_layout()`
 /// recognize R == `cached.result_size` as a cache hit. This is the fundamental
 /// mechanism ensuring O(n) total complexity across both passes.
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -2505,6 +2506,7 @@ fn calculate_subtree_hash(node_self_hash: u64, child_hashes: &[u64]) -> SubtreeH
 /// - `counter-reset` creates a new scope and sets the counter to a value
 /// - `counter-increment` increments the counter in the current scope
 /// - When leaving a subtree, counter scopes are popped
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 pub fn compute_counters(
     styled_dom: &StyledDom,
     tree: &LayoutTree,

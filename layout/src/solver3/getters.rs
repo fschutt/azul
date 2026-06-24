@@ -4184,6 +4184,7 @@ use rust_fontconfig::FontId;
 ///
 /// # Returns
 /// Set of `FontIds` that need to be loaded
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 #[must_use] pub fn compute_fonts_to_load(
     required_fonts: &HashSet<FontId>,
     already_loaded: &HashSet<FontId>,
@@ -4218,6 +4219,7 @@ pub struct FontLoadResult<T> {
 ///
 /// # Returns
 /// A `FontLoadResult` containing successfully loaded fonts and any failures
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 pub fn load_fonts_from_disk<T, F>(
     font_ids: &HashSet<FontId>,
     fc_cache: &FcFontCache,
@@ -4291,6 +4293,7 @@ where
 ///
 /// # Returns
 /// A tuple of (`ResolvedFontChains`, `FontLoadResult`)
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 pub fn resolve_and_load_fonts<T, F>(
     styled_dom: &StyledDom,
     fc_cache: &FcFontCache,

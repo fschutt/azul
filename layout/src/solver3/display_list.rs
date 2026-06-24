@@ -1719,6 +1719,7 @@ impl DisplayListBuilder {
 }
 
 /// Main entry point for generating the display list.
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     ctx: &mut LayoutContext<T>,
     tree: &LayoutTree,
