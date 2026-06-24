@@ -434,10 +434,10 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
             new_g.started = old_g.started;
             new_g.gl_texture_id = old_g.gl_texture_id;
             new_g.frames = old_g.frames.clone();
-            new_g.decode_callback = old_g.decode_callback.clone();
-            new_g.current_frame = old_g.current_frame.clone();
+            new_g.decode_callback.clone_from(&old_g.decode_callback);
+            new_g.current_frame.clone_from(&old_g.current_frame);
             new_g.thread_id = old_g.thread_id;
-            new_g.seek_sender = old_g.seek_sender.clone();
+            new_g.seek_sender.clone_from(&old_g.seek_sender);
             // Scrubbing: a changed `config.timestamp` across this relayout → tell the
             // worker to seek. Cheap wall-clock reposition (the worker already has the
             // decoded frames), result comes back as an image swap — no re-decode here.

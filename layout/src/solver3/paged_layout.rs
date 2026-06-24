@@ -481,7 +481,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
             break;
         }
 
-        calculated_positions = cache.calculated_positions.clone();
+        calculated_positions.clone_from(&cache.calculated_positions);
         let mut reflow_needed_for_scrollbars = false;
 
         crate::solver3::sizing::calculate_intrinsic_sizes(

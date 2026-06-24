@@ -3695,10 +3695,10 @@ impl StyleProperties {
             new_style.text_decoration = val.clone();
         }
         if let Some(val) = &partial.font_features {
-            new_style.font_features = val.clone();
+            new_style.font_features.clone_from(val);
         }
         if let Some(val) = &partial.font_variations {
-            new_style.font_variations = val.clone();
+            new_style.font_variations.clone_from(val);
         }
         if let Some(val) = partial.tab_size {
             new_style.tab_size = val;
@@ -3713,7 +3713,7 @@ impl StyleProperties {
             new_style.text_orientation = val;
         }
         if let Some(val) = &partial.text_combine_upright {
-            new_style.text_combine_upright = val.clone();
+            new_style.text_combine_upright.clone_from(val);
         }
         if let Some(val) = partial.font_variant_caps {
             new_style.font_variant_caps = val;

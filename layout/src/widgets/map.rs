@@ -632,7 +632,7 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
         let old_guard = old_data.downcast_mut::<MapTileCache>();
         if let (Some(new_g), Some(mut old_g)) = (new_g, old_guard) {
             if old_g.fetch_callback.is_none() {
-                old_g.fetch_callback = new_g.fetch_callback.clone();
+                old_g.fetch_callback.clone_from(&new_g.fetch_callback);
             }
             old_g.viewport = new_g.viewport;
             old_g.layer = new_g.layer.clone();

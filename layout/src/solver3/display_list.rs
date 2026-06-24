@@ -349,7 +349,7 @@ impl DisplayList {
             } = item {
                 if *src_idx == node_index
                     && run_idx < new_glyphs_by_run.len() {
-                        *glyphs = new_glyphs_by_run[run_idx].clone();
+                        glyphs.clone_from(&new_glyphs_by_run[run_idx]);
                         let bounds = *clip_rect.inner();
                         damage = Some(damage.map_or(bounds, |d| {
                                 // rect union (was crate::cpurender::union_rect, which

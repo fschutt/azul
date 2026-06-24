@@ -677,7 +677,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             use crate::window::LayoutWindow;
             let (scroll_ids, scroll_id_to_node_id) =
                 LayoutWindow::compute_scroll_ids(tree, new_dom);
-            cache.scroll_ids = scroll_ids.clone();
+            cache.scroll_ids.clone_from(&scroll_ids);
             cache.scroll_id_to_node_id = scroll_id_to_node_id;
             scroll_ids
         } else {

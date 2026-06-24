@@ -214,7 +214,7 @@ impl CompositorState {
                         if pw > 0 && ph > 0 {
                             let new_id = self.alloc_layer_id();
                             let mut layer = Layer::new(new_id, b, pw, ph);
-                            layer.filters = filters.clone();
+                            layer.filters.clone_from(filters);
                             let end = find_matching_pop(&display_list.items, i, MatchKind::Filter);
                             layer.display_list_range = (i + 1, end);
                             self.layers.insert(new_id, layer);
