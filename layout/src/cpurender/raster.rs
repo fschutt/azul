@@ -1,3 +1,4 @@
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use super::*;
 
 use std::collections::HashMap;

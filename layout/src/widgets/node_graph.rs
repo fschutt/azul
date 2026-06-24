@@ -25,6 +25,7 @@ use azul_core::{
     svg::{SvgPath, SvgPathElement, SvgStrokeStyle, TessellatedGPUSvgNode},
     window::CursorPosition::InWindow,
 };
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -1053,6 +1054,7 @@ fn render_node(
         CssPropertyWithConditions, CssPropertyWithConditionsVec, Dom, DomVec, IdOrClass,
         IdOrClass::Class, IdOrClassVec,
     };
+    #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
     use azul_css::*;
 
     const STRING_9416190750059025162: AzString = AzString::from_const_str("Material Icons");

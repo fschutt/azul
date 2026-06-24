@@ -2361,6 +2361,7 @@ fn collect_box_props(
     viewport_size: LogicalSize,
 ) -> CollectedBoxProps {
     use crate::solver3::geometry::{UnresolvedBoxProps, UnresolvedEdge, UnresolvedMargin};
+    #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
     use crate::solver3::getters::*;
     use azul_css::props::style::border::BorderStyle;
     // before create_node step A is the diverging call.

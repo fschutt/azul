@@ -807,6 +807,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         // Grid container props: only if this node has display:grid.
         // Grid item props: only if parent has display:grid.
         let (self_is_grid, parent_is_grid) = cache.compact_cache.as_ref().map_or((false, false), |cc| {
+            #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
             use azul_css::compact_cache::*;
             let self_t1 = cc.tier1_enums[id.index()];
             let self_display = ((self_t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
@@ -922,6 +923,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 .and_then(|p| if let CssProperty::GridAutoFlow(v) = p { Some(*v) } else { None })
                 .map(grid_auto_flow_to_taffy)
                 .unwrap_or_default(), |cc| {
+            #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
             use azul_css::compact_cache::*;
             let bits = ((cc.tier1_enums[id.index()] >> GRID_AUTO_FLOW_SHIFT) & GRID_AUTO_FLOW_MASK) as u8;
             let val = layout_grid_auto_flow_from_u8(bits);
@@ -987,6 +989,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 .get_property(node_data, &id, node_state, &CssPropertyType::JustifyItems)
                 .and_then(|p| if let CssProperty::JustifyItems(v) = p { Some(*v) } else { None })
                 .map(layout_justify_items_to_taffy), |cc| {
+            #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
             use azul_css::compact_cache::*;
             use azul_css::props::layout::grid::LayoutJustifyItems;
             let bits = ((cc.tier1_enums[id.index()] >> JUSTIFY_ITEMS_SHIFT) & JUSTIFY_ITEMS_MASK) as u8;
@@ -1003,6 +1006,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
                 .and_then(|p| if let CssProperty::JustifyContent(v) = p { Some(v) } else { None })
                 .map(|v| layout_justify_content_to_taffy(*v)), |cc| {
+            #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
             use azul_css::compact_cache::*;
             use azul_css::props::layout::LayoutJustifyContent;
             let bits = ((cc.tier1_enums[id.index()] >> JUSTIFY_CONTENT_SHIFT) & JUSTIFY_MASK) as u8;
@@ -1089,6 +1093,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         taffy_style.align_self = cache.compact_cache.as_ref().map_or_else(|| cache
                 .get_property(node_data, &id, node_state, &CssPropertyType::AlignSelf)
                 .and_then(|p| if let CssProperty::AlignSelf(v) = p { layout_align_self_to_taffy(*v) } else { None }), |cc| {
+            #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
             use azul_css::compact_cache::*;
             let bits = ((cc.tier1_enums[id.index()] >> ALIGN_SELF_SHIFT) & ALIGN_SELF_MASK) as u8;
             let val = layout_align_self_from_u8(bits);
@@ -1113,6 +1118,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                         LayoutJustifySelf::Stretch => Some(AlignSelf::Stretch),
                     }
                 } else { None }), |cc| {
+            #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
             use azul_css::compact_cache::*;
             use azul_css::props::layout::grid::LayoutJustifySelf;
             let bits = ((cc.tier1_enums[id.index()] >> JUSTIFY_SELF_SHIFT) & JUSTIFY_SELF_MASK) as u8;
