@@ -1445,6 +1445,7 @@ pub struct WindowSize {
 }
 
 impl WindowSize {
+    #[allow(clippy::cast_possible_truncation)] // bounded DPI/dimension/number conversion
     #[must_use] pub fn get_layout_size(&self) -> LayoutSize {
         LayoutSize::new(
             libm::roundf(self.dimensions.width) as isize,
@@ -1462,6 +1463,7 @@ impl WindowSize {
             .to_physical(self.get_hidpi_factor().inner.get())
     }
 
+    #[allow(clippy::cast_precision_loss)] // bounded DPI/dimension/number conversion
     #[must_use] pub fn get_hidpi_factor(&self) -> DpiScaleFactor {
         DpiScaleFactor {
             inner: FloatValue::new(self.dpi as f32 / 96.0),

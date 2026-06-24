@@ -761,6 +761,7 @@ impl LayoutCallbackInfo {
     }
 
     /// Returns the current window DPI scale factor (1.0 = 96 DPI, 2.0 = 192 DPI)
+    #[allow(clippy::cast_precision_loss)] // bounded DPI/dimension/number conversion
     #[must_use] pub fn get_dpi_factor(&self) -> f32 {
         self.window_size.dpi as f32 / 96.0
     }
@@ -779,6 +780,7 @@ pub struct HidpiAdjustedBounds {
 
 impl HidpiAdjustedBounds {
     #[inline]
+    #[allow(clippy::cast_precision_loss)] // bounded DPI/dimension/number conversion
     #[must_use] pub const fn from_bounds(bounds: LayoutSize, hidpi_factor: DpiScaleFactor) -> Self {
         let logical_size = LogicalSize::new(bounds.width as f32, bounds.height as f32);
         Self {

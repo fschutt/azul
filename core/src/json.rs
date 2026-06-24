@@ -187,6 +187,7 @@ impl_option!(i64, OptionI64, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord
 /// overflow.  The upper bound uses `< 2^63` (not `<= i64::MAX as f64`)
 /// because `i64::MAX` cannot be represented exactly in `f64` — the cast
 /// rounds up to `2^63`, which would cause overflow on `n as i64`.
+#[allow(clippy::cast_possible_truncation)] // bounded DPI/dimension/number conversion
 fn f64_as_i64(n: f64) -> Option<i64> {
     if n.fract() == 0.0 && n >= -(2_f64.powi(63)) && n < 2_f64.powi(63) {
         Some(n as i64)
@@ -236,6 +237,7 @@ impl Json {
     ///
     /// **Note:** the value is stored as `f64` internally, so `i64` values with
     /// magnitude greater than 2^53 will lose precision silently.
+    #[allow(clippy::cast_precision_loss)] // bounded DPI/dimension/number conversion
     #[must_use] pub fn integer(value: i64) -> Self {
         Self {
             value_type: JsonType::Number,

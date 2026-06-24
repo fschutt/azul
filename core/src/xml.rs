@@ -5386,7 +5386,7 @@ fn apply_xml_node_attributes(
     {
         match tab_index {
             0 => node.set_tab_index(TabIndex::Auto),
-            i if i > 0 => node.set_tab_index(TabIndex::OverrideInParent(i as u32)),
+            i if i > 0 => node.set_tab_index(TabIndex::OverrideInParent(u32::try_from(i).unwrap_or(u32::MAX))),
             _ => node.set_tab_index(TabIndex::NoKeyboardFocus),
         }
     }
@@ -5865,7 +5865,7 @@ fn set_stringified_attributes(
             0 => { let _ = write!(dom_string, "\r\n{t}.with_tab_index(TabIndex::Auto)"); },
             i if i > 0 => { let _ = write!(dom_string,
                 "\r\n{}.with_tab_index(TabIndex::OverrideInParent({}))",
-                t, i as usize
+                t, usize::try_from(i).unwrap_or(0)
             ); },
             _ => { let _ = write!(dom_string,
                 "\r\n{t}.with_tab_index(TabIndex::NoKeyboardFocus)"
