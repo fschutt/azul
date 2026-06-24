@@ -932,10 +932,10 @@ impl ExtractPropertyValue<LayoutClear> for CssProperty {
 impl ExtractPropertyValue<LayoutOverflow> for CssProperty {
     fn extract(&self) -> Option<LayoutOverflow> {
         match self {
-            Self::OverflowX(CssPropertyValue::Exact(v)) => Some(*v),
-            Self::OverflowY(CssPropertyValue::Exact(v)) => Some(*v),
-            Self::OverflowBlock(CssPropertyValue::Exact(v)) => Some(*v),
-            Self::OverflowInline(CssPropertyValue::Exact(v)) => Some(*v),
+            Self::OverflowX(CssPropertyValue::Exact(v))
+            | Self::OverflowY(CssPropertyValue::Exact(v))
+            | Self::OverflowBlock(CssPropertyValue::Exact(v))
+            | Self::OverflowInline(CssPropertyValue::Exact(v)) => Some(*v),
             _ => None,
         }
     }

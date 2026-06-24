@@ -743,7 +743,10 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                 &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state,
             );
             match width.unwrap_or_default() {
-                LayoutWidth::Auto => (None, false),
+                LayoutWidth::Auto
+                | LayoutWidth::MinContent
+                | LayoutWidth::MaxContent
+                | LayoutWidth::FitContent(_) => (None, false),
                 LayoutWidth::Px(px) => {
                     let pixels = resolve_size_metric(
                         px.metric,
@@ -753,7 +756,6 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                     );
                     (Some(pixels), true)
                 }
-                LayoutWidth::MinContent | LayoutWidth::MaxContent | LayoutWidth::FitContent(_) => (None, false),
                 LayoutWidth::Calc(items) => {
                     let node_state = &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state;
                     let em = get_element_font_size(ctx.styled_dom, id, node_state);
@@ -781,7 +783,10 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                 &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state,
             );
             match height.unwrap_or_default() {
-                LayoutHeight::Auto => (None, false),
+                LayoutHeight::Auto
+                | LayoutHeight::MinContent
+                | LayoutHeight::MaxContent
+                | LayoutHeight::FitContent(_) => (None, false),
                 LayoutHeight::Px(px) => {
                     let pixels = resolve_size_metric(
                         px.metric,
@@ -791,7 +796,6 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                     );
                     (Some(pixels), true)
                 }
-                LayoutHeight::MinContent | LayoutHeight::MaxContent | LayoutHeight::FitContent(_) => (None, false),
                 LayoutHeight::Calc(items) => {
                     let node_state = &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state;
                     let em = get_element_font_size(ctx.styled_dom, id, node_state);
@@ -3668,12 +3672,11 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         _ => StyleWhiteSpace::Normal,
     };
     let text_wrap = match resolved_ws {
-        StyleWhiteSpace::Normal => text3::cache::TextWrap::Wrap,
-        StyleWhiteSpace::Nowrap => text3::cache::TextWrap::NoWrap,
-        StyleWhiteSpace::Pre => text3::cache::TextWrap::NoWrap,
-        StyleWhiteSpace::PreWrap => text3::cache::TextWrap::Wrap,
-        StyleWhiteSpace::PreLine => text3::cache::TextWrap::Wrap,
-        StyleWhiteSpace::BreakSpaces => text3::cache::TextWrap::Wrap,
+        StyleWhiteSpace::Normal
+        | StyleWhiteSpace::PreWrap
+        | StyleWhiteSpace::PreLine
+        | StyleWhiteSpace::BreakSpaces => text3::cache::TextWrap::Wrap,
+        StyleWhiteSpace::Nowrap | StyleWhiteSpace::Pre => text3::cache::TextWrap::NoWrap,
     };
     let white_space_mode = match resolved_ws {
         StyleWhiteSpace::Normal => text3::cache::WhiteSpaceMode::Normal,
@@ -3944,10 +3947,13 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         // +spec:text-alignment-spacing:01244f - text-justify: none disables justification, auto uses inter-word as universal default
         text_justify: match text_justify {
             LayoutTextJustify::None => text3::cache::JustifyContent::None,
-            LayoutTextJustify::Auto => text3::cache::JustifyContent::InterWord,
-            LayoutTextJustify::InterWord => text3::cache::JustifyContent::InterWord,
-            LayoutTextJustify::InterCharacter => text3::cache::JustifyContent::InterCharacter,
-            LayoutTextJustify::Distribute => text3::cache::JustifyContent::InterCharacter, // distribute computes to inter-character
+            LayoutTextJustify::Auto | LayoutTextJustify::InterWord => {
+                text3::cache::JustifyContent::InterWord
+            }
+            // distribute computes to inter-character
+            LayoutTextJustify::InterCharacter | LayoutTextJustify::Distribute => {
+                text3::cache::JustifyContent::InterCharacter
+            }
         },
         // +spec:line-height:79f3aa - line-height resolved: normal defaults to 1.2, <number>/<percentage> × font-size
         // Negative normalized() = absolute px value (convention from parser for "50px" etc.)
