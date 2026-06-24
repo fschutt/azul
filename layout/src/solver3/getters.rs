@@ -2660,19 +2660,19 @@ pub fn get_style_properties(
                 }
             }
         }
-        if let Some(fs) = fast_font_size {
-            fs
-        } else if compact_said_inherit {
-            parent_font_size
-        } else {
-            cache
-                .get_font_size(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property().copied())
-                .map_or(parent_font_size, |v| {
-                    v.inner
-                        .resolve_with_context(&font_size_context, PropertyContext::FontSize)
-                })
-        }
+        fast_font_size.unwrap_or_else(|| {
+            if compact_said_inherit {
+                parent_font_size
+            } else {
+                cache
+                    .get_font_size(node_data, &dom_id, node_state)
+                    .and_then(|v| v.get_property().copied())
+                    .map_or(parent_font_size, |v| {
+                        v.inner
+                            .resolve_with_context(&font_size_context, PropertyContext::FontSize)
+                    })
+            }
+        })
     };
 
     let color_from_cache = {
@@ -2804,21 +2804,22 @@ pub fn get_style_properties(
             _ => None,
         });
 
-        if let Some(font_ref) = font_ref {
-            FontStack::Ref(font_ref)
-        } else {
-            // Get platform for resolving system font types. None on the paged /
-            // PDF layout path (system_style is hard-coded None there);
-            // build_font_selector_stack then resolves via Platform::current() so
-            // the names stay in lock-step with the font-loading pass.
-            let platform = system_style.map(|ss| &ss.platform);
-            FontStack::Stack(build_font_selector_stack(
-                &font_families,
-                platform,
-                fc_weight,
-                fc_style,
-            ))
-        }
+        font_ref.map_or_else(
+            || {
+                // Get platform for resolving system font types. None on the paged /
+                // PDF layout path (system_style is hard-coded None there);
+                // build_font_selector_stack then resolves via Platform::current() so
+                // the names stay in lock-step with the font-loading pass.
+                let platform = system_style.map(|ss| &ss.platform);
+                FontStack::Stack(build_font_selector_stack(
+                    &font_families,
+                    platform,
+                    fc_weight,
+                    fc_style,
+                ))
+            },
+            FontStack::Ref,
+        )
     };
 
     // Get letter-spacing from CSS
@@ -3289,6 +3290,10 @@ use crate::text3::cache::{FontChainKey, FontChainKeyOrRef, FontSelector, FontSta
 /// names stay in lock-step with the font-loading pass (which always uses
 /// `Platform::current()`); diverging to a bare "sans-serif" would not match the
 /// names the loader registered → zero glyphs → text collapses to 0 width.
+// The `platform` binding uses a pre-declared `let current;` so the else branch can
+// extend the lifetime of a freshly-computed Platform and hand back a reference to it;
+// map_or_else cannot express this (the closure would return a dangling local ref).
+#[allow(clippy::option_if_let_else)]
 fn build_font_selector_stack(
     font_families: &StyleFontFamilyVec,
     platform: Option<&azul_css::system::Platform>,
@@ -3880,25 +3885,28 @@ pub fn prune_chain_to_used_chars(
 
         // Registry-aware resolve: scout-on-demand path when available.
         // See `resolve_font_chains_with_registry` doc for rationale.
-        let chain = if let Some(reg) = registry {
-            reg.request_and_resolve_with_scripts(
-                &font_families,
-                weight,
-                italic,
-                oblique,
-                scripts_hint,
-            )
-        } else {
-            let mut trace = Vec::new();
-            fc_cache.resolve_font_chain_with_scripts(
-                &font_families,
-                weight,
-                italic,
-                oblique,
-                scripts_hint,
-                &mut trace,
-            )
-        };
+        let chain = registry.map_or_else(
+            || {
+                let mut trace = Vec::new();
+                fc_cache.resolve_font_chain_with_scripts(
+                    &font_families,
+                    weight,
+                    italic,
+                    oblique,
+                    scripts_hint,
+                    &mut trace,
+                )
+            },
+            |reg| {
+                reg.request_and_resolve_with_scripts(
+                    &font_families,
+                    weight,
+                    italic,
+                    oblique,
+                    scripts_hint,
+                )
+            },
+        );
 
         // WEB-LIFT last resort (in azul-layout, NOT rust-fontconfig — so the fragile
         // `with_memory_fonts` isn't re-codegen'd into a trapping shape): the lifted
@@ -4504,10 +4512,10 @@ impl ComputedScrollbarStyle {
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
     // Step 1: Evaluate UA scrollbar CSS using the DynamicSelector system.
-    let ctx = match system_style {
-        Some(sys) => azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(sys),
-        None => azul_css::dynamic_selector::DynamicSelectorContext::default(),
-    };
+    let ctx = system_style.map_or_else(
+        azul_css::dynamic_selector::DynamicSelectorContext::default,
+        azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
+    );
     let ua = azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx);
     let result = ComputedScrollbarStyle::from_ua_resolved(&ua);
 
