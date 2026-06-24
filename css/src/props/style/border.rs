@@ -290,6 +290,9 @@ impl CssBorderStyleParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-style` value.
 pub fn parse_border_style(input: &str) -> Result<BorderStyle, CssBorderStyleParseError<'_>> {
     match input.trim() {
         "none" => Ok(BorderStyle::None),
@@ -462,6 +465,9 @@ fn parse_border_width_value(
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-top-width` value.
 pub fn parse_border_top_width(
     input: &str,
 ) -> Result<LayoutBorderTopWidth, CssPixelValueParseError<'_>> {
@@ -469,6 +475,9 @@ pub fn parse_border_top_width(
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-right-width` value.
 pub fn parse_border_right_width(
     input: &str,
 ) -> Result<LayoutBorderRightWidth, CssPixelValueParseError<'_>> {
@@ -476,6 +485,9 @@ pub fn parse_border_right_width(
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-bottom-width` value.
 pub fn parse_border_bottom_width(
     input: &str,
 ) -> Result<LayoutBorderBottomWidth, CssPixelValueParseError<'_>> {
@@ -483,6 +495,9 @@ pub fn parse_border_bottom_width(
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-left-width` value.
 pub fn parse_border_left_width(
     input: &str,
 ) -> Result<LayoutBorderLeftWidth, CssPixelValueParseError<'_>> {
@@ -490,24 +505,36 @@ pub fn parse_border_left_width(
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-top-style` value.
 pub fn parse_border_top_style(
     input: &str,
 ) -> Result<StyleBorderTopStyle, CssBorderStyleParseError<'_>> {
     parse_border_style(input).map(|inner| StyleBorderTopStyle { inner })
 }
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-right-style` value.
 pub fn parse_border_right_style(
     input: &str,
 ) -> Result<StyleBorderRightStyle, CssBorderStyleParseError<'_>> {
     parse_border_style(input).map(|inner| StyleBorderRightStyle { inner })
 }
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-bottom-style` value.
 pub fn parse_border_bottom_style(
     input: &str,
 ) -> Result<StyleBorderBottomStyle, CssBorderStyleParseError<'_>> {
     parse_border_style(input).map(|inner| StyleBorderBottomStyle { inner })
 }
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-left-style` value.
 pub fn parse_border_left_style(
     input: &str,
 ) -> Result<StyleBorderLeftStyle, CssBorderStyleParseError<'_>> {
@@ -515,24 +542,36 @@ pub fn parse_border_left_style(
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-top-color` value.
 pub fn parse_border_top_color(
     input: &str,
 ) -> Result<StyleBorderTopColor, CssColorParseError<'_>> {
     parse_css_color(input).map(|inner| StyleBorderTopColor { inner })
 }
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-right-color` value.
 pub fn parse_border_right_color(
     input: &str,
 ) -> Result<StyleBorderRightColor, CssColorParseError<'_>> {
     parse_css_color(input).map(|inner| StyleBorderRightColor { inner })
 }
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-bottom-color` value.
 pub fn parse_border_bottom_color(
     input: &str,
 ) -> Result<StyleBorderBottomColor, CssColorParseError<'_>> {
     parse_css_color(input).map(|inner| StyleBorderBottomColor { inner })
 }
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-left-color` value.
 pub fn parse_border_left_color(
     input: &str,
 ) -> Result<StyleBorderLeftColor, CssColorParseError<'_>> {
@@ -557,6 +596,9 @@ pub struct StyleBorderColors {
 /// - 3 values: top, left/right, bottom
 /// - 4 values: top, right, bottom, left
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-color` value.
 pub fn parse_style_border_color(
     input: &str,
 ) -> Result<StyleBorderColors, CssColorParseError<'_>> {
@@ -624,6 +666,9 @@ pub struct StyleBorderStyles {
 
 /// Parses `border-style` shorthand: 1-4 style values
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-style` value.
 pub fn parse_style_border_style(
     input: &str,
 ) -> Result<StyleBorderStyles, CssBorderStyleParseError<'_>> {
@@ -691,6 +736,9 @@ pub struct StyleBorderWidths {
 
 /// Parses `border-width` shorthand: 1-4 width values
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-width` value.
 pub fn parse_style_border_width(
     input: &str,
 ) -> Result<StyleBorderWidths, CssPixelValueParseError<'_>> {
@@ -746,6 +794,9 @@ pub fn parse_style_border_width(
 
 // Compatibility alias
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border` value.
 pub fn parse_style_border(input: &str) -> Result<StyleBorderSide, CssBorderParseError<'_>> {
     parse_border_side(input)
 }

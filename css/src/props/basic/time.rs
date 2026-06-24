@@ -74,6 +74,9 @@ impl DurationParseErrorOwned {
 
 /// Parses a CSS duration string (e.g. `"200ms"`, `"1.5s"`) into a [`CssDuration`].
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `duration` value.
 pub fn parse_duration(input: &str) -> Result<CssDuration, DurationParseError<'_>> {
     let trimmed = input.trim().to_lowercase();
     if trimmed == "0" {

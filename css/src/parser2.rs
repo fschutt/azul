@@ -770,6 +770,9 @@ impl CssPathParseErrorOwned {
 ///     })
 /// );
 /// ```
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `css-path` value.
 pub fn parse_css_path(input: &str) -> Result<CssPath, CssPathParseError<'_>> {
     use azul_simplecss::{Combinator, Token};
 
@@ -1757,6 +1760,9 @@ fn parse_declaration_resilient<'a>(
 /// Unknown property keys are downgraded to warnings (pushed into `warnings`)
 /// rather than causing a hard error, so callers can continue processing the
 /// remaining declarations in a rule block.
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `css-declaration` value.
 pub fn parse_css_declaration<'a>(
     unparsed_css_key: &'a str,
     unparsed_css_value: &'a str,

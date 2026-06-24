@@ -612,6 +612,9 @@ pub mod parser {
     // -- Parser Implementation --
 
     /// Parses a space-separated list of filter functions.
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `filter-vec` value.
     pub fn parse_style_filter_vec(
         input: &str,
     ) -> Result<StyleFilterVec, CssStyleFilterParseError<'_>> {
@@ -661,6 +664,9 @@ pub mod parser {
     }
 
     /// Parses a single filter function string, like `blur(5px)`.
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `filter` value.
     pub fn parse_style_filter(
         input: &str,
     ) -> Result<StyleFilter, CssStyleFilterParseError<'_>> {

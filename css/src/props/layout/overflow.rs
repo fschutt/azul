@@ -155,6 +155,9 @@ impl LayoutOverflowParseErrorOwned {
 
 #[cfg(feature = "parser")]
 /// Parses a `LayoutOverflow` from a string slice.
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `overflow` value.
 pub fn parse_layout_overflow(
     input: &str,
 ) -> Result<LayoutOverflow, LayoutOverflowParseError<'_>> {
@@ -246,6 +249,9 @@ impl StyleScrollbarGutterParseErrorOwned {
 
 #[cfg(feature = "parser")]
 /// Parses a `StyleScrollbarGutter` from a string slice.
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `scrollbar-gutter` value.
 pub fn parse_style_scrollbar_gutter(
     input: &str,
 ) -> Result<StyleScrollbarGutter, StyleScrollbarGutterParseError<'_>> {
@@ -366,6 +372,9 @@ impl StyleOverflowClipMarginParseErrorOwned {
 /// Syntax: `<visual-box> || <length [0,∞]>`
 /// The `<visual-box>` defaults to `padding-box` if omitted.
 /// The `<length>` defaults to `0px` if omitted.
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `overflow-clip-margin` value.
 pub fn parse_style_overflow_clip_margin(
     input: &str,
 ) -> Result<StyleOverflowClipMargin, StyleOverflowClipMarginParseError<'_>> {
@@ -540,6 +549,9 @@ fn parse_clip_edge(token: &str) -> Result<OptionF32, StyleClipRectParseError<'_>
 /// - `rect(<top> <right> <bottom> <left>)` — legacy space-separated form.
 ///
 /// Each edge is either `auto` or a `<length>`. Negative lengths are permitted.
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `clip-rect` value.
 pub fn parse_clip_rect(input: &str) -> Result<StyleClipRect, StyleClipRectParseError<'_>> {
     let trimmed = input.trim();
 

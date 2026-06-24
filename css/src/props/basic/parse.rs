@@ -189,6 +189,9 @@ impl ParenthesisParseErrorOwned {
 ///     Ok(("abc", "def(g)"))
 /// );
 /// ```
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `parentheses` value.
 pub fn parse_parentheses<'a>(
     input: &'a str,
     stopwords: &[&'static str],
@@ -319,6 +322,9 @@ impl CssImageParseErrorOwned {
 
 /// A string slice that has been stripped of its quotes.
 /// In CSS, quotes are optional in `url()` so we accept both quoted and unquoted strings.
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `image` value.
 pub fn parse_image(input: &str) -> Result<AzString, CssImageParseError<'_>> {
     Ok(strip_quotes(input).map_or_else(|_| input.trim().into(), |stripped| stripped.0.into()))
 }

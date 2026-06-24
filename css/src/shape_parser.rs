@@ -47,6 +47,9 @@ impl core::fmt::Display for ShapeParseError {
 }
 
 /// Parses a CSS shape value
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `shape` value.
 pub fn parse_shape(input: &str) -> Result<CssShape, ShapeParseError> {
     let input = input.trim();
 

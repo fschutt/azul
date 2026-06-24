@@ -193,6 +193,9 @@ impl CssShadowParseErrorOwned {
 /// `CssPropertyValue` enum wrapper. It also does not handle comma-separated lists
 /// of multiple shadows; it only parses a single shadow value.
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `box-shadow` value.
 pub fn parse_style_box_shadow(
     input: &str,
 ) -> Result<StyleBoxShadow, CssShadowParseError<'_>> {

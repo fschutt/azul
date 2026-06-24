@@ -163,6 +163,9 @@ impl StyleListStyleTypeParseErrorOwned {
 
 /// Parses a CSS `list-style-type` value from a string.
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `list-style-type` value.
 pub fn parse_style_list_style_type(
     input: &str,
 ) -> Result<StyleListStyleType, StyleListStyleTypeParseError<'_>> {
@@ -227,6 +230,9 @@ impl StyleListStylePositionParseErrorOwned {
 
 /// Parses a CSS `list-style-position` value from a string.
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `list-style-position` value.
 pub fn parse_style_list_style_position(
     input: &str,
 ) -> Result<StyleListStylePosition, StyleListStylePositionParseError<'_>> {

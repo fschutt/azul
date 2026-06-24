@@ -908,6 +908,9 @@ impl LayoutScrollbarWidthParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `scrollbar-width` value.
 pub fn parse_layout_scrollbar_width(
     input: &str,
 ) -> Result<LayoutScrollbarWidth, LayoutScrollbarWidthParseError<'_>> {
@@ -957,6 +960,9 @@ impl StyleScrollbarColorParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `scrollbar-color` value.
 pub fn parse_style_scrollbar_color(
     input: &str,
 ) -> Result<StyleScrollbarColor, StyleScrollbarColorParseError<'_>> {
@@ -1018,6 +1024,9 @@ impl ScrollbarVisibilityModeParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `scrollbar-visibility-mode` value.
 pub fn parse_scrollbar_visibility_mode(
     input: &str,
 ) -> Result<ScrollbarVisibilityMode, ScrollbarVisibilityModeParseError<'_>> {
@@ -1066,6 +1075,9 @@ fn parse_time_ms(input: &str) -> Option<u32> {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `scrollbar-fade-delay` value.
 pub fn parse_scrollbar_fade_delay(
     input: &str,
 ) -> Result<ScrollbarFadeDelay, ScrollbarFadeDelayParseError<'_>> {
@@ -1106,6 +1118,9 @@ impl ScrollbarFadeDurationParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `scrollbar-fade-duration` value.
 pub fn parse_scrollbar_fade_duration(
     input: &str,
 ) -> Result<ScrollbarFadeDuration, ScrollbarFadeDurationParseError<'_>> {

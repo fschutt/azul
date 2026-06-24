@@ -267,6 +267,9 @@ impl CssAngleValueParseErrorOwned {
 /// Parse a CSS angle value string (e.g. `"90deg"`, `"1.57rad"`, `"0.5turn"`, `"50%"`).
 /// A bare number without a unit suffix is interpreted as degrees.
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `angle-value` value.
 pub fn parse_angle_value(input: &str) -> Result<AngleValue, CssAngleValueParseError<'_>> {
     let input = input.trim();
 

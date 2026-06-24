@@ -548,6 +548,9 @@ pub mod parser {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `box-sizing` value.
     pub fn parse_layout_box_sizing(
         input: &str,
     ) -> Result<LayoutBoxSizing, LayoutBoxSizingParseError<'_>> {

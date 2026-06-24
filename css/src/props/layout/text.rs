@@ -86,6 +86,9 @@ impl TextJustifyParseErrorOwned {
 }
 
 /// Parses a `text-justify` CSS value string into a [`LayoutTextJustify`].
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-justify` value.
 pub fn parse_layout_text_justify(
     input: &str,
 ) -> Result<LayoutTextJustify, TextJustifyParseError<'_>> {

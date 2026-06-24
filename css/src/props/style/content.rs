@@ -194,6 +194,9 @@ pub mod parser {
     use super::*;
 
     // Simplified parsers that just take the raw string value.
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `content` value.
     pub fn parse_content(input: &str) -> Result<Content, ()> {
         Ok(Content {
             inner: input.trim().into(),
@@ -223,16 +226,25 @@ pub mod parser {
         Ok((counter_name, value))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `counter-reset` value.
     pub fn parse_counter_reset(input: &str) -> Result<CounterReset, ()> {
         let (counter_name, value) = parse_counter_name_value(input, 0)?;
         Ok(CounterReset::new(counter_name, value))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `counter-increment` value.
     pub fn parse_counter_increment(input: &str) -> Result<CounterIncrement, ()> {
         let (counter_name, value) = parse_counter_name_value(input, 1)?;
         Ok(CounterIncrement::new(counter_name, value))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `string-set` value.
     pub fn parse_string_set(input: &str) -> Result<StringSet, ()> {
         Ok(StringSet {
             inner: input.trim().into(),

@@ -1077,6 +1077,9 @@ pub mod parser {
     // -- Top-level Parsers for background-* properties --
 
     /// Parses multiple backgrounds, such as "linear-gradient(red, green), url(image.png)".
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-content-multiple` value.
     pub fn parse_style_background_content_multiple(
         input: &str,
     ) -> Result<StyleBackgroundContentVec, CssBackgroundParseError<'_>> {
@@ -1088,6 +1091,9 @@ pub mod parser {
     }
 
     /// Parses a single background value, which can be a color, image, or gradient.
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-content` value.
     pub fn parse_style_background_content(
         input: &str,
     ) -> Result<StyleBackgroundContent, CssBackgroundParseError<'_>> {
@@ -1134,6 +1140,9 @@ pub mod parser {
     }
 
     /// Parses multiple `background-position` values.
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-position-multiple` value.
     pub fn parse_style_background_position_multiple(
         input: &str,
     ) -> Result<StyleBackgroundPositionVec, CssBackgroundPositionParseError<'_>> {
@@ -1145,6 +1154,9 @@ pub mod parser {
     }
 
     /// Parses a single `background-position` value.
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-position` value.
     pub fn parse_style_background_position(
         input: &str,
     ) -> Result<StyleBackgroundPosition, CssBackgroundPositionParseError<'_>> {
@@ -1192,6 +1204,9 @@ pub mod parser {
     }
 
     /// Parses multiple `background-size` values.
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-size-multiple` value.
     pub fn parse_style_background_size_multiple(
         input: &str,
     ) -> Result<StyleBackgroundSizeVec, InvalidValueErr<'_>> {
@@ -1203,6 +1218,9 @@ pub mod parser {
     }
 
     /// Parses a single `background-size` value.
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-size` value.
     pub fn parse_style_background_size(
         input: &str,
     ) -> Result<StyleBackgroundSize, InvalidValueErr<'_>> {
@@ -1227,6 +1245,9 @@ pub mod parser {
     }
 
     /// Parses multiple `background-repeat` values.
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-repeat-multiple` value.
     pub fn parse_style_background_repeat_multiple(
         input: &str,
     ) -> Result<StyleBackgroundRepeatVec, InvalidValueErr<'_>> {
@@ -1238,6 +1259,9 @@ pub mod parser {
     }
 
     /// Parses a single `background-repeat` value.
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-repeat` value.
     pub fn parse_style_background_repeat(
         input: &str,
     ) -> Result<StyleBackgroundRepeat, InvalidValueErr<'_>> {

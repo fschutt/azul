@@ -2967,6 +2967,9 @@ impl CssParsingErrorOwned {
 
 #[cfg(feature = "parser")]
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `css-property` value.
 pub fn parse_css_property(
     key: CssPropertyType,
     value: &str,
@@ -3401,6 +3404,9 @@ pub fn parse_css_property(
 /// ```
 #[cfg(feature = "parser")]
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `combined-css-property` value.
 pub fn parse_combined_css_property(
     key: CombinedCssPropertyType,
     value: &str,

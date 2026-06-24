@@ -361,6 +361,9 @@ fn split_respecting_parens(input: &str) -> Result<Vec<String>, ()> {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `grid-template` value.
 pub fn parse_grid_template(input: &str) -> Result<GridTemplate, GridParseError<'_>> {
     use crate::props::basic::pixel::parse_pixel_value;
 
@@ -487,6 +490,9 @@ fn parse_grid_track_owned(input: &str) -> Result<GridTrackSizing, ()> {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `grid-placement` value.
 pub fn parse_grid_placement(input: &str) -> Result<GridPlacement, GridParseError<'_>> {
     let input = input.trim();
 
@@ -580,6 +586,9 @@ impl GridAutoFlowParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `grid-auto-flow` value.
 pub fn parse_layout_grid_auto_flow(
     input: &str,
 ) -> Result<LayoutGridAutoFlow, GridAutoFlowParseError<'_>> {
@@ -663,6 +672,9 @@ impl_display! { JustifySelfParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `justify-self` value.
 pub fn parse_layout_justify_self(
     input: &str,
 ) -> Result<LayoutJustifySelf, JustifySelfParseError<'_>> {
@@ -743,6 +755,9 @@ impl_display! { JustifyItemsParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `justify-items` value.
 pub fn parse_layout_justify_items(
     input: &str,
 ) -> Result<LayoutJustifyItems, JustifyItemsParseError<'_>> {
@@ -877,6 +892,9 @@ impl FormatAsRustCode for GridTemplateAreas {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `gap` value.
 pub fn parse_layout_gap(
     input: &str,
 ) -> Result<LayoutGap, crate::props::basic::pixel::CssPixelValueParseError<'_>> {
@@ -884,6 +902,9 @@ pub fn parse_layout_gap(
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `grid-line-owned` value.
 pub fn parse_grid_line_owned(input: &str) -> Result<GridLine, ()> {
     let input = input.trim();
 
@@ -1253,6 +1274,9 @@ impl PrintAsCssValue for GridTemplateAreas {
 /// Returns a `GridTemplateAreas` with deduplicated named areas and their
 /// computed row/column line boundaries (1-based, as taffy expects).
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `grid-template-areas` value.
 pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
     use alloc::collections::BTreeMap;
     let input = input.trim();

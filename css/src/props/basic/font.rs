@@ -424,6 +424,9 @@ impl CssFontWeightParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `font-weight` value.
 pub fn parse_font_weight(
     input: &str,
 ) -> Result<StyleFontWeight, CssFontWeightParseError<'_>> {
@@ -477,6 +480,9 @@ impl CssFontStyleParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `font-style` value.
 pub fn parse_font_style(input: &str) -> Result<StyleFontStyle, CssFontStyleParseError<'_>> {
     match input.trim() {
         "normal" => Ok(StyleFontStyle::Normal),
@@ -519,6 +525,9 @@ impl CssStyleFontSizeParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `font-size` value.
 pub fn parse_style_font_size(
     input: &str,
 ) -> Result<StyleFontSize, CssStyleFontSizeParseError<'_>> {
@@ -577,6 +586,9 @@ impl CssStyleFontFamilyParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `font-family` value.
 pub fn parse_style_font_family(
     input: &str,
 ) -> Result<StyleFontFamilyVec, CssStyleFontFamilyParseError<'_>> {

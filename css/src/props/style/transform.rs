@@ -633,6 +633,9 @@ impl CssBackfaceVisibilityParseErrorOwned {
 // -- Parsers --
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `transform-vec` value.
 pub fn parse_style_transform_vec(
     input: &str,
 ) -> Result<StyleTransformVec, CssStyleTransformParseError<'_>> {
@@ -645,6 +648,9 @@ pub fn parse_style_transform_vec(
 
 #[cfg(feature = "parser")]
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `transform` value.
 pub fn parse_style_transform(
     input: &str,
 ) -> Result<StyleTransform, CssStyleTransformParseError<'_>> {
@@ -896,6 +902,9 @@ pub fn parse_style_transform(
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `transform-origin` value.
 pub fn parse_style_transform_origin(
     input: &str,
 ) -> Result<StyleTransformOrigin, CssStyleTransformOriginParseError<'_>> {
@@ -929,6 +938,9 @@ pub fn parse_style_transform_origin(
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `perspective-origin` value.
 pub fn parse_style_perspective_origin(
     input: &str,
 ) -> Result<StylePerspectiveOrigin, CssStylePerspectiveOriginParseError<'_>> {
@@ -948,6 +960,9 @@ pub fn parse_style_perspective_origin(
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `backface-visibility` value.
 pub fn parse_style_backface_visibility(
     input: &str,
 ) -> Result<StyleBackfaceVisibility, CssBackfaceVisibilityParseError<'_>> {

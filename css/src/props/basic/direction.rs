@@ -320,6 +320,9 @@ fn parse_direction_corner(
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `direction` value.
 pub fn parse_direction(input: &str) -> Result<Direction, CssDirectionParseError<'_>> {
     let mut input_iter = input.split_whitespace();
     let first_input = input_iter

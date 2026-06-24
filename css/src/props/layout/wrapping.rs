@@ -109,6 +109,9 @@ impl LayoutWritingModeParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `writing-mode` value.
 pub fn parse_layout_writing_mode(
     input: &str,
 ) -> Result<LayoutWritingMode, LayoutWritingModeParseError<'_>> {
@@ -207,6 +210,9 @@ impl LayoutClearParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `clear` value.
 pub fn parse_layout_clear(input: &str) -> Result<LayoutClear, LayoutClearParseError<'_>> {
     let input = input.trim();
     match input {

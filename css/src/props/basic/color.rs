@@ -1117,6 +1117,9 @@ impl CssColorParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `css-color` value.
 pub fn parse_css_color(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
     use crate::props::basic::parse::{parse_parentheses, ParenthesisParseError};
 
@@ -1159,6 +1162,9 @@ pub fn parse_css_color(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
 /// - `system:window-background` - Window background color
 /// - `system:accent-text` - Text color on accent background
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `color-or-system` value.
 pub fn parse_color_or_system(input: &str) -> Result<ColorOrSystem, CssColorParseError<'_>> {
     let input = input.trim();
     

@@ -189,6 +189,9 @@ define_border_radius_parse_error!(
 
 /// Parse the CSS `border-radius` shorthand into individual corner values.
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-radius` value.
 pub fn parse_style_border_radius(
     input: &str,
 ) -> Result<StyleBorderRadius, CssBorderRadiusParseError<'_>> {
@@ -229,6 +232,9 @@ pub fn parse_style_border_radius(
 
 /// Parse the CSS `border-top-left-radius` longhand property.
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-top-left-radius` value.
 pub fn parse_style_border_top_left_radius(
     input: &str,
 ) -> Result<StyleBorderTopLeftRadius, StyleBorderTopLeftRadiusParseError<'_>> {
@@ -238,6 +244,9 @@ pub fn parse_style_border_top_left_radius(
 
 /// Parse the CSS `border-top-right-radius` longhand property.
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-top-right-radius` value.
 pub fn parse_style_border_top_right_radius(
     input: &str,
 ) -> Result<StyleBorderTopRightRadius, StyleBorderTopRightRadiusParseError<'_>> {
@@ -247,6 +256,9 @@ pub fn parse_style_border_top_right_radius(
 
 /// Parse the CSS `border-bottom-left-radius` longhand property.
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-bottom-left-radius` value.
 pub fn parse_style_border_bottom_left_radius(
     input: &str,
 ) -> Result<StyleBorderBottomLeftRadius, StyleBorderBottomLeftRadiusParseError<'_>> {
@@ -256,6 +268,9 @@ pub fn parse_style_border_bottom_left_radius(
 
 /// Parse the CSS `border-bottom-right-radius` longhand property.
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `border-bottom-right-radius` value.
 pub fn parse_style_border_bottom_right_radius(
     input: &str,
 ) -> Result<StyleBorderBottomRightRadius, StyleBorderBottomRightRadiusParseError<'_>> {

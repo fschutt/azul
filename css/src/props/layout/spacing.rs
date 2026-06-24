@@ -220,6 +220,9 @@ pub struct LayoutPadding {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `padding` value.
 pub fn parse_layout_padding(
     input: &str,
 ) -> Result<LayoutPadding, LayoutPaddingParseError<'_>> {
@@ -313,6 +316,9 @@ pub struct LayoutMargin {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `margin` value.
 pub fn parse_layout_margin(input: &str) -> Result<LayoutMargin, LayoutMarginParseError<'_>> {
     // Margin parsing logic is identical to padding, so we can reuse the padding parser
     // and just map the Ok and Err variants to the margin-specific types.

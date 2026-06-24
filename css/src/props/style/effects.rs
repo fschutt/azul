@@ -263,6 +263,9 @@ pub mod parsers {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `opacity` value.
     pub fn parse_style_opacity(input: &str) -> Result<StyleOpacity, OpacityParseError<'_>> {
         let val = parse_percentage_value(input)
             .map_err(|e| OpacityParseError::ParsePercentage(e, input))?;
@@ -311,6 +314,9 @@ pub mod parsers {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `visibility` value.
     pub fn parse_style_visibility(
         input: &str,
     ) -> Result<StyleVisibility, StyleVisibilityParseError<'_>> {
@@ -359,6 +365,9 @@ pub mod parsers {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `mix-blend-mode` value.
     pub fn parse_style_mix_blend_mode(
         input: &str,
     ) -> Result<StyleMixBlendMode, MixBlendModeParseError<'_>> {
@@ -418,6 +427,9 @@ pub mod parsers {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `cursor` value.
     pub fn parse_style_cursor(input: &str) -> Result<StyleCursor, CursorParseError<'_>> {
         let input = input.trim();
         match input {
@@ -667,6 +679,9 @@ impl StyleObjectFitParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `object-fit` value.
 pub fn parse_style_object_fit(
     input: &str,
 ) -> Result<StyleObjectFit, StyleObjectFitParseError<'_>> {
@@ -748,6 +763,9 @@ impl StyleTextOrientationParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-orientation` value.
 pub fn parse_style_text_orientation(
     input: &str,
 ) -> Result<StyleTextOrientation, StyleTextOrientationParseError<'_>> {
@@ -839,6 +857,9 @@ impl StyleObjectPositionParseErrorOwned {
 /// Parse object-position: accepts keyword pairs or percentage/length values.
 /// Examples: "center", "left top", "50% 50%", "10px 20px"
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `object-position` value.
 pub fn parse_style_object_position(
     input: &str,
 ) -> Result<StyleObjectPosition, StyleObjectPositionParseError<'_>> {
@@ -983,6 +1004,9 @@ const fn aspect_f32_to_u32(v: f32) -> u32 {
 
 /// Parse aspect-ratio: "auto", "16 / 9", "1.5", "4/3"
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `aspect-ratio` value.
 pub fn parse_style_aspect_ratio(
     input: &str,
 ) -> Result<StyleAspectRatio, StyleAspectRatioParseError<'_>> {

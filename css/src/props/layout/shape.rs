@@ -268,6 +268,9 @@ pub mod parser {
     use crate::shape_parser::{parse_shape, ShapeParseError};
 
     /// Parser for shape-outside property
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `shape-outside` value.
     pub fn parse_shape_outside(input: &str) -> Result<ShapeOutside, ShapeParseError> {
         let trimmed = input.trim();
         if trimmed == "none" {
@@ -279,6 +282,9 @@ pub mod parser {
     }
 
     /// Parser for shape-inside property
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `shape-inside` value.
     pub fn parse_shape_inside(input: &str) -> Result<ShapeInside, ShapeParseError> {
         let trimmed = input.trim();
         if trimmed == "none" {
@@ -290,6 +296,9 @@ pub mod parser {
     }
 
     /// Parser for clip-path property
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `clip-path` value.
     pub fn parse_clip_path(input: &str) -> Result<ClipPath, ShapeParseError> {
         let trimmed = input.trim();
         if trimmed == "none" {
@@ -301,6 +310,9 @@ pub mod parser {
     }
 
     /// Parser for shape-margin property
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `shape-margin` value.
     pub fn parse_shape_margin(input: &str) -> Result<ShapeMargin, CssPixelValueParseError<'_>> {
         Ok(ShapeMargin {
             inner: parse_pixel_value(input)?,
@@ -308,6 +320,9 @@ pub mod parser {
     }
 
     /// Parser for shape-image-threshold property
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `shape-image-threshold` value.
     pub fn parse_shape_image_threshold(
         input: &str,
     ) -> Result<ShapeImageThreshold, ParseFloatError> {

@@ -88,6 +88,9 @@ impl LayoutPositionParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `position` value.
 pub fn parse_layout_position(
     input: &str,
 ) -> Result<LayoutPosition, LayoutPositionParseError<'_>> {
@@ -291,6 +294,9 @@ impl LayoutZIndexParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `z-index` value.
 pub fn parse_layout_z_index(
     input: &str,
 ) -> Result<LayoutZIndex, LayoutZIndexParseError<'_>> {

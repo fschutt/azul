@@ -290,6 +290,9 @@ impl fmt::Display for SizeMetric {
     }
 }
 
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `float-value` value.
 pub fn parse_float_value(input: &str) -> Result<FloatValue, ParseFloatError> {
     Ok(FloatValue::new(input.trim().parse::<f32>()?))
 }
@@ -345,6 +348,9 @@ impl PercentageParseErrorOwned {
 }
 
 /// Parse "1.2" or "120%" (similar to `parse_pixel_value`)
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `percentage-value` value.
 pub fn parse_percentage_value(input: &str) -> Result<PercentageValue, PercentageParseError> {
     let input = input.trim();
 

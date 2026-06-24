@@ -118,6 +118,9 @@ impl FlexGrowParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `flex-grow` value.
 pub fn parse_layout_flex_grow(
     input: &str,
 ) -> Result<LayoutFlexGrow, FlexGrowParseError<'_>> {
@@ -224,6 +227,9 @@ impl FlexShrinkParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `flex-shrink` value.
 pub fn parse_layout_flex_shrink(
     input: &str,
 ) -> Result<LayoutFlexShrink, FlexShrinkParseError<'_>> {
@@ -327,6 +333,9 @@ impl FlexDirectionParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `flex-direction` value.
 pub fn parse_layout_flex_direction(
     input: &str,
 ) -> Result<LayoutFlexDirection, FlexDirectionParseError<'_>> {
@@ -404,6 +413,9 @@ impl FlexWrapParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `flex-wrap` value.
 pub fn parse_layout_flex_wrap(
     input: &str,
 ) -> Result<LayoutFlexWrap, FlexWrapParseError<'_>> {
@@ -490,6 +502,9 @@ impl JustifyContentParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `justify-content` value.
 pub fn parse_layout_justify_content(
     input: &str,
 ) -> Result<LayoutJustifyContent, JustifyContentParseError<'_>> {
@@ -575,6 +590,9 @@ impl AlignItemsParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `align-items` value.
 pub fn parse_layout_align_items(
     input: &str,
 ) -> Result<LayoutAlignItems, AlignItemsParseError<'_>> {
@@ -659,6 +677,9 @@ impl AlignContentParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `align-content` value.
 pub fn parse_layout_align_content(
     input: &str,
 ) -> Result<LayoutAlignContent, AlignContentParseError<'_>> {
@@ -760,6 +781,9 @@ impl AlignSelfParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `align-self` value.
 pub fn parse_layout_align_self(
     input: &str,
 ) -> Result<LayoutAlignSelf, AlignSelfParseError<'_>> {
@@ -861,6 +885,9 @@ impl FlexBasisParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `flex-basis` value.
 pub fn parse_layout_flex_basis(
     input: &str,
 ) -> Result<LayoutFlexBasis, FlexBasisParseError<'_>> {

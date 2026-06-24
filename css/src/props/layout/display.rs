@@ -209,6 +209,9 @@ impl LayoutDisplayParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `display` value.
 pub fn parse_layout_display(
     input: &str,
 ) -> Result<LayoutDisplay, LayoutDisplayParseError<'_>> {
@@ -282,6 +285,9 @@ impl LayoutFloatParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `float` value.
 pub fn parse_layout_float(input: &str) -> Result<LayoutFloat, LayoutFloatParseError<'_>> {
     let input = input.trim();
     match input {

@@ -117,6 +117,9 @@ impl StyleExclusionMarginParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `exclusion-margin` value.
 pub fn parse_style_exclusion_margin(
     input: &str,
 ) -> Result<StyleExclusionMargin, StyleExclusionMarginParseError> {
@@ -219,6 +222,9 @@ impl StyleHyphenationLanguageParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `hyphenation-language` value.
 pub fn parse_style_hyphenation_language(
     input: &str,
 ) -> Result<StyleHyphenationLanguage, StyleHyphenationLanguageParseError> {

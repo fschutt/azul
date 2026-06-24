@@ -307,6 +307,9 @@ pub mod parser {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `column-count` value.
     pub fn parse_column_count(
         input: &str,
     ) -> Result<ColumnCount, ColumnCountParseError<'_>> {
@@ -360,6 +363,9 @@ pub mod parser {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `column-width` value.
     pub fn parse_column_width(
         input: &str,
     ) -> Result<ColumnWidth, ColumnWidthParseError<'_>> {
@@ -473,6 +479,9 @@ pub mod parser {
             }
         }
     }
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `column-rule-width` value.
     pub fn parse_column_rule_width(
         input: &str,
     ) -> Result<ColumnRuleWidth, ColumnRuleWidthParseError<'_>> {
@@ -511,6 +520,9 @@ pub mod parser {
             }
         }
     }
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `column-rule-style` value.
     pub fn parse_column_rule_style(
         input: &str,
     ) -> Result<ColumnRuleStyle, ColumnRuleStyleParseError<'_>> {
@@ -549,6 +561,9 @@ pub mod parser {
             }
         }
     }
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `column-rule-color` value.
     pub fn parse_column_rule_color(
         input: &str,
     ) -> Result<ColumnRuleColor, ColumnRuleColorParseError<'_>> {

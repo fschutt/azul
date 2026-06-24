@@ -238,6 +238,9 @@ pub mod parser {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `page-break` value.
     pub fn parse_page_break(input: &str) -> Result<PageBreak, PageBreakParseError<'_>> {
         match input.trim() {
             "auto" => Ok(PageBreak::Auto),
@@ -292,6 +295,9 @@ pub mod parser {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `break-inside` value.
     pub fn parse_break_inside(
         input: &str,
     ) -> Result<BreakInside, BreakInsideParseError<'_>> {
@@ -412,6 +418,9 @@ pub mod parser {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `box-decoration-break` value.
     pub fn parse_box_decoration_break(
         input: &str,
     ) -> Result<BoxDecorationBreak, BoxDecorationBreakParseError<'_>> {

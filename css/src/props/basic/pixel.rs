@@ -785,6 +785,9 @@ fn parse_pixel_value_inner<'a>(
     )
 }
 
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `pixel-value` value.
 pub fn parse_pixel_value(input: &str) -> Result<PixelValue, CssPixelValueParseError<'_>> {
     parse_pixel_value_inner(
         input,
@@ -805,6 +808,9 @@ pub fn parse_pixel_value(input: &str) -> Result<PixelValue, CssPixelValueParseEr
     )
 }
 
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `pixel-value-no-percent` value.
 pub fn parse_pixel_value_no_percent(
     input: &str,
 ) -> Result<PixelValueNoPercent, CssPixelValueParseError<'_>> {
@@ -838,6 +844,9 @@ pub enum PixelValueWithAuto {
 }
 
 /// Parses a pixel value, but also tries values like "auto", "initial", "inherit" and "none"
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `pixel-value-with-auto` value.
 pub fn parse_pixel_value_with_auto(
     input: &str,
 ) -> Result<PixelValueWithAuto, CssPixelValueParseError<'_>> {
@@ -1024,6 +1033,9 @@ impl FormatAsCssValue for PixelValueOrSystem {
 /// 
 /// Accepts: `10px`, `1.5em`, `system:button-padding`, etc.
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `pixel-value-or-system` value.
 pub fn parse_pixel_value_or_system(
     input: &str,
 ) -> Result<PixelValueOrSystem, CssPixelValueParseError<'_>> {
