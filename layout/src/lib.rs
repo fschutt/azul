@@ -231,9 +231,9 @@ pub use json::{
 };
 
 /// ZIP file creation, extraction, and listing.
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
 pub mod zip;
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
 pub use zip::{
     zip_create, zip_create_from_files, zip_extract_all, zip_list_contents,
     ZipFile, ZipFileEntry, ZipFileEntryVec, ZipPathEntry, ZipPathEntryVec,

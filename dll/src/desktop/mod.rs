@@ -153,7 +153,7 @@ pub mod http {
     pub use azul_layout::http::*;
 }
 /// ZIP file manipulation
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
 pub mod zip {
     pub use azul_layout::zip::*;
 }

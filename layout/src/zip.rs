@@ -246,7 +246,7 @@ impl ZipFile {
     /// 
     /// # Returns
     /// List of path entries (metadata only)
-    #[cfg(feature = "zip_support")]
+    #[cfg(feature = "zip")]
     pub fn list(data: &[u8], config: &ZipReadConfig) -> Result<ZipPathEntryVec, ZipReadError> {
         use std::io::Cursor;
         
@@ -288,7 +288,7 @@ impl ZipFile {
     /// 
     /// # Returns
     /// The file contents, or None if not found
-    #[cfg(feature = "zip_support")]
+    #[cfg(feature = "zip")]
     pub fn get_single_file(
         data: &[u8], 
         entry: &ZipPathEntry,
@@ -331,7 +331,7 @@ impl ZipFile {
     /// # Arguments
     /// * `data` - ZIP file bytes (consumed)
     /// * `config` - Read configuration
-    #[cfg(feature = "zip_support")]
+    #[cfg(feature = "zip")]
     pub fn from_bytes(data: Vec<u8>, config: &ZipReadConfig) -> Result<Self, ZipReadError> {
         use std::io::{Cursor, Read};
         
@@ -380,7 +380,7 @@ impl ZipFile {
     }
     
     /// Load a ZIP archive from a file path
-    #[cfg(all(feature = "zip_support", feature = "std"))]
+    #[cfg(all(feature = "zip", feature = "std"))]
     pub fn from_file(path: &Path, config: &ZipReadConfig) -> Result<Self, ZipReadError> {
         let data = std::fs::read(path)
             .map_err(|e| ZipReadError::IoError(e.to_string()))?;
@@ -391,7 +391,7 @@ impl ZipFile {
     /// 
     /// # Arguments
     /// * `config` - Write configuration
-    #[cfg(feature = "zip_support")]
+    #[cfg(feature = "zip")]
     pub fn to_bytes(&self, config: &ZipWriteConfig) -> Result<Vec<u8>, ZipWriteError> {
         use std::io::{Cursor, Write};
         use zip::write::SimpleFileOptions;
@@ -434,7 +434,7 @@ impl ZipFile {
     }
     
     /// Write the ZIP archive to a file
-    #[cfg(all(feature = "zip_support", feature = "std"))]
+    #[cfg(all(feature = "zip", feature = "std"))]
     pub fn to_file(&self, path: &Path, config: &ZipWriteConfig) -> Result<(), ZipWriteError> {
         let data = self.to_bytes(config)?;
         std::fs::write(path, data)
@@ -494,14 +494,14 @@ impl ZipFile {
 // ============================================================================
 
 /// Create a ZIP archive from file entries (consumes entries, no clone)
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
 pub fn zip_create(entries: Vec<ZipFileEntry>, config: &ZipWriteConfig) -> Result<Vec<u8>, ZipWriteError> {
     let zip = ZipFile { entries };
     zip.to_bytes(config)
 }
 
 /// Create a ZIP archive from path/data pairs (consumes entries, no clone)
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
 pub fn zip_create_from_files(
     files: Vec<(String, Vec<u8>)>, 
     config: &ZipWriteConfig,
@@ -514,14 +514,14 @@ pub fn zip_create_from_files(
 }
 
 /// Extract all files from ZIP data
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
 pub fn zip_extract_all(data: &[u8], config: &ZipReadConfig) -> Result<Vec<ZipFileEntry>, ZipReadError> {
     let zip = ZipFile::from_bytes(data.to_vec(), config)?;
     Ok(zip.entries)
 }
 
 /// List contents of ZIP data without extracting
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
 pub fn zip_list_contents(data: &[u8], config: &ZipReadConfig) -> Result<Vec<ZipPathEntry>, ZipReadError> {
     ZipFile::list(data, config)
 }
@@ -557,7 +557,7 @@ mod tests {
         assert!(dir.data.is_empty());
     }
     
-    #[cfg(feature = "zip_support")]
+    #[cfg(feature = "zip")]
     #[test]
     fn test_zip_roundtrip() {
         let files = vec![
@@ -576,7 +576,7 @@ mod tests {
         assert!(entries.iter().any(|e| e.path == "sub/nested.txt"));
     }
     
-    #[cfg(feature = "zip_support")]
+    #[cfg(feature = "zip")]
     #[test]
     fn test_zip_file_manipulation() {
         let mut zip = ZipFile::new();

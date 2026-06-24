@@ -24,14 +24,14 @@ serde_json = { version = "1", optional = true }
 
 [features]
 default = ["link-static"]
-serde_support = ["serde", "serde_derive", "serde_json"]
+serde = ["dep:serde", "dep:serde_derive", "dep:serde_json"]
 link-static = ["azul/link-static", "azul_css"]
 link-dynamic = ["azul/link-dynamic"]
 web = ["azul/web"]
 icu = ["azul/icu", "azul_css"]
 fluent = ["azul/fluent", "azul_css"]
 http = ["azul/http"]
-zip_support = ["azul/zip_support"]
+zip = ["azul/zip"]
 
 [[example]]
 name = "async"
@@ -52,7 +52,7 @@ path = "src/infinity.rs"
 [[example]]
 name = "opengl"
 path = "src/opengl.rs"
-required-features = ["serde_support"]
+required-features = ["serde"]
 
 [[example]]
 name = "widgets"
@@ -83,4 +83,4 @@ required-features = ["fluent", "icu"]
 [[example]]
 name = "http_zip_demo"
 path = "src/http_zip_demo.rs"
-required-features = ["fluent", "http", "zip_support"]
+required-features = ["fluent", "http", "zip"]

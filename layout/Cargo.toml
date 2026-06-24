@@ -254,19 +254,19 @@ icu_windows = []
 icu_chrono = ["icu", "dep:chrono"]
 
 # Fluent localization support (Project Fluent FTL files, language packs)
-fluent = ["dep:fluent", "dep:fluent-syntax", "dep:unic-langid", "dep:intl-memoizer", "zip_support", "strfmt", "std"]
+fluent = ["dep:fluent", "dep:fluent-syntax", "dep:unic-langid", "dep:intl-memoizer", "zip", "strfmt", "std"]
 
 # HTTP client support for downloading resources
 http = ["dep:ureq", "azul-core/url", "dep:rustls", "dep:rustls-rustcrypto", "dep:webpki-roots", "std"]
 
 # ZIP file manipulation (standalone, for C API)
-zip_support = ["dep:zip", "std"]
+zip = ["dep:zip", "std"]
 
 # JSON parsing support
 json = ["dep:serde_json", "std", "azul-core/serde-json"]
 
 # Icon provider support (material icons, icon packs from fonts or ZIP files)
-icons = ["std", "zip_support", "dep:material-icons", "dep:brotli-decompressor"]
+icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]
 
 [[test]]
 name = "solver3_calc"

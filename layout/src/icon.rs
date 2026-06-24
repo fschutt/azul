@@ -328,7 +328,7 @@ pub fn register_image_icon(provider: &mut IconProviderHandle, pack_name: &str, i
 }
 
 /// Register icons from a ZIP file (file names become icon names)
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
 pub fn register_icons_from_zip(provider: &mut IconProviderHandle, pack_name: &str, zip_bytes: &[u8]) {
     for (icon_name, image, width, height) in load_images_from_zip(zip_bytes) {
         let data = ImageIconData { image, width, height };
@@ -336,7 +336,7 @@ pub fn register_icons_from_zip(provider: &mut IconProviderHandle, pack_name: &st
     }
 }
 
-#[cfg(not(feature = "zip_support"))]
+#[cfg(not(feature = "zip"))]
 pub fn register_icons_from_zip(_provider: &mut IconProviderHandle, _pack_name: &str, _zip_bytes: &[u8]) {
     // ZIP support not enabled
 }
@@ -355,7 +355,7 @@ pub fn register_font_icon(provider: &mut IconProviderHandle, pack_name: &str, ic
 // ============================================================================
 
 /// Load all images from a ZIP file, returning (`icon_name`, `ImageRef`, width, height)
-#[cfg(all(feature = "zip_support", feature = "image_decoding"))]
+#[cfg(all(feature = "zip", feature = "image_decoding"))]
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 fn load_images_from_zip(zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
     use crate::zip::{ZipFile, ZipReadConfig};
@@ -396,7 +396,7 @@ fn load_images_from_zip(zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
     result
 }
 
-#[cfg(not(all(feature = "zip_support", feature = "image_decoding")))]
+#[cfg(not(all(feature = "zip", feature = "image_decoding")))]
 fn load_images_from_zip(_zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
     Vec::new()
 }
