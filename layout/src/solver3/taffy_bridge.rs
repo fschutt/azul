@@ -779,7 +779,15 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         // Grid & gap properties — COMPACT FAST PATH: row_gap/column_gap are
         // i16 px × 10 in tier2_dims. The slow-path lookup would walk the
         // cascade for every node even though the answer is already encoded.
-        taffy_style.gap = if let Some(ref cc) = cache.compact_cache {
+        taffy_style.gap = cache.compact_cache.as_ref().map_or_else(|| cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::Gap)
+                .and_then(|p| if let CssProperty::Gap(v) = p { Some(v) } else { None })
+                .map(|v| {
+                    let val = v.get_property_or_default().unwrap_or_default().inner;
+                    let gap_lp = pixel_to_lp(val);
+                    Size { width: gap_lp, height: gap_lp }
+                })
+                .unwrap_or_else(Size::zero), |cc| {
             let row = cc.tier2_dims[id.index()].row_gap;
             let col = cc.tier2_dims[id.index()].column_gap;
             let decode = |raw: i16| -> LengthPercentage {
@@ -793,17 +801,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 width: decode(col),
                 height: decode(row),
             }
-        } else {
-            cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::Gap)
-                .and_then(|p| if let CssProperty::Gap(v) = p { Some(v) } else { None })
-                .map(|v| {
-                    let val = v.get_property_or_default().unwrap_or_default().inner;
-                    let gap_lp = pixel_to_lp(val);
-                    Size { width: gap_lp, height: gap_lp }
-                })
-                .unwrap_or_else(Size::zero)
-        };
+        });
 
         // Skip grid properties when not in a grid context.
         // Grid container props: only if this node has display:grid.
@@ -919,18 +917,16 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             .map(grid_auto_columns_to_taffy)
             .unwrap_or_default();
 
-        taffy_style.grid_auto_flow = if let Some(cc) = cache.compact_cache.as_ref() {
+        taffy_style.grid_auto_flow = cache.compact_cache.as_ref().map_or_else(|| cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::GridAutoFlow)
+                .and_then(|p| if let CssProperty::GridAutoFlow(v) = p { Some(*v) } else { None })
+                .map(grid_auto_flow_to_taffy)
+                .unwrap_or_default(), |cc| {
             use azul_css::compact_cache::*;
             let bits = ((cc.tier1_enums[id.index()] >> GRID_AUTO_FLOW_SHIFT) & GRID_AUTO_FLOW_MASK) as u8;
             let val = layout_grid_auto_flow_from_u8(bits);
             grid_auto_flow_to_taffy(CssPropertyValue::Exact(val))
-        } else {
-            cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::GridAutoFlow)
-                .and_then(|p| if let CssProperty::GridAutoFlow(v) = p { Some(*v) } else { None })
-                .map(grid_auto_flow_to_taffy)
-                .unwrap_or_default()
-        };
+        });
 
         } // end if self_is_grid
 
@@ -987,7 +983,10 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 // CSS spec: default align-items is "normal" which acts like "stretch"
                 // for non-replaced grid/flex items. Taffy handles this internally when
                 // align_items is None, so we should NOT force a default here.
-        taffy_style.justify_items = if let Some(cc) = cache.compact_cache.as_ref() {
+        taffy_style.justify_items = cache.compact_cache.as_ref().map_or_else(|| cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::JustifyItems)
+                .and_then(|p| if let CssProperty::JustifyItems(v) = p { Some(*v) } else { None })
+                .map(layout_justify_items_to_taffy), |cc| {
             use azul_css::compact_cache::*;
             use azul_css::props::layout::grid::LayoutJustifyItems;
             let bits = ((cc.tier1_enums[id.index()] >> JUSTIFY_ITEMS_SHIFT) & JUSTIFY_ITEMS_MASK) as u8;
@@ -998,14 +997,12 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 LayoutJustifyItems::Center => AlignItems::Center,
                 LayoutJustifyItems::Stretch => AlignItems::Stretch,
             })
-        } else {
-            cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::JustifyItems)
-                .and_then(|p| if let CssProperty::JustifyItems(v) = p { Some(*v) } else { None })
-                .map(layout_justify_items_to_taffy)
-        };
+        });
         // COMPACT FAST PATH: justify-content is in tier1 bits 21-23.
-        taffy_style.justify_content = if let Some(ref cc) = cache.compact_cache {
+        taffy_style.justify_content = cache.compact_cache.as_ref().map_or_else(|| cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
+                .and_then(|p| if let CssProperty::JustifyContent(v) = p { Some(v) } else { None })
+                .map(|v| layout_justify_content_to_taffy(*v)), |cc| {
             use azul_css::compact_cache::*;
             use azul_css::props::layout::LayoutJustifyContent;
             let bits = ((cc.tier1_enums[id.index()] >> JUSTIFY_CONTENT_SHIFT) & JUSTIFY_MASK) as u8;
@@ -1019,12 +1016,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 LayoutJustifyContent::SpaceAround => JustifyContent::SpaceAround,
                 LayoutJustifyContent::SpaceEvenly => JustifyContent::SpaceEvenly,
             })
-        } else {
-            cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
-                .and_then(|p| if let CssProperty::JustifyContent(v) = p { Some(v) } else { None })
-                .map(|v| layout_justify_content_to_taffy(*v))
-        };
+        });
                 // CSS spec: default justify-content is "normal". Taffy handles
                 // this internally when justify_content is None.
         // COMPACT FAST PATH: flex_grow stored as u16 × 100
@@ -1094,7 +1086,9 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 flex_basis_slow_path(cache, node_data, &id, node_state, &mut taffy_style)
             })
         };
-        taffy_style.align_self = if let Some(cc) = cache.compact_cache.as_ref() {
+        taffy_style.align_self = cache.compact_cache.as_ref().map_or_else(|| cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::AlignSelf)
+                .and_then(|p| if let CssProperty::AlignSelf(v) = p { layout_align_self_to_taffy(*v) } else { None }), |cc| {
             use azul_css::compact_cache::*;
             let bits = ((cc.tier1_enums[id.index()] >> ALIGN_SELF_SHIFT) & ALIGN_SELF_MASK) as u8;
             let val = layout_align_self_from_u8(bits);
@@ -1106,12 +1100,19 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 LayoutAlignSelf::Baseline => Some(AlignSelf::Baseline),
                 LayoutAlignSelf::Stretch => Some(AlignSelf::Stretch),
             }
-        } else {
-            cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::AlignSelf)
-                .and_then(|p| if let CssProperty::AlignSelf(v) = p { layout_align_self_to_taffy(*v) } else { None })
-        };
-        taffy_style.justify_self = if let Some(cc) = cache.compact_cache.as_ref() {
+        });
+        taffy_style.justify_self = cache.compact_cache.as_ref().map_or_else(|| cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::JustifySelf)
+                .and_then(|p| if let CssProperty::JustifySelf(v) = p {
+                    use azul_css::props::layout::grid::LayoutJustifySelf;
+                    match v.get_property_or_default().unwrap_or_default() {
+                        LayoutJustifySelf::Auto => None,
+                        LayoutJustifySelf::Start => Some(AlignSelf::Start),
+                        LayoutJustifySelf::End => Some(AlignSelf::End),
+                        LayoutJustifySelf::Center => Some(AlignSelf::Center),
+                        LayoutJustifySelf::Stretch => Some(AlignSelf::Stretch),
+                    }
+                } else { None }), |cc| {
             use azul_css::compact_cache::*;
             use azul_css::props::layout::grid::LayoutJustifySelf;
             let bits = ((cc.tier1_enums[id.index()] >> JUSTIFY_SELF_SHIFT) & JUSTIFY_SELF_MASK) as u8;
@@ -1123,20 +1124,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 LayoutJustifySelf::Center => Some(AlignSelf::Center),
                 LayoutJustifySelf::Stretch => Some(AlignSelf::Stretch),
             }
-        } else {
-            cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::JustifySelf)
-                .and_then(|p| if let CssProperty::JustifySelf(v) = p {
-                    use azul_css::props::layout::grid::LayoutJustifySelf;
-                    match v.get_property_or_default().unwrap_or_default() {
-                        LayoutJustifySelf::Auto => None,
-                        LayoutJustifySelf::Start => Some(AlignSelf::Start),
-                        LayoutJustifySelf::End => Some(AlignSelf::End),
-                        LayoutJustifySelf::Center => Some(AlignSelf::Center),
-                        LayoutJustifySelf::Stretch => Some(AlignSelf::Stretch),
-                    }
-                } else { None })
-        };
+        });
         taffy_style.align_content = match get_align_content(styled_dom, id, node_state) {
             MultiValue::Exact(v) => Some(layout_align_content_to_taffy(CssPropertyValue::Exact(v))),
             _ => None,
@@ -1420,7 +1408,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
         let (parent_border_left, parent_border_top, parent_padding_left, parent_padding_top) = {
             if let Some(child) = self.tree.get(node_idx) {
                 if let Some(parent_idx) = child.parent {
-                    if let Some(parent) = self.tree.get(parent_idx) {
+                    self.tree.get(parent_idx).map_or((0.0, 0.0, 0.0, 0.0), |parent| {
                         let pbp = parent.box_props.unpack();
                         (
                             pbp.border.left,
@@ -1428,9 +1416,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                             pbp.padding.left,
                             pbp.padding.top,
                         )
-                    } else {
-                        (0.0, 0.0, 0.0, 0.0)
-                    }
+                    })
                 } else {
                     (0.0, 0.0, 0.0, 0.0)
                 }
@@ -1796,20 +1782,17 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     match (is_replaced, dom_id) {
                         (true, Some(id)) => {
                             let bp = self.tree.get(node_idx).unwrap().box_props.unpack();
-                            match crate::solver3::sizing::calculate_used_size_for_node(
+                            crate::solver3::sizing::calculate_used_size_for_node(
                                 self.ctx.styled_dom,
                                 Some(id),
                                 &constraints.containing_block_size,
                                 intrinsic,
                                 &bp,
                                 &self.ctx.viewport_size,
-                            ) {
-                                Ok(sz) => (
+                            ).map_or((effective_content_width, content_height), |sz| (
                                     (sz.width - padding_width - border_width).max(0.0),
                                     (sz.height - padding_height - border_height).max(0.0),
-                                ),
-                                Err(_) => (effective_content_width, content_height),
-                            }
+                                ))
                         }
                         _ => (effective_content_width, content_height),
                     }
@@ -1826,10 +1809,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 //
                 // When known_dimensions is set: use it directly (it's already border-box).
                 // When it's None: add padding+border to our content-box result.
-                let final_width = match inputs.known_dimensions.width {
-                    Some(border_box_w) => border_box_w,
-                    None => border_box_width,
-                };
+                let final_width = inputs.known_dimensions.width.map_or(border_box_width, |border_box_w| border_box_w);
 
                 // For grid items: if known_dimensions.height is None but available_space.height
                 // is definite, use the available space. This ensures empty grid items stretch

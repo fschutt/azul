@@ -1335,10 +1335,7 @@ impl UnifiedConstraints {
         self.line_height.resolve(font_size_approx, 0.0, 0.0, 0.0, 0)
     }
     fn direction(&self, fallback: BidiDirection) -> BidiDirection {
-        match self.writing_mode {
-            Some(s) => s.get_direction().unwrap_or(fallback),
-            None => fallback,
-        }
+        self.writing_mode.map_or(fallback, |s| s.get_direction().unwrap_or(fallback))
     }
     const fn is_vertical(&self) -> bool {
         matches!(
@@ -1584,10 +1581,7 @@ impl LayoutFontMetrics {
     /// Falls back to 0.5em when the font doesn't provide sxHeight.
     #[must_use] pub fn x_height_scaled(&self, font_size: f32) -> f32 {
         let scale = font_size / f32::from(self.units_per_em);
-        match self.x_height {
-            Some(xh) => xh * scale,
-            None => font_size * 0.5,
-        }
+        self.x_height.map_or(font_size * 0.5, |xh| xh * scale)
     }
 
     /// Returns the cap height scaled to the given font size in px.
@@ -6096,14 +6090,7 @@ pub fn create_logical_items(
                     || run.style.text_combine_upright.is_some();
                 let mut scan_cursor = 0;
                 while needs_scan && scan_cursor < text.len() {
-                    let style_at_cursor = if let Some(partial) =
-                        current_run_overrides.and_then(|o| o.get(&(scan_cursor as u32)))
-                    {
-                        // Create a temporary, full style to check its properties
-                        run.style.apply_override(partial)
-                    } else {
-                        (*run.style).clone()
-                    };
+                    let style_at_cursor = current_run_overrides.and_then(|o| o.get(&(scan_cursor as u32))).map_or_else(|| (*run.style).clone(), |partial| run.style.apply_override(partial));
 
                     let current_char = text[scan_cursor..].chars().next().unwrap();
 
@@ -6171,9 +6158,7 @@ pub fn create_logical_items(
                         )));
                     }
 
-                    let style_to_use = if let Some(partial_style) =
-                        current_run_overrides.and_then(|o| o.get(&(start as u32)))
-                    {
+                    let style_to_use = current_run_overrides.and_then(|o| o.get(&(start as u32))).map_or_else(|| run.style.clone(), |partial_style| {
                         if let Some(msgs) = debug_messages {
                             msgs.push(LayoutDebugMessage::info(format!(
                                 "  -> Applying override at byte {start}"
@@ -6186,9 +6171,7 @@ pub fn create_logical_items(
                             .entry(hasher.finish())
                             .or_insert_with(|| Arc::new(run.style.apply_override(partial_style)))
                             .clone()
-                    } else {
-                        run.style.clone()
-                    };
+                    });
 
                     // +spec:block-formatting-context:9e7c79 - text-combine-upright combines multiple characters into 1em in vertical writing
                     // +spec:containing-block:2b399b - text-combine-upright digits: combine ASCII digit sequences within max_digits limit; box boundaries implicitly prevent cross-box combination

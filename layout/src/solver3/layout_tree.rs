@@ -2475,12 +2475,7 @@ fn collect_box_props(
     let (bs_top, bs_right, bs_bottom, bs_left) = {
         let cache_ptr = &styled_dom.css_property_cache.ptr;
         if node_state.is_normal() {
-            if let Some(ref cc) = cache_ptr.compact_cache {
-                let idx = dom_id.index();
-                (cc.get_border_top_style(idx), cc.get_border_right_style(idx),
-                 cc.get_border_bottom_style(idx), cc.get_border_left_style(idx))
-            } else {
-                (
+            cache_ptr.compact_cache.as_ref().map_or_else(|| (
                     cache_ptr.get_border_top_style(node_data, &dom_id, &node_state)
                         .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
                     cache_ptr.get_border_right_style(node_data, &dom_id, &node_state)
@@ -2489,8 +2484,11 @@ fn collect_box_props(
                         .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
                     cache_ptr.get_border_left_style(node_data, &dom_id, &node_state)
                         .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
-                )
-            }
+                ), |cc| {
+                let idx = dom_id.index();
+                (cc.get_border_top_style(idx), cc.get_border_right_style(idx),
+                 cc.get_border_bottom_style(idx), cc.get_border_left_style(idx))
+            })
         } else {
             (
                 cache_ptr.get_border_top_style(node_data, &dom_id, &node_state)

@@ -157,10 +157,7 @@ impl Timer {
     }
 
     #[must_use] pub fn instant_of_next_run(&self) -> Instant {
-        let last_run = match self.last_run.as_ref() {
-            Some(s) => s,
-            None => &self.created,
-        };
+        let last_run = self.last_run.as_ref().map_or(&self.created, |s| s);
 
         last_run
             .clone()
@@ -602,10 +599,7 @@ pub enum OptionTimer {
 
 impl From<Option<Timer>> for OptionTimer {
     fn from(o: Option<Timer>) -> Self {
-        match o {
-            None => Self::None,
-            Some(t) => Self::Some(t),
-        }
+        o.map_or_else(|| Self::None, |t| Self::Some(t))
     }
 }
 

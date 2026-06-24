@@ -156,11 +156,7 @@ impl A11yManager {
                 let mut node = if let Some((layout_node, _layout_idx, abs_pos)) = layout_info {
                     Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref, hidpi_factor, window_size)
                 } else {
-                    let role = if let Some(info) = a11y_info_ref {
-                        Self::map_role(&info.role)
-                    } else {
-                        Self::node_type_to_role(&node_data.node_type)
-                    };
+                    let role = a11y_info_ref.map_or_else(|| Self::node_type_to_role(&node_data.node_type), |info| Self::map_role(&info.role));
                     let mut builder = Node::new(role);
                     if let NodeType::Text(text) = &node_data.node_type {
                         builder.set_label(text.as_str());
@@ -181,9 +177,7 @@ impl A11yManager {
                     let dom_node_id_key = (*dom_id, NodeId::new(dom_idx));
 
                     // Use dirty text override if this node was edited since last RefreshDom
-                    let (text_content, has_non_text_children) = if let Some(override_text) = dirty_text_overrides.get(&dom_node_id_key) {
-                        (override_text.clone(), false)
-                    } else {
+                    let (text_content, has_non_text_children) = dirty_text_overrides.get(&dom_node_id_key).map_or_else(|| {
                         let mut text = String::new();
                         let mut has_non_text = false;
 
@@ -201,7 +195,7 @@ impl A11yManager {
                             child = node_hierarchy[child_id.index()].next_sibling_id();
                         }
                         (text, has_non_text)
-                    };
+                    }, |override_text| (override_text.clone(), false));
 
                     if !text_content.is_empty() {
                         if node_data.is_contenteditable()

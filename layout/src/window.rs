@@ -2157,10 +2157,7 @@ impl LayoutWindow {
                 duration_to_millis(next_run.duration_since(&now))
             };
 
-            min_ms = Some(match min_ms {
-                Some(current_min) => current_min.min(ms_until),
-                None => ms_until,
-            });
+            min_ms = Some(min_ms.map_or(ms_until, |current_min| current_min.min(ms_until)));
         }
 
         min_ms
@@ -3946,13 +3943,10 @@ impl LayoutWindow {
             .and_then(|t| t.node_id.into_option());
 
         if timer_exists {
-            let hit_dom_node = match timer_node_id {
-                Some(s) => s,
-                None => DomNodeId {
+            let hit_dom_node = timer_node_id.map_or_else(|| DomNodeId {
                     dom: DomId::ROOT_ID,
                     node: NodeHierarchyItemId::from_crate_internal(None),
-                },
-            };
+                }, |s| s);
             let cursor_relative_to_item = OptionLogicalPosition::None;
             let cursor_in_viewport = OptionLogicalPosition::None;
 
@@ -4199,10 +4193,7 @@ impl LayoutWindow {
                 .map_or(OptionLogicalPosition::None, |item| OptionLogicalPosition::Some(item.point_relative_to_item)),
             None => OptionLogicalPosition::None,
         };
-        let cursor_in_viewport = match current_window_state.mouse_state.cursor_position.get_position() {
-            Some(pos) => OptionLogicalPosition::Some(pos),
-            None => OptionLogicalPosition::None,
-        };
+        let cursor_in_viewport = current_window_state.mouse_state.cursor_position.get_position().map_or(OptionLogicalPosition::None, |pos| OptionLogicalPosition::Some(pos));
 
         // Create changes container for callback transaction system
         let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -4927,7 +4918,11 @@ impl LayoutWindow {
                 if let Some(value_str) = current_value {
                     let parsed: Result<f64, _> = value_str.trim().parse();
 
-                    let new_value_str = if let Ok(num) = parsed {
+                    let new_value_str = parsed.map_or_else(|_| if is_increment {
+                            "1".to_string()
+                        } else {
+                            "-1".to_string()
+                        }, |num| {
                         // Successfully parsed as number
                         let new_num = if is_increment { num + 1.0 } else { num - 1.0 };
                         // Format with same precision as input if possible
@@ -4936,14 +4931,7 @@ impl LayoutWindow {
                         } else {
                             format!("{new_num}")
                         }
-                    } else {
-                        // Not a number - treat as 0 and increment/decrement
-                        if is_increment {
-                            "1".to_string()
-                        } else {
-                            "-1".to_string()
-                        }
-                    };
+                    });
 
                     // Record as text input (will fire On::TextInput callbacks)
                     let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
@@ -5405,11 +5393,7 @@ impl LayoutWindow {
             });
 
         // Return node + parent (if exists)
-        if let Some(parent) = parent_id {
-            vec![node_dom_id, parent]
-        } else {
-            vec![node_dom_id]
-        }
+        parent_id.map_or_else(|| vec![node_dom_id], |parent| vec![node_dom_id, parent])
     }
 
     /// Legacy name for backward compatibility
@@ -5733,17 +5717,13 @@ impl LayoutWindow {
             .and_then(|w| w.inline_layout_result.as_ref())
             .cloned();
 
-        let new_layout = if let Some(cached) = cached_snapshot {
-            self.try_incremental_text_relayout(
+        let new_layout = cached_snapshot.map_or_else(|| self.relayout_text_node_internal(&new_inline_content, &constraints), |cached| self.try_incremental_text_relayout(
                 &new_inline_content,
                 &constraints,
                 &cached,
                 node_id,
             )
-            .map(|(layout, _skipped_fragment)| layout)
-        } else {
-            self.relayout_text_node_internal(&new_inline_content, &constraints)
-        };
+            .map(|(layout, _skipped_fragment)| layout));
 
         let Some(new_layout) = new_layout else {
             return;

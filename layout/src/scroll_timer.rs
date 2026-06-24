@@ -351,13 +351,10 @@ pub extern "C" fn scroll_physics_timer_callback(
     let direct_positions: Vec<_> = physics.pending_positions.iter().map(|(k, v)| (*k, *v)).collect();
     physics.pending_positions.clear();
     for ((dom_id, node_id), position) in direct_positions {
-        let clamped = match timer_info.get_scroll_node_info(dom_id, node_id) {
-            Some(info) => LogicalPosition {
+        let clamped = timer_info.get_scroll_node_info(dom_id, node_id).map_or(position, |info| LogicalPosition {
                 x: position.x.clamp(0.0, info.max_scroll_x),
                 y: position.y.clamp(0.0, info.max_scroll_y),
-            },
-            None => position,
-        };
+            });
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
         timer_info.scroll_to(dom_id, hierarchy_id, clamped);
         any_changes = true;
@@ -368,8 +365,7 @@ pub extern "C" fn scroll_physics_timer_callback(
     let trackpad_positions: Vec<_> = physics.pending_trackpad_positions.iter().map(|(k, v)| (*k, *v)).collect();
     physics.pending_trackpad_positions.clear();
     for ((dom_id, node_id), position) in trackpad_positions {
-        let clamped = match timer_info.get_scroll_node_info(dom_id, node_id) {
-            Some(info) => {
+        let clamped = timer_info.get_scroll_node_info(dom_id, node_id).map_or(position, |info| {
                 let rubber_x = node_allows_rubber_band(info.max_scroll_x, info.overscroll_behavior_x, info.overflow_scrolling, physics.scroll_physics.overscroll_elasticity);
                 let rubber_y = node_allows_rubber_band(info.max_scroll_y, info.overscroll_behavior_y, info.overflow_scrolling, physics.scroll_physics.overscroll_elasticity);
                 let max_over = physics.scroll_physics.max_overscroll_distance;
@@ -386,9 +382,7 @@ pub extern "C" fn scroll_physics_timer_callback(
                         position.y.clamp(0.0, info.max_scroll_y)
                     },
                 }
-            },
-            None => position,
-        };
+            });
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
         timer_info.scroll_to_unclamped(dom_id, hierarchy_id, clamped);
         any_changes = true;

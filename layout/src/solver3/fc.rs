@@ -6160,12 +6160,10 @@ fn calculate_row_heights<T: ParsedFontTrait>(
             // +spec:box-model:0ab9b0 - empty-cells:hide suppresses borders/backgrounds, row gets zero height if all cells hidden+empty
             // Check if ALL cells in this row have empty-cells:hide and are empty
             let all_hidden_empty = row_cells.iter().all(|&cell_idx| {
-                if let Some(cell_node) = tree.get(cell_idx) {
+                tree.get(cell_idx).map_or(true, |cell_node| {
                     let ec = get_empty_cells_property(ctx, cell_node);
                     ec == StyleEmptyCells::Hide && is_cell_empty(tree, cell_idx)
-                } else {
-                    true
-                }
+                })
             });
             if all_hidden_empty {
                 table_ctx.row_heights[row_idx] = 0.0;
@@ -8143,16 +8141,14 @@ fn generate_list_marker_text(
 
     // Try to get list-style-type from the list container first,
     // then fall back to the list-item
-    let list_style_type = if let Some(container_id) = list_container_dom_id {
+    let list_style_type = list_container_dom_id.map_or_else(|| get_list_style_type(styled_dom, Some(list_item_dom_id)), |container_id| {
         let container_type = get_list_style_type(styled_dom, Some(container_id));
         if container_type == StyleListStyleType::default() {
             get_list_style_type(styled_dom, Some(list_item_dom_id))
         } else {
             container_type
         }
-    } else {
-        get_list_style_type(styled_dom, Some(list_item_dom_id))
-    };
+    });
 
     // Get the counter value for "list-item" counter from the LIST-ITEM node
     // Per CSS spec, counters are scoped to elements, and the list-item counter
@@ -8481,7 +8477,7 @@ pub fn split_text_for_whitespace(
     let parent_id = node_hierarchy[dom_id].parent_id();
     
     // Try parent first, then fall back to the node itself
-    let white_space = if let Some(parent) = parent_id {
+    let white_space = parent_id.map_or(StyleWhiteSpace::Normal, |parent| {
         let styled_nodes = styled_dom.styled_nodes.as_container();
         let parent_state = styled_nodes
             .get(parent)
@@ -8492,9 +8488,7 @@ pub fn split_text_for_whitespace(
             MultiValue::Exact(ws) => ws,
             _ => StyleWhiteSpace::Normal,
         }
-    } else {
-        StyleWhiteSpace::Normal
-    };
+    });
 
     let mut result = Vec::new();
 

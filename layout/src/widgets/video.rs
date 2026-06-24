@@ -397,10 +397,7 @@ extern "C" fn video_replay_worker(mut init: RefAny, mut sender: ThreadSender, _r
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let hook = match writeback_data.downcast_ref::<VideoWidgetState>() {
-        Some(s) => s.on_frame.clone(),
-        None => OptionOnVideoFrame::None,
-    };
+    let hook = writeback_data.downcast_ref::<VideoWidgetState>().map_or_else(|| OptionOnVideoFrame::None, |s| s.on_frame.clone());
     let mut user_update = Update::DoNothing;
     match frame_data.downcast_ref::<VideoFrame>() {
         Some(frame) => {

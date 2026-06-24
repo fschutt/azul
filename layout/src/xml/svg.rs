@@ -2298,10 +2298,7 @@ pub fn svg_parse(
 #[must_use] pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
     use azul_core::resources::RawImageData;
 
-    let (target_width, target_height) = match options.target_size.as_ref() {
-        Some(s) => (s.width as u32, s.height as u32),
-        None => DEFAULT_SVG_RENDER_SIZE,
-    };
+    let (target_width, target_height) = options.target_size.as_ref().map_or(DEFAULT_SVG_RENDER_SIZE, |s| (s.width as u32, s.height as u32));
 
     if target_width == 0 || target_height == 0 {
         return None;

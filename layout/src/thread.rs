@@ -78,10 +78,7 @@ pub enum OptionThreadReceiveMsg {
 
 impl From<Option<ThreadReceiveMsg>> for OptionThreadReceiveMsg {
     fn from(inner: Option<ThreadReceiveMsg>) -> Self {
-        match inner {
-            None => Self::None,
-            Some(v) => Self::Some(v),
-        }
+        inner.map_or_else(|| Self::None, |v| Self::Some(v))
     }
 }
 
@@ -539,10 +536,7 @@ impl Thread {
     /// if the channel is closed (or always, on `no_std`).
     #[cfg(feature = "std")]
     #[must_use] pub fn send_message(&self, msg: ThreadSendMsg) -> bool {
-        match self.ptr.lock() {
-            Ok(inner) => inner.sender.send(msg).is_ok(),
-            Err(_) => false,
-        }
+        self.ptr.lock().map_or(false, |inner| inner.sender.send(msg).is_ok())
     }
     #[cfg(not(feature = "std"))]
     pub fn send_message(&self, _msg: ThreadSendMsg) -> bool {
@@ -885,10 +879,7 @@ pub enum OptionThread {
 
 impl From<Option<Thread>> for OptionThread {
     fn from(o: Option<Thread>) -> Self {
-        match o {
-            None => Self::None,
-            Some(t) => Self::Some(t),
-        }
+        o.map_or_else(|| Self::None, |t| Self::Some(t))
     }
 }
 

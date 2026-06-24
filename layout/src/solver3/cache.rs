@@ -999,12 +999,10 @@ pub fn reconcile_recursive(
     };
 
     // Compare fingerprints to determine what changed (Layout, Paint, or Nothing).
-    let dirty_flag = match old_cold {
-        None => {
+    let dirty_flag = old_cold.map_or_else(|| {
             drop(crate::probe::Probe::span("fp_new_node"));
             DirtyFlag::Layout // new node → full layout
-        },
-        Some(old_c) => {
+        }, |old_c| {
             let change_set = old_c.node_data_fingerprint.diff(&new_fingerprint);
             if change_set.needs_layout() {
                 drop(crate::probe::Probe::span("fp_needs_layout"));
@@ -1032,8 +1030,7 @@ pub fn reconcile_recursive(
                 drop(crate::probe::Probe::span("fp_clean"));
                 DirtyFlag::None
             }
-        }
-    };
+        });
     let is_dirty = dirty_flag >= DirtyFlag::Paint;
 
     // M12.7: `|| old_tree.is_none()` — on COLD layout there is no old tree to
@@ -1629,15 +1626,12 @@ fn check_scrollbar_change(
         return false;
     };
 
-    match &warm_node.scrollbar_info {
-        None => scrollbar_info.needs_reflow(),
-        Some(old_info) => {
+    warm_node.scrollbar_info.as_ref().map_or_else(|| scrollbar_info.needs_reflow(), |old_info| {
             // Trigger reflow if scrollbar state changed in either direction
             let horizontal_changed = old_info.needs_horizontal != scrollbar_info.needs_horizontal;
             let vertical_changed = old_info.needs_vertical != scrollbar_info.needs_vertical;
             horizontal_changed || vertical_changed
-        }
-    }
+        })
 }
 
 /// Calculates the content-box position from a margin-box position.

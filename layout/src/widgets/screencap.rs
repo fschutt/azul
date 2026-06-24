@@ -205,10 +205,7 @@ extern "C" fn screencap_writeback(
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let (current, hook) = match writeback_data.downcast_ref::<ScreenCaptureWidgetState>() {
-        Some(s) => (s.gl_texture_id, s.on_frame.clone()),
-        None => (None, OptionOnVideoFrame::None),
-    };
+    let (current, hook) = writeback_data.downcast_ref::<ScreenCaptureWidgetState>().map_or_else(|| (None, OptionOnVideoFrame::None), |s| (s.gl_texture_id, s.on_frame.clone()));
     let mut user_update = Update::DoNothing;
     let new_id = match frame_data.downcast_ref::<VideoFrame>() {
         Some(frame) => {

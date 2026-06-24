@@ -675,10 +675,7 @@ impl OptionCallback {
 
 impl From<Option<Callback>> for OptionCallback {
     fn from(o: Option<Callback>) -> Self {
-        match o {
-            None => Self::None,
-            Some(c) => Self::Some(c),
-        }
+        o.map_or_else(|| Self::None, |c| Self::Some(c))
     }
 }
 
@@ -901,14 +898,10 @@ impl CallbackInfo {
     #[cfg(feature = "std")]
     #[must_use] pub fn has_pending_relayout_change(&self) -> bool {
         unsafe {
-            if let Ok(changes) = (*self.changes).lock() {
-                changes.iter().any(|c| matches!(c,
+            (*self.changes).lock().map_or(false, |changes| changes.iter().any(|c| matches!(c,
                     CallbackChange::ModifyWindowState { .. } |
                     CallbackChange::ScrollTo { .. }
-                ))
-            } else {
-                false
-            }
+                )))
         }
     }
 
@@ -1797,7 +1790,7 @@ impl CallbackInfo {
         let rect = self
             .get_node_hit_test_bounds(node_id)
             .or_else(|| self.get_node_rect(node_id));
-        if let Some(rect) = rect {
+        rect.map_or(false, |rect| {
             // Position menu at bottom-left of the node
             let position = LogicalPosition::new(rect.origin.x, rect.origin.y + rect.size.height);
             self.push_change(CallbackChange::OpenMenu {
@@ -1805,9 +1798,7 @@ impl CallbackInfo {
                 position: Some(position),
             });
             true
-        } else {
-            false
-        }
+        })
     }
 
     /// Open a menu positioned relative to the currently hit node
@@ -2952,10 +2943,7 @@ impl CallbackInfo {
             return OptionU8Vec::None;
         };
         let parsed = crate::font_ref_to_parsed_font(&font_ref);
-        match parsed.source_bytes_for_subset() {
-            Some(bytes) => OptionU8Vec::Some(U8Vec::from_vec(bytes.as_slice().to_vec())),
-            None => OptionU8Vec::None,
-        }
+        parsed.source_bytes_for_subset().map_or_else(|| OptionU8Vec::None, |bytes| OptionU8Vec::Some(U8Vec::from_vec(bytes.as_slice().to_vec())))
     }
 
     // Screenshot API
@@ -4541,10 +4529,7 @@ impl OptionMenuCallback {
 
 impl From<Option<MenuCallback>> for OptionMenuCallback {
     fn from(o: Option<MenuCallback>) -> Self {
-        match o {
-            None => Self::None,
-            Some(c) => Self::Some(c),
-        }
+        o.map_or_else(|| Self::None, |c| Self::Some(c))
     }
 }
 

@@ -1777,10 +1777,7 @@ pub fn render_single_item(
             // thumb translation. For CSS transforms, it stores the computed
             // matrix. Falls back to the initial_transform baked in the DL.
             let live_transform = render_state.transforms.get(&transform_key.id);
-            let m = match live_transform {
-                Some(t) => &t.m,
-                None => &initial_transform.m,
-            };
+            let m = live_transform.map_or(&initial_transform.m, |t| &t.m);
             let tf = TransAffine::new_custom(
                 f64::from(m[0][0]),
                 f64::from(m[0][1]), // sx, shy
@@ -2503,16 +2500,12 @@ fn render_image(
     let sy = src_h as f32 / dst_h.max(1) as f32;
 
     // Compute pixel-level clip bounds for the blit loop
-    let (clip_x1, clip_y1, clip_x2, clip_y2) = if let Some(ref c) = clip {
-        (
+    let (clip_x1, clip_y1, clip_x2, clip_y2) = clip.as_ref().map_or((0, 0, pw as i32, ph as i32), |c| (
             c.x as i32,
             c.y as i32,
             (c.x + c.width) as i32,
             (c.y + c.height) as i32,
-        )
-    } else {
-        (0, 0, pw as i32, ph as i32)
-    };
+        ));
 
     for py in 0..dst_h {
         for px in 0..dst_w {

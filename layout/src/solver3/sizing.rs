@@ -780,7 +780,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // +spec:intrinsic-sizing:ed72bb - intrinsic contributions based on outer size, auto margins as zero
                 let child_node = tree.get(child_index);
                 let (cross_extras, main_border_padding, main_margin_start, main_margin_end) =
-                    if let Some(cn) = child_node {
+                    child_node.map_or((0.0, 0.0, 0.0, 0.0), |cn| {
                         let bp = cn.box_props.unpack();
                         let h = bp.margin.left + bp.margin.right
                               + bp.border.left + bp.border.right
@@ -791,9 +791,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                             LayoutWritingMode::HorizontalTb => (h, v_bp, bp.margin.top, bp.margin.bottom),
                             _ => (v_bp, h, bp.margin.left, bp.margin.right),
                         }
-                    } else {
-                        (0.0, 0.0, 0.0, 0.0)
-                    };
+                    });
 
                 let (child_min_cross, child_max_cross, child_border_box_main) = match writing_mode {
                     LayoutWritingMode::HorizontalTb => (
@@ -924,13 +922,10 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             let wrap_prop = crate::solver3::getters::get_flex_wrap_prop(
                 self.ctx.styled_dom, dom_id, node_state,
             );
-            match wrap_prop {
-                Some(val) => matches!(
+            wrap_prop.map_or(true, |val| matches!(
                     val.get_property_or_default().unwrap_or_default(),
                     LayoutFlexWrap::NoWrap
-                ),
-                None => true, // default is nowrap
-            }
+                ))
         } else {
             true
         };
@@ -1011,11 +1006,11 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
 
                 // Add cell box-model extras
                 let cell_node = tree.get(cell_idx);
-                let (h_extras, v_extras) = if let Some(cn) = cell_node {
+                let (h_extras, v_extras) = cell_node.map_or((0.0, 0.0), |cn| {
                     let bp = cn.box_props.unpack();
                     (bp.padding.left + bp.padding.right + bp.border.left + bp.border.right,
                      bp.padding.top + bp.padding.bottom + bp.border.top + bp.border.bottom)
-                } else { (0.0, 0.0) };
+                });
 
                 let cell_min = cell_is.min_content_width + h_extras;
                 let cell_max = cell_is.max_content_width + h_extras;
@@ -1757,8 +1752,7 @@ pub fn calculate_used_size_for_node(
             _ => None,
         };
 
-        if let Some(ratio) = intrinsic_ratio {
-            if height_is_auto && !has_intrinsic_width && has_intrinsic_height {
+        intrinsic_ratio.map_or((resolved_width, resolved_height), |ratio| if height_is_auto && !has_intrinsic_width && has_intrinsic_height {
                 // §6.2 case: both auto, no intrinsic width, has intrinsic height + ratio
                 // → width = used height × ratio
                 (resolved_height * ratio, resolved_height)
@@ -1780,10 +1774,7 @@ pub fn calculate_used_size_for_node(
                 (block_width, block_width / ratio)
             } else {
                 (resolved_width, resolved_height)
-            }
-        } else {
-            (resolved_width, resolved_height)
-        }
+            })
     } else {
         (resolved_width, resolved_height)
     };

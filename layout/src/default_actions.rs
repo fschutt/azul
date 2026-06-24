@@ -83,8 +83,7 @@ use std::collections::BTreeMap;
 
         // Activation (Enter key)
         VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter => {
-            if let Some(ref focus) = focused_node {
-                if is_element_activatable(focus, layout_results) {
+            focused_node.as_ref().map_or(DefaultAction::None, |focus| if is_element_activatable(focus, layout_results) {
                     DefaultAction::ActivateFocusedElement {
                         target: *focus,
                     }
@@ -92,18 +91,12 @@ use std::collections::BTreeMap;
                     // Enter on non-activatable element - might submit form
                     // For now, no action (form handling could be added later)
                     DefaultAction::None
-                }
-            } else {
-                DefaultAction::None
-            }
+                })
         }
 
         // Activation (Space key)
         VirtualKeyCode::Space => {
-            if let Some(ref focus) = focused_node {
-                // Space only activates if the focused element is activatable
-                // and we're not in a text input
-                if is_element_activatable(focus, layout_results)
+            focused_node.as_ref().map_or(DefaultAction::None, |focus| if is_element_activatable(focus, layout_results)
                     && !is_text_input(focus, layout_results)
                 {
                     DefaultAction::ActivateFocusedElement {
@@ -112,10 +105,7 @@ use std::collections::BTreeMap;
                 } else {
                     // Space in text input should insert space (handled by text input system)
                     DefaultAction::None
-                }
-            } else {
-                DefaultAction::None
-            }
+                })
         }
 
         // Escape - clear focus
@@ -136,18 +126,14 @@ use std::collections::BTreeMap;
                 VirtualKeyCode::Left => ScrollDirection::Left,
                 _ => ScrollDirection::Right,
             };
-            if let Some(ref focus) = focused_node {
-                if is_text_input(focus, layout_results) {
+            focused_node.as_ref().map_or(DefaultAction::None, |focus| if is_text_input(focus, layout_results) {
                     DefaultAction::None
                 } else {
                     DefaultAction::ScrollFocusedContainer {
                         direction,
                         amount: ScrollAmount::Line,
                     }
-                }
-            } else {
-                DefaultAction::None
-            }
+                })
         }
 
         // Page Up/Down

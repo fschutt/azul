@@ -148,10 +148,7 @@ impl CpuHitTester {
             let styled_dom = &layout_result.styled_dom;
 
             // Child DOM: shift into window space + clip to the composite rect.
-            let (offset, dom_clip) = match placements.get(dom_id) {
-                Some(b) => (b.origin, Some(*b)),
-                None => (LogicalPosition::zero(), None),
-            };
+            let (offset, dom_clip) = placements.get(dom_id).map_or_else(|| (LogicalPosition::zero(), None), |b| (b.origin, Some(*b)));
 
             // Walk the layout nodes and their computed positions
             for (idx, node) in nodes.iter().enumerate() {

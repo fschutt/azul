@@ -180,13 +180,11 @@ fn render_svg_group_with_style(
     use agg_rust::math_stroke::{LineCap, LineJoin};
     use azul_core::xml::{XmlNode, XmlNodeChild};
 
-    let group_transform = if let Some(t) = node.attributes.get_key("transform") {
+    let group_transform = node.attributes.get_key("transform").map_or(*parent_transform, |t| {
         let mut tf = parse_svg_transform(t.as_str());
         tf.premultiply(parent_transform);
         tf
-    } else {
-        *parent_transform
-    };
+    });
 
     // Inherit style from this group's attributes
     let group_style = SvgInheritedStyle {
@@ -227,13 +225,11 @@ fn render_svg_group_with_style(
                 let mut curved = agg_rust::conv_curve::ConvCurve::new(path_storage);
 
                 // Per-element transform
-                let elem_transform = if let Some(t) = child_node.attributes.get_key("transform") {
+                let elem_transform = child_node.attributes.get_key("transform").map_or(group_transform, |t| {
                     let mut tf = parse_svg_transform(t.as_str());
                     tf.premultiply(&group_transform);
                     tf
-                } else {
-                    group_transform
-                };
+                });
 
                 // Fill: element overrides group
                 let fill_attr = child_node
@@ -355,11 +351,7 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
             let w = attr_f64(node, "width");
             let h = attr_f64(node, "height");
             let rx = attr_f64(node, "rx");
-            let ry = if let Some(v) = node.attributes.get_key("ry") {
-                v.as_str().parse().unwrap_or(rx)
-            } else {
-                rx
-            };
+            let ry = node.attributes.get_key("ry").map_or(rx, |v| v.as_str().parse().unwrap_or(rx));
             if w <= 0.0 || h <= 0.0 {
                 return None;
             }

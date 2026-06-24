@@ -842,16 +842,13 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
     let container = info
         .get_hit_node_rect()
         .map_or(azul_core::geom::LogicalSize::new(0.0, 0.0), |r| r.size);
-    let (press, viewport, hook) = match data.downcast_mut::<MapTileCache>() {
-        Some(mut cache) => {
+    let (press, viewport, hook) = data.downcast_mut::<MapTileCache>().map_or_else(|| (None, MapViewport::default(), OptionMapPinTap::None), |mut cache| {
             let out = (cache.press_origin, cache.viewport, cache.on_pin_tap.clone());
             cache.drag_anchor = None;
             cache.pinch_anchor = None;
             cache.press_origin = None;
             out
-        }
-        None => (None, MapViewport::default(), OptionMapPinTap::None),
-    };
+        });
     // A press + release at ~the same point (no pan/pinch) is a tap: project it
     // to lat/lon and fire the user's on_pin_tap hook.
     if let (Some(origin), Some(up)) = (press, up_pos) {
@@ -882,10 +879,7 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
     // the scroll-physics input queue (which only feeds scrollable nodes).
     let dy: f32 = {
         let hn = info.get_hit_node();
-        match hn.node.into_crate_internal() {
-            Some(nid) => info.get_scroll_delta(hn.dom, nid).map_or(0.0, |d| d.y),
-            None => 0.0,
-        }
+        hn.node.into_crate_internal().map_or(0.0, |nid| info.get_scroll_delta(hn.dom, nid).map_or(0.0, |d| d.y))
     };
     #[cfg(feature = "std")]
     if std::env::var("AZ_MAP_DEBUG").is_ok() {

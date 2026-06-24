@@ -1465,11 +1465,7 @@ impl GestureAndDragManager {
     /// Check if a specific node is being dragged
     #[must_use] pub fn is_node_dragging(&self, dom_id: DomId, node_id: NodeId) -> bool {
         self.active_drag.as_ref().is_some_and(|d| {
-            if let Some(node_drag) = d.as_node_drag() {
-                node_drag.dom_id == dom_id && node_drag.node_id == node_id
-            } else {
-                false
-            }
+            d.as_node_drag().map_or(false, |node_drag| node_drag.dom_id == dom_id && node_drag.node_id == node_id)
         })
     }
 

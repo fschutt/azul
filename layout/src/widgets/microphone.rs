@@ -267,10 +267,7 @@ extern "C" fn mic_writeback(
         Some(s) => s.on_frame.clone(),
         None => return Update::DoNothing,
     };
-    match frame_data.downcast_ref::<AudioFrame>() {
-        Some(frame) => invoke_on_audio_frame(&hook, &mut info, frame.clone()),
-        None => Update::DoNothing,
-    }
+    frame_data.downcast_ref::<AudioFrame>().map_or(Update::DoNothing, |frame| invoke_on_audio_frame(&hook, &mut info, frame.clone()))
 }
 
 /// Carry live state forward across relayout (config + started; the `on_frame`

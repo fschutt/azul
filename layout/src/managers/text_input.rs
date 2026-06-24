@@ -85,19 +85,13 @@ impl OptionPendingTextEdit {
 
 impl From<Option<PendingTextEdit>> for OptionPendingTextEdit {
     fn from(o: Option<PendingTextEdit>) -> Self {
-        match o {
-            Some(v) => Self::Some(v),
-            None => Self::None,
-        }
+        o.map_or_else(|| Self::None, |v| Self::Some(v))
     }
 }
 
 impl<'a> From<Option<&'a PendingTextEdit>> for OptionPendingTextEdit {
     fn from(o: Option<&'a PendingTextEdit>) -> Self {
-        match o {
-            Some(v) => Self::Some(v.clone()),
-            None => Self::None,
-        }
+        o.map_or_else(|| Self::None, |v| Self::Some(v.clone()))
     }
 }
 

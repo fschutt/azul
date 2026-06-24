@@ -351,8 +351,7 @@ impl DisplayList {
                     && run_idx < new_glyphs_by_run.len() {
                         *glyphs = new_glyphs_by_run[run_idx].clone();
                         let bounds = *clip_rect.inner();
-                        damage = Some(match damage {
-                            Some(d) => {
+                        damage = Some(damage.map_or(bounds, |d| {
                                 // rect union (was crate::cpurender::union_rect, which
                                 // is gated behind the `cpurender` feature; inlined here
                                 // so display-list damage tracking works without it / on WASM)
@@ -366,9 +365,7 @@ impl DisplayList {
                                     origin: LogicalPosition { x, y },
                                     size: LogicalSize { width: right - x, height: bottom - y },
                                 }
-                            }
-                            None => bounds,
-                        });
+                            }));
                         run_idx += 1;
                     }
             }
@@ -2568,12 +2565,10 @@ StyleVisibility::Collapse) => true,
                 .ok_or(LayoutError::InvalidTree)?;
 
             // Check if this child is being dragged (paint last for z-order)
-            let is_dragging = if let Some(dom_id) = child_node.dom_node_id {
+            let is_dragging = child_node.dom_node_id.map_or(false, |dom_id| {
                 let styled_node_state = self.get_styled_node_state(dom_id);
                 styled_node_state.dragging
-            } else {
-                false
-            };
+            });
 
             if is_dragging {
                 dragging_children.push(child_index);
@@ -2862,12 +2857,10 @@ StyleVisibility::Collapse) => true,
             #[cfg(feature = "cpurender")]
             Some(azul_core::dom::SvgNodeData::Path(svg_clip)) => {
                 let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
-                if let Some(mask_image) = rasterize_svg_clip_to_r8(svg_clip, &paint_rect) {
+                rasterize_svg_clip_to_r8(svg_clip, &paint_rect).map_or(false, |mask_image| {
                     builder.push_image_mask_clip(paint_rect, mask_image, paint_rect);
                     true
-                } else {
-                    false
-                }
+                })
             }
             #[cfg(not(feature = "cpurender"))]
             Some(azul_core::dom::SvgNodeData::Path(_)) => false,
@@ -2927,10 +2920,9 @@ StyleVisibility::Collapse) => true,
         // clip-path supersedes it and applies to all elements per CSS Masking Level 1.
         // If present, push a clip region derived from the clip-path shape.
         // This is evaluated before overflow clips; both can be active simultaneously.
-        let has_clip_path = if let Some(clip_path) = super::getters::get_clip_path(
+        let has_clip_path = super::getters::get_clip_path(
             self.ctx.styled_dom, dom_id, &styled_node_state,
-        ) {
-            if let Some((clip_rect, radius)) = resolve_clip_path(&clip_path, paint_rect) {
+        ).map_or(false, |clip_path| if let Some((clip_rect, radius)) = resolve_clip_path(&clip_path, paint_rect) {
                 let br = if radius > 0.0 {
                     BorderRadius {
                         top_left: radius,
@@ -2945,10 +2937,7 @@ StyleVisibility::Collapse) => true,
                 true
             } else {
                 false
-            }
-        } else {
-            false
-        };
+            });
 
         // +spec:overflow:6890f2 - text-overflow: clip inline content at end line box edge when overflow != visible
         // +spec:overflow:77d7ce - clipping region defines visible portion of border box; default is not clipped
@@ -6226,11 +6215,7 @@ pub(crate) fn apply_text_overflow_ellipsis(
                 // (HORIZONTAL ELLIPSIS) as the glyph index. This is a common
                 // convention; renderers that use proper glyph IDs will need to
                 // map this to the font's actual glyph index.
-                let ellipsis_x = if let Some(last) = glyphs.last() {
-                    last.point.x + last.size.width
-                } else {
-                    container_bounds.origin.x
-                };
+                let ellipsis_x = glyphs.last().map_or(container_bounds.origin.x, |last| last.point.x + last.size.width);
 
                 let ellipsis_glyph = GlyphInstance {
                     index: 0x2026, // U+2026 HORIZONTAL ELLIPSIS

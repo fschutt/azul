@@ -63,10 +63,7 @@ impl SensorManager {
             SensorKind::Gyroscope => &mut self.gyroscope,
             SensorKind::Magnetometer => &mut self.magnetometer,
         };
-        let changed = match slot {
-            Some(prev) => !reading_bitwise_eq(prev, &reading),
-            None => true,
-        };
+        let changed = slot.as_mut().map_or(true, |prev| !reading_bitwise_eq(prev, &reading));
         *slot = Some(reading);
         if changed {
             self.pending_event = true;
