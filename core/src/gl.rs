@@ -3096,6 +3096,7 @@ impl Texture {
     /// falloff as the CPU `RawImage::paint_stroke`. No-op if GL is unusable.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+    #[allow(clippy::many_single_char_names)] // domain-standard colour/coordinate component names
     pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: Brush) {
         let gl = self.gl_context.clone();
         let prog = gl.get_brush_shader();

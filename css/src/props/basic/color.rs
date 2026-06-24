@@ -1303,6 +1303,7 @@ fn parse_color_hsl(
 }
 
 #[cfg(feature = "parser")]
+#[allow(clippy::many_single_char_names)] // domain-standard h/s/l/r/g/b colour component names
 fn parse_color_hsl_components<'a>(
     components: &mut dyn Iterator<Item = &'a str>,
 ) -> Result<ColorU, CssColorParseError<'a>> {
@@ -1347,6 +1348,7 @@ fn parse_color_hsl_components<'a>(
 
     #[inline]
     #[allow(clippy::suboptimal_flops)] // explicit FP; mul_add slower without +fma
+    #[allow(clippy::many_single_char_names)] // domain-standard colour/coordinate component names
     fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
         let s = s / 100.0;
         let l = l / 100.0;

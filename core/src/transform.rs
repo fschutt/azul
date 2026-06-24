@@ -331,6 +331,7 @@ impl ComputedTransform3D {
 
     /// Creates a new transform from a style transform using the
     /// parent width as a way to resolve for percentages
+    #[allow(clippy::many_single_char_names)] // domain-standard colour/coordinate component names
     fn from_style_transform(
         t: &StyleTransform,
         transform_origin: &StyleTransformOrigin,
