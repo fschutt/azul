@@ -1952,6 +1952,7 @@ impl CallbackInfo {
     }
 
     /// Check if a node is anonymous (generated for table layout)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     fn is_node_anonymous(&self, dom_id: &DomId, node_id: NodeId) -> bool {
         let layout_window = self.get_layout_window();
         let Some(layout_result) = layout_window.get_layout_result(dom_id) else {

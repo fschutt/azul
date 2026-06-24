@@ -548,6 +548,7 @@ fn pixel_to_lp(pv: PixelValue) -> LengthPercentage {
 
 /// Slow path for flex-basis: full property cache lookup + decode.
 /// Extracted to avoid duplicating the logic in the compact fast-path fallback.
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn flex_basis_slow_path(
     cache: &azul_core::prop_cache::CssPropertyCache,
     node_data: &azul_core::dom::NodeData,

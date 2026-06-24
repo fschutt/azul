@@ -210,6 +210,7 @@ impl SearchDirection {
     /// Compute the next node index in this direction.
     ///
     /// Uses saturating arithmetic to avoid overflow/underflow.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn step_node(&self, index: usize) -> usize {
         match self {
             Self::Forward => index.saturating_add(1),
@@ -218,6 +219,7 @@ impl SearchDirection {
     }
 
     /// Advance the DOM ID in this direction (mutates in place).
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn step_dom(&self, dom_id: &mut DomId) {
         match self {
             Self::Forward => dom_id.inner += 1,
@@ -231,6 +233,7 @@ impl SearchDirection {
     ///
     /// - Backward: at min node and current < start (wrapped around)
     /// - Forward: at max node and current > start (wrapped around)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     fn is_at_boundary(&self, current: NodeId, start: NodeId, min: NodeId, max: NodeId) -> bool {
         match self {
             Self::Backward => current == min && current < start,
@@ -239,6 +242,7 @@ impl SearchDirection {
     }
 
     /// Check if we've hit a DOM boundary (first or last DOM in the layout).
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     fn is_at_dom_boundary(&self, dom_id: DomId, min: DomId, max: DomId) -> bool {
         match self {
             Self::Backward => dom_id == min,
@@ -250,6 +254,7 @@ impl SearchDirection {
     ///
     /// - Forward: start at first node (index 0)
     /// - Backward: start at last node
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn initial_node_for_next_dom(&self, layout: &DomLayoutResult) -> NodeId {
         match self {
             Self::Forward => NodeId::ZERO,
@@ -285,6 +290,7 @@ impl<'a> FocusSearchContext<'a> {
     }
 
     /// Get the layout for a DOM ID, or return an error if invalid.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     fn get_layout(&self, dom_id: &DomId) -> Result<&'a DomLayoutResult, UpdateFocusWarning> {
         self.layout_results
             .get(dom_id)
@@ -493,6 +499,7 @@ fn get_last_start(
 /// * `Ok(Some(node))` - Found a matching focusable node
 /// * `Ok(None)` - No matching focusable node exists
 /// * `Err(_)` - CSS path could not be matched (malformed selector)
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn find_first_matching_focusable_node(
     layout: &DomLayoutResult,
     dom_id: &DomId,

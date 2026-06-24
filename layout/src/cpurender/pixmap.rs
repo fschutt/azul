@@ -635,6 +635,7 @@ pub fn agg_fill_path_clipped(
     render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, color);
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn agg_fill_transformed_path(
     pixmap: &mut AzulPixmap,
     path: &mut PathStorage,
@@ -645,6 +646,7 @@ fn agg_fill_transformed_path(
     agg_fill_transformed_path_clipped(pixmap, path, color, rule, transform, None);
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn agg_fill_transformed_path_clipped(
     pixmap: &mut AzulPixmap,
     path: &mut PathStorage,

@@ -1309,6 +1309,7 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
 /// call's SSA result, which opt cannot replace. (The earlier "f32-return mis-lift" worry
 /// was the 2×f32 *struct* HFA — a single scalar f32 return is fine.)
 #[inline(never)]
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn auto_block_inline_size(cb: &LogicalSize, bp: &BoxProps) -> f32 {
     let aw = cb.width
         - bp.margin.left

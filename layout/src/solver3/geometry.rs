@@ -488,6 +488,7 @@ impl PackedBoxProps {
     }
 
     #[inline]
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     fn unpack_edge(e: &[i16; 4]) -> EdgeSizes {
         EdgeSizes {
             top: f32::from(e[0]) * 0.1,

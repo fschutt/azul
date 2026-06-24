@@ -645,6 +645,7 @@ impl A11yManager {
     /// Maps Azul's `AccessibilityRole` to accesskit's Role.
     // Exhaustive AccessibilityRole -> AccessKit Role mapping table (see node_type_to_role).
     #[allow(clippy::match_same_arms)]
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn map_role(role: &AccessibilityRole) -> Role {
         match role {
             AccessibilityRole::TitleBar => Role::TitleBar,

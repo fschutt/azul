@@ -4563,6 +4563,7 @@ pub struct PositionedTree<'a> {
 ///
 /// Per CSS Overflow 3 §3.2, `overflow-clip-margin` only applies to `overflow: clip` —
 /// it has no effect on `overflow: hidden`, `scroll`, or `auto`.
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn apply_overflow_clip_margin(
     clip_rect: &mut LogicalRect,
     overflow_x: &super::getters::MultiValue<LayoutOverflow>,

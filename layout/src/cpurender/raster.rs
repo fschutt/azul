@@ -50,6 +50,7 @@ const SYSTEM_COLOR_FALLBACK: ColorU = ColorU {
 /// Concrete colors are returned verbatim. `system:*` keywords are
 /// resolved against `system_colors` when available and fall back to
 /// `SYSTEM_COLOR_FALLBACK` otherwise.
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn resolve_color(
     color: &ColorOrSystem,
     system_colors: Option<&azul_css::system::SystemColors>,

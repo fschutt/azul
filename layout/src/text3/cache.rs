@@ -1354,6 +1354,7 @@ pub struct LineConstraints {
 }
 
 impl WritingMode {
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn get_direction(&self) -> Option<BidiDirection> {
         match self {
             // determined by text content
