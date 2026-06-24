@@ -3401,7 +3401,7 @@ impl CssPropertyCache {
 
                 // Step 1: Inherit from parent
                 if let Some(ref parent_values) = parent_computed {
-                    self.inherit_from_parent(&mut ctx, parent_values);
+                    Self::inherit_from_parent(&mut ctx, parent_values);
                 }
 
                 // Steps 2-5: Apply cascade in priority order
@@ -3422,7 +3422,6 @@ impl CssPropertyCache {
 
     /// Inherit inheritable properties from parent node
     fn inherit_from_parent(
-        &self,
         ctx: &mut InheritanceContext,
         parent_values: &[(CssPropertyType, CssPropertyWithOrigin)],
     ) {
@@ -3455,8 +3454,8 @@ impl CssPropertyCache {
             let cascaded_slice = self.cascaded_props.get_slice(node_id.index());
             for p in cascaded_slice {
                 if p.state == azul_css::dynamic_selector::PseudoStateType::Normal
-                    && self.should_apply_cascaded(&ctx.computed_values, p.prop_type, &p.property) {
-                        self.process_property(ctx, &p.property, parent_computed);
+                    && Self::should_apply_cascaded(&ctx.computed_values, p.prop_type, &p.property) {
+                        Self::process_property(ctx, &p.property, parent_computed);
                     }
             }
         }
@@ -3466,7 +3465,7 @@ impl CssPropertyCache {
             let css_slice = self.css_props.get_slice(node_id.index());
             for p in css_slice {
                 if p.state == azul_css::dynamic_selector::PseudoStateType::Normal {
-                    self.process_property(ctx, &p.property, parent_computed);
+                    Self::process_property(ctx, &p.property, parent_computed);
                 }
             }
         }
@@ -3475,21 +3474,20 @@ impl CssPropertyCache {
         for (prop, conds) in node_data[node_index].style.iter_inline_properties() {
             // Only apply unconditional (normal) properties
             if conds.as_slice().is_empty() {
-                self.process_property(ctx, prop, parent_computed);
+                Self::process_property(ctx, prop, parent_computed);
             }
         }
 
         // Step 5: User-overridden properties
         if let Some(user_props) = self.user_overridden_properties.get(node_id.index()) {
             for (_, prop) in user_props {
-                self.process_property(ctx, prop, parent_computed);
+                Self::process_property(ctx, prop, parent_computed);
             }
         }
     }
 
     /// Check if a cascaded property should be applied
     fn should_apply_cascaded(
-        &self,
         computed: &[(CssPropertyType, CssPropertyWithOrigin)],
         prop_type: CssPropertyType,
         prop: &CssProperty,
@@ -3510,7 +3508,6 @@ impl CssPropertyCache {
 
     /// Process a single property: resolve and store
     fn process_property(
-        &self,
         ctx: &mut InheritanceContext,
         prop: &CssProperty,
         parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
@@ -3518,9 +3515,9 @@ impl CssPropertyCache {
         let prop_type = prop.get_type();
 
         let resolved = if prop_type == CssPropertyType::FontSize {
-            self.resolve_font_size_property(prop, parent_computed)
+            Self::resolve_font_size_property(prop, parent_computed)
         } else {
-            self.resolve_other_property(prop, &ctx.computed_values)
+            Self::resolve_other_property(prop, &ctx.computed_values)
         };
 
         let entry = (prop_type, CssPropertyWithOrigin {
@@ -3535,7 +3532,6 @@ impl CssPropertyCache {
 
     /// Resolve font-size property (uses parent's font-size as reference)
     fn resolve_font_size_property(
-        &self,
         prop: &CssProperty,
         parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
     ) -> CssProperty {
@@ -3564,7 +3560,6 @@ impl CssPropertyCache {
 
     /// Resolve other properties (uses current node's font-size as reference)
     fn resolve_other_property(
-        &self,
         prop: &CssProperty,
         computed: &[(CssPropertyType, CssPropertyWithOrigin)],
     ) -> CssProperty {

@@ -1254,7 +1254,7 @@ impl ChangeAccumulator {
             }
 
             // Determine RelayoutScope from the change flags
-            let scope = self.classify_change_scope(*change_set, new_node_data, new_id);
+            let scope = Self::classify_change_scope(*change_set, new_node_data, new_id);
 
             // Extract text change info if TEXT_CONTENT flag is set
             let text_change = if change_set.contains(NodeChangeSet::TEXT_CONTENT) {
@@ -1303,7 +1303,6 @@ impl ChangeAccumulator {
 
     /// Classify a `NodeChangeSet` into the appropriate `RelayoutScope`.
     fn classify_change_scope(
-        &self,
         change_set: NodeChangeSet,
         new_node_data: &[NodeData],
         new_node_id: NodeId,
