@@ -90,6 +90,9 @@ struct ScrollableAncestor {
 ///
 /// A vector of scroll adjustments for each scroll container in the ancestry chain.
 /// The adjustments are ordered from innermost (closest to target) to outermost.
+// Instant is a ref-counted FFI clock handle threaded through the event loop by value;
+// &-converting would cascade through the loop call chain.
+#[allow(clippy::needless_pass_by_value)]
 pub(crate) fn scroll_rect_into_view(
     target_rect: LogicalRect,
     target_dom_id: DomId,

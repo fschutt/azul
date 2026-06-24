@@ -61,6 +61,8 @@ use crate::window_state::FullWindowState;
 /// ## Returns
 ///
 /// - Vector of `SyntheticEvents`, deduplicated and ready for dispatch.
+// Instant is a ref-counted FFI clock handle threaded through the event loop by value.
+#[allow(clippy::needless_pass_by_value)]
 pub fn determine_events_from_managers(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,
@@ -250,6 +252,8 @@ fn get_all_hovered_nodes(
 ///
 /// - Deduplicated vector of `SyntheticEvents` ready for dispatch
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
+// Instant is a ref-counted FFI clock handle threaded through the event loop by value.
+#[allow(clippy::needless_pass_by_value)]
 pub fn determine_all_events(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,

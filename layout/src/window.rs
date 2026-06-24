@@ -2114,6 +2114,8 @@ impl LayoutWindow {
 
     /// Tick all timers (called once per frame)
     /// Returns a list of timer IDs that are ready to run
+    // Instant is a ref-counted FFI clock handle; called by every dll backend's event loop by value.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn tick_timers(&mut self, current_time: Instant) -> Vec<TimerId> {
         let mut ready_timers = Vec::new();
 
@@ -2674,6 +2676,8 @@ impl LayoutWindow {
     }
 
     /// Helper function to calculate scrollbar opacity based on activity time
+    // Instant is a ref-counted FFI clock handle threaded through the scrollbar-fade path by value.
+    #[allow(clippy::needless_pass_by_value)]
     fn calculate_scrollbar_opacity(
         last_activity: Option<Instant>,
         now: Instant,
@@ -3907,6 +3911,8 @@ impl LayoutWindow {
     /// Run a single timer callback and return raw changes + update.
     ///
     /// If the timer should terminate, a `RemoveTimer` change is appended.
+    // Instant is a ref-counted FFI clock handle threaded through the event loop by value.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn run_single_timer(
         &mut self,
         timer_id: usize,

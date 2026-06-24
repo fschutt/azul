@@ -721,6 +721,9 @@ impl GestureAndDragManager {
     ///
     /// Call this periodically (e.g., every frame) to prevent memory leaks.
     /// Sessions older than `config.sample_cleanup_interval_ms` are removed.
+    // CoreInstant is a ref-counted FFI clock handle threaded through the event loop by value;
+    // &-converting would cascade through the loop call chain and across all dll backends.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn clear_old_sessions(&mut self, current_time: CoreInstant) {
         self.input_sessions.retain(|session| {
             if let Some(last_sample) = session.last_sample() {

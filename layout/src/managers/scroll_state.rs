@@ -578,6 +578,8 @@ impl ScrollManager {
 
     /// Advances scroll animations by one tick, returns repaint info
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    // Instant is a ref-counted FFI clock handle; called by every dll backend's event loop by value.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn tick(&mut self, now: Instant) -> ScrollTickResult {
         let mut result = ScrollTickResult::default();
         for ((dom_id, node_id), state) in &mut self.states {
