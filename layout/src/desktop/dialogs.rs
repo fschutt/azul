@@ -135,6 +135,9 @@ impl MsgBox {
     /// "Ok" message box — title, message, icon. Quotes are stripped from the
     /// message to work around `tfd` misinterpreting them as shell metacharacters
     /// on some platforms.
+    // owned C-ABI dialog types (AzString/MsgBoxIcon) are passed by value per the azul FFI
+    // / api.json convention; taking them by reference would break the exported signature.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn ok(title: AzString, message: AzString, icon: MsgBoxIcon) {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
@@ -152,6 +155,8 @@ impl MsgBox {
     }
 
     /// "Ok / Cancel" message box — title, message, icon, default button.
+    // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
+    #[allow(clippy::needless_pass_by_value)]
     #[must_use] pub fn ok_cancel(
         title: AzString,
         message: AzString,
@@ -173,6 +178,8 @@ impl MsgBox {
     }
 
     /// "Yes / No" message box — title, message, icon, default button.
+    // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
+    #[allow(clippy::needless_pass_by_value)]
     #[must_use] pub fn yes_no(
         title: AzString,
         message: AzString,
@@ -213,6 +220,8 @@ impl ColorPickerDialog {
     }
 
     /// Opens the default color picker dialog. Returns `None` if cancelled.
+    // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
+    #[allow(clippy::needless_pass_by_value)]
     #[must_use] pub fn open(title: AzString, default_value: OptionColorU) -> OptionColorU {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
@@ -257,6 +266,8 @@ impl_option!(
 
 /// Apply a [`FileTypeList`] filter to a `tfd::FileDialog`.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+// consumes the FileTypeList forwarded from the by-value FFI file-dialog API.
+#[allow(clippy::needless_pass_by_value)]
 fn apply_filter(mut dialog: tfd::FileDialog, filter: FileTypeList) -> tfd::FileDialog {
     let v = filter.document_types.clone().into_library_owned_vec();
     let patterns: Vec<&str> = v.iter().map(AzString::as_str).collect();
@@ -278,6 +289,8 @@ impl FileDialog {
     }
 
     /// Open a single file. Returns `None` if the user cancelled.
+    // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn open_file(
         title: AzString,
         default_path: OptionString,
@@ -302,6 +315,8 @@ impl FileDialog {
     }
 
     /// Open a directory. Returns `None` if the user cancelled.
+    // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn open_directory(title: AzString, default_path: OptionString) -> OptionString {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
@@ -319,6 +334,8 @@ impl FileDialog {
     }
 
     /// Open multiple files. Returns `None` if the user cancelled.
+    // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn open_multiple_files(
         title: AzString,
         default_path: OptionString,
@@ -344,6 +361,8 @@ impl FileDialog {
     }
 
     /// Save file dialog. Returns `None` if the user cancelled.
+    // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn save_file(title: AzString, default_path: OptionString) -> OptionString {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
