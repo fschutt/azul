@@ -3460,11 +3460,11 @@ mod tests {
             &[event], None, &kb, &mouse, &sel, &focus,
         );
 
-        let copy_changes: Vec<_> = result.system_changes.iter()
+        let copy_changes = result.system_changes.iter()
             .filter(|c| matches!(c, SystemChange::CopyToClipboard))
-            .collect();
+            .count();
 
-        assert_eq!(copy_changes.len(), 1, "Ctrl+C should generate CopyToClipboard");
+        assert_eq!(copy_changes, 1, "Ctrl+C should generate CopyToClipboard");
     }
 
     fn make_hit_test_with_node(node_idx: usize) -> FullHitTest {
@@ -3523,11 +3523,11 @@ mod tests {
             &[event], Some(&hit_test), &kb, &mouse, &sel, &focus,
         );
 
-        let click_changes: Vec<_> = result.system_changes.iter()
+        let click_changes = result.system_changes.iter()
             .filter(|c| matches!(c, SystemChange::TextSelectionClick { .. }))
-            .collect();
+            .count();
 
-        assert_eq!(click_changes.len(), 1, "MouseDown with hit_test should generate TextSelectionClick");
+        assert_eq!(click_changes, 1, "MouseDown with hit_test should generate TextSelectionClick");
     }
 
     #[test]

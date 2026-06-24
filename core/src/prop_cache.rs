@@ -2304,18 +2304,17 @@ impl CssPropertyCache {
         // Iterate in REVERSE order across the flat (prop, conds) view —
         // "last found wins" semantics, replacing the old Focus > Active >
         // Hover > Normal priority chain.
-        let inline_props_rev: Vec<_> = node_data
-            .style
-            .iter_inline_properties()
-            .collect::<Vec<_>>();
-        if let Some(prop) = inline_props_rev.into_iter().rev().find_map(|(prop, conds)| {
+        // "last found wins": scan the flat (prop, conds) view forward and keep the
+        // last match (iter_inline_properties is not DoubleEndedIterator, so this
+        // replaces an earlier collect-then-rev-find_map).
+        let mut last_inline = None;
+        for (prop, conds) in node_data.style.iter_inline_properties() {
             let conditions_match = conds.as_slice().iter().all(|c| c.matches(context));
             if prop.get_type() == *css_property_type && conditions_match {
-                Some(prop)
-            } else {
-                None
+                last_inline = Some(prop);
             }
-        }) {
+        }
+        if let Some(prop) = last_inline {
             return Some(prop);
         }
 
