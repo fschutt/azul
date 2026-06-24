@@ -424,8 +424,8 @@ macro_rules! impl_managed_callback {
                 // these pointers past the call. Array size is inferred
                 // (2 base args + however many extras the macro forwarded).
                 let args = [
-                    &data as *const _ as *const core::ffi::c_void,
-                    &info as *const _ as *const core::ffi::c_void,
+                    &raw const data as *const core::ffi::c_void,
+                    &raw const info as *const core::ffi::c_void,
                     $( & $extra_name as *const _ as *const core::ffi::c_void , )*
                 ];
 
@@ -435,7 +435,7 @@ macro_rules! impl_managed_callback {
                     KIND_STR.as_ptr() as *const core::ffi::c_char,
                     args.as_ptr(),
                     args.len(),
-                    &mut out as *mut _ as *mut core::ffi::c_void,
+                    &raw mut out as *mut core::ffi::c_void,
                 );
                 return out;
             }
@@ -450,10 +450,10 @@ macro_rules! impl_managed_callback {
             let mut out: $ret = $default;
             invoker(
                 handle,
-                &data as *const $crate::refany::RefAny,
-                &info as *const $info_ty,
+                &raw const data,
+                &raw const info,
                 $( & $extra_name as *const $extra_ty , )*
-                &mut out as *mut $ret,
+                &raw mut out,
             );
             out
         }
