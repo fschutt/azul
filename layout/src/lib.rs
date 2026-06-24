@@ -370,6 +370,9 @@ pub use managers::text_input::{PendingTextEdit, OptionPendingTextEdit};
 #[cfg(feature = "text_layout")]
 /// Parses raw font bytes into a [`FontRef`](azul_css::props::basic::FontRef)
 /// suitable for use in the layout system.
+// signature must match the `ParseFontFn = fn(LoadedFontSource) -> ...` callback type
+// (core/src/resources.rs) and the api.json export, so the owned param cannot become &.
+#[allow(clippy::needless_pass_by_value)]
 pub fn parse_font_fn(
     source: azul_core::resources::LoadedFontSource,
 ) -> Option<azul_css::props::basic::FontRef> {

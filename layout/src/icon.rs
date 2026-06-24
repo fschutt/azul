@@ -413,7 +413,7 @@ fn load_images_from_zip(_zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> 
 /// 
 /// Requires the "icons" feature with material-icons crate.
 #[cfg(feature = "icons")]
-pub fn register_material_icons(provider: &mut IconProviderHandle, font: FontRef) {
+pub fn register_material_icons(provider: &mut IconProviderHandle, font: &FontRef) {
     use material_icons::{ALL_ICONS, icon_to_char, icon_to_html_name};
     
     // Register all Material Icons with their Unicode codepoints
@@ -462,7 +462,7 @@ pub fn register_embedded_material_icons(
     };
 
     let font_ref = parsed_font_to_font_ref(parsed_font);
-    register_material_icons(provider, font_ref);
+    register_material_icons(provider, &font_ref);
 
     true
 }

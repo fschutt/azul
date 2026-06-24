@@ -1119,7 +1119,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
             ctx.styled_dom,
             dom_id,
             &text,
-            style_props,
+            &style_props,
         );
         content.extend(text_items);
     }
@@ -1148,7 +1148,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
                 ctx.styled_dom,
                 child_id,
                 &text,
-                style_props,
+                &style_props,
             );
             content.extend(text_items);
         }

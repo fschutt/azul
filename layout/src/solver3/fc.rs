@@ -6696,7 +6696,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     ctx.styled_dom,
                     dom_id,
                     text_content.as_str(),
-                    style,
+                    &style,
                 );
                 content.extend(text_items);
                 child_map.insert(content_index, child_index);
@@ -7032,7 +7032,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             ctx.styled_dom,
             ifc_root_dom_id,
             text_content.as_str(),
-            style,
+            &style,
         );
         content.extend(text_items);
         return Ok(());
@@ -7111,7 +7111,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 ctx.styled_dom,
                 dom_child_id,
                 text_content.as_str(),
-                style,
+                &style,
             );
             content.extend(text_items);
             // [g136] TEXT branch taken + pushed; content.len now.
@@ -7587,7 +7587,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 ctx.styled_dom,
                 child_dom_id,
                 text_content.as_str(),
-                Arc::new(span_style.clone()),
+                &Arc::new(span_style.clone()),
             );
             content.extend(text_items);
             continue;
@@ -8446,7 +8446,7 @@ pub fn split_text_for_whitespace(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     text: &str,
-    style: Arc<StyleProperties>,
+    style: &Arc<StyleProperties>,
 ) -> Vec<InlineContent> {
     use crate::text3::cache::{BreakType, ClearType, InlineBreak};
 
@@ -8515,14 +8515,14 @@ pub fn split_text_for_whitespace(
                     if !part.is_empty() {
                         result.push(InlineContent::Text(StyledRun {
                             text: part.to_string(),
-                            style: Arc::clone(&style),
+                            style: Arc::clone(style),
                             logical_start_byte: 0,
                             source_node_id: Some(dom_id),
                         }));
                     }
 
                     if tab_parts.peek().is_some() {
-                        result.push(InlineContent::Tab { style: Arc::clone(&style) });
+                        result.push(InlineContent::Tab { style: Arc::clone(style) });
                     }
                 }
 
@@ -8553,7 +8553,7 @@ pub fn split_text_for_whitespace(
                 if !collapsed.is_empty() {
                     result.push(InlineContent::Text(StyledRun {
                         text: collapsed,
-                        style: Arc::clone(&style),
+                        style: Arc::clone(style),
                         logical_start_byte: 0,
                         source_node_id: Some(dom_id),
                     }));
@@ -8619,7 +8619,7 @@ pub fn split_text_for_whitespace(
                 if !final_text.is_empty() {
                     result.push(InlineContent::Text(StyledRun {
                         text: final_text,
-                        style: Arc::clone(&style),
+                        style: Arc::clone(style),
                         logical_start_byte: 0,
                         source_node_id: Some(dom_id),
                     }));
