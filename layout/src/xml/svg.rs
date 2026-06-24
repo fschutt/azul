@@ -1520,7 +1520,7 @@ pub fn tessellate_node_stroke(node: &SvgNode, ss: SvgStrokeStyle) -> Tessellated
 /// the input texture and writing to a temporary texture, then swaps the
 /// texture IDs so the caller gets the post-FXAA result.
 pub fn apply_fxaa(texture: &mut Texture) -> Option<()> {
-    apply_fxaa_with_config(texture, azul_core::gl_fxaa::FxaaConfig::enabled())
+    apply_fxaa_with_config(texture, &azul_core::gl_fxaa::FxaaConfig::enabled())
 }
 
 /// Applies FXAA with custom configuration parameters.
@@ -1528,7 +1528,7 @@ pub fn apply_fxaa(texture: &mut Texture) -> Option<()> {
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 pub fn apply_fxaa_with_config(
     texture: &mut Texture,
-    config: azul_core::gl_fxaa::FxaaConfig,
+    config: &azul_core::gl_fxaa::FxaaConfig,
 ) -> Option<()> {
     use std::mem;
 
@@ -2148,6 +2148,8 @@ fn svg_bool_op(
     svg_bool_op(a, b, agg_rust::scanline_boolean_algebra::SBoolOp::Or)
 }
 
+// FFI by-value variant: `b` is taken owned to mirror the exported api.json signature.
+#[allow(clippy::needless_pass_by_value)]
 #[must_use] pub fn svg_multi_polygon_union_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
     svg_multi_polygon_union(a, &b)
 }
@@ -2156,6 +2158,8 @@ fn svg_bool_op(
     svg_bool_op(a, b, agg_rust::scanline_boolean_algebra::SBoolOp::And)
 }
 
+// FFI by-value variant: `b` is taken owned to mirror the exported api.json signature.
+#[allow(clippy::needless_pass_by_value)]
 #[must_use] pub fn svg_multi_polygon_intersection_byval(
     a: &SvgMultiPolygon, b: SvgMultiPolygon,
 ) -> SvgMultiPolygon {
@@ -2166,6 +2170,8 @@ fn svg_bool_op(
     svg_bool_op(a, b, agg_rust::scanline_boolean_algebra::SBoolOp::AMinusB)
 }
 
+// FFI by-value variant: `b` is taken owned to mirror the exported api.json signature.
+#[allow(clippy::needless_pass_by_value)]
 #[must_use] pub fn svg_multi_polygon_difference_byval(
     a: &SvgMultiPolygon, b: SvgMultiPolygon,
 ) -> SvgMultiPolygon {
@@ -2176,6 +2182,8 @@ fn svg_bool_op(
     svg_bool_op(a, b, agg_rust::scanline_boolean_algebra::SBoolOp::Xor)
 }
 
+// FFI by-value variant: `b` is taken owned to mirror the exported api.json signature.
+#[allow(clippy::needless_pass_by_value)]
 #[must_use] pub fn svg_multi_polygon_xor_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
     svg_multi_polygon_xor(a, &b)
 }
