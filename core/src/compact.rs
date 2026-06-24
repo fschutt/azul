@@ -34,6 +34,9 @@ impl CssPropertyCache {
     /// When non-empty, each node's new `font_family_hash` is compared against the
     /// previous value, and differing nodes are recorded in `font_dirty_nodes`.
     /// On the first build (empty slice), ALL text nodes are marked dirty.
+    // fixed-point encoders: z-index and line-height (%×10) are range-checked
+    // against the i16 sentinel threshold before the deliberate narrowing cast.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn build_compact_cache(
         &self,
         node_data: &[NodeData],
@@ -841,6 +844,9 @@ fn resolve_font_size_to_px(
 // StyleScrollbarColorValue, CounterResetValue, CounterIncrementValue, …), so an
 // or-pattern binding `v` cannot be expressed across them.
 #[allow(clippy::match_same_arms)]
+// fixed-point encoders: z-index / line-height are range-checked before the
+// narrowing cast, and opacity is clamped to [0,1] then scaled to [0,254] (u8).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn apply_css_property_to_compact(
     prop: &CssProperty,
     tier1: &mut u64,
@@ -1234,6 +1240,8 @@ const fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
 
 /// Encode a `GridLine` into i16: `Auto=I16_AUTO`, Line(n)=n, Span(n)=-(n).
 /// Named lines fall back to `I16_SENTINEL` (not compact-encodable).
+// const fn: the `n as i16` casts are guarded by explicit +/-32000 range checks.
+#[allow(clippy::cast_possible_truncation)]
 const fn encode_grid_line(line: &azul_css::props::layout::grid::GridLine) -> i16 {
     use azul_css::props::layout::grid::GridLine;
     match line {
