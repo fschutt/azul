@@ -8127,15 +8127,9 @@ fn generate_list_marker_text(
     }
 
     // Get list-style-type from the list-item or its container
-    let list_container_dom_id = if let Some(grandparent_index) = list_item_node.parent {
-        if let Some(grandparent) = tree.get(grandparent_index) {
-            grandparent.dom_node_id
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    let list_container_dom_id = list_item_node.parent.and_then(|grandparent_index| {
+        tree.get(grandparent_index).and_then(|grandparent| grandparent.dom_node_id)
+    });
 
     // Try to get list-style-type from the list container first,
     // then fall back to the list-item

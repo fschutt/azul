@@ -2207,8 +2207,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     // Phase 3: Scrollbar handling
     // Anonymous boxes don't have scrollbars
     let skip_scrollbar_check = ctx.fragmentation_context.is_some();
-    let scrollbar_info = match dom_id {
-        Some(id) => compute_scrollbar_info(
+    let scrollbar_info = dom_id.map_or_else(ScrollbarRequirements::default, |id| {
+        compute_scrollbar_info(
             ctx,
             id,
             &styled_node_state,
@@ -2216,9 +2216,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
             &box_props,
             final_used_size,
             writing_mode,
-        ),
-        None => ScrollbarRequirements::default(),
-    };
+        )
+    });
 
     if check_scrollbar_change(tree, node_index, &scrollbar_info, skip_scrollbar_check) {
         *reflow_needed_for_scrollbars = true;

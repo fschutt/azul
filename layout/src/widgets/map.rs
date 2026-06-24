@@ -1385,22 +1385,22 @@ extern "C" fn map_widget_render(
     // render loop can parse it into a DOM child; the rest carry a glyph
     // (`…` Pending / `⟳` Fetching / `✗` Failed) so the fetch path stays
     // observable.
-    let states: BTreeMap<MapTileId, TileDisplay> = match data.downcast_ref::<MapTileCache>() {
-        Some(c) => c
-            .tiles
-            .iter()
-            .map(|(id, e)| {
-                let disp = match e {
-                    TileEntry::Pending => TileDisplay::Glyph("…"),
-                    TileEntry::Fetching => TileDisplay::Glyph("⟳"),
-                    TileEntry::Ready { svg } => TileDisplay::Svg(svg.clone()),
-                    TileEntry::Failed { .. } => TileDisplay::Glyph("✗"),
-                };
-                (*id, disp)
-            })
-            .collect(),
-        None => BTreeMap::new(),
-    };
+    let states: BTreeMap<MapTileId, TileDisplay> = data
+        .downcast_ref::<MapTileCache>()
+        .map_or_else(BTreeMap::new, |c| {
+            c.tiles
+                .iter()
+                .map(|(id, e)| {
+                    let disp = match e {
+                        TileEntry::Pending => TileDisplay::Glyph("…"),
+                        TileEntry::Fetching => TileDisplay::Glyph("⟳"),
+                        TileEntry::Ready { svg } => TileDisplay::Svg(svg.clone()),
+                        TileEntry::Failed { .. } => TileDisplay::Glyph("✗"),
+                    };
+                    (*id, disp)
+                })
+                .collect()
+        });
 
     // Build the visible-tile grid. Each tile div is GPU-translated
     // into its screen position; the (CSS-driven) `transform` keeps

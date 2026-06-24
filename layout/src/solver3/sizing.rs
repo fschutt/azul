@@ -1569,19 +1569,17 @@ pub fn calculate_used_size_for_node(
                 viewport_size.width, viewport_size.height,
             );
 
-            match pixels_opt {
-                Some(pixels) => pixels,
-                None => match px.to_percent() {
-                    Some(p) => resolve_percentage_with_box_model(
+            pixels_opt.unwrap_or_else(|| {
+                px.to_percent().map_or(intrinsic.max_content_width, |p| {
+                    resolve_percentage_with_box_model(
                         containing_block_size.width,
                         p.get(),
                         (box_props.margin.left, box_props.margin.right),
                         (box_props.border.left, box_props.border.right),
                         (box_props.padding.left, box_props.padding.right),
-                    ),
-                    None => intrinsic.max_content_width,
-                },
-            }
+                    )
+                })
+            })
         }
         // +spec:intrinsic-sizing:069c75 - min-content, max-content, fit-content() sizing value keywords
         // +spec:intrinsic-sizing:1ce4fa - §3.2 min-content/max-content/fit-content() sizing values
@@ -1698,20 +1696,18 @@ pub fn calculate_used_size_for_node(
                 viewport_size.width, viewport_size.height,
             );
 
-            match pixels_opt {
-                Some(pixels) => pixels,
-                // +spec:height-calculation:37bc8c - percentage heights resolve against definite containing block height
-                None => match px.to_percent() {
-                    Some(p) => resolve_percentage_with_box_model(
+            // +spec:height-calculation:37bc8c - percentage heights resolve against definite containing block height
+            pixels_opt.unwrap_or_else(|| {
+                px.to_percent().map_or(intrinsic.max_content_height, |p| {
+                    resolve_percentage_with_box_model(
                         containing_block_size.height,
                         p.get(),
                         (box_props.margin.top, box_props.margin.bottom),
                         (box_props.border.top, box_props.border.bottom),
                         (box_props.padding.top, box_props.padding.bottom),
-                    ),
-                    None => intrinsic.max_content_height,
-                },
-            }
+                    )
+                })
+            })
         }
         // equivalent to automatic size (not min_content_height which is height at min-content width)
         LayoutHeight::MinContent => intrinsic.max_content_height,
