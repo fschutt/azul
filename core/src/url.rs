@@ -153,6 +153,9 @@ impl Url {
 
     /// Stub: `url` feature disabled (the `url` crate is gated behind it).
     #[cfg(not(feature = "url"))]
+    /// # Errors
+    ///
+    /// Returns an error: the `url` feature is disabled, so URL parsing is unsupported.
     pub const fn parse(_s: &str) -> Result<Self, UrlParseError> {
         Err(UrlParseError {
             message: AzString::from_const_str("url feature not enabled"),
@@ -161,6 +164,9 @@ impl Url {
 
     /// Stub: `url` feature disabled (the `url` crate is gated behind it).
     #[cfg(not(feature = "url"))]
+    /// # Errors
+    ///
+    /// Returns an error: the `url` feature is disabled, so URL joining is unsupported.
     pub const fn join(&self, _path: &str) -> Result<Self, UrlParseError> {
         Err(UrlParseError {
             message: AzString::from_const_str("url feature not enabled"),

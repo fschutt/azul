@@ -336,6 +336,9 @@ impl<'a> PathParser<'a> {
 /// (an internal parser invariant that should not occur for any input).
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+/// # Errors
+///
+/// Returns an error if `d` is not a valid SVG path-data string.
 pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
     let d = d.trim();
     if d.is_empty() {

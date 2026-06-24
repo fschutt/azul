@@ -3850,6 +3850,9 @@ impl GlShader {
     /// If the shader fails to compile, the shader object gets automatically deleted, no cleanup
     /// necessary.
     #[allow(clippy::cast_possible_truncation)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+    /// # Errors
+    ///
+    /// Returns an error if the OpenGL implementation has no shader compiler, or if the vertex/fragment shader fails to compile or link.
     pub fn new(
         gl_context: &GlContextPtr,
         vertex_shader: &str,

@@ -4832,6 +4832,9 @@ impl fmt::Display for RenderDomError {
 /// Find the one and only `<body>` node, return error if
 /// there is no app node or there are multiple app nodes
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+/// # Errors
+///
+/// Returns an error if the document has no `<html>` root node.
 pub fn get_html_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlParseError> {
     let mut html_node_iterator = root_nodes.iter().filter_map(|child| {
         if let XmlNodeChild::Element(node) = child {
@@ -4859,6 +4862,9 @@ pub fn get_html_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlPars
 /// Find the one and only `<body>` node, return error if
 /// there is no app node or there are multiple app nodes
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+/// # Errors
+///
+/// Returns an error if the document has no `<body>` node.
 pub fn get_body_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlParseError> {
     fn find_body_recursive(nodes: &[XmlNodeChild]) -> Option<&XmlNode> {
         for child in nodes {
@@ -4994,6 +5000,9 @@ fn get_item_internal<'a>(
 /// Parses an XML string and returns a `StyledDom` with the components instantiated in the
 /// `<app></app>`
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+/// # Errors
+///
+/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown component).
 pub fn str_to_dom<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -5041,6 +5050,9 @@ fn str_to_dom_fast<'a>(
 /// This is the correct function for building a `Dom` from XML in layout callbacks
 /// (which must return `Dom`, not `StyledDom`).
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+/// # Errors
+///
+/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown component).
 pub fn str_to_dom_unstyled<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -5087,6 +5099,9 @@ pub fn str_to_dom_unstyled<'a>(
 /// Parses an XML string and returns a `String`, which contains the Rust source code
 /// (i.e. it compiles the XML to valid Rust)
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+/// # Errors
+///
+/// Returns an error if the XML cannot be parsed or compiled to Rust code.
 pub fn str_to_rust_code<'a>(
     root_nodes: &'a [XmlNodeChild],
     imports: &str,
@@ -6314,6 +6329,9 @@ struct CssBlock {
 }
 
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+/// # Errors
+///
+/// Returns an error if the body node cannot be compiled to Rust code.
 pub fn compile_body_node_to_rust_code<'a>(
     body_node: &'a XmlNode,
     component_map: &'a ComponentMap,
@@ -7359,6 +7377,9 @@ fn body_matcher(body_node: &XmlNode) -> CssMatcher {
 
 /// Compile a full HTML page to a compilable **C++** Azul app.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+/// # Errors
+///
+/// Returns an error if the XML cannot be parsed or compiled to C++ code.
 pub fn str_to_cpp_code<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -7384,6 +7405,9 @@ pub fn str_to_cpp_code<'a>(
 
 /// Compile a full HTML page to a compilable **Python** Azul app.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+/// # Errors
+///
+/// Returns an error if the XML cannot be parsed or compiled to Python code.
 pub fn str_to_python_code<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -7512,6 +7536,9 @@ fn compile_node_c(
 
 /// Compile a full HTML page to a compilable **C** Azul app.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+/// # Errors
+///
+/// Returns an error if the XML cannot be parsed or compiled to C code.
 pub fn str_to_c_code<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
