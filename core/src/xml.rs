@@ -2360,7 +2360,7 @@ impl fmt::Debug for ComponentDef {
             .field("display_name", &self.display_name)
             .field("source", &self.source)
             .field("data_model", &self.data_model.name)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

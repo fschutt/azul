@@ -1037,6 +1037,9 @@ impl TessellatedColoredGPUSvgNode {
         let (bbox_uniform, transform_uniform) =
             compute_svg_transform_uniforms(target_size, transforms.as_ref());
 
+        // two separately-named GL uniforms collected into the draw-call array;
+        // not a tuple->array conversion.
+        #[allow(clippy::tuple_array_conversions)]
         let uniforms = [bbox_uniform, transform_uniform];
 
         GlShader::draw(

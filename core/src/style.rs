@@ -560,10 +560,8 @@ fn match_pseudo_selector(
         CssPathPseudoSelector::Lang(lang) => {
             // :lang() is matched via DynamicSelector at runtime, not during CSS cascade
             // During cascade, we just check if this is the expected ending
-            if let Some(expected) = expected_path_ending {
-                if let CssPathPseudoSelector::Lang(expected_lang) = expected {
-                    return lang == expected_lang;
-                }
+            if let Some(CssPathPseudoSelector::Lang(expected_lang)) = expected_path_ending {
+                return lang == expected_lang;
             }
             // If not specifically looking for :lang, it doesn't match structurally
             false

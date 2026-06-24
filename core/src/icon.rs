@@ -228,7 +228,7 @@ impl fmt::Debug for IconProviderHandle {
         f.debug_struct("IconProviderHandle")
             .field("pack_count", &pack_count)
             .field("icon_count", &icon_count)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
