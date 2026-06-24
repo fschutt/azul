@@ -1225,11 +1225,13 @@ impl PrintAsCssValue for GridTemplateAreas {
         let num_cols = (max_col - 1) as usize;
         let mut grid: Vec<Vec<String>> = vec![vec![".".to_string(); num_cols]; num_rows];
         for area in areas_slice {
-            for r in (area.row_start as usize - 1)..(area.row_end as usize - 1) {
-                for c in (area.column_start as usize - 1)..(area.column_end as usize - 1) {
-                    if r < num_rows && c < num_cols {
-                        grid[r][c] = area.name.as_str().to_string();
-                    }
+            let row_start = area.row_start as usize - 1;
+            let row_end = area.row_end as usize - 1;
+            let col_start = area.column_start as usize - 1;
+            let col_end = area.column_end as usize - 1;
+            for row in grid.iter_mut().take(row_end).skip(row_start) {
+                for cell in row.iter_mut().take(col_end).skip(col_start) {
+                    *cell = area.name.as_str().to_string();
                 }
             }
         }

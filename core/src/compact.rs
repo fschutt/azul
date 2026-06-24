@@ -43,9 +43,8 @@ impl CssPropertyCache {
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
 
-        for i in 0..node_count {
+        for (i, nd) in node_data.iter().enumerate().take(node_count) {
             let node_id = NodeId::new(i);
-            let nd = &node_data[i];
 
             // =====================================================================
             // Tier 1: Encode all 20 enum properties into u64
