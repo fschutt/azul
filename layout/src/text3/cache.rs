@@ -8110,7 +8110,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             );
 
             let (mut line_pos_items, line_height) = position_one_line(
-                line_items,
+                &line_items,
                 &line_constraints,
                 line_top_y,
                 line_index,
@@ -8656,7 +8656,7 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 pub fn position_one_line<T: ParsedFontTrait>(
-    line_items: Vec<ShapedItem>,
+    line_items: &[ShapedItem],
     line_constraints: &LineConstraints,
     line_top_y: f32,
     line_index: usize,
@@ -8708,7 +8708,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // The line box is calculated once for all items on the line, regardless of segment.
     // Per CSS 2.2 §10.8, top/bottom aligned items are handled in a second pass to
     // minimize line box height; baseline-aligned items determine the initial height.
-    let (content_ascent, content_descent) = calculate_line_metrics(&line_items, constraints.vertical_align, constraints);
+    let (content_ascent, content_descent) = calculate_line_metrics(line_items, constraints.vertical_align, constraints);
 
     // +spec:box-model:e99f7d - strut: each line box starts with zero-width inline box with block container's font/line-height
     // +spec:line-height:29c478 - strut: zero-width inline box with block container's font/line-height
