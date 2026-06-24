@@ -675,7 +675,7 @@ impl OptionCallback {
 
 impl From<Option<Callback>> for OptionCallback {
     fn from(o: Option<Callback>) -> Self {
-        o.map_or_else(|| Self::None, |c| Self::Some(c))
+        o.map_or_else(|| Self::None, Self::Some)
     }
 }
 
@@ -4557,7 +4557,7 @@ impl OptionMenuCallback {
 
 impl From<Option<MenuCallback>> for OptionMenuCallback {
     fn from(o: Option<MenuCallback>) -> Self {
-        o.map_or_else(|| Self::None, |c| Self::Some(c))
+        o.map_or_else(|| Self::None, Self::Some)
     }
 }
 

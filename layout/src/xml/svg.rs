@@ -1801,14 +1801,14 @@ pub fn render_node_clipmask_cpu(
         let mut path = PathStorage::new();
         match node {
             SvgNode::MultiPolygonCollection(mpc) => {
-                for mp in mpc.iter() {
-                    for p in mp.rings.iter() {
+                for mp in mpc {
+                    for p in &mp.rings {
                         build_path!(path, p);
                     }
                 }
             }
             SvgNode::MultiPolygon(mp) => {
-                for p in mp.rings.iter() {
+                for p in &mp.rings {
                     build_path!(path, p);
                 }
             }

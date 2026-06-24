@@ -1574,7 +1574,7 @@ impl LayoutWindow {
     /// Get scroll position for a node
     pub fn get_scroll_position(&self, dom_id: DomId, node_id: NodeId) -> Option<ScrollPosition> {
         let states = self.scroll_manager.get_scroll_states_for_dom(dom_id);
-        states.get(&node_id).cloned()
+        states.get(&node_id).copied()
     }
 
     /// Set selection state for a DOM (no-op: `selection_manager` removed, `multi_cursor` handles this)
@@ -4208,7 +4208,7 @@ impl LayoutWindow {
                 .map_or(OptionLogicalPosition::None, |item| OptionLogicalPosition::Some(item.point_relative_to_item)),
             None => OptionLogicalPosition::None,
         };
-        let cursor_in_viewport = current_window_state.mouse_state.cursor_position.get_position().map_or(OptionLogicalPosition::None, |pos| OptionLogicalPosition::Some(pos));
+        let cursor_in_viewport = current_window_state.mouse_state.cursor_position.get_position().map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some);
 
         // Create changes container for callback transaction system
         let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));

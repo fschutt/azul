@@ -6343,7 +6343,7 @@ pub(crate) fn resolve_clip_path(
                     let mut min_y = f32::INFINITY;
                     let mut max_x = f32::NEG_INFINITY;
                     let mut max_y = f32::NEG_INFINITY;
-                    for point in polygon.points.iter() {
+                    for point in &polygon.points {
                         // Polygon points are in absolute coordinates (pre-resolved)
                         let px = node_bounds.origin.x + point.x;
                         let py = node_bounds.origin.y + point.y;

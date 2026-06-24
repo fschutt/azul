@@ -2782,7 +2782,7 @@ pub fn render_component_preview(
         let platform = azul_css::system::Platform::current();
 
         let chains = collect_and_resolve_font_chains_with_registration(
-            &styled_dom,
+            styled_dom,
             &preview_font_manager.fc_cache,
             &preview_font_manager,
             &platform,
@@ -2823,7 +2823,7 @@ pub fn render_component_preview(
     let display_list = solver3::layout_document(
         &mut layout_cache,
         &mut text_cache,
-        &styled_dom,
+        styled_dom,
         viewport,
         &preview_font_manager,
         &empty_scroll_offsets,

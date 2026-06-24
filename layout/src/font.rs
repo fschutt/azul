@@ -618,7 +618,7 @@ pub mod parsed {
         ) -> Result<Self, D::Error> {
             use base64::Engine;
             let s = String::deserialize(deserializer)?;
-            let b64 = s.strip_prefix(FONT_B64_START).map_or(None, |b| base64::prelude::BASE64_STANDARD.decode(b).ok());
+            let b64 = s.strip_prefix(FONT_B64_START).and_then(|b| base64::prelude::BASE64_STANDARD.decode(b).ok());
 
             let mut warnings = Vec::new();
             Self::from_bytes(&b64.unwrap_or_default(), 0, &mut warnings).ok_or_else(|| {

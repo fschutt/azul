@@ -599,7 +599,7 @@ pub enum OptionTimer {
 
 impl From<Option<Timer>> for OptionTimer {
     fn from(o: Option<Timer>) -> Self {
-        o.map_or_else(|| Self::None, |t| Self::Some(t))
+        o.map_or_else(|| Self::None, Self::Some)
     }
 }
 

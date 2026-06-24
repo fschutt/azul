@@ -85,7 +85,7 @@ impl OptionPendingTextEdit {
 
 impl From<Option<PendingTextEdit>> for OptionPendingTextEdit {
     fn from(o: Option<PendingTextEdit>) -> Self {
-        o.map_or_else(|| Self::None, |v| Self::Some(v))
+        o.map_or_else(|| Self::None, Self::Some)
     }
 }
 

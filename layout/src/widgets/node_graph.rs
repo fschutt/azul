@@ -730,7 +730,7 @@ impl NodeGraph {
         for InputNodeAndIndex {
             node_id,
             input_index,
-        } in input_connections.iter()
+        } in &input_connections
         {
             let input_node_id = *node_id;
             let input_index = *input_index;
