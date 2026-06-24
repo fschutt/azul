@@ -903,8 +903,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
     v
 }
 
-/// Decode individual enum properties from a Tier 1 u64.
-/// Each function is `#[inline]` for zero-cost extraction.
+// Decode individual enum properties from a Tier 1 u64.
+// Each function is `#[inline]` for zero-cost extraction.
 
 #[inline]
 #[must_use] pub const fn decode_display(t1: u64) -> LayoutDisplay {
