@@ -463,6 +463,12 @@ impl<T> FlatVecVec<T> {
         }
     }
 
+    /// Returns `true` if there are no node slots.
+    #[inline]
+    #[must_use] pub const fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Returns true if this is in read (flattened) mode.
     #[inline]
     #[must_use] pub const fn is_flattened(&self) -> bool {

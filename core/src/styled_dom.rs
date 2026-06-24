@@ -2004,6 +2004,12 @@ impl CompactDom {
     #[must_use] pub fn len(&self) -> usize {
         self.node_hierarchy.as_ref().len()
     }
+
+    /// Returns `true` if this DOM has no nodes.
+    #[inline]
+    #[must_use] pub fn is_empty(&self) -> bool {
+        self.node_hierarchy.as_ref().is_empty()
+    }
 }
 
 impl From<Dom> for CompactDom {

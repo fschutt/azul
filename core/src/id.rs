@@ -265,6 +265,11 @@ impl<'a> NodeHierarchyRef<'a> {
     }
 
     #[inline]
+    #[must_use] pub const fn is_empty(&self) -> bool {
+        self.internal.is_empty()
+    }
+
+    #[inline]
     #[must_use] pub fn get(&self, id: NodeId) -> Option<&Node> {
         self.internal.get(id.index())
     }
@@ -418,6 +423,11 @@ impl<'a, T: 'a> NodeDataContainerRef<'a, T> {
     #[inline]
     #[must_use] pub const fn len(&self) -> usize {
         self.internal.len()
+    }
+
+    #[inline]
+    #[must_use] pub const fn is_empty(&self) -> bool {
+        self.internal.is_empty()
     }
 
     #[inline]
