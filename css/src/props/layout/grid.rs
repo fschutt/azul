@@ -828,6 +828,9 @@ impl FormatAsRustCode for LayoutGap {
 }
 
 impl FormatAsRustCode for GridTrackSizing {
+    // `tabs` is required by the FormatAsRustCode trait signature; this variant only
+    // threads it through to nested MinMax children, never reading it locally.
+    #[allow(clippy::only_used_in_recursion)]
     fn format_as_rust_code(&self, tabs: usize) -> String {
         use crate::codegen::format::format_pixel_value;
         match self {
