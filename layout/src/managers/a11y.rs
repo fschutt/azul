@@ -29,6 +29,7 @@ use crate::{solver3::layout_tree::LayoutNodeHot, window::DomLayoutResult};
 /// Used to set `text_selection` on contenteditable nodes so screen readers
 /// can announce the cursor position and selection range.
 #[cfg(feature = "a11y")]
+#[derive(Debug, Clone, Copy)]
 pub struct CursorA11yInfo {
     pub dom_id: DomId,
     pub node_id: NodeId,

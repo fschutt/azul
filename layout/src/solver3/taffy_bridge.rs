@@ -411,13 +411,13 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
 
     let css_container_w = css_width
         .exact()
-        .and_then(css_width_to_px)
+        .and_then(|w| css_width_to_px(&w))
         .unwrap_or(result_content_w)
         .max(0.0);
 
     let css_container_h = css_height
         .exact()
-        .and_then(css_height_to_px)
+        .and_then(|h| css_height_to_px(&h))
         .unwrap_or(result_content_h)
         .max(0.0);
 
@@ -450,17 +450,17 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
 }
 
 /// Convert `LayoutWidth::Px(…)` to `f32`, returning None for non-px units.
-fn css_width_to_px(w: LayoutWidth) -> Option<f32> {
+fn css_width_to_px(w: &LayoutWidth) -> Option<f32> {
     match w {
-        LayoutWidth::Px(px) => pixel_value_to_pixels_fallback(&px),
+        LayoutWidth::Px(px) => pixel_value_to_pixels_fallback(px),
         _ => None,
     }
 }
 
 /// Convert `LayoutHeight::Px(…)` to `f32`, returning None for non-px units.
-fn css_height_to_px(h: LayoutHeight) -> Option<f32> {
+fn css_height_to_px(h: &LayoutHeight) -> Option<f32> {
     match h {
-        LayoutHeight::Px(px) => pixel_value_to_pixels_fallback(&px),
+        LayoutHeight::Px(px) => pixel_value_to_pixels_fallback(px),
         _ => None,
     }
 }
