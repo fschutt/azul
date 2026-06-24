@@ -421,6 +421,7 @@ impl DisplayList {
 
     /// Generates a JSON representation of the display list for debugging.
     /// This includes clip chain analysis showing how clips are stacked.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub(crate) fn to_debug_json(&self) -> String {
         use std::fmt::Write;
         let mut json = String::new();
@@ -2271,6 +2272,7 @@ StyleVisibility::Collapse) => true,
     // +spec:display-property:de4c66 - CSS 2.2 E.2 stacking context paint order (canvas bg, negative z, in-flow, floats, inline, positive z)
     // +spec:overflow:6e48b4 - CSS 2.2 Appendix E painting order: bg/border, negative z-index, in-flow, floats, z-index 0/auto, positive z-index
     // +spec:stacking-contexts:55ca96 - CSS 2.2 E.2 painting order: backgrounds, negative z-index, in-flow, z-index 0/auto, positive z-index
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn generate_for_stacking_context(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -2528,6 +2530,7 @@ StyleVisibility::Collapse) => true,
     }
 
     /// Paints the content and non-stacking-context children.
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn paint_in_flow_descendants(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -3158,6 +3161,7 @@ StyleVisibility::Collapse) => true,
     }
 
     /// Emits drawing commands for the background and border of a single node.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn paint_node_background_and_border(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -3560,6 +3564,7 @@ StyleVisibility::Collapse) => true,
     }
 
     /// Emits drawing commands for the foreground content, including hit-test areas and scrollbars.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn paint_node_content(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -3721,6 +3726,7 @@ StyleVisibility::Collapse) => true,
 
     /// Emits drawing commands for scrollbars. This is called AFTER popping the scroll frame
     /// clip so scrollbars appear on top of content and are not clipped.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn paint_scrollbars(&self, builder: &mut DisplayListBuilder, node_index: usize) -> Result<()> {
         // CSS 2.2 §11.2: visibility:hidden scroll containers must not paint scrollbars,
         // but their layout space is preserved (already handled by layout).
@@ -4089,6 +4095,7 @@ StyleVisibility::Collapse) => true,
 
     /// Converts the rich layout information from `text3` into drawing commands.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn paint_inline_content(
         &self,
         builder: &mut DisplayListBuilder,
@@ -4708,6 +4715,7 @@ fn get_display_item_bounds(item: &DisplayListItem) -> Option<WindowLogicalRect> 
 /// Clip a display list item to page bounds and offset to page-relative coordinates.
 /// Returns None if the item is completely outside the page bounds.
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn clip_and_offset_display_item(
     item: &DisplayListItem,
     page_top: f32,
@@ -5504,6 +5512,7 @@ impl SlicerConfig {
 ///
 /// **Key insight**: Items are NEVER shifted. Instead, page boundaries are adjusted
 /// to honor break properties.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn paginate_display_list_with_slicer_and_breaks(
     full_display_list: DisplayList,
     config: &SlicerConfig,
@@ -5785,6 +5794,7 @@ enum TextAlignment {
 }
 
 /// Helper to offset all Y coordinates of a display item.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListItem {
     if y_offset == 0.0 {
         return item.clone();

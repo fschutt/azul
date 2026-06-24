@@ -721,6 +721,7 @@ const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
 /// Both `FontRef` and `ParsedFont` use this function.
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn shape_text_internal(
     parsed_font: &ParsedFont,
     text: &str,

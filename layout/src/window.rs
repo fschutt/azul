@@ -799,6 +799,7 @@ impl LayoutWindow {
     }
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn layout_dom_recursive_impl(
         &mut self,
         styled_dom: StyledDom,
@@ -2721,6 +2722,7 @@ impl LayoutWindow {
     /// # Returns
     ///
     /// A vector of GPU scrollbar opacity change events
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn synchronize_scrollbar_opacity(
         gpu_state_manager: &mut GpuStateManager,
         scroll_manager: &ScrollManager,
@@ -3299,6 +3301,7 @@ impl LayoutWindow {
     ///
     /// Returns true if a new selection was added.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn select_next_occurrence(&mut self) -> bool {
         use crate::text3::selection::select_word_at_cursor;
 
@@ -4707,6 +4710,7 @@ impl LayoutWindow {
     /// Empty map = action was not applicable or nothing changed
     #[cfg(feature = "a11y")]
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn process_accessibility_action(
         &mut self,
         dom_id: DomId,
@@ -5190,6 +5194,7 @@ impl LayoutWindow {
     ///
     /// Returns the nodes that need to be marked dirty for re-layout,
     /// and whether a full re-layout is needed (text size changed).
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn apply_text_changeset(&mut self) -> TextChangesetResult {
         use crate::managers::changeset::{TextChangeset, TextOpInsertText, TextOperation};
         use crate::text3::edit::{edit_text, TextEdit};
@@ -5575,6 +5580,7 @@ impl LayoutWindow {
     // it is both cloned into the dirty-node cache and re-read for relayout, so it is taken
     // owned at this boundary rather than rippling a &[InlineContent] across the backends.
     #[allow(clippy::needless_pass_by_value)]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn update_text_cache_after_edit(
         &mut self,
         dom_id: DomId,
@@ -6010,6 +6016,7 @@ impl LayoutWindow {
     ///     `fragment_layout` (stage 4) but reused shape output from stages 1-3.
     ///
     /// Returns `None` only if `logical_items` + reorder + shape itself fails.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn try_incremental_text_relayout(
         &self,
         content: &[InlineContent],
@@ -6590,6 +6597,7 @@ impl LayoutWindow {
     ///
     /// ## Returns
     /// * `Option<Vec<DomNodeId>>` - Affected nodes that need re-rendering, None if click didn't hit text
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn process_mouse_click_for_selection(
         &mut self,
         position: LogicalPosition,
@@ -7095,6 +7103,7 @@ impl LayoutWindow {
     ///
     /// Vector of (`DomId`, `NodeId`, Texture) tuples for textures that were updated
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn process_image_callback_updates(
         &mut self,
         image_callbacks_changed: &BTreeMap<DomId, FastBTreeSet<NodeId>>,

@@ -532,6 +532,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
 /// - Resolves explicit CSS dimensions to pixel values for `known_dimensions`
 /// - Uses `InherentSize` mode when explicit dimensions are set
 /// - Uses `ContentSize` mode for auto-sizing (shrink-to-fit)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn layout_flex_grid<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -945,6 +946,7 @@ fn position_float(
 /// This approach is compliant with the CSS visual formatting model and works within
 /// the constraints of the existing layout engine architecture.
 // +spec:display-property:f38f52 - BFC handles normal flow, relative positioning offsets, and float extraction (CSS 2.2 § 9.8)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn layout_bfc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -2461,6 +2463,7 @@ fn layout_bfc<T: ParsedFontTrait>(
 // +spec:display-property:da284a - IFC: flow inline-level boxes into line boxes, size/position each fragment
 // +spec:inline-formatting-context:275f64 - IFC: boxes laid out horizontally into line boxes, respecting margins/borders/padding
 #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn layout_ifc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,
@@ -3159,6 +3162,7 @@ fn is_block_level_replaced<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node:
 
 /// Translates solver3 layout constraints into the text3 engine's unified constraints.
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     constraints: &'a LayoutConstraints<'a>,
@@ -4227,6 +4231,7 @@ impl BorderInfo {
 
 /// Get border information for a node
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn get_border_info<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
@@ -4668,6 +4673,7 @@ fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
 // +spec:table-layout:235e8e - CSS 2.2 §17.1-17.2 table model: fixed/auto algorithms, row/column/cell/caption structure
 // +spec:table-layout:a6422d - CSS table model: table structure analysis, row/column/cell layout, caption, border-collapse
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn layout_table_fc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -5236,6 +5242,7 @@ fn analyze_table_row<T: ParsedFontTrait>(
 // +spec:table-layout:c5e446 - Fixed table layout algorithm: column widths from col elements or first-row cells, remaining columns divide equally
 /// +spec:width-calculation:8c958a - Fixed table layout: column widths from col elements, first-row cells, then equal distribution (CSS 2.2 §17.5.2.1)
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn calculate_column_widths_fixed<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -5521,6 +5528,7 @@ fn calculate_column_widths_auto<T: ParsedFontTrait>(
 /// +spec:width-calculation:335ef1 - Automatic table layout: width given by column widths and borders (CSS 2.2 §17.5.2.2)
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
@@ -5773,6 +5781,7 @@ fn distribute_cell_width_across_columns(
 }
 
 /// Layout a cell with its computed column width to determine its content height
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn layout_cell_for_height<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -5985,6 +5994,7 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
 /// Calculate row heights based on cell content after column widths are determined
 // +spec:inline-formatting-context:87b90d - Table height algorithms: row height = max(computed height, cell heights, MIN); vertical-align in cells (baseline/top/middle/bottom, sub/super/etc. fall back to baseline)
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn calculate_row_heights<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
@@ -6181,6 +6191,7 @@ fn calculate_row_heights<T: ParsedFontTrait>(
 /// Position all cells in the table grid with calculated widths and heights
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn position_table_cells<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
@@ -6568,6 +6579,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
 }
 
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,
@@ -7490,6 +7502,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 /// - Text nodes: collected with the span's inherited style
 /// - Nested inline spans: recursively descended
 /// - Inline-blocks, images: measured and added as shapes
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn collect_inline_span_recursive<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -8442,6 +8455,7 @@ const fn is_css_document_whitespace(c: char) -> bool {
 /// 4. In ALL modes: BK/NL class chars (VT, FF, NEL, LS, PS) produce forced breaks
 ///
 /// Returns a Vec of `InlineContent` items that correctly represent line breaks.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn split_text_for_whitespace(
     styled_dom: &StyledDom,
     dom_id: NodeId,

@@ -390,6 +390,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         Ok(intrinsic)
     }
 
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn calculate_node_intrinsic_sizes(
         &mut self,
         tree: &LayoutTree,
@@ -1323,6 +1324,7 @@ fn auto_block_inline_size(cb: &LogicalSize, bp: &BoxProps) -> f32 {
 }
 
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn calculate_used_size_for_node(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,

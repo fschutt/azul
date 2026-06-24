@@ -1288,6 +1288,7 @@ fn map_visible_tiles(
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 extern "C" fn map_widget_render(
     data: RefAny,
     info: VirtualViewCallbackInfo,

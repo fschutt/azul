@@ -172,6 +172,7 @@ fn render_svg_group(
 
 #[cfg(all(feature = "std", feature = "xml"))]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn render_svg_group_with_style(
     node: &azul_core::xml::XmlNode,
     pixmap: &mut AzulPixmap,

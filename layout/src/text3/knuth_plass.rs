@@ -102,6 +102,7 @@ pub(crate) fn kp_layout<T: ParsedFontTrait>(
 
 /// Converts a slice of `ShapedItems` into the Box/Glue/Penalty model.
 // +spec:line-breaking:16e64c - soft wrap opportunity controls (word-break, overflow-wrap, line-break) threaded via UnifiedConstraints
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn convert_items_to_nodes<T: ParsedFontTrait>(
     items: &[ShapedItem],
     hyphenator: Option<&Standard>,
@@ -272,6 +273,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 
 /// Uses dynamic programming to find the optimal set of line breaks.
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstraints) -> Vec<usize> {
     // For Knuth-Plass, we need a definite line width.
     //
@@ -429,6 +431,7 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn position_lines_from_breaks(
     nodes: &[LayoutNode],
     breaks: &[usize],

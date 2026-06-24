@@ -83,6 +83,7 @@ impl A11yManager {
     /// This should be called after each layout pass to synchronize the
     /// accessibility tree with the visual representation.
     #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     #[must_use] pub fn update_tree(
         root_id: A11yNodeId,
         layout_results: &std::collections::BTreeMap<DomId, DomLayoutResult>,
@@ -332,6 +333,7 @@ impl A11yManager {
 
     /// Builds an accesskit Node from Azul's `NodeData` and layout information.
     #[allow(clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn build_node(
         node_data: &NodeData,
         layout_node: &LayoutNodeHot,

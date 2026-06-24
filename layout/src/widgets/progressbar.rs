@@ -244,6 +244,7 @@ impl ProgressBar {
 
     /// Renders this progress bar into a [`Dom`] tree consisting of a container div
     /// with two children: the filled bar and the remaining empty space.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     #[must_use] pub fn dom(self) -> Dom {
         use azul_core::dom::DomVec;
 

@@ -1946,6 +1946,7 @@ pub struct BorderInfo {
     pub styles: crate::solver3::display_list::StyleBorderStyles,
 }
 
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 #[must_use] pub fn get_border_info(
     styled_dom: &StyledDom,
     node_id: NodeId,
@@ -2131,6 +2132,7 @@ pub struct BorderInfo {
 ///
 /// This resolves the CSS property values to concrete pixel values and colors
 /// that can be used during text rendering.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn get_inline_border_info(
     styled_dom: &StyledDom,
     node_id: NodeId,
@@ -2579,6 +2581,7 @@ get_css_property!(
 }
 
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn get_style_properties(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -3459,6 +3462,7 @@ impl ResolvedFontChains {
 /// # Returns
 /// A `CollectedFontStacks` containing all unique font stacks and a hash-to-index mapping
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 #[must_use] pub fn collect_font_stacks_from_styled_dom(
     styled_dom: &StyledDom,
     platform: &azul_css::system::Platform,
@@ -4503,6 +4507,7 @@ impl ComputedScrollbarStyle {
 ///
 /// When `system_style` is `None`, falls back to the unconditional UA rule
 /// (classic light scrollbar).
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 #[must_use] pub fn get_scrollbar_style(
     styled_dom: &StyledDom,
     node_id: NodeId,

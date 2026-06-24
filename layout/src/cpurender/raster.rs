@@ -1101,6 +1101,7 @@ pub fn render_display_list_damaged(
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn render_single_item(
     item: &DisplayListItem,
     pixmap: &mut AzulPixmap,
@@ -2228,6 +2229,7 @@ fn render_border(
 /// Render border with per-side colors/widths/styles using CSS trapezoid model.
 /// Each side is a trapezoid: outer edge → inner edge with 45° miters at corners.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn render_border_sides(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -2416,6 +2418,7 @@ fn render_border_sides(
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 #[allow(clippy::many_single_char_names, clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn render_image(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -2703,6 +2706,7 @@ fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
 /// Render a `StyledDom` to a PNG image for component preview.
 #[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn render_component_preview(
     styled_dom: &azul_core::styled_dom::StyledDom,
     font_manager: &FontManager<FontRef>,

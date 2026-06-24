@@ -53,6 +53,7 @@ pub struct SimpleGlyphRun {
 /// Groups glyphs into runs without requiring font references.
 /// Use this when you only need glyph positions and don't need font references.
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 #[must_use] pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
     let mut runs: Vec<SimpleGlyphRun> = Vec::new();
     let mut current_run: Option<SimpleGlyphRun> = None;

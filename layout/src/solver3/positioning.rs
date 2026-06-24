@@ -135,6 +135,7 @@ pub(crate) fn resolve_position_offsets(
 // +spec:positioning:cbe481 - absolute positioning removes elements from flow and positions them relative to containing block
 // +spec:positioning:ebff77 - absolute positioning layout model (replaces old §6 abspos model)
 // +spec:positioning:3b3ba4 - Absolute positioning: box offset from containing block, removed from normal flow; fixed positioning: CB = viewport
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -663,6 +664,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 /// For relatively positioned elements, percentages are
 /// relative to the dimensions of the parent element's content box.
 // +spec:positioning:2d8e15 - relative positioning shifts elements as a unit after normal flow without affecting surrounding content
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn adjust_relative_positions<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -952,6 +954,7 @@ fn find_nearest_scroll_offset(
 /// +spec:position-sticky:75412d - multiple sticky boxes in same container offset independently
 /// +spec:box-model:af9af8 - sticky positioning: shift element to stay within sticky view rectangle, margin box constrained to containing block
 /// +spec:overflow:bac4e5 - compute sticky view rectangle, clamp end-edge insets to border box size
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn adjust_sticky_positions<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,

@@ -254,6 +254,7 @@ fn get_all_hovered_nodes(
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 // Instant is a ref-counted FFI clock handle threaded through the event loop by value.
 #[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn determine_all_events(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,

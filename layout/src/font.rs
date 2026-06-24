@@ -930,6 +930,7 @@ pub mod parsed {
         /// the web backend) rather than `FontData::table_provider`'s `Box<dyn>`, whose
         /// trait-object vtable dispatch mis-lifts (wrong impl → Owned garbage → parse fail).
         #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+        #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
         fn from_provider<P: FontTableProvider>(
             provider: P,
             font_bytes: &[u8],

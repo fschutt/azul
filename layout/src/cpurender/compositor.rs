@@ -124,6 +124,7 @@ impl CompositorState {
     /// Walk the display list and create layers for scroll frames, filters, opacity, transforms.
     /// Returns a mapping from display-list item index to the `LayerId` it should render into.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn allocate_layers_from_display_list(
         &mut self,
         display_list: &DisplayList,
@@ -1130,6 +1131,7 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
 /// Apply CSS filters to a pixbuf at composite time.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_factor: f32) {
     for filter in filters {
         match filter {

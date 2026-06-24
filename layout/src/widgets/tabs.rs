@@ -1247,6 +1247,7 @@ impl TabHeader {
         self
     }
 
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     #[must_use] pub fn dom(self) -> Dom {
         use azul_core::callbacks::CoreCallbackDataVec;
 

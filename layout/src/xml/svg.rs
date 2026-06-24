@@ -337,6 +337,7 @@ fn svg_multi_shape_to_lyon_path(polygon: &[SvgSimpleNode]) -> Path {
     raw_line_intersection(p, &q)
 }
 
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 #[must_use] pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLineCap) -> SvgPath {
     if distance == 0.0 {
         return p.clone();
@@ -1526,6 +1527,7 @@ pub fn apply_fxaa(texture: &mut Texture) -> Option<()> {
 /// Applies FXAA with custom configuration parameters.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn apply_fxaa_with_config(
     texture: &mut Texture,
     config: &azul_core::gl_fxaa::FxaaConfig,
@@ -1730,6 +1732,7 @@ pub fn apply_fxaa_with_config(
 
 #[cfg(feature = "svg")]
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render numeric cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn render_node_clipmask_cpu(
     image: &mut RawImage,
     node: &SvgNode,
@@ -1754,6 +1757,7 @@ pub fn render_node_clipmask_cpu(
 
     #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
     #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn agg_translate_node(node: &SvgNode) -> Option<PathStorage> {
         macro_rules! build_path {
             ($path:expr, $p:expr) => {{

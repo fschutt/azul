@@ -642,6 +642,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// Translates CSS properties from the `StyledDom` into a `taffy::Style` struct.
     /// This is the core of the integration, mapping one style system to another.
     #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn translate_style_to_taffy(&self, dom_id: Option<NodeId>) -> Style {
         let Some(id) = dom_id else {
             return Style::default();
@@ -1586,6 +1587,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     /// Compute layout for non-flex/grid nodes by delegating to `layout_formatting_context`.
     /// This handles Block, Inline, Table, `InlineBlock` formatting contexts recursively.
     #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn compute_non_flex_layout(&mut self, node_idx: usize, inputs: LayoutInput) -> LayoutOutput {
         // Taffy's known_dimensions are BORDER-BOX sizes (the child's outer size
         // as determined by the parent flex/grid algorithm, e.g. via stretch alignment).

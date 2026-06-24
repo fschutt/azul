@@ -1225,6 +1225,7 @@ impl LayoutTreeBuilder {
     /// Main entry point for recursively building the layout tree.
     /// This function dispatches to specialized handlers based on the node's
     /// `display` property to correctly generate anonymous boxes.
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn process_node(
         &mut self,
         styled_dom: &StyledDom,
@@ -2355,6 +2356,7 @@ struct CollectedBoxProps {
 /// The unresolved form stores the raw CSS values for later re-resolution when
 /// the containing block size is known. The resolved form is an initial resolution
 /// using `viewport_size` for viewport-relative units.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn collect_box_props(
     styled_dom: &StyledDom,
     dom_id: NodeId,

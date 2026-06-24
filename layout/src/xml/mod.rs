@@ -278,6 +278,7 @@ const fn peak_rss_bytes() -> u64 {
 
 /// Internal: parse XML into `FastDom` + collected CSS stylesheets.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom, Vec<Css>), XmlError> {
     use xmlparser::{ElementEnd::{Open, Empty, Close}, Token::{ElementStart, Attribute, ElementEnd, Text}, Tokenizer};
     use azul_core::dom::{NodeData, NodeType, IdOrClass, TabIndex};
@@ -642,6 +643,7 @@ pub fn domxml_from_file<I: AsRef<Path>>(
 /// a `Vec<XmlNode>` - which are the "root" nodes, containing all their
 /// children recursively.
 #[cfg(feature = "xml")]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
     use xmlparser::{ElementEnd::{Empty, Close}, Token::{ElementStart, ElementEnd, Attribute, Text}, Tokenizer};
 

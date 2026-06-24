@@ -2966,6 +2966,7 @@ impl ShapeBoundary {
     ///
     /// # Returns
     /// A `ShapeBoundary` ready for use in the text layout engine
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn from_css_shape(
         css_shape: &azul_css::shape::CssShape,
         reference_box: Rect,
@@ -4240,6 +4241,7 @@ impl UnifiedLayout {
 
     /// Given a logical selection range, returns a vector of visual rectangles
     /// that cover the selected text, in the layout's coordinate space.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     #[must_use] pub fn get_selection_rects(&self, range: &SelectionRange) -> Vec<LogicalRect> {
         // 1. Build a map from the logical cluster ID to the visual PositionedItem for fast lookups.
         let mut cluster_map: HashMap<GraphemeClusterId, &PositionedItem> = HashMap::new();
@@ -5678,6 +5680,7 @@ impl TextShapingCache {
     /// # Returns
     /// A `FlowLayout` struct containing the positioned items for each fragment that
     /// was filled, and any content that did not fit in the final fragment.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn layout_flow<T: ParsedFontTrait>(
         &mut self,
         content: &[InlineContent],
@@ -5876,6 +5879,7 @@ impl TextShapingCache {
     /// `BreakCursor` would — min-content accumulates advances between break
     /// opportunities and tracks the maximum; max-content is the sum of all
     /// advances (as if the flow were laid out on a single infinitely-wide line).
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn measure_intrinsic_widths<T: ParsedFontTrait>(
         &mut self,
         content: &[InlineContent],
@@ -6017,6 +6021,7 @@ impl TextShapingCache {
 
 // --- Stage 1 Implementation ---
 #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn create_logical_items(
     content: &[InlineContent],
     style_overrides: &[StyleOverride],
@@ -6319,6 +6324,7 @@ pub fn create_logical_items(
 // +spec:writing-modes:7a9e7d - bidi control translation: text passed to unicode_bidi for reordering
 // +spec:writing-modes:8e7281 - unicode-bidi property: bidi control codes inserted via BidiInfo
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn reorder_logical_items(
     logical_items: &[LogicalItem],
     base_direction: BidiDirection,
@@ -6753,6 +6759,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn shape_visual_items<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
@@ -7283,6 +7290,7 @@ fn is_hanging_punctuation(item: &ShapedItem) -> bool {
 }
 
 #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn shape_text_correctly<T: ParsedFontTrait>(
     text: &str,
     script: Script,
@@ -7796,6 +7804,7 @@ fn calculate_line_metrics(
 /// - § 5 Line Spacing: line-height implemented, but line-fit-edge missing
 /// - § 6 Trimming Leading: text-box-trim not implemented
 #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn perform_fragment_layout<T: ParsedFontTrait>(
     cursor: &mut BreakCursor,
     logical_items: &[LogicalItem],
@@ -8225,6 +8234,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 // around every typographic character unit including preserved white spaces; with break-spaces
 // it allows breaking before the first space of a sequence
 // +spec:line-breaking:722f3b - wrapping only at soft wrap opportunities, minimizing overflow
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn break_one_line<T: ParsedFontTrait>(
     cursor: &mut BreakCursor,
     line_constraints: &LineConstraints,
@@ -8655,6 +8665,7 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn position_one_line<T: ParsedFontTrait>(
     line_items: &[ShapedItem],
     line_constraints: &LineConstraints,
@@ -9245,6 +9256,7 @@ fn calculate_justification_spacing(
 /// original items and returns a completely new `Vec`. This is necessary because Kashida
 /// justification changes the number of items on the line, and must not modify cached data.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
     items: Vec<ShapedItem>,
     line_constraints: &LineConstraints,

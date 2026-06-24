@@ -839,6 +839,7 @@ impl NodeGraph {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     #[must_use] pub fn dom(self) -> Dom {
         static NODEGRAPH_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("nodegraph"))];
 
@@ -1045,6 +1046,7 @@ struct ConnectionLocalDataset {
 }
 
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn render_node(
     node: &Node,
     graph_offset: (f32, f32),
@@ -2635,6 +2637,7 @@ fn render_node(
     ].into())
 }
 
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> Dom {
     static NODEGRAPH_CONNECTIONS_CONTAINER_CLASS: &[IdOrClass] = &[Class(
         AzString::from_const_str("nodegraph-connections-container"),
@@ -2857,6 +2860,7 @@ extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, _info: CallbackInf
 
 // drag either the graph or the currently active nodes
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut refany) = refany.downcast_mut::<NodeGraphLocalDataset>() else {
         return Update::DoNothing;

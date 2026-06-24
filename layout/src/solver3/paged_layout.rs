@@ -118,6 +118,7 @@ where
 // page_config is a small owned config struct passed once per paged-layout invocation by the
 // dll PDF backend and the test suite; taking it by value keeps that one-shot API ergonomic.
 #[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn layout_document_paged_with_config<T, F>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
@@ -369,6 +370,7 @@ where
 /// The tree, positions, and scroll IDs are stored in `cache`. To generate a display list,
 /// call `generate_display_list` separately using the tree/positions from the cache.
 #[cfg(feature = "text_layout")]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
