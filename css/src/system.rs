@@ -256,7 +256,7 @@ impl Drop for SystemStyle {
 ///
 /// These settings affect how icons are rendered, supporting accessibility
 /// needs like reduced colors and high contrast modes.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct IconStyleOptions {
     /// If true, icons should be rendered in grayscale (for color-blind users
@@ -384,7 +384,7 @@ impl SystemFontType {
 /// - macOS: `UIAccessibility` APIs (isBoldTextEnabled, isReduceMotionEnabled, etc.)
 /// - Windows: `SystemParametersInfo` (`SPI_GETHIGHCONTRAST`, `SPI_GETCLIENTAREAANIMATION`)
 /// - Linux: gsettings (org.gnome.desktop.interface, org.gnome.desktop.a11y)
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct AccessibilitySettings {
     /// Text scaling factor (1.0 = normal, 1.5 = 150%, etc.)
@@ -429,7 +429,7 @@ pub struct AccessibilitySettings {
 /// On macOS, these correspond to `NSColor` semantic colors.
 /// On Windows, these come from `UISettings`.
 /// On Linux/GTK, these come from the GTK theme.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct SystemColors {
     // === Primary semantic colors ===

@@ -42,7 +42,7 @@ use crate::{
 
 // --- TYPE DEFINITIONS ---
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum StyleFilter {
     Blend(StyleMixBlendMode),

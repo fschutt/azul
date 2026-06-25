@@ -1005,6 +1005,10 @@ macro_rules! impl_option {
     ($struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
         #[repr(C, u8)]
+        // This arm (copy = false) deliberately does NOT derive Copy so the
+        // wrapper can hold non-Copy payloads; missing_copy_implementations is a
+        // false positive for the Copy-payload instantiations routed through here.
+        #[allow(missing_copy_implementations)]
         pub enum $struct_name {
             None,
             Some($struct_type)
@@ -1024,6 +1028,10 @@ macro_rules! impl_option {
     ($struct_type:ident, $struct_name:ident, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
         #[repr(C, u8)]
+        // This (default) arm does NOT derive Copy so the wrapper can hold
+        // non-Copy payloads; missing_copy_implementations is a false positive
+        // for the Copy-payload instantiations routed through here.
+        #[allow(missing_copy_implementations)]
         pub enum $struct_name {
             None,
             Some($struct_type)
