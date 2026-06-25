@@ -165,7 +165,7 @@ impl Probe {
     /// Open a timed span. The returned guard records its name + nanos
     /// on drop into the thread-local event buffer.
     #[inline]
-    #[must_use] pub const fn span(name: &'static str) -> Span {
+    #[must_use] pub fn span(name: &'static str) -> Span {
         imp::open(name)
     }
 
@@ -174,13 +174,13 @@ impl Probe {
     /// platform RSS readers) so consumers can use whatever measurement
     /// helper they own.
     #[inline]
-    pub const fn sample_rss(label: &'static str, bytes: u64) {
+    pub fn sample_rss(label: &'static str, bytes: u64) {
         imp::sample_rss(label, bytes);
     }
 
     /// Drain the per-thread event buffer.
     #[inline]
-    #[must_use] pub const fn drain() -> Vec<Event> {
+    #[must_use] pub fn drain() -> Vec<Event> {
         imp::drain()
     }
 
@@ -189,19 +189,19 @@ impl Probe {
     /// want to prevent the thread-local buffer from inflating RSS during
     /// thousands of layout passes without actually needing the events.
     #[inline]
-    pub const fn drop_events() {
+    pub fn drop_events() {
         imp::drop_events();
     }
 
     /// Current number of events in the per-thread buffer. Cheap to call.
     #[inline]
-    #[must_use] pub const fn peek_len() -> usize {
+    #[must_use] pub fn peek_len() -> usize {
         imp::peek_len()
     }
 
     /// Whether the `probe` feature is compiled in.
     #[inline]
-    #[must_use] pub const fn enabled() -> bool {
+    #[must_use] pub fn enabled() -> bool {
         imp::enabled()
     }
 }
@@ -323,7 +323,7 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
 /// `sample_peak_rss` for backwards compatibility with existing
 /// checkpoint labels; semantically it is "sample current".
 #[inline]
-pub const fn sample_peak_rss(label: &'static str) {
+pub fn sample_peak_rss(label: &'static str) {
     // [WEB-LIFT 2026-06-11] also no-op under web_lift: current_rss_bytes/
     // peak_rss_bytes_self are mach syscalls (task_info/getrusage) —
     // out-of-image and unliftable. See the `imp` cfg note above.
@@ -369,7 +369,7 @@ fn peak_rss_bytes_self() -> u64 {
 ///
 /// Call after major allocations are freed (e.g. after a layout pass).
 #[inline]
-pub const fn hint_purge_allocator() {
+pub fn hint_purge_allocator() {
     #[cfg(feature = "allocator_mimalloc")]
     {
         // Aggressive purge — returns arenas to the OS when possible.
