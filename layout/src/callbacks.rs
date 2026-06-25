@@ -587,6 +587,17 @@ azul_core::impl_managed_callback! {
 }
 
 impl Callback {
+    /// Create a callback from a raw `CallbackType` function pointer (ctx = None).
+    ///
+    /// The concrete `cb: CallbackType` parameter is a coercion site, so callers
+    /// can pass a bare `extern "C" fn` item without an `as CallbackType` cast
+    /// (unlike `Callback::from`, where trait-impl selection happens before the
+    /// fn-item -> fn-pointer coercion could apply).
+    #[must_use]
+    pub fn from_ptr(cb: CallbackType) -> Self {
+        Self::from(cb)
+    }
+
     /// Create a new callback with just a function pointer (for native Rust code)
     pub fn create<C: Into<Self>>(cb: C) -> Self {
         cb.into()

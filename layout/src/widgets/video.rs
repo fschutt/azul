@@ -159,14 +159,14 @@ impl VideoWidget {
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset.clone(),
-                Callback::from(video_on_after_mount as CallbackType),
+                Callback::from_ptr(video_on_after_mount),
             )
             // Window/layout resize → re-target the decoder to the new physical size
             // (a cheap image swap, no relayout). See `video_on_resize`.
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::NodeResized),
                 dataset,
-                Callback::from(video_on_resize as CallbackType),
+                Callback::from_ptr(video_on_resize),
             )
             .with_child(
                 Dom::create_virtual_view(

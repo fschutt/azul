@@ -115,7 +115,7 @@ impl ScreenCaptureWidget {
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset,
-                Callback::from(screencap_on_after_mount as CallbackType),
+                Callback::from_ptr(screencap_on_after_mount),
             )
     }
 }

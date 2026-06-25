@@ -153,7 +153,7 @@ impl MicrophoneWidget {
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset,
-                Callback::from(mic_on_after_mount as CallbackType),
+                Callback::from_ptr(mic_on_after_mount),
             )
     }
 }

@@ -123,7 +123,7 @@ impl CameraWidget {
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset,
-                Callback::from(camera_on_after_mount as CallbackType),
+                Callback::from_ptr(camera_on_after_mount),
             )
     }
 }

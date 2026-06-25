@@ -342,47 +342,47 @@ impl MapWidget {
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_after_mount as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_after_mount),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseDown),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_down as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_down),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseOver),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_move as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_move),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseUp),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_up as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_up),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseLeave),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_up as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_up),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::TouchStart),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_down as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_down),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::TouchMove),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_move as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_move),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::TouchEnd),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_up as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_up),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::TouchCancel),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_up as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_up),
             )
             // Native gesture events (UIPinchGestureRecognizer on iOS,
             // ScaleGestureDetector on Android, NSMagnificationGestureRecognizer
@@ -391,12 +391,12 @@ impl MapWidget {
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::PinchIn),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_move as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_move),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::PinchOut),
                 dataset,
-                crate::callbacks::Callback::from(map_on_pointer_move as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_move),
             )
             .with_child(
                 Dom::create_virtual_view(
@@ -1423,27 +1423,27 @@ extern "C" fn map_widget_render(
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseDown),
                 data.clone(),
-                Callback::from(map_on_pointer_down as CallbackType),
+                Callback::from_ptr(map_on_pointer_down),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseOver),
                 data.clone(),
-                Callback::from(map_on_pointer_move as CallbackType),
+                Callback::from_ptr(map_on_pointer_move),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseUp),
                 data.clone(),
-                Callback::from(map_on_pointer_up as CallbackType),
+                Callback::from_ptr(map_on_pointer_up),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseLeave),
                 data.clone(),
-                Callback::from(map_on_pointer_up as CallbackType),
+                Callback::from_ptr(map_on_pointer_up),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::Scroll),
                 data.clone(),
-                Callback::from(map_on_scroll as CallbackType),
+                Callback::from_ptr(map_on_scroll),
             );
     }
 
