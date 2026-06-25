@@ -50,7 +50,7 @@ pub fn render_svg_to_png(
     // Parse viewBox for coordinate mapping
     let vb = parse_viewbox(svg_node);
     let (vb_x, vb_y, vb_w, vb_h) =
-        vb.unwrap_or((0.0, 0.0, f64::from(target_width), f64::from(target_height)));
+        vb.unwrap_or_else(|| (0.0, 0.0, f64::from(target_width), f64::from(target_height)));
 
     let sx = f64::from(target_width) / vb_w;
     let sy = f64::from(target_height) / vb_h;
@@ -108,7 +108,7 @@ pub fn render_svg_to_imageref(
 
     let vb = parse_viewbox(svg_node);
     let (vb_x, vb_y, vb_w, vb_h) =
-        vb.unwrap_or((0.0, 0.0, f64::from(target_width), f64::from(target_height)));
+        vb.unwrap_or_else(|| (0.0, 0.0, f64::from(target_width), f64::from(target_height)));
     let scale = (f64::from(target_width) / vb_w).min(f64::from(target_height) / vb_h);
     let root_transform =
         TransAffine::new_custom(scale, 0.0, 0.0, scale, -vb_x * scale, -vb_y * scale);

@@ -178,7 +178,7 @@ impl FileInput {
             Some(path) => std::path::Path::new(path.as_str())
                 .file_name()
                 .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or(self.default_text.as_str().to_string())
+                .unwrap_or_else(|| self.default_text.as_str().to_string())
                 .into(),
             None => self.default_text.clone(),
         };

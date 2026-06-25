@@ -7388,7 +7388,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // Get intrinsic size from the image data or fall back to layout node
             let intrinsic_size = tree.warm(child_index)
                 .and_then(|w| w.intrinsic_sizes)
-                .unwrap_or(IntrinsicSizes {
+                .unwrap_or_else(|| IntrinsicSizes {
                     max_content_width: 50.0,
                     max_content_height: 50.0,
                     ..Default::default()

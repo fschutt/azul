@@ -1650,15 +1650,15 @@ impl LayoutFontMetrics {
     #[must_use] pub fn from_font_metrics(metrics: &azul_css::props::basic::FontMetrics) -> Self {
         let ascent = metrics.s_typo_ascender
             .as_option()
-            .map_or(f32::from(metrics.ascender), |v| f32::from(*v));
+            .map_or_else(|| f32::from(metrics.ascender), |v| f32::from(*v));
         let descent = metrics.s_typo_descender
             .as_option()
-            .map_or(f32::from(metrics.descender), |v| f32::from(*v));
+            .map_or_else(|| f32::from(metrics.descender), |v| f32::from(*v));
         // UAs must floor the line gap metric at zero (css-inline-3 §3.2.2)
         // Spec: "UAs must floor the line gap metric at zero."
         let line_gap = metrics.s_typo_line_gap
             .as_option()
-            .map_or(f32::from(metrics.line_gap), |v| f32::from(*v))
+            .map_or_else(|| f32::from(metrics.line_gap), |v| f32::from(*v))
             .max(0.0);
         let x_height = metrics.sx_height
             .as_option()

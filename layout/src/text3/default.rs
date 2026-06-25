@@ -860,7 +860,7 @@ fn shape_text_internal(
         let ppem = font_size.round() as u16;
         let advance = parsed_font
             .get_hinted_advance_px(info.glyph.glyph_index, ppem)
-            .unwrap_or(f32::from(base_advance) * scale_factor);
+            .unwrap_or_else(|| f32::from(base_advance) * scale_factor);
         let kerning = f32::from(info.kerning) * scale_factor;
 
         let (offset_x_units, offset_y_units) =
