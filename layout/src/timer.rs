@@ -593,6 +593,8 @@ impl TimerCallbackInfo {
 /// Optional Timer type for API compatibility
 #[derive(Debug, Clone)]
 #[repr(C, u8)]
+// FFI Option enum; boxing the Some variant would break the #[repr(C, u8)] C ABI / api.json.
+#[allow(clippy::large_enum_variant)]
 pub enum OptionTimer {
     None,
     Some(Timer),

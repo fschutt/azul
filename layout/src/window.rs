@@ -112,6 +112,9 @@ fn new_document_id() -> DocumentId {
 /// This enum is returned by `LayoutWindow::handle_focus_change_for_cursor_blink()`
 /// to tell the platform layer what timer action to take.
 #[derive(Debug, Clone)]
+// short-lived platform-action enum: the Start variant intentionally carries the Timer payload
+// and the value is constructed then immediately matched by the platform layer.
+#[allow(clippy::large_enum_variant)]
 pub enum CursorBlinkTimerAction {
     /// Start the cursor blink timer with the given timer configuration
     Start(Timer),
@@ -125,6 +128,9 @@ pub enum CursorBlinkTimerAction {
 /// `LayoutWindow::handle_hover_change_for_tooltip()`. Platform layer translates
 /// these to `start_timer` / `stop_timer` calls on `TOOLTIP_DELAY_TIMER_ID`.
 #[derive(Debug, Clone)]
+// short-lived platform-action enum: the Start variant intentionally carries the Timer payload
+// and the value is constructed then immediately matched by the platform layer.
+#[allow(clippy::large_enum_variant)]
 pub enum TooltipTimerAction {
     /// Start the tooltip-delay timer with the given configuration
     Start(Timer),
