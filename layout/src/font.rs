@@ -418,7 +418,7 @@ pub mod parsed {
         fn clone(&self) -> Self {
             Self {
                 hash: self.hash,
-                font_metrics: self.font_metrics.clone(),
+                font_metrics: self.font_metrics,
                 pdf_font_metrics: self.pdf_font_metrics,
                 num_glyphs: self.num_glyphs,
                 hhea_table: self.hhea_table.clone(),
@@ -2408,7 +2408,7 @@ pub mod parsed {
         }
 
         fn get_font_metrics(&self) -> LayoutFontMetrics {
-            self.font_metrics.clone()
+            self.font_metrics
         }
 
         fn num_glyphs(&self) -> u16 {

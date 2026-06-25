@@ -1573,7 +1573,7 @@ pub enum SegmentAlignment {
     Total,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct VerticalMetrics {
     pub advance: f32,
     pub bearing_x: f32,
@@ -1592,7 +1592,7 @@ pub struct VerticalMetrics {
 // +spec:font-metrics:f2cd75 - em-over/em-under baselines intentionally not included (not used by CSS per spec)
 // +spec:inline-formatting-context:76cd57 - ascent/descent font metrics for inline formatting context layout
 // +spec:font-metrics:207e6b - ascent/descent metrics used for baseline calculations
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct LayoutFontMetrics {
     pub ascent: f32,
     pub descent: f32,
@@ -3498,7 +3498,7 @@ impl StyleProperties {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[derive(Copy, Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub enum TextCombineUpright {
     None,
     All,        // Combine all characters in horizontal layout
@@ -5263,7 +5263,7 @@ pub(crate) struct FlowLayout {
 /// latter runs the full flow loop — including `BreakCursor::peek_next_unit`,
 /// which clones every `ShapedCluster` it inspects — even though no constraint
 /// actually limits the line width.
-#[derive(Debug, Clone, Default)]
+#[derive(Copy, Debug, Clone, Default)]
 pub struct IntrinsicTextSizes {
     /// CSS min-content = widest unbreakable unit (word) along the inline axis.
     pub min_content_width: f32,
@@ -5289,7 +5289,7 @@ pub struct CachedLineBreaks {
 }
 
 /// Result of an incremental relayout attempt.
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum IncrementalRelayoutResult {
     /// Glyphs changed but advance widths identical — swap in place, no repositioning.
     GlyphSwap,
@@ -5430,7 +5430,7 @@ pub struct TextShapingCache {
 }
 
 /// Approximate heap bytes retained by a [`TextShapingCache`].
-#[derive(Debug, Clone, Default)]
+#[derive(Copy, Debug, Clone, Default)]
 pub struct TextCacheMemoryReport {
     pub logical_items_entries: usize,
     pub logical_items_bytes: usize,
@@ -7431,7 +7431,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                             glyph_id: g.glyph_id,
                             script: g.script,
                             font_hash: g.font_hash,
-                            font_metrics: g.font_metrics.clone(),
+                            font_metrics: g.font_metrics,
                             style: g.style.clone(),
                             cluster_offset,
                             advance: g.advance,
@@ -7488,7 +7488,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                         },
                         glyph_id: g.glyph_id,
                         font_hash: g.font_hash,
-                        font_metrics: g.font_metrics.clone(),
+                        font_metrics: g.font_metrics,
                         style: g.style.clone(),
                         script: g.script,
                         vertical_advance: g.vertical_advance,
@@ -8605,7 +8605,7 @@ pub struct HyphenationBreak {
                 kind: GlyphKind::Hyphen,
                 glyph_id: hyphen_glyph_id,
                 font_hash: last_glyph.font_hash,
-                font_metrics: last_glyph.font_metrics.clone(),
+                font_metrics: last_glyph.font_metrics,
                 cluster_offset: 0,
                 script: Script::Latin,
                 advance: hyphen_advance,
@@ -9383,7 +9383,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
                         return Some((
                             font.clone(),
                             glyph.font_hash,
-                            glyph.font_metrics.clone(),
+                            glyph.font_metrics,
                             glyph.style.clone(),
                         ));
                     }

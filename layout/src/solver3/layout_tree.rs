@@ -176,7 +176,7 @@ pub struct SubtreeHash(pub u64);
 ///
 /// Index in `CachedInlineLayout::item_metrics` matches the item order in
 /// `UnifiedLayout::items`.
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct InlineItemMetrics {
     /// The DOM `NodeId` of the source node for this item (for dirty checking).
     /// `None` for generated content (list markers, hyphens, etc.)
@@ -793,7 +793,7 @@ pub struct LayoutTree {
 }
 
 /// Approximate per-field heap-byte breakdown of a [`LayoutTree`].
-#[derive(Debug, Clone, Default)]
+#[derive(Copy, Debug, Clone, Default)]
 pub struct LayoutTreeMemoryReport {
     pub node_count: usize,
     pub hot_bytes: usize,

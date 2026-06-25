@@ -113,7 +113,7 @@ pub enum AvailableWidthType {
 /// This is the lightweight entry stored in the 9 measurement slots.
 /// It records what constraints were provided and what size resulted,
 /// enabling Taffy's "result matches request" optimization.
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct SizingCacheEntry {
     /// The available size that was provided as input.
     pub available_size: LogicalSize,
@@ -2018,7 +2018,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                 // `NodeCache::slot_index(..)` here and at the matching `store_size`.
                 let sizing_hit = ctx.cache_map.entries[node_index]
                     .get_size(0, containing_block_size)
-                    .cloned();
+                    .copied();
                 if let Some(cached_sizing) = sizing_hit {
                     // SIZING CACHE HIT — set used_size and return immediately.
                     // No child positioning needed in ComputeSize mode.

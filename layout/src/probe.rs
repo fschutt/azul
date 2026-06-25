@@ -138,7 +138,7 @@ mod imp {
 
 /// Drained probe event. `Vec<Event>` is what consumers walk to render
 /// trace summaries; the order is the order events fired in.
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct Event {
     pub name: &'static str,
     pub kind: EventKind,
@@ -156,7 +156,7 @@ pub enum EventKind {
 pub use imp::Span;
 
 /// Probe API. All methods are no-ops without the `probe` feature.
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct Probe {
     _no_construct: PhantomData<()>,
 }

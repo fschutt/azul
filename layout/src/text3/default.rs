@@ -205,7 +205,7 @@ impl ParsedFontTrait for FontRef {
     }
 
     fn get_font_metrics(&self) -> LayoutFontMetrics {
-        crate::font_ref_to_parsed_font(self).font_metrics.clone()
+        crate::font_ref_to_parsed_font(self).font_metrics
     }
 
     fn num_glyphs(&self) -> u16 {
@@ -877,7 +877,7 @@ fn shape_text_internal(
             glyph_id: info.glyph.glyph_index,
             codepoint: source_char,
             font_hash,
-            font_metrics: font_metrics.clone(),
+            font_metrics,
             style: Arc::clone(&style_arc),
             source: GlyphSource::Char,
             logical_byte_index: cluster as usize,
