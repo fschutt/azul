@@ -113,25 +113,14 @@ fn test_empty_cell_detection_logic() {
 
     struct CellInfo {
         has_children: bool,
-        has_inline_content: bool,
     }
 
-    let cells = [CellInfo {
-            has_children: false,
-            has_inline_content: false,
-        }, // Empty
-        CellInfo {
-            has_children: true,
-            has_inline_content: false,
-        }, // Has block content
-        CellInfo {
-            has_children: true,
-            has_inline_content: true,
-        }, // Has inline content
-        CellInfo {
-            has_children: false,
-            has_inline_content: true,
-        }];
+    let cells = [
+        CellInfo { has_children: false }, // Empty
+        CellInfo { has_children: true },  // Has block content
+        CellInfo { has_children: true },  // Has inline content
+        CellInfo { has_children: false }, // Inline content only (no children)
+    ];
 
     for (idx, cell) in cells.iter().enumerate() {
         // empty iff there are no children (inline content / children both => not empty)

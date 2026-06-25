@@ -15,16 +15,6 @@ fn as_text(child: &XmlNodeChild) -> &str {
     }
 }
 
-/// Find the first element child, skipping whitespace text nodes
-fn first_element_child(children: &[XmlNodeChild]) -> &azul_core::xml::XmlNode {
-    for child in children {
-        if let XmlNodeChild::Element(e) = child {
-            return e;
-        }
-    }
-    panic!("No element child found");
-}
-
 /// Find element child by tag name, skipping text nodes
 fn find_element_child<'a>(children: &'a [XmlNodeChild], tag: &str) -> &'a azul_core::xml::XmlNode {
     for child in children {

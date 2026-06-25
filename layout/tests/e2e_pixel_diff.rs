@@ -128,9 +128,6 @@ mod tests {
         let _ = std::fs::remove_file(&actual_path);
     }
 
-    fn empty_css() -> Css {
-        Css::new(Vec::new())
-    }
 
     // =====================================================================
     // Test cases

@@ -75,7 +75,6 @@ fn cls(name: &str) -> Vec<IdOrClass> {
 }
 
 struct ContentEditableHarness {
-    font_cache: FcFontCache,
     glyph_cache: GlyphCache,
     layout_window: Option<LayoutWindow>,
     renderer_resources: RendererResources,
@@ -90,7 +89,6 @@ impl ContentEditableHarness {
         ws.size.dimensions = LogicalSize::new(width, height);
 
         Self {
-            font_cache: font_cache.clone(),
             glyph_cache: GlyphCache::new(),
             layout_window: Some(LayoutWindow::new(font_cache).unwrap()),
             renderer_resources: RendererResources::default(),

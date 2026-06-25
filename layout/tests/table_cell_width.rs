@@ -47,13 +47,6 @@ fn layout_dom(dom: Dom, css_str: &str, width: f32, height: f32) -> LayoutWindow 
     layout_window
 }
 
-fn get_root_id() -> DomNodeId {
-    DomNodeId {
-        dom: DomId::ROOT_ID,
-        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
-    }
-}
-
 fn node_id(index: usize) -> DomNodeId {
     DomNodeId {
         dom: DomId::ROOT_ID,
