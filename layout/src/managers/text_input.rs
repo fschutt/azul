@@ -65,7 +65,7 @@ impl PendingTextEdit {
         result.into()
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// C-compatible Option type for `PendingTextEdit`
 #[derive(Debug, Clone)]
 #[repr(C, u8)]

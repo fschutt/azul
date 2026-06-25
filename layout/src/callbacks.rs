@@ -650,7 +650,7 @@ impl Callback {
         (self.cb)(data, info)
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// FFI-safe Option<Callback> type for C interop.
 ///
 /// This enum provides an ABI-stable alternative to `Option<Callback>`
@@ -4541,7 +4541,7 @@ pub struct MenuCallback {
     pub callback: Callback,
     pub refany: RefAny,
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Optional `MenuCallback`
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C, u8)]
@@ -4769,7 +4769,7 @@ impl From<Result<alloc::vec::Vec<u8>, AzString>> for ResultU8VecString {
         }
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Result type for functions returning () or a String error  
 #[derive(Debug, Clone)]
 #[repr(C, u8)]

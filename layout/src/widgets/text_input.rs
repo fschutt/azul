@@ -654,7 +654,7 @@ azul_core::impl_managed_callback! {
     from_handle_fn: AzTextInputOnFocusLostCallback_createFromHostHandle,
     extra_args:     [ state: TextInputState ],
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[derive(Copy, Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum TextInputSelection {

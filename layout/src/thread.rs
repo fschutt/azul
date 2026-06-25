@@ -63,7 +63,7 @@ macro_rules! impl_callback_traits {
 }
 
 // Types that need to be defined locally (not in azul-core)
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Message that is sent back from the running thread to the main thread
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C, u8)]
@@ -71,7 +71,7 @@ pub enum ThreadReceiveMsg {
     WriteBack(ThreadWriteBackMsg),
     Update(Update),
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C, u8)]
 pub enum OptionThreadReceiveMsg {
@@ -877,7 +877,7 @@ mod tests {
         assert_eq!(callback, cloned);
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Optional Thread type for API compatibility
 #[derive(Debug, Clone)]
 #[repr(C, u8)]

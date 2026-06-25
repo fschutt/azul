@@ -1127,6 +1127,7 @@ pub(super) fn get_containing_block_for_node(
 // Result<(),LayoutError> arrived as Err → rc=5 InvalidTree though the out-param content was correct).
 // An explicit u8 tag (0..=4) moves the Result niche to unused tag values (5..) = a simple u8 compare
 // the lift handles. Same disc-mis-lift class as InlineContent/LogicalItem/ShapedItem (g117/g118).
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[derive(Debug)]
 #[repr(C, u8)]
 pub enum LayoutError {

@@ -37,7 +37,10 @@ pub struct CalcResolveContext {
     /// Root element's computed `font-size` in px — used for `rem` resolution.
     pub rem_size: f32,
 }
-
+// Tiny enum (Num(f32) = 4B vs Op(CalcOp) = 1B); the "large" variant is a bare
+// f32, so boxing it would add a pointer + heap allocation — strictly worse than
+// the few bytes of size disparity. Accepted.
+#[allow(variant_size_differences)]
 /// Internal intermediate representation: a number or an operator (after value resolution).
 #[derive(Clone, Debug)]
 enum CalcFlatItem {

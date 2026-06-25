@@ -595,6 +595,7 @@ impl TimerCallbackInfo {
 #[derive(Debug, Clone)]
 #[repr(C, u8)]
 // FFI Option enum; boxing the Some variant would break the #[repr(C, u8)] C ABI / api.json.
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[allow(clippy::large_enum_variant)]
 pub enum OptionTimer {
     None,
