@@ -639,14 +639,14 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     };
                     let mut reflow_float_cache: std::collections::HashMap<usize, FloatingContext> =
                         std::collections::HashMap::new();
-                    let _ = layout_formatting_context(
+                    drop(layout_formatting_context(
                         ctx,
                         tree,
                         text_cache,
                         node_index,
                         &constraints,
                         &mut reflow_float_cache,
-                    );
+                    ));
                 }
             }
         }

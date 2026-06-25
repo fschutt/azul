@@ -1649,7 +1649,7 @@ mod scroll_shift_tests {
         let mut p = xy_pixmap(200, 100);
         // Clip is a sub-region; everything OUTSIDE must be byte-identical after.
         let clip = rect(8.0, 16.0, 180.0, 60.0); // phys [8,188) x [16,76)
-        let _ = scroll_shift_region(&mut p, &clip, (0.0, 10.0), 1.0);
+        drop(scroll_shift_region(&mut p, &clip, (0.0, 10.0), 1.0));
         for &(x, y) in &[(0u32, 0u32), (199, 99), (100, 5), (100, 90), (2, 50), (190, 50)] {
             assert_eq!(
                 at(&p, x, y),

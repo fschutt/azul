@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn readings_round_trip_through_manager() {
-        let _ = drain_sensor_readings();
+        drop(drain_sensor_readings());
 
         push_sensor_reading(r(SensorKind::Accelerometer, 1.0, 2.0, 3.0));
         push_sensor_reading(r(SensorKind::Accelerometer, 4.0, 5.0, 6.0)); // last wins per kind

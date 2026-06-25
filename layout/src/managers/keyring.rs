@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn requests_round_trip_through_channel() {
-        let _ = drain_keyring_requests();
+        drop(drain_keyring_requests());
 
         push_keyring_request(KeyringRequest::Store {
             key: AzString::from_const_str("token"),
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn results_round_trip_through_manager() {
-        let _ = drain_keyring_results();
+        drop(drain_keyring_results());
 
         push_keyring_result(KeyringResult::NotFound);
         push_keyring_result(KeyringResult::Retrieved(AzString::from_const_str("s"))); // last wins

@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn async_results_round_trip_through_manager() {
         // The channel is process-global; clear any residue first.
-        let _ = drain_biometric_results();
+        drop(drain_biometric_results());
 
         push_biometric_result(BiometricResult::Failed);
         push_biometric_result(BiometricResult::Authenticated); // last wins
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn requests_round_trip_through_channel() {
         // Process-global; clear residue first.
-        let _ = drain_biometric_requests();
+        drop(drain_biometric_requests());
 
         push_biometric_request(BiometricPrompt::new("Unlock A".into()));
         push_biometric_request(BiometricPrompt::new("Unlock B".into()));

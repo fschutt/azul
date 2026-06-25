@@ -409,11 +409,13 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                         let mut s = s.split(':');
                         let Some(key) = s.next() else { continue };
                         let Some(val) = s.next() else { continue };
-                        let _ = azul_css::parser2::parse_css_declaration(
+                        // Called for its side effect (writes parsed props into
+                        // `css_attrs`); the returned value is intentionally discarded.
+                        drop(azul_css::parser2::parse_css_declaration(
                             key.trim(), val.trim(),
                             azul_css::parser2::ErrorLocationRange::default(),
                             css_key_map, &mut Vec::new(), &mut css_attrs,
-                        );
+                        ));
                     }
                     let props = css_attrs.into_iter().filter_map(|s| {
                         use azul_css::css::CssDeclaration;

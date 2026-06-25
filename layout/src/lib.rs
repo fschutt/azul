@@ -396,7 +396,7 @@ pub fn parsed_font_to_font_ref(
 
     extern "C" fn parsed_font_destructor(ptr: *mut c_void) {
         unsafe {
-            let _ = Box::from_raw(ptr.cast::<ParsedFont>());
+            drop(Box::from_raw(ptr.cast::<ParsedFont>()));
         }
     }
 

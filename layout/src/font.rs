@@ -1611,7 +1611,7 @@ pub mod parsed {
             let n = self.num_glyphs as usize;
             for glyph_index in 0..n {
                 let gid = glyph_index as u16;
-                let _ = self.get_or_decode_glyph(gid);
+                drop(self.get_or_decode_glyph(gid));
             }
         }
 

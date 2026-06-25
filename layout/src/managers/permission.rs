@@ -431,7 +431,7 @@ mod tests {
         mgr.subscribe(Capability::Microphone, node(1));
         mgr.subscribe(Capability::Microphone, node(2));
         // Drain the initial Subscribe so the assertion below isolates Release.
-        let _ = mgr.take_pending_events();
+        drop(mgr.take_pending_events());
 
         mgr.release(Capability::Microphone);
         assert_eq!(mgr.refcount(Capability::Microphone), 1);
@@ -452,7 +452,7 @@ mod tests {
         let mut mgr = PermissionManager::new();
         mgr.subscribe(Capability::Camera, node(1));
         mgr.subscribe(Capability::Camera, node(2));
-        let _ = mgr.take_pending_events();
+        drop(mgr.take_pending_events());
 
         mgr.force_release(Capability::Camera);
         assert_eq!(mgr.refcount(Capability::Camera), 0);
@@ -508,10 +508,10 @@ mod tests {
         let mut mgr = PermissionManager::new();
 
         mgr.diff_layout(|emit| emit(Capability::Camera, node(1)));
-        let _ = mgr.take_pending_events();
+        drop(mgr.take_pending_events());
 
         mgr.diff_layout(|_emit| {});
-        let _ = mgr.take_pending_events();
+        drop(mgr.take_pending_events());
 
         // Same capability reappears — must emit Subscribe again because the
         // platform tore the session down on the prior Release.
@@ -528,7 +528,7 @@ mod tests {
     fn async_results_round_trip_through_manager() {
         // The channel is a process-global; clear anything a prior test or
         // ordering left behind so this test is self-contained.
-        let _ = drain_async_results();
+        drop(drain_async_results());
 
         push_async_result(
             Capability::Camera,

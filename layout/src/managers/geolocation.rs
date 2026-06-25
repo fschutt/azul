@@ -238,7 +238,7 @@ mod tests {
         let mut mgr = GeolocationManager::new();
         mgr.diff_layout(|emit| emit(cfg()));
         mgr.set_latest_fix(fix(37.0, -122.0));
-        let _ = mgr.take_pending_events();
+        drop(mgr.take_pending_events());
 
         mgr.diff_layout(|_emit| {});
         assert_eq!(mgr.refcount(), 0);
@@ -252,7 +252,7 @@ mod tests {
     fn config_drift_emits_reconfigure() {
         let mut mgr = GeolocationManager::new();
         mgr.diff_layout(|emit| emit(cfg()));
-        let _ = mgr.take_pending_events();
+        drop(mgr.take_pending_events());
 
         mgr.diff_layout(|emit| emit(high_accuracy_cfg()));
         let events = mgr.take_pending_events();
@@ -270,7 +270,7 @@ mod tests {
     fn stable_config_does_not_re_emit() {
         let mut mgr = GeolocationManager::new();
         mgr.diff_layout(|emit| emit(cfg()));
-        let _ = mgr.take_pending_events();
+        drop(mgr.take_pending_events());
 
         // Same config across frames — no events.
         mgr.diff_layout(|emit| emit(cfg()));
@@ -297,7 +297,7 @@ mod tests {
     #[allow(clippy::float_cmp)] // test asserts exact float equality on deterministic values
     fn async_fixes_round_trip_through_manager() {
         // The channel is process-global; clear any residue first.
-        let _ = drain_location_fixes();
+        drop(drain_location_fixes());
 
         push_location_fix(fix(37.0, -122.0));
         push_location_fix(fix(48.8566, 2.3522)); // Paris — last wins

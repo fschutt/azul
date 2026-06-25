@@ -652,8 +652,8 @@ extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
     let thread = unsafe { &mut *thread };
 
     if let Some(thread_handle) = thread.thread_handle.take() {
-        let _ = thread.sender.send(ThreadSendMsg::TerminateThread);
-        let _ = thread_handle.join(); // ignore the result, don't panic
+        drop(thread.sender.send(ThreadSendMsg::TerminateThread));
+        drop(thread_handle.join()); // ignore the result, don't panic
     }
 }
 

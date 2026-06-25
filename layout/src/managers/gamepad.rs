@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn states_round_trip_through_the_channel() {
-        let _ = drain_gamepad_states();
+        drop(drain_gamepad_states());
         push_gamepad_state(st(0, true, 0b1));
         push_gamepad_state(st(0, true, 0b10)); // last per id wins
         push_gamepad_state(st(1, true, 0));

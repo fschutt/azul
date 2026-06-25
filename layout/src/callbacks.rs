@@ -3115,7 +3115,7 @@ impl CallbackInfo {
         let bytes = std::fs::read(&temp_path)
             .map_err(|e| AzString::from(alloc::format!("Failed to read screenshot: {e}")))?;
 
-        let _ = std::fs::remove_file(&temp_path);
+        drop(std::fs::remove_file(&temp_path));
 
         Ok(bytes)
     }
