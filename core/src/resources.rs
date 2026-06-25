@@ -2575,7 +2575,7 @@ impl ExternalImageId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(C, u8)]
 pub enum GlyphOutlineOperation {
     MoveTo(OutlineMoveTo),
@@ -2593,7 +2593,7 @@ impl_option!(
 );
 
 // MoveTo in em units
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct OutlineMoveTo {
     pub x: i16,
@@ -2601,7 +2601,7 @@ pub struct OutlineMoveTo {
 }
 
 // LineTo in em units
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct OutlineLineTo {
     pub x: i16,
@@ -2609,7 +2609,7 @@ pub struct OutlineLineTo {
 }
 
 // QuadTo in em units
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct OutlineQuadTo {
     pub ctrl_1_x: i16,
@@ -2619,7 +2619,7 @@ pub struct OutlineQuadTo {
 }
 
 // CubicTo in em units
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct OutlineCubicTo {
     pub ctrl_1_x: i16,
@@ -2646,7 +2646,7 @@ azul_css::impl_vec_debug!(GlyphOutlineOperation, GlyphOutlineOperationVec);
 azul_css::impl_vec_partialord!(GlyphOutlineOperation, GlyphOutlineOperationVec);
 azul_css::impl_vec_partialeq!(GlyphOutlineOperation, GlyphOutlineOperationVec);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct OwnedGlyphBoundingBox {
     pub max_x: i16,
@@ -2677,7 +2677,7 @@ pub enum ImageBufferKind {
 
 /// Descriptor for external image resources. See `ImageData`.
 #[repr(C)]
-#[derive(Debug, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct ExternalImageData {
     /// The identifier of this external image, provided by the embedding.
     pub id: ExternalImageId,
@@ -2845,7 +2845,7 @@ impl AddFontMsg {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum DeleteFontMsg {
     Font(FontKey),
     Instance(FontInstanceKey, (Au, DpiScaleFactor)),

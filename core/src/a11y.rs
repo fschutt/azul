@@ -113,7 +113,7 @@ pub enum AccessibilityAction {
     CustomAction(i32),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct TextSelectionStartEnd {
     pub selection_start: usize,

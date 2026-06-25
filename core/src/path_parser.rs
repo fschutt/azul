@@ -25,7 +25,7 @@ const ZERO_LENGTH_EPSILON: f32 = 1e-10;
 const ARC_SPLIT_FUDGE: f32 = 0.001;
 
 /// Errors that can occur during SVG path parsing.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SvgPathParseError {
     /// The path string is empty.
     EmptyPath,

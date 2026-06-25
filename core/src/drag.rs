@@ -43,7 +43,7 @@ pub enum ActiveDragType {
 /// Text selection drag state.
 ///
 /// Tracks the anchor point (where selection started) and current position.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextSelectionDrag {
     /// DOM ID where the selection started
@@ -125,7 +125,7 @@ pub struct NodeDrag {
 /// Window move drag state.
 ///
 /// Tracks the window being moved via titlebar drag.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct WindowMoveDrag {
     /// Position where window drag started (in screen coordinates)

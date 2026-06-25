@@ -20,7 +20,7 @@ use crate::geom::LogicalSize;
 /// This is the core abstraction for fragmentation support:
 /// - Screen rendering: [`Continuous`](Self::Continuous) — a single infinite container.
 /// - Print rendering: [`Paged`](Self::Paged) — a series of fixed-size page containers.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum FragmentationContext {
     /// Continuous media (screen): a single, infinitely tall container.
     ///

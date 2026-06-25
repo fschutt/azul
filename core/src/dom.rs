@@ -1057,7 +1057,7 @@ impl NodeType {
 }
 
 /// Represents the CSS formatting context for an element
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 // [g147f az-web-lift] `#[repr(C, u8)]` forces an explicit u8 discriminant at offset 0 instead of letting
 // Rust niche-pack the other variants' discriminants into the payload variants' (Block{bool}/Float/OutOfFlow)
 // invalid byte values. The remill lift mis-decodes that niche encoding: `Block` (byte 0/1) reads correctly

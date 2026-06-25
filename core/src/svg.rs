@@ -1384,7 +1384,7 @@ impl Default for SvgParseOptions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct SvgXmlOptions {
     pub use_single_quote: bool,
@@ -1449,7 +1449,7 @@ impl_result!(
 );
 
 /// Indentation style for SVG XML serialization.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(C, u8)]
 pub enum Indent {
     None,

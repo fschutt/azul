@@ -109,7 +109,7 @@ impl_vec_clone!(
 impl_vec_partialeq!(ChangedCssProperty, ChangedCssPropertyVec);
 
 /// Focus state change for restyle operations
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FocusChange {
     /// Node that lost focus (if any)
     pub lost_focus: Option<NodeId>,
@@ -317,6 +317,10 @@ impl StyledNodeState {
 }
 
 /// A styled Dom node
+// Per-DOM-node hot type passed by reference throughout the layout/style
+// pipeline; kept non-Copy on purpose so it isn't silently bulk-copied and to
+// avoid trivially_copy_pass_by_ref churn across the many &StyledNode callers.
+#[allow(missing_copy_implementations)]
 #[repr(C)]
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd)]
 pub struct StyledNode {
@@ -762,7 +766,7 @@ impl_vec_clone!(
 );
 impl_vec_partialeq!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 #[repr(C)]
 pub struct TagIdToNodeIdMapping {
     // Hit-testing tag ID (not all nodes have a tag, only nodes that are hit-testable)
@@ -868,7 +872,7 @@ impl Default for StyledDom {
 }
 
 /// Per-field heap-byte breakdown of a `StyledDom`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct StyledDomMemoryReport {
     pub node_count: usize,
     pub node_hierarchy_bytes: usize,

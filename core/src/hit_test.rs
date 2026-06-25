@@ -337,7 +337,7 @@ impl FullHitTest {
 }
 
 /// Result of determining which mouse cursor icon to display based on hit-test results.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CursorTypeHitTest {
     /// closest-node is used for determining the cursor: property
     /// The node is guaranteed to have a non-default cursor: property,

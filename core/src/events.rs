@@ -33,13 +33,13 @@ pub type RestyleNodes = BTreeMap<NodeId, Vec<ChangedCssProperty>>;
 pub type RelayoutNodes = BTreeMap<NodeId, Vec<ChangedCssProperty>>;
 pub type RelayoutWords = BTreeMap<NodeId, AzString>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FocusChange {
     pub old: Option<DomNodeId>,
     pub new: Option<DomNodeId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CallbackToCall {
     pub node_id: NodeId,
     pub hit_test_item: Option<HitTestItem>,
@@ -357,7 +357,7 @@ impl KeyModifiers {
 }
 
 /// Type-specific event data for mouse events.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MouseEventData {
     /// Position of the mouse cursor
     pub position: LogicalPosition,
@@ -370,7 +370,7 @@ pub struct MouseEventData {
 }
 
 /// Type-specific event data for keyboard events.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyboardEventData {
     /// The virtual key code
     pub key_code: u32,
@@ -383,7 +383,7 @@ pub struct KeyboardEventData {
 }
 
 /// Type-specific event data for scroll events.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScrollEventData {
     /// Scroll delta (dx, dy)
     pub delta: LogicalPosition,
@@ -392,7 +392,7 @@ pub struct ScrollEventData {
 }
 
 /// Type-specific event data for touch events.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TouchEventData {
     /// Touch identifier
     pub id: u64,
@@ -410,7 +410,7 @@ pub struct ClipboardEventData {
 }
 
 /// Type-specific event data for lifecycle events.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LifecycleEventData {
     /// Why this lifecycle event was triggered
     pub reason: LifecycleReason,
@@ -421,7 +421,7 @@ pub struct LifecycleEventData {
 }
 
 /// Type-specific event data for window events.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowEventData {
     /// Window size (for resize events)
     pub size: Option<LogicalRect>,
@@ -949,7 +949,7 @@ fn collect_matching_callbacks(
 ///
 /// Default actions are processed AFTER all event callbacks have been invoked,
 /// and only if `event.prevent_default()` was NOT called.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(C, u8)]
 pub enum DefaultAction {
     /// Move focus to the next focusable element (Tab key)
@@ -1004,7 +1004,7 @@ pub enum ScrollAmount {
 /// 1. The event type
 /// 2. The target element's type/role
 /// 3. Whether `prevent_default()` was called
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct DefaultActionResult {
     /// The default action to perform (if any)
@@ -2612,7 +2612,7 @@ pub struct PreCallbackFilterResult {
 }
 
 /// Flattened focus/selection state for the input interpreter (replaces trait objects).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct InputInterpreterState {
     pub focused_node: Option<DomNodeId>,
     pub click_count: u8,

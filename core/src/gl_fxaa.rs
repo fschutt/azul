@@ -9,7 +9,7 @@
 //! Presets: `FxaaConfig::enabled()`, `::high_quality()`, `::balanced()`, `::performance()`
 
 /// FXAA shader configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct FxaaConfig {
     /// Enable/disable FXAA
     pub enabled: bool,

@@ -522,7 +522,7 @@ fn selection_end_pos(sel: &Selection) -> TextCursor {
 /// - The visual bounds of the anchor character (for logical rectangle calculations)
 ///
 /// The anchor remains constant during a drag; only the focus moves.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectionAnchor {
     /// The IFC root node ID where selection started.
     /// This is the node that has `inline_layout_result` (e.g., `<p>`, `<div>`).
@@ -542,7 +542,7 @@ pub struct SelectionAnchor {
 /// The focus point of a text selection - where the selection currently ends.
 ///
 /// This is the movable point during a drag operation. It updates on every mouse move.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectionFocus {
     /// The IFC root node ID where selection currently ends.
     /// May differ from anchor's IFC root during cross-node selection.

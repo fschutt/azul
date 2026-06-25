@@ -60,7 +60,7 @@ pub const AZ_HOST_HANDLE_RTTI_ID: u64 = 0xA20A_4853_5448_5F44;
 /// [`host_handle_to_refany`]. Just the opaque host-language id — the actual
 /// host callable lives on the host side keyed by this id.
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct HostHandlePayload {
     pub id: u64,
 }

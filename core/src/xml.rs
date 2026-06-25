@@ -188,12 +188,12 @@ const DEFAULT_ARGS: [&str; 8] = [
 /// Opaque void type for FFI pointers. Uses a custom definition instead of
 /// `core::ffi::c_void` for `#[repr(C)]` compatibility in the generated API.
 #[allow(non_camel_case_types)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum c_void {}
 
 /// Type of an XML node in the parsed tree.
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum XmlNodeType {
     Root,
     Element,
@@ -780,14 +780,14 @@ impl Xml {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Copy)]
 #[repr(C)]
 pub struct NonXmlCharError {
     pub ch: u32, /* u32 = char, but ABI stable */
     pub pos: XmlTextPos,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Copy)]
 #[repr(C)]
 pub struct InvalidCharError {
     pub expected: u8,
@@ -803,14 +803,14 @@ pub struct InvalidCharMultipleError {
     pub pos: XmlTextPos,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Copy)]
 #[repr(C)]
 pub struct InvalidQuoteError {
     pub got: u8,
     pub pos: XmlTextPos,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Copy)]
 #[repr(C)]
 pub struct InvalidSpaceError {
     pub got: u8,
@@ -883,7 +883,7 @@ impl fmt::Display for XmlStreamError {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Clone, Ord, Hash, Eq)]
+#[derive(Debug, PartialEq, PartialOrd, Clone, Copy, Ord, Hash, Eq)]
 #[repr(C)]
 pub struct XmlTextPos {
     pub row: u32,
@@ -2241,6 +2241,10 @@ impl ComponentSource {
 }
 
 /// The target language for code compilation
+// Threaded by reference through the codegen call graph; kept non-Copy so
+// deriving Copy doesn't force trivially_copy_pass_by_ref churn across the many
+// &CompileTarget codegen callers for a perf-neutral change.
+#[allow(missing_copy_implementations)]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum CompileTarget {

@@ -72,7 +72,7 @@ pub struct GpuValueCache {
 ///
 /// These events are generated when synchronizing the cache with the `StyledDom`
 /// and are used to update `WebRender`'s transform state efficiently.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum GpuTransformKeyEvent {
     /// A new transform was added to a node
     Added(NodeId, TransformKey, ComputedTransform3D),
@@ -341,7 +341,7 @@ impl GpuValueCache {
 ///
 /// Scrollbar opacity is managed separately from CSS opacity to enable
 /// independent fading animations without affecting element opacity.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum GpuScrollbarOpacityEvent {
     /// A vertical scrollbar was added to a node
     VerticalAdded(DomId, NodeId, OpacityKey, f32),
@@ -398,7 +398,7 @@ impl GpuEventChanges {
 ///
 /// These events are generated when synchronizing the cache with the `StyledDom`
 /// and are used to update `WebRender`'s opacity state efficiently.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum GpuOpacityKeyEvent {
     /// A new opacity was added to a node
     Added(NodeId, OpacityKey, f32),
