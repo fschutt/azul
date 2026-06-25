@@ -1267,6 +1267,7 @@ pub fn reconcile_recursive(
                     }
 
                     // Process each inline child under the anonymous wrapper
+                    #[allow(clippy::iter_with_drain)] // accumulator Vec reused across runs; drain(..) empties it while retaining the allocation
                     for (pos, inline_dom_id) in inline_run.drain(..) {
                         // Inline children live under the anon wrapper
                         // in the old tree, so the parent's direct
@@ -1366,6 +1367,7 @@ pub fn reconcile_recursive(
                 )));
             }
 
+            #[allow(clippy::iter_with_drain)] // accumulator Vec reused across runs; drain(..) empties it while retaining the allocation
             for (pos, inline_dom_id) in inline_run.drain(..) {
                 let old_child_idx = old_children_by_dom.get(&inline_dom_id).copied();
                 let reconciled_child_idx = reconcile_recursive(

@@ -1619,6 +1619,7 @@ impl LayoutTreeBuilder {
                         anon_type,
                         anon_fc.clone(),
                     );
+                    #[allow(clippy::iter_with_drain)] // accumulator Vec reused across runs; drain(..) empties it while retaining the allocation
                     for np_id in non_matching_children.drain(..) {
                         self.process_node(styled_dom, np_id, Some(anon_idx), debug_messages)?;
                     }
