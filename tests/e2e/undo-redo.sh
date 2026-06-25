@@ -39,7 +39,7 @@ echo "  -> Built: $HELLO_BIN"
 
 echo ""
 echo "=== Step 2: Launch with AZ_DEBUG=$PORT ==="
-AZ_DEBUG=$PORT "$HELLO_BIN" &>/dev/null &
+AZ_BACKEND=headless AZ_DEBUG=$PORT "$HELLO_BIN" &>/dev/null &
 APP_PID=$!
 
 cleanup() {
