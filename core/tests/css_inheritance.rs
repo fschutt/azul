@@ -79,7 +79,7 @@ fn test_font_size_inheritance_single_level() {
     println!("Computed values: {:#?}", cache.computed_values);
 
     // Verify that <p> (child) inherited the font-size from <div> (parent)
-    let parent_id = azul_core::dom::NodeId::new(0); // div
+    let _parent_id = azul_core::dom::NodeId::new(0); // div
     let child_id = azul_core::dom::NodeId::new(1); // p
 
     // Check computed values for child
@@ -192,7 +192,7 @@ fn test_font_weight_inheritance_multi_level() {
     println!("Changed nodes: {changed_nodes:?}");
     println!("Computed values: {:#?}", cache.computed_values);
 
-    let div_id = azul_core::dom::NodeId::new(0); // div
+    let _div_id = azul_core::dom::NodeId::new(0); // div
     let p_id = azul_core::dom::NodeId::new(1); // p
     let span_id = azul_core::dom::NodeId::new(2); // span
 
@@ -647,7 +647,7 @@ fn test_em_on_font_size_refers_to_parent() {
 
     // NOTE: setup_test! already calls StyledDom::new which calls compute_inherited_values
     // So we should NOT call it again, as that would re-process with already-resolved values
-    let (styled_dom, cache) = setup_test!(dom);
+    let (_styled_dom, cache) = setup_test!(dom);
 
     let div_id = azul_core::dom::NodeId::new(0); // div
     let p_id = azul_core::dom::NodeId::new(1); // p
@@ -763,7 +763,7 @@ fn test_em_without_ancestor_absolute_unit() {
         .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Text")));
 
     // NOTE: setup_test! already calls StyledDom::new which calls compute_inherited_values
-    let (styled_dom, cache) = setup_test!(dom);
+    let (_styled_dom, cache) = setup_test!(dom);
 
     let div_id = azul_core::dom::NodeId::new(0); // div
     let p_id = azul_core::dom::NodeId::new(1); // p

@@ -126,7 +126,7 @@ fn main() {
         // Stage 1: XML → StyledDom (tokenize + build FastDom + cascade)
         let t_s1 = Instant::now();
         let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content).unwrap();
-        let node_count = styled_dom.node_hierarchy.as_ref().len();
+        let _node_count = styled_dom.node_hierarchy.as_ref().len();
         let s1_ms = t_s1.elapsed().as_secs_f64() * 1000.0;
 
         // Stage 1.5: Font chain resolution (warm — no disk I/O, single pass)

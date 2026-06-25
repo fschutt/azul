@@ -59,7 +59,7 @@ fn test_map_widget_fills_flex_container() {
     let mut layout_cache = fresh_layout_cache();
     let mut text_cache = TextLayoutCache::new();
     let content_size = LogicalSize::new(800.0, 600.0);
-    let viewport = LogicalRect { origin: LogicalPosition::zero(), size: content_size };
+    let _viewport = LogicalRect { origin: LogicalPosition::zero(), size: content_size };
     let renderer_resources = RendererResources::default();
     let mut debug_messages = Some(Vec::new());
     let loader = PathLoader::new();

@@ -142,7 +142,7 @@ fn test_exact_xhtml_style_content() {
                 background: #30cfd0;
             }"#;
 
-    let (css, warnings) = Css::from_string_with_warnings(css_text.to_string().into());
+    let (_css, warnings) = Css::from_string_with_warnings(css_text.to_string().into());
 
     let warning_strs: Vec<String> = warnings.iter().map(|w| format!("{w:?}")).collect();
     for w in &warning_strs {

@@ -98,7 +98,7 @@ fn test_flex_column_child_text_has_nonzero_width() {
     };
     let page_config = FakePageConfig::new();
 
-    let display_lists = layout_document_paged_with_config(
+    let _display_lists = layout_document_paged_with_config(
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,

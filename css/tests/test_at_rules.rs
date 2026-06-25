@@ -28,7 +28,7 @@ fn test_media_screen() {
             div { color: red; }
         }
     "#;
-    let (result, warnings) = new_from_str(css);
+    let (result, _warnings) = new_from_str(css);
 
     // Check that we parsed one rule
     let rules: Vec<_> = result.rules().collect();
