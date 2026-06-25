@@ -529,7 +529,7 @@ pub(crate) mod callbacks {
 
     /// `DragStart` — on Wayland, initiate compositor-managed move immediately.
     /// On other platforms, just acknowledge (movement happens in `titlebar_drag`).
-    pub extern "C" fn titlebar_drag_start(
+    pub(super) extern "C" fn titlebar_drag_start(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         // On Wayland, window position is Uninitialized (compositor hides it).
@@ -552,7 +552,7 @@ pub(crate) mod callbacks {
     /// On Wayland: this is a no-op because the compositor manages the move
     /// (initiated by `begin_interactive_move()` in `titlebar_drag_start`).
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    pub extern "C" fn titlebar_drag(
+    pub(super) extern "C" fn titlebar_drag(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         use azul_core::window::WindowPosition;
@@ -575,7 +575,7 @@ pub(crate) mod callbacks {
     }
 
     /// `DoubleClick` — toggle Maximized ↔ Normal.
-    pub extern "C" fn titlebar_double_click(
+    pub(super) extern "C" fn titlebar_double_click(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         use azul_core::window::WindowFrame;
@@ -587,7 +587,7 @@ pub(crate) mod callbacks {
     }
 
     /// Close button — `close_requested = true`.
-    pub extern "C" fn csd_close(
+    pub(super) extern "C" fn csd_close(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         let mut s = info.get_current_window_state().clone();
@@ -597,7 +597,7 @@ pub(crate) mod callbacks {
     }
 
     /// Minimize button — `frame = Minimized`.
-    pub extern "C" fn csd_minimize(
+    pub(super) extern "C" fn csd_minimize(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         use azul_core::window::WindowFrame;
@@ -608,7 +608,7 @@ pub(crate) mod callbacks {
     }
 
     /// Maximize button — toggle Maximized ↔ Normal.
-    pub extern "C" fn csd_maximize(
+    pub(super) extern "C" fn csd_maximize(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         use azul_core::window::WindowFrame;

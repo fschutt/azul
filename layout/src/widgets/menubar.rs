@@ -124,7 +124,7 @@ pub(crate) mod callbacks {
     /// Top-level bar item clicked → open its submenu under the item. The submenu
     /// `Menu` is the callback's `data` (a backreference set at build time); its
     /// items carry the user's own callbacks, fired by the menu system on click.
-    pub extern "C" fn menubar_item_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    pub(super) extern "C" fn menubar_item_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
         if let Some(menu) = data.downcast_ref::<Menu>() {
             info.open_menu_for_hit_node(menu.clone());
         }
