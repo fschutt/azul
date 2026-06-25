@@ -596,6 +596,9 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     /// Heap-pinned `CalcResolveContext`s whose addresses are passed into taffy
     /// `Dimension::calc(ptr)`. Kept alive for the duration of the layout pass.
     /// Uses `RefCell` because `get_core_container_style` takes `&self`.
+    // Box gives each CalcResolveContext a stable heap address for the `*const` handed to
+    // taffy `Dimension::calc()`; a plain Vec<T> would invalidate those pointers on realloc.
+    #[allow(clippy::vec_box)]
     calc_storage: std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
     /// Memoised `translate_style_to_taffy` results, keyed by DOM node id
     /// (`usize` = `NodeId::index`). Taffy calls
@@ -2016,6 +2019,7 @@ impl<T: ParsedFontTrait> LayoutGridContainer for TaffyBridge<'_, '_, T> {
 // --- Conversion Functions ---
 
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::vec_box)] // calc_storage Box gives stable addresses for taffy calc() pointers
 fn from_layout_width(
     val: LayoutWidth,
     calc_storage: &std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
@@ -2034,6 +2038,7 @@ fn from_layout_width(
 }
 
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::vec_box)] // calc_storage Box gives stable addresses for taffy calc() pointers
 fn from_layout_height(
     val: LayoutHeight,
     calc_storage: &std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
@@ -2056,6 +2061,7 @@ fn from_layout_height(
 ///
 /// The `Box` ensures the address doesn't move when the outer `Vec` reallocates.
 /// The `RefCell<Vec<…>>` keeps all boxes alive for the layout pass duration.
+#[allow(clippy::vec_box)] // calc_storage Box gives stable addresses for taffy calc() pointers
 fn store_calc_and_make_dimension(
     items: CalcAstItemVec,
     storage: &std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
