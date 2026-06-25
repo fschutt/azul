@@ -2300,11 +2300,28 @@ impl RemillTranspiler {
                 {
                     Some(e) => e.clone(),
                     None => {
-                        eprintln!(
-                            "[azul-web]     dep: {} synth=0x{:x} not in SymbolTable — skipping",
-                            sym, canonical_synth,
-                        );
-                        continue;
+                        // A1-x86: an unsymboled in-image call target (PDB coverage
+                        // gap). Synthesize a Recursable entry and LIFT it rather
+                        // than stubbing — the stub returns garbage that crashes
+                        // text layout (the aarch64 A1 keystone bug, x86 edition).
+                        match symbol_table::get()
+                            .and_then(|t| t.synthesize_text_entry(canonical_synth))
+                        {
+                            Some(e) => {
+                                eprintln!(
+                                    "[azul-web]     dep: {} synth=0x{:x} — SYNTHESIZED Recursable (PDB coverage gap), size={}",
+                                    sym, canonical_synth, e.size,
+                                );
+                                e
+                            }
+                            None => {
+                                eprintln!(
+                                    "[azul-web]     dep: {} synth=0x{:x} not in any image (external) — skipping",
+                                    sym, canonical_synth,
+                                );
+                                continue;
+                            }
+                        }
                     }
                 };
                 let already_visited = visited.contains(&entry.canonical_addr);
@@ -6521,7 +6538,13 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
     // ptr candidate) to a circular ring at 0x78000 (2048 entries x 16B) + counter at 0x77FF0. Peek
     // post-trap to detect SP inconsistency / the wrong &inline_content across the deep call stack.
     // X0/X1 GPR State offsets: X19=848 step 16 ⇒ X0=544, X1=560. Off by default (harmless free band).
+    // aarch64-ONLY: the trace block below hardcodes the X1 slot (560) and ring band, which are
+    // AAPCS64 geometry — meaningless on Windows-x64. Compile the gate to a const `false` on x86 so
+    // the block is dead-code-eliminated rather than emitting wrong-offset stores when toggled there.
+    #[cfg(target_arch = "aarch64")]
     let sp_trace = std::env::var_os("AZ_SP_TRACE").is_some();
+    #[cfg(not(target_arch = "aarch64"))]
+    let sp_trace = false;
     let mut k: u32 = 0;
     for line in opt_ir.lines() {
         if let Some((_res, state_arg)) = parse_sub_call(line) {
@@ -6582,30 +6605,66 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
             // epilogue DROPS the `add sp,#N` restore, returning with SP *below* entry)
             // is detected precisely by `SP_after < SP_before`. Restore the snapshot ONLY
             // in that case; otherwise keep the callee's (correct) register state.
+            // [x86 SP ret-delta, 2026-06-20] The snapshot %azv_k_11 is SP as seen
+            // right before `call @sub_X`. On x86-64 the guest `call` has ALREADY
+            // pushed the 8-byte return address at that point, so a correctly
+            // returning callee (whose `ret` pops it) leaves SP at snapshot+8. A
+            // callee that drops its `ret`-pop — a leaky lift, OR a synthetic helper
+            // with no lifted `ret` — leaves SP AT the snapshot (== post-push), which
+            // the original strict `SP_after < snapshot` gate MISSES (V < V is false),
+            // so SP silently drifts down 8 B per such call (e.g. Css::from's
+            // element loop calling a leaky sub_13304b0 → SP underflows → the loop
+            // index reload reads garbage → OOB). Restore SP to snapshot+DELTA (the
+            // pre-push value) whenever SP_after < snapshot+DELTA. DELTA = 8 on
+            // x86-64 (the call's return-address push); 0 on aarch64, where `bl`
+            // uses the link register and never pushes — so %azsptgt == snapshot and
+            // %azleaksp == the original %azleak, preserving the verified aarch64
+            // behavior byte-for-byte. The non-SP callee-saved registers keep the
+            // original snapshot-vs-SP_after gate (they are not affected by the
+            // 8-byte return-address slot).
+            #[cfg(target_arch = "x86_64")]
+            const SP_RET_DELTA: i64 = 8;
+            #[cfg(target_arch = "aarch64")]
+            const SP_RET_DELTA: i64 = 0;
             out.push_str(&format!(
                 "{indent}%azspa_{k} = load i64, ptr %azg_{k}_11, align 8\n\
-                 {indent}%azleak_{k} = icmp ult i64 %azspa_{k}, %azv_{k}_11\n"
+                 {indent}%azsptgt_{k} = add i64 %azv_{k}_11, {delta}\n\
+                 {indent}%azleak_{k} = icmp ult i64 %azspa_{k}, %azsptgt_{k}\n",
+                delta = SP_RET_DELTA,
             ));
             for j in 0..CS_OFFSETS.len() {
-                // [az-diag 2026-06-11] AZ_FULL_CS_RESTORE=1 restores the callee-saved
-                // GPRs X19..X28 (CS_OFFSETS indices 0..=9) UNCONDITIONALLY (snapshot),
-                // not leak-gated. Tests the mechanism-B hypothesis: a REAL call (e.g.
-                // split_text's grow_one/do_reserve_and_handle) clobbers a callee-saved
-                // GPR holding a live dest/sret pointer WITHOUT leaking SP, so the
-                // leak-gate (select on SP_after<SP_before) keeps the clobbered value →
-                // the StyledRun.text String is written with a pointer in its len slot.
-                // SP (11), FP (10) and D8..D15 (12..) stay leak-gated to avoid the
-                // tail-jump frame-resurrection the leak-gate was introduced to fix.
-                // DIAGNOSTIC ONLY (may re-break shape_text's tail-jump path); default off.
+                // The leak gate %azleak fires when the callee returned with SP BELOW
+                // the pre-push value (snapshot+DELTA) — i.e. it dropped its epilogue's
+                // SP restore (and, by extension, its callee-saved-register restores).
+                // In that case roll BOTH SP and the callee-saved registers back to the
+                // caller's snapshot: a leaky x86 callee that leaves SP exactly at the
+                // post-push snapshot (no `ret`-pop) also clobbers RBX/RSI/RBP/R12-R15
+                // (e.g. azul_css::Css::from's element loop keeps its element count in
+                // RBP, byte-span in RSI, walking ptr in RBX across a leaky
+                // sub_13304b0 call — without this restore the count is garbage and the
+                // loop never terminates, walking off the heap → OOB). Continuations
+                // (tail-jumps that legitimately pop the frame, SP_after > snapshot+DELTA)
+                // do NOT trip the gate, so their intentional register state is kept.
+                // [az-diag 2026-06-11] AZ_FULL_CS_RESTORE=1 ALSO restores the
+                // callee-saved GPRs (indices 0..=9) UNCONDITIONALLY (snapshot), not
+                // leak-gated — a stronger diagnostic for clobbers that don't even leak
+                // SP; default off, may re-break shape_text's tail-jump path.
                 let full_gpr = j <= 9 && std::env::var_os("AZ_FULL_CS_RESTORE").is_some();
                 if full_gpr {
                     out.push_str(&format!(
                         "{indent}store i64 %azv_{k}_{j}, ptr %azg_{k}_{j}, align 8\n"
                     ));
                 } else {
+                    // SP (index 11) rolls back to the pre-push value (snapshot+DELTA);
+                    // every other callee-saved register rolls back to its snapshot.
+                    let tgt = if j == 11 {
+                        format!("%azsptgt_{k}")
+                    } else {
+                        format!("%azv_{k}_{j}")
+                    };
                     out.push_str(&format!(
                         "{indent}%aza_{k}_{j} = load i64, ptr %azg_{k}_{j}, align 8\n\
-                         {indent}%azs_{k}_{j} = select i1 %azleak_{k}, i64 %azv_{k}_{j}, i64 %aza_{k}_{j}\n\
+                         {indent}%azs_{k}_{j} = select i1 %azleak_{k}, i64 {tgt}, i64 %aza_{k}_{j}\n\
                          {indent}store i64 %azs_{k}_{j}, ptr %azg_{k}_{j}, align 8\n"
                     ));
                 }
@@ -6619,36 +6678,130 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
     (out, k)
 }
 
+/// [x86 ret-pop] Insert the missing `ret` stack-pop (`RSP += 8`) before every
+/// `ret ptr %memory` in the synthetic helper bodies (`emit_helper_ir`'s
+/// `branch_stubs`). See the call site for the full rationale: a guest `call`
+/// pushes a return address (RSP -= 8) that the synthetic helper — having no
+/// lifted `ret` — never pops, so RSP drifts down 8 B per helper call and a
+/// loop's SP-relative spill slots get corrupted.
+///
+/// Keying on the exact `ret ptr %memory` terminator is precise: it matches the
+/// 11 call-modeling helper bodies (BumpAlloc/Realloc/Dealloc, LibcMemcpy/Memset/
+/// Snprintf, HashmapRandomKeys, CallIndirect[Layout4], ResolveCallback, Leaf)
+/// and SKIPS the recursive-bl forwarder (`ret ptr %r_…`, the real target pops),
+/// NeverLift (`unreachable`), and the unclassified case (no body). The
+/// `__remill_*`/`__az_indirect_dispatch` template helpers live OUTSIDE
+/// `branch_stubs` and are untouched — correct, since `__remill_function_return`
+/// already follows a lifted SP-popping `ret` and `__remill_jump` models a
+/// non-pushing transfer.
+///
+/// x86-only: aarch64 call/ret never touch the stack pointer.
+#[cfg(target_arch = "x86_64")]
+fn inject_helper_ret_pop(stubs: &str) -> String {
+    let sp_off: u64 = pcs::SP; // RSP at State+2312
+    let mut out = String::with_capacity(stubs.len() + 1024);
+    let mut k: u32 = 0;
+    for line in stubs.lines() {
+        if line.trim() == "ret ptr %memory" {
+            let indent: String = line.chars().take_while(|c| *c == ' ').collect();
+            out.push_str(&format!(
+                "{indent}%azrp_{k}_p = getelementptr inbounds i8, ptr %state, i64 {sp_off}\n\
+                 {indent}%azrp_{k}_v = load i64, ptr %azrp_{k}_p, align 8\n\
+                 {indent}%azrp_{k}_n = add i64 %azrp_{k}_v, 8\n\
+                 {indent}store i64 %azrp_{k}_n, ptr %azrp_{k}_p, align 8\n"
+            ));
+            k += 1;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+/// Shared ring-buffer record emitter for the env-gated guest tracers
+/// (AZ_WRITE_TRACE / AZ_READ_TRACE / AZ_REG_TRACE). Emits the common
+/// straight-line sequence those three passes all duplicated:
+///   load counter@`counter_addr` → index = counter & `mask` (or, when
+///   `clamp`, umin(counter,`mask`)) → for each `(offset, value)` store
+///   the i32 `value` at `base_addr` + index·`stride` + `offset` →
+///   counter+1 store-back.
+/// The caller pre-materializes each field's i32 operand (ptrtoint+trunc,
+/// trunc, or a constant) and passes it ready-to-store. `prefix` (e.g.
+/// "wt"/"rt"/"gt") namespaces the SSA temps so several tracers can run in
+/// one lift without name collisions. All ring stores are `volatile`, so
+/// opt won't elide or reorder them past each other (safe on opt.ll —
+/// unlike instrumenting patched.ll's pre-opt __remill calls). `clamp`
+/// keeps the FIRST `mask+1` records (slot `mask` absorbs overflow);
+/// the default wrap keeps the tail trajectory.
+fn emit_ring_record(
+    k: u32,
+    indent: &str,
+    prefix: &str,
+    counter_addr: u32,
+    base_addr: u32,
+    stride: u32,
+    mask: u32,
+    clamp: bool,
+    fields: &[(u32, String)],
+) -> String {
+    let p = prefix;
+    let mut s = format!(
+        "{indent}%{p}c_{k} = load volatile i32, ptr inttoptr (i32 {counter_addr} to ptr), align 4\n"
+    );
+    if clamp {
+        s.push_str(&format!(
+            "{indent}%{p}cap_{k} = icmp ult i32 %{p}c_{k}, {mask}\n\
+             {indent}%{p}m_{k} = select i1 %{p}cap_{k}, i32 %{p}c_{k}, i32 {mask}\n"
+        ));
+    } else {
+        s.push_str(&format!("{indent}%{p}m_{k} = and i32 %{p}c_{k}, {mask}\n"));
+    }
+    s.push_str(&format!(
+        "{indent}%{p}o_{k} = mul i32 %{p}m_{k}, {stride}\n\
+         {indent}%{p}sa_{k} = add i32 {base_addr}, %{p}o_{k}\n"
+    ));
+    for (i, (off, val)) in fields.iter().enumerate() {
+        if *off == 0 {
+            s.push_str(&format!(
+                "{indent}%{p}fp{i}_{k} = inttoptr i32 %{p}sa_{k} to ptr\n\
+                 {indent}store volatile i32 {val}, ptr %{p}fp{i}_{k}, align 4\n"
+            ));
+        } else {
+            s.push_str(&format!(
+                "{indent}%{p}fa{i}_{k} = add i32 %{p}sa_{k}, {off}\n\
+                 {indent}%{p}fp{i}_{k} = inttoptr i32 %{p}fa{i}_{k} to ptr\n\
+                 {indent}store volatile i32 {val}, ptr %{p}fp{i}_{k}, align 4\n"
+            ));
+        }
+    }
+    s.push_str(&format!(
+        "{indent}%{p}c2_{k} = add i32 %{p}c_{k}, 1\n\
+         {indent}store volatile i32 %{p}c2_{k}, ptr inttoptr (i32 {counter_addr} to ptr), align 4\n"
+    ));
+    s
+}
+
 /// [AZ_WRITE_TRACE] Instrument every guest `__remill_write_memory_{8,16,32,64}` call in a matched
 /// function to log (addr_lo32, val_lo32) to a ring at 0xD0000 (16384 entries x 8B), counter 0xCFFF0.
 /// The harness filters for stack-addr writes (0x10000..0x30000) of heap-ptr values (>=0x6000000) =
 /// the hashbrown RawTable ctrl/bucket_mask WRITE-BACK after resize. If that store lands at the WRONG
 /// address, the self-relative store mis-lift (the deep bug) is caught — without an inline probe that
-/// itself mis-lifts. Reuses the same straight-line store technique as enforce_sp_preservation/AZ_SP_TRACE.
+/// itself mis-lifts.
 fn instrument_guest_writes(opt_ir: &str) -> (String, u32) {
     let mut out = String::with_capacity(opt_ir.len() + (1 << 14));
     let mut k: u32 = 0;
     for line in opt_ir.lines() {
         if let Some((ptr_op, val_op)) = parse_volatile_i64_store(line) {
             let indent: String = line.chars().take_while(|c| *c == ' ').collect();
-            // On opt.ll the inlined guest write is `store volatile i64 %v, ptr %p`. Log (ptrtoint %p, %v)
-            // to the ring. ptrtoint round-trips the address; direct ring stores (like AZ_SP_TRACE on opt.ll)
-            // don't break the memory model (unlike instrumenting patched.ll's pre-opt __remill calls).
+            // On opt.ll the inlined guest write is `store volatile i64 %v, ptr %p`. Log (ptrtoint %p, %v).
             out.push_str(&format!(
                 "{indent}%wta_{k} = ptrtoint ptr {ptr_op} to i64\n\
-                 {indent}%wtc_{k} = load volatile i32, ptr inttoptr (i32 851952 to ptr), align 4\n\
-                 {indent}%wtm_{k} = and i32 %wtc_{k}, 16383\n\
-                 {indent}%wto_{k} = mul i32 %wtm_{k}, 8\n\
-                 {indent}%wtsa_{k} = add i32 851968, %wto_{k}\n\
-                 {indent}%wtap_{k} = inttoptr i32 %wtsa_{k} to ptr\n\
                  {indent}%wtav_{k} = trunc i64 %wta_{k} to i32\n\
-                 {indent}store volatile i32 %wtav_{k}, ptr %wtap_{k}, align 4\n\
-                 {indent}%wtva_{k} = add i32 %wtsa_{k}, 4\n\
-                 {indent}%wtvp_{k} = inttoptr i32 %wtva_{k} to ptr\n\
-                 {indent}%wtvv_{k} = trunc i64 {val_op} to i32\n\
-                 {indent}store volatile i32 %wtvv_{k}, ptr %wtvp_{k}, align 4\n\
-                 {indent}%wtc2_{k} = add i32 %wtc_{k}, 1\n\
-                 {indent}store volatile i32 %wtc2_{k}, ptr inttoptr (i32 851952 to ptr), align 4\n"
+                 {indent}%wtvv_{k} = trunc i64 {val_op} to i32\n"
+            ));
+            out.push_str(&emit_ring_record(
+                k, &indent, "wt", 851952, 851968, 8, 16383, false,
+                &[(0, format!("%wtav_{k}")), (4, format!("%wtvv_{k}"))],
             ));
             k += 1;
         }
@@ -6694,15 +6847,11 @@ fn instrument_guest_double_reads(opt_ir: &str) -> (String, u32) {
             let indent: String = line.chars().take_while(|c| *c == ' ').collect();
             out.push_str(&format!(
                 "{indent}%rta_{k} = ptrtoint ptr {ptr_op} to i64\n\
-                 {indent}%rtc_{k} = load volatile i32, ptr inttoptr (i32 917488 to ptr), align 4\n\
-                 {indent}%rtm_{k} = and i32 %rtc_{k}, 16383\n\
-                 {indent}%rto_{k} = mul i32 %rtm_{k}, 4\n\
-                 {indent}%rtsa_{k} = add i32 917504, %rto_{k}\n\
-                 {indent}%rtap_{k} = inttoptr i32 %rtsa_{k} to ptr\n\
-                 {indent}%rtav_{k} = trunc i64 %rta_{k} to i32\n\
-                 {indent}store volatile i32 %rtav_{k}, ptr %rtap_{k}, align 4\n\
-                 {indent}%rtc2_{k} = add i32 %rtc_{k}, 1\n\
-                 {indent}store volatile i32 %rtc2_{k}, ptr inttoptr (i32 917488 to ptr), align 4\n"
+                 {indent}%rtav_{k} = trunc i64 %rta_{k} to i32\n"
+            ));
+            out.push_str(&emit_ring_record(
+                k, &indent, "rt", 917488, 917504, 4, 16383, false,
+                &[(0, format!("%rtav_{k}"))],
             ));
             k += 1;
         }
@@ -6738,23 +6887,22 @@ fn parse_volatile_double_load(line: &str) -> Option<String> {
 /// assigns to the guest registers in program order → execution-differ vs a native lldb dump.
 fn instrument_reg_stores(opt_ir: &str) -> (String, u32) {
     let mut out = String::with_capacity(opt_ir.len() + (1 << 14));
+    // AZ_REG_TRACE_NOWRAP=1: clamp the ring index to [0,8191] instead of wrapping (`& 8191`),
+    // so the FIRST 8191 reg-stores are preserved (slot 8191 absorbs the overflow). Use this to
+    // capture a function's ENTRY + early blocks (e.g. an input-vec arg read + a loop preheader)
+    // when a later runaway loop would otherwise overwrite the ring. Default = wrap (tail trajectory).
+    let nowrap = std::env::var_os("AZ_REG_TRACE_NOWRAP").is_some();
     let mut k: u32 = 0;
     for line in opt_ir.lines() {
         if let Some((reg_id, val_op)) = parse_reg_store(line) {
             let indent: String = line.chars().take_while(|c| *c == ' ').collect();
-            out.push_str(&format!(
-                "{indent}%gtc_{k} = load volatile i32, ptr inttoptr (i32 983024 to ptr), align 4\n\
-                 {indent}%gtm_{k} = and i32 %gtc_{k}, 8191\n\
-                 {indent}%gto_{k} = mul i32 %gtm_{k}, 8\n\
-                 {indent}%gtsa_{k} = add i32 983040, %gto_{k}\n\
-                 {indent}%gtrp_{k} = inttoptr i32 %gtsa_{k} to ptr\n\
-                 {indent}store volatile i32 {reg_id}, ptr %gtrp_{k}, align 4\n\
-                 {indent}%gtva_{k} = add i32 %gtsa_{k}, 4\n\
-                 {indent}%gtvp_{k} = inttoptr i32 %gtva_{k} to ptr\n\
-                 {indent}%gtv_{k} = trunc i64 {val_op} to i32\n\
-                 {indent}store volatile i32 %gtv_{k}, ptr %gtvp_{k}, align 4\n\
-                 {indent}%gtc2_{k} = add i32 %gtc_{k}, 1\n\
-                 {indent}store volatile i32 %gtc2_{k}, ptr inttoptr (i32 983024 to ptr), align 4\n"
+            out.push_str(&format!("{indent}%gtv_{k} = trunc i64 {val_op} to i32\n"));
+            // record = (reg_id@0, val_lo32@4); `nowrap` clamps the index to keep a
+            // function's ENTRY records (e.g. an input-vec arg read + a loop preheader)
+            // instead of the runaway-loop tail that wrapping would overwrite.
+            out.push_str(&emit_ring_record(
+                k, &indent, "gt", 983024, 983040, 8, 8191, nowrap,
+                &[(0, format!("{reg_id}")), (4, format!("%gtv_{k}"))],
             ));
             k += 1;
         }
@@ -6780,8 +6928,41 @@ fn parse_reg_store(line: &str) -> Option<(u32, String)> {
     let after = &rest[comma + ", ptr %".len()..];
     let reg_end = after.find(',').unwrap_or(after.len());
     let reg_name = &after[..reg_end];
-    let reg_id: u32 = if reg_name == "SP" {
+    let reg_id: u32 = if reg_name == "SP" || reg_name == "RSP" || reg_name.starts_with("rsp.") {
+        // aarch64 `%SP`; x86 `%RSP` (explicit SP ops) + inline `%rsp.i.iN` (push/pop geps).
+        // Tracing ALL SP stores yields the SP trajectory through the fn → spot the drift.
         99
+    } else if reg_name == "RAX" || reg_name == "EAX" {
+        // x86 alloc-result/return reg → id 0 (mirrors aarch64 X0); traces the base value-flow.
+        // remill emits `%EAX` (the 32-bit alias GEP) even for i64 RAX stores, so match BOTH.
+        0
+    } else if reg_name == "RCX" || reg_name == "ECX" {
+        50
+    // x86 GPR fleet (Win-x64): args RCX/RDX/R8/R9 + callee-saved RBX/RBP/RSI/RDI/R12-R15. ids are
+    // arbitrary-but-distinct from aarch64 (0, 19..28, 50, 99). remill emits 32-bit (`%EDX`,`%EBP`,…)
+    // and byte (`%R13B`) alias GEPs even for i64 stores, so match ALL widths per reg.
+    } else if reg_name == "RDX" || reg_name == "EDX" {
+        52
+    } else if reg_name == "R8" || reg_name == "R8D" || reg_name == "R8B" {
+        53
+    } else if reg_name == "R9" || reg_name == "R9D" || reg_name == "R9B" {
+        62
+    } else if reg_name == "RBX" || reg_name == "EBX" || reg_name == "BL" {
+        54
+    } else if reg_name == "R12" || reg_name == "R12D" || reg_name == "R12B" {
+        55
+    } else if reg_name == "R14" || reg_name == "R14D" || reg_name == "R14B" {
+        56
+    } else if reg_name == "R13" || reg_name == "R13D" || reg_name == "R13B" {
+        57
+    } else if reg_name == "RBP" || reg_name == "EBP" {
+        58
+    } else if reg_name == "RSI" || reg_name == "ESI" {
+        59
+    } else if reg_name == "R15" || reg_name == "R15D" || reg_name == "R15B" {
+        61
+    } else if reg_name == "RDI" || reg_name == "EDI" {
+        70
     } else if let Some(num) = reg_name.strip_prefix('X') {
         match num.parse::<u32>() {
             Ok(n) if n == 0 || (19..=28).contains(&n) => n,
@@ -7657,24 +7838,61 @@ fn emit_helper_ir(
                     .strip_prefix("sub_")
                     .and_then(|h| u64::from_str_radix(h, 16).ok());
                 let is_recursive_marker = parsed_addr.map_or(false, |a| {
-                    // The rewriter shifts the target +0x4000000 bytes
-                    // from the bl's own PC. The bl's PC is somewhere
-                    // in [lift_addr, lift_addr + fn_size). We don't
-                    // have fn_size here but functions are < 16 MiB —
-                    // so target - 0x4000000 should be near lift_addr.
-                    let delta = a.wrapping_sub(0x0400_0000);
+                    // The recursive-call rewriter shifts a same-buffer call's
+                    // target by a FIXED per-arch marker delta — this MUST equal
+                    // the rewriter's constant or the marker lands here as an
+                    // unclassified extern → env-import stub → the recursive call
+                    // dispatches to garbage. aarch64 `rewrite_recursive_bl` uses
+                    // +0x4000000; x86-64 `x86_scan::rewrite_recursive_call` sets
+                    // `new_rel = 0x1000_0000` (+0x10000000). (THE x86 browser
+                    // text-shaping OOB, 2026-06-23: allsorts' recursive parsers
+                    // hit this — the aarch64-hardcoded 0x4000000 never matched on
+                    // x86, so every self-recursive call stubbed to garbage.) The
+                    // call's PC is in [lift_addr, lift_addr + fn_size); functions
+                    // are < 16 MiB, so target − marker lands near lift_addr. The
+                    // forwarder below passes the dynamic %pc through, so the
+                    // lifted body's PC-dispatch resumes at the real target.
+                    #[cfg(target_arch = "aarch64")]
+                    const REC_MARKER: u64 = 0x0400_0000;
+                    #[cfg(target_arch = "x86_64")]
+                    const REC_MARKER: u64 = 0x1000_0000;
+                    let delta = a.wrapping_sub(REC_MARKER);
                     delta >= lift_addr && delta < lift_addr.saturating_add(0x0100_0000)
                 });
                 if is_recursive_marker {
+                    // [x86 recursive-pc fix, 2026-06-24] Pass the recursive fn's
+                    // ENTRY pc (lift_addr) as the callee %pc, NOT the incoming %pc.
+                    // The lifted body computes the recursive target as
+                    // `next_pc + REC_MARKER` (the rewriter's 0x1000_0000 sentinel,
+                    // baked into the lifted call-target arithmetic), so the incoming
+                    // %pc carries +0x1000_0000. On x86 the lifted body uses %pc for
+                    // PC-relative DATA (switch jump tables `[%pc + disp]`), so the
+                    // marker both points those loads at garbage AND ACCUMULATES
+                    // +0x1000_0000 per recursion depth (each frame re-adds the
+                    // sentinel) → after ~3 levels %pc ≈ 768 MB and the jump-table
+                    // load blows past linear memory → trap (the hydrate
+                    // StyledDom::create cascade OOB: func698 `i64.load32_s
+                    // [%pc+0x9FB888+idx*4]`, root-caused 2026-06-24). Forcing
+                    // %pc == lift_addr makes every recursion frame's pc identical to
+                    // the first (non-recursive) call's pc (= the entry), so
+                    // PC-relative data + PC-dispatch both resolve correctly. aarch64
+                    // keeps %pc passthrough (its body uses %pc only for PC-dispatch,
+                    // not data — ADRP-based; verified-good, do not change).
+                    let rec_pc_arg = if cfg!(target_arch = "x86_64") {
+                        format!("i64 {}", lift_addr)
+                    } else {
+                        "i64 %pc".to_string()
+                    };
                     branch_stubs.push_str(&format!(
-                        "; recursive-bl forwarder for {sym} (rewriter sentinel +0x4000000)\n\
+                        "; recursive-bl forwarder for {sym} (rewriter sentinel; pc→entry on x86)\n\
                          define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
-                           %r_{n} = tail call ptr @sub_{lift_hex}(ptr %state, i64 %pc, ptr %memory)\n  \
+                           %r_{n} = tail call ptr @sub_{lift_hex}(ptr %state, {rec_pc_arg}, ptr %memory)\n  \
                            ret ptr %r_{n}\n\
                          }}\n",
                         sym = ext.sym_name,
                         n = n_suffix,
                         lift_hex = format!("{:x}", lift_addr),
+                        rec_pc_arg = rec_pc_arg,
                     ));
                     eprintln!(
                         "[azul-web]   recursive-bl forwarder: {} → sub_{:x}",
@@ -7688,6 +7906,28 @@ fn emit_helper_ir(
                 }
             }
         }
+    }
+    // [x86 ret-pop, 2026-06-20] On x86-64 a guest `call` PUSHES the return
+    // address (RSP -= 8; modeled by remill — see the CallIndirectLayout4
+    // `[SP+40]` read above) and the callee's `ret` POPS it (RSP += 8). The
+    // synthetic helper bodies above model the callee but have NO lifted `ret`,
+    // so the push is never balanced: RSP drifts down 8 bytes per helper call.
+    // Across a loop this accumulates — e.g. azul_css::Css::from's element-init
+    // loop makes 3 helper calls/iter (memcpy, __rust_no_alloc_shim,
+    // __rust_alloc); after ~6 iters RSP is 152 B (19×8) low, so the loop
+    // index's SP-relative reload (`mov rdi,[rsp+0x58]`) reads a pushed return
+    // address instead of the index → `mov [rax+rdi<<7],8` indexes ~2.4 GB →
+    // OOB (the full-hello-world trap, root-caused 2026-06-15). enforce_sp_*
+    // can't fix it: these bodies are `alwaysinline` and GONE (inlined into the
+    // caller) by the time enforce_sp runs on opt.ll, so there's no `@sub_` call
+    // left to wrap. Model the missing `ret`-pop directly in the body instead.
+    // Correct for BOTH call- and tail-jmp-reached helpers: each stands in for a
+    // real function whose `ret` pops exactly one pushed return address. x86
+    // ONLY — aarch64 `bl`/`ret` use the link register (X30) and never touch the
+    // stack, so the verified-good aarch64 path must stay untouched.
+    #[cfg(target_arch = "x86_64")]
+    {
+        branch_stubs = inject_helper_ret_pop(&branch_stubs);
     }
     // attributes #1 marks the JS import. Two key parts:
     //   1. wasm-import-module/wasm-import-name — keeps the declare
