@@ -3134,12 +3134,10 @@ impl ShapeBoundary {
                 // Parse + flatten it into `Vec<PathSegment>` (curves sampled to line
                 // segments) so the scanline code in `get_shape_horizontal_spans` can
                 // intersect it per line, exactly like `polygon`.
-                let segments = match azul_core::path_parser::parse_svg_path_d(path.data.as_str()) {
-                    Ok(multipolygon) => {
+                let segments = azul_core::path_parser::parse_svg_path_d(path.data.as_str())
+                    .map_or_else(|_| Vec::new(), |multipolygon| {
                         flatten_svg_to_path_segments(&multipolygon, reference_box)
-                    }
-                    Err(_) => Vec::new(),
-                };
+                    });
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(format!(
                         "[ShapeBoundary::from_css_shape] Path - parsed {} flattened segments",
@@ -3149,9 +3147,9 @@ impl ShapeBoundary {
                 if segments.is_empty() {
                     // Unparseable / empty path: fall back to the reference rectangle so a
                     // shape-inside container does not collapse to zero usable space.
-                    ShapeBoundary::Rectangle(reference_box)
+                    Self::Rectangle(reference_box)
                 } else {
-                    ShapeBoundary::Path { segments }
+                    Self::Path { segments }
                 }
             }
         };
@@ -9970,6 +9968,8 @@ fn get_line_constraints(
 /// becomes a `MoveTo` + a run of `LineTo`s + `Close`; curve elements are sampled into line
 /// segments (~one segment per 4px of arc length, capped) so the scanline intersection can
 /// treat each subpath as a polygon.
+// bounded curve-sampling geometry casts (step count / arc-length parameter / coords)
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
 fn flatten_svg_to_path_segments(
     multipolygon: &azul_core::svg::SvgMultiPolygon,
     reference_box: Rect,
@@ -10044,7 +10044,7 @@ fn path_segments_line_intersection(
                     || (p1.y > line_center_y && p2.y <= line_center_y);
                 if crosses {
                     let t = (line_center_y - p1.y) / (p2.y - p1.y);
-                    crossings.push(p1.x + t * (p2.x - p1.x));
+                    crossings.push(t.mul_add(p2.x - p1.x, p1.x));
                 }
             }
         }
@@ -10062,14 +10062,14 @@ fn path_segments_line_intersection(
             // CurveTo/QuadTo/Arc should have been flattened to LineTo already; sample the
             // end point as a fallback so an unflattened path still produces a polygon.
             PathSegment::CurveTo { end, .. } | PathSegment::QuadTo { end, .. } => {
-                subpath.push(*end)
+                subpath.push(*end);
             }
             PathSegment::Arc { center, .. } => subpath.push(*center),
         }
     }
     flush(&mut subpath, &mut crossings);
 
-    crossings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
+    crossings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
     let mut spans = Vec::new();
     for chunk in crossings.chunks_exact(2) {
         if chunk[1] > chunk[0] {
@@ -10745,7 +10745,7 @@ mod shape_outside_and_ruby_tests {
                 assert!(matches!(segments[0], PathSegment::MoveTo(_)));
                 assert!(segments.iter().any(|s| matches!(s, PathSegment::Close)));
             }
-            other => panic!("expected ShapeBoundary::Path, got {:?}", other),
+            other => panic!("expected ShapeBoundary::Path, got {other:?}"),
         }
     }
 
@@ -10767,8 +10767,8 @@ mod shape_outside_and_ruby_tests {
         let rbox = Rect { x: 0.0, y: 0.0, width: 100.0, height: 100.0 };
         let boundary = ShapeBoundary::from_css_shape(&shape, rbox, &mut None);
 
-        let spans_top = get_shape_horizontal_spans(&boundary, 10.0, 1.0).unwrap();
-        let spans_bot = get_shape_horizontal_spans(&boundary, 80.0, 1.0).unwrap();
+        let spans_top = get_shape_horizontal_spans(&boundary, 10.0, 1.0);
+        let spans_bot = get_shape_horizontal_spans(&boundary, 80.0, 1.0);
 
         assert_eq!(spans_top.len(), 1, "single span expected near the top");
         assert_eq!(spans_bot.len(), 1, "single span expected near the bottom");
@@ -10777,10 +10777,10 @@ mod shape_outside_and_ruby_tests {
         let width_bot = spans_bot[0].1 - spans_bot[0].0;
 
         // Geometry check: width ~= 100 - y (line center is y + 0.5).
-        assert!((width_top - 89.5).abs() < 1.5, "top width {} != ~89.5", width_top);
-        assert!((width_bot - 19.5).abs() < 1.5, "bottom width {} != ~19.5", width_bot);
+        assert!((width_top - 89.5).abs() < 1.5, "top width {width_top} != ~89.5");
+        assert!((width_bot - 19.5).abs() < 1.5, "bottom width {width_bot} != ~19.5");
         assert!(width_top > width_bot,
-            "path() exclusion band must narrow with y ({} !> {})", width_top, width_bot);
+            "path() exclusion band must narrow with y ({width_top} !> {width_bot})");
 
         // And it must differ from a plain full-width rectangle (which would be 0..100
         // at every scanline) — i.e. this is not the old rect/empty stub.
@@ -10797,13 +10797,14 @@ mod shape_outside_and_ruby_tests {
         );
         let rbox = Rect { x: 0.0, y: 0.0, width: 100.0, height: 100.0 };
         let boundary = ShapeBoundary::from_css_shape(&shape, rbox, &mut None);
-        let spans = get_shape_horizontal_spans(&boundary, 50.0, 1.0).unwrap();
-        assert_eq!(spans.len(), 2, "hole should split the band into two spans: {:?}", spans);
+        let spans = get_shape_horizontal_spans(&boundary, 50.0, 1.0);
+        assert_eq!(spans.len(), 2, "hole should split the band into two spans: {spans:?}");
     }
 
     // --- ruby ----------------------------------------------------------------
 
     #[test]
+    #[allow(clippy::float_cmp)] // exact, representable expected values
     fn ruby_annotation_font_scale_is_real_not_06_fudge() {
         // The annotation is sized at the used font-size of the ruby-text run, which the
         // UA stylesheet sets to 50% of the base — NOT a 0.6 per-character fudge.
@@ -10815,6 +10816,7 @@ mod shape_outside_and_ruby_tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)] // exact, representable expected values
     fn ruby_box_reserves_max_width_and_stacks_annotation_above_base() {
         // Wider base, narrower annotation: reserved inline-size = base width.
         let (w, h) = ruby_reserved_box(80.0, 30.0, 24.0, 12.0);

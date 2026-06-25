@@ -821,10 +821,14 @@ pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx:
 }
 
 /// Overwrite (direct copy, no alpha blending) a `w`×`h` RGBA region of `dst` at
-/// `(x, y)` with the pixels in `src`. Out-of-bounds pixels are skipped. This is
-/// the inverse of [`snapshot_region`] and is used to write a filtered backdrop
-/// copy back into the output buffer for `backdrop-filter`.
-pub(crate) fn write_region(dst: &mut AzulPixmap, src: &[u8], w: u32, h: u32, x: i32, y: i32) {
+/// `(x, y)` with the pixels in `src`.
+///
+/// Out-of-bounds pixels are skipped. This is the inverse of [`snapshot_region`]
+/// and is used to write a filtered backdrop copy back into the output buffer for
+/// `backdrop-filter`.
+// bounded image-dimension / non-negative-loop-index coordinate casts
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+pub fn write_region(dst: &mut AzulPixmap, src: &[u8], w: u32, h: u32, x: i32, y: i32) {
     let dw = dst.width as i32;
     let dh = dst.height as i32;
     for py in 0..h as i32 {

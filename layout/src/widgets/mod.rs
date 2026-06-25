@@ -200,79 +200,101 @@ pub mod text_input;
 pub mod titlebar;
 /// Tree view widget
 pub mod tree_view;
-/// Switch / toggle widget — boolean on/off with a sliding knob; see `switch.rs`.
+/// Switch / toggle widget.
+///
+/// Boolean on/off with a sliding knob; see `switch.rs`.
 pub mod switch;
-/// Divider / separator rule widget (horizontal or vertical); see `divider.rs`.
+/// Divider / separator rule widget (horizontal or vertical).
+///
+/// See `divider.rs`.
 pub mod divider;
-/// Card container widget — elevated/bordered content box (no title); see `card.rs`.
+/// Card container widget.
+///
+/// Elevated/bordered content box (no title); see `card.rs`.
 pub mod card;
-/// Badge widget — a small rounded count/status pill (stateless); see `badge.rs`.
+/// Badge widget.
+///
+/// A small rounded count/status pill (stateless); see `badge.rs`.
 pub mod badge;
-/// Slider / range widget — draggable thumb on a track → numeric value; see `slider.rs`.
+/// Slider / range widget.
+///
+/// Draggable thumb on a track → numeric value; see `slider.rs`.
 pub mod slider;
-/// Segmented control widget — joined row of mutually-exclusive buttons; see `segmented.rs`.
+/// Segmented control widget.
+///
+/// Joined row of mutually-exclusive buttons; see `segmented.rs`.
 pub mod segmented;
-/// Radio-group widget — vertical/horizontal group of mutually-exclusive options
-/// (exactly one selected) with a circular indicator; see `radio_group.rs`.
+/// Radio-group widget.
+///
+/// Vertical/horizontal group of mutually-exclusive options (exactly one selected) with a circular indicator; see `radio_group.rs`.
 pub mod radio_group;
-/// Tooltip widget — shows a small text popup near an anchor on hover; see `tooltip.rs`.
+/// Tooltip widget.
+///
+/// Shows a small text popup near an anchor on hover; see `tooltip.rs`.
 pub mod tooltip;
-/// Multi-line text input (text area) widget; see `text_area.rs`.
+/// Multi-line text input (text area) widget.
+///
+/// See `text_area.rs`.
 pub mod text_area;
-/// Alert / banner widget — a coloured inline message box with an optional
-/// dismissible close button; see `alert.rs`.
+/// Alert / banner widget.
+///
+/// A coloured inline message box with an optional dismissible close button; see `alert.rs`.
 pub mod alert;
-/// Accordion / expander widget — one or more collapsible titled sections; see
-/// `accordion.rs`.
+/// Accordion / expander widget.
+///
+/// One or more collapsible titled sections; see `accordion.rs`.
 pub mod accordion;
-/// Avatar widget — a circular image/initials badge (stateless); see `avatar.rs`.
+/// Avatar widget.
+///
+/// A circular image/initials badge (stateless); see `avatar.rs`.
 pub mod avatar;
-/// Chip / tag widget — a compact rounded pill with a label + optional removable
-/// "×" (stateful when removable, mirrors alert's dismiss); see `chip.rs`.
+/// Chip / tag widget.
+///
+/// A compact rounded pill with a label + optional removable "×" (stateful when removable, mirrors alert's dismiss); see `chip.rs`.
 pub mod chip;
-/// Spinner / activity widget — a static indeterminate busy ring (stateless;
-/// no animation — see the file's PARTIAL/TODO2 note); see `spinner.rs`.
+/// Spinner / activity widget.
+///
+/// A static indeterminate busy ring (stateless; no animation — see the file's PARTIAL/TODO2 note); see `spinner.rs`.
 pub mod spinner;
-/// Popover widget — a click-triggered floating panel holding arbitrary content,
-/// anchored to a `Dom` (the click-toggled sibling of tooltip); see `popover.rs`.
+/// Popover widget.
+///
+/// A click-triggered floating panel holding arbitrary content, anchored to a `Dom` (the click-toggled sibling of tooltip); see `popover.rs`.
 pub mod popover;
-/// Combobox widget — an editable text field with a click-toggled drop-down list
-/// of options (drop_down's select + text_input's editable field); see
-/// `combobox.rs`.
+/// Combobox widget.
+///
+/// An editable text field with a click-toggled drop-down list of options (drop_down's select + text_input's editable field); see `combobox.rs`.
 pub mod combobox;
-/// Modal / dialog widget — an in-app overlay dialog (backdrop + centred panel +
-/// arbitrary content), shown/hidden via state toggle; see `modal.rs`.
+/// Modal / dialog widget.
+///
+/// An in-app overlay dialog (backdrop + centred panel + arbitrary content), shown/hidden via state toggle; see `modal.rs`.
 pub mod modal;
-/// Toast / snackbar widget — a transient floating notification banner pinned to a
-/// corner, manually dismissed via "×" (auto-timeout needs a host timer — see the
-/// file's TODO2); a near-clone of `alert.rs` positioned as an overlay; see
-/// `toast.rs`.
+/// Toast / snackbar widget.
+///
+/// A transient floating notification banner pinned to a corner, manually dismissed via "×" (auto-timeout needs a host timer — see the file's TODO2); a near-clone of `alert.rs` positioned as an overlay; see `toast.rs`.
 pub mod toast;
-/// Breadcrumb widget — a horizontal trail of clickable crumb links separated by
-/// "/", ending in the current (non-clickable) page; see `breadcrumb.rs`.
+/// Breadcrumb widget.
+///
+/// A horizontal trail of clickable crumb links separated by "/", ending in the current (non-clickable) page; see `breadcrumb.rs`.
 pub mod breadcrumb;
-/// Pagination widget — a `Prev` / page-numbers / `Next` page navigator with an
-/// active-page restyle (segmented-style); see `pagination.rs`.
+/// Pagination widget.
+///
+/// A `Prev` / page-numbers / `Next` page navigator with an active-page restyle (segmented-style); see `pagination.rs`.
 pub mod pagination;
-/// Stepper / wizard widget — a horizontal numbered-step progress indicator with
-/// connector lines and an accent/muted restyle on step change (segmented-style +
-/// progressbar-style filled connector); see `stepper.rs`.
+/// Stepper / wizard widget.
+///
+/// A horizontal numbered-step progress indicator with connector lines and an accent/muted restyle on step change (segmented-style + progressbar-style filled connector); see `stepper.rs`.
 pub mod stepper;
-/// Split-pane / splitter widget — a two-pane (horizontal/vertical) container with
-/// a draggable divider that live-resizes the panes via `set_css_property` (the
-/// frame two-box layout + the map/slider pointer-drag state machine); see
-/// `split_pane.rs`.
+/// Split-pane / splitter widget.
+///
+/// A two-pane (horizontal/vertical) container with a draggable divider that live-resizes the panes via `set_css_property` (the frame two-box layout + the map/slider pointer-drag state machine); see `split_pane.rs`.
 pub mod split_pane;
-/// Time picker widget — two clamped numeric up/down spinners (hour + minute)
-/// side by side with an optional AM/PM toggle for 12-hour mode (the
-/// number_input clamp/retext path + segmented's clickable-cell navigation);
-/// see `time_picker.rs`.
+/// Time picker widget.
+///
+/// Two clamped numeric up/down spinners (hour + minute) side by side with an optional AM/PM toggle for 12-hour mode (the number_input clamp/retext path + segmented's clickable-cell navigation); see `time_picker.rs`.
 pub mod time_picker;
-/// Calendar date picker widget — a month header (‹ / `Month YYYY` / ›) above a
-/// weekday-labelled 7-column day grid computed from real calendar math; clicking
-/// a day selects + restyles it (segmented-style), and the per-cell day number is
-/// carried drop_down-style. Month nav fires on_change but cannot rebuild the
-/// grid in-widget (prominent module TODO2); see `date_picker.rs`.
+/// Calendar date picker widget.
+///
+/// A month header (‹ / `Month YYYY` / ›) above a weekday-labelled 7-column day grid computed from real calendar math; clicking a day selects + restyles it (segmented-style), and the per-cell day number is carried drop_down-style. Month nav fires on_change but cannot rebuild the grid in-widget (prominent module TODO2); see `date_picker.rs`.
 pub mod date_picker;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;

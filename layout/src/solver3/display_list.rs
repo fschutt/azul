@@ -6119,7 +6119,7 @@ fn generate_text_display_items(
     };
 
     let parsed = crate::font_ref_to_parsed_font(font_ref);
-    let units_per_em = parsed.font_metrics.units_per_em as f32;
+    let units_per_em = f32::from(parsed.font_metrics.units_per_em);
     if units_per_em <= 0.0 {
         return Vec::new();
     }
@@ -6131,7 +6131,7 @@ fn generate_text_display_items(
     let mut total_width = 0.0f32;
     for c in text.chars() {
         let gid = parsed.lookup_glyph_index(c as u32).unwrap_or(0);
-        let advance = parsed.get_horizontal_advance(gid) as f32 * scale;
+        let advance = f32::from(parsed.get_horizontal_advance(gid)) * scale;
         shaped.push((gid, advance));
         total_width += advance;
     }
@@ -6142,9 +6142,9 @@ fn generate_text_display_items(
 
     // Horizontal placement within the box.
     let start_x = match alignment {
-        TextAlignment::Center => bounds.origin.x + (bounds.size.width - total_width) * 0.5,
+        TextAlignment::Center => (bounds.size.width - total_width).mul_add(0.5, bounds.origin.x),
         TextAlignment::Right => bounds.origin.x + (bounds.size.width - total_width),
-        _ => bounds.origin.x,
+        TextAlignment::Left => bounds.origin.x,
     };
 
     // Vertical placement: center the text's em-box in the header/footer band and
@@ -6152,7 +6152,8 @@ fn generate_text_display_items(
     let ascent_px = parsed.font_metrics.ascent * scale;
     let descent_px = parsed.font_metrics.descent * scale; // hhea descender, usually negative
     let text_height = ascent_px - descent_px;
-    let baseline_y = bounds.origin.y + (bounds.size.height - text_height) * 0.5 + ascent_px;
+    let baseline_y =
+        bounds.origin.y + (bounds.size.height - text_height).mul_add(0.5, ascent_px);
 
     let mut pen_x = start_x;
     let mut glyphs: Vec<GlyphInstance> = Vec::with_capacity(shaped.len());
@@ -6164,7 +6165,7 @@ fn generate_text_display_items(
                 height: font_size,
             });
         glyphs.push(GlyphInstance {
-            index: gid as u32,
+            index: u32::from(gid),
             point: LogicalPosition {
                 x: pen_x,
                 y: baseline_y,
@@ -6607,8 +6608,8 @@ mod pagination_text_tests {
         ];
         for path in candidates {
             if let Ok(bytes) = std::fs::read(path) {
-                let arc = std::sync::Arc::new(rust_fontconfig::FontBytes::Owned(
-                    std::sync::Arc::from(bytes.as_slice()),
+                let arc = Arc::new(rust_fontconfig::FontBytes::Owned(
+                    Arc::from(bytes.as_slice()),
                 ));
                 if let Some(font) =
                     ParsedFont::from_bytes(&bytes, 0, &mut Vec::new()).map(|f| f.with_source_bytes(arc))
@@ -6627,7 +6628,7 @@ mod pagination_text_tests {
         let hash = crate::font_ref_to_parsed_font(&font_ref).hash;
         rr.font_hash_map.insert(hash, key);
         rr.currently_registered_fonts
-            .insert(key, (font_ref, Default::default()));
+            .insert(key, (font_ref, BTreeMap::default()));
         rr
     }
 

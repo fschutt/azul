@@ -383,7 +383,7 @@ fn render_conic_gradient(
 fn render_box_shadow(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
-    shadow: &azul_css::props::style::box_shadow::StyleBoxShadow,
+    shadow: &StyleBoxShadow,
     border_radius: &BorderRadius,
     dpi_factor: f32,
 ) -> Result<(), String> {
@@ -1423,7 +1423,7 @@ pub fn render_single_item(
                     dpi_factor,
                     glyph_cache,
                     (scroll_dx, scroll_dy),
-                )?;
+                );
             }
             render_text(
                 glyphs,
@@ -2156,6 +2156,8 @@ fn render_text(
 /// glyph bbox and so the existing `blit_buffer` (premultiplied-alpha) compositor
 /// can be reused directly. Text-shadows are uncommon, so the extra full-frame
 /// allocation/blit is acceptable for correctness.
+// software rasterizer: bounded blur-radius / stride / pixel casts
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 fn render_text_shadow(
     shadow: &StyleBoxShadow,
     glyphs: &[GlyphInstance],
@@ -2169,10 +2171,10 @@ fn render_text_shadow(
     dpi_factor: f32,
     glyph_cache: &mut GlyphCache,
     scroll_offset: (f32, f32),
-) -> Result<(), String> {
+) {
     let color = shadow.color;
     if color.a == 0 || glyphs.is_empty() {
-        return Ok(());
+        return;
     }
 
     // Logical offsets (render_text applies dpi_factor internally).
@@ -2191,9 +2193,8 @@ fn render_text_shadow(
         .max(0.0);
 
     // Offscreen, transparent, same size as the target (so blur has room).
-    let mut tmp = match AzulPixmap::new(pixmap.width, pixmap.height) {
-        Some(p) => p,
-        None => return Ok(()),
+    let Some(mut tmp) = AzulPixmap::new(pixmap.width, pixmap.height) else {
+        return;
     };
     tmp.fill(0, 0, 0, 0);
 
@@ -2244,8 +2245,6 @@ fn render_text_shadow(
 
     // Composite the (premultiplied) shadow buffer onto the target.
     blit_buffer(pixmap, &tmp.data, tmp.width, tmp.height, 0, 0);
-
-    Ok(())
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
@@ -3082,9 +3081,10 @@ pub fn render_dom_to_image(
     Ok(result.png_data)
 }
 
-/// Render a short single-line string (e.g. a tooltip label) into a freshly
-/// allocated [`AzulPixmap`], shaping + rasterizing the glyphs through the same
-/// CPU text pipeline ([`render_display_list`] → `render_text`) the rest of the
+/// Render a short single-line string into a freshly allocated [`AzulPixmap`].
+///
+/// Shapes + rasterizes the glyphs (e.g. a tooltip label) through the same CPU
+/// text pipeline ([`render_display_list`] → `render_text`) the rest of the
 /// renderer uses. This is the platform-agnostic text path for shells that have
 /// **no** native server-side text drawing (notably Wayland, which — unlike
 /// X11's `XDrawString`, macOS `NSTextField` or Win32 GDI — must rasterize into
@@ -3099,6 +3099,9 @@ pub fn render_dom_to_image(
 /// Returns `None` if no usable system font can be resolved or the font has
 /// degenerate metrics — callers should fall back gracefully (no tooltip text).
 #[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
+#[must_use]
+// bounded pixel-dimension casts; explicit a*b+c kept (see render_box_shadow)
+#[allow(clippy::suboptimal_flops, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub fn render_text_run_to_pixmap(
     fc_cache: &rust_fontconfig::FcFontCache,
     text: &str,
@@ -3126,16 +3129,15 @@ pub fn render_text_run_to_pixmap(
     let bytes = fc_cache.get_font_bytes(&matched.id)?;
     let font_index = fc_cache
         .get_font_by_id(&matched.id)
-        .map(|src| match src {
+        .map_or(0, |src| match src {
             OwnedFontSource::Disk(path) => path.font_index,
             OwnedFontSource::Memory(font) => font.font_index,
-        })
-        .unwrap_or(0);
+        });
 
     let parsed = ParsedFont::from_bytes(bytes.as_slice(), font_index, &mut Vec::new())?
         .with_source_bytes(bytes.clone());
 
-    let upm = parsed.font_metrics.units_per_em as f32;
+    let upm = f32::from(parsed.font_metrics.units_per_em);
     if upm <= 0.0 {
         return None;
     }
@@ -3149,22 +3151,22 @@ pub fn render_text_run_to_pixmap(
     let hash = crate::font_ref_to_parsed_font(&font_ref).hash;
     rr.font_hash_map.insert(hash, key);
     rr.currently_registered_fonts
-        .insert(key, (font_ref, Default::default()));
+        .insert(key, (font_ref, std::collections::BTreeMap::default()));
     let font_hash = FontHash { font_hash: hash };
 
     // 3. Shape the string (simple per-char advances; tooltips are short,
     //    single-line and unstyled, so the full bidi/complex shaper isn't
     //    reachable here — same simplification as the pagination header path).
-    let ascent = parsed.font_metrics.ascent as f32 * scale;
-    let descent = parsed.font_metrics.descent as f32 * scale; // typically negative
+    let ascent = parsed.font_metrics.ascent * scale;
+    let descent = parsed.font_metrics.descent * scale; // typically negative
     let baseline_y = padding_px + ascent;
     let mut pen_x = padding_px;
     let mut glyphs = Vec::new();
     for c in text.chars() {
         let gid = parsed.lookup_glyph_index(c as u32).unwrap_or(0);
-        let advance = parsed.get_horizontal_advance(gid) as f32 * scale;
+        let advance = f32::from(parsed.get_horizontal_advance(gid)) * scale;
         glyphs.push(GlyphInstance {
-            index: gid as u32,
+            index: u32::from(gid),
             point: LogicalPosition { x: pen_x, y: baseline_y },
             size: LogicalSize { width: advance, height: font_size_px },
         });
@@ -3249,21 +3251,21 @@ mod text_shadow_tests {
         let hash = crate::font_ref_to_parsed_font(&font_ref).hash;
         rr.font_hash_map.insert(hash, key);
         rr.currently_registered_fonts
-            .insert(key, (font_ref, Default::default()));
+            .insert(key, (font_ref, std::collections::BTreeMap::default()));
         (rr, FontHash { font_hash: hash })
     }
 
     /// Shape a string into glyph instances with a baseline at (x, y).
     fn shape(parsed: &ParsedFont, text: &str, font_size: f32, x: f32, y: f32) -> Vec<GlyphInstance> {
-        let upm = parsed.font_metrics.units_per_em as f32;
+        let upm = f32::from(parsed.font_metrics.units_per_em);
         let scale = font_size / upm;
         let mut pen_x = x;
         let mut out = Vec::new();
         for c in text.chars() {
             let gid = parsed.lookup_glyph_index(c as u32).unwrap_or(0);
-            let advance = parsed.get_horizontal_advance(gid) as f32 * scale;
+            let advance = f32::from(parsed.get_horizontal_advance(gid)) * scale;
             out.push(GlyphInstance {
-                index: gid as u32,
+                index: u32::from(gid),
                 point: LogicalPosition { x: pen_x, y },
                 size: LogicalSize {
                     width: advance,
@@ -3298,6 +3300,8 @@ mod text_shadow_tests {
         let font_size = 32.0;
         // Black glyphs, baseline near the vertical middle.
         let glyphs = shape(&font, "Hi", font_size, 10.0, 40.0);
+        // test fixture: bounded pixmap-dimension cast
+        #[allow(clippy::cast_precision_loss)]
         let clip_rect: WindowLogicalRect = LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
             size: LogicalSize { width: w as f32, height: h as f32 },
@@ -3305,11 +3309,11 @@ mod text_shadow_tests {
         .into();
 
         let text_item = DisplayListItem::Text {
-            glyphs: glyphs.clone(),
+            glyphs,
             font_hash,
             font_size_px: font_size,
             color: ColorU { r: 0, g: 0, b: 0, a: 255 },
-            clip_rect: clip_rect.clone(),
+            clip_rect,
             source_node_index: None,
         };
 
@@ -3361,6 +3365,7 @@ mod text_shadow_tests {
             .chunks_exact(4)
             .enumerate()
             .filter(|(i, p)| {
+                #[allow(clippy::cast_possible_truncation)] // bounded pixel index
                 let x = (*i as u32) % w;
                 x > 30 && p[0] > 150 && p[1] < 100 && p[2] < 100
             })
@@ -3384,6 +3389,8 @@ mod text_shadow_tests {
         let h = 80u32;
         let font_size = 32.0;
         let glyphs = shape(&font, "Hi", font_size, 40.0, 50.0);
+        // test fixture: bounded pixmap-dimension cast
+        #[allow(clippy::cast_precision_loss)]
         let clip_rect: WindowLogicalRect = LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
             size: LogicalSize { width: w as f32, height: h as f32 },
@@ -3404,7 +3411,7 @@ mod text_shadow_tests {
                 font_hash,
                 font_size_px: font_size,
                 color: ColorU { r: 0, g: 0, b: 0, a: 0 }, // transparent text: isolate shadow
-                clip_rect: clip_rect.clone(),
+                clip_rect,
                 source_node_index: None,
             };
             let dl = DisplayList {

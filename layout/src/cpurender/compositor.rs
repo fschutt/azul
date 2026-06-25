@@ -136,6 +136,9 @@ impl CompositorState {
     /// # Panics
     ///
     /// Panics if the internal layer stack underflows (a malformed display list).
+    // single-pass walk over the full display-list opcode set; splitting it would
+    // only scatter the shared layer-stack state across helpers
+    #[allow(clippy::cognitive_complexity)]
     pub fn allocate_layers_from_display_list(
         &mut self,
         display_list: &DisplayList,
@@ -309,7 +312,7 @@ impl CompositorState {
                     if pw > 0 && ph > 0 && !filters.is_empty() {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
-                        layer.filters = filters.clone();
+                        layer.filters.clone_from(filters);
                         layer.is_backdrop_filter = true;
                         // The layer's OWN content may be empty (e.g. an empty
                         // div with only `backdrop-filter`). render_layers skips
@@ -539,12 +542,12 @@ impl CompositorState {
                 blit_pixmap(&layer.pixbuf, output, px_x, px_y, layer.opacity);
             } else {
                 // Apply filters at composite time (to the layer's own content).
-                let src = if !layer.filters.is_empty() {
+                let src = if layer.filters.is_empty() {
+                    None
+                } else {
                     let mut filtered = layer.pixbuf.clone_pixmap();
                     apply_layer_filters(&mut filtered, &layer.filters, dpi_factor);
                     Some(filtered)
-                } else {
-                    None
                 };
 
                 let src_pixbuf = src.as_ref().unwrap_or(&layer.pixbuf);
@@ -1890,6 +1893,8 @@ mod backdrop_filter_tests {
             size: LogicalSize::new(w, h),
         }
     }
+    // p/x/y/w/d/i are the conventional pixel-access short names
+    #[allow(clippy::many_single_char_names)]
     fn px(p: &AzulPixmap, x: u32, y: u32) -> [u8; 4] {
         let w = p.width();
         let d = p.data();
