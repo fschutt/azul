@@ -7260,10 +7260,8 @@ impl LayoutWindow {
 
                 // Extract the texture from the returned ImageRef
                 if let Some(image_ref) = new_image_ref {
-                    if let Some(decoded_image) = image_ref.into_inner() {
-                        if let azul_core::resources::DecodedImage::Gl(texture) = decoded_image {
-                            updated_textures.push((*dom_id, *node_id, texture));
-                        }
+                    if let Some(azul_core::resources::DecodedImage::Gl(texture)) = image_ref.into_inner() {
+                        updated_textures.push((*dom_id, *node_id, texture));
                     }
                 }
             }

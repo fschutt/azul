@@ -3580,12 +3580,10 @@ impl ResolvedFontChains {
             });
 
         // Check for embedded FontRef
-        if let Some(first_family) = font_families.get(0) {
-            if let StyleFontFamily::Ref(font_ref) = first_family {
-                let ptr = font_ref.parsed as usize;
-                font_refs.entry(ptr).or_insert_with(|| font_ref.clone());
-                continue;
-            }
+        if let Some(StyleFontFamily::Ref(font_ref)) = font_families.get(0) {
+            let ptr = font_ref.parsed as usize;
+            font_refs.entry(ptr).or_insert_with(|| font_ref.clone());
+            continue;
         }
 
         let font_weight = match get_font_weight_property(styled_dom, dom_id, node_state) {

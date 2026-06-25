@@ -1917,12 +1917,11 @@ StyleVisibility::Collapse) => true,
         
         // Query the cursor CSS property for this text node
         if let Some(node_data) = node_data {
-            if let Some(cursor_value) = self.ctx.styled_dom.get_css_property_cache().get_cursor(
+            if let Some(CssPropertyValue::Exact(cursor)) = self.ctx.styled_dom.get_css_property_cache().get_cursor(
                 node_data,
                 &node_id,
                 &styled_node_state,
             ) {
-                if let CssPropertyValue::Exact(cursor) = cursor_value {
                     return match cursor {
                         StyleCursor::Default => CursorType::Default,
                         StyleCursor::Pointer => CursorType::Pointer,
@@ -1954,7 +1953,6 @@ StyleVisibility::Collapse) => true,
                         StyleCursor::VerticalText => CursorType::Text,
                         StyleCursor::Unset => CursorType::Text, // Default to text for text nodes
                     };
-                }
             }
         }
         

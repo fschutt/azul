@@ -306,10 +306,8 @@ fn test_probe_words_glyph_counts() {
     println!("\n=== PROBE WORD GLYPH COUNTS ===");
     let mut text_runs: Vec<(usize, usize)> = Vec::new(); // (src_node, glyph_count)
     for item in display_list.items.iter() {
-        if let DisplayListItem::Text { glyphs, source_node_index, .. } = item {
-            if let Some(n) = source_node_index {
-                text_runs.push((*n, glyphs.len()));
-            }
+        if let DisplayListItem::Text { glyphs, source_node_index: Some(n), .. } = item {
+            text_runs.push((*n, glyphs.len()));
         }
     }
     text_runs.sort();
