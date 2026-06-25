@@ -1,12 +1,12 @@
 //! Toast / snackbar widget — a transient notification banner. A near-clone of
-//! [`crate::widgets::alert::Alert`] (a coloured message box with a "×" dismiss
+//! [`crate::widgets::alert::Alert`] (a coloured message box with a "x" dismiss
 //! affordance and a `visible` state) that, instead of sitting inline, floats as
 //! an overlay pinned to a corner of its positioned parent
 //! (`position: absolute; bottom; right`).
 //!
 //! Like [`crate::widgets::alert::Alert`] / [`crate::widgets::check_box::CheckBox`]
 //! it is stateful: it carries a [`ToastStateWrapper`] (`{ visible } + on_dismiss`)
-//! in a [`RefAny`] attached to the "×" close button. Clicking "×" flips `visible`
+//! in a [`RefAny`] attached to the "x" close button. Clicking "x" flips `visible`
 //! to `false`, invokes the optional user `on_dismiss`, and hides the whole toast
 //! by setting `display: none` on the container via `set_css_property` (mirroring
 //! alert's / check_box's live restyle).
@@ -18,7 +18,7 @@
 //! timer (it only runs in response to an input event, with no access to schedule
 //! a future wakeup). This is the same limitation the spinner hit with CSS
 //! animation: there is no widget-local timer. So this widget ships a **manually**
-//! dismissable toast (the "×"); a host that wants auto-timeout must register a
+//! dismissable toast (the "x"); a host that wants auto-timeout must register a
 //! `Timer` itself and call `set_css_property(display: none)` (or rebuild without
 //! the toast) when it fires.
 //!
@@ -65,7 +65,7 @@ const TOAST_INSET: isize = 24;
 /// Maximum width (logical px) of the toast card.
 const TOAST_MAX_WIDTH: isize = 360;
 
-/// Callback function type invoked when a toast's "×" close button is clicked.
+/// Callback function type invoked when a toast's "x" close button is clicked.
 pub type ToastOnDismissCallbackType = extern "C" fn(RefAny, CallbackInfo, ToastState) -> Update;
 impl_widget_callback!(
     ToastOnDismiss,
@@ -142,7 +142,7 @@ impl ToastKind {
     }
 }
 
-/// A transient, floating notification banner with a "×" dismiss button.
+/// A transient, floating notification banner with a "x" dismiss button.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Toast {
@@ -152,7 +152,7 @@ pub struct Toast {
     pub message: AzString,
     /// The colour variant.
     pub kind: ToastKind,
-    /// Whether to render the "×" close button (default `true` — the only way to
+    /// Whether to render the "x" close button (default `true` — the only way to
     /// dismiss; see the module-level auto-dismiss TODO2).
     pub dismissible: bool,
     /// The computed inline style for the (absolutely-positioned) container.
@@ -296,7 +296,7 @@ static TOAST_MESSAGE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
 ];
 
-/// Close-button ("×") style: a small pointer-cursor box on the right.
+/// Close-button ("x") style: a small pointer-cursor box on the right.
 static TOAST_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
@@ -309,7 +309,7 @@ static TOAST_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
 
 impl Toast {
     /// Creates a new informational (blue) toast with the given message (visible,
-    /// with a "×" close button).
+    /// with a "x" close button).
     #[inline]
     #[must_use] pub fn create(message: AzString) -> Self {
         Self::with_kind(message, ToastKind::Info)
@@ -341,7 +341,7 @@ impl Toast {
         self
     }
 
-    /// Sets whether the toast shows a "×" close button.
+    /// Sets whether the toast shows a "x" close button.
     #[inline]
     pub const fn set_dismissible(&mut self, dismissible: bool) {
         self.dismissible = dismissible;

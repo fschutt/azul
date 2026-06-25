@@ -1820,7 +1820,7 @@ mod list_view_click_tests {
     /// to the row count, and degenerate input yields an empty range.
     #[test]
     fn visible_row_range_windows_correctly() {
-        // 100 rows × 20px, 200px viewport → 10 full rows + 1 partial.
+        // 100 rows x 20px, 200px viewport → 10 full rows + 1 partial.
         assert_eq!(ListView::visible_row_range(0.0, 200.0, 20.0, 100), (0, 11));
         // Scrolled 50px → first row = floor(50/20) = 2.
         assert_eq!(ListView::visible_row_range(50.0, 200.0, 20.0, 100), (2, 13));

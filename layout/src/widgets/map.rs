@@ -1214,7 +1214,7 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
 }
 
 /// Inclusive `(x_min, x_max, y_min, y_max)` tile range covering a
-/// `width_px × height_px` viewport centred at tile-space `(centre_x,
+/// `width_px x height_px` viewport centred at tile-space `(centre_x,
 /// centre_y)`, at fractional `zoom_scale` and integer `tile_count` (2^z).
 /// A one-tile margin (`+ 1.0`) is added each side so a tile scrolling into
 /// view is already requested; the result is clamped to the valid
@@ -1734,7 +1734,7 @@ mod tests {
 
     #[test]
     fn tile_range_covers_centre_with_margin() {
-        // 512×512 viewport at zoom-scale 1 (256 px tiles) = 2 tiles across;
+        // 512x512 viewport at zoom-scale 1 (256 px tiles) = 2 tiles across;
         // half-extent 2 (incl. the +1 margin) → 5 tiles each axis, centred.
         let (x0, x1, y0, y1) = visible_tile_range(8.0, 8.0, 512.0, 512.0, 1.0, 16);
         assert_eq!((x0, x1), (6, 10));

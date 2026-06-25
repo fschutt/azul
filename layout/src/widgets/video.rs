@@ -317,7 +317,7 @@ extern "C" fn video_on_resize(mut data: RefAny, mut info: CallbackInfo) -> Updat
 }
 
 /// Background worker (test pattern): SMPTE-style colour bars scrolling
-/// horizontally ~30×/s. Replaced by the real vk-video decode worker later.
+/// horizontally ~30x/s. Replaced by the real vk-video decode worker later.
 #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     const BARS: [[u8; 3]; 7] = [

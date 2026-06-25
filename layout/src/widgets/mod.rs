@@ -250,7 +250,7 @@ pub mod accordion;
 pub mod avatar;
 /// Chip / tag widget.
 ///
-/// A compact rounded pill with a label + optional removable "×" (stateful when removable, mirrors alert's dismiss); see `chip.rs`.
+/// A compact rounded pill with a label + optional removable "x" (stateful when removable, mirrors alert's dismiss); see `chip.rs`.
 pub mod chip;
 /// Spinner / activity widget.
 ///
@@ -270,7 +270,7 @@ pub mod combobox;
 pub mod modal;
 /// Toast / snackbar widget.
 ///
-/// A transient floating notification banner pinned to a corner, manually dismissed via "×" (auto-timeout needs a host timer — see the file's TODO2); a near-clone of `alert.rs` positioned as an overlay; see `toast.rs`.
+/// A transient floating notification banner pinned to a corner, manually dismissed via "x" (auto-timeout needs a host timer — see the file's TODO2); a near-clone of `alert.rs` positioned as an overlay; see `toast.rs`.
 pub mod toast;
 /// Breadcrumb widget.
 ///

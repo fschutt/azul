@@ -143,7 +143,7 @@ extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo)
 }
 
 /// Background worker (test pattern): a downward-moving white band on dark grey,
-/// ~30×/s. Replaced by the real `ScreenCaptureKit` / `MediaProjection` worker.
+/// ~30x/s. Replaced by the real `ScreenCaptureKit` / `MediaProjection` worker.
 extern "C" fn screencap_worker(_init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     // Real platform capture if the dll registered a screen backend
     // (ScreenCaptureKit / X11 / DXGI; Wayland stays a dummy); else the test pattern.

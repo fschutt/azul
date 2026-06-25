@@ -6,7 +6,7 @@
 //!
 //! Structure: a full-area *backdrop* (`position: absolute`, covering its parent,
 //! semi-transparent black) that centres a *panel* holding an optional title, an
-//! optional "×" close button (absolutely positioned in the panel's top-right
+//! optional "x" close button (absolutely positioned in the panel's top-right
 //! corner), and the arbitrary `content: Dom`. The whole thing is hidden by
 //! default (`display: none`) and shown by building it with `with_open(true)` (or
 //! by the host flipping it). Clicking the close button flips `open` to `false`,
@@ -23,7 +23,7 @@
 //!     semantics (see `popover`), a click handler on the backdrop reports the
 //!     backdrop as the hit node even when the *panel* (a descendant) was clicked,
 //!     so it cannot distinguish an outside click from an inside click — wiring it
-//!     would close the dialog when clicking its own content. Only the explicit "×"
+//!     would close the dialog when clicking its own content. Only the explicit "x"
 //!     closes it.
 //!   * **Covering sibling widgets**: the backdrop is `position: absolute` and
 //!     relies on paint order (being a later sibling) to overlay other content;
@@ -80,7 +80,7 @@ const PANEL_BORDER_COLOR: ColorU = ColorU { r: 204, g: 204, b: 204, a: 255 }; //
 const TITLE_COLOR: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 }; // #212529
 const CLOSE_COLOR: ColorU = ColorU { r: 108, g: 117, b: 125, a: 255 }; // #6c757d
 
-/// Callback invoked when the modal's "×" close button is clicked. The
+/// Callback invoked when the modal's "x" close button is clicked. The
 /// [`ModalState`] carries the *new* (`false`) open value.
 pub type ModalOnCloseCallbackType = extern "C" fn(RefAny, CallbackInfo, ModalState) -> Update;
 impl_widget_callback!(
@@ -114,7 +114,7 @@ pub struct Modal {
     pub title: AzString,
     /// The arbitrary content shown inside the panel.
     pub content: Dom,
-    /// Whether to render the "×" close button.
+    /// Whether to render the "x" close button.
     pub show_close_button: bool,
     /// Style of the full-area backdrop (includes its current `display`).
     pub backdrop_style: CssPropertyWithConditionsVec,
@@ -269,7 +269,7 @@ static MODAL_PANEL_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// Title style: larger, bold-ish dark text with a bottom gap; right padding keeps
-/// it clear of the absolutely-positioned "×".
+/// it clear of the absolutely-positioned "x".
 static MODAL_TITLE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
@@ -286,7 +286,7 @@ static MODAL_TITLE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
 ];
 
-/// "×" close-button style: an absolutely-positioned pointer-cursor glyph in the
+/// "x" close-button style: an absolutely-positioned pointer-cursor glyph in the
 /// panel's top-right corner.
 static MODAL_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
@@ -307,7 +307,7 @@ static MODAL_CONTENT_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 impl Modal {
-    /// Creates a new (closed) modal holding `content`, with a "×" close button and
+    /// Creates a new (closed) modal holding `content`, with a "x" close button and
     /// no title.
     #[must_use] pub fn create(content: Dom) -> Self {
         Self {
@@ -359,7 +359,7 @@ impl Modal {
         self
     }
 
-    /// Sets whether the "×" close button is shown.
+    /// Sets whether the "x" close button is shown.
     #[inline]
     pub const fn set_close_button(&mut self, show: bool) {
         self.show_close_button = show;
@@ -372,7 +372,7 @@ impl Modal {
         self
     }
 
-    /// Sets the close callback (invoked with the new state when "×" is clicked).
+    /// Sets the close callback (invoked with the new state when "x" is clicked).
     #[inline]
     pub fn set_on_close<C: Into<ModalOnCloseCallback>>(&mut self, data: RefAny, on_close: C) {
         self.modal_state.on_close = Some(ModalOnClose {
@@ -461,7 +461,7 @@ impl Default for Modal {
     }
 }
 
-/// "×" close-button click handler. The hit node is the close button (the
+/// "x" close-button click handler. The hit node is the close button (the
 /// callback-bearing node, per `currentTarget` semantics — see `popover`); its
 /// parent is the panel and the panel's parent is the backdrop. Flips `open` to
 /// `false`, invokes the optional user callback, then hides the backdrop via

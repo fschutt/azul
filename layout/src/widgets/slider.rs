@@ -71,10 +71,10 @@ pub struct Slider {
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
 pub struct SliderStateWrapper {
-    /// The value/range of this Slider.
-    pub inner: SliderState,
     /// Optional: function to call when the value changes.
     pub on_value_change: OptionSliderOnValueChange,
+    /// The value/range of this Slider.
+    pub inner: SliderState,
     /// `true` while a pointer-drag is in flight (mirrors `map::MapTileCache::drag_anchor`).
     /// Transient; not part of the user-visible [`SliderState`].
     pub dragging: bool,

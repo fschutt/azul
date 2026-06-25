@@ -1,5 +1,5 @@
 //! Chip / tag widget — a compact rounded "pill" holding a short label plus an
-//! optional removable "×" affordance. A blend of
+//! optional removable "x" affordance. A blend of
 //! [`crate::widgets::badge::Badge`] (the coloured pill visual + [`ChipKind`]
 //! colour variants) and [`crate::widgets::alert::Alert`] (the dismiss pattern:
 //! a stateful close affordance that hides the widget on click).
@@ -7,10 +7,10 @@
 //! When made removable (`with_removable(true)` or `set_on_remove`), the chip
 //! mirrors the stateful pattern of [`crate::widgets::alert::Alert`]: it carries a
 //! [`ChipStateWrapper`] (`{ visible } + on_remove`) in a [`RefAny`] attached to
-//! the "×" node. Clicking "×" flips `visible` to `false`, invokes the optional
+//! the "x" node. Clicking "x" flips `visible` to `false`, invokes the optional
 //! user `on_remove`, and hides the whole chip by setting `display: none` on the
 //! container via `set_css_property` (mirroring alert's live restyle). A
-//! non-removable chip renders no "×" and carries no live callback — it is then
+//! non-removable chip renders no "x" and carries no live callback — it is then
 //! just a stateless styled pill (a near-clone of [`Badge`]).
 //!
 //! Key types: [`Chip`], [`ChipKind`], [`ChipState`], [`ChipOnRemove`].
@@ -44,7 +44,7 @@ const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
-/// Callback function type invoked when a removable chip's "×" is clicked.
+/// Callback function type invoked when a removable chip's "x" is clicked.
 pub type ChipOnRemoveCallbackType = extern "C" fn(RefAny, CallbackInfo, ChipState) -> Update;
 impl_widget_callback!(
     ChipOnRemove,
@@ -116,7 +116,7 @@ impl ChipKind {
     }
 }
 
-/// A compact rounded pill holding a label plus an optional removable "×".
+/// A compact rounded pill holding a label plus an optional removable "x".
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Chip {
@@ -126,7 +126,7 @@ pub struct Chip {
     pub label: AzString,
     /// The colour variant.
     pub kind: ChipKind,
-    /// Whether to render the "×" remove affordance (hides the chip on click).
+    /// Whether to render the "x" remove affordance (hides the chip on click).
     pub removable: bool,
     /// The computed inline style for the pill container.
     pub container_style: CssPropertyWithConditionsVec,
@@ -201,7 +201,7 @@ fn build_chip_style(kind: ChipKind) -> CssPropertyWithConditionsVec {
         )),
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
-        // Text colour is inherited by the label + "×" children.
+        // Text colour is inherited by the label + "x" children.
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
             inner: text,
         })),
@@ -216,7 +216,7 @@ static CHIP_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
 ];
 
-/// "×" remove-affordance style: a small pointer-cursor box on the right.
+/// "x" remove-affordance style: a small pointer-cursor box on the right.
 static CHIP_REMOVE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
@@ -260,7 +260,7 @@ impl Chip {
         self
     }
 
-    /// Sets whether the chip shows a "×" remove affordance.
+    /// Sets whether the chip shows a "x" remove affordance.
     #[inline]
     pub const fn set_removable(&mut self, removable: bool) {
         self.removable = removable;
@@ -273,7 +273,7 @@ impl Chip {
         self
     }
 
-    /// Sets the remove callback. Implies `removable = true` so the "×" is rendered.
+    /// Sets the remove callback. Implies `removable = true` so the "x" is rendered.
     #[inline]
     pub fn set_on_remove<C: Into<ChipOnRemoveCallback>>(&mut self, data: RefAny, on_remove: C) {
         self.removable = true;
@@ -350,7 +350,7 @@ impl Default for Chip {
     }
 }
 
-/// "×" click handler. The hit node is the "×" (the callback-bearing node, per
+/// "x" click handler. The hit node is the "x" (the callback-bearing node, per
 /// `currentTarget` semantics — see `radio_group`); its parent is the chip
 /// container. Flips `visible` to `false`, invokes the optional user callback,
 /// then hides the whole chip via `display: none`.

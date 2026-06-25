@@ -1,7 +1,7 @@
 //! Alert / banner widget — a coloured inline message box conveying an
 //! informational, success, warning or danger status. A container (a near-clone
 //! of [`crate::widgets::card::Card`] / [`crate::widgets::frame::Frame`]) holding
-//! a message string, with an optional dismissible "×" close affordance.
+//! a message string, with an optional dismissible "x" close affordance.
 //!
 //! When made dismissible (`with_dismissible(true)` or `set_on_dismiss`), the
 //! alert mirrors the stateful pattern of [`crate::widgets::check_box::CheckBox`]:
@@ -131,7 +131,7 @@ pub struct Alert {
     pub message: AzString,
     /// The colour variant.
     pub kind: AlertKind,
-    /// Whether to render the "×" close button (hides the alert on click).
+    /// Whether to render the "x" close button (hides the alert on click).
     pub dismissible: bool,
     /// The computed inline style for the container.
     pub container_style: CssPropertyWithConditionsVec,
@@ -263,7 +263,7 @@ static ALERT_MESSAGE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
 ];
 
-/// Close-button ("×") style: a small pointer-cursor box on the right.
+/// Close-button ("x") style: a small pointer-cursor box on the right.
 static ALERT_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
@@ -307,7 +307,7 @@ impl Alert {
         self
     }
 
-    /// Sets whether the alert shows a "×" close button.
+    /// Sets whether the alert shows a "x" close button.
     #[inline]
     pub const fn set_dismissible(&mut self, dismissible: bool) {
         self.dismissible = dismissible;
