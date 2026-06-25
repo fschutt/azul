@@ -211,6 +211,7 @@ fn find_non_anonymous_prev_sibling(
 /// The `CssGroupIterator` splits the CSS path into semantic blocks, i.e.:
 ///
 /// `"body > .foo.main > #baz"` will be split into `["body", ".foo.main", "#baz"]`
+#[derive(Debug)]
 pub struct CssGroupIterator<'a> {
     pub css_path: &'a [CssPathSelector],
     current_idx: usize,

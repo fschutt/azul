@@ -188,10 +188,12 @@ const DEFAULT_ARGS: [&str; 8] = [
 /// Opaque void type for FFI pointers. Uses a custom definition instead of
 /// `core::ffi::c_void` for `#[repr(C)]` compatibility in the generated API.
 #[allow(non_camel_case_types)]
+#[derive(Debug)]
 pub enum c_void {}
 
 /// Type of an XML node in the parsed tree.
 #[repr(C)]
+#[derive(Debug)]
 pub enum XmlNodeType {
     Root,
     Element,
@@ -202,6 +204,7 @@ pub enum XmlNodeType {
 
 /// A namespace-qualified XML name (e.g. `svg:rect` has namespace `"svg"` and local name `"rect"`).
 #[repr(C)]
+#[derive(Debug)]
 pub struct XmlQualifiedName {
     pub local_name: AzString,
     pub namespace: OptionString,
@@ -4369,7 +4372,7 @@ fn builtin_map_compile_fn(
 
 /// Wrapper for the XML parser - necessary to easily create a Dom from
 /// XML without putting an XML solver into `azul-core`.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct DomXml {
     pub parsed_dom: StyledDom,
 }
@@ -5647,6 +5650,7 @@ fn xml_node_to_dom_fast<'a>(
 
 /// Builder for arena-based DOM construction (`FastDom`).
 /// Builds two parallel Vecs (hierarchy + `node_data`) in a single DFS pass.
+#[derive(Debug)]
 pub struct CompactDomBuilder {
     hierarchy: Vec<crate::styled_dom::NodeHierarchyItem>,
     node_data: Vec<crate::dom::NodeData>,
@@ -6141,7 +6145,7 @@ fn combine_and_replace_dynamic_items(
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct CssMatcher {
     path: Vec<CssPathSelector>,
     indices_in_parent: Vec<usize>,

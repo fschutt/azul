@@ -154,7 +154,7 @@ pub type IconResolverCallbackType = extern "C" fn(
 // Icon Provider Inner (single mutex)
 
 /// Inner data for `IconProviderHandle` - all fields behind single mutex
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct IconProviderInner {
     /// Nested map: `pack_name` → (`icon_name` → `RefAny`)
     /// Differentiation between Image/Font/SVG is via `RefAny::downcast`
@@ -391,7 +391,7 @@ impl IconProviderHandle {
 /// 
 /// This is created from `IconProviderHandle::into_shared()` in `App::run()`
 /// and cloned to each window.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SharedIconProvider {
     inner: Arc<Mutex<IconProviderInner>>,
 }

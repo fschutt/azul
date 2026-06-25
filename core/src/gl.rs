@@ -952,6 +952,19 @@ pub struct GlContextPtrInner {
     pub glsl_version: AzString,
 }
 
+impl fmt::Debug for GlContextPtrInner {
+    // `ptr` wraps the external GL context (not Debug); show the rest.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GlContextPtrInner")
+            .field("svg_shader", &self.svg_shader)
+            .field("svg_multicolor_shader", &self.svg_multicolor_shader)
+            .field("fxaa_shader", &self.fxaa_shader)
+            .field("brush_shader", &self.brush_shader)
+            .field("glsl_version", &self.glsl_version)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Drop for GlContextPtrInner {
     fn drop(&mut self) {
         self.ptr.delete_program(self.svg_shader);

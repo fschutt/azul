@@ -50,6 +50,7 @@ const MAX_PARTIAL_MESSAGES: usize = 256;
     out
 }
 
+#[derive(Debug)]
 struct PartialMessage {
     count: u16,
     chunks: BTreeMap<u16, Vec<u8>>,
@@ -57,7 +58,7 @@ struct PartialMessage {
 
 /// Reassembles chunk datagrams into complete messages, tolerating out-of-order
 /// delivery and dropping incomplete messages once too many pile up.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct UdpReassembler {
     partial: BTreeMap<u32, PartialMessage>,
 }

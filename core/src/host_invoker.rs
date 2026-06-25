@@ -60,6 +60,7 @@ pub const AZ_HOST_HANDLE_RTTI_ID: u64 = 0xA20A_4853_5448_5F44;
 /// [`host_handle_to_refany`]. Just the opaque host-language id — the actual
 /// host callable lives on the host side keyed by this id.
 #[repr(C)]
+#[derive(Debug)]
 pub struct HostHandlePayload {
     pub id: u64,
 }
@@ -71,6 +72,7 @@ pub struct HostHandlePayload {
 /// the kind's default value) when they see an unregistered slot rather than
 /// transmuting `0` into a fn pointer and crashing.
 #[repr(C)]
+#[derive(Debug)]
 pub struct InvokerSlot {
     fn_ptr: AtomicUsize,
 }

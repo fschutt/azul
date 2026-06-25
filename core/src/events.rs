@@ -2624,6 +2624,7 @@ pub struct InputInterpreterState {
 ///
 /// Passed to the interpreter callback. Contains references to the current
 /// events and window state. The interpreter reads this and returns system changes.
+#[derive(Debug)]
 pub struct InputInterpreterInfo<'a> {
     pub events: &'a [SyntheticEvent],
     pub hit_test: Option<&'a FullHitTest>,

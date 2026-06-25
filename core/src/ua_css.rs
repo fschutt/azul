@@ -1073,6 +1073,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
 ///
 /// All fields are guaranteed to resolve because `UA_SCROLLBAR_CSS`
 /// contains unconditional fallback entries for every property type.
+#[derive(Debug)]
 pub struct ResolvedUaScrollbar {
     pub color: StyleScrollbarColor,
     pub width: LayoutScrollbarWidth,

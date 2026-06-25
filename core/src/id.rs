@@ -552,6 +552,7 @@ impl Iterator for LinearIterator {
 }
 
 /// An iterator of references to the siblings before a given node.
+#[derive(Debug)]
 pub struct PrecedingSiblings<'a> {
     node_hierarchy: &'a NodeHierarchyRef<'a>,
     node: Option<NodeId>,
@@ -560,6 +561,7 @@ pub struct PrecedingSiblings<'a> {
 impl_node_iterator!(PrecedingSiblings, |node: &Node| node.previous_sibling);
 
 /// Special iterator for using `NodeDataContainerRef`<AzNode> instead of `NodeHierarchy`
+#[derive(Debug)]
 pub struct AzChildren<'a> {
     node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
     node: Option<NodeId>,
@@ -580,6 +582,7 @@ impl Iterator for AzChildren<'_> {
 }
 
 /// Special iterator for using `NodeDataContainerRef`<AzNode> instead of `NodeHierarchy`
+#[derive(Debug)]
 pub struct AzReverseChildren<'a> {
     node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
     node: Option<NodeId>,
@@ -656,6 +659,7 @@ impl NodeId {
 }
 
 /// An iterator of references to the children of a given node.
+#[derive(Debug)]
 pub struct Children<'a> {
     node_hierarchy: &'a NodeHierarchyRef<'a>,
     node: Option<NodeId>,
