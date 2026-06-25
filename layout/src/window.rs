@@ -277,7 +277,7 @@ pub struct DomLayoutResult {
 }
 
 /// State for tracking scrollbar drag interaction
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct ScrollbarDragState {
     pub hit_id: ScrollbarHitId,
     pub initial_mouse_pos: LogicalPosition,

@@ -4487,7 +4487,7 @@ impl ExternalSystemCallbacks {
 }
 
 /// Request to change focus, returned from callbacks
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq)]
 pub enum FocusUpdateRequest {
     /// Focus a specific node
     FocusNode(DomNodeId),

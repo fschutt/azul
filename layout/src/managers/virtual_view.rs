@@ -286,7 +286,7 @@ impl VirtualViewManager {
 }
 
 /// Debug info for a single `VirtualView`, returned by `get_all_virtual_view_infos`
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct VirtualViewDebugInfo {
     pub parent_dom_id: usize,
     pub parent_node_id: usize,

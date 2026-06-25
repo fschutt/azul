@@ -2070,7 +2070,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                     }
                     if let Some(warm) = tree.warm_mut(node_index) {
                         warm.overflow_content_size = Some(cached_layout.content_size);
-                        warm.scrollbar_info = Some(cached_layout.scrollbar_info.clone());
+                        warm.scrollbar_info = Some(cached_layout.scrollbar_info);
                     }
 
                     let box_props = tree.get(node_index)
@@ -2257,7 +2257,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
 
         // Update warm fields
         if let Some(warm) = tree.warm_mut(node_index) {
-            warm.scrollbar_info = Some(merged_scrollbar_info.clone());
+            warm.scrollbar_info = Some(merged_scrollbar_info);
             // Store overflow content size for scroll frame calculation
             // +spec:overflow:f28d6a - hanging glyphs should be ink overflow, not scrollable overflow (not yet subtracted from content_size)
             warm.overflow_content_size = Some(content_size);

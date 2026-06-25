@@ -2379,7 +2379,7 @@ impl Default for CaretStyle {
 /// scrollbars. The previous heuristic (>3 children = force overflow) caused
 /// false-positive scrollbars on normal containers.
 #[must_use] pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirements {
-    node.scrollbar_info.clone().unwrap_or_default()
+    node.scrollbar_info.unwrap_or_default()
 }
 
 /// Resolve the **layout-effective** scrollbar width for a node, in pixels.
@@ -4321,7 +4321,7 @@ use azul_css::props::style::scrollbar::{
 ///   1. `-azul-scrollbar-style`  (full `ScrollbarInfo` override)
 ///   2. `scrollbar-width`        (overrides width + overlay mode)
 ///   3. `scrollbar-color`        (overrides thumb / track colours)
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct ComputedScrollbarStyle {
     /// The scrollbar width mode (auto/thin/none)
     pub width_mode: LayoutScrollbarWidth,
@@ -4625,7 +4625,7 @@ pub fn get_scrollbar_style_cached<T: ParsedFontTrait>(
     node_state: &StyledNodeState,
 ) -> ComputedScrollbarStyle {
     if let Some(s) = ctx.scrollbar_style_cache.borrow().get(&node_id) {
-        return s.clone();
+        return *s;
     }
     let style = get_scrollbar_style(
         ctx.styled_dom,
@@ -4635,7 +4635,7 @@ pub fn get_scrollbar_style_cached<T: ParsedFontTrait>(
     );
     ctx.scrollbar_style_cache
         .borrow_mut()
-        .insert(node_id, style.clone());
+        .insert(node_id, style);
     style
 }
 

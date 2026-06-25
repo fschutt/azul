@@ -144,7 +144,7 @@ pub struct Event {
     pub kind: EventKind,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub enum EventKind {
     /// A timed scope's wall-clock duration.
     Span { dur_ns: u64 },

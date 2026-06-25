@@ -19,7 +19,7 @@ use crate::window::DomLayoutResult;
 /// after layout is complete (W3C "flag and defer" pattern).
 ///
 /// This is set during focus event handling and consumed after layout pass.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq)]
 pub struct PendingContentEditableFocus {
     /// The DOM where the contenteditable element is
     pub dom_id: DomId,

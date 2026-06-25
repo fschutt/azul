@@ -82,7 +82,7 @@ pub struct ScrollPhysicsState {
 use azul_core::id::NodeId;
 
 /// Per-node scroll physics state
-#[derive(Debug, Clone, Default)]
+#[derive(Copy, Debug, Clone, Default)]
 pub struct NodeScrollPhysics {
     /// Current velocity in pixels/second
     pub velocity: LogicalPosition,

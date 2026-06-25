@@ -139,7 +139,7 @@ impl PermissionState {
 /// reserved for in-place parameter changes (e.g. camera-facing front → back)
 /// once `CameraPreview` lands as a `NodeType` — kept in the enum so platform
 /// backends can ignore it cleanly until then.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum PermissionDiffEvent {
     /// First appearance of `capability` in the layout. Refcount went 0 → 1.
@@ -165,7 +165,7 @@ pub enum PermissionDiffEvent {
 /// caused the most recent 0 → 1 transition; the platform backend uses it
 /// to anchor permission-related events back to a node (so an
 /// `On::CameraPermissionDenied` callback fires on the right `CameraPreview`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq)]
 pub struct CapabilityEntry {
     pub state: PermissionState,
     pub refcount: u32,

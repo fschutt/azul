@@ -57,7 +57,7 @@ use crate::{
 ///
 /// It is designed to be used in conjunction with a mechanism that reads font files
 /// from paths into memory. This loader simply handles the parsing aspect.
-#[derive(Debug, Default, Clone)]
+#[derive(Copy, Debug, Default, Clone)]
 pub struct PathLoader;
 
 impl PathLoader {
@@ -70,7 +70,7 @@ impl PathLoader {
     /// Convenience wrapper for callers that have a path but no
     /// `Arc<FontBytes>` yet — uses a heap read (`Owned`) since a
     /// loose path won't go through the fontconfig dedup cache.
-    pub(crate) fn load_from_path(&self, path: &Path, font_index: usize) -> Result<FontRef, LayoutError> {
+    pub(crate) fn load_from_path(self, path: &Path, font_index: usize) -> Result<FontRef, LayoutError> {
         let font_bytes = std::fs::read(path).map_err(|_| {
             LayoutError::FontNotFound(FontSelector {
                 family: path.to_string_lossy().into_owned(),

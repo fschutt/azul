@@ -14,7 +14,7 @@ use azul_core::dom::ScrollbarOrientation;
 
 /// Information about scrollbar requirements and dimensions
 // +spec:overflow:55c244 - scrollbar appearance, size, and edge placement are UA-defined
-#[derive(Debug, Clone, Default)]
+#[derive(Copy, Debug, Clone, Default)]
 #[repr(C)]
 pub struct ScrollbarRequirements {
     pub needs_horizontal: bool,

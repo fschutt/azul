@@ -78,7 +78,7 @@ pub struct TextOpReplaceText {
 }
 
 /// Set selection to new range
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct TextOpSetSelection {
     pub old_range: OptionSelectionRange,
@@ -86,7 +86,7 @@ pub struct TextOpSetSelection {
 }
 
 /// Extend selection in a direction
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct TextOpExtendSelection {
     pub old_range: SelectionRange,
@@ -95,14 +95,14 @@ pub struct TextOpExtendSelection {
 }
 
 /// Clear all selections
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct TextOpClearSelection {
     pub old_range: SelectionRange,
 }
 
 /// Move cursor to new position
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct TextOpMoveCursor {
     pub old_position: CursorPosition,
@@ -137,7 +137,7 @@ pub struct TextOpPaste {
 }
 
 /// Select all text in node
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct TextOpSelectAll {
     pub old_range: OptionSelectionRange,

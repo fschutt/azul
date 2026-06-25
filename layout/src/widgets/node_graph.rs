@@ -353,7 +353,7 @@ impl_vec_debug!(InputConnection, InputConnectionVec);
 impl_vec_mut!(InputConnection, InputConnectionVec);
 
 /// Reference to a specific output port on a node.
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct OutputNodeAndIndex {
     pub node_id: NodeGraphNodeId,
@@ -389,7 +389,7 @@ impl_vec_debug!(OutputConnection, OutputConnectionVec);
 impl_vec_mut!(OutputConnection, OutputConnectionVec);
 
 /// Reference to a specific input port on a node.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct InputNodeAndIndex {
     pub node_id: NodeGraphNodeId,

@@ -655,7 +655,7 @@ azul_core::impl_managed_callback! {
     extra_args:     [ state: TextInputState ],
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum TextInputSelection {
     All,

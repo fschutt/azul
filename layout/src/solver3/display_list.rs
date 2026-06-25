@@ -2981,7 +2981,7 @@ where
 
         // Get scrollbar info to adjust clip rect for content area
         let scrollbar_info = self.positioned_tree.tree.warm(node_index)
-            .and_then(|w| w.scrollbar_info.clone())
+            .and_then(|w| w.scrollbar_info)
             .unwrap_or_default();
 
         // +spec:overflow:13cacb - clip rect clamped to 0 so zero-size clips hide all pixels
@@ -3740,7 +3740,7 @@ where
 
         // Check if we need to draw scrollbars for this node.
         let scrollbar_info = self.positioned_tree.tree.warm(node_index)
-            .and_then(|w| w.scrollbar_info.clone())
+            .and_then(|w| w.scrollbar_info)
             .unwrap_or_default();
 
         // Get node_id for GPU cache lookup and CSS style lookup
