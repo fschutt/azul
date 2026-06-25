@@ -6192,13 +6192,12 @@ pub(crate) fn apply_text_overflow_ellipsis(
     // Approximate ellipsis width as ~0.6 * font_size (typical for "..." in most fonts).
     // This is a heuristic; proper implementation requires font metric access.
     for item in &mut display_list.items {
-        match item {
-            DisplayListItem::Text {
-                glyphs,
-                font_size_px,
-                clip_rect,
-                ..
-            } => {
+        if let DisplayListItem::Text {
+            glyphs,
+            font_size_px,
+            clip_rect,
+            ..
+        } = item {
                 if glyphs.is_empty() {
                     continue;
                 }
@@ -6249,8 +6248,6 @@ pub(crate) fn apply_text_overflow_ellipsis(
                 // the ellipsis is visible but nothing past it is shown
                 *clip_rect = container_bounds.into();
             }
-            _ => {} // Only process Text items
-        }
     }
 }
 

@@ -2261,7 +2261,7 @@ impl CallbackInfo {
                 (name, AttributeType::Custom(nv)) if nv.attr_name.as_str() == name => {
                     return Some(nv.value.clone());
                 }
-                _ => continue,
+                _ => {}
             }
         }
 

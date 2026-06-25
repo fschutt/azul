@@ -134,13 +134,8 @@ fn test_empty_cell_detection_logic() {
         }];
 
     for (idx, cell) in cells.iter().enumerate() {
-        let is_empty = if !cell.has_children {
-            true
-        } else if cell.has_inline_content {
-            false // Assume inline content means not empty (simplified)
-        } else {
-            false // Has children = not empty
-        };
+        // empty iff there are no children (inline content / children both => not empty)
+        let is_empty = !cell.has_children;
 
         match idx {
             0 => assert!(is_empty, "Cell 0 should be empty"),

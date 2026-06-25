@@ -7819,7 +7819,8 @@ fn position_floated_child(
             };
             floating_context.floats.push(new_float_box);
             return Ok(final_pos);
-        } else {
+        }
+        {
             // +spec:floats:3d89d8 - shift float downward when not enough horizontal room
             // It doesn't fit. We must move the float down past an obstacle.
             // Find the lowest main-axis end of all floats that are blocking
