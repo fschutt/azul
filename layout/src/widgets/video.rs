@@ -34,6 +34,7 @@ const DEFAULT_H: u32 = 720;
 
 /// Live state for one video widget, carried across relayout by
 /// [`merge_video_state`].
+#[derive(Debug)]
 pub struct VideoWidgetState {
     /// The requested playback configuration (source + autoplay/loop).
     pub config: VideoConfig,
@@ -74,6 +75,7 @@ pub struct VideoWidgetState {
 /// A video-playback widget. `create(config).dom()` yields an `<img>` the
 /// decode thread keeps fed.
 #[repr(C)]
+#[derive(Debug)]
 pub struct VideoWidget {
     /// Source URL + autoplay/loop + format.
     pub config: VideoConfig,

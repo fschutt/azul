@@ -103,6 +103,7 @@ mod imp {
     feature = "web_lift"
 ))]
 mod imp {
+    #[derive(Debug)]
     pub struct Span;
 
     impl Drop for Span {
@@ -155,6 +156,7 @@ pub enum EventKind {
 pub use imp::Span;
 
 /// Probe API. All methods are no-ops without the `probe` feature.
+#[derive(Debug)]
 pub struct Probe {
     _no_construct: PhantomData<()>,
 }

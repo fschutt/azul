@@ -483,6 +483,7 @@ fn render_box_shadow(
 }
 
 /// Entry on the mask/opacity stack.
+#[derive(Debug)]
 pub enum MaskEntry {
     /// Image mask clip (R8 mask).
     ImageMask {
@@ -759,6 +760,7 @@ pub type ScrollOffsetMap = HashMap<LocalScrollId, (f32, f32)>;
 /// Bundles scroll offsets and GPU-animated values (transforms, opacities)
 /// that `WebRender` would normally manage internally. In cpurender these
 /// are looked up from the `GpuValueCache` at screenshot time.
+#[derive(Debug)]
 pub struct CpuRenderState {
     /// Scroll offsets by `scroll_id`
     pub scroll_offsets: ScrollOffsetMap,
@@ -2677,6 +2679,7 @@ impl Default for ComponentPreviewOptions {
 }
 
 /// Result of a component preview render.
+#[derive(Debug)]
 pub struct ComponentPreviewResult {
     /// PNG-encoded image data.
     pub png_data: Vec<u8>,

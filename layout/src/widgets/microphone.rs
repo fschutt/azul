@@ -83,6 +83,7 @@ struct MicThreadInit {
 
 /// Live state for one microphone widget, carried across relayout by
 /// [`merge_microphone_state`].
+#[derive(Debug)]
 pub struct MicrophoneWidgetState {
     /// The requested capture configuration (rate + channels).
     pub config: AudioConfig,
@@ -96,6 +97,7 @@ pub struct MicrophoneWidgetState {
 /// A microphone-capture widget. `create(config).with_on_frame(..).dom()` yields
 /// an invisible node a background capture thread feeds.
 #[repr(C)]
+#[derive(Debug)]
 pub struct MicrophoneWidget {
     /// Requested capture config (sample rate, channels).
     pub config: AudioConfig,

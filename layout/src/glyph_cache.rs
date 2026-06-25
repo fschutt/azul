@@ -45,6 +45,15 @@ pub struct CachedGlyph<'a> {
     pub is_hinted: bool,
 }
 
+impl core::fmt::Debug for CachedGlyph<'_> {
+    // `path` is agg_rust's PathStorage (not Debug); show the rest.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CachedGlyph")
+            .field("is_hinted", &self.is_hinted)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Pre-rasterized glyph cells at a canonical position.
 /// Contains the rasterizer's cell output for a glyph at sub-pixel position (`subpx_x`, `subpx_y`).
 /// To render at actual position (x, y), add integer pixel offset to each cell.
@@ -63,6 +72,16 @@ const MAX_CELL_ENTRIES: usize = 16384;
 pub struct GlyphCache {
     paths: HashMap<GlyphPathKey, Option<(PathStorage, bool)>>,
     cells: HashMap<GlyphCellKey, Option<CachedCells>>,
+}
+
+impl core::fmt::Debug for GlyphCache {
+    // Values hold agg_rust PathStorage / CellAa (not Debug); show entry counts.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("GlyphCache")
+            .field("paths", &self.paths.len())
+            .field("cells", &self.cells.len())
+            .finish_non_exhaustive()
+    }
 }
 
 /// Quantize a fractional pixel position to 1/4 pixel (0..3).

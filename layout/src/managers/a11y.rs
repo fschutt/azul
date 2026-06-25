@@ -47,6 +47,7 @@ pub struct CursorA11yInfo {
 /// 2. Generating `TreeUpdate`s by comparing layout results with the stored tree
 /// 3. Translating `ActionRequest`s from screen readers into synthetic Azul events
 #[cfg(feature = "a11y")]
+#[derive(Debug)]
 pub struct A11yManager {
     /// The root node ID of the accessibility tree (represents the window).
     pub root_id: A11yNodeId,

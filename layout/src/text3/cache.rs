@@ -5404,6 +5404,7 @@ pub enum IncrementalRelayoutResult {
 
 /// Cached shaped result for a single visual item (or coalesced group).
 /// Enables per-item cache hits when only one word changes in a paragraph.
+#[derive(Debug)]
 pub(crate) struct PerItemShapedEntry {
     /// The shaped clusters for this single item/group.
     pub(crate) clusters: Vec<ShapedItem>,
@@ -5411,6 +5412,7 @@ pub(crate) struct PerItemShapedEntry {
     pub(crate) total_advance: f32,
 }
 
+#[derive(Debug)]
 pub struct TextShapingCache {
     // Stage 1 Cache: InlineContent -> LogicalItems
     logical_items: HashMap<CacheId, Arc<Vec<LogicalItem>>>,
@@ -8489,7 +8491,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
 }
 
 /// Represents a single valid hyphenation point within a word.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct HyphenationBreak {
     /// The number of characters from the original word string included on the line.
     pub char_len_on_line: usize,
@@ -10251,6 +10253,7 @@ fn is_break_opportunity(item: &ShapedItem) -> bool {
 
 // A cursor to manage the state of the line breaking process.
 // This allows us to handle items that are partially consumed by hyphenation.
+#[derive(Debug)]
 pub struct BreakCursor<'a> {
     /// A reference to the complete list of shaped items.
     pub items: &'a [ShapedItem],

@@ -312,6 +312,7 @@ pub struct DirtyTextNode {
 }
 
 /// Result of applying a text changeset
+#[derive(Debug)]
 pub struct TextChangesetResult {
     /// Nodes that need dirty marking
     pub dirty_nodes: Vec<DomNodeId>,
@@ -328,6 +329,7 @@ pub struct TextChangesetResult {
 /// - Generate display lists for rendering
 /// - Handle window resizes efficiently
 /// - Manage multiple DOMs (for `VirtualViews`)
+#[derive(Debug)]
 pub struct LayoutWindow {
     /// M12.7 web/headless: skip the GPU transform/opacity sync in
     /// `layout_dom_recursive`. That sync only feeds the display list (which
@@ -3903,6 +3905,7 @@ fn calculate_accelerated_scroll_delta(distance: EdgeDistance) -> LogicalPosition
 }
 
 /// Result of a layout operation
+#[derive(Debug)]
 pub struct LayoutResult {
     pub display_list: DisplayList,
     pub warnings: Vec<String>,

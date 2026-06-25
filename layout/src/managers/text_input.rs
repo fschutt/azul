@@ -112,6 +112,7 @@ pub enum TextInputSource {
 ///
 /// Centralizes all text editing logic. This is the single source of truth
 /// for text input state.
+#[derive(Debug)]
 pub struct TextInputManager {
     /// The pending text changeset that hasn't been applied yet.
     /// This is set during the "record" phase and cleared after the "apply" phase.

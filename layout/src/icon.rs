@@ -56,6 +56,7 @@ use azul_core::{
 ///
 /// Pass to `register_image_icon` or wrap in `RefAny::new(...)` and register
 /// directly via `IconProviderHandle::register_icon`.
+#[derive(Debug)]
 pub struct ImageIconData {
     pub image: ImageRef,
     /// Width duplicated from `ImageRef` at registration time
@@ -68,6 +69,7 @@ pub struct ImageIconData {
 ///
 /// Pass to `register_font_icon` or wrap in `RefAny::new(...)` and register
 /// directly via `IconProviderHandle::register_icon`.
+#[derive(Debug)]
 pub struct FontIconData {
     pub font: FontRef,
     /// The character/codepoint for this specific icon (e.g., "\u{e88a}" for home)

@@ -189,6 +189,7 @@ use crate::{
 };
 
 /// Central context for a single layout pass.
+#[derive(Debug)]
 pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub styled_dom: &'a StyledDom,
     #[cfg(feature = "text_layout")]

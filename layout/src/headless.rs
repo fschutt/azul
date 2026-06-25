@@ -42,6 +42,7 @@ const CLIP_UNBOUNDED: f32 = 1.0e7;
 /// This is actually simpler and faster than the `WebRender` path, since we
 /// don't need to go through the compositor's spatial tree — we just walk
 /// the layout result nodes and check point-in-rect.
+#[derive(Debug)]
 pub struct CpuHitTester {
     /// Cached hit test results from the last layout.
     /// Maps `DomId` -> list of (`NodeId`, positioned rect) sorted by paint order.

@@ -151,7 +151,7 @@ pub fn upload_rgba(gl: &GlContextPtr, texture_id: u32, frame: &VideoFrame) {
 /// `PipeWire` / DXGI for screens, ...). These are plain Rust fn pointers - the dll
 /// links azul-layout statically, so registering + calling is a Rust-to-Rust
 /// call, no `extern "C"`/trait-object dance.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct CaptureVTable {
     /// Open source `index` (camera device / display index) at the requested
     /// `width` x `height`. Returns an opaque handle, or `0` on failure (the
@@ -195,7 +195,7 @@ pub fn screen_backend() -> Option<CaptureVTable> {
 ///
 /// Like
 /// [`CaptureVTable`] but yields interleaved `f32` audio rather than RGBA video.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct AudioCaptureVTable {
     /// Open the default mic at `sample_rate` x `channels`. Opaque handle, or
     /// `0` on failure.

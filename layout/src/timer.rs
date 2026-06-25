@@ -270,7 +270,7 @@ impl Default for Timer {
 ///
 /// This wraps `CallbackInfo` and adds timer-specific fields like `call_count` and `frame_start`.
 /// `CallbackInfo` methods are available via explicit delegation methods below.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 #[allow(clippy::pub_underscore_fields)] // _abi_ref/_abi_mut: intentional FFI/api.json ABI-stability placeholder fields
 pub struct TimerCallbackInfo {

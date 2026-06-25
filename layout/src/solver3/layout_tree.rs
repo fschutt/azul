@@ -1201,6 +1201,7 @@ fn compute_subtree_needs_intrinsic(
 /// on the root DOM node, then call [`build`](Self::build) to produce the final
 /// SoA-split `LayoutTree`. During `process_node`, anonymous boxes are generated
 /// as required by CSS 2.2 §9.2.1.1 (inline wrappers) and §17.2.1 (table fixup).
+#[derive(Debug)]
 pub struct LayoutTreeBuilder {
     nodes: Vec<LayoutNode>,
     dom_to_layout: BTreeMap<NodeId, Vec<usize>>,

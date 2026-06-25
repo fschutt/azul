@@ -29,6 +29,7 @@ pub struct LayerId(pub u64);
 ///
 /// Holds a tree of `Layer`s, each with its own pixbuf. On incremental updates
 /// only damaged layers are re-rendered, and scroll is handled by pixel-shift.
+#[derive(Debug)]
 pub struct CompositorState {
     /// All layers keyed by ID.
     pub layers: HashMap<LayerId, Layer>,
@@ -41,6 +42,7 @@ pub struct CompositorState {
 }
 
 /// A single compositing layer with its own pixel buffer.
+#[derive(Debug)]
 pub struct Layer {
     pub id: LayerId,
     /// Persistent RGBA buffer for this layer's content.

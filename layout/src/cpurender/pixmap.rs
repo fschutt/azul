@@ -160,6 +160,7 @@ pub fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
 }
 
 /// A simple RGBA pixel buffer. Replaces `tiny_skia::Pixmap`.
+#[derive(Debug)]
 pub struct AzulPixmap {
     pub(crate) data: Vec<u8>,
     pub(crate) width: u32,

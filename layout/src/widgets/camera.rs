@@ -43,6 +43,7 @@ struct CameraThreadInit {
 
 /// Live state for one camera widget, carried across relayout by
 /// [`merge_camera_state`].
+#[derive(Debug)]
 pub struct CameraWidgetState {
     /// The requested capture configuration (the control POD).
     pub config: CameraConfig,
@@ -58,6 +59,7 @@ pub struct CameraWidgetState {
 /// A camera-preview widget. `create(config).dom()` yields an `<img>` the
 /// capture thread keeps fed.
 #[repr(C)]
+#[derive(Debug)]
 pub struct CameraWidget {
     /// Requested capture config (camera facing, resolution, fps, format).
     pub config: CameraConfig,

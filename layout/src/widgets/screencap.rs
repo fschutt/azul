@@ -36,6 +36,7 @@ const DEFAULT_H: u32 = 720;
 
 /// Live state for one screencap widget, carried across relayout by
 /// [`merge_screencap_state`].
+#[derive(Debug)]
 pub struct ScreenCaptureWidgetState {
     /// The requested capture configuration (the control POD).
     pub config: ScreenCaptureConfig,
@@ -51,6 +52,7 @@ pub struct ScreenCaptureWidgetState {
 /// A screen-capture widget. `create(config).dom()` yields an `<img>` the
 /// capture thread keeps fed.
 #[repr(C)]
+#[derive(Debug)]
 pub struct ScreenCaptureWidget {
     /// What to capture + fps + format.
     pub config: ScreenCaptureConfig,

@@ -4548,6 +4548,7 @@ where
 /// Combines the layout tree with pre-calculated absolute positions for each node.
 /// The positions are stored separately because they are computed in a final
 /// positioning pass after layout is complete.
+#[derive(Debug)]
 pub struct PositionedTree<'a> {
     /// The layout tree containing all nodes with their computed sizes
     pub tree: &'a LayoutTree,

@@ -693,6 +693,7 @@ impl From<OptionCallback> for Option<Callback> {
 ///
 /// This is pure syntax sugar - the struct lives on the stack in the caller and is passed by
 /// reference.
+#[derive(Debug)]
 pub struct CallbackInfoRefData<'a> {
     /// Pointer to the `LayoutWindow` containing all layout results (READ-ONLY for queries)
     pub layout_window: &'a LayoutWindow,
