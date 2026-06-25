@@ -1293,7 +1293,7 @@ fn inject_software_menubar(user_dom: azul_core::dom::Dom) -> azul_core::dom::Dom
         return user_dom;
     }
     let menu = match user_dom.root.get_menu_bar() {
-        Some(boxed_menu) => (**boxed_menu).clone(),
+        Some(boxed_menu) => boxed_menu.clone(),
         None => return user_dom,
     };
     let menubar = azul_layout::widgets::menubar::build_menubar_dom(&menu);
