@@ -152,13 +152,13 @@ fn test_recursive_focus_change_detection() {
     focus_manager.set_focused_node(Some(nodes[0]));
 
     // Simulate recursive focus changes (as would happen in callbacks)
-    for i in 1..nodes.len() {
+    for &node in &nodes[1..] {
         if recursion_count >= MAX_RECURSION {
             break;
         }
 
         let old_focus = focus_manager.get_focused_node().copied();
-        focus_manager.set_focused_node(Some(nodes[i]));
+        focus_manager.set_focused_node(Some(node));
         let new_focus = focus_manager.get_focused_node();
 
         // Verify focus changed
@@ -286,14 +286,14 @@ fn test_recursion_depth_limit_enforcement() {
     focus_manager.set_focused_node(Some(nodes[0]));
 
     // Simulate recursive focus changes with depth tracking
-    for i in 1..nodes.len() {
+    for &node in &nodes[1..] {
         if depth >= MAX_DEPTH {
             // In real code, event_v2.rs would stop recursion here
             break;
         }
 
         let old_focus = focus_manager.get_focused_node().copied();
-        focus_manager.set_focused_node(Some(nodes[i]));
+        focus_manager.set_focused_node(Some(node));
         let new_focus = focus_manager.get_focused_node();
 
         if old_focus.as_ref() != new_focus {

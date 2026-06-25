@@ -171,9 +171,9 @@ fn test_distribute_height_across_non_collapsed() {
     let non_collapsed_count = 2; // Rows 0 and 2
     let per_row = extra_height / non_collapsed_count as f32;
 
-    for row_idx in 0..row_heights.len() {
+    for (row_idx, h) in row_heights.iter_mut().enumerate() {
         if !collapsed_rows.contains(&row_idx) {
-            row_heights[row_idx] += per_row;
+            *h += per_row;
         }
     }
 

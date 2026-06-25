@@ -644,8 +644,8 @@ enum MatchKind {
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn find_matching_pop(items: &[DisplayListItem], start: usize, kind: MatchKind) -> usize {
     let mut depth = 1u32;
-    for i in (start + 1)..items.len() {
-        match (&items[i], kind) {
+    for (i, item) in items.iter().enumerate().skip(start + 1) {
+        match (item, kind) {
             (DisplayListItem::PushScrollFrame { .. }, MatchKind::ScrollFrame) => depth += 1,
             (DisplayListItem::PopScrollFrame, MatchKind::ScrollFrame) => {
                 depth -= 1;

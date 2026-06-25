@@ -6615,8 +6615,8 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
 
         // Compute per-group cache key
         let mut hasher = DefaultHasher::new();
-        for j in idx..coalesce_end {
-            visual_items[j].text.hash(&mut hasher);
+        for item in &visual_items[idx..coalesce_end] {
+            item.text.hash(&mut hasher);
         }
         layout_hash.hash(&mut hasher);
         bidi_level.hash(&mut hasher);
@@ -6892,14 +6892,14 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         Option<bool>,
                     )> = Vec::with_capacity(coalesce_count);
 
-                    for j in idx..coalesce_end {
+                    for item in &visual_items[idx..coalesce_end] {
                         let start = merged_text.len();
-                        merged_text.push_str(&visual_items[j].text);
+                        merged_text.push_str(&item.text);
                         let end = merged_text.len();
                         if let LogicalItem::Text {
                             style: s, source: src, source_node_id: nid,
                             marker_position_outside: mpo, ..
-                        } = &visual_items[j].logical_source {
+                        } = &item.logical_source {
                             byte_ranges.push((start, end, s.clone(), *src, *nid, *mpo));
                         }
                     }
@@ -10426,8 +10426,8 @@ fn perform_bidi_analysis<'a, 'b: 'a>(
     for (run_idx, run) in styled_runs.iter().enumerate() {
         let start = run.logical_start;
         let end = start + run.text.len();
-        for i in start..end {
-            byte_to_run_index[i] = run_idx;
+        for slot in &mut byte_to_run_index[start..end] {
+            *slot = run_idx;
         }
     }
 

@@ -177,8 +177,8 @@ pub struct SimpleGlyphRun {
                         if let Some(ref mut b) = runs[start].border {
                             b.is_last_fragment = false;
                         }
-                        for j in (start + 1)..(end - 1) {
-                            if let Some(ref mut b) = runs[j].border {
+                        for run in &mut runs[start + 1..end - 1] {
+                            if let Some(ref mut b) = run.border {
                                 b.is_first_fragment = false;
                                 b.is_last_fragment = false;
                             }
