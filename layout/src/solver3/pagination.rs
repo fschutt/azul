@@ -485,7 +485,7 @@ impl FakePageConfig {
     /// Build the `MarginBoxContent` for the header.
     fn build_header_content(&self) -> MarginBoxContent {
         Self::build_margin_content(
-            &self.header_text,
+            self.header_text.as_deref(),
             self.header_page_number,
             self.header_total_pages,
             self.number_format,
@@ -495,7 +495,7 @@ impl FakePageConfig {
     /// Build the `MarginBoxContent` for the footer.
     fn build_footer_content(&self) -> MarginBoxContent {
         Self::build_margin_content(
-            &self.footer_text,
+            self.footer_text.as_deref(),
             self.footer_page_number,
             self.footer_total_pages,
             self.number_format,
@@ -504,15 +504,15 @@ impl FakePageConfig {
 
     /// Shared helper for building header/footer margin box content.
     fn build_margin_content(
-        text: &Option<String>,
+        text: Option<&str>,
         page_number: bool,
         total_pages: bool,
         number_format: CounterFormat,
     ) -> MarginBoxContent {
         let mut parts = Vec::new();
 
-        if let Some(ref text) = text {
-            parts.push(MarginBoxContent::Text(text.clone()));
+        if let Some(text) = text {
+            parts.push(MarginBoxContent::Text(text.to_string()));
             if page_number {
                 parts.push(MarginBoxContent::Text(" - ".to_string()));
             }

@@ -167,7 +167,7 @@ fn test_app_path_menubar_not_clipped() {
     let platform = azul_css::system::Platform::current();
     let fc_cache_clone = font_manager.fc_cache.clone();
     let chains = collect_and_resolve_font_chains_with_registration(
-        &styled_dom, &fc_cache_clone, &mut font_manager, &platform,
+        &styled_dom, &fc_cache_clone, &font_manager, &platform,
     );
     let required = collect_font_ids_from_chains(&chains);
     let already = font_manager.get_loaded_font_ids();
@@ -283,7 +283,7 @@ fn test_probe_words_glyph_counts() {
     };
     let platform = azul_css::system::Platform::current();
     let fcc = font_manager.fc_cache.clone();
-    let chains = collect_and_resolve_font_chains_with_registration(&styled_dom, &fcc, &mut font_manager, &platform);
+    let chains = collect_and_resolve_font_chains_with_registration(&styled_dom, &fcc, &font_manager, &platform);
     let required = collect_font_ids_from_chains(&chains);
     let already = font_manager.get_loaded_font_ids();
     let to_load = compute_fonts_to_load(&required, &already);

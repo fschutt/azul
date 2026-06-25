@@ -2261,6 +2261,9 @@ impl Hash for VerticalAlign {
 
 impl Eq for VerticalAlign {}
 
+// cmp delegates to the derived PartialOrd (unwrap_or(Equal)), so Ord and PartialOrd are
+// consistent; Ord can't be derived because of the f32 `Offset` variant.
+#[allow(clippy::derive_ord_xor_partial_ord)]
 impl Ord for VerticalAlign {
     fn cmp(&self, other: &Self) -> Ordering {
         self.partial_cmp(other).unwrap_or(Ordering::Equal)
@@ -2540,10 +2543,16 @@ impl Hash for Rect {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialOrd)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Size {
     pub width: f32,
     pub height: f32,
+}
+
+impl PartialOrd for Size {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Ord for Size {
