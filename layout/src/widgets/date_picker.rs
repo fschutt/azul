@@ -42,12 +42,12 @@ use azul_core::{
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, *},
-        layout::*,
+        basic::{color::ColorU, StyleFontSize},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutAlignItems, LayoutWidth, LayoutHeight},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextAlign, StyleCursor, StyleUserSelect, StyleTextColor},
     },
-    *,
+    impl_option_inner, AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -109,7 +109,7 @@ azul_core::impl_managed_callback! {
 }
 
 /// A calendar date picker.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct DatePicker {
     pub state: DatePickerStateWrapper,
@@ -118,7 +118,7 @@ pub struct DatePicker {
 }
 
 /// Wraps [`DatePickerState`] together with its change callback.
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct DatePickerStateWrapper {
     pub inner: DatePickerState,
@@ -152,12 +152,12 @@ impl Default for DatePickerState {
 // ---------------------------------------------------------------------------
 
 /// Gregorian leap-year test.
-fn is_leap(year: u32) -> bool {
+const fn is_leap(year: u32) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
 /// Number of days in the given (1-based) month of the given year.
-fn days_in_month(year: u32, month: u32) -> u32 {
+const fn days_in_month(year: u32, month: u32) -> u32 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
@@ -190,7 +190,7 @@ fn weekday(year: u32, month: u32, day: u32) -> u32 {
 }
 
 /// English month name for a 1-based month index.
-fn month_name(month: u32) -> &'static str {
+const fn month_name(month: u32) -> &'static str {
     const NAMES: [&str; 12] = [
         "January",
         "February",
@@ -422,7 +422,7 @@ struct DayCellData {
 impl DatePicker {
     /// Creates a new `DatePicker` showing `year`/`month` with `day` selected.
     /// `month` is clamped to `1..=12` and `day` to `1..=days_in_month`.
-    pub fn create(year: u32, month: u32, day: u32) -> Self {
+    #[must_use] pub fn create(year: u32, month: u32, day: u32) -> Self {
         let month = month.clamp(1, 12);
         let dim = days_in_month(year, month);
         let day = day.clamp(1, dim);
@@ -461,7 +461,7 @@ impl DatePicker {
         s
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         let inner = self.state.inner;
         let year = inner.year;
         let month = inner.month.clamp(1, 12);
@@ -549,7 +549,7 @@ fn build_grid(year: u32, month: u32, sel_day: u32, shared: RefAny) -> Dom {
     let leading = weekday(year, month, 1);
     let dim = days_in_month(year, month);
     let total = leading + dim;
-    let rows = (total + 6) / 7;
+    let rows = total.div_ceil(7);
 
     let mut week_rows: Vec<Dom> = Vec::with_capacity(rows as usize);
     for r in 0..rows {
@@ -586,7 +586,7 @@ fn build_blank_cell() -> Dom {
 fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
-    Dom::create_text(AzString::from(format!("{}", day)))
+    Dom::create_text(AzString::from(format!("{day}")))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DAY_CELL_CLASS))
         .with_css_props(build_day_cell_style(selected))
         .with_callbacks(
@@ -722,7 +722,7 @@ fn month_nav(mut data: RefAny, info: CallbackInfo, delta: i32) -> Update {
 }
 
 impl From<DatePicker> for Dom {
-    fn from(d: DatePicker) -> Dom {
+    fn from(d: DatePicker) -> Self {
         d.dom()
     }
 }

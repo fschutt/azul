@@ -8,12 +8,12 @@ use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::*,
-        layout::*,
+        basic::ColorU,
+        layout::{LayoutDisplay, LayoutHeight, LayoutAlignSelf, LayoutFlexGrow, LayoutMarginTop, LayoutMarginBottom, LayoutWidth, LayoutMarginLeft, LayoutMarginRight},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContent, StyleBackgroundContentVec},
     },
-    *,
+    AzString,
 };
 
 /// Orientation of a [`Divider`].
@@ -28,7 +28,7 @@ pub enum DividerOrientation {
 }
 
 /// A thin separator rule. Stateless; renders a single styled `div`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Divider {
     pub orientation: DividerOrientation,
@@ -75,13 +75,13 @@ static DIVIDER_STYLE_VERTICAL: &[CssPropertyWithConditions] = &[
 impl Divider {
     /// Creates a new horizontal divider with default styling.
     #[inline]
-    pub fn create() -> Self {
+    #[must_use] pub fn create() -> Self {
         Self::create_with_orientation(DividerOrientation::Horizontal)
     }
 
     /// Creates a new divider with the given orientation and default styling.
     #[inline]
-    pub fn create_with_orientation(orientation: DividerOrientation) -> Self {
+    #[must_use] pub fn create_with_orientation(orientation: DividerOrientation) -> Self {
         let divider_style = match orientation {
             DividerOrientation::Horizontal => {
                 CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL)
@@ -104,7 +104,7 @@ impl Divider {
 
     /// Builder-style setter for the orientation.
     #[inline]
-    pub fn with_orientation(mut self, orientation: DividerOrientation) -> Self {
+    #[must_use] pub fn with_orientation(mut self, orientation: DividerOrientation) -> Self {
         self.set_orientation(orientation);
         self
     }
@@ -119,7 +119,7 @@ impl Divider {
 
     /// Converts this divider into a DOM node with the `__azul-native-divider` class.
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         static DIVIDER_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-divider"))];
 
@@ -136,7 +136,7 @@ impl Default for Divider {
 }
 
 impl From<Divider> for Dom {
-    fn from(d: Divider) -> Dom {
+    fn from(d: Divider) -> Self {
         d.dom()
     }
 }

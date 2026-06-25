@@ -10,12 +10,12 @@ use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, *},
-        layout::*,
+        basic::{color::ColorU, StyleFontSize},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutJustifyContent, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContentVec, StyleBackgroundContent, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextAlign, StyleTextColor},
     },
-    *,
+    AzString,
 };
 
 /// The semantic colour variant of a [`Badge`] (mirrors `button::ButtonType`).
@@ -39,35 +39,35 @@ pub enum BadgeKind {
 
 impl BadgeKind {
     /// Returns the `(background, text)` colours for this badge kind.
-    fn colors(&self) -> (ColorU, ColorU) {
+    const fn colors(&self) -> (ColorU, ColorU) {
         const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
         const DARK: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 };
         match self {
-            BadgeKind::Default => (ColorU { r: 108, g: 117, b: 125, a: 255 }, WHITE),
-            BadgeKind::Primary => (ColorU { r: 13, g: 110, b: 253, a: 255 }, WHITE),
-            BadgeKind::Success => (ColorU { r: 25, g: 135, b: 84, a: 255 }, WHITE),
-            BadgeKind::Danger => (ColorU { r: 220, g: 53, b: 69, a: 255 }, WHITE),
-            BadgeKind::Warning => (ColorU { r: 255, g: 193, b: 7, a: 255 }, DARK),
-            BadgeKind::Info => (ColorU { r: 13, g: 202, b: 240, a: 255 }, DARK),
+            Self::Default => (ColorU { r: 108, g: 117, b: 125, a: 255 }, WHITE),
+            Self::Primary => (ColorU { r: 13, g: 110, b: 253, a: 255 }, WHITE),
+            Self::Success => (ColorU { r: 25, g: 135, b: 84, a: 255 }, WHITE),
+            Self::Danger => (ColorU { r: 220, g: 53, b: 69, a: 255 }, WHITE),
+            Self::Warning => (ColorU { r: 255, g: 193, b: 7, a: 255 }, DARK),
+            Self::Info => (ColorU { r: 13, g: 202, b: 240, a: 255 }, DARK),
         }
     }
 
     /// CSS class name for this badge kind (mirrors `ButtonType::class_name`).
-    pub fn class_name(&self) -> &'static str {
+    #[must_use] pub const fn class_name(&self) -> &'static str {
         match self {
-            BadgeKind::Default => "__azul-badge-default",
-            BadgeKind::Primary => "__azul-badge-primary",
-            BadgeKind::Success => "__azul-badge-success",
-            BadgeKind::Danger => "__azul-badge-danger",
-            BadgeKind::Warning => "__azul-badge-warning",
-            BadgeKind::Info => "__azul-badge-info",
+            Self::Default => "__azul-badge-default",
+            Self::Primary => "__azul-badge-primary",
+            Self::Success => "__azul-badge-success",
+            Self::Danger => "__azul-badge-danger",
+            Self::Warning => "__azul-badge-warning",
+            Self::Info => "__azul-badge-info",
         }
     }
 }
 
 /// A small rounded pill showing a short status/count string. Stateless;
 /// renders a single styled text node.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Badge {
     /// The text shown inside the pill.
@@ -137,13 +137,13 @@ fn build_badge_style(kind: BadgeKind) -> CssPropertyWithConditionsVec {
 impl Badge {
     /// Creates a new badge with the given text and the default (grey) kind.
     #[inline]
-    pub fn create(string: AzString) -> Self {
+    #[must_use] pub fn create(string: AzString) -> Self {
         Self::with_kind(string, BadgeKind::Default)
     }
 
     /// Creates a new badge with the given text and colour variant.
     #[inline]
-    pub fn with_kind(string: AzString, kind: BadgeKind) -> Self {
+    #[must_use] pub fn with_kind(string: AzString, kind: BadgeKind) -> Self {
         Self {
             string,
             kind,
@@ -160,7 +160,7 @@ impl Badge {
 
     /// Builder-style setter for the colour variant.
     #[inline]
-    pub fn with_badge_kind(mut self, kind: BadgeKind) -> Self {
+    #[must_use] pub fn with_badge_kind(mut self, kind: BadgeKind) -> Self {
         self.set_kind(kind);
         self
     }
@@ -175,7 +175,7 @@ impl Badge {
 
     /// Converts this badge into a DOM text node with the `__azul-native-badge` class.
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         static BADGE_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-badge"))];
 
@@ -192,7 +192,7 @@ impl Default for Badge {
 }
 
 impl From<Badge> for Dom {
-    fn from(b: Badge) -> Dom {
+    fn from(b: Badge) -> Self {
         b.dom()
     }
 }

@@ -32,12 +32,12 @@ use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithCondi
 use azul_css::{
     impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, impl_vec_partialeq,
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, *},
-        layout::*,
+        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutOverflow, LayoutAlignItems, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleTextColor, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleCursor, StyleUserSelect, StyleTextAlign},
     },
-    *,
+    impl_option_inner, AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -94,7 +94,7 @@ const HEADER_BG_VEC: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(HEADER_BG_ITEMS);
 
 /// One collapsible section: a header title and an arbitrary content body.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct AccordionSection {
     /// The header text shown for this section.
@@ -116,13 +116,13 @@ impl AccordionSection {
     }
 
     /// Builder method: sets the initial open state.
-    pub fn with_open(mut self, open: bool) -> Self {
+    #[must_use] pub const fn with_open(mut self, open: bool) -> Self {
         self.is_open = open;
         self
     }
 }
 
-impl_option!(AccordionSection, OptionAccordionSection, copy = false, [Debug, Clone, PartialEq]);
+impl_option!(AccordionSection, OptionAccordionSection, copy = false, [Debug, Clone, PartialEq, Eq]);
 impl_vec!(
     AccordionSection,
     AccordionSectionVec,
@@ -294,7 +294,7 @@ static ACCORDION_BODY_STYLE_CLOSED: &[CssPropertyWithConditions] = &[
 
 impl Accordion {
     /// Creates a new accordion from the given sections, with no toggle callback.
-    pub fn new(sections: AccordionSectionVec) -> Self {
+    #[must_use] pub fn new(sections: AccordionSectionVec) -> Self {
         Self {
             sections,
             on_toggle: None.into(),
@@ -302,7 +302,7 @@ impl Accordion {
     }
 
     /// Creates an empty accordion.
-    pub fn create() -> Self {
+    #[must_use] pub fn create() -> Self {
         Self::new(AccordionSectionVec::from_const_slice(&[]))
     }
 
@@ -333,7 +333,7 @@ impl Accordion {
     }
 
     /// Renders the accordion into a [`Dom`] subtree.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         let on_toggle = self.on_toggle;
         let sections = self.sections;
 
@@ -465,7 +465,7 @@ extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo
 }
 
 impl From<Accordion> for Dom {
-    fn from(a: Accordion) -> Dom {
+    fn from(a: Accordion) -> Self {
         a.dom()
     }
 }

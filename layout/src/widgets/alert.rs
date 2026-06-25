@@ -23,12 +23,12 @@ use azul_core::{
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, *},
-        layout::*,
+        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutMarginLeft},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContentVec, StyleBackgroundContent, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextColor, StyleTextAlign, StyleCursor, StyleUserSelect},
     },
-    *,
+    impl_option_inner, AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -84,24 +84,24 @@ pub enum AlertKind {
 
 impl AlertKind {
     /// Returns the `(background, border, text)` colours for this alert kind.
-    fn colors(&self) -> (ColorU, ColorU, ColorU) {
+    const fn colors(&self) -> (ColorU, ColorU, ColorU) {
         match self {
-            AlertKind::Info => (
+            Self::Info => (
                 ColorU { r: 207, g: 244, b: 252, a: 255 }, // #cff4fc
                 ColorU { r: 182, g: 239, b: 251, a: 255 }, // #b6effb
                 ColorU { r: 5, g: 81, b: 96, a: 255 },     // #055160
             ),
-            AlertKind::Success => (
+            Self::Success => (
                 ColorU { r: 209, g: 231, b: 221, a: 255 }, // #d1e7dd
                 ColorU { r: 186, g: 219, b: 204, a: 255 }, // #badbcc
                 ColorU { r: 15, g: 81, b: 50, a: 255 },    // #0f5132
             ),
-            AlertKind::Warning => (
+            Self::Warning => (
                 ColorU { r: 255, g: 243, b: 205, a: 255 }, // #fff3cd
                 ColorU { r: 255, g: 236, b: 181, a: 255 }, // #ffecb5
                 ColorU { r: 102, g: 77, b: 3, a: 255 },    // #664d03
             ),
-            AlertKind::Danger => (
+            Self::Danger => (
                 ColorU { r: 248, g: 215, b: 218, a: 255 }, // #f8d7da
                 ColorU { r: 245, g: 194, b: 199, a: 255 }, // #f5c2c7
                 ColorU { r: 132, g: 32, b: 41, a: 255 },   // #842029
@@ -110,18 +110,18 @@ impl AlertKind {
     }
 
     /// CSS class name for this alert kind (mirrors `ButtonType::class_name`).
-    pub fn class_name(&self) -> &'static str {
+    #[must_use] pub const fn class_name(&self) -> &'static str {
         match self {
-            AlertKind::Info => "__azul-alert-info",
-            AlertKind::Success => "__azul-alert-success",
-            AlertKind::Warning => "__azul-alert-warning",
-            AlertKind::Danger => "__azul-alert-danger",
+            Self::Info => "__azul-alert-info",
+            Self::Success => "__azul-alert-success",
+            Self::Warning => "__azul-alert-warning",
+            Self::Danger => "__azul-alert-danger",
         }
     }
 }
 
 /// A coloured inline message box with an optional dismissible close button.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Alert {
     /// Runtime state (`visible`) plus the optional dismiss callback.
@@ -136,7 +136,7 @@ pub struct Alert {
     pub container_style: CssPropertyWithConditionsVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct AlertStateWrapper {
     /// Whether the alert is currently visible.
@@ -155,7 +155,7 @@ pub struct AlertState {
 
 impl Default for AlertState {
     fn default() -> Self {
-        AlertState { visible: true }
+        Self { visible: true }
     }
 }
 
@@ -276,13 +276,13 @@ static ALERT_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
 impl Alert {
     /// Creates a new informational (blue) alert with the given message.
     #[inline]
-    pub fn create(message: AzString) -> Self {
+    #[must_use] pub fn create(message: AzString) -> Self {
         Self::with_kind(message, AlertKind::Info)
     }
 
     /// Creates a new alert with the given message and colour variant.
     #[inline]
-    pub fn with_kind(message: AzString, kind: AlertKind) -> Self {
+    #[must_use] pub fn with_kind(message: AzString, kind: AlertKind) -> Self {
         Self {
             alert_state: AlertStateWrapper::default(),
             message,
@@ -301,20 +301,20 @@ impl Alert {
 
     /// Builder-style setter for the colour variant.
     #[inline]
-    pub fn with_alert_kind(mut self, kind: AlertKind) -> Self {
+    #[must_use] pub fn with_alert_kind(mut self, kind: AlertKind) -> Self {
         self.set_kind(kind);
         self
     }
 
     /// Sets whether the alert shows a "×" close button.
     #[inline]
-    pub fn set_dismissible(&mut self, dismissible: bool) {
+    pub const fn set_dismissible(&mut self, dismissible: bool) {
         self.dismissible = dismissible;
     }
 
     /// Builder-style setter for the dismissible flag.
     #[inline]
-    pub fn with_dismissible(mut self, dismissible: bool) -> Self {
+    #[must_use] pub const fn with_dismissible(mut self, dismissible: bool) -> Self {
         self.set_dismissible(dismissible);
         self
     }
@@ -352,7 +352,7 @@ impl Alert {
 
     /// Converts this alert into a DOM subtree with the `__azul-native-alert` class.
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -432,7 +432,7 @@ extern "C" fn default_on_alert_dismiss(mut data: RefAny, mut info: CallbackInfo)
 }
 
 impl From<Alert> for Dom {
-    fn from(a: Alert) -> Dom {
+    fn from(a: Alert) -> Self {
         a.dom()
     }
 }

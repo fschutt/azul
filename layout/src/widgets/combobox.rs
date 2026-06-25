@@ -55,12 +55,12 @@ use azul_core::{
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, *},
-        layout::*,
+        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
+        layout::{LayoutDisplay, LayoutPosition, LayoutFlexGrow, LayoutMinWidth, LayoutFlexDirection, LayoutAlignItems, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutTop, LayoutLeft},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleCursor, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextColor, StyleTextAlign, StyleUserSelect},
     },
-    *,
+    impl_option_inner, AzString, StringVec,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -135,7 +135,7 @@ azul_core::impl_managed_callback! {
 
 /// An editable filtered-select widget: a text field plus a click-toggled list of
 /// options.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct ComboBox {
     /// Runtime state (`open`/`selected`/`text`) plus the item list and the
@@ -145,7 +145,7 @@ pub struct ComboBox {
     pub placeholder: AzString,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct ComboBoxStateWrapper {
     /// The mutable per-interaction state passed to `on_select`.
@@ -168,7 +168,7 @@ impl Default for ComboBoxStateWrapper {
 
 /// The live state of a [`ComboBox`]: whether the list is open, the currently
 /// selected index, and the current (editable) field text.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct ComboBoxState {
     /// `true` = list shown, `false` (default) = list hidden.
@@ -418,7 +418,7 @@ static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
 
 impl ComboBox {
     /// Creates a new combobox with the given options (no callback, nothing typed).
-    pub fn new(items: StringVec) -> Self {
+    #[must_use] pub fn new(items: StringVec) -> Self {
         Self {
             combo_state: ComboBoxStateWrapper {
                 inner: ComboBoxState::default(),
@@ -430,19 +430,19 @@ impl ComboBox {
     }
 
     /// Creates an empty combobox.
-    pub fn create() -> Self {
+    #[must_use] pub fn create() -> Self {
         Self::new(StringVec::from_const_slice(&[]))
     }
 
     /// Sets the initially-selected option index.
     #[inline]
-    pub fn set_selected(&mut self, selected: usize) {
+    pub const fn set_selected(&mut self, selected: usize) {
         self.combo_state.inner.selected = selected;
     }
 
     /// Builder-style setter for the initially-selected index.
     #[inline]
-    pub fn with_selected(mut self, selected: usize) -> Self {
+    #[must_use] pub const fn with_selected(mut self, selected: usize) -> Self {
         self.set_selected(selected);
         self
     }
@@ -455,7 +455,7 @@ impl ComboBox {
 
     /// Builder-style setter for the initial field text.
     #[inline]
-    pub fn with_text(mut self, text: AzString) -> Self {
+    #[must_use] pub fn with_text(mut self, text: AzString) -> Self {
         self.set_text(text);
         self
     }
@@ -468,7 +468,7 @@ impl ComboBox {
 
     /// Builder-style setter for the placeholder.
     #[inline]
-    pub fn with_placeholder(mut self, placeholder: AzString) -> Self {
+    #[must_use] pub fn with_placeholder(mut self, placeholder: AzString) -> Self {
         self.set_placeholder(placeholder);
         self
     }
@@ -504,7 +504,7 @@ impl ComboBox {
 
     /// Renders the combobox into a [`Dom`] subtree with the `__azul-native-combobox`
     /// class.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         // Initial field text: the typed/selected text if present, else the
         // placeholder (a simplification — there is no separate placeholder node,
         // so the placeholder is just the initial label and is replaced on the
@@ -572,7 +572,7 @@ impl ComboBox {
         // Build the option rows. Each carries a CLONE of the shared state so its
         // click handler can mutate selected/open and read the chosen label.
         let mut option_doms: Vec<Dom> = Vec::with_capacity(items.as_ref().len());
-        for option in items.as_ref().iter() {
+        for option in items.as_ref() {
             option_doms.push(
                 Dom::create_text(option.clone())
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_OPTION_CLASS))
@@ -644,7 +644,7 @@ extern "C" fn on_combobox_toggle(mut data: RefAny, mut info: CallbackInfo) -> Up
 }
 
 /// Field text-input handler — appends the typed character(s) to the editable
-/// field text (mirroring text_input). Does NOT re-filter the list (see the
+/// field text (mirroring `text_input`). Does NOT re-filter the list (see the
 /// module-level type-to-filter `TODO2`).
 extern "C" fn on_combobox_text_input(data: RefAny, info: CallbackInfo) -> Update {
     on_combobox_text_input_inner(data, info).unwrap_or(Update::DoNothing)
@@ -672,7 +672,7 @@ fn on_combobox_text_input_inner(mut data: RefAny, mut info: CallbackInfo) -> Opt
     Some(Update::DoNothing)
 }
 
-/// Field key-down handler — implements backspace deletion (mirroring text_input).
+/// Field key-down handler — implements backspace deletion (mirroring `text_input`).
 extern "C" fn on_combobox_key_down(data: RefAny, info: CallbackInfo) -> Update {
     on_combobox_key_down_inner(data, info).unwrap_or(Update::DoNothing)
 }
@@ -764,7 +764,7 @@ extern "C" fn on_combobox_option_click(mut data: RefAny, mut info: CallbackInfo)
 }
 
 impl From<ComboBox> for Dom {
-    fn from(c: ComboBox) -> Dom {
+    fn from(c: ComboBox) -> Self {
         c.dom()
     }
 }

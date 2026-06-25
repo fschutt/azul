@@ -21,12 +21,12 @@ use azul_core::{
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, *},
-        layout::*,
+        basic::{color::ColorU, StyleFontSize},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutJustifyContent, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutWidth, LayoutHeight, LayoutOverflow},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextAlign, StyleTextColor},
     },
-    *,
+    AzString,
 };
 
 static AVATAR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-avatar"))];
@@ -61,31 +61,31 @@ pub enum AvatarSize {
 
 impl AvatarSize {
     /// Diameter of the circle in logical pixels.
-    fn diameter(&self) -> isize {
+    const fn diameter(&self) -> isize {
         match self {
-            AvatarSize::Small => 24,
-            AvatarSize::Medium => 40,
-            AvatarSize::Large => 64,
+            Self::Small => 24,
+            Self::Medium => 40,
+            Self::Large => 64,
         }
     }
 
     /// Corner radius for a full circle = diameter / 2.
-    fn radius(&self) -> isize {
+    const fn radius(&self) -> isize {
         self.diameter() / 2
     }
 
     /// Initials font size in logical pixels.
-    fn font_size(&self) -> isize {
+    const fn font_size(&self) -> isize {
         match self {
-            AvatarSize::Small => 11,
-            AvatarSize::Medium => 16,
-            AvatarSize::Large => 24,
+            Self::Small => 11,
+            Self::Medium => 16,
+            Self::Large => 24,
         }
     }
 }
 
 /// A circular avatar showing an image or initials. Stateless.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Avatar {
     /// Optional image; when present it is shown instead of the initials.
@@ -176,7 +176,7 @@ fn build_image_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
 impl Avatar {
     /// Creates a medium initials avatar with the given text.
     #[inline]
-    pub fn create(initials: AzString) -> Self {
+    #[must_use] pub fn create(initials: AzString) -> Self {
         Self {
             image: None.into(),
             initials,
@@ -187,7 +187,7 @@ impl Avatar {
 
     /// Creates a medium image avatar (with empty fallback initials).
     #[inline]
-    pub fn create_with_image(image: ImageRef) -> Self {
+    #[must_use] pub fn create_with_image(image: ImageRef) -> Self {
         Self {
             image: Some(image).into(),
             initials: AzString::from_const_str(""),
@@ -204,7 +204,7 @@ impl Avatar {
 
     /// Builder-style setter for the avatar image.
     #[inline]
-    pub fn with_image(mut self, image: ImageRef) -> Self {
+    #[must_use] pub fn with_image(mut self, image: ImageRef) -> Self {
         self.set_image(image);
         self
     }
@@ -218,7 +218,7 @@ impl Avatar {
 
     /// Builder-style setter for the size variant.
     #[inline]
-    pub fn with_size(mut self, size: AvatarSize) -> Self {
+    #[must_use] pub fn with_size(mut self, size: AvatarSize) -> Self {
         self.set_size(size);
         self
     }
@@ -233,7 +233,7 @@ impl Avatar {
 
     /// Converts this avatar into a DOM subtree with the `__azul-native-avatar` class.
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         let size = self.size;
         let child = match self.image.into_option() {
             Some(image) => Dom::create_image(image)
@@ -257,7 +257,7 @@ impl Default for Avatar {
 }
 
 impl From<Avatar> for Dom {
-    fn from(a: Avatar) -> Dom {
+    fn from(a: Avatar) -> Self {
         a.dom()
     }
 }

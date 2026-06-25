@@ -31,12 +31,12 @@ use azul_core::{
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, *},
-        layout::*,
-        property::{CssProperty, *},
-        style::*,
+        basic::{color::ColorU, PixelValue, StyleFontSize},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutFlexGrow, LayoutFlexBasis, LayoutWidth, LayoutJustifyContent, LayoutHeight, LayoutMinWidth, LayoutPaddingTop},
+        property::{CssProperty, LayoutFlexBasisValue, LayoutWidthValue},
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleCursor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextAlign, StyleUserSelect, StyleTextColor},
     },
-    *,
+    impl_option_inner, AzString, StringVec,
 };
 
 use crate::callbacks::CallbackInfo;
@@ -77,7 +77,7 @@ azul_core::impl_managed_callback! {
 }
 
 /// A horizontal numbered-step progress indicator with a step-change callback.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Stepper {
     pub stepper_state: StepperStateWrapper,
@@ -87,7 +87,7 @@ pub struct Stepper {
     pub container_style: CssPropertyWithConditionsVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct StepperStateWrapper {
     /// The current step + total step count.
@@ -154,11 +154,11 @@ enum ConnFill {
 }
 
 impl ConnFill {
-    fn bg(self) -> StyleBackgroundContentVec {
+    const fn bg(self) -> StyleBackgroundContentVec {
         match self {
-            ConnFill::Accent => ACCENT_BG,
-            ConnFill::Muted => CONNECTOR_MUTED_BG,
-            ConnFill::Hidden => TRANSPARENT_BG,
+            Self::Accent => ACCENT_BG,
+            Self::Muted => CONNECTOR_MUTED_BG,
+            Self::Hidden => TRANSPARENT_BG,
         }
     }
 }
@@ -279,7 +279,7 @@ fn label_style(reached: bool) -> CssPropertyWithConditionsVec {
 }
 
 /// Connector fill for the left half-line of step `i` (the gap entering circle `i`).
-fn conn_left_fill(i: usize, current: usize) -> ConnFill {
+const fn conn_left_fill(i: usize, current: usize) -> ConnFill {
     if i == 0 {
         ConnFill::Hidden
     } else if i <= current {
@@ -290,7 +290,7 @@ fn conn_left_fill(i: usize, current: usize) -> ConnFill {
 }
 
 /// Connector fill for the right half-line of step `i` (the gap leaving circle `i`).
-fn conn_right_fill(i: usize, last: usize, current: usize) -> ConnFill {
+const fn conn_right_fill(i: usize, last: usize, current: usize) -> ConnFill {
     if i == last {
         ConnFill::Hidden
     } else if i < current {
@@ -302,7 +302,7 @@ fn conn_right_fill(i: usize, last: usize, current: usize) -> ConnFill {
 
 impl Stepper {
     /// Creates a stepper from the given step labels, with the first step current.
-    pub fn create(labels: StringVec) -> Self {
+    #[must_use] pub fn create(labels: StringVec) -> Self {
         let total_steps = labels.as_ref().len();
         Self {
             stepper_state: StepperStateWrapper {
@@ -332,7 +332,7 @@ impl Stepper {
 
     /// Builder-style setter for the current step.
     #[inline]
-    pub fn with_current_step(mut self, current_step: usize) -> Self {
+    #[must_use] pub fn with_current_step(mut self, current_step: usize) -> Self {
         self.set_current_step(current_step);
         self
     }
@@ -367,7 +367,7 @@ impl Stepper {
         self
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -566,7 +566,7 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
 }
 
 impl From<Stepper> for Dom {
-    fn from(s: Stepper) -> Dom {
+    fn from(s: Stepper) -> Self {
         s.dom()
     }
 }

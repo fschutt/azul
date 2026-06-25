@@ -23,12 +23,12 @@ use azul_core::{
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, *},
-        layout::*,
+        basic::{color::ColorU, StyleFontSize},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutJustifyContent, LayoutAlignItems, LayoutFlexGrow, LayoutWidth, LayoutHeight, LayoutAlignSelf, LayoutMarginRight, LayoutMarginBottom, LayoutMarginLeft},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleOpacity, StyleCursor, StyleUserSelect},
     },
-    *,
+    impl_option_inner, AzString, StringVec,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -72,7 +72,7 @@ azul_core::impl_managed_callback! {
 }
 
 /// A group of mutually-exclusive radio options with a selection callback.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct RadioGroup {
     pub radio_group_state: RadioGroupStateWrapper,
@@ -82,7 +82,7 @@ pub struct RadioGroup {
     pub container_style: CssPropertyWithConditionsVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct RadioGroupStateWrapper {
     /// The current selection.
@@ -300,7 +300,7 @@ static RADIO_GROUP_LABEL_STYLE: &[CssPropertyWithConditions] = &[
 
 impl RadioGroup {
     /// Creates a radio group from the given options, with the first one selected.
-    pub fn create(options: StringVec) -> Self {
+    #[must_use] pub fn create(options: StringVec) -> Self {
         Self {
             radio_group_state: RadioGroupStateWrapper {
                 inner: RadioGroupState { selected_index: 0 },
@@ -314,13 +314,13 @@ impl RadioGroup {
 
     /// Sets the currently selected option index.
     #[inline]
-    pub fn set_selected_index(&mut self, selected_index: usize) {
+    pub const fn set_selected_index(&mut self, selected_index: usize) {
         self.radio_group_state.inner.selected_index = selected_index;
     }
 
     /// Builder-style setter for the selected option index.
     #[inline]
-    pub fn with_selected_index(mut self, selected_index: usize) -> Self {
+    #[must_use] pub const fn with_selected_index(mut self, selected_index: usize) -> Self {
         self.set_selected_index(selected_index);
         self
     }
@@ -334,7 +334,7 @@ impl RadioGroup {
 
     /// Builder-style setter for the horizontal layout flag.
     #[inline]
-    pub fn with_horizontal(mut self, horizontal: bool) -> Self {
+    #[must_use] pub fn with_horizontal(mut self, horizontal: bool) -> Self {
         self.set_horizontal(horizontal);
         self
     }
@@ -369,7 +369,7 @@ impl RadioGroup {
         self
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -510,7 +510,7 @@ extern "C" fn on_radio_row_click(mut data: RefAny, mut info: CallbackInfo) -> Up
 }
 
 impl From<RadioGroup> for Dom {
-    fn from(r: RadioGroup) -> Dom {
+    fn from(r: RadioGroup) -> Self {
         r.dom()
     }
 }

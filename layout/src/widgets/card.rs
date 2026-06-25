@@ -10,12 +10,12 @@ use azul_css::css::BoxOrStatic;
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
-        basic::*,
-        layout::*,
-        property::{CssProperty, *},
-        style::*,
+        basic::{ColorU, PixelValueNoPercent, PixelValue, FloatValue},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutFlexGrow},
+        property::{CssProperty, StyleBoxShadowValue, LayoutFlexGrowValue},
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleBoxShadow, BoxShadowClipMode, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius},
     },
-    *,
+    AzString,
 };
 
 /// Card border colour (#dee2e6).
@@ -141,16 +141,16 @@ const CARD_STYLE: &[CssPropertyWithConditions] = &[
     )),
     // soft drop shadow on all four edges
     CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
-        BoxOrStatic::Static(&CARD_SHADOW),
+        BoxOrStatic::Static(&raw const CARD_SHADOW),
     ))),
     CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(
-        BoxOrStatic::Static(&CARD_SHADOW),
+        BoxOrStatic::Static(&raw const CARD_SHADOW),
     ))),
     CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
-        BoxOrStatic::Static(&CARD_SHADOW),
+        BoxOrStatic::Static(&raw const CARD_SHADOW),
     ))),
     CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
-        BoxOrStatic::Static(&CARD_SHADOW),
+        BoxOrStatic::Static(&raw const CARD_SHADOW),
     ))),
 ];
 
@@ -167,7 +167,7 @@ pub struct Card {
 
 impl Card {
     /// Creates a new `Card` wrapping the given content DOM.
-    pub fn create(content: Dom) -> Self {
+    #[must_use] pub const fn create(content: Dom) -> Self {
         Self {
             content,
             flex_grow: 0.0,
@@ -175,7 +175,7 @@ impl Card {
     }
 
     /// Replaces `self` with an empty default card and returns the original.
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(Dom::create_div());
         core::mem::swap(&mut s, self);
         s
@@ -187,23 +187,23 @@ impl Card {
     }
 
     /// Builder-style setter for the body content.
-    pub fn with_content(mut self, content: Dom) -> Self {
+    #[must_use] pub fn with_content(mut self, content: Dom) -> Self {
         self.set_content(content);
         self
     }
 
     /// Sets the flex-grow factor for the card container.
-    pub fn set_flex_grow(&mut self, flex_grow: f32) {
+    pub const fn set_flex_grow(&mut self, flex_grow: f32) {
         self.flex_grow = flex_grow;
     }
 
     /// Builder-style setter for the flex-grow factor.
-    pub fn with_flex_grow(mut self, flex_grow: f32) -> Self {
+    #[must_use] pub const fn with_flex_grow(mut self, flex_grow: f32) -> Self {
         self.set_flex_grow(flex_grow);
         self
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         static CARD_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-card"))];
 
@@ -229,7 +229,7 @@ impl Default for Card {
 }
 
 impl From<Card> for Dom {
-    fn from(c: Card) -> Dom {
+    fn from(c: Card) -> Self {
         c.dom()
     }
 }

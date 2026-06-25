@@ -41,12 +41,12 @@ use azul_core::{
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, *},
-        layout::*,
+        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, PixelValue, StyleFontSize},
+        layout::{LayoutDisplay, LayoutPosition, LayoutTop, LayoutLeft, LayoutWidth, LayoutHeight, LayoutFlexDirection, LayoutJustifyContent, LayoutAlignItems, LayoutFlexGrow, LayoutMinWidth, LayoutMaxWidth, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutRight},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContentVec, StyleBackgroundContent, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextColor, StyleTextAlign, StyleUserSelect, StyleCursor},
     },
-    *,
+    impl_option_inner, AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -105,7 +105,7 @@ azul_core::impl_managed_callback! {
 
 /// An in-app overlay dialog holding arbitrary content, with an optional title and
 /// close button.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Modal {
     /// Runtime state (`open`) plus the optional close callback.
@@ -120,7 +120,7 @@ pub struct Modal {
     pub backdrop_style: CssPropertyWithConditionsVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct ModalStateWrapper {
     /// Whether the dialog is currently open (shown).
@@ -309,7 +309,7 @@ static MODAL_CONTENT_STYLE: &[CssPropertyWithConditions] = &[
 impl Modal {
     /// Creates a new (closed) modal holding `content`, with a "×" close button and
     /// no title.
-    pub fn create(content: Dom) -> Self {
+    #[must_use] pub fn create(content: Dom) -> Self {
         Self {
             modal_state: ModalStateWrapper::default(),
             title: AzString::from_const_str(""),
@@ -327,7 +327,7 @@ impl Modal {
 
     /// Builder-style setter for the title.
     #[inline]
-    pub fn with_title(mut self, title: AzString) -> Self {
+    #[must_use] pub fn with_title(mut self, title: AzString) -> Self {
         self.set_title(title);
         self
     }
@@ -340,7 +340,7 @@ impl Modal {
 
     /// Builder-style setter for the content.
     #[inline]
-    pub fn with_content(mut self, content: Dom) -> Self {
+    #[must_use] pub fn with_content(mut self, content: Dom) -> Self {
         self.set_content(content);
         self
     }
@@ -354,20 +354,20 @@ impl Modal {
 
     /// Builder-style setter for the initial open state.
     #[inline]
-    pub fn with_open(mut self, open: bool) -> Self {
+    #[must_use] pub fn with_open(mut self, open: bool) -> Self {
         self.set_open(open);
         self
     }
 
     /// Sets whether the "×" close button is shown.
     #[inline]
-    pub fn set_close_button(&mut self, show: bool) {
+    pub const fn set_close_button(&mut self, show: bool) {
         self.show_close_button = show;
     }
 
     /// Builder-style setter for the close-button flag.
     #[inline]
-    pub fn with_close_button(mut self, show: bool) -> Self {
+    #[must_use] pub const fn with_close_button(mut self, show: bool) -> Self {
         self.set_close_button(show);
         self
     }
@@ -403,11 +403,11 @@ impl Modal {
 
     /// Renders the modal into a [`Dom`] subtree with the `__azul-native-modal`
     /// class (the backdrop).
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         // Panel children: [close?, title?, content]. The close button is
         // absolutely positioned (top-right), so its document order does not affect
         // the title/content stacking.
-        let mut panel_children = alloc::vec::Vec::new();
+        let mut panel_children = Vec::new();
 
         if self.show_close_button {
             let close = Dom::create_text(AzString::from_const_str("\u{00D7}"))
@@ -500,7 +500,7 @@ extern "C" fn on_modal_close(mut data: RefAny, mut info: CallbackInfo) -> Update
 }
 
 impl From<Modal> for Dom {
-    fn from(m: Modal) -> Dom {
+    fn from(m: Modal) -> Self {
         m.dom()
     }
 }

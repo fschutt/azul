@@ -20,11 +20,11 @@ use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithCondi
 use azul_css::{
     props::{
         basic::{color::ColorU, *},
-        layout::*,
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutWidth, LayoutHeight, LayoutMarginLeft},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleCursor},
     },
-    *,
+    impl_option_inner, AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -203,7 +203,7 @@ fn build_thumb_style(fraction: f32) -> CssPropertyWithConditionsVec {
 
 impl Slider {
     /// Creates a slider with the given current value and `[min, max]` range.
-    pub fn create(value: f32, min: f32, max: f32) -> Self {
+    #[must_use] pub fn create(value: f32, min: f32, max: f32) -> Self {
         let value = value.clamp(min, max);
         Self {
             slider_state: SliderStateWrapper {
@@ -227,7 +227,7 @@ impl Slider {
 
     /// Builder-style setter for the current value.
     #[inline]
-    pub fn with_value(mut self, value: f32) -> Self {
+    #[must_use] pub fn with_value(mut self, value: f32) -> Self {
         self.set_value(value);
         self
     }
@@ -263,7 +263,7 @@ impl Slider {
     }
 
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -350,7 +350,7 @@ fn apply_cursor_value(slider: &mut SliderStateWrapper, info: &mut CallbackInfo) 
     let fraction = (pos.x / width).clamp(0.0, 1.0);
     let min = slider.inner.min;
     let max = slider.inner.max;
-    slider.inner.value = min + fraction * (max - min);
+    slider.inner.value = fraction.mul_add(max - min, min);
 
     // Slide the thumb (first child of the track) to the new position.
     let track_id = info.get_hit_node();
@@ -376,7 +376,7 @@ extern "C" fn on_slider_pointer_down(mut data: RefAny, mut info: CallbackInfo) -
         None => return Update::DoNothing,
     };
     slider.dragging = true;
-    apply_cursor_value(&mut *slider, &mut info)
+    apply_cursor_value(&mut slider, &mut info)
 }
 
 /// Pointer move → if a drag is active, track the value to the cursor.
@@ -388,7 +388,7 @@ extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInfo) -
     if !slider.dragging {
         return Update::DoNothing;
     }
-    apply_cursor_value(&mut *slider, &mut info)
+    apply_cursor_value(&mut slider, &mut info)
 }
 
 /// Pointer up / leave → end the drag.
@@ -400,7 +400,7 @@ extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Upd
 }
 
 impl From<Slider> for Dom {
-    fn from(s: Slider) -> Dom {
+    fn from(s: Slider) -> Self {
         s.dom()
     }
 }

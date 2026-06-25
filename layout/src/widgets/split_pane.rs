@@ -50,12 +50,12 @@ use azul_core::{
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, *},
-        layout::*,
-        property::{CssProperty, *},
-        style::*,
+        basic::{color::ColorU, FloatValue, PixelValue},
+        layout::{LayoutFlexGrow, LayoutFlexDirection, LayoutDisplay, LayoutWidth, LayoutHeight, LayoutOverflow, LayoutFlexBasis, LayoutMinWidth, LayoutMinHeight, LayoutFlexShrink},
+        property::{CssProperty, LayoutFlexGrowValue, LayoutWidthValue, LayoutHeightValue, LayoutFlexBasisValue},
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleCursor},
     },
-    *,
+    impl_option_inner, AzString,
 };
 
 use crate::callbacks::CallbackInfo;
@@ -177,7 +177,7 @@ fn flex_grow_prop(v: f32) -> CssProperty {
 }
 
 /// The cursor's main-axis (drag-axis) coordinate for the given direction.
-fn main_axis(dir: SplitDirection, pos: CursorNodePosition) -> f32 {
+const fn main_axis(dir: SplitDirection, pos: CursorNodePosition) -> f32 {
     match dir {
         SplitDirection::Horizontal => pos.x,
         SplitDirection::Vertical => pos.y,
@@ -185,7 +185,7 @@ fn main_axis(dir: SplitDirection, pos: CursorNodePosition) -> f32 {
 }
 
 /// The container's main-axis (drag-axis) size for the given direction.
-fn main_size(dir: SplitDirection, size: LogicalSize) -> f32 {
+const fn main_size(dir: SplitDirection, size: LogicalSize) -> f32 {
     match dir {
         SplitDirection::Horizontal => size.width,
         SplitDirection::Vertical => size.height,
@@ -260,7 +260,7 @@ fn divider_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
 
 impl SplitPane {
     /// Creates a split pane with the two child `Dom`s, split 50/50.
-    pub fn create(direction: SplitDirection, first: Dom, second: Dom) -> Self {
+    #[must_use] pub fn create(direction: SplitDirection, first: Dom, second: Dom) -> Self {
         Self {
             split_pane_state: SplitPaneStateWrapper {
                 inner: SplitPaneState {
@@ -277,13 +277,13 @@ impl SplitPane {
 
     /// Sets the first-pane fraction, clamped into `[MIN_RATIO, MAX_RATIO]`.
     #[inline]
-    pub fn set_ratio(&mut self, ratio: f32) {
+    pub const fn set_ratio(&mut self, ratio: f32) {
         self.split_pane_state.inner.ratio = ratio.clamp(MIN_RATIO, MAX_RATIO);
     }
 
     /// Builder-style setter for the first-pane fraction.
     #[inline]
-    pub fn with_ratio(mut self, ratio: f32) -> Self {
+    #[must_use] pub const fn with_ratio(mut self, ratio: f32) -> Self {
         self.set_ratio(ratio);
         self
     }
@@ -297,14 +297,14 @@ impl SplitPane {
 
     /// Builder-style setter for the orientation.
     #[inline]
-    pub fn with_direction(mut self, direction: SplitDirection) -> Self {
+    #[must_use] pub fn with_direction(mut self, direction: SplitDirection) -> Self {
         self.set_direction(direction);
         self
     }
 
     /// Replaces the default container style.
     #[inline]
-    pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
         self.container_style = css;
         self
     }
@@ -339,7 +339,7 @@ impl SplitPane {
         self
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -514,7 +514,7 @@ extern "C" fn on_split_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Upda
 }
 
 impl From<SplitPane> for Dom {
-    fn from(s: SplitPane) -> Dom {
+    fn from(s: SplitPane) -> Self {
         s.dom()
     }
 }

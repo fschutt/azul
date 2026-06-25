@@ -28,12 +28,12 @@ use azul_core::{
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, *},
-        layout::*,
+        basic::{color::ColorU, StyleFontSize, StyleFontWeight},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutMarginLeft, LayoutMarginRight},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleCursor, StyleUserSelect, StyleTextColor},
     },
-    *,
+    impl_option_inner, AzString, StringVec,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -74,7 +74,7 @@ azul_core::impl_managed_callback! {
 }
 
 /// A horizontal trail of clickable crumb links ending in the current page.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Breadcrumb {
     pub breadcrumb_state: BreadcrumbStateWrapper,
@@ -84,7 +84,7 @@ pub struct Breadcrumb {
     pub container_style: CssPropertyWithConditionsVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct BreadcrumbStateWrapper {
     /// The last-clicked crumb index.
@@ -156,7 +156,7 @@ static BREADCRUMB_SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
 
 impl Breadcrumb {
     /// Creates a breadcrumb from the given labels (the last is the current page).
-    pub fn create(labels: StringVec) -> Self {
+    #[must_use] pub fn create(labels: StringVec) -> Self {
         Self {
             breadcrumb_state: BreadcrumbStateWrapper::default(),
             labels,
@@ -196,7 +196,7 @@ impl Breadcrumb {
         self
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -314,7 +314,7 @@ extern "C" fn on_crumb_click(mut data: RefAny, mut info: CallbackInfo) -> Update
 }
 
 impl From<Breadcrumb> for Dom {
-    fn from(b: Breadcrumb) -> Dom {
+    fn from(b: Breadcrumb) -> Self {
         b.dom()
     }
 }

@@ -23,12 +23,12 @@ use azul_core::{
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, *},
-        layout::*,
+        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutMarginLeft},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContentVec, StyleBackgroundContent, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextColor, StyleTextAlign, StyleUserSelect, StyleCursor},
     },
-    *,
+    impl_option_inner, AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -87,36 +87,36 @@ pub enum ChipKind {
 
 impl ChipKind {
     /// Returns the `(background, text)` colours for this chip kind.
-    fn colors(&self) -> (ColorU, ColorU) {
+    const fn colors(&self) -> (ColorU, ColorU) {
         const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
         const DARK: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 };
         match self {
             // The default chip is a light neutral pill with dark text (the
             // common "tag" look), unlike Badge's solid grey.
-            ChipKind::Default => (ColorU { r: 233, g: 236, b: 239, a: 255 }, DARK),
-            ChipKind::Primary => (ColorU { r: 13, g: 110, b: 253, a: 255 }, WHITE),
-            ChipKind::Success => (ColorU { r: 25, g: 135, b: 84, a: 255 }, WHITE),
-            ChipKind::Danger => (ColorU { r: 220, g: 53, b: 69, a: 255 }, WHITE),
-            ChipKind::Warning => (ColorU { r: 255, g: 193, b: 7, a: 255 }, DARK),
-            ChipKind::Info => (ColorU { r: 13, g: 202, b: 240, a: 255 }, DARK),
+            Self::Default => (ColorU { r: 233, g: 236, b: 239, a: 255 }, DARK),
+            Self::Primary => (ColorU { r: 13, g: 110, b: 253, a: 255 }, WHITE),
+            Self::Success => (ColorU { r: 25, g: 135, b: 84, a: 255 }, WHITE),
+            Self::Danger => (ColorU { r: 220, g: 53, b: 69, a: 255 }, WHITE),
+            Self::Warning => (ColorU { r: 255, g: 193, b: 7, a: 255 }, DARK),
+            Self::Info => (ColorU { r: 13, g: 202, b: 240, a: 255 }, DARK),
         }
     }
 
     /// CSS class name for this chip kind (mirrors `BadgeKind::class_name`).
-    pub fn class_name(&self) -> &'static str {
+    #[must_use] pub const fn class_name(&self) -> &'static str {
         match self {
-            ChipKind::Default => "__azul-chip-default",
-            ChipKind::Primary => "__azul-chip-primary",
-            ChipKind::Success => "__azul-chip-success",
-            ChipKind::Danger => "__azul-chip-danger",
-            ChipKind::Warning => "__azul-chip-warning",
-            ChipKind::Info => "__azul-chip-info",
+            Self::Default => "__azul-chip-default",
+            Self::Primary => "__azul-chip-primary",
+            Self::Success => "__azul-chip-success",
+            Self::Danger => "__azul-chip-danger",
+            Self::Warning => "__azul-chip-warning",
+            Self::Info => "__azul-chip-info",
         }
     }
 }
 
 /// A compact rounded pill holding a label plus an optional removable "×".
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Chip {
     /// Runtime state (`visible`) plus the optional remove callback.
@@ -131,7 +131,7 @@ pub struct Chip {
     pub container_style: CssPropertyWithConditionsVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct ChipStateWrapper {
     /// Whether the chip is currently visible.
@@ -150,7 +150,7 @@ pub struct ChipState {
 
 impl Default for ChipState {
     fn default() -> Self {
-        ChipState { visible: true }
+        Self { visible: true }
     }
 }
 
@@ -229,13 +229,13 @@ static CHIP_REMOVE_STYLE: &[CssPropertyWithConditions] = &[
 impl Chip {
     /// Creates a new chip with the given label and the default (light-grey) kind.
     #[inline]
-    pub fn create(label: AzString) -> Self {
+    #[must_use] pub fn create(label: AzString) -> Self {
         Self::with_kind(label, ChipKind::Default)
     }
 
     /// Creates a new chip with the given label and colour variant.
     #[inline]
-    pub fn with_kind(label: AzString, kind: ChipKind) -> Self {
+    #[must_use] pub fn with_kind(label: AzString, kind: ChipKind) -> Self {
         Self {
             chip_state: ChipStateWrapper::default(),
             label,
@@ -254,20 +254,20 @@ impl Chip {
 
     /// Builder-style setter for the colour variant.
     #[inline]
-    pub fn with_chip_kind(mut self, kind: ChipKind) -> Self {
+    #[must_use] pub fn with_chip_kind(mut self, kind: ChipKind) -> Self {
         self.set_kind(kind);
         self
     }
 
     /// Sets whether the chip shows a "×" remove affordance.
     #[inline]
-    pub fn set_removable(&mut self, removable: bool) {
+    pub const fn set_removable(&mut self, removable: bool) {
         self.removable = removable;
     }
 
     /// Builder-style setter for the removable flag.
     #[inline]
-    pub fn with_removable(mut self, removable: bool) -> Self {
+    #[must_use] pub const fn with_removable(mut self, removable: bool) -> Self {
         self.set_removable(removable);
         self
     }
@@ -304,7 +304,7 @@ impl Chip {
 
     /// Converts this chip into a DOM subtree with the `__azul-native-chip` class.
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -384,7 +384,7 @@ extern "C" fn default_on_chip_remove(mut data: RefAny, mut info: CallbackInfo) -
 }
 
 impl From<Chip> for Dom {
-    fn from(c: Chip) -> Dom {
+    fn from(c: Chip) -> Self {
         c.dom()
     }
 }

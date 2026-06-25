@@ -20,12 +20,12 @@ use azul_core::{
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, *},
-        layout::*,
+        basic::{color::ColorU, StyleFontSize},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutJustifyContent, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderRightColor, StyleCursor, StyleTextAlign, StyleUserSelect, StyleTextColor, LayoutBorderLeftWidth, StyleBorderLeftStyle, StyleBorderLeftColor, StyleBorderTopLeftRadius, StyleBorderBottomLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomRightRadius},
     },
-    *,
+    impl_option_inner, AzString, StringVec,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -59,7 +59,7 @@ azul_core::impl_managed_callback! {
 }
 
 /// A joined row of mutually-exclusive segments with a selection callback.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Segmented {
     pub segmented_state: SegmentedStateWrapper,
@@ -69,7 +69,7 @@ pub struct Segmented {
     pub container_style: CssPropertyWithConditionsVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct SegmentedStateWrapper {
     /// The current selection.
@@ -267,7 +267,7 @@ fn build_segment_style(selected: bool, is_first: bool, is_last: bool) -> CssProp
 
 impl Segmented {
     /// Creates a segmented control from the given labels, with the first segment selected.
-    pub fn create(labels: StringVec) -> Self {
+    #[must_use] pub fn create(labels: StringVec) -> Self {
         Self {
             segmented_state: SegmentedStateWrapper {
                 inner: SegmentedState { selected_index: 0 },
@@ -282,13 +282,13 @@ impl Segmented {
 
     /// Sets the currently selected segment index.
     #[inline]
-    pub fn set_selected_index(&mut self, selected_index: usize) {
+    pub const fn set_selected_index(&mut self, selected_index: usize) {
         self.segmented_state.inner.selected_index = selected_index;
     }
 
     /// Builder-style setter for the selected segment index.
     #[inline]
-    pub fn with_selected_index(mut self, selected_index: usize) -> Self {
+    #[must_use] pub const fn with_selected_index(mut self, selected_index: usize) -> Self {
         self.set_selected_index(selected_index);
         self
     }
@@ -323,7 +323,7 @@ impl Segmented {
         self
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -443,7 +443,7 @@ extern "C" fn on_segment_click(mut data: RefAny, mut info: CallbackInfo) -> Upda
 }
 
 impl From<Segmented> for Dom {
-    fn from(s: Segmented) -> Dom {
+    fn from(s: Segmented) -> Self {
         s.dom()
     }
 }

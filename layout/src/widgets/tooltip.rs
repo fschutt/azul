@@ -30,12 +30,12 @@ use azul_core::{
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, *},
-        layout::*,
-        property::{CssProperty, *},
-        style::*,
+        basic::{color::ColorU, StyleFontSize},
+        layout::{LayoutDisplay, LayoutPosition, LayoutFlexGrow, LayoutTop, LayoutLeft, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPaddingBottom},
+        property::{CssProperty, StyleWhiteSpaceValue},
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextColor, StyleWhiteSpace, StyleOpacity},
     },
-    *,
+    AzString,
 };
 
 use crate::callbacks::CallbackInfo;
@@ -119,7 +119,7 @@ static TOOLTIP_TIP_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// A tooltip: an anchor [`Dom`] plus the text shown on hover.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Tooltip {
     /// The element the tooltip is attached to.
@@ -140,7 +140,7 @@ impl Default for Tooltip {
 
 impl Tooltip {
     /// Creates a tooltip wrapping `anchor` that shows `text` on hover.
-    pub fn new(anchor: Dom, text: AzString) -> Self {
+    #[must_use] pub fn new(anchor: Dom, text: AzString) -> Self {
         Self {
             anchor,
             text,
@@ -157,7 +157,7 @@ impl Tooltip {
 
     /// Builder-style setter for the tip text.
     #[inline]
-    pub fn with_text(mut self, text: AzString) -> Self {
+    #[must_use] pub fn with_text(mut self, text: AzString) -> Self {
         self.set_text(text);
         self
     }
@@ -170,7 +170,7 @@ impl Tooltip {
 
     /// Builder-style setter for the tip popup style.
     #[inline]
-    pub fn with_tip_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_tip_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_tip_style(style);
         self
     }
@@ -182,7 +182,7 @@ impl Tooltip {
         s
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         // The hover handlers only navigate the DOM (the tip is found relative to
         // the hovered wrapper), so no per-tooltip state is needed.
         let marker = RefAny::new(());
@@ -210,7 +210,7 @@ impl Tooltip {
                             cb: on_tooltip_leave as usize,
                             ctx: OptionRefAny::None,
                         },
-                        refany: marker.clone(),
+                        refany: marker,
                     },
                 ]
                 .into(),
@@ -244,7 +244,7 @@ extern "C" fn on_tooltip_leave(_data: RefAny, mut info: CallbackInfo) -> Update 
 }
 
 impl From<Tooltip> for Dom {
-    fn from(t: Tooltip) -> Dom {
+    fn from(t: Tooltip) -> Self {
         t.dom()
     }
 }

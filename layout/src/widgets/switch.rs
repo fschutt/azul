@@ -15,11 +15,11 @@ use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithCondi
 use azul_css::{
     props::{
         basic::{color::ColorU, *},
-        layout::*,
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutWidth, LayoutHeight, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPaddingBottom, LayoutMarginLeft},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleCursor},
     },
-    *,
+    impl_option_inner, AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -52,7 +52,7 @@ azul_core::impl_managed_callback! {
 }
 
 /// A toggleable on/off switch widget with a sliding knob and toggle callback.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Switch {
     pub switch_state: SwitchStateWrapper,
@@ -62,7 +62,7 @@ pub struct Switch {
     pub knob_style: CssPropertyWithConditionsVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct SwitchStateWrapper {
     /// On/off state of this Switch
@@ -72,7 +72,7 @@ pub struct SwitchStateWrapper {
 }
 
 /// The on/off state of a [`Switch`].
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct SwitchState {
     /// `true` = on (knob slid right), `false` = off (knob at left)
@@ -86,7 +86,7 @@ const TRACK_PADDING: isize = 2;
 const TRACK_RADIUS: isize = 10;
 const KNOB_SIZE: isize = 16;
 const KNOB_RADIUS: isize = 8;
-/// Horizontal travel of the knob = track_width − 2·padding − knob_size.
+/// Horizontal travel of the knob = `track_width` − 2·padding − `knob_size`.
 const KNOB_TRAVEL: isize = TRACK_WIDTH - (2 * TRACK_PADDING) - KNOB_SIZE;
 
 // ---- colours ----
@@ -206,7 +206,7 @@ fn build_knob_style(checked: bool) -> CssPropertyWithConditionsVec {
 
 impl Switch {
     /// Creates a new switch in the given on/off state with default styling.
-    pub fn create(checked: bool) -> Self {
+    #[must_use] pub fn create(checked: bool) -> Self {
         Self {
             switch_state: SwitchStateWrapper {
                 inner: SwitchState { checked },
@@ -244,7 +244,7 @@ impl Switch {
     }
 
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::{CoreCallback, CoreCallbackData},
             dom::{Dom, EventFilter, HoverEventFilter},
@@ -257,7 +257,7 @@ impl Switch {
                 vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                     callback: CoreCallback {
-                        cb: self::input::default_on_switch_clicked as usize,
+                        cb: input::default_on_switch_clicked as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
                     },
                     refany: RefAny::new(self.switch_state),
@@ -341,7 +341,7 @@ mod input {
 }
 
 impl From<Switch> for Dom {
-    fn from(s: Switch) -> Dom {
+    fn from(s: Switch) -> Self {
         s.dom()
     }
 }

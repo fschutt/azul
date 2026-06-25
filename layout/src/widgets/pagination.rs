@@ -30,12 +30,12 @@ use azul_core::{
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
-        basic::{color::ColorU, *},
-        layout::*,
+        basic::{color::ColorU, StyleFontSize},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutJustifyContent, LayoutMinWidth, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderRightColor, StyleCursor, StyleTextAlign, StyleUserSelect, StyleTextColor, LayoutBorderLeftWidth, StyleBorderLeftStyle, StyleBorderLeftColor, StyleBorderTopLeftRadius, StyleBorderBottomLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomRightRadius},
     },
-    *,
+    impl_option_inner, AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -74,7 +74,7 @@ azul_core::impl_managed_callback! {
 }
 
 /// A `Prev` / page-numbers / `Next` page navigator with a change callback.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Pagination {
     pub pagination_state: PaginationStateWrapper,
@@ -82,7 +82,7 @@ pub struct Pagination {
     pub container_style: CssPropertyWithConditionsVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct PaginationStateWrapper {
     /// The current page + total page count.
@@ -274,7 +274,7 @@ fn build_button_style(
 impl Pagination {
     /// Creates a pager for `total_pages` pages with `current_page` (1-based)
     /// selected. `current_page` is clamped into `[1, total_pages.max(1)]`.
-    pub fn create(current_page: usize, total_pages: usize) -> Self {
+    #[must_use] pub fn create(current_page: usize, total_pages: usize) -> Self {
         let total_pages = total_pages.max(1);
         let current_page = current_page.clamp(1, total_pages);
         Self {
@@ -300,7 +300,7 @@ impl Pagination {
 
     /// Builder-style setter for the current page.
     #[inline]
-    pub fn with_current_page(mut self, current_page: usize) -> Self {
+    #[must_use] pub fn with_current_page(mut self, current_page: usize) -> Self {
         self.set_current_page(current_page);
         self
     }
@@ -335,7 +335,7 @@ impl Pagination {
         self
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -380,7 +380,7 @@ impl Pagination {
         // Page-number buttons 1..=total.
         for page in 1..=total {
             children.push(make_button(
-                AzString::from(format!("{}", page).as_str()),
+                AzString::from(format!("{page}").as_str()),
                 PAGINATION_PAGE_CLASS,
                 build_button_style(page == current, false, false, false),
             ));
@@ -510,7 +510,7 @@ extern "C" fn on_page_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
 }
 
 impl From<Pagination> for Dom {
-    fn from(p: Pagination) -> Dom {
+    fn from(p: Pagination) -> Self {
         p.dom()
     }
 }

@@ -29,12 +29,12 @@ use azul_css::dynamic_selector::CssPropertyWithConditions;
 use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
 use azul_css::{
     props::{
-        basic::{color::ColorU, *},
-        layout::*,
+        basic::{color::ColorU, StyleFontSize},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutWidth, LayoutMarginLeft},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleBackgroundContent, StyleBackgroundContentVec, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextAlign, StyleCursor, StyleUserSelect, StyleTextColor},
     },
-    *,
+    impl_option_inner, AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -82,7 +82,7 @@ azul_core::impl_managed_callback! {
 
 /// A time picker: two clamped spinners (hour + minute) and an optional AM/PM
 /// toggle.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct TimePicker {
     pub state: TimePickerStateWrapper,
@@ -91,7 +91,7 @@ pub struct TimePicker {
 }
 
 /// Wraps [`TimePickerState`] together with its change callback.
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct TimePickerStateWrapper {
     pub inner: TimePickerState,
@@ -126,7 +126,7 @@ impl Default for TimePickerState {
 impl TimePickerState {
     /// Returns the hour in canonical 24-hour form (`0..=23`), accounting for the
     /// AM/PM flag in 12-hour mode (12 AM -> 0, 12 PM -> 12).
-    pub fn canonical_hour(&self) -> u32 {
+    #[must_use] pub const fn canonical_hour(&self) -> u32 {
         if self.is_24h {
             self.hour
         } else {
@@ -136,7 +136,7 @@ impl TimePickerState {
     }
 
     #[inline]
-    fn hour_bounds(&self) -> (i64, i64) {
+    const fn hour_bounds(&self) -> (i64, i64) {
         if self.is_24h {
             (0, 23)
         } else {
@@ -316,11 +316,11 @@ static AMPM_STYLE: &[CssPropertyWithConditions] = &[
 impl TimePicker {
     /// Creates a new 24-hour `TimePicker` with the given initial hour (`0..=23`)
     /// and minute (`0..=59`), both clamped into range.
-    pub fn create(hour: u32, minute: u32) -> Self {
+    #[must_use] pub fn create(hour: u32, minute: u32) -> Self {
         let mut inner = TimePickerState::default();
         let (lo, hi) = inner.hour_bounds();
-        inner.hour = (hour as i64).clamp(lo, hi) as u32;
-        inner.minute = (minute as i64).clamp(0, 59) as u32;
+        inner.hour = i64::from(hour).clamp(lo, hi) as u32;
+        inner.minute = i64::from(minute).clamp(0, 59) as u32;
         Self {
             state: TimePickerStateWrapper {
                 inner,
@@ -335,22 +335,22 @@ impl TimePicker {
     pub fn set_24h(&mut self, is_24h: bool) {
         self.state.inner.is_24h = is_24h;
         let (lo, hi) = self.state.inner.hour_bounds();
-        self.state.inner.hour = (self.state.inner.hour as i64).clamp(lo, hi) as u32;
+        self.state.inner.hour = i64::from(self.state.inner.hour).clamp(lo, hi) as u32;
     }
 
     /// Builder variant of [`Self::set_24h`].
-    pub fn with_24h(mut self, is_24h: bool) -> Self {
+    #[must_use] pub fn with_24h(mut self, is_24h: bool) -> Self {
         self.set_24h(is_24h);
         self
     }
 
     /// Sets the AM/PM flag (only meaningful in 12-hour mode).
-    pub fn set_pm(&mut self, is_pm: bool) {
+    pub const fn set_pm(&mut self, is_pm: bool) {
         self.state.inner.is_pm = is_pm;
     }
 
     /// Builder variant of [`Self::set_pm`].
-    pub fn with_pm(mut self, is_pm: bool) -> Self {
+    #[must_use] pub const fn with_pm(mut self, is_pm: bool) -> Self {
         self.set_pm(is_pm);
         self
     }
@@ -381,7 +381,7 @@ impl TimePicker {
         s
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         let inner = self.state.inner;
         let is_24h = inner.is_24h;
         let hour_text = AzString::from(format!("{}", inner.hour));
@@ -427,7 +427,7 @@ impl TimePicker {
                                 cb: on_ampm_toggle as usize,
                                 ctx: OptionRefAny::None,
                             },
-                            refany: state.clone(),
+                            refany: state,
                         }]
                         .into(),
                     )
@@ -449,7 +449,7 @@ impl Default for TimePicker {
 }
 
 /// Builds one spinner column (up arrow / value display / down arrow). The up and
-/// down arrows carry the shared `state` RefAny and the given click handlers; the
+/// down arrows carry the shared `state` `RefAny` and the given click handlers; the
 /// middle display is class-tagged so handlers can re-text it.
 fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -> Dom {
     use azul_core::dom::{EventFilter, HoverEventFilter};
@@ -515,11 +515,11 @@ fn adjust_spinner(mut data: RefAny, mut info: CallbackInfo, is_hour: bool, delta
 
         let display_text = if is_hour {
             let (lo, hi) = w.inner.hour_bounds();
-            w.inner.hour = (w.inner.hour as i64 + delta).clamp(lo, hi) as u32;
+            w.inner.hour = (i64::from(w.inner.hour) + delta).clamp(lo, hi) as u32;
             AzString::from(format!("{}", w.inner.hour))
         } else {
             // PARTIAL: minute clamps; it does not wrap/carry into the hour.
-            w.inner.minute = (w.inner.minute as i64 + delta).clamp(0, 59) as u32;
+            w.inner.minute = (i64::from(w.inner.minute) + delta).clamp(0, 59) as u32;
             AzString::from(format!("{:02}", w.inner.minute))
         };
 
@@ -585,7 +585,7 @@ extern "C" fn on_ampm_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update
 }
 
 impl From<TimePicker> for Dom {
-    fn from(t: TimePicker) -> Dom {
+    fn from(t: TimePicker) -> Self {
         t.dom()
     }
 }

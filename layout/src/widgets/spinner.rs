@@ -27,11 +27,11 @@ use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithCondi
 use azul_css::{
     props::{
         basic::{color::ColorU, *},
-        layout::*,
+        layout::{LayoutAlignSelf, LayoutFlexGrow, LayoutWidth, LayoutHeight},
         property::{CssProperty, *},
-        style::*,
+        style::{LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius},
     },
-    *,
+    AzString,
 };
 
 static SPINNER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-spinner"))];
@@ -46,7 +46,7 @@ const DEFAULT_ACCENT_COLOR: ColorU = ColorU { r: 13, g: 110, b: 253, a: 255 };
 /// An indeterminate busy-indicator ring. Stateless; renders a single styled
 /// node. **Static** — the ring shows the spinner shape but does not rotate
 /// (see the module-level `TODO2`).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Spinner {
     /// The ring diameter, in logical px.
@@ -135,14 +135,14 @@ fn build_spinner_style(size: isize, color: ColorU, track_color: ColorU) -> CssPr
 impl Spinner {
     /// Creates a new spinner with the default size (24px) and accent colour.
     #[inline]
-    pub fn create() -> Self {
+    #[must_use] pub fn create() -> Self {
         Self::with_size(DEFAULT_SIZE)
     }
 
     /// Creates a new spinner with the given diameter (logical px) and the
     /// default colours.
     #[inline]
-    pub fn with_size(size: isize) -> Self {
+    #[must_use] pub fn with_size(size: isize) -> Self {
         Self {
             size,
             color: DEFAULT_ACCENT_COLOR,
@@ -160,7 +160,7 @@ impl Spinner {
 
     /// Builder-style setter for the ring diameter.
     #[inline]
-    pub fn with_spinner_size(mut self, size: isize) -> Self {
+    #[must_use] pub fn with_spinner_size(mut self, size: isize) -> Self {
         self.set_size(size);
         self
     }
@@ -174,7 +174,7 @@ impl Spinner {
 
     /// Builder-style setter for the active-arc colour.
     #[inline]
-    pub fn with_color(mut self, color: ColorU) -> Self {
+    #[must_use] pub fn with_color(mut self, color: ColorU) -> Self {
         self.set_color(color);
         self
     }
@@ -188,7 +188,7 @@ impl Spinner {
 
     /// Builder-style setter for the inactive "track" colour.
     #[inline]
-    pub fn with_track_color(mut self, track_color: ColorU) -> Self {
+    #[must_use] pub fn with_track_color(mut self, track_color: ColorU) -> Self {
         self.set_track_color(track_color);
         self
     }
@@ -204,7 +204,7 @@ impl Spinner {
     /// Converts this spinner into a single DOM node with the
     /// `__azul-native-spinner` class.
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPINNER_CLASS))
             .with_css_props(self.spinner_style)
@@ -218,7 +218,7 @@ impl Default for Spinner {
 }
 
 impl From<Spinner> for Dom {
-    fn from(s: Spinner) -> Dom {
+    fn from(s: Spinner) -> Self {
         s.dom()
     }
 }

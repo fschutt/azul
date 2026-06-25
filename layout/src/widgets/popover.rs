@@ -35,11 +35,11 @@ use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithCondi
 use azul_css::{
     props::{
         basic::{color::ColorU, *},
-        layout::*,
+        layout::{LayoutDisplay, LayoutPosition, LayoutFlexGrow, LayoutTop, LayoutLeft, LayoutMinWidth, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight},
         property::{CssProperty, *},
-        style::*,
+        style::{StyleCursor, StyleBackgroundContentVec, StyleBackgroundContent, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius},
     },
-    *,
+    impl_option_inner, AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -91,7 +91,7 @@ azul_core::impl_managed_callback! {
 }
 
 /// A click-triggered floating panel anchored to an arbitrary [`Dom`].
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Popover {
     /// Runtime state (`open`) plus the optional toggle callback.
@@ -106,7 +106,7 @@ pub struct Popover {
     pub content_style: CssPropertyWithConditionsVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct PopoverStateWrapper {
     /// Whether the panel is currently open.
@@ -239,7 +239,7 @@ fn build_content_style(open: bool) -> CssPropertyWithConditionsVec {
 impl Popover {
     /// Creates a popover whose `anchor`, when clicked, toggles a panel holding
     /// `content`. The panel starts closed.
-    pub fn new(anchor: Dom, content: Dom) -> Self {
+    #[must_use] pub fn new(anchor: Dom, content: Dom) -> Self {
         Self {
             popover_state: PopoverStateWrapper::default(),
             anchor,
@@ -258,7 +258,7 @@ impl Popover {
 
     /// Builder-style setter for the initial open state.
     #[inline]
-    pub fn with_open(mut self, open: bool) -> Self {
+    #[must_use] pub fn with_open(mut self, open: bool) -> Self {
         self.set_open(open);
         self
     }
@@ -294,7 +294,7 @@ impl Popover {
 
     /// Renders the popover into a [`Dom`] subtree with the `__azul-native-popover`
     /// class.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{callbacks::CoreCallback, dom::{EventFilter, HoverEventFilter}, refany::OptionRefAny};
 
         // The trigger carries the click handler + the shared state. Clicking the
@@ -379,7 +379,7 @@ extern "C" fn on_popover_toggle(mut data: RefAny, mut info: CallbackInfo) -> Upd
 }
 
 impl From<Popover> for Dom {
-    fn from(p: Popover) -> Dom {
+    fn from(p: Popover) -> Self {
         p.dom()
     }
 }

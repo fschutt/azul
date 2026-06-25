@@ -34,8 +34,8 @@ use azul_core::{
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    props::{basic::*, layout::*, property::{CssProperty, *}, style::*},
-    *,
+    props::{basic::{ColorU, StyleFontFamily, StyleFontFamilyVec, StyleFontSize}, layout::{LayoutPosition, LayoutWidth, LayoutHeight, LayoutBoxSizing, LayoutFlexGrow, LayoutMinHeight, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPaddingBottom, LayoutOverflow, LayoutDisplay, LayoutTop, LayoutLeft}, property::{CssProperty, StyleWhiteSpaceValue}, style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleOpacity, StyleCursor, StyleTextColor, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleTextAlign, StyleWhiteSpace}},
+    impl_option_inner, AzString, U32Vec, OptionString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -238,7 +238,7 @@ static TEXT_AREA_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
 ];
 
 /// Multi-line text input widget.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextArea {
     pub text_area_state: TextAreaStateWrapper,
@@ -248,7 +248,7 @@ pub struct TextArea {
 }
 
 /// Editable state of a text area (text buffer + cursor position).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextAreaState {
     /// The text buffer as `Vec<char>` (newlines included).
@@ -259,7 +259,7 @@ pub struct TextAreaState {
 }
 
 /// [`TextAreaState`] together with optional user callbacks.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextAreaStateWrapper {
     pub inner: TextAreaState,
@@ -319,7 +319,7 @@ azul_core::impl_managed_callback! {
 
 impl Default for TextAreaState {
     fn default() -> Self {
-        TextAreaState {
+        Self {
             text: Vec::new().into(),
             placeholder: None.into(),
             max_len: 1000,
@@ -330,7 +330,7 @@ impl Default for TextAreaState {
 
 impl TextAreaState {
     /// Reconstructs the (multi-line) string, including `'\n'` characters.
-    pub fn get_text(&self) -> String {
+    #[must_use] pub fn get_text(&self) -> String {
         self.text
             .iter()
             .filter_map(|c| core::char::from_u32(*c))
@@ -340,7 +340,7 @@ impl TextAreaState {
 
 impl Default for TextAreaStateWrapper {
     fn default() -> Self {
-        TextAreaStateWrapper {
+        Self {
             inner: TextAreaState::default(),
             on_text_input: None.into(),
             on_focus_lost: None.into(),
@@ -351,7 +351,7 @@ impl Default for TextAreaStateWrapper {
 
 impl Default for TextArea {
     fn default() -> Self {
-        TextArea {
+        Self {
             text_area_state: TextAreaStateWrapper::default(),
             placeholder_style: CssPropertyWithConditionsVec::from_const_slice(
                 TEXT_AREA_PLACEHOLDER_PROPS,
@@ -365,7 +365,7 @@ impl Default for TextArea {
 }
 
 impl TextArea {
-    pub fn create() -> Self {
+    #[must_use] pub fn create() -> Self {
         Self::default()
     }
 
@@ -379,7 +379,7 @@ impl TextArea {
             .into();
     }
 
-    pub fn with_text(mut self, text: AzString) -> Self {
+    #[must_use] pub fn with_text(mut self, text: AzString) -> Self {
         self.set_text(text);
         self
     }
@@ -388,7 +388,7 @@ impl TextArea {
         self.text_area_state.inner.placeholder = Some(placeholder).into();
     }
 
-    pub fn with_placeholder(mut self, placeholder: AzString) -> Self {
+    #[must_use] pub fn with_placeholder(mut self, placeholder: AzString) -> Self {
         self.set_placeholder(placeholder);
         self
     }
@@ -439,7 +439,7 @@ impl TextArea {
         self.container_style = style;
     }
 
-    pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_container_style(style);
         self
     }
@@ -450,7 +450,7 @@ impl TextArea {
         s
     }
 
-    pub fn dom(mut self) -> Dom {
+    #[must_use] pub fn dom(mut self) -> Dom {
         use azul_core::dom::{EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass::Class, TabIndex};
 
         self.text_area_state.inner.cursor_pos = self.text_area_state.inner.text.len();
@@ -506,7 +506,7 @@ impl TextArea {
                     },
                     CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-                        refany: state_ref.clone(),
+                        refany: state_ref,
                         callback: CoreCallback {
                             cb: default_on_virtual_key_down as usize,
                             ctx: azul_core::refany::OptionRefAny::None,
@@ -722,7 +722,7 @@ fn default_on_virtual_key_down_inner(
 }
 
 impl From<TextArea> for Dom {
-    fn from(t: TextArea) -> Dom {
+    fn from(t: TextArea) -> Self {
         t.dom()
     }
 }
