@@ -165,6 +165,8 @@ impl Probe {
     /// Open a timed span. The returned guard records its name + nanos
     /// on drop into the thread-local event buffer.
     #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
     #[must_use] pub fn span(name: &'static str) -> Span {
         imp::open(name)
     }
@@ -174,12 +176,16 @@ impl Probe {
     /// platform RSS readers) so consumers can use whatever measurement
     /// helper they own.
     #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
     pub fn sample_rss(label: &'static str, bytes: u64) {
         imp::sample_rss(label, bytes);
     }
 
     /// Drain the per-thread event buffer.
     #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
     #[must_use] pub fn drain() -> Vec<Event> {
         imp::drain()
     }
@@ -189,18 +195,24 @@ impl Probe {
     /// want to prevent the thread-local buffer from inflating RSS during
     /// thousands of layout passes without actually needing the events.
     #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
     pub fn drop_events() {
         imp::drop_events();
     }
 
     /// Current number of events in the per-thread buffer. Cheap to call.
     #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
     #[must_use] pub fn peek_len() -> usize {
         imp::peek_len()
     }
 
     /// Whether the `probe` feature is compiled in.
     #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
     #[must_use] pub fn enabled() -> bool {
         imp::enabled()
     }
@@ -323,6 +335,8 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
 /// `sample_peak_rss` for backwards compatibility with existing
 /// checkpoint labels; semantically it is "sample current".
 #[inline]
+// const only without the `probe` feature; enabled path calls non-const RSS readers
+#[allow(clippy::missing_const_for_fn)]
 pub fn sample_peak_rss(label: &'static str) {
     // [WEB-LIFT 2026-06-11] also no-op under web_lift: current_rss_bytes/
     // peak_rss_bytes_self are mach syscalls (task_info/getrusage) —
@@ -369,6 +383,9 @@ fn peak_rss_bytes_self() -> u64 {
 ///
 /// Call after major allocations are freed (e.g. after a layout pass).
 #[inline]
+// const only on the default-allocator no-op path (e.g. Linux); the mimalloc /
+// jemalloc / macOS `malloc_zone_pressure_relief` bodies call non-const fns
+#[allow(clippy::missing_const_for_fn)]
 pub fn hint_purge_allocator() {
     #[cfg(feature = "allocator_mimalloc")]
     {

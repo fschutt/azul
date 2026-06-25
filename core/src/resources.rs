@@ -1074,7 +1074,7 @@ unsafe impl Sync for ImageRef {}
 
 impl PartialEq for ImageRef {
     fn eq(&self, rhs: &Self) -> bool {
-        std::ptr::eq(self.data, rhs.data)
+        core::ptr::eq(self.data, rhs.data)
     }
 }
 
@@ -2499,7 +2499,7 @@ impl Drop for SharedRawImageData {
 
 impl PartialEq for SharedRawImageData {
     fn eq(&self, rhs: &Self) -> bool {
-        std::ptr::eq(self.data, rhs.data)
+        core::ptr::eq(self.data, rhs.data)
     }
 }
 
