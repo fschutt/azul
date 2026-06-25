@@ -1957,7 +1957,7 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
-    ) -> Option<&CssProperty> {
+    ) -> Option<&'a CssProperty> {
         // Thread-local counter of cascade walks, broken down by
         // property type. Drain with `drain_css_prop_counts` (free
         // fn below) when `AZ_PROP_COUNT=1` is set to see which
@@ -2031,7 +2031,7 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
-    ) -> Option<&CssProperty> {
+    ) -> Option<&'a CssProperty> {
 
         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
@@ -2290,7 +2290,7 @@ impl CssPropertyCache {
         node_id: &NodeId,
         context: &DynamicSelectorContext,
         css_property_type: &CssPropertyType,
-    ) -> Option<&CssProperty> {
+    ) -> Option<&'a CssProperty> {
         // First test if there is some user-defined override for the property
         if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
             if let Ok(idx) = v.binary_search_by_key(css_property_type, |(k, _)| *k) {
