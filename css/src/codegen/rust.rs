@@ -17,7 +17,7 @@ use crate::{
 };
 
 /// Emits Rust source code for a parsed CSS stylesheet.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct RustBackend;
 
 impl CodegenBackend for RustBackend {

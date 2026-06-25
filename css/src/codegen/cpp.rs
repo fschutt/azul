@@ -9,7 +9,7 @@ use alloc::{string::String, string::ToString, vec, vec::Vec};
 use super::{CodegenBackend, GeneratedFile};
 use crate::css::Css;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct CppBackend;
 
 impl CodegenBackend for CppBackend {

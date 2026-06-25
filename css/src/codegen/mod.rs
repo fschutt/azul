@@ -18,6 +18,7 @@ pub mod python;
 pub mod rust;
 
 /// One emitted source artifact (e.g. `src/main.rs`, `Cargo.toml`).
+#[derive(Debug)]
 pub struct GeneratedFile {
     pub path: String,
     pub contents: String,

@@ -62,7 +62,7 @@ impl_option!(
     GridTrackSizing,
     OptionGridTrackSizing,
     copy = false,
-    [Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
 impl core::fmt::Debug for GridTrackSizing {
@@ -1198,7 +1198,7 @@ impl_option!(
     GridAreaDefinition,
     OptionGridAreaDefinition,
     copy = false,
-    [Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
 impl_vec!(GridAreaDefinition, GridAreaDefinitionVec, GridAreaDefinitionVecDestructor, GridAreaDefinitionVecDestructorType, GridAreaDefinitionVecSlice, OptionGridAreaDefinition);

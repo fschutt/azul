@@ -711,6 +711,13 @@ pub struct StringArena {
     inner: Arc<StringArenaInner>,
 }
 
+impl core::fmt::Debug for StringArena {
+    // StringArenaInner holds UnsafeCell chunks (not Debug) — opaque by design.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("StringArena").finish_non_exhaustive()
+    }
+}
+
 impl StringArena {
     /// Size of a freshly allocated chunk. Large enough that a typical
     /// DOM parse fits in 1-2 chunks, small enough to not over-allocate
