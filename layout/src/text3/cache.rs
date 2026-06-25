@@ -923,12 +923,12 @@ impl<T: ParsedFontTrait> FontManager<T> {
     pub fn get_font_by_hash(&self, font_hash: u64) -> Option<T> {
         let parsed = self.parsed_fonts.lock().unwrap();
         // Linear search through all cached fonts to find one with matching hash
-        for (_, font) in parsed.iter() {
-            if font.get_hash() == font_hash {
-                return Some(font.clone());
-            }
-        }
-        None
+        let found = parsed
+            .iter()
+            .find(|(_, font)| font.get_hash() == font_hash)
+            .map(|(_, font)| font.clone());
+        drop(parsed);
+        found
     }
 
     /// Register an embedded `FontRef` for later lookup by hash
@@ -977,6 +977,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         }
         unsafe { crate::az_mark(0x60788, 0xA1) };
         let out = parsed.keys().copied().collect();
+        drop(parsed);
         unsafe { crate::az_mark(0x6078C, 0xA2) };
         out
     }

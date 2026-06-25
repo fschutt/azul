@@ -255,6 +255,7 @@ fn build_hinted_path(
     ) else {
         return None;
     };
+    drop(hint);
 
     // Build path from hinted points using TrueType quadratic contour conventions
     build_path_from_contours(&hinted, raw_on_curve, raw_contour_ends)

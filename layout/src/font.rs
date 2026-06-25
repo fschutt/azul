@@ -2007,6 +2007,7 @@ pub mod parsed {
                 let instructions = glyph.instructions.as_deref().unwrap_or(&[]);
                 let mut hint = hint_mutex.lock().ok()?;
                 hint.set_ppem(ppem, f64::from(ppem)).ok()?;
+                drop(hint);
 
                 let points_f26dot6: Vec<(i32, i32)> = raw_points
                     .iter()
