@@ -608,7 +608,7 @@ impl Callback {
     #[must_use] pub fn from_core(core: CoreCallback) -> Self {
         debug_assert!(core.cb != 0, "CoreCallback.cb is null");
         Self {
-            cb: unsafe { core::mem::transmute(core.cb) },
+            cb: unsafe { core::mem::transmute::<usize, CallbackType>(core.cb) },
             ctx: core.ctx,
         }
     }
@@ -4611,7 +4611,7 @@ impl RenderImageCallback {
     #[must_use] pub fn from_core(core_callback: &azul_core::callbacks::CoreRenderImageCallback) -> Self {
         debug_assert!(core_callback.cb != 0, "CoreRenderImageCallback.cb is null");
         Self {
-            cb: unsafe { core::mem::transmute(core_callback.cb) },
+            cb: unsafe { core::mem::transmute::<usize, RenderImageCallbackType>(core_callback.cb) },
             ctx: core_callback.ctx.clone(),
         }
     }
