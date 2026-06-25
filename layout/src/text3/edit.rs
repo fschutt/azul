@@ -151,7 +151,7 @@ fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
                 // Insert: replace the deleted range with new text
                 TextEdit::Insert(text_to_insert) => {
                     let mut c = content_after_delete;
-                    insert_text(&mut c, &cursor_pos, text_to_insert)
+                    insert_text(&c, &cursor_pos, text_to_insert)
                 }
                 // Delete: range deletion is sufficient — don't delete again
                 TextEdit::DeleteBackward | TextEdit::DeleteForward => {
@@ -162,10 +162,10 @@ fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
         Selection::Cursor(cursor) => {
             match edit {
                 TextEdit::Insert(text_to_insert) => {
-                    insert_text(&mut new_content, cursor, text_to_insert)
+                    insert_text(&new_content, cursor, text_to_insert)
                 }
-                TextEdit::DeleteBackward => delete_backward(&mut new_content, cursor),
-                TextEdit::DeleteForward => delete_forward(&mut new_content, cursor),
+                TextEdit::DeleteBackward => delete_backward(&new_content, cursor),
+                TextEdit::DeleteForward => delete_forward(&new_content, cursor),
             }
         }
     }
@@ -328,13 +328,13 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
 /// - `Trailing`: Insert at the end of the referenced cluster (after the grapheme)
 #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 pub fn insert_text(
-    content: &mut Vec<InlineContent>,
+    content: &[InlineContent],
     cursor: &TextCursor,
     text_to_insert: &str,
 ) -> (Vec<InlineContent>, TextCursor) {
     use unicode_segmentation::UnicodeSegmentation;
     
-    let mut new_content = content.clone();
+    let mut new_content = content.to_vec();
     let run_idx = cursor.cluster_id.source_run as usize;
     let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
 
@@ -376,7 +376,7 @@ pub fn insert_text(
     }
 
     // If insertion failed, return original state
-    (content.clone(), *cursor)
+    (content.to_vec(), *cursor)
 }
 
 /// Deletes one grapheme cluster backward from the cursor.
@@ -386,11 +386,11 @@ pub fn insert_text(
 /// - `Trailing`: Cursor is at end of cluster, delete the current grapheme
 #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 pub fn delete_backward(
-    content: &mut Vec<InlineContent>,
+    content: &[InlineContent],
     cursor: &TextCursor,
 ) -> (Vec<InlineContent>, TextCursor) {
     use unicode_segmentation::UnicodeSegmentation;
-    let mut new_content = content.clone();
+    let mut new_content = content.to_vec();
     let run_idx = cursor.cluster_id.source_run as usize;
     let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
 
@@ -453,7 +453,7 @@ pub fn delete_backward(
         }
     }
 
-    (content.clone(), *cursor)
+    (content.to_vec(), *cursor)
 }
 
 /// Deletes one grapheme cluster forward from the cursor.
@@ -463,11 +463,11 @@ pub fn delete_backward(
 /// - `Trailing`: Cursor is at end of cluster, delete the next grapheme
 #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 pub fn delete_forward(
-    content: &mut Vec<InlineContent>,
+    content: &[InlineContent],
     cursor: &TextCursor,
 ) -> (Vec<InlineContent>, TextCursor) {
     use unicode_segmentation::UnicodeSegmentation;
-    let mut new_content = content.clone();
+    let mut new_content = content.to_vec();
     let run_idx = cursor.cluster_id.source_run as usize;
     let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
 
@@ -523,7 +523,7 @@ pub fn delete_forward(
         }
     }
 
-    (content.clone(), *cursor)
+    (content.to_vec(), *cursor)
 }
 
 /// Edit text with different text per selection (for N-lines-to-N-cursors paste).

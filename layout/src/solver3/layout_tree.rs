@@ -2742,7 +2742,7 @@ const fn is_proper_table_child(display: LayoutDisplay) -> bool {
 /// table-column, table-column-group, table-caption) are blockified to display:block
 /// before anonymous table box generation can occur. E.g. two consecutive
 /// display:table-cell flex items become two separate display:block flex items.
-fn blockify_flex_item_if_table_internal(nodes: &mut Vec<LayoutNode>, node_idx: usize) {
+fn blockify_flex_item_if_table_internal(nodes: &mut [LayoutNode], node_idx: usize) {
     if let Some(node) = nodes.get_mut(node_idx) {
         let is_table_internal = matches!(
             node.formatting_context,
