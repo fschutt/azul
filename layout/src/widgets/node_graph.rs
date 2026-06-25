@@ -2861,6 +2861,7 @@ extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, _info: CallbackInf
 // drag either the graph or the currently active nodes
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::single_match_else)] // drag-node (Some) and drag-graph (None) are each ~135-line blocks; match labels the two modes far more clearly than if-let/else
 extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut refany) = refany.downcast_mut::<NodeGraphLocalDataset>() else {
         return Update::DoNothing;
