@@ -1713,7 +1713,18 @@ fn generate_release_pages(
                 let _ = fs::write(version_dir.join(format!("{crate_name}.Dockerfile")), pinned);
             }
         }
-        println!("  [OK] Generated: release/{}/<demo>.Dockerfile (web/Docker)", version);
+        // hello-world.c — the C "hello world running on the web" one-command repro.
+        // It lives at examples/c/Dockerfile (not examples/<crate>/) and deploys to
+        // release/<version>/hello-world.Dockerfile.
+        {
+            let src = examples_dir.join("c").join("Dockerfile");
+            if let Ok(contents) = fs::read_to_string(&src) {
+                let pinned = contents
+                    .replace("ARG AZUL_VERSION=0.2.0", &format!("ARG AZUL_VERSION={version}"));
+                let _ = fs::write(version_dir.join("hello-world.Dockerfile"), pinned);
+            }
+        }
+        println!("  [OK] Generated: release/{}/<demo>.Dockerfile + hello-world.Dockerfile (web/Docker)", version);
 
         // Copy per-language (non-whitelist) bindings + scaffolding so that the
         // go/haskell/ada/pascal/zig/cobol/fortran/perl/php/lisp/smalltalk/vb6/

@@ -142,7 +142,12 @@ pub(crate) mod pcs {
     /// 128 KiB shadow-stack slot; 128 KiB is the verified value).
     /// Shared by the prologue emitter (StackArg/ByValCopyPtr offsets
     /// are relative to `STACK_BUF_SIZE − SP_HEADROOM`).
-    pub const STACK_BUF_SIZE: u64 = 128 * 1024;
+    /// [2026-06-25] 128 KiB underflowed the DEEP solve chain (solveLayoutReal →
+    /// layout_dom_recursive → impl → layout_document → recursion → text-shaping) —
+    /// a code-layout-sensitive Heisenbug OOB. Bumped to 2 MiB; the shadow stacks
+    /// now live ABOVE the synth mirror (STACK_BASE_FIRST=64 MiB) so the bigger
+    /// %stack_buf alloca no longer overflows its slot (the g67 failure).
+    pub const STACK_BUF_SIZE: u64 = 2 * 1024 * 1024;
 
     /// Guest-stack displacement (from SP at callee entry) of integer
     /// arg i ≥ N_REG_ARGS under Windows x64.
@@ -3187,14 +3192,20 @@ impl Drop for RemillTranspiler {
 static NEXT_NON_MINI_STACK_SLOT: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);
 
-const STACK_BASE_FIRST: u32 = 192 * 1024;   // 192 KiB
-const STACK_BASE_STRIDE: u32 = 128 * 1024;  // 128 KiB / wasm
+// [2026-06-25] Moved ABOVE the synth-mirror region (azul.dll synth range ~[1.1MB,
+// 29MB]) and below the reset bump heap (160 MiB), so each module gets a 2-MiB
+// %stack_buf (STACK_BUF_SIZE) WITHOUT overflowing its slot or colliding with the
+// mirrored rodata. 64MiB + slot*4MiB → mini=64M, cb=68M, layout=72M, all < 160M.
+// This grows the GUEST stack for the deep solve chain (the 2026-06-02 2MiB/2MiB
+// attempt below only grew the SPACING, not STACK_BUF_SIZE, and was for the
+// shallower layout-cb, so guest-stack-overflow for the SOLVE was never tested).
+const STACK_BASE_FIRST: u32 = 64 * 1024 * 1024;   // 64 MiB (above synth mirror)
+const STACK_BASE_STRIDE: u32 = 4 * 1024 * 1024;   // 4 MiB / wasm (fits 2MiB stack_buf)
 // NOTE (2026-06-02): tried 2MiB/2MiB to fix the direct-prop layout-cb OOB —
 // it did NOT help (the cb still OOBs with 2 MiB stacks), so the cb crash is
 // NOT a stack overflow; it's a struct-by-value-arg mis-lift (the m12_7 HFA class:
 // padding/border struct literals + AzColorU passed by value to AzCssProperty_*).
-// Reverted to the verified-good 192K/128K. (web-direct-body's plain-constructor
-// width/height props lift fine; the struct-literal args are the gap.)
+// (That attempt only changed the SPACING, NOT STACK_BUF_SIZE — see above.)
 
 /// Patch the stack-pointer global (global[0]) of every wasm (both
 /// mini and per-cb / per-layout) so each gets a distinct

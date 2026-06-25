@@ -3089,6 +3089,50 @@ pub(crate) fn find_hashbrown_empty_group_ranges() -> &'static [(usize, usize)] {
     RANGES.get_or_init(compute_hashbrown_empty_group_ranges).as_slice()
 }
 
+/// [WEB-LIFT FIX 2026-06-25] Format-general signature scan of a mapped, read-only
+/// const section for hashbrown's `EMPTY_GROUP`. On x86_64 hashbrown uses the
+/// 16-byte SSE2 `Group`, so `EMPTY_GROUP == [0xFF; 16]` (16-aligned). It is reached
+/// ONLY via the empty `RawTable`'s rebased `ctrl` data-pointer — never a direct
+/// code reference — so the riprel/adrp page-mirror structurally misses it; un-
+/// mirrored it reads back as `0x00`, an empty control group then looks "all-FULL"
+/// (FULL has the high bit clear), `match_empty` never fires, and the probe loops
+/// forever → the layout solve HANGS. Mirroring bytes that ARE `0xFF` in the native
+/// image is always sound (a `0xFFFF…FF` window is never a translatable pointer), so
+/// over-matching incidental `i128 -1` constants is harmless. Each run is capped at
+/// 256 B and deduped via `seen`. Mirrors the Mach-O `__const` scan below.
+fn scan_const_runs_for_empty_group(
+    sec_lo: usize,
+    sec_size: usize,
+    img_lo: usize,
+    img_hi: usize,
+    seen: &mut std::collections::HashSet<usize>,
+    out: &mut Vec<(usize, usize)>,
+) {
+    if sec_size == 0 || sec_lo < img_lo || sec_lo.wrapping_add(sec_size) > img_hi {
+        return;
+    }
+    // SAFETY: `.rdata`/`.rodata` is a mapped, read-only image section for the
+    // process lifetime; reading `sec_size` contiguous bytes is sound.
+    let blob = unsafe { core::slice::from_raw_parts(sec_lo as *const u8, sec_size) };
+    let mut i = 0usize;
+    while i < sec_size {
+        if blob[i] != 0xFF {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < sec_size && blob[i] == 0xFF {
+            i += 1;
+        }
+        let run_len = i - start;
+        let target = sec_lo + start;
+        // >= 16 contiguous 0xFF, 8-aligned (16-aligned EMPTY_GROUP ⊂ 8-aligned).
+        if run_len >= 16 && (target & 0x7) == 0 && seen.insert(target) {
+            out.push((target, core::cmp::min(run_len, 256)));
+        }
+    }
+}
+
 fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
     use goblin::mach::load_command::{
         CommandVariant, SIZEOF_SECTION_64, SIZEOF_SEGMENT_COMMAND_64,
@@ -3099,8 +3143,68 @@ fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
     };
     let mut out: Vec<(usize, usize)> = Vec::new();
     for img in &images {
-        if img.bytes.is_empty() || !img.path.to_string_lossy().contains("libazul") {
+        // Match the azul library image regardless of platform naming:
+        // macOS `libazul.dylib`, Linux `libazul.so`, Windows `azul.dll`.
+        let pl = img.path.to_string_lossy().to_lowercase();
+        if img.bytes.is_empty() || !pl.contains("azul") {
             continue;
+        }
+        // [WEB-LIFT FIX 2026-06-25] x86_64 PE (Windows) / ELF (Linux) port. The
+        // Mach-O/aarch64 path below no-ops on these formats, so EMPTY_GROUP was
+        // never force-mirrored → the lifted empty-map probe spun forever (the
+        // SwissTable/hashbrown hang). Signature-scan the read-only const section(s)
+        // for >=16-byte all-0xFF runs (x86_64 SSE2 Group::WIDTH == 16) and return
+        // them; the unconditional caller appends each as a precise 0xFF segment.
+        match goblin::Object::parse(&img.bytes) {
+            Ok(goblin::Object::PE(pe)) => {
+                let image_base = pe.image_base as usize;
+                let (lo, hi) = pe_image_text_data_range(&pe);
+                let (img_lo, img_hi) = (lo.wrapping_add(img.slide), hi.wrapping_add(img.slide));
+                let mut seen = std::collections::HashSet::new();
+                for s in &pe.sections {
+                    let name = s.name().unwrap_or("");
+                    if name == ".rdata" || name == ".rodata" {
+                        let sec_lo = image_base + s.virtual_address as usize + img.slide;
+                        scan_const_runs_for_empty_group(
+                            sec_lo, s.virtual_size as usize, img_lo, img_hi, &mut seen, &mut out,
+                        );
+                    }
+                }
+                continue;
+            }
+            Ok(goblin::Object::Elf(elf)) => {
+                const SHF_ALLOC: u64 = 0x2;
+                const PT_LOAD: u32 = 1;
+                // Image bounds from PT_LOAD segments (slid).
+                let (mut img_lo, mut img_hi) = (usize::MAX, 0usize);
+                for ph in &elf.program_headers {
+                    if ph.p_type == PT_LOAD {
+                        let lo = (ph.p_vaddr as usize).wrapping_add(img.slide);
+                        img_lo = img_lo.min(lo);
+                        img_hi = img_hi.max(lo + ph.p_memsz as usize);
+                    }
+                }
+                if img_lo == usize::MAX {
+                    continue;
+                }
+                let mut seen = std::collections::HashSet::new();
+                for sh in &elf.section_headers {
+                    if (sh.sh_flags & SHF_ALLOC) == 0 || sh.sh_size == 0 {
+                        continue;
+                    }
+                    let name = elf.shdr_strtab.get_at(sh.sh_name).unwrap_or("");
+                    if name == ".rodata" || name == ".data.rel.ro" {
+                        let sec_lo = (sh.sh_addr as usize).wrapping_add(img.slide);
+                        scan_const_runs_for_empty_group(
+                            sec_lo, sh.sh_size as usize, img_lo, img_hi, &mut seen, &mut out,
+                        );
+                    }
+                }
+                continue;
+            }
+            // Mach-O (or unknown) → fall through to the aarch64/Mach-O path below
+            // (re-parses once; one-time init cost, keeps the working path untouched).
+            _ => {}
         }
         let macho = match goblin::Object::parse(&img.bytes) {
             Ok(goblin::Object::Mach(goblin::mach::Mach::Binary(m))) => m,

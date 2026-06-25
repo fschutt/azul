@@ -1637,9 +1637,19 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         })
         .collect::<Vec<_>>()
         .join("\n                    ");
+    // hello-world.c (the C example) — the headline "C hello-world in a browser,
+    // one command" repro. Listed FIRST, ahead of the Rust demo apps. Its Dockerfile
+    // is the release-hosted copy of examples/c/Dockerfile (see main.rs deploy step).
+    let hw_url = asset_url(version, "hello-world.Dockerfile");
+    let hello_world_item = format!(
+        "<li><strong>hello-world.c (C)</strong> — the canonical C example, lifted x86→WASM in-process and served:\n                      \
+         <pre class='codeblock'><code class='language-bash'>docker build {hw_url} -t azul-hello-world\ndocker run -p 8080:8080 azul-hello-world</code></pre></li>",
+        hw_url = hw_url
+    );
     demo_links.push_str(&format!(
         "\n                <li><strong>Web (Docker, experimental)</strong>\n                  \
-         <ul>\n                    {web_items}\n                  </ul></li>",
+         <ul>\n                    {hello_world_item}\n                    {web_items}\n                  </ul></li>",
+        hello_world_item = hello_world_item,
         web_items = web_items
     ));
 
