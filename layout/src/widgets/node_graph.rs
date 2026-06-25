@@ -3224,7 +3224,7 @@ extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: Callbac
     let cursor_in_viewport = match info.get_current_mouse_state().cursor_position {
         InWindow(i) => i,
         CursorPosition::OutOfWindow(i) => i,
-        azul_core::window::CursorPosition::Uninitialized => LogicalPosition::zero(),
+        CursorPosition::Uninitialized => LogicalPosition::zero(),
     };
 
     let new_node_pos = NodeGraphNodePosition {

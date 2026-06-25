@@ -2808,7 +2808,7 @@ pub fn get_style_properties(
     // This allows embedded fonts (like Material Icons) to bypass fontconfig
     let font_stack = {
         let font_ref = (0..font_families.len()).find_map(|i| match font_families.get(i).unwrap() {
-            azul_css::props::basic::font::StyleFontFamily::Ref(r) => Some(r.clone()),
+            StyleFontFamily::Ref(r) => Some(r.clone()),
             _ => None,
         });
 
