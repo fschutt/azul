@@ -730,7 +730,7 @@ pub enum MediaType {
     Print,
     All,
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ThemeCondition {

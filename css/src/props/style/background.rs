@@ -538,7 +538,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleBackgroundPositionVec {
         )
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Horizontal component of `background-position`: a keyword or exact pixel value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -567,7 +567,7 @@ impl PrintAsCssValue for BackgroundPositionHorizontal {
         }
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Vertical component of `background-position`: a keyword or exact pixel value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -596,7 +596,7 @@ impl PrintAsCssValue for BackgroundPositionVertical {
         }
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// The `background-size` property: `contain`, `cover`, or an exact size.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]

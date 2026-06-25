@@ -88,7 +88,7 @@ pub enum RicingMode {
 }
 
 // --- Public Data Structures ---
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Represents the detected platform.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
@@ -120,7 +120,7 @@ impl Platform {
         { Platform::Unknown }
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Represents the detected Linux Desktop Environment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]

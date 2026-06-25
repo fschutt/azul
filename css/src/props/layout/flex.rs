@@ -799,7 +799,7 @@ pub fn parse_layout_align_self(
 }
 
 // --- flex-basis ---
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Represents a `flex-basis` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]

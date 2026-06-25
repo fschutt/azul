@@ -141,7 +141,7 @@ pub struct ArithmeticCoefficients {
     pub k3: FloatValue,
     pub k4: FloatValue,
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum StyleCompositeFilter {
@@ -445,7 +445,7 @@ pub mod parser {
             Self::Float(p)
         }
     }
-
+    #[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum CssStyleColorMatrixParseErrorOwned {

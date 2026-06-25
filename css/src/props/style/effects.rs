@@ -925,7 +925,7 @@ pub struct AspectRatioValue {
     pub width: u32,
     pub height: u32,
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// CSS aspect-ratio property: preferred aspect ratio for the box.
 /// CSS Box Sizing Level 4 §6 — values: `auto | <ratio>` (initial: `auto`)
 ///

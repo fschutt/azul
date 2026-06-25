@@ -25,7 +25,7 @@ use crate::{
 };
 
 // -- Calc AST --
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// A single item in a `calc()` expression, stored as a flat stack-machine representation.
 ///
 /// The expression `calc(33.333% - 10px)` is stored as:

@@ -19,7 +19,7 @@ use crate::{
     },
     shape::CssShape,
 };
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// CSS shape-outside property for wrapping text around shapes
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -64,7 +64,7 @@ impl PrintAsCssValue for ShapeOutside {
         }
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// CSS shape-inside property for flowing text within shapes
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -109,7 +109,7 @@ impl PrintAsCssValue for ShapeInside {
         }
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// CSS clip-path property for clipping element rendering
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]

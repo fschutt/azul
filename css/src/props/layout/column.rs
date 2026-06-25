@@ -45,7 +45,7 @@ impl PrintAsCssValue for ColumnCount {
 }
 
 // --- column-width ---
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// CSS `column-width` property: specifies the optimal width of columns.
 ///
 /// Values: `auto` or a length value (e.g. `200px`, `15em`).
