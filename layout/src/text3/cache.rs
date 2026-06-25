@@ -10414,9 +10414,9 @@ struct HyphenationResult {
     remainder_part: Vec<ShapedItem>,
 }
 
-fn perform_bidi_analysis<'a, 'b: 'a>(
+fn perform_bidi_analysis<'a>(
     styled_runs: &'a [TextRunInfo<'_>],
-    full_text: &'b str,
+    full_text: &'a str,
     force_lang: Option<Language>,
 ) -> (Vec<VisualRun<'a>>, BidiDirection) {
     if full_text.is_empty() {

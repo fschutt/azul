@@ -73,6 +73,21 @@
 extern crate alloc;
 extern crate core;
 
+// Dependencies kept for downstream/feature-plumbing use but not referenced
+// directly in this crate's source — marked intentionally linked so
+// unused_crate_dependencies stays quiet (the lint's own suggested fix).
+// `brotli-decompressor`: decompresses the codegen material_icons.ttf.br in azul-dll.
+#[cfg(feature = "icons")]
+use brotli_decompressor as _;
+// `lru`: reserved for the slippy-map tile cache (azul-dll widgets).
+use lru as _;
+// `unicode-normalization` / `xmlwriter`: pulled by text_layout / xml for the
+// shaping + SVG-writer paths consumed downstream.
+#[cfg(feature = "text_layout")]
+use unicode_normalization as _;
+#[cfg(feature = "xml")]
+use xmlwriter as _;
+
 /// Web-lift diagnostic marker: a volatile store of `val` to the absolute wasm
 /// linear-memory address `addr` (the 0x40000–0xF0000 free band the e2e harness
 /// peeks via `AzStartup_peekU32`).

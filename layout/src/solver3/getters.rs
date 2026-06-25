@@ -540,50 +540,6 @@ macro_rules! get_css_property_pixel {
             MultiValue::Initial
         }
     };
-    // Variant WITHOUT compact cache (original behavior)
-    ($fn_name:ident, $cache_method:ident, $ua_property:expr) => {
-        pub fn $fn_name(
-            styled_dom: &StyledDom,
-            node_id: NodeId,
-            node_state: &StyledNodeState,
-        ) -> MultiValue<PixelValue> {
-            let node_data = &styled_dom.node_data.as_container()[node_id];
-
-            // 1. Check author CSS first (includes inline styles - highest priority)
-            let author_css = styled_dom
-                .css_property_cache
-                .ptr
-                .$cache_method(node_data, &node_id, node_state);
-
-            // NOTE: Check for Auto FIRST — CssPropertyValue::Auto is a valid value
-            // that should NOT fall through to UA CSS. Previously, get_property()
-            // returned None for Auto, causing inline "margin: auto" to be ignored.
-            if let Some(ref val) = author_css {
-                if val.is_auto() {
-                    return MultiValue::Auto;
-                }
-                if let Some(exact) = val.get_property().copied() {
-                    return MultiValue::Exact(exact.inner);
-                }
-                // For Initial, Inherit, None, Revert, Unset - fall through to UA CSS
-            }
-
-            // 2. Check User Agent CSS (only if author CSS didn't set a value)
-            let ua_css = azul_core::ua_css::get_ua_property(&node_data.node_type, $ua_property);
-
-            if let Some(ua_prop) = ua_css {
-                if let Some(inner) = ua_prop.get_pixel_inner() {
-                    return MultiValue::Exact(inner);
-                }
-            }
-
-            // 3. Fallback to Initial (not set)
-            // IMPORTANT: Use Initial, not Auto! In CSS, the initial value for
-            // margin is 0, not auto. Using Auto here caused margins to be treated
-            // as "margin: auto" which blocks align-self: stretch in flexbox.
-            MultiValue::Initial
-        }
-    };
 }
 
 /// Helper trait to extract `PixelValue` from any `CssProperty` variant
