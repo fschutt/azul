@@ -8447,13 +8447,12 @@ pub fn break_one_line<T: ParsedFontTrait>(
                             }
                             line_items.push(item.clone());
                             current_width += item_w;
-                            // If container is zero-width (avail <= 0), place all
-                            // items on one line — there's nowhere to break TO,
-                            // content just overflows.  This matches browser
-                            // behavior for `width: 0` containers.
-                            if avail <= 0.0 {
-                                continue; // Keep adding — can't break into nothing
-                            }
+                            // When the container is zero-width (avail <= 0), the
+                            // break-before check above is skipped (it requires
+                            // avail > 0), so every item lands on this one line —
+                            // there's nowhere to break TO, content just overflows.
+                            // This matches browser behavior for `width: 0`
+                            // containers.
                         }
                         let consumed = line_items.len().max(1);
                         if line_items.is_empty() {

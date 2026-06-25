@@ -177,8 +177,10 @@ impl FileInput {
         let button_label = match self.file_input_state.inner.path.as_ref() {
             Some(path) => std::path::Path::new(path.as_str())
                 .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| self.default_text.as_str().to_string())
+                .map_or_else(
+                    || self.default_text.as_str().to_string(),
+                    |s| s.to_string_lossy().to_string(),
+                )
                 .into(),
             None => self.default_text.clone(),
         };

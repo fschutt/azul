@@ -33,7 +33,7 @@ macro_rules! impl_widget_callback {
         #[repr(C)]
         pub struct $callback_value {
             pub cb: $callback_ty,
-            /// For FFI: stores the foreign callable (e.g., PyFunction)
+            /// For FFI: stores the foreign callable (e.g., `PyFunction`)
             /// Native Rust code sets this to None
             pub ctx: azul_core::refany::OptionRefAny,
         }

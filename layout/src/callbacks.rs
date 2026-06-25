@@ -4699,6 +4699,15 @@ impl RenderImageCallbackInfo {
     }
 
     /// Set the callable pointer (called before invoking callback)
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must either be null or point to an `OptionRefAny` that stays valid
+    /// for as long as this `CallbackInfo` may read it (i.e. until the pointer is
+    /// replaced or the callback returns). The pointee is read by [`get_ctx`]; a
+    /// dangling or misaligned `ptr` is undefined behavior.
+    ///
+    /// [`get_ctx`]: Self::get_ctx
     pub const unsafe fn set_callable_ptr(&mut self, ptr: *const OptionRefAny) {
         self.callable_ptr = ptr;
     }
