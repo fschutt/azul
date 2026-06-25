@@ -26,9 +26,10 @@ use azul_css::AzString;
 use crate::{solver3::layout_tree::LayoutNodeHot, window::DomLayoutResult};
 
 /// Cursor/selection info passed to the a11y tree builder.
-/// Used to set text_selection on contenteditable nodes so screen readers
+/// Used to set `text_selection` on contenteditable nodes so screen readers
 /// can announce the cursor position and selection range.
 #[cfg(feature = "a11y")]
+#[derive(Debug, Clone, Copy)]
 pub struct CursorA11yInfo {
     pub dom_id: DomId,
     pub node_id: NodeId,
@@ -46,6 +47,7 @@ pub struct CursorA11yInfo {
 /// 2. Generating `TreeUpdate`s by comparing layout results with the stored tree
 /// 3. Translating `ActionRequest`s from screen readers into synthetic Azul events
 #[cfg(feature = "a11y")]
+#[derive(Debug)]
 pub struct A11yManager {
     /// The root node ID of the accessibility tree (represents the window).
     pub root_id: A11yNodeId,
@@ -59,9 +61,16 @@ pub struct A11yManager {
 }
 
 #[cfg(feature = "a11y")]
+impl Default for A11yManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "a11y")]
 impl A11yManager {
     /// Creates a new `A11yManager` with an empty tree containing only a root window node.
-    pub fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         let root_id = A11yNodeId(0);
         Self {
             root_id,
@@ -75,12 +84,14 @@ impl A11yManager {
     ///
     /// This should be called after each layout pass to synchronize the
     /// accessibility tree with the visual representation.
-    pub fn update_tree(
+    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[must_use] pub fn update_tree(
         root_id: A11yNodeId,
         layout_results: &std::collections::BTreeMap<DomId, DomLayoutResult>,
         window_title: &AzString,
         window_size: LogicalSize,
-        focused_node: Option<azul_core::dom::DomNodeId>,
+        focused_node: Option<DomNodeId>,
         hidpi_factor: f32,
         dirty_text_overrides: &std::collections::BTreeMap<(DomId, NodeId), String>,
         cursor_info: Option<CursorA11yInfo>,
@@ -145,23 +156,16 @@ impl A11yManager {
                         Some((hot, layout_idx, abs_pos))
                     });
 
-                let a11y_info_ref = a11y_info.as_ref().map(|b| b.as_ref());
-                let mut node = match layout_info {
-                    Some((layout_node, _layout_idx, abs_pos)) => {
-                        Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref, hidpi_factor, window_size)
+                let a11y_info_ref = a11y_info;
+                let mut node = if let Some((layout_node, _layout_idx, abs_pos)) = layout_info {
+                    Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref, hidpi_factor, window_size)
+                } else {
+                    let role = a11y_info_ref.map_or_else(|| Self::node_type_to_role(&node_data.node_type), |info| Self::map_role(&info.role));
+                    let mut builder = Node::new(role);
+                    if let NodeType::Text(text) = &node_data.node_type {
+                        builder.set_label(text.as_str());
                     }
-                    None => {
-                        let role = if let Some(info) = a11y_info_ref {
-                            Self::map_role(&info.role)
-                        } else {
-                            Self::node_type_to_role(&node_data.node_type)
-                        };
-                        let mut builder = Node::new(role);
-                        if let NodeType::Text(text) = &node_data.node_type {
-                            builder.set_label(text.as_str());
-                        }
-                        builder
-                    }
+                    builder
                 };
 
                 // Collect child text and promote to this node's label or value.
@@ -177,9 +181,7 @@ impl A11yManager {
                     let dom_node_id_key = (*dom_id, NodeId::new(dom_idx));
 
                     // Use dirty text override if this node was edited since last RefreshDom
-                    let (text_content, has_non_text_children) = if let Some(override_text) = dirty_text_overrides.get(&dom_node_id_key) {
-                        (override_text.clone(), false)
-                    } else {
+                    let (text_content, has_non_text_children) = dirty_text_overrides.get(&dom_node_id_key).map_or_else(|| {
                         let mut text = String::new();
                         let mut has_non_text = false;
 
@@ -197,7 +199,7 @@ impl A11yManager {
                             child = node_hierarchy[child_id.index()].next_sibling_id();
                         }
                         (text, has_non_text)
-                    };
+                    }, |override_text| (override_text.clone(), false));
 
                     if !text_content.is_empty() {
                         if node_data.is_contenteditable()
@@ -285,7 +287,7 @@ impl A11yManager {
                 if let Some(parent_id) = accessible_parent_id {
                     parent_children_map
                         .entry(parent_id)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(a11y_node_id);
                 } else {
                     root_children.push(a11y_node_id);
@@ -294,7 +296,7 @@ impl A11yManager {
         }
 
         // Third pass: Set children on all nodes (including root)
-        for (node_id, node) in nodes.iter_mut() {
+        for (node_id, node) in &mut nodes {
             if *node_id == root_id {
                 // Root window node gets top-level DOM nodes as children
                 node.set_children(root_children.clone());
@@ -317,22 +319,23 @@ impl A11yManager {
                     .find(|(id, node)| {
                         *id != root_id && !matches!(node.role(), Role::GenericContainer | Role::Window)
                     })
-                    .map(|(id, _)| *id)
-                    .unwrap_or(root_id)
+                    .map_or(root_id, |(id, _)| *id)
             });
 
         // Create the tree update
-        let tree_update = TreeUpdate {
+        
+
+        TreeUpdate {
             nodes,
             tree: Some(Tree::new(root_id)),
             focus,
             tree_id: accesskit::TreeId::ROOT,
-        };
-
-        tree_update
+        }
     }
 
-    /// Builds an accesskit Node from Azul's NodeData and layout information.
+    /// Builds an accesskit Node from Azul's `NodeData` and layout information.
+    #[allow(clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn build_node(
         node_data: &NodeData,
         layout_node: &LayoutNodeHot,
@@ -470,14 +473,14 @@ impl A11yManager {
             let pad_right = bp.padding.right + bp.border.right;
             let pad_bottom = bp.padding.bottom + bp.border.bottom;
 
-            let s = hidpi_factor as f64;
-            let ww = window_size.width as f64 * s;
-            let wh = window_size.height as f64 * s;
+            let s = f64::from(hidpi_factor);
+            let ww = f64::from(window_size.width) * s;
+            let wh = f64::from(window_size.height) * s;
 
-            let x0 = ((pos.x + pad_left) as f64 * s).max(0.0).min(ww);
-            let y0 = ((pos.y + pad_top) as f64 * s).max(0.0).min(wh);
-            let x1 = ((pos.x + size.width - pad_right) as f64 * s).max(0.0).min(ww);
-            let y1 = ((pos.y + size.height - pad_bottom) as f64 * s).max(0.0).min(wh);
+            let x0 = (f64::from(pos.x + pad_left) * s).max(0.0).min(ww);
+            let y0 = (f64::from(pos.y + pad_top) * s).max(0.0).min(wh);
+            let x1 = (f64::from(pos.x + size.width - pad_right) * s).max(0.0).min(ww);
+            let y1 = (f64::from(pos.y + size.height - pad_bottom) * s).max(0.0).min(wh);
 
             if x1 > x0 && y1 > y0 {
                 builder.set_bounds(Rect { x0, y0, x1, y1 });
@@ -518,15 +521,15 @@ impl A11yManager {
         builder
     }
 
-    /// Encode a `(DomId.inner, node index)` pair into the stable A11yNodeId used
+    /// Encode a `(DomId.inner, node index)` pair into the stable `A11yNodeId` used
     /// throughout the tree (offset by 1 so it never collides with `root_id` 0).
     /// Shared by the tree walk and the aria-labelledby/-describedby relation
     /// mapping, so a relation always resolves to the node the walk emitted.
-    fn encode_a11y_node_id(dom_inner: usize, node_idx: usize) -> A11yNodeId {
+    const fn encode_a11y_node_id(dom_inner: usize, node_idx: usize) -> A11yNodeId {
         A11yNodeId(((dom_inner as u64) << 32) | ((node_idx as u64) + 1))
     }
 
-    /// Map an aria-labelledby/-describedby target `DomNodeId` to its A11yNodeId,
+    /// Map an aria-labelledby/-describedby target `DomNodeId` to its `A11yNodeId`,
     /// or `None` if the node id can't be resolved.
     fn a11y_node_id_for(target: &DomNodeId) -> Option<A11yNodeId> {
         let idx = target.node.into_crate_internal()?.index();
@@ -536,9 +539,12 @@ impl A11yManager {
     /// Maps an HTML `NodeType` to an accesskit `Role`.
     ///
     /// Every role used here must pass accesskit's `common_filter` (i.e. NOT be
-    /// `GenericContainer` or `TextRun`) or VoiceOver will skip the node entirely.
+    /// `GenericContainer` or `TextRun`) or `VoiceOver` will skip the node entirely.
     /// Use `Group` for structural containers, `Paragraph` for text blocks, `Label`
     /// for inline text, and semantic roles for everything else.
+    // Exhaustive NodeType -> accessibility Role mapping table; many node types share
+    // a Role, but one-arm-per-NodeType is intentional for readability/maintainability.
+    #[allow(clippy::match_same_arms)]
     const fn node_type_to_role(node_type: &NodeType) -> Role {
         match node_type {
             // === Text content ===
@@ -641,8 +647,11 @@ impl A11yManager {
         }
     }
 
-    /// Maps Azul's AccessibilityRole to accesskit's Role.
-    fn map_role(role: &AccessibilityRole) -> Role {
+    /// Maps Azul's `AccessibilityRole` to accesskit's Role.
+    // Exhaustive AccessibilityRole -> AccessKit Role mapping table (see node_type_to_role).
+    #[allow(clippy::match_same_arms)]
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    const fn map_role(role: &AccessibilityRole) -> Role {
         match role {
             AccessibilityRole::TitleBar => Role::TitleBar,
             AccessibilityRole::MenuBar => Role::MenuBar,
@@ -723,7 +732,7 @@ impl A11yManager {
 /// - Lower 32 bits: `NodeId + 1` (index within that DOM tree, offset by 1 to avoid
 ///   colliding with the accesskit root node id, matching the encoding in `update_tree`)
 #[cfg(feature = "a11y")]
-pub fn decode_a11y_node_id(a11y_node_id: A11yNodeId) -> (DomId, NodeId) {
+#[must_use] pub const fn decode_a11y_node_id(a11y_node_id: A11yNodeId) -> (DomId, NodeId) {
     let raw = a11y_node_id.0;
     let dom_id = DomId {
         inner: (raw >> 32) as usize,
@@ -736,7 +745,8 @@ pub fn decode_a11y_node_id(a11y_node_id: A11yNodeId) -> (DomId, NodeId) {
 ///
 /// Returns `None` if the action requires data that was not provided or is invalid.
 #[cfg(feature = "a11y")]
-pub fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction> {
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[must_use] pub fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction> {
     use azul_css::{props::basic::FloatValue, AzString};
 
     let action = match request.action {
@@ -813,6 +823,7 @@ pub fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityActio
 
 /// Stub implementation when accessibility feature is disabled.
 #[cfg(not(feature = "a11y"))]
+#[derive(Debug)]
 pub struct A11yManager {
     _private: (),
 }
@@ -831,7 +842,7 @@ mod a11y_relation_tests {
     use accesskit::NodeId as A11yNodeId;
 
     /// The a11y node-id encoding must stay in lockstep with the tree walk:
-    /// `(dom.inner << 32) | (idx + 1)`. labelled_by/described_by relations encode
+    /// `(dom.inner << 32) | (idx + 1)`. `labelled_by/described_by` relations encode
     /// their targets the same way, so any drift here would point a relation at
     /// the wrong (or a nonexistent) node.
     #[test]

@@ -109,7 +109,7 @@ impl_vec_clone!(
 impl_vec_partialeq!(ChangedCssProperty, ChangedCssPropertyVec);
 
 /// Focus state change for restyle operations
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FocusChange {
     /// Node that lost focus (if any)
     pub lost_focus: Option<NodeId>,
@@ -118,7 +118,7 @@ pub struct FocusChange {
 }
 
 /// Hover state change for restyle operations
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HoverChange {
     /// Nodes that the mouse left
     pub left_nodes: Vec<NodeId>,
@@ -127,7 +127,7 @@ pub struct HoverChange {
 }
 
 /// Active (mouse down) state change for restyle operations
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveChange {
     /// Nodes that were deactivated (mouse up)
     pub deactivated: Vec<NodeId>,
@@ -145,7 +145,7 @@ pub struct RestyleResult {
     /// Whether display list needs regeneration (visual properties changed)
     pub needs_display_list: bool,
     /// Whether only GPU-level properties changed (opacity, transform)
-    /// If true and needs_display_list is false, we can update via GPU without display list rebuild
+    /// If true and `needs_display_list` is false, we can update via GPU without display list rebuild
     pub gpu_only_changes: bool,
     /// The highest `RelayoutScope` seen across all property changes.
     ///
@@ -162,12 +162,12 @@ pub struct RestyleResult {
 
 impl RestyleResult {
     /// Returns true if any changes occurred
-    pub fn has_changes(&self) -> bool {
+    #[must_use] pub fn has_changes(&self) -> bool {
         !self.changed_nodes.is_empty()
     }
 
-    /// Merge another RestyleResult into this one
-    pub fn merge(&mut self, other: RestyleResult) {
+    /// Merge another `RestyleResult` into this one
+    pub fn merge(&mut self, other: Self) {
         for (node_id, changes) in other.changed_nodes {
             self.changed_nodes.entry(node_id).or_default().extend(changes);
         }
@@ -210,8 +210,8 @@ pub struct StyledNodeState {
     pub drag_over: bool,
 }
 
-impl core::fmt::Debug for StyledNodeState {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for StyledNodeState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut v = Vec::new();
         if self.hover {
             v.push("hover");
@@ -246,14 +246,14 @@ impl core::fmt::Debug for StyledNodeState {
         if v.is_empty() {
             v.push("normal");
         }
-        write!(f, "{:?}", v)
+        write!(f, "{v:?}")
     }
 }
 
 impl StyledNodeState {
     /// Creates a new state with all states set to false (normal state).
-    pub const fn new() -> Self {
-        StyledNodeState {
+    #[must_use] pub const fn new() -> Self {
+        Self {
             hover: false,
             active: false,
             focused: false,
@@ -268,7 +268,7 @@ impl StyledNodeState {
     }
 
     /// Check if a specific pseudo-state is active
-    pub fn has_state(&self, state_type: u8) -> bool {
+    #[must_use] pub const fn has_state(&self, state_type: u8) -> bool {
         match state_type {
             0 => true, // Normal is always active
             1 => self.hover,
@@ -286,7 +286,7 @@ impl StyledNodeState {
     }
 
     /// Returns true if no special state is active (just normal)
-    pub fn is_normal(&self) -> bool {
+    #[must_use] pub const fn is_normal(&self) -> bool {
         !self.hover
             && !self.active
             && !self.focused
@@ -299,9 +299,9 @@ impl StyledNodeState {
             && !self.drag_over
     }
 
-    /// Create from PseudoStateFlags
-    pub fn from_pseudo_state_flags(flags: &azul_css::dynamic_selector::PseudoStateFlags) -> Self {
-        StyledNodeState {
+    /// Create from `PseudoStateFlags`
+    #[must_use] pub const fn from_pseudo_state_flags(flags: &azul_css::dynamic_selector::PseudoStateFlags) -> Self {
+        Self {
             hover: flags.hover,
             active: flags.active,
             focused: flags.focused,
@@ -317,8 +317,12 @@ impl StyledNodeState {
 }
 
 /// A styled Dom node
+// Per-DOM-node hot type passed by reference throughout the layout/style
+// pipeline; kept non-Copy on purpose so it isn't silently bulk-copied and to
+// avoid trivially_copy_pass_by_ref churn across the many &StyledNode callers.
+#[allow(missing_copy_implementations)]
 #[repr(C)]
-#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd)]
 pub struct StyledNode {
     /// Current state of this styled node (used later for caching the style / layout)
     pub styled_node_state: StyledNodeState,
@@ -328,7 +332,7 @@ impl_option!(
     StyledNode,
     OptionStyledNode,
     copy = false,
-    [Debug, Clone, PartialEq, PartialOrd]
+    [Debug, Clone, PartialEq, Eq, PartialOrd]
 );
 
 impl_vec!(StyledNode, StyledNodeVec, StyledNodeVecDestructor, StyledNodeVecDestructorType, StyledNodeVecSlice, OptionStyledNode);
@@ -340,13 +344,13 @@ impl_vec_partialeq!(StyledNode, StyledNodeVec);
 
 impl StyledNodeVec {
     /// Returns an immutable container reference for indexed access.
-    pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, StyledNode> {
+    #[must_use] pub fn as_container(&self) -> NodeDataContainerRef<'_, StyledNode> {
         NodeDataContainerRef {
             internal: self.as_ref(),
         }
     }
     /// Returns a mutable container reference for indexed access.
-    pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, StyledNode> {
+    pub fn as_container_mut(&mut self) -> NodeDataContainerRefMut<'_, StyledNode> {
         NodeDataContainerRefMut {
             internal: self.as_mut(),
         }
@@ -354,6 +358,7 @@ impl StyledNodeVec {
 }
 
 #[test]
+#[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
 fn test_css_styling_with_nested_divs() {
     let s = "
         html, body, p {
@@ -456,14 +461,14 @@ fn test_recompute_preserves_hot_flag_has_background() {
 pub struct StyleFontFamilyHash(pub u64);
 
 impl ::core::fmt::Debug for StyleFontFamilyHash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "StyleFontFamilyHash({})", self.0)
     }
 }
 
 impl StyleFontFamilyHash {
     /// Computes a 64-bit hash of a font family for cache lookups.
-    pub fn new(family: &StyleFontFamily) -> Self {
+    #[must_use] pub fn new(family: &StyleFontFamily) -> Self {
         use core::hash::Hasher;
         let mut hasher = crate::hash::DefaultHasher::new();
         family.hash(&mut hasher);
@@ -476,17 +481,17 @@ impl StyleFontFamilyHash {
 pub struct StyleFontFamiliesHash(pub u64);
 
 impl ::core::fmt::Debug for StyleFontFamiliesHash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "StyleFontFamiliesHash({})", self.0)
     }
 }
 
 impl StyleFontFamiliesHash {
     /// Computes a 64-bit hash of multiple font families for cache lookups.
-    pub fn new(families: &[StyleFontFamily]) -> Self {
+    #[must_use] pub fn new(families: &[StyleFontFamily]) -> Self {
         use core::hash::Hasher;
         let mut hasher = crate::hash::DefaultHasher::new();
-        for f in families.iter() {
+        for f in families {
             f.hash(&mut hasher);
         }
         Self(hasher.finish())
@@ -543,23 +548,23 @@ pub struct NodeHierarchyItemId {
 }
 
 impl fmt::Debug for NodeHierarchyItemId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.into_crate_internal() {
-            Some(n) => write!(f, "Some(NodeId({}))", n),
+            Some(n) => write!(f, "Some(NodeId({n}))"),
             None => write!(f, "None"),
         }
     }
 }
 
 impl fmt::Display for NodeHierarchyItemId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
     }
 }
 
 impl NodeHierarchyItemId {
     /// Represents `None` (no node). Encoded as `inner = 0`.
-    pub const NONE: NodeHierarchyItemId = NodeHierarchyItemId { inner: 0 };
+    pub const NONE: Self = Self { inner: 0 };
 
     /// Creates an `NodeHierarchyItemId` from a raw 1-based encoded value.
     ///
@@ -568,7 +573,7 @@ impl NodeHierarchyItemId {
     /// The value must use 1-based encoding (0 = None, n = NodeId(n-1)).
     /// Prefer using [`NodeHierarchyItemId::from_crate_internal`] instead.
     #[inline]
-    pub const fn from_raw(value: usize) -> Self {
+    #[must_use] pub const fn from_raw(value: usize) -> Self {
         Self { inner: value }
     }
 
@@ -578,7 +583,7 @@ impl NodeHierarchyItemId {
     ///
     /// The returned value uses 1-based encoding. Do NOT use as an array index!
     #[inline]
-    pub const fn into_raw(&self) -> usize {
+    #[must_use] pub const fn into_raw(&self) -> usize {
         self.inner
     }
 }
@@ -602,13 +607,13 @@ impl_vec_partialeq!(NodeHierarchyItemId, NodeHierarchyItemIdVec);
 impl NodeHierarchyItemId {
     /// Decodes to `Option<NodeId>` (0 = None, n > 0 = Some(NodeId(n-1))).
     #[inline]
-    pub const fn into_crate_internal(&self) -> Option<NodeId> {
+    #[must_use] pub const fn into_crate_internal(&self) -> Option<NodeId> {
         NodeId::from_usize(self.inner)
     }
 
     /// Encodes from `Option<NodeId>` (None → 0, Some(NodeId(n)) → n+1).
     #[inline]
-    pub const fn from_crate_internal(t: Option<NodeId>) -> Self {
+    #[must_use] pub const fn from_crate_internal(t: Option<NodeId>) -> Self {
         Self {
             inner: NodeId::into_raw(&t),
         }
@@ -618,7 +623,7 @@ impl NodeHierarchyItemId {
 impl From<Option<NodeId>> for NodeHierarchyItemId {
     #[inline]
     fn from(opt: Option<NodeId>) -> Self {
-        NodeHierarchyItemId::from_crate_internal(opt)
+        Self::from_crate_internal(opt)
     }
 }
 
@@ -646,7 +651,7 @@ impl_option!(
 
 impl NodeHierarchyItem {
     /// Creates a zeroed hierarchy item (no parent, siblings, or children).
-    pub const fn zeroed() -> Self {
+    #[must_use] pub const fn zeroed() -> Self {
         Self {
             parent: 0,
             previous_sibling: 0,
@@ -657,8 +662,8 @@ impl NodeHierarchyItem {
 }
 
 impl From<Node> for NodeHierarchyItem {
-    fn from(node: Node) -> NodeHierarchyItem {
-        NodeHierarchyItem {
+    fn from(node: Node) -> Self {
+        Self {
             parent: NodeId::into_raw(&node.parent),
             previous_sibling: NodeId::into_raw(&node.previous_sibling),
             next_sibling: NodeId::into_raw(&node.next_sibling),
@@ -669,23 +674,23 @@ impl From<Node> for NodeHierarchyItem {
 
 impl NodeHierarchyItem {
     /// Returns the parent node ID, if any.
-    pub fn parent_id(&self) -> Option<NodeId> {
+    #[must_use] pub const fn parent_id(&self) -> Option<NodeId> {
         NodeId::from_usize(self.parent)
     }
     /// Returns the previous sibling node ID, if any.
-    pub fn previous_sibling_id(&self) -> Option<NodeId> {
+    #[must_use] pub const fn previous_sibling_id(&self) -> Option<NodeId> {
         NodeId::from_usize(self.previous_sibling)
     }
     /// Returns the next sibling node ID, if any.
-    pub fn next_sibling_id(&self) -> Option<NodeId> {
+    #[must_use] pub const fn next_sibling_id(&self) -> Option<NodeId> {
         NodeId::from_usize(self.next_sibling)
     }
-    /// Returns the first child node ID (current_node_id + 1 if has children).
-    pub fn first_child_id(&self, current_node_id: NodeId) -> Option<NodeId> {
+    /// Returns the first child node ID (`current_node_id` + 1 if has children).
+    #[must_use] pub fn first_child_id(&self, current_node_id: NodeId) -> Option<NodeId> {
         self.last_child_id().map(|_| current_node_id + 1)
     }
     /// Returns the last child node ID, if any.
-    pub fn last_child_id(&self) -> Option<NodeId> {
+    #[must_use] pub const fn last_child_id(&self) -> Option<NodeId> {
         NodeId::from_usize(self.last_child)
     }
 }
@@ -703,28 +708,25 @@ impl_vec_partialeq!(AzNode, NodeHierarchyItemVec);
 
 impl NodeHierarchyItemVec {
     /// Returns an immutable container reference for indexed access.
-    pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, NodeHierarchyItem> {
+    #[must_use] pub fn as_container(&self) -> NodeDataContainerRef<'_, NodeHierarchyItem> {
         NodeDataContainerRef {
             internal: self.as_ref(),
         }
     }
     /// Returns a mutable container reference for indexed access.
-    pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, NodeHierarchyItem> {
+    pub fn as_container_mut(&mut self) -> NodeDataContainerRefMut<'_, NodeHierarchyItem> {
         NodeDataContainerRefMut {
             internal: self.as_mut(),
         }
     }
 }
 
-impl<'a> NodeDataContainerRef<'a, NodeHierarchyItem> {
+impl NodeDataContainerRef<'_, NodeHierarchyItem> {
     /// Returns the number of descendant nodes under the given parent.
     #[inline]
-    pub fn subtree_len(&self, parent_id: NodeId) -> usize {
+    #[must_use] pub fn subtree_len(&self, parent_id: NodeId) -> usize {
         let self_item_index = parent_id.index();
-        let next_item_index = match self[parent_id].next_sibling_id() {
-            None => self.len(),
-            Some(s) => s.index(),
-        };
+        let next_item_index = self[parent_id].next_sibling_id().map_or_else(|| self.len(), |s| s.index());
         next_item_index - self_item_index - 1
     }
 }
@@ -742,8 +744,8 @@ impl_option!(
     [Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash]
 );
 
-impl core::fmt::Debug for ParentWithNodeDepth {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for ParentWithNodeDepth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{{ depth: {}, node: {:?} }}",
@@ -764,7 +766,7 @@ impl_vec_clone!(
 );
 impl_vec_partialeq!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 #[repr(C)]
 pub struct TagIdToNodeIdMapping {
     // Hit-testing tag ID (not all nodes have a tag, only nodes that are hit-testable)
@@ -830,7 +832,7 @@ pub struct StyledDom {
     pub tag_ids_to_node_ids: TagIdToNodeIdMappingVec,
     pub non_leaf_nodes: ParentWithNodeDepthVec,
     pub css_property_cache: CssPropertyCachePtr,
-    /// The ID of this DOM in the layout tree (for multi-DOM support with VirtualViews)
+    /// The ID of this DOM in the layout tree (for multi-DOM support with `VirtualViews`)
     pub dom_id: DomId,
 }
 impl_option!(
@@ -870,7 +872,7 @@ impl Default for StyledDom {
 }
 
 /// Per-field heap-byte breakdown of a `StyledDom`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct StyledDomMemoryReport {
     pub node_count: usize,
     pub node_hierarchy_bytes: usize,
@@ -884,7 +886,7 @@ pub struct StyledDomMemoryReport {
 }
 
 impl StyledDomMemoryReport {
-    pub fn total_bytes(&self) -> usize {
+    #[must_use] pub const fn total_bytes(&self) -> usize {
         self.node_hierarchy_bytes
             + self.node_data_bytes
             + self.styled_nodes_bytes
@@ -897,19 +899,18 @@ impl StyledDomMemoryReport {
 }
 
 impl StyledDom {
-    /// Approximate heap bytes retained by this StyledDom, broken out by field.
-    pub fn memory_report(&self) -> StyledDomMemoryReport {
+    /// Approximate heap bytes retained by this `StyledDom`, broken out by field.
+    #[must_use] pub fn memory_report(&self) -> StyledDomMemoryReport {
         let n = self.node_data.len();
         StyledDomMemoryReport {
             node_count: n,
-            node_hierarchy_bytes: self.node_hierarchy.as_ref().len()
-                * core::mem::size_of::<NodeHierarchyItem>(),
+            node_hierarchy_bytes: size_of_val(self.node_hierarchy.as_ref()),
             node_data_bytes: {
-                let base = n * core::mem::size_of::<crate::dom::NodeData>();
+                let base = n * size_of::<NodeData>();
                 // NodeData contains inline Vecs (callbacks, css_props, datasets)
                 // that have their own heap allocations. Approximate:
                 let mut inner = 0usize;
-                for nd in self.node_data.as_ref().iter() {
+                for nd in self.node_data.as_ref() {
                     inner += nd.get_callbacks().len() * 64; // rough per-callback
                     // Each rule = path + decls Vec + conditions Vec + priority byte.
                     // Approximate at 64 bytes per rule + the heap for declarations.
@@ -917,12 +918,10 @@ impl StyledDom {
                 }
                 base + inner
             },
-            styled_nodes_bytes: n * core::mem::size_of::<StyledNode>(),
-            cascade_info_bytes: n * core::mem::size_of::<CascadeInfo>(),
-            tag_ids_bytes: self.tag_ids_to_node_ids.as_ref().len()
-                * core::mem::size_of::<TagIdToNodeIdMapping>(),
-            non_leaf_nodes_bytes: self.non_leaf_nodes.as_ref().len()
-                * core::mem::size_of::<ParentWithNodeDepth>(),
+            styled_nodes_bytes: n * size_of::<StyledNode>(),
+            cascade_info_bytes: n * size_of::<CascadeInfo>(),
+            tag_ids_bytes: size_of_val(self.tag_ids_to_node_ids.as_ref()),
+            non_leaf_nodes_bytes: size_of_val(self.non_leaf_nodes.as_ref()),
             callback_vecs_bytes:
                 self.nodes_with_window_callbacks.as_ref().len() * 8
                 + self.nodes_with_datasets.as_ref().len() * 8,
@@ -930,7 +929,7 @@ impl StyledDom {
         }
     }
 
-    /// Creates a new StyledDom by applying CSS styles to a DOM tree.
+    /// Creates a new `StyledDom` by applying CSS styles to a DOM tree.
     ///
     /// NOTE: After calling this function, the DOM will be reset to an empty DOM.
     // This is for memory optimization, so that the DOM does not need to be cloned.
@@ -955,12 +954,12 @@ impl StyledDom {
         Self::create_from_compact_dom(compact_dom, css, node_hierarchy)
     }
 
-    /// Creates a StyledDom from a `FastDom` (arena-based DOM).
+    /// Creates a `StyledDom` from a `FastDom` (arena-based DOM).
     ///
     /// This skips the `convert_dom_into_compact_dom` tree→arena conversion
     /// entirely since `FastDom` already has flat `NodeHierarchyItemVec` and
     /// `NodeDataVec`. CSS is collected from `CssWithNodeIdVec`.
-    pub fn create_from_fast_dom(fast_dom: crate::dom::FastDom) -> Self {
+    #[must_use] pub fn create_from_fast_dom(fast_dom: crate::dom::FastDom) -> Self {
         use azul_css::css::Css;
 
         // 1. Merge CSS from CssWithNodeIdVec into a single Css, scoping each
@@ -994,22 +993,22 @@ impl StyledDom {
         // 2. Convert NodeHierarchyItemVec → NodeHierarchy (Vec<Node>)
         //    for cascade tree computation
         let node_hierarchy_items = fast_dom.node_hierarchy;
-        let nodes: Vec<crate::id::Node> = node_hierarchy_items.as_ref()
+        let nodes: Vec<Node> = node_hierarchy_items.as_ref()
             .iter()
-            .map(|item| crate::id::Node {
+            .map(|item| Node {
                 parent: NodeId::from_usize(item.parent),
                 previous_sibling: NodeId::from_usize(item.previous_sibling),
                 next_sibling: NodeId::from_usize(item.next_sibling),
                 last_child: NodeId::from_usize(item.last_child),
             })
             .collect();
-        let node_hierarchy_internal = crate::id::NodeHierarchy { internal: nodes };
+        let node_hierarchy_internal = NodeHierarchy { internal: nodes };
 
         // 3. Build CompactDom from the flat arenas (no conversion needed)
         let node_data_vec = fast_dom.node_data.into_library_owned_vec();
         let compact_dom = CompactDom {
             node_hierarchy: node_hierarchy_internal,
-            node_data: crate::id::NodeDataContainer { internal: node_data_vec },
+            node_data: NodeDataContainer { internal: node_data_vec },
             root: NodeId::ZERO,
         };
 
@@ -1019,9 +1018,11 @@ impl StyledDom {
         Self::create_from_compact_dom(compact_dom, combined_css, node_hierarchy_items)
     }
 
-    /// Internal: creates StyledDom from a CompactDom + CSS + pre-built hierarchy items.
-    /// Shared by both the Slow path (create → convert_dom_into_compact_dom → this)
-    /// and the Fast path (create_from_fast_dom → this).
+    /// Internal: creates `StyledDom` from a `CompactDom` + CSS + pre-built hierarchy items.
+    /// Shared by both the Slow path (create → `convert_dom_into_compact_dom` → this)
+    /// and the Fast path (`create_from_fast_dom` → this).
+    #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     fn create_from_compact_dom(
         compact_dom: CompactDom,
         mut css: Css,
@@ -1146,7 +1147,7 @@ impl StyledDom {
                 if !cbs.is_empty() || has_dataset {
                     datasets.push(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))));
                 }
-                for cb in cbs.iter() {
+                for cb in cbs {
                     if let EventFilter::Window(_) = cb.event {
                         win_cbs.push(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))));
                         break;
@@ -1157,7 +1158,7 @@ impl StyledDom {
         } else {
             (Vec::new(), Vec::new())
         };
-        let mut styled_dom = StyledDom {
+        let mut styled_dom = Self {
             root: NodeHierarchyItemId::from_crate_internal(Some(compact_dom.root)),
             node_hierarchy,
             node_data: compact_dom.node_data.internal.into(),
@@ -1177,17 +1178,17 @@ impl StyledDom {
         styled_dom
     }
 
-    /// Creates a StyledDom from a recursive Dom tree with deferred CSS.
+    /// Creates a `StyledDom` from a recursive Dom tree with deferred CSS.
     ///
     /// This is the Phase 7.2 entry point: the layout callback returns a recursive
     /// `Dom` with `css: Vec<Css>` on each node. This function:
     ///
     /// 1. Collects all CSS objects from the recursive tree
-    /// 2. Flattens the Dom into contiguous arrays (CompactDom)
+    /// 2. Flattens the Dom into contiguous arrays (`CompactDom`)
     /// 3. Merges all CSS objects and runs a single cascade pass
-    /// 4. Runs apply_ua_css → compute_inherited_values → build_compact_cache
+    /// 4. Runs `apply_ua_css` → `compute_inherited_values` → `build_compact_cache`
     /// 5. Generates anonymous table elements
-    pub fn create_from_dom(mut dom: Dom) -> Self {
+    #[must_use] pub fn create_from_dom(mut dom: Dom) -> Self {
         use azul_css::css::Css;
 
         // #47: scope each node's inline css to its subtree BEFORE collecting, so a
@@ -1242,7 +1243,8 @@ impl StyledDom {
         let other_root_id = other.root.into_crate_internal().unwrap_or(NodeId::ZERO);
 
         // Use provided index instead of counting children
-        other.cascade_info.as_mut()[other_root_id.index()].index_in_parent = child_index as u32;
+        other.cascade_info.as_mut()[other_root_id.index()].index_in_parent =
+            u32::try_from(child_index).unwrap_or(u32::MAX);
         other.cascade_info.as_mut()[other_root_id.index()].is_last_child = true;
 
         self.cascade_info.append(&mut other.cascade_info);
@@ -1291,20 +1293,20 @@ impl StyledDom {
 
         // Tag IDs are globally unique (AtomicUsize counter) and never collide,
         // so we only shift node_id (which changes when DOMs are merged).
-        for tag_id_node_id in other.tag_ids_to_node_ids.iter_mut() {
+        for tag_id_node_id in &mut other.tag_ids_to_node_ids {
             tag_id_node_id.node_id.inner += self_len;
         }
 
         self.tag_ids_to_node_ids
             .append(&mut other.tag_ids_to_node_ids);
 
-        for nid in other.nodes_with_window_callbacks.iter_mut() {
+        for nid in &mut other.nodes_with_window_callbacks {
             nid.inner += self_len;
         }
         self.nodes_with_window_callbacks
             .append(&mut other.nodes_with_window_callbacks);
 
-        for nid in other.nodes_with_datasets.iter_mut() {
+        for nid in &mut other.nodes_with_datasets {
             nid.inner += self_len;
         }
         self.nodes_with_datasets
@@ -1313,7 +1315,7 @@ impl StyledDom {
         // edge case: if the other StyledDom consists of only one node
         // then it is not a parent itself
         if other_len != 1 {
-            for other_non_leaf_node in other.non_leaf_nodes.iter_mut() {
+            for other_non_leaf_node in &mut other.non_leaf_nodes {
                 other_non_leaf_node.node_id.inner += self_len;
                 other_non_leaf_node.depth += 1;
             }
@@ -1322,14 +1324,14 @@ impl StyledDom {
         }
     }
 
-    /// Call this after all append_child_with_index operations are complete
-    /// to sort non_leaf_nodes by depth (required for correct rendering)
+    /// Call this after all `append_child_with_index` operations are complete
+    /// to sort `non_leaf_nodes` by depth (required for correct rendering)
     pub fn finalize_non_leaf_nodes(&mut self) {
         self.non_leaf_nodes.sort_by(|a, b| a.depth.cmp(&b.depth));
     }
 
     /// Same as `append_child()`, but as a builder method
-    pub fn with_child(mut self, other: Self) -> Self {
+    #[must_use] pub fn with_child(mut self, other: Self) -> Self {
         self.append_child(other);
         self
     }
@@ -1342,7 +1344,7 @@ impl StyledDom {
     }
 
     /// Builder method for setting the context menu
-    pub fn with_context_menu(mut self, context_menu: Menu) -> Self {
+    #[must_use] pub fn with_context_menu(mut self, context_menu: Menu) -> Self {
         self.set_context_menu(context_menu);
         self
     }
@@ -1355,7 +1357,7 @@ impl StyledDom {
     }
 
     /// Builder method for setting the menu bar
-    pub fn with_menu_bar(mut self, menu_bar: Menu) -> Self {
+    #[must_use] pub fn with_menu_bar(mut self, menu_bar: Menu) -> Self {
         self.set_menu_bar(menu_bar);
         self
     }
@@ -1424,30 +1426,29 @@ impl StyledDom {
         self.tag_ids_to_node_ids = new_tag_ids.into();
     }
 
-    /// Returns the total number of nodes in this StyledDom.
+    /// Returns the total number of nodes in this `StyledDom`.
     #[inline]
-    pub fn node_count(&self) -> usize {
+    #[must_use] pub const fn node_count(&self) -> usize {
         self.node_data.len()
     }
 
     /// Returns an immutable reference to the CSS property cache.
     #[inline]
-    pub fn get_css_property_cache<'a>(&'a self) -> &'a CssPropertyCache {
-        &**self.css_property_cache.ptr
+    #[must_use] pub fn get_css_property_cache(&self) -> &CssPropertyCache {
+        &self.css_property_cache.ptr
     }
 
     /// Returns a mutable reference to the CSS property cache.
     #[inline]
-    pub fn get_css_property_cache_mut<'a>(&'a mut self) -> &'a mut CssPropertyCache {
-        &mut **self.css_property_cache.ptr
+    pub fn get_css_property_cache_mut(&mut self) -> &mut CssPropertyCache {
+        &mut self.css_property_cache.ptr
     }
 
     /// Returns the current state (hover, active, focus) of a styled node.
     #[inline]
-    pub fn get_styled_node_state(&self, node_id: &NodeId) -> StyledNodeState {
+    #[must_use] pub fn get_styled_node_state(&self, node_id: &NodeId) -> StyledNodeState {
         self.styled_nodes.as_container()[*node_id]
             .styled_node_state
-            .clone()
     }
 
     /// Updates hover state for nodes and returns changed CSS properties.
@@ -1509,11 +1510,10 @@ impl StyledDom {
             .map(|nid| {
                 self.styled_nodes.as_container()[*nid]
                     .styled_node_state
-                    .clone()
             })
             .collect::<Vec<_>>();
 
-        for nid in nodes.iter() {
+        for nid in nodes {
             set_state(
                 &mut self.styled_nodes.as_container_mut()[*nid].styled_node_state,
                 new_state_value,
@@ -1588,16 +1588,10 @@ impl StyledDom {
                             None
                         } else {
                             Some(ChangedCssProperty {
-                                previous_state: old_node_state.clone(),
-                                previous_prop: match old {
-                                    None => CssProperty::auto(*prop),
-                                    Some(s) => s.clone(),
-                                },
-                                current_state: new_node_state.clone(),
-                                current_prop: match new {
-                                    None => CssProperty::auto(*prop),
-                                    Some(s) => s.clone(),
-                                },
+                                previous_state: *old_node_state,
+                                previous_prop: old.map_or_else(|| CssProperty::auto(*prop), Clone::clone),
+                                current_state: *new_node_state,
+                                current_prop: new.map_or_else(|| CssProperty::auto(*prop), Clone::clone),
                             })
                         }
                     })
@@ -1616,7 +1610,7 @@ impl StyledDom {
 
     /// Unified entry point for all CSS restyle operations.
     ///
-    /// This function synchronizes the StyledNodeState with runtime state
+    /// This function synchronizes the `StyledNodeState` with runtime state
     /// and computes which CSS properties have changed. It determines whether
     /// layout, display list, or GPU-only updates are needed.
     ///
@@ -1635,8 +1629,11 @@ impl StyledDom {
         active_changes: Option<ActiveChange>,
     ) -> RestyleResult {
         
-        let mut result = RestyleResult::default();
-        result.gpu_only_changes = true; // Start with GPU-only assumption
+        // Start with GPU-only assumption; refined below as changes are analyzed.
+        let mut result = RestyleResult {
+            gpu_only_changes: true,
+            ..RestyleResult::default()
+        };
 
         // Helper closure to merge changes and analyze property categories
         let mut process_changes = |changes: RestyleNodes| {
@@ -1773,19 +1770,16 @@ impl StyledDom {
                         &new_prop.get_type(),
                     );
 
-                    let old_prop = match old_prop {
-                        None => CssProperty::auto(new_prop.get_type()),
-                        Some(s) => s.clone(),
-                    };
+                    let old_prop = old_prop.map_or_else(|| CssProperty::auto(new_prop.get_type()), Clone::clone);
 
                     if old_prop == *new_prop {
                         None
                     } else {
                         Some(ChangedCssProperty {
-                            previous_state: old_node_state.clone(),
+                            previous_state: *old_node_state,
                             previous_prop: old_prop,
                             // overriding a user property does not change the state
-                            current_state: old_node_state.clone(),
+                            current_state: *old_node_state,
                             current_prop: new_prop.clone(),
                         })
                     }
@@ -1805,7 +1799,7 @@ impl StyledDom {
                 .resize(node_count, Vec::new());
         }
 
-        for new_prop in new_properties.iter() {
+        for new_prop in new_properties {
             let prop_type = new_prop.get_type();
             let vec = &mut css_property_cache_mut
                 .user_overridden_properties[node_id.index()];
@@ -1838,7 +1832,7 @@ impl StyledDom {
     ///      <div id="test" />
     /// </div>
     /// ```
-    pub fn get_html_string(&self, custom_head: &str, custom_body: &str, test_mode: bool) -> String {
+    #[must_use] pub fn get_html_string(&self, custom_head: &str, custom_body: &str, test_mode: bool) -> String {
         let css_property_cache = self.get_css_property_cache();
 
         let mut output = String::new();
@@ -1854,7 +1848,7 @@ impl StyledDom {
                 let mut total_last_child = None;
                 recursive_get_last_child(
                     parent_node_id,
-                    &self.node_hierarchy.as_ref(),
+                    self.node_hierarchy.as_ref(),
                     &mut total_last_child,
                 );
                 let total_last_child = total_last_child?;
@@ -1924,7 +1918,9 @@ impl StyledDom {
             }
         }
 
-        if !test_mode {
+        if test_mode {
+            output
+        } else {
             format!(
                 "
                 <html>
@@ -1937,29 +1933,27 @@ impl StyledDom {
                 </html>
             "
             )
-        } else {
-            output
         }
     }
 
     /// Returns nodes grouped by their rendering order (respects z-index and position).
-    pub fn get_rects_in_rendering_order(&self) -> ContentGroup {
+    #[must_use] pub fn get_rects_in_rendering_order(&self) -> ContentGroup {
         Self::determine_rendering_order(
-            &self.non_leaf_nodes.as_ref(),
+            self.non_leaf_nodes.as_ref(),
             &self.node_hierarchy.as_container(),
             &self.styled_nodes.as_container(),
             &self.node_data.as_container(),
-            &self.get_css_property_cache(),
+            self.get_css_property_cache(),
         )
     }
 
     /// Returns the rendering order of the items (the rendering
     /// order doesn't have to be the original order)
-    fn determine_rendering_order<'a>(
+    fn determine_rendering_order(
         non_leaf_nodes: &[ParentWithNodeDepth],
-        node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
-        styled_nodes: &NodeDataContainerRef<StyledNode>,
-        node_data_container: &NodeDataContainerRef<NodeData>,
+        node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+        styled_nodes: &NodeDataContainerRef<'_, StyledNode>,
+        node_data_container: &NodeDataContainerRef<'_, NodeData>,
         css_property_cache: &CssPropertyCache,
     ) -> ContentGroup {
         let children_sorted = non_leaf_nodes
@@ -1991,8 +1985,8 @@ impl StyledDom {
         root_content_group
     }
 
-    /// Replaces this StyledDom with default and returns the old value.
-    pub fn swap_with_default(&mut self) -> Self {
+    /// Replaces this `StyledDom` with default and returns the old value.
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut new = Self::default();
         core::mem::swap(self, &mut new);
         new
@@ -2013,9 +2007,15 @@ pub struct CompactDom {
 
 impl CompactDom {
     /// Returns the number of nodes in this DOM.
-    #[inline(always)]
-    pub fn len(&self) -> usize {
+    #[inline]
+    #[must_use] pub fn len(&self) -> usize {
         self.node_hierarchy.as_ref().len()
+    }
+
+    /// Returns `true` if this DOM has no nodes.
+    #[inline]
+    #[must_use] pub fn is_empty(&self) -> bool {
+        self.node_hierarchy.as_ref().is_empty()
     }
 }
 
@@ -2025,8 +2025,8 @@ impl From<Dom> for CompactDom {
     }
 }
 
-/// Converts a tree-based Dom into an arena-based CompactDom for efficient traversal.
-pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
+/// Converts a tree-based Dom into an arena-based `CompactDom` for efficient traversal.
+#[must_use] pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
     // note: somehow convert this into a non-recursive form later on!
     fn convert_dom_into_compact_dom_internal(
         dom: &mut Dom,
@@ -2046,7 +2046,7 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
         //        - child of child 4 [7]
 
         // Write node into the arena here!
-        node_hierarchy[parent_node_id.index()] = node.clone();
+        node_hierarchy[parent_node_id.index()] = node;
 
         // MOVE the node's inline `style` AND its `extra` (NodeDataExt) box instead of relying on
         // copy_special's `self.style.clone()` / `self.extra.clone()`. Both derived Clones lower to
@@ -2138,7 +2138,7 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
 }
 
 /// #47: scope every node's inline css to its own subtree. Walks the tree in the
-/// SAME pre-order `convert_dom_into_compact_dom` uses to assign flat NodeIds, so the
+/// SAME pre-order `convert_dom_into_compact_dom` uses to assign flat `NodeIds`, so the
 /// `[flat_id, flat_id + estimated_total_children]` range pushed onto each rule (via
 /// `CssPath::push_front_scope`) matches the ids the cascade will later see. After
 /// this, a node's `with_css`/`set_css` rules can only match nodes inside its subtree
@@ -2164,19 +2164,19 @@ fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
 /// Recursively collect all CSS objects from a Dom tree (depth-first).
 /// Inner (deeper) CSS objects come first, outer (shallower) CSS objects come last.
 /// This means outer CSS has higher cascade priority when applied in order.
-fn collect_css_from_dom(dom: &Dom, out: &mut Vec<azul_css::css::Css>) {
+fn collect_css_from_dom(dom: &Dom, out: &mut Vec<Css>) {
     // First, recurse into children (inner CSS = lower priority)
-    for child in dom.children.iter() {
+    for child in &dom.children {
         collect_css_from_dom(child, out);
     }
     // Then, add this node's CSS objects (outer CSS = higher priority)
-    for css in dom.css.iter() {
+    for css in &dom.css {
         out.push(css.clone());
     }
 }
 
 /// Recursively strip CSS from all Dom nodes (sets css to empty vec).
-/// Called after collecting CSS so the CompactDom doesn't carry CSS data.
+/// Called after collecting CSS so the `CompactDom` doesn't carry CSS data.
 fn strip_css_from_dom(dom: &mut Dom) {
     dom.css = Vec::new().into();
     for child in dom.children.as_mut().iter_mut() {
@@ -2205,14 +2205,14 @@ fn fill_content_group_children(
     }
 }
 
-fn sort_children_by_position<'a>(
+fn sort_children_by_position(
     parent: NodeId,
-    node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
-    rectangles: &NodeDataContainerRef<StyledNode>,
-    node_data_container: &NodeDataContainerRef<NodeData>,
+    node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    rectangles: &NodeDataContainerRef<'_, StyledNode>,
+    node_data_container: &NodeDataContainerRef<'_, NodeData>,
     css_property_cache: &CssPropertyCache,
 ) -> Vec<NodeHierarchyItemId> {
-    use azul_css::props::layout::LayoutPosition::*;
+    use azul_css::props::layout::LayoutPosition::Absolute;
 
     let children_positions = parent
         .az_children(node_hierarchy)
@@ -2223,7 +2223,7 @@ fn sort_children_by_position<'a>(
                     &nid,
                     &rectangles[nid].styled_node_state,
                 )
-                .and_then(|p| p.clone().get_property_or_default())
+                .and_then(|p| (*p).get_property_or_default())
                 .unwrap_or_default();
             let id = NodeHierarchyItemId::from_crate_internal(Some(nid));
             (id, position)
@@ -2233,10 +2233,10 @@ fn sort_children_by_position<'a>(
     let mut not_absolute_children = children_positions
         .iter()
         .filter_map(|(node_id, position)| {
-            if *position != Absolute {
-                Some(*node_id)
-            } else {
+            if *position == Absolute {
                 None
+            } else {
+                Some(*node_id)
             }
         })
         .collect::<Vec<_>>();
@@ -2265,7 +2265,7 @@ fn recursive_get_last_child(
     target: &mut Option<NodeId>,
 ) {
     match node_hierarchy[node_id.index()].last_child_id() {
-        None => return,
+        None => (),
         Some(s) => {
             *target = Some(s);
             recursive_get_last_child(s, node_hierarchy, target);
@@ -2277,7 +2277,7 @@ fn recursive_get_last_child(
 // DOM TRAVERSAL FOR MULTI-NODE SELECTION
 // ============================================================================
 
-/// Determine if node_a comes before node_b in document order.
+/// Determine if `node_a` comes before `node_b` in document order.
 ///
 /// Document order is defined as pre-order depth-first traversal order.
 /// This is equivalent to the order nodes appear in HTML source.
@@ -2286,7 +2286,7 @@ fn recursive_get_last_child(
 /// 1. Find the path from root to each node
 /// 2. Find the Lowest Common Ancestor (LCA)
 /// 3. At the divergence point, the child that appears first in sibling order comes first
-pub fn is_before_in_document_order(
+#[must_use] pub fn is_before_in_document_order(
     hierarchy: &NodeHierarchyItemVec,
     node_a: NodeId,
     node_b: NodeId,
@@ -2330,7 +2330,7 @@ fn get_path_to_root(
     
     while let Some(node_id) = current {
         path.push(node_id);
-        current = hierarchy.get(node_id).and_then(|h| h.parent_id());
+        current = hierarchy.get(node_id).and_then(NodeHierarchyItem::parent_id);
     }
     
     // Reverse to get root-first order
@@ -2349,8 +2349,8 @@ fn get_path_to_root(
 /// * `end_node` - Last node in document order
 ///
 /// ## Returns
-/// Vector of NodeIds in document order, from start to end (inclusive)
-pub fn collect_nodes_in_document_order(
+/// Vector of `NodeIds` in document order, from start to end (inclusive)
+#[must_use] pub fn collect_nodes_in_document_order(
     hierarchy: &NodeHierarchyItemVec,
     start_node: NodeId,
     end_node: NodeId,
@@ -2395,7 +2395,7 @@ pub fn collect_nodes_in_document_order(
                 let mut child = Some(first_child);
                 while let Some(child_id) = child {
                     children.push(child_id);
-                    child = hierarchy_container.get(child_id).and_then(|h| h.next_sibling_id());
+                    child = hierarchy_container.get(child_id).and_then(NodeHierarchyItem::next_sibling_id);
                 }
                 // Push in reverse order for correct DFS order
                 for child_id in children.into_iter().rev() {
@@ -2421,7 +2421,7 @@ pub fn collect_nodes_in_document_order(
 /// This is used to short-circuit the expensive layout pipeline when the DOM
 /// hasn't actually changed (e.g., an animation timer fires but only the GL
 /// texture content changed, not the DOM structure).
-pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
+#[must_use] pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
     use crate::dom::NodeType;
     use crate::resources::DecodedImage;
 

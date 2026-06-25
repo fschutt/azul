@@ -287,8 +287,7 @@ fn test_layout_overflow_scroll_always_shows_scrollbar() {
     // Should have both horizontal and vertical scrollbars
     assert!(
         scrollbar_count >= 2,
-        "overflow: scroll should show both scrollbars, got {} items",
-        scrollbar_count
+        "overflow: scroll should show both scrollbars, got {scrollbar_count} items"
     );
 }
 
@@ -317,8 +316,7 @@ fn test_layout_overflow_hidden_no_scrollbar() {
 
     assert!(
         scrollbar_count == 0,
-        "overflow: hidden should not show any scrollbars, got {} items",
-        scrollbar_count
+        "overflow: hidden should not show any scrollbars, got {scrollbar_count} items"
     );
 }
 
@@ -434,17 +432,14 @@ fn test_scrollbar_reflow_width_100_percent() {
     // Scrollbar width is typically 16px
     assert!(
         w2 < w1,
-        "Content width with scrollbar ({}) should be less than without scrollbar ({})",
-        w2,
-        w1
+        "Content width with scrollbar ({w2}) should be less than without scrollbar ({w1})"
     );
 
     // The difference should be approximately the scrollbar width (16px)
     let diff = w1 - w2;
     assert!(
-        diff >= 12.0 && diff <= 20.0,
-        "Width difference ({}) should be approximately the scrollbar width (12-20px)",
-        diff
+        (12.0..=20.0).contains(&diff),
+        "Width difference ({diff}) should be approximately the scrollbar width (12-20px)"
     );
 }
 
@@ -473,8 +468,7 @@ fn test_scrollbar_appears_with_overflow_auto() {
 
     assert!(
         scrollbar_count >= 1,
-        "overflow: auto should show vertical scrollbar when content overflows, got {} scrollbars",
-        scrollbar_count
+        "overflow: auto should show vertical scrollbar when content overflows, got {scrollbar_count} scrollbars"
     );
 }
 
@@ -503,8 +497,7 @@ fn test_no_scrollbar_when_content_fits_with_overflow_auto() {
 
     assert!(
         scrollbar_count == 0,
-        "overflow: auto should NOT show scrollbar when content fits, got {} scrollbars",
-        scrollbar_count
+        "overflow: auto should NOT show scrollbar when content fits, got {scrollbar_count} scrollbars"
     );
 }
 
@@ -534,8 +527,7 @@ fn test_horizontal_scrollbar_reduces_height() {
     // Should have at least horizontal scrollbar
     assert!(
         scrollbar_count >= 1,
-        "overflow: auto should show horizontal scrollbar when content is wider, got {} scrollbars",
-        scrollbar_count
+        "overflow: auto should show horizontal scrollbar when content is wider, got {scrollbar_count} scrollbars"
     );
 }
 
@@ -587,7 +579,7 @@ fn layout_dom_and_get_scrollbar_bounds(
                         bounds.origin().y,
                         bounds.size().width,
                         bounds.size().height,
-                        format!("{:?}", orientation),
+                        format!("{orientation:?}"),
                     ));
                 }
                 DisplayListItem::ScrollBarStyled { info } => {
@@ -630,7 +622,7 @@ fn test_scrollbar_bounds_vertical_at_right_edge() {
 
     let bounds = layout_dom_and_get_scrollbar_bounds(dom, css, 1024.0, 768.0);
 
-    println!("Scrollbar bounds: {:?}", bounds);
+    println!("Scrollbar bounds: {bounds:?}");
 
     // Should have exactly one vertical scrollbar
     let vertical_scrollbars: Vec<_> = bounds.iter().filter(|b| b.4.contains("Vertical")).collect();
@@ -644,27 +636,24 @@ fn test_scrollbar_bounds_vertical_at_right_edge() {
     // Container is 200px, scrollbar is ~16px, so x should be around 184
     let (x, y, w, h, _) = vertical_scrollbars[0];
 
-    println!("Vertical scrollbar: x={}, y={}, w={}, h={}", x, y, w, h);
+    println!("Vertical scrollbar: x={x}, y={y}, w={w}, h={h}");
 
     // X position should be near the right edge (200 - scrollbar_width)
     assert!(
         *x >= 180.0 && *x <= 200.0,
-        "Vertical scrollbar x ({}) should be at right edge (180-200)",
-        x
+        "Vertical scrollbar x ({x}) should be at right edge (180-200)"
     );
 
     // Scrollbar should start at top (y=0 or close)
     assert!(
         *y >= 0.0 && *y <= 10.0,
-        "Vertical scrollbar y ({}) should be at top",
-        y
+        "Vertical scrollbar y ({y}) should be at top"
     );
 
     // Scrollbar height should match container height (or container height - horizontal scrollbar)
     assert!(
         *h >= 180.0 && *h <= 200.0,
-        "Vertical scrollbar height ({}) should match container height",
-        h
+        "Vertical scrollbar height ({h}) should match container height"
     );
 }
 
@@ -691,7 +680,7 @@ fn test_scrollbar_bounds_horizontal_at_bottom() {
 
     let bounds = layout_dom_and_get_scrollbar_bounds(dom, css, 1024.0, 768.0);
 
-    println!("Scrollbar bounds: {:?}", bounds);
+    println!("Scrollbar bounds: {bounds:?}");
 
     // Should have a horizontal scrollbar
     let horizontal_scrollbars: Vec<_> = bounds
@@ -706,27 +695,24 @@ fn test_scrollbar_bounds_horizontal_at_bottom() {
 
     let (x, y, w, h, _) = horizontal_scrollbars[0];
 
-    println!("Horizontal scrollbar: x={}, y={}, w={}, h={}", x, y, w, h);
+    println!("Horizontal scrollbar: x={x}, y={y}, w={w}, h={h}");
 
     // X position should be at left (x=0 or close)
     assert!(
         *x >= 0.0 && *x <= 10.0,
-        "Horizontal scrollbar x ({}) should be at left edge",
-        x
+        "Horizontal scrollbar x ({x}) should be at left edge"
     );
 
     // Y position should be at bottom (200 - scrollbar_height)
     assert!(
         *y >= 180.0 && *y <= 200.0,
-        "Horizontal scrollbar y ({}) should be at bottom edge (180-200)",
-        y
+        "Horizontal scrollbar y ({y}) should be at bottom edge (180-200)"
     );
 
     // Scrollbar width should match container width
     assert!(
         *w >= 180.0 && *w <= 200.0,
-        "Horizontal scrollbar width ({}) should match container width",
-        w
+        "Horizontal scrollbar width ({w}) should match container width"
     );
 }
 
@@ -792,7 +778,7 @@ fn test_scrolling_c_style_layout() {
     // Window is 600x500, like scrolling.c
     let bounds = layout_dom_and_get_scrollbar_bounds(dom, css, 600.0, 500.0);
 
-    println!("Scrolling.c style layout - Scrollbar bounds: {:?}", bounds);
+    println!("Scrolling.c style layout - Scrollbar bounds: {bounds:?}");
 
     // With 10 items at 100px height + margins, total content is ~1050px
     // Container height is 500 - 50 (header) - 30 (footer) = 420px
@@ -802,22 +788,19 @@ fn test_scrolling_c_style_layout() {
 
     assert!(
         !vertical_scrollbars.is_empty(),
-        "Flex container with overflow: auto should show vertical scrollbar when items overflow. Got: {:?}",
-        bounds
+        "Flex container with overflow: auto should show vertical scrollbar when items overflow. Got: {bounds:?}"
     );
 
     let (x, y, w, h, _) = vertical_scrollbars[0];
     println!(
-        "Vertical scrollbar in flex layout: x={}, y={}, w={}, h={}",
-        x, y, w, h
+        "Vertical scrollbar in flex layout: x={x}, y={y}, w={w}, h={h}"
     );
 
     // Scrollbar should be within the scroll-container bounds
     // Header is 50px, so scroll container starts at y=50
     assert!(
         *y >= 40.0,
-        "Scrollbar y ({}) should be below header (50px)",
-        y
+        "Scrollbar y ({y}) should be below header (50px)"
     );
 }
 
@@ -873,7 +856,7 @@ fn layout_dom_and_get_scrollbar_info(
                         bounds.origin().y,
                         bounds.size().width,
                         bounds.size().height,
-                        format!("{}", orientation_str),
+                        orientation_str.to_string(),
                     ));
                 }
                 DisplayListItem::ScrollBarStyled { info } => {
@@ -888,7 +871,7 @@ fn layout_dom_and_get_scrollbar_info(
                         info.thumb_bounds.origin().y,
                         info.thumb_bounds.size().width,
                         info.thumb_bounds.size().height,
-                        format!("{}Thumb", orientation_str),
+                        format!("{orientation_str}Thumb"),
                     ));
                     // Store track bounds
                     result.push((
@@ -896,7 +879,7 @@ fn layout_dom_and_get_scrollbar_info(
                         info.track_bounds.origin().y,
                         info.track_bounds.size().width,
                         info.track_bounds.size().height,
-                        format!("{}Track", orientation_str),
+                        format!("{orientation_str}Track"),
                     ));
                 }
                 _ => {}
@@ -943,8 +926,8 @@ fn test_scrollbar_thumb_increases_when_window_grows() {
     // Layout at larger window size (should have scrollbar with larger thumb, or no scrollbar)
     let large_info = layout_dom_and_get_scrollbar_info(create_dom(), css, 400.0, 600.0);
 
-    println!("Small window scrollbar info: {:?}", small_info);
-    println!("Large window scrollbar info: {:?}", large_info);
+    println!("Small window scrollbar info: {small_info:?}");
+    println!("Large window scrollbar info: {large_info:?}");
 
     // Find vertical scrollbar in both (could be simple ScrollBar or styled ScrollBarStyled)
     let small_vertical = small_info.iter().find(|x| x.4.contains("Vertical"));
@@ -954,8 +937,7 @@ fn test_scrollbar_thumb_increases_when_window_grows() {
     // We should definitely have a scrollbar
     assert!(
         small_vertical.is_some(),
-        "Small window (300px) should have vertical scrollbar for 1100px content. Got: {:?}",
-        small_info
+        "Small window (300px) should have vertical scrollbar for 1100px content. Got: {small_info:?}"
     );
 
     // If both have styled scrollbars with thumbs, compare thumb sizes
@@ -1011,8 +993,8 @@ fn test_scrollbar_thumb_decreases_when_window_shrinks() {
     // Layout at smaller window size
     let small_info = layout_dom_and_get_scrollbar_info(create_dom(), css, 400.0, 250.0);
 
-    println!("Medium window scrollbar info: {:?}", medium_info);
-    println!("Small window scrollbar info: {:?}", small_info);
+    println!("Medium window scrollbar info: {medium_info:?}");
+    println!("Small window scrollbar info: {small_info:?}");
 
     let medium_vertical = medium_info.iter().find(|x| x.4.contains("Vertical"));
     let small_vertical = small_info.iter().find(|x| x.4.contains("Vertical"));
@@ -1020,13 +1002,11 @@ fn test_scrollbar_thumb_decreases_when_window_shrinks() {
     // Both should have scrollbars
     assert!(
         small_vertical.is_some(),
-        "Small window should have vertical scrollbar. Got: {:?}",
-        small_info
+        "Small window should have vertical scrollbar. Got: {small_info:?}"
     );
     assert!(
         medium_vertical.is_some(),
-        "Medium window should have vertical scrollbar. Got: {:?}",
-        medium_info
+        "Medium window should have vertical scrollbar. Got: {medium_info:?}"
     );
 
     // If both have styled thumbs, compare
@@ -1093,8 +1073,8 @@ fn test_scrollbar_disappears_when_content_fits() {
     let large_scrollbar_count =
         layout_dom_and_count_scrollbars(create_dom(), css_large, 800.0, 700.0);
 
-    println!("Small container scrollbar count: {}", small_scrollbar_count);
-    println!("Large container scrollbar count: {}", large_scrollbar_count);
+    println!("Small container scrollbar count: {small_scrollbar_count}");
+    println!("Large container scrollbar count: {large_scrollbar_count}");
 
     // Small container should have scrollbar
     assert!(

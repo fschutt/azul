@@ -16,8 +16,8 @@
 //! # W3C Compliance
 //!
 //! This implementation follows the W3C CSSOM View Module specification:
-//! - ScrollLogicalPosition: start, center, end, nearest
-//! - ScrollBehavior: auto, instant, smooth
+//! - `ScrollLogicalPosition`: start, center, end, nearest
+//! - `ScrollBehavior`: auto, instant, smooth
 //! - Proper scroll ancestor chain traversal
 
 use alloc::vec::Vec;
@@ -43,7 +43,7 @@ const SCROLL_DELTA_THRESHOLD: f32 = 0.5;
 const SMOOTH_SCROLL_DURATION_MS: u64 = 300;
 
 /// Calculated scroll adjustment for one scroll container
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct ScrollAdjustment {
     /// The DOM containing the scroll container
     pub scroll_container_dom_id: DomId,
@@ -90,6 +90,9 @@ struct ScrollableAncestor {
 ///
 /// A vector of scroll adjustments for each scroll container in the ancestry chain.
 /// The adjustments are ordered from innermost (closest to target) to outermost.
+// Instant is a ref-counted FFI clock handle threaded through the event loop by value;
+// &-converting would cascade through the loop call chain.
+#[allow(clippy::needless_pass_by_value)]
 pub(crate) fn scroll_rect_into_view(
     target_rect: LogicalRect,
     target_dom_id: DomId,
@@ -179,16 +182,14 @@ pub fn scroll_node_into_view(
     now: Instant,
 ) -> Vec<ScrollAdjustment> {
     // Get node's bounding rect from layout
-    let target_rect = match get_node_rect(node_id, layout_results) {
-        Some(rect) => rect,
-        None => return Vec::new(),
+    let Some(target_rect) = get_node_rect(node_id, layout_results) else {
+        return Vec::new();
     };
     
-    let internal_node_id = match node_id.node.into_crate_internal() {
-        Some(nid) => nid,
-        None => return Vec::new(),
+    let Some(internal_node_id) = node_id.node.into_crate_internal() else {
+        return Vec::new();
     };
-    
+
     // Call the core rect-based API
     scroll_rect_into_view(
         target_rect,
@@ -214,9 +215,8 @@ pub fn scroll_cursor_into_view(
     now: Instant,
 ) -> Vec<ScrollAdjustment> {
     // Get node's position to transform cursor_rect to absolute coordinates
-    let node_rect = match get_node_rect(node_id, layout_results) {
-        Some(rect) => rect,
-        None => return Vec::new(),
+    let Some(node_rect) = get_node_rect(node_id, layout_results) else {
+        return Vec::new();
     };
     
     // Transform cursor rect to absolute coordinates
@@ -228,11 +228,10 @@ pub fn scroll_cursor_into_view(
         size: cursor_rect.size,
     };
     
-    let internal_node_id = match node_id.node.into_crate_internal() {
-        Some(nid) => nid,
-        None => return Vec::new(),
+    let Some(internal_node_id) = node_id.node.into_crate_internal() else {
+        return Vec::new();
     };
-    
+
     // Call the core rect-based API
     scroll_rect_into_view(
         absolute_cursor_rect,
@@ -260,15 +259,14 @@ fn find_scrollable_ancestors(
 ) -> Vec<ScrollableAncestor> {
     let mut ancestors = Vec::new();
     
-    let layout_result = match layout_results.get(&dom_id) {
-        Some(lr) => lr,
-        None => return ancestors,
+    let Some(layout_result) = layout_results.get(&dom_id) else {
+        return ancestors;
     };
     
     let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
 
     // Walk up the DOM tree from parent of target node
-    let mut current = node_hierarchy.get(node_id).and_then(|h| h.parent_id());
+    let mut current = node_hierarchy.get(node_id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
     
     while let Some(current_node_id) = current {
         // Check if this node is scrollable
@@ -282,7 +280,7 @@ fn find_scrollable_ancestors(
         }
         
         // Move to parent
-        current = node_hierarchy.get(current_node_id).and_then(|h| h.parent_id());
+        current = node_hierarchy.get(current_node_id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
     }
     
     ancestors
@@ -322,8 +320,8 @@ fn check_if_scrollable(
     let scroll_state = scroll_manager.get_scroll_state(dom_id, node_id)?;
     
     // Check if content actually overflows (use virtual_scroll_size when set, e.g. for VirtualView)
-    let effective_width = scroll_state.virtual_scroll_size.map(|s| s.width).unwrap_or(scroll_state.content_rect.size.width);
-    let effective_height = scroll_state.virtual_scroll_size.map(|s| s.height).unwrap_or(scroll_state.content_rect.size.height);
+    let effective_width = scroll_state.virtual_scroll_size.map_or(scroll_state.content_rect.size.width, |s| s.width);
+    let effective_height = scroll_state.virtual_scroll_size.map_or(scroll_state.content_rect.size.height, |s| s.height);
     let has_overflow_x = effective_width > scroll_state.container_rect.size.width;
     let has_overflow_y = effective_height > scroll_state.container_rect.size.height;
     
@@ -350,6 +348,7 @@ fn check_if_scrollable(
 }
 
 /// Calculate the scroll delta needed to bring target into view within container
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn calculate_scroll_delta(
     target: LogicalRect,
     container: LogicalRect,
@@ -385,7 +384,7 @@ fn calculate_scroll_delta(
 }
 
 /// Calculate scroll delta for a single axis
-pub fn calculate_axis_delta(
+#[must_use] pub fn calculate_axis_delta(
     target_start: f32,
     target_size: f32,
     container_start: f32,
@@ -434,7 +433,7 @@ pub fn calculate_axis_delta(
 
 /// Resolve scroll behavior based on options and CSS properties
 // +spec:containing-block:03528c - scroll-behavior on root element applies to viewport
-fn resolve_scroll_behavior(
+const fn resolve_scroll_behavior(
     requested: ScrollIntoViewBehavior,
     _dom_id: DomId,
     _node_id: NodeId,

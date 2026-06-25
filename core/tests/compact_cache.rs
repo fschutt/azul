@@ -1,6 +1,5 @@
 /// Tests for compact cache correctness: verify that CSS properties
 /// are correctly resolved through the cascade pipeline.
-
 use azul_core::dom::{Dom, NodeType};
 use azul_core::styled_dom::StyledDom;
 use azul_css::css::Css;
@@ -77,7 +76,7 @@ fn test_h1_bold_from_ua() {
     let s = styled(dom, "");
     // font_weight bold = style_font_weight_to_u8(Bold) = 6
     let h1_fw = get_font_weight(&s, 2);
-    assert_eq!(h1_fw, 6, "H1 should have font-weight:bold (6) from UA, got {}", h1_fw);
+    assert_eq!(h1_fw, 6, "H1 should have font-weight:bold (6) from UA, got {h1_fw}");
 }
 
 #[test]
@@ -102,8 +101,7 @@ fn test_h1_font_size_from_ua() {
     let resolved_px = pv.number.get();
     assert!(
         (resolved_px - 32.0).abs() < 0.1,
-        "H1 font-size should be 32px (2em × 16px default), got {}px",
-        resolved_px
+        "H1 font-size should be 32px (2em × 16px default), got {resolved_px}px"
     );
 }
 
@@ -160,7 +158,7 @@ fn test_font_weight_inherits_from_parent() {
     let body_fw = get_font_weight(&s, 1);
     let div_fw = get_font_weight(&s, 2);
     assert_eq!(body_fw, 6, "Body should have font-weight:bold (6)");
-    assert_eq!(div_fw, 6, "Div should inherit font-weight:bold (6) from body, got {}", div_fw);
+    assert_eq!(div_fw, 6, "Div should inherit font-weight:bold (6) from body, got {div_fw}");
 }
 
 #[test]
@@ -204,7 +202,7 @@ fn test_inline_css_overrides_stylesheet() {
     // 200px should win over 100px (inline > stylesheet)
     // decode: metric = w & 0xF (Px=0), value = (w >> 4) as i32
     let value = (w >> 4) as i32;
-    assert_eq!(value, 200000, "Width should be 200px (200000), got {} (inline should override stylesheet)", value);
+    assert_eq!(value, 200000, "Width should be 200px (200000), got {value} (inline should override stylesheet)");
 }
 
 // ===================================================================
@@ -273,7 +271,7 @@ fn read_compact_i16_as_px(styled: &StyledDom, idx: usize, field: &str) -> f32 {
         "bottom" => d.bottom,
         "left" => d.left,
         "right" => d.right,
-        _ => panic!("Unknown field: {}", field),
+        _ => panic!("Unknown field: {field}"),
     };
     raw as f32 / 10.0
 }
@@ -285,7 +283,7 @@ fn read_compact_u32_as_px(styled: &StyledDom, idx: usize, field: &str) -> f32 {
     let raw = match field {
         "width" => d.width,
         "height" => d.height,
-        _ => panic!("Unknown field: {}", field),
+        _ => panic!("Unknown field: {field}"),
     };
     // Decode: lower 4 bits = metric, upper 28 bits = value
     let metric = raw & 0xF;
@@ -293,7 +291,7 @@ fn read_compact_u32_as_px(styled: &StyledDom, idx: usize, field: &str) -> f32 {
     if metric == 0 { // Px
         value as f32 / 1000.0
     } else {
-        panic!("Expected Px metric (0), got {}", metric);
+        panic!("Expected Px metric (0), got {metric}");
     }
 }
 
@@ -339,7 +337,7 @@ fn test_roundtrip_position_offsets() {
     let t1 = cc.tier1_enums[2];
     let pos = ((t1 >> POSITION_SHIFT) & POSITION_MASK) as u8;
     // position: absolute = 2 in new encoding (Static=0, Relative=1, Absolute=2)
-    assert_eq!(pos, 2, "position should be absolute (2), got {}", pos);
+    assert_eq!(pos, 2, "position should be absolute (2), got {pos}");
     assert_eq!(read_compact_i16_as_px(&s, 2, "top"), 10.0, "top");
     assert_eq!(read_compact_i16_as_px(&s, 2, "left"), 20.0, "left");
     assert_eq!(read_compact_i16_as_px(&s, 2, "bottom"), 30.0, "bottom");
@@ -465,7 +463,7 @@ fn test_calc_width_stored_as_sentinel_in_compact() {
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
     let raw = cc.tier2_dims[2].width;
     assert!(raw >= azul_css::compact_cache::U32_SENTINEL_THRESHOLD,
-        "calc() width should encode as sentinel (got {})", raw);
+        "calc() width should encode as sentinel (got {raw})");
 }
 
 #[test]
@@ -477,8 +475,8 @@ fn test_percentage_width_in_compact_cache() {
     // Decode: lower 4 bits = metric (Percent=7), upper 28 bits = value
     let metric = raw & 0xF;
     let value = (raw >> 4) as i32;
-    assert_eq!(metric, 7, "50% width metric should be Percent (7), got {}", metric);
-    assert_eq!(value, 50000, "50% width value should be 50000 (50.0%), got {}", value);
+    assert_eq!(metric, 7, "50% width metric should be Percent (7), got {metric}");
+    assert_eq!(value, 50000, "50% width value should be 50000 (50.0%), got {value}");
 }
 
 // ===================================================================
@@ -503,12 +501,12 @@ fn test_text_color_inherits_from_parent_div() {
     // Parent div should have red text color
     let parent_tc = cc.tier2b_text[2].text_color;
     let parent_r = (parent_tc >> 24) & 0xFF;
-    assert_eq!(parent_r, 255, "parent div text_color red should be 255, got {}", parent_r);
+    assert_eq!(parent_r, 255, "parent div text_color red should be 255, got {parent_r}");
 
     // Text node should INHERIT red text color from parent
     let child_tc = cc.tier2b_text[3].text_color;
     let child_r = (child_tc >> 24) & 0xFF;
-    assert_eq!(child_r, 255, "text node should inherit red text_color, got r={}", child_r);
+    assert_eq!(child_r, 255, "text node should inherit red text_color, got r={child_r}");
 }
 
 #[test]
@@ -527,7 +525,7 @@ fn test_text_color_white_on_red_background() {
 
     // Text node should have white text color (inherited from .box)
     let text_tc = cc.tier2b_text[3].text_color;
-    assert_eq!(text_tc, 0xFFFFFFFF, "text node text_color should be white (0xFFFFFFFF), got {:#010x}", text_tc);
+    assert_eq!(text_tc, 0xFFFFFFFF, "text node text_color should be white (0xFFFFFFFF), got {text_tc:#010x}");
 }
 
 #[test]
@@ -536,7 +534,7 @@ fn test_line_height_in_compact_cache() {
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
     let lh = cc.tier2b_text[2].line_height;
     // line-height 1.5 = 1500 in pct_x10 encoding (1.5 * 1000)
-    assert_eq!(lh, 1500, "line-height 1.5 should encode as 1500, got {}", lh);
+    assert_eq!(lh, 1500, "line-height 1.5 should encode as 1500, got {lh}");
 }
 
 #[test]
@@ -547,7 +545,7 @@ fn test_line_height_px_in_compact_cache() {
     // line-height: 24px — needs to check how px line-height is encoded
     // The compact encoder uses: (lh.inner.normalized() * 1000.0).round() as i32
     // For 24px: normalized() returns 24.0 / DEFAULT_FONT_SIZE... this depends on implementation
-    assert_ne!(lh, 0, "line-height 24px should not be 0, got {}", lh);
+    assert_ne!(lh, 0, "line-height 24px should not be 0, got {lh}");
 }
 
 #[test]
@@ -579,19 +577,16 @@ fn test_dom_node_id_mapping_with_whitespace_text() {
     let mut div_b_idx = None;
     for i in 0..node_count {
         let nd = &s.node_data.as_ref()[i];
-        match &nd.node_type {
-            NodeType::Div => {
-                // Check if this div has class "a" or "b"
-                let attrs = nd.attributes();
-                for attr in attrs.as_ref().iter() {
-                    match attr {
-                        azul_core::dom::AttributeType::Class(c) if c.as_str() == "a" => div_a_idx = Some(i),
-                        azul_core::dom::AttributeType::Class(c) if c.as_str() == "b" => div_b_idx = Some(i),
-                        _ => {}
-                    }
+        if nd.node_type == NodeType::Div {
+            // Check if this div has class "a" or "b"
+            let attrs = nd.attributes();
+            for attr in attrs.as_ref().iter() {
+                match attr {
+                    azul_core::dom::AttributeType::Class(c) if c.as_str() == "a" => div_a_idx = Some(i),
+                    azul_core::dom::AttributeType::Class(c) if c.as_str() == "b" => div_b_idx = Some(i),
+                    _ => {}
                 }
             }
-            _ => {}
         }
     }
 
@@ -603,20 +598,20 @@ fn test_dom_node_id_mapping_with_whitespace_text() {
     // div.a should have red text color and 10px padding
     let a_tc = cc.tier2b_text[a_idx].text_color;
     let a_r = (a_tc >> 24) & 0xFF;
-    assert_eq!(a_r, 255, "div.a text_color red should be 255 (got {} at idx {})", a_r, a_idx);
-    assert_eq!(cc.tier2_dims[a_idx].padding_top, 100, "div.a padding_top should be 100 (10px) at idx {}", a_idx);
+    assert_eq!(a_r, 255, "div.a text_color red should be 255 (got {a_r} at idx {a_idx})");
+    assert_eq!(cc.tier2_dims[a_idx].padding_top, 100, "div.a padding_top should be 100 (10px) at idx {a_idx}");
 
     // div.b should have blue text color and 20px padding
     let b_tc = cc.tier2b_text[b_idx].text_color;
     let b_b = (b_tc >> 8) & 0xFF; // blue channel
-    assert_eq!(b_b, 255, "div.b text_color blue should be 255 (got {} at idx {})", b_b, b_idx);
-    assert_eq!(cc.tier2_dims[b_idx].padding_top, 200, "div.b padding_top should be 200 (20px) at idx {}", b_idx);
+    assert_eq!(b_b, 255, "div.b text_color blue should be 255 (got {b_b} at idx {b_idx})");
+    assert_eq!(cc.tier2_dims[b_idx].padding_top, 200, "div.b padding_top should be 200 (20px) at idx {b_idx}");
 
     // Text "first" inside div.a should inherit red text color
     let first_text_idx = a_idx + 1; // text is direct child
     let first_tc = cc.tier2b_text[first_text_idx].text_color;
     let first_r = (first_tc >> 24) & 0xFF;
-    assert_eq!(first_r, 255, "text 'first' should inherit red from div.a (got r={} at idx {})", first_r, first_text_idx);
+    assert_eq!(first_r, 255, "text 'first' should inherit red from div.a (got r={first_r} at idx {first_text_idx})");
 }
 
 #[test]
@@ -644,12 +639,12 @@ fn test_multiple_text_children_with_different_parent_styles() {
     // Text "red text" should inherit red
     let red_text_tc = cc.tier2b_text[3].text_color;
     let red_r = (red_text_tc >> 24) & 0xFF;
-    assert_eq!(red_r, 255, "text 'red text' should have red color (r=255), got r={}", red_r);
+    assert_eq!(red_r, 255, "text 'red text' should have red color (r=255), got r={red_r}");
 
     // Text "blue text" should inherit blue
     let blue_text_tc = cc.tier2b_text[5].text_color;
     let blue_b = (blue_text_tc >> 8) & 0xFF; // blue in bits 8-15 of RGBA u32
-    assert_eq!(blue_b, 255, "text 'blue text' should have blue color (b=255), got b={}", blue_b);
+    assert_eq!(blue_b, 255, "text 'blue text' should have blue color (b=255), got b={blue_b}");
 
     // Verify they're DIFFERENT
     assert_ne!(red_text_tc, blue_text_tc, "red and blue text should have different colors");
@@ -705,7 +700,7 @@ fn test_font_hash_to_families_populated() {
         .map(|i| families.get(i).unwrap().as_string())
         .collect();
     assert!(family_names.iter().any(|n| n == "sans-serif"),
-        "font families should contain 'sans-serif', got {:?}", family_names);
+        "font families should contain 'sans-serif', got {family_names:?}");
 }
 
 #[test]
@@ -736,5 +731,5 @@ fn test_font_hash_to_families_text_node_inherits() {
         .map(|i| families.get(i).unwrap().as_string())
         .collect();
     assert!(family_names.iter().any(|n| n == "sans-serif"),
-        "inherited families should contain 'sans-serif', got {:?}", family_names);
+        "inherited families should contain 'sans-serif', got {family_names:?}");
 }

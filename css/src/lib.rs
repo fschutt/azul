@@ -14,6 +14,34 @@
 // Lint policy: deny correctness/safety issues, warn on style
 #![deny(unused_must_use)]
 #![warn(clippy::all)]
+// === "extreme lints" lockdown (2026-06-20) — maximal opt-in lint set ===
+// All clippy groups + opt-in rustc lints, warn-level so normal builds still
+// pass; the CI clippy job runs `-D warnings`, turning every one of these into
+// the outstanding-lint-failure report for Monday triage. NOT yet fixed.
+#![warn(
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::cargo,
+    // missing_docs,  // TODO(docs): re-enable as a dedicated final docs pass; disabled
+    //                // for now so the cleanup focuses on code-quality lints, not doc debt.
+    missing_debug_implementations,
+    missing_copy_implementations,
+    unreachable_pub,
+    unused_qualifications,
+    unused_lifetimes,
+    unused_import_braces,
+    unused_macro_rules,
+    unused_crate_dependencies,
+    meta_variable_misuse,
+    trivial_casts,
+    trivial_numeric_casts,
+    elided_lifetimes_in_paths,
+    single_use_lifetimes,
+    variant_size_differences,
+    non_ascii_idents,
+    unsafe_op_in_unsafe_fn,
+    let_underscore_drop,
+)]
 // Allowed: macros generate PartialOrd alongside Ord, legacy numeric constants
 // in spec-derived code, into_iter naming for custom collection types
 #![allow(
@@ -30,7 +58,6 @@
     dead_code,
     unused_doc_comments,                   // doc comments before macro invocations
     ambiguous_glob_reexports,             // layout/style mod re-exports
-    mismatched_lifetime_syntaxes,         // macro-generated code
     unreachable_patterns,                  // exhaustive match in generated code
 )]
 
@@ -43,6 +70,11 @@ extern crate core;
 #[macro_use]
 /// Internal macros for reducing boilerplate in property definitions.
 pub mod macros;
+/// Internal numeric-cast helpers (named, documented `as` conversions).
+/// `pub` + `pub(crate)` fns so it trips neither `unreachable_pub` nor
+/// `redundant_pub_crate` (they conflict); `#[doc(hidden)]` keeps it out of the API.
+#[doc(hidden)]
+pub mod cast;
 /// Multi-language code generation backends (Rust, C++, Python).
 pub mod codegen;
 /// Three-tier numeric property cache for fast style resolution.

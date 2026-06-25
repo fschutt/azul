@@ -1,5 +1,5 @@
 //! Gamepad manager — cross-platform state for the controller surface
-//! (SUPER_PLAN_2 §1 feature 6 + research/03).
+//! (`SUPER_PLAN_2` §1 feature 6 + research/03).
 //!
 //! Poll + push-driven, like the sensors:
 //!
@@ -16,7 +16,7 @@
 //! Unlike the sensors' fixed three slots, the set of pads is dynamic: one
 //! [`GamepadState`] slot per [`GamepadId`] seen this session, kept across
 //! frames so a disconnect stays observable (`connected = false`). No
-//! platform deps (SUPER_PLAN_2 §0.5); the channel mirrors `sensors.rs`.
+//! platform deps (`SUPER_PLAN_2` §0.5); the channel mirrors `sensors.rs`.
 
 use alloc::vec::Vec;
 
@@ -40,23 +40,23 @@ pub struct GamepadManager {
 }
 
 impl GamepadManager {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
 
     /// Latest state for `id`, or `None` if that pad was never seen.
-    pub fn state(&self, id: GamepadId) -> Option<GamepadState> {
+    #[must_use] pub fn state(&self, id: GamepadId) -> Option<GamepadState> {
         self.pads.iter().find(|p| p.id == id).copied()
     }
 
     /// The first currently-connected pad — the common single-controller
     /// case, so a callback doesn't have to track ids.
-    pub fn primary(&self) -> Option<GamepadState> {
+    #[must_use] pub fn primary(&self) -> Option<GamepadState> {
         self.pads.iter().find(|p| p.connected).copied()
     }
 
     /// Every pad slot seen this session (connected or not).
-    pub fn gamepads(&self) -> &[GamepadState] {
+    #[must_use] pub fn gamepads(&self) -> &[GamepadState] {
         &self.pads
     }
 
@@ -80,7 +80,7 @@ impl GamepadManager {
 
     /// Clear the pending-event flag. The dll calls this after the event pass
     /// has collected the `GamepadInput` event.
-    pub fn clear_pending_event(&mut self) {
+    pub const fn clear_pending_event(&mut self) {
         self.pending_event = false;
     }
 }
@@ -129,7 +129,7 @@ static PENDING_STATES: std::sync::Mutex<Vec<GamepadState>> = std::sync::Mutex::n
 /// Park a gamepad state delivered by a platform backend (in the dll).
 /// Thread-safe; poison-recovering.
 pub fn push_gamepad_state(state: GamepadState) {
-    let mut q = PENDING_STATES.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_STATES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(state);
 }
 
@@ -137,7 +137,7 @@ pub fn push_gamepad_state(state: GamepadState) {
 /// Called once per layout pass; the caller applies them through
 /// [`GamepadManager::set_state`] (the last per id wins).
 pub fn drain_gamepad_states() -> Vec<GamepadState> {
-    let mut q = PENDING_STATES.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_STATES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn states_round_trip_through_the_channel() {
-        let _ = drain_gamepad_states();
+        drop(drain_gamepad_states());
         push_gamepad_state(st(0, true, 0b1));
         push_gamepad_state(st(0, true, 0b10)); // last per id wins
         push_gamepad_state(st(1, true, 0));

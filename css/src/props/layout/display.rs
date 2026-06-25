@@ -60,43 +60,43 @@ pub enum LayoutDisplay {
 
 impl LayoutDisplay {
     /// Returns true if this display type establishes a block formatting context.
-    pub fn creates_block_context(&self) -> bool {
+    #[must_use] pub const fn creates_block_context(&self) -> bool {
         matches!(
             self,
-            LayoutDisplay::Block
-                | LayoutDisplay::FlowRoot
-                | LayoutDisplay::Flex
-                | LayoutDisplay::Grid
-                | LayoutDisplay::Table
-                | LayoutDisplay::ListItem
+            Self::Block
+                | Self::FlowRoot
+                | Self::Flex
+                | Self::Grid
+                | Self::Table
+                | Self::ListItem
         )
     }
 
     /// Returns true if this display type establishes a flex formatting context.
-    pub fn creates_flex_context(&self) -> bool {
-        matches!(self, LayoutDisplay::Flex | LayoutDisplay::InlineFlex)
+    #[must_use] pub const fn creates_flex_context(&self) -> bool {
+        matches!(self, Self::Flex | Self::InlineFlex)
     }
 
     // +spec:display-property:798b4f - table box establishes table formatting context (CSS 2.2 §17.4)
     /// Returns true if this display type establishes a table formatting context.
-    pub fn creates_table_context(&self) -> bool {
-        matches!(self, LayoutDisplay::Table | LayoutDisplay::InlineTable)
+    #[must_use] pub const fn creates_table_context(&self) -> bool {
+        matches!(self, Self::Table | Self::InlineTable)
     }
 
     /// Returns true for layout-internal display types (CSS Display 3 §2.4):
     /// table-row-group, table-header-group, table-footer-group, table-row,
     /// table-column-group, table-column, table-cell, table-caption.
-    pub fn is_layout_internal(&self) -> bool {
+    #[must_use] pub const fn is_layout_internal(&self) -> bool {
         matches!(
             self,
-            LayoutDisplay::TableRowGroup
-                | LayoutDisplay::TableHeaderGroup
-                | LayoutDisplay::TableFooterGroup
-                | LayoutDisplay::TableRow
-                | LayoutDisplay::TableColumnGroup
-                | LayoutDisplay::TableColumn
-                | LayoutDisplay::TableCell
-                | LayoutDisplay::TableCaption
+            Self::TableRowGroup
+                | Self::TableHeaderGroup
+                | Self::TableFooterGroup
+                | Self::TableRow
+                | Self::TableColumnGroup
+                | Self::TableColumn
+                | Self::TableCell
+                | Self::TableCaption
         )
     }
 
@@ -104,14 +104,14 @@ impl LayoutDisplay {
     // +spec:display-property:18e77e - inner-only display keywords (flex, grid, table, flow-root) are not inline-level, defaulting outer display to block
     // +spec:display-property:a43e48 - inline-table is inline-level per CSS 2.2 §17.4
     /// Returns true if this display type generates an inline-level box.
-    pub fn is_inline_level(&self) -> bool {
+    #[must_use] pub const fn is_inline_level(&self) -> bool {
         matches!(
             self,
-            LayoutDisplay::Inline
-                | LayoutDisplay::InlineBlock
-                | LayoutDisplay::InlineFlex
-                | LayoutDisplay::InlineTable
-                | LayoutDisplay::InlineGrid
+            Self::Inline
+                | Self::InlineBlock
+                | Self::InlineFlex
+                | Self::InlineTable
+                | Self::InlineGrid
         )
     }
 }
@@ -120,29 +120,29 @@ impl LayoutDisplay {
 impl PrintAsCssValue for LayoutDisplay {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            LayoutDisplay::None => "none",
-            LayoutDisplay::Block => "block",
-            LayoutDisplay::Inline => "inline",
-            LayoutDisplay::InlineBlock => "inline-block",
-            LayoutDisplay::Flex => "flex",
-            LayoutDisplay::InlineFlex => "inline-flex",
-            LayoutDisplay::Table => "table",
-            LayoutDisplay::InlineTable => "inline-table",
-            LayoutDisplay::TableRowGroup => "table-row-group",
-            LayoutDisplay::TableHeaderGroup => "table-header-group",
-            LayoutDisplay::TableFooterGroup => "table-footer-group",
-            LayoutDisplay::TableRow => "table-row",
-            LayoutDisplay::TableColumnGroup => "table-column-group",
-            LayoutDisplay::TableColumn => "table-column",
-            LayoutDisplay::TableCell => "table-cell",
-            LayoutDisplay::TableCaption => "table-caption",
-            LayoutDisplay::ListItem => "list-item",
-            LayoutDisplay::RunIn => "run-in",
-            LayoutDisplay::Marker => "marker",
-            LayoutDisplay::FlowRoot => "flow-root",
-            LayoutDisplay::Grid => "grid",
-            LayoutDisplay::InlineGrid => "inline-grid",
-            LayoutDisplay::Contents => "contents",
+            Self::None => "none",
+            Self::Block => "block",
+            Self::Inline => "inline",
+            Self::InlineBlock => "inline-block",
+            Self::Flex => "flex",
+            Self::InlineFlex => "inline-flex",
+            Self::Table => "table",
+            Self::InlineTable => "inline-table",
+            Self::TableRowGroup => "table-row-group",
+            Self::TableHeaderGroup => "table-header-group",
+            Self::TableFooterGroup => "table-footer-group",
+            Self::TableRow => "table-row",
+            Self::TableColumnGroup => "table-column-group",
+            Self::TableColumn => "table-column",
+            Self::TableCell => "table-cell",
+            Self::TableCaption => "table-caption",
+            Self::ListItem => "list-item",
+            Self::RunIn => "run-in",
+            Self::Marker => "marker",
+            Self::FlowRoot => "flow-root",
+            Self::Grid => "grid",
+            Self::InlineGrid => "inline-grid",
+            Self::Contents => "contents",
         })
     }
 }
@@ -160,9 +160,9 @@ pub enum LayoutFloat {
 impl PrintAsCssValue for LayoutFloat {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            LayoutFloat::Left => "left",
-            LayoutFloat::Right => "right",
-            LayoutFloat::None => "none",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::None => "none",
         })
     }
 }
@@ -170,7 +170,7 @@ impl PrintAsCssValue for LayoutFloat {
 // --- PARSERS ---
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum LayoutDisplayParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -184,24 +184,24 @@ impl_display! { LayoutDisplayParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum LayoutDisplayParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> LayoutDisplayParseError<'a> {
-    pub fn to_contained(&self) -> LayoutDisplayParseErrorOwned {
+impl LayoutDisplayParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> LayoutDisplayParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => LayoutDisplayParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => LayoutDisplayParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl LayoutDisplayParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> LayoutDisplayParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> LayoutDisplayParseError<'_> {
         match self {
             Self::InvalidValue(s) => LayoutDisplayParseError::InvalidValue(s.as_str()),
         }
@@ -209,9 +209,12 @@ impl LayoutDisplayParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_display<'a>(
-    input: &'a str,
-) -> Result<LayoutDisplay, LayoutDisplayParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `display` value.
+pub fn parse_layout_display(
+    input: &str,
+) -> Result<LayoutDisplay, LayoutDisplayParseError<'_>> {
     let input = input.trim();
     match input {
         "none" => Ok(LayoutDisplay::None),
@@ -243,7 +246,7 @@ pub fn parse_layout_display<'a>(
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum LayoutFloatParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -257,24 +260,24 @@ impl_display! { LayoutFloatParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum LayoutFloatParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> LayoutFloatParseError<'a> {
-    pub fn to_contained(&self) -> LayoutFloatParseErrorOwned {
+impl LayoutFloatParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> LayoutFloatParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => LayoutFloatParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => LayoutFloatParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl LayoutFloatParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> LayoutFloatParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> LayoutFloatParseError<'_> {
         match self {
             Self::InvalidValue(s) => LayoutFloatParseError::InvalidValue(s.as_str()),
         }
@@ -282,7 +285,10 @@ impl LayoutFloatParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_float<'a>(input: &'a str) -> Result<LayoutFloat, LayoutFloatParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `float` value.
+pub fn parse_layout_float(input: &str) -> Result<LayoutFloat, LayoutFloatParseError<'_>> {
     let input = input.trim();
     match input {
         "left" => Ok(LayoutFloat::Left),
@@ -297,6 +303,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::cognitive_complexity)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     fn test_parse_layout_display() {
         assert_eq!(parse_layout_display("block").unwrap(), LayoutDisplay::Block);
         assert_eq!(

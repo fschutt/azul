@@ -71,7 +71,7 @@ impl NodeChangeSet {
 
     // --- Changes that affect NEITHER layout nor paint ---
 
-    /// Callbacks changed (new RefAny, different event handlers).
+    /// Callbacks changed (new `RefAny`, different event handlers).
     pub const CALLBACKS: u32            = 0b0000_0100_0000_0000;
     /// Dataset changed.
     pub const DATASET: u32              = 0b0000_1000_0000_0000;
@@ -93,38 +93,38 @@ impl NodeChangeSet {
     pub const AFFECTS_PAINT: u32 = Self::INLINE_STYLE_PAINT
         | Self::STYLED_STATE;
 
-    pub const fn empty() -> Self {
+    #[must_use] pub const fn empty() -> Self {
         Self { bits: 0 }
     }
 
-    pub const fn is_empty(&self) -> bool {
+    #[must_use] pub const fn is_empty(&self) -> bool {
         self.bits == 0
     }
 
-    pub const fn contains(&self, flag: u32) -> bool {
+    #[must_use] pub const fn contains(&self, flag: u32) -> bool {
         (self.bits & flag) == flag
     }
 
-    pub const fn intersects(&self, mask: u32) -> bool {
+    #[must_use] pub const fn intersects(&self, mask: u32) -> bool {
         (self.bits & mask) != 0
     }
 
-    pub fn insert(&mut self, flag: u32) {
+    pub const fn insert(&mut self, flag: u32) {
         self.bits |= flag;
     }
 
     /// Returns true if no visual change occurred (only callbacks/dataset/a11y).
-    pub const fn is_visually_unchanged(&self) -> bool {
+    #[must_use] pub const fn is_visually_unchanged(&self) -> bool {
         !self.intersects(Self::AFFECTS_LAYOUT) && !self.intersects(Self::AFFECTS_PAINT)
     }
 
     /// Returns true if layout is needed.
-    pub const fn needs_layout(&self) -> bool {
+    #[must_use] pub const fn needs_layout(&self) -> bool {
         self.intersects(Self::AFFECTS_LAYOUT)
     }
 
     /// Returns true if paint is needed (but not necessarily layout).
-    pub const fn needs_paint(&self) -> bool {
+    #[must_use] pub const fn needs_paint(&self) -> bool {
         self.intersects(Self::AFFECTS_PAINT)
     }
 }
@@ -144,27 +144,21 @@ impl core::ops::BitOr for NodeChangeSet {
 
 /// Extended diff result that includes per-node change information.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct ExtendedDiffResult {
     /// Original diff result (lifecycle events + node moves).
     pub diff: DiffResult,
     /// Per-node change report for matched (moved) nodes.
-    /// Each entry: (old_node_id, new_node_id, what_changed).
+    /// Each entry: (`old_node_id`, `new_node_id`, `what_changed`).
     /// Only contains entries for nodes that were matched.
     pub node_changes: Vec<(NodeId, NodeId, NodeChangeSet)>,
 }
 
-impl Default for ExtendedDiffResult {
-    fn default() -> Self {
-        Self {
-            diff: DiffResult::default(),
-            node_changes: Vec::new(),
-        }
-    }
-}
 
 /// Compare two matched `NodeData` instances field-by-field and return
 /// a `NodeChangeSet` describing what changed.
-pub fn compute_node_changes(
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+#[must_use] pub fn compute_node_changes(
     old_node: &NodeData,
     new_node: &NodeData,
     old_styled_state: Option<&StyledNodeState>,
@@ -232,33 +226,33 @@ pub fn compute_node_changes(
         }
 
         // Check new props against old.
-        let mut seen_types = OrderedMap::default();
+        let mut seen_types = alloc::collections::BTreeSet::new();
         for (prop, conds) in new_node.style.iter_inline_properties() {
             let prop_type = prop.get_type();
-            seen_types.insert(prop_type, ());
+            seen_types.insert(prop_type);
             match old_map.get(&prop_type) {
                 Some(&(old_prop, old_conds))
                     if old_prop == prop
                         && old_conds.as_slice() == conds.as_slice() => {} // unchanged
                 _ => {
                     let scope = prop_type.relayout_scope(true);
-                    if scope != RelayoutScope::None {
-                        has_layout = true;
-                    } else {
+                    if scope == RelayoutScope::None {
                         has_paint = true;
+                    } else {
+                        has_layout = true;
                     }
                 }
             }
         }
 
         // Check for removed properties
-        for (prop_type, _) in old_map.iter() {
-            if !seen_types.contains_key(prop_type) {
+        for prop_type in old_map.keys() {
+            if !seen_types.contains(prop_type) {
                 let scope = prop_type.relayout_scope(true);
-                if scope != RelayoutScope::None {
-                    has_layout = true;
-                } else {
+                if scope == RelayoutScope::None {
                     has_paint = true;
+                } else {
+                    has_layout = true;
                 }
             }
         }
@@ -275,15 +269,15 @@ pub fn compute_node_changes(
     {
         let old_cbs = old_node.callbacks.as_ref();
         let new_cbs = new_node.callbacks.as_ref();
-        if old_cbs.len() != new_cbs.len() {
-            changes.insert(NodeChangeSet::CALLBACKS);
-        } else {
+        if old_cbs.len() == new_cbs.len() {
             for (o, n) in old_cbs.iter().zip(new_cbs.iter()) {
                 if o.event != n.event || o.callback != n.callback {
                     changes.insert(NodeChangeSet::CALLBACKS);
                     break;
                 }
             }
+        } else {
+            changes.insert(NodeChangeSet::CALLBACKS);
         }
     }
 
@@ -326,7 +320,7 @@ pub fn compute_node_changes(
 /// context simply drops out. This lets callers that don't track hierarchy
 /// (tests, flat-DOM scenarios) still benefit from explicit-key and CSS-ID
 /// matching without divergent behavior.
-pub fn calculate_reconciliation_key(
+#[must_use] pub fn calculate_reconciliation_key(
     node_data: &[NodeData],
     hierarchy: &[NodeHierarchyItem],
     node_id: NodeId,
@@ -341,7 +335,7 @@ pub fn calculate_reconciliation_key(
     }
 
     // Priority 2: CSS ID
-    for attr in node.attributes().as_ref().iter() {
+    for attr in node.attributes().as_ref() {
         if let Some(id) = attr.as_id() {
             let mut hasher = crate::hash::DefaultHasher::new();
             id.hash(&mut hasher);
@@ -353,7 +347,7 @@ pub fn calculate_reconciliation_key(
     let mut hasher = crate::hash::DefaultHasher::new();
 
     core::mem::discriminant(node.get_node_type()).hash(&mut hasher);
-    for attr in node.attributes().as_ref().iter() {
+    for attr in node.attributes().as_ref() {
         if let Some(class) = attr.as_class() {
             class.hash(&mut hasher);
         }
@@ -393,7 +387,7 @@ pub fn calculate_reconciliation_key(
 /// Called once per side (old/new) at the start of `reconcile_dom`. Returns a
 /// vector indexed by node index (`keys[node_id.index()]`) so lookup during
 /// reconciliation is O(1).
-pub fn precompute_reconciliation_keys(
+#[must_use] pub fn precompute_reconciliation_keys(
     node_data: &[NodeData],
     hierarchy: &[NodeHierarchyItem],
 ) -> Vec<u64> {
@@ -405,29 +399,22 @@ pub fn precompute_reconciliation_keys(
 /// Represents a mapping between a node in the old DOM and the new DOM.
 #[derive(Debug, Clone, Copy)]
 pub struct NodeMove {
-    /// The NodeId in the old DOM array
+    /// The `NodeId` in the old DOM array
     pub old_node_id: NodeId,
-    /// The NodeId in the new DOM array
+    /// The `NodeId` in the new DOM array
     pub new_node_id: NodeId,
 }
 
 /// The result of a DOM diff, containing lifecycle events and node mappings.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct DiffResult {
     /// Lifecycle events generated by the diff (Mount, Unmount, Resize, Update)
     pub events: Vec<SyntheticEvent>,
-    /// Maps Old NodeId -> New NodeId for state migration (focus, scroll, etc.)
+    /// Maps Old `NodeId` -> New `NodeId` for state migration (focus, scroll, etc.)
     pub node_moves: Vec<NodeMove>,
 }
 
-impl Default for DiffResult {
-    fn default() -> Self {
-        Self {
-            events: Vec::new(),
-            node_moves: Vec::new(),
-        }
-    }
-}
 
 /// Calculates the difference between two DOM frames and generates lifecycle events.
 ///
@@ -454,7 +441,9 @@ impl Default for DiffResult {
 /// * `old_layout` / `new_layout` - Layout bounds used to detect Resize events
 /// * `dom_id` - The DOM identifier
 /// * `timestamp` - Current timestamp for events
-pub fn reconcile_dom(
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+#[must_use] pub fn reconcile_dom(
     old_node_data: &[NodeData],
     new_node_data: &[NodeData],
     old_hierarchy: &[NodeHierarchyItem],
@@ -464,6 +453,20 @@ pub fn reconcile_dom(
     dom_id: DomId,
     timestamp: Instant,
 ) -> DiffResult {
+    // Helper: pop the first non-consumed NodeId from a queue.
+    fn pop_first_unconsumed(
+        queue: &mut VecDeque<NodeId>,
+        consumed: &[bool],
+    ) -> Option<NodeId> {
+        while let Some(&old_id) = queue.front() {
+            queue.pop_front();
+            if !consumed[old_id.index()] {
+                return Some(old_id);
+            }
+        }
+        None
+    }
+
     let mut result = DiffResult::default();
 
     // --- STEP 1: INDEX THE OLD DOM ---
@@ -496,22 +499,6 @@ pub fn reconcile_dom(
     }
 
     // --- STEP 2: ITERATE NEW DOM AND CLAIM MATCHES ---
-
-    // Helper: pop the first non-consumed NodeId from a queue.
-    fn pop_first_unconsumed(
-        queue: &mut VecDeque<NodeId>,
-        consumed: &[bool],
-    ) -> Option<NodeId> {
-        while let Some(&old_id) = queue.front() {
-            if consumed[old_id.index()] {
-                queue.pop_front();
-            } else {
-                queue.pop_front();
-                return Some(old_id);
-            }
-        }
-        None
-    }
 
     for (new_idx, new_node) in new_node_data.iter().enumerate() {
         let new_id = NodeId::new(new_idx);
@@ -681,7 +668,7 @@ fn create_lifecycle_event(
     }
 }
 
-/// Check if the node has an AfterMount callback registered.
+/// Check if the node has an `AfterMount` callback registered.
 fn has_mount_callback(node: &NodeData) -> bool {
     node.get_callbacks().iter().any(|cb| {
         matches!(
@@ -691,7 +678,7 @@ fn has_mount_callback(node: &NodeData) -> bool {
     })
 }
 
-/// Check if the node has a BeforeUnmount callback registered.
+/// Check if the node has a `BeforeUnmount` callback registered.
 fn has_unmount_callback(node: &NodeData) -> bool {
     node.get_callbacks().iter().any(|cb| {
         matches!(
@@ -701,7 +688,7 @@ fn has_unmount_callback(node: &NodeData) -> bool {
     })
 }
 
-/// Check if the node has a NodeResized callback registered.
+/// Check if the node has a `NodeResized` callback registered.
 fn has_resize_callback(node: &NodeData) -> bool {
     node.get_callbacks().iter().any(|cb| {
         matches!(
@@ -724,7 +711,7 @@ fn has_update_callback(node: &NodeData) -> bool {
 /// Migrate state (focus, scroll, etc.) from old node IDs to new node IDs.
 ///
 /// This function should be called after reconciliation to update any state
-/// that references old NodeIds to use the new NodeIds.
+/// that references old `NodeIds` to use the new `NodeIds`.
 ///
 /// # Example
 /// ```rust,ignore
@@ -741,7 +728,7 @@ fn has_update_callback(node: &NodeData) -> bool {
 ///     }
 /// }
 /// ```
-pub fn create_migration_map(node_moves: &[NodeMove]) -> OrderedMap<NodeId, NodeId> {
+#[must_use] pub fn create_migration_map(node_moves: &[NodeMove]) -> OrderedMap<NodeId, NodeId> {
     let mut map = OrderedMap::default();
     for m in node_moves {
         map.insert(m.old_node_id, m.new_node_id);
@@ -788,9 +775,8 @@ pub fn transfer_states(
         }
 
         // 1. Check if the NEW node has requested a merge callback
-        let merge_callback = match new_node_data[new_idx].get_merge_callback() {
-            Some(cb) => cb,
-            None => continue, // No merge callback, skip
+        let Some(merge_callback) = new_node_data[new_idx].get_merge_callback() else {
+            continue; // No merge callback, skip
         };
 
         // 2. Check if BOTH nodes have datasets
@@ -842,8 +828,7 @@ pub fn transfer_states(
                     }
                     let ds_is_orphan = nd
                         .get_dataset()
-                        .map(|ds| ds.sharing_info.ptr as usize == orphan_alloc)
-                        .unwrap_or(false);
+                        .is_some_and(|ds| ds.sharing_info.ptr as usize == orphan_alloc);
                     if ds_is_orphan {
                         nd.set_dataset(OptionRefAny::Some(merged.clone()));
                     }
@@ -880,9 +865,9 @@ pub fn transfer_states(
 ///
 /// # Returns
 /// A stable u64 key for the node
-pub fn calculate_contenteditable_key(
+#[must_use] pub fn calculate_contenteditable_key(
     node_data: &[NodeData],
-    hierarchy: &[crate::styled_dom::NodeHierarchyItem],
+    hierarchy: &[NodeHierarchyItem],
     node_id: NodeId,
 ) -> u64 {
     use core::hash::Hasher;
@@ -895,7 +880,7 @@ pub fn calculate_contenteditable_key(
     }
     
     // Priority 2: CSS ID
-    for attr in node.attributes().as_ref().iter() {
+    for attr in node.attributes().as_ref() {
         if let Some(id) = attr.as_id() {
             let mut hasher = crate::hash::DefaultHasher::new(); // Different seed for ID keys
             hasher.write(id.as_bytes());
@@ -907,17 +892,13 @@ pub fn calculate_contenteditable_key(
     let mut hasher = crate::hash::DefaultHasher::new(); // Different seed for structural keys
     
     // Get parent and calculate its key recursively
-    let parent_key = if let Some(parent_id) = hierarchy.get(node_id.index()).and_then(|h| h.parent_id()) {
-        calculate_contenteditable_key(node_data, hierarchy, parent_id)
-    } else {
-        0u64 // Root node
-    };
+    let parent_key = hierarchy.get(node_id.index()).and_then(NodeHierarchyItem::parent_id).map_or(0u64, |parent_id| calculate_contenteditable_key(node_data, hierarchy, parent_id));
     hasher.write(&parent_key.to_le_bytes());
     
     // Calculate nth-of-type (count siblings of same node type before this one)
     // We compare discriminants directly without hashing
     let node_discriminant = core::mem::discriminant(node.get_node_type());
-    let nth_of_type = if let Some(parent_id) = hierarchy.get(node_id.index()).and_then(|h| h.parent_id()) {
+    let nth_of_type = hierarchy.get(node_id.index()).and_then(NodeHierarchyItem::parent_id).map_or(0, |parent_id| {
         // Count siblings with same node type that come before this node
         let mut count = 0u32;
         let mut sibling_id = hierarchy.get(parent_id.index()).and_then(|h| h.first_child_id(parent_id));
@@ -929,12 +910,10 @@ pub fn calculate_contenteditable_key(
             if sibling_discriminant == node_discriminant {
                 count += 1;
             }
-            sibling_id = hierarchy.get(sib_id.index()).and_then(|h| h.next_sibling_id());
+            sibling_id = hierarchy.get(sib_id.index()).and_then(NodeHierarchyItem::next_sibling_id);
         }
         count
-    } else {
-        0
-    };
+    });
     
     hasher.write(&nth_of_type.to_le_bytes());
     
@@ -942,7 +921,7 @@ pub fn calculate_contenteditable_key(
     node_discriminant.hash(&mut hasher);
     
     // Also hash the classes for additional stability
-    for attr in node.attributes().as_ref().iter() {
+    for attr in node.attributes().as_ref() {
         if let Some(class) = attr.as_class() {
             hasher.write(class.as_bytes());
         }
@@ -976,7 +955,7 @@ pub fn calculate_contenteditable_key(
 /// let new_cursor = reconcile_cursor_position(old_text, new_text, old_cursor);
 /// assert_eq!(new_cursor, 5); // cursor stays at same position (prefix unchanged)
 /// ```
-pub fn reconcile_cursor_position(
+#[must_use] pub fn reconcile_cursor_position(
     old_text: &str,
     new_text: &str,
     old_cursor_byte: usize,
@@ -1031,11 +1010,11 @@ pub fn reconcile_cursor_position(
     new_suffix_start
 }
 
-/// Get the text content from a NodeData if it's a Text node.
+/// Get the text content from a `NodeData` if it's a Text node.
 ///
 /// Returns the text string if the node is `NodeType::Text`, otherwise `None`.
-pub fn get_node_text_content(node: &NodeData) -> Option<&str> {
-    if let crate::dom::NodeType::Text(ref text) = node.get_node_type() {
+#[must_use] pub fn get_node_text_content(node: &NodeData) -> Option<&str> {
+    if let NodeType::Text(ref text) = node.get_node_type() {
         Some(text.as_str())
     } else {
         None
@@ -1061,8 +1040,8 @@ pub struct NodeChangeReport {
     /// Bitflags from DOM-level field comparison.
     pub change_set: NodeChangeSet,
 
-    /// Highest RelayoutScope from any CSS property that changed on this node.
-    /// This is more granular than NodeChangeSet's binary LAYOUT/PAINT split.
+    /// Highest `RelayoutScope` from any CSS property that changed on this node.
+    /// This is more granular than `NodeChangeSet`'s binary LAYOUT/PAINT split.
     ///
     /// - `None` → repaint only (color, opacity, transform)
     /// - `IfcOnly` → reshape text in the containing IFC
@@ -1079,17 +1058,17 @@ pub struct NodeChangeReport {
 }
 
 impl NodeChangeReport {
-    /// Returns the DirtyFlag level needed for this change report.
-    /// Maps RelayoutScope + NodeChangeSet → a simple tri-state.
-    pub fn needs_layout(&self) -> bool {
+    /// Returns the `DirtyFlag` level needed for this change report.
+    /// Maps `RelayoutScope` + `NodeChangeSet` → a simple tri-state.
+    #[must_use] pub fn needs_layout(&self) -> bool {
         self.change_set.needs_layout() || self.relayout_scope > RelayoutScope::None
     }
 
-    pub fn needs_paint(&self) -> bool {
+    #[must_use] pub const fn needs_paint(&self) -> bool {
         self.change_set.needs_paint()
     }
 
-    pub fn is_visually_unchanged(&self) -> bool {
+    #[must_use] pub fn is_visually_unchanged(&self) -> bool {
         self.change_set.is_visually_unchanged() && self.relayout_scope == RelayoutScope::None
     }
 }
@@ -1103,10 +1082,10 @@ impl NodeChangeReport {
 /// This is the single source of truth for "what work needs to happen this frame".
 #[derive(Debug, Clone, Default)]
 pub struct ChangeAccumulator {
-    /// Per-node change info. Key is the new-DOM NodeId.
+    /// Per-node change info. Key is the new-DOM `NodeId`.
     pub per_node: BTreeMap<NodeId, NodeChangeReport>,
 
-    /// Maximum RelayoutScope across all changed nodes.
+    /// Maximum `RelayoutScope` across all changed nodes.
     /// Quick check: if this is `None`, we can skip layout entirely.
     pub max_scope: RelayoutScope,
 
@@ -1120,33 +1099,33 @@ pub struct ChangeAccumulator {
 }
 
 impl ChangeAccumulator {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
 
     /// Returns true if no changes were detected at all.
-    pub fn is_empty(&self) -> bool {
+    #[must_use] pub fn is_empty(&self) -> bool {
         self.per_node.is_empty() && self.mounted_nodes.is_empty() && self.unmounted_nodes.is_empty()
     }
 
     /// Returns true if layout work is needed (any node has scope > None).
-    pub fn needs_layout(&self) -> bool {
+    #[must_use] pub fn needs_layout(&self) -> bool {
         self.max_scope > RelayoutScope::None
             || !self.mounted_nodes.is_empty()
-            || self.per_node.values().any(|r| r.needs_layout())
+            || self.per_node.values().any(NodeChangeReport::needs_layout)
     }
 
     /// Returns true if only paint work is needed (no layout).
-    pub fn needs_paint_only(&self) -> bool {
-        !self.needs_layout() && self.per_node.values().any(|r| r.needs_paint())
+    #[must_use] pub fn needs_paint_only(&self) -> bool {
+        !self.needs_layout() && self.per_node.values().any(NodeChangeReport::needs_paint)
     }
 
     /// Returns true if only non-visual changes occurred (callbacks, dataset, a11y).
-    pub fn is_visually_unchanged(&self) -> bool {
+    #[must_use] pub fn is_visually_unchanged(&self) -> bool {
         self.mounted_nodes.is_empty()
             && self.unmounted_nodes.is_empty()
             && self.max_scope == RelayoutScope::None
-            && self.per_node.values().all(|r| r.is_visually_unchanged())
+            && self.per_node.values().all(NodeChangeReport::is_visually_unchanged)
     }
 
     /// Add a node change from DOM reconciliation (Path A).
@@ -1274,7 +1253,7 @@ impl ChangeAccumulator {
             }
 
             // Determine RelayoutScope from the change flags
-            let scope = self.classify_change_scope(change_set, new_node_data, new_id);
+            let scope = Self::classify_change_scope(*change_set, new_node_data, new_id);
 
             // Extract text change info if TEXT_CONTENT flag is set
             let text_change = if change_set.contains(NodeChangeSet::TEXT_CONTENT) {
@@ -1321,10 +1300,9 @@ impl ChangeAccumulator {
         }
     }
 
-    /// Classify a NodeChangeSet into the appropriate RelayoutScope.
+    /// Classify a `NodeChangeSet` into the appropriate `RelayoutScope`.
     fn classify_change_scope(
-        &self,
-        change_set: &NodeChangeSet,
+        change_set: NodeChangeSet,
         new_node_data: &[NodeData],
         new_node_id: NodeId,
     ) -> RelayoutScope {
@@ -1392,7 +1370,7 @@ impl ChangeAccumulator {
 ///
 /// The `ChangeAccumulator` can then be populated from the result via
 /// `accumulator.merge_extended_diff()`.
-pub fn reconcile_dom_with_changes(
+#[must_use] pub fn reconcile_dom_with_changes(
     old_node_data: &[NodeData],
     new_node_data: &[NodeData],
     old_hierarchy: &[NodeHierarchyItem],
@@ -1448,37 +1426,26 @@ pub fn reconcile_dom_with_changes(
 /// - **Tier 2** (`compute_node_changes`): O(n) per changed field, does field-by-field
 ///   comparison only for nodes that Tier 1 identified as changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub struct NodeDataFingerprint {
-    /// Hash of node_type (Text content, Image ref, Div, etc.)
+    /// Hash of `node_type` (Text content, Image ref, Div, etc.)
     pub content_hash: u64,
-    /// Hash of styled_node_state (hover, focus, active bits)
+    /// Hash of `styled_node_state` (hover, focus, active bits)
     pub state_hash: u64,
     /// Hash of inline CSS properties
     pub inline_css_hash: u64,
-    /// Hash of ids_and_classes
+    /// Hash of `ids_and_classes`
     pub ids_classes_hash: u64,
     /// Hash of callbacks (event types + function pointers)
     pub callbacks_hash: u64,
-    /// Hash of other attributes (contenteditable, tab_index, dataset)
+    /// Hash of other attributes (contenteditable, `tab_index`, dataset)
     pub attrs_hash: u64,
 }
 
-impl Default for NodeDataFingerprint {
-    fn default() -> Self {
-        Self {
-            content_hash: 0,
-            state_hash: 0,
-            inline_css_hash: 0,
-            ids_classes_hash: 0,
-            callbacks_hash: 0,
-            attrs_hash: 0,
-        }
-    }
-}
 
 impl NodeDataFingerprint {
     /// Compute a fingerprint from a node's data and styled state.
-    pub fn compute(node: &NodeData, styled_state: Option<&StyledNodeState>) -> Self {
+    #[must_use] pub fn compute(node: &NodeData, styled_state: Option<&StyledNodeState>) -> Self {
         use core::hash::Hasher;
         use core::hash::Hash;
 
@@ -1513,7 +1480,7 @@ impl NodeDataFingerprint {
         // IDs and classes hash (now stored in attributes)
         let ids_classes_hash = {
             let mut h = crate::hash::DefaultHasher::new();
-            for attr in node.attributes().as_ref().iter() {
+            for attr in node.attributes().as_ref() {
                 match attr {
                     crate::dom::AttributeType::Id(s) => {
                         crate::dom::IdOrClass::Id(s.clone()).hash(&mut h);
@@ -1530,7 +1497,7 @@ impl NodeDataFingerprint {
         // Callbacks hash
         let callbacks_hash = {
             let mut h = crate::hash::DefaultHasher::new();
-            for cb in node.callbacks.as_ref().iter() {
+            for cb in node.callbacks.as_ref() {
                 cb.event.hash(&mut h);
                 cb.callback.hash(&mut h);
             }
@@ -1556,14 +1523,14 @@ impl NodeDataFingerprint {
         }
     }
 
-    /// Returns a quick NodeChangeSet by comparing two fingerprints.
+    /// Returns a quick `NodeChangeSet` by comparing two fingerprints.
     /// This is O(1) — just comparing 6 u64s.
     ///
     /// The result is *conservative*: if a field hash differs, we set the
     /// broadest applicable flag. For precise classification (e.g., which
     /// CSS properties changed and their `relayout_scope()`), the caller
     /// should fall back to `compute_node_changes()` for changed nodes.
-    pub fn diff(&self, other: &NodeDataFingerprint) -> NodeChangeSet {
+    #[must_use] pub const fn diff(&self, other: &Self) -> NodeChangeSet {
         let mut changes = NodeChangeSet::empty();
 
         if self.content_hash != other.content_hash {
@@ -1601,12 +1568,12 @@ impl NodeDataFingerprint {
     }
 
     /// Returns true if the fingerprint is identical (no changes at all).
-    pub fn is_identical(&self, other: &NodeDataFingerprint) -> bool {
+    #[must_use] pub fn is_identical(&self, other: &Self) -> bool {
         self == other
     }
 
     /// Quick check: could this change affect layout?
-    pub fn might_affect_layout(&self, other: &NodeDataFingerprint) -> bool {
+    #[must_use] pub const fn might_affect_layout(&self, other: &Self) -> bool {
         self.content_hash != other.content_hash
             || self.inline_css_hash != other.inline_css_hash
             || self.ids_classes_hash != other.ids_classes_hash
@@ -1614,7 +1581,7 @@ impl NodeDataFingerprint {
     }
 
     /// Quick check: could this change affect visuals at all?
-    pub fn might_affect_visuals(&self, other: &NodeDataFingerprint) -> bool {
+    #[must_use] pub const fn might_affect_visuals(&self, other: &Self) -> bool {
         self.content_hash != other.content_hash
             || self.state_hash != other.state_hash
             || self.inline_css_hash != other.inline_css_hash

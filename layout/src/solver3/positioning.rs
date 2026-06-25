@@ -46,7 +46,7 @@ pub(crate) struct PositionOffsets {
 // +spec:positioning:94ef0f - position property: static|relative|absolute|sticky|fixed, initial static, applies to all elements except table-column-group/table-column
 /// Looks up the `position` property using the compact-cache-aware getter.
 // +spec:positioning:ba937d - positioned elements have position != static
-pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutPosition {
+#[must_use] pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutPosition {
     let Some(id) = dom_id else {
         return LayoutPosition::Static;
     };
@@ -60,6 +60,7 @@ pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Layo
 /// Reads and resolves `top`, `right`, `bottom`, `left` properties,
 /// including percentages relative to the containing block's size, and em/rem units.
 // +spec:positioning:7ec143 - top/right/bottom/left offset resolution with percentage against containing block
+#[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
 pub(crate) fn resolve_position_offsets(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
@@ -134,6 +135,10 @@ pub(crate) fn resolve_position_offsets(
 // +spec:positioning:cbe481 - absolute positioning removes elements from flow and positions them relative to containing block
 // +spec:positioning:ebff77 - absolute positioning layout model (replaces old §6 abspos model)
 // +spec:positioning:3b3ba4 - Absolute positioning: box offset from containing block, removed from normal flow; fixed positioning: CB = viewport
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics if a resolved offset (`top`/`bottom`) is None where both edges are expected.
 pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -141,13 +146,13 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     calculated_positions: &mut super::PositionVec,
     viewport: LogicalRect,
 ) {
+    use azul_css::props::style::StyleDirection;
     // Returns `()` (not Result<()>): inner fallible calls use skip-on-err (see above), so this fn
     // never propagates Err. Avoids the lift-fragile Result<(),LayoutError> Ok-niche read.
     for node_index in 0..tree.nodes.len() {
         let node = &tree.nodes[node_index];
-        let dom_id = match node.dom_node_id {
-            Some(id) => id,
-            None => continue,
+        let Some(dom_id) = node.dom_node_id else {
+            continue;
         };
 
         let position_type = get_position_type(ctx.styled_dom, Some(dom_id));
@@ -162,7 +167,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             // Same applies to flex containers (Flexbox §4.1).
             {
                 use azul_core::dom::FormattingContext;
-                let parent_is_flex_or_grid = node.parent.and_then(|p| tree.get(p)).map_or(false, |pn| {
+                let parent_is_flex_or_grid = node.parent.and_then(|p| tree.get(p)).is_some_and(|pn| {
                     matches!(pn.formatting_context, FormattingContext::Flex | FormattingContext::Grid)
                 });
                 if parent_is_flex_or_grid {
@@ -241,16 +246,15 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             } else {
                 // Element hasn't been sized yet - calculate it now using containing block
                 let intrinsic = tree.warm(node_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
-                let size = match crate::solver3::sizing::calculate_used_size_for_node(
+                let Ok(size) = crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
                     Some(dom_id),
                     &containing_block_rect.size,
                     intrinsic,
                     &node.box_props.unpack(),
                     &ctx.viewport_size,
-                ) {
-                    Ok(s) => s,
-                    Err(_) => continue,
+                ) else {
+                    continue;
                 };
 
                 // Store the calculated size in the tree node
@@ -445,7 +449,6 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 let right_is_auto = right_val.is_none();
 
                 // Get direction of containing block for over-constrained resolution
-                use azul_css::props::style::StyleDirection;
                 let cb_direction = {
                     let cb_dom_id = if position_type == LayoutPosition::Fixed {
                         None // viewport CB, default LTR
@@ -618,7 +621,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         && tree.children(node_index).iter().any(|&c| {
                             tree.get(c)
                                 .and_then(|cn| cn.used_size)
-                                .map_or(true, |s| s.height < 1.0)
+                                .is_none_or(|s| s.height < 1.0)
                         });
                     (used, inner, collapsed)
                 };
@@ -636,14 +639,14 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     };
                     let mut reflow_float_cache: std::collections::HashMap<usize, FloatingContext> =
                         std::collections::HashMap::new();
-                    let _ = layout_formatting_context(
+                    drop(layout_formatting_context(
                         ctx,
                         tree,
                         text_cache,
                         node_index,
                         &constraints,
                         &mut reflow_float_cache,
-                    );
+                    ));
                 }
             }
         }
@@ -664,12 +667,14 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 /// For relatively positioned elements, percentages are
 /// relative to the dimensions of the parent element's content box.
 // +spec:positioning:2d8e15 - relative positioning shifts elements as a unit after normal flow without affecting surrounding content
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn adjust_relative_positions<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
     calculated_positions: &mut super::PositionVec,
     viewport: LogicalRect, // The viewport is needed if the root element is relative.
 ) {
+    use azul_css::props::style::StyleDirection;
     // NOTE: returns `()` (not `Result<()>`). This fn is Ok-always — its only `?` are on `Option`
     // inside `.and_then` closures, never propagating to the fn body. The previous `Result<(),
     // LayoutError>` return forced the `?` at the call site to read an Ok-niche discriminant, which
@@ -713,7 +718,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         // For `position: relative`, this is the parent's content box size.
         let containing_block_size = node.parent
             .and_then(|parent_idx| tree.get(parent_idx))
-            .map(|parent_node| {
+            .map_or(viewport.size, |parent_node| {
                 // Get parent's writing mode to correctly calculate its inner (content) size.
                 let parent_wm = parent_node.dom_node_id
                     .map(|pid| {
@@ -723,9 +728,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
                     .unwrap_or_default();
                 let parent_used_size = parent_node.used_size.unwrap_or_default();
                 parent_node.box_props.inner_size(parent_used_size, parent_wm)
-            })
-            // The root element is relatively positioned. Its containing block is the viewport.
-            .unwrap_or(viewport.size);
+            });
 
         // +spec:positioning:418c74 - inset percentages resolve against containing block size per axis; auto is unconstrained
         let offsets =
@@ -770,7 +773,6 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         // +spec:positioning:1732e8 - left/right for relatively positioned elements determined by 9.4.3 rules
         // Spec: "If the 'direction' property of the containing block is 'ltr', the value of 'left' wins"
         // Get the direction of the containing block (parent), not the element itself
-        use azul_css::props::style::StyleDirection;
         let cb_direction = node.parent
             .and_then(|parent_idx| tree.get(parent_idx))
             .and_then(|parent_node| {
@@ -859,16 +861,12 @@ fn find_nearest_scrollport(
     let mut current_parent_idx = tree.get(node_index).and_then(|n| n.parent);
 
     while let Some(parent_index) = current_parent_idx {
-        let parent_node = match tree.get(parent_index) {
-            Some(n) => n,
-            None => break,
+        let Some(parent_node) = tree.get(parent_index) else {
+            break;
         };
-        let parent_dom_id = match parent_node.dom_node_id {
-            Some(id) => id,
-            None => {
-                current_parent_idx = parent_node.parent;
-                continue;
-            }
+        let Some(parent_dom_id) = parent_node.dom_node_id else {
+            current_parent_idx = parent_node.parent;
+            continue;
         };
 
         let node_state = &styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
@@ -924,7 +922,7 @@ fn find_nearest_scrollport(
 }
 
 /// Find the scroll offset of the nearest scroll container ancestor.
-/// Returns the scroll offset as a LogicalPosition (how far the content has scrolled).
+/// Returns the scroll offset as a `LogicalPosition` (how far the content has scrolled).
 fn find_nearest_scroll_offset(
     tree: &LayoutTree,
     node_index: usize,
@@ -959,6 +957,7 @@ fn find_nearest_scroll_offset(
 /// +spec:position-sticky:75412d - multiple sticky boxes in same container offset independently
 /// +spec:box-model:af9af8 - sticky positioning: shift element to stay within sticky view rectangle, margin box constrained to containing block
 /// +spec:overflow:bac4e5 - compute sticky view rectangle, clamp end-edge insets to border box size
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn adjust_sticky_positions<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -976,9 +975,8 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
             continue;
         }
 
-        let dom_id = match node.dom_node_id {
-            Some(id) => id,
-            None => continue,
+        let Some(dom_id) = node.dom_node_id else {
+            continue;
         };
 
         // Find the nearest scrollport for this sticky element

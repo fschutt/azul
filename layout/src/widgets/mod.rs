@@ -3,13 +3,13 @@
 /// Implements `Display, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Hash`
 /// for a Callback with a `.cb` field.
 ///
-/// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
+/// This is necessary to work around for <https://github.com/rust-lang/rust/issues/54508>
 ///
 /// # Host-invoker plumbing for managed-FFI bindings
 ///
 /// Widget callbacks have varying shapes — some are
 /// `(RefAny, CallbackInfo) -> Update` (Button), others add a state
-/// struct (CheckBox/Tab/etc.), a few have two extras (ListView). The
+/// struct (CheckBox/Tab/etc.), a few have two extras (`ListView`). The
 /// macro therefore does **not** auto-emit an `impl_managed_callback!`
 /// invocation; per-widget files apply it themselves with the right
 /// extras list. The base invocation still produces the standard
@@ -33,7 +33,7 @@ macro_rules! impl_widget_callback {
         #[repr(C)]
         pub struct $callback_value {
             pub cb: $callback_ty,
-            /// For FFI: stores the foreign callable (e.g., PyFunction)
+            /// For FFI: stores the foreign callable (e.g., `PyFunction`)
             /// Native Rust code sets this to None
             pub ctx: azul_core::refany::OptionRefAny,
         }
@@ -53,13 +53,13 @@ macro_rules! impl_widget_callback {
         }
 
         impl ::core::fmt::Display for $callback_value {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{:?}", self)
             }
         }
 
         impl ::core::fmt::Debug for $callback_value {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 let callback = stringify!($callback_value);
                 write!(f, "{} @ 0x{:x}", callback, self.cb as *const () as usize)
             }
@@ -116,8 +116,11 @@ macro_rules! impl_widget_callback {
 
         /// Allow creating widget callback from a generic Callback
         /// This enables Python/FFI code to pass generic callbacks to widget methods
-        impl From<crate::callbacks::Callback> for $callback_value {
-            fn from(cb: crate::callbacks::Callback) -> $callback_value {
+        impl From<$crate::callbacks::Callback> for $callback_value {
+            // transmute target ($callback_value's cb fn-ptr type) varies per macro
+            // instantiation, so an explicit annotation can't be written generically here.
+            #[allow(clippy::missing_transmute_annotations, clippy::useless_transmute)]
+            fn from(cb: $crate::callbacks::Callback) -> $callback_value {
                 $callback_value {
                     cb: unsafe { core::mem::transmute(cb.cb) },
                     ctx: cb.ctx,
@@ -144,28 +147,40 @@ pub mod frame;
 /// List view widget
 pub mod list_view;
 /// Shared core for the video-ish widgets (camera/screencap/video): the
-/// `VideoFrame` type + the GL-texture `present_frame` writeback. See
+/// `VideoFrame` type + the GL-texture `present_frame` writeback.
+///
+/// See
 /// `capture_common.rs`.
 pub mod capture_common;
 /// Camera-preview widget (P6) — a "dumb widget" owning a background capture
-/// thread + a GL-texture ImageRef; no camera logic in core. Same RefAny-
+/// thread + a GL-texture ImageRef; no camera logic in core.
+///
+/// Same RefAny-
 /// dataset + merge-callback design as the map widget. See `camera.rs`.
 pub mod camera;
 /// Screen-capture widget (P6) — identical "dumb widget" architecture to the
-/// camera widget, capturing a display/window instead. See `screencap.rs`.
+/// camera widget, capturing a display/window instead.
+///
+/// See `screencap.rs`.
 pub mod screencap;
 /// Video-playback widget (P6) — same "dumb widget" architecture, decoding a
-/// video source (vk-video) into a GL texture. See `video.rs`.
+/// video source (vk-video) into a GL texture.
+///
+/// See `video.rs`.
 pub mod video;
 /// Microphone-capture widget (P7) — same "dumb widget" architecture as the
 /// capture widgets, audio instead of video (no GL): a background thread feeds
-/// each `AudioFrame` to the user's `on_frame` hook. See `microphone.rs`.
+/// each `AudioFrame` to the user's `on_frame` hook.
+///
+/// See `microphone.rs`.
 pub mod microphone;
 /// Map widget — MVT tile + MapCSS → SVG → DOM (AzulMaps goal app, P3).
+///
 /// Cache lives in a dataset RefAny owned by a merge callback so it
 /// survives relayout. See `layout/src/widgets/map.rs` for the design.
 pub mod map;
 /// Software menu-bar widget (Linux fallback when there is no native global menu).
+///
 /// Renders a window's `Menu` as a horizontal bar; items open dropdowns via the
 /// unified `WindowPosition::RelativeToParentWindow` popup path.
 pub mod menubar;

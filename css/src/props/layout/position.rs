@@ -29,8 +29,8 @@ pub enum LayoutPosition {
 }
 
 impl LayoutPosition {
-    pub fn is_positioned(&self) -> bool {
-        *self != LayoutPosition::Static
+    #[must_use] pub fn is_positioned(&self) -> bool {
+        *self != Self::Static
     }
 }
 
@@ -38,11 +38,11 @@ impl LayoutPosition {
 impl PrintAsCssValue for LayoutPosition {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            LayoutPosition::Static => "static",
-            LayoutPosition::Relative => "relative",
-            LayoutPosition::Absolute => "absolute",
-            LayoutPosition::Fixed => "fixed",
-            LayoutPosition::Sticky => "sticky",
+            Self::Static => "static",
+            Self::Relative => "relative",
+            Self::Absolute => "absolute",
+            Self::Fixed => "fixed",
+            Self::Sticky => "sticky",
         })
     }
 }
@@ -51,7 +51,7 @@ impl_enum_fmt!(LayoutPosition, Static, Fixed, Absolute, Relative, Sticky);
 
 // -- Parser for LayoutPosition
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum LayoutPositionParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -61,26 +61,26 @@ impl_display! { LayoutPositionParseError<'a>, {
     InvalidValue(val) => format!("Invalid position value: \"{}\"", val),
 }}
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum LayoutPositionParseErrorOwned {
     InvalidValue(AzString),
 }
 
-impl<'a> LayoutPositionParseError<'a> {
-    pub fn to_contained(&self) -> LayoutPositionParseErrorOwned {
+impl LayoutPositionParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> LayoutPositionParseErrorOwned {
         match self {
             LayoutPositionParseError::InvalidValue(s) => {
-                LayoutPositionParseErrorOwned::InvalidValue(s.to_string().into())
+                LayoutPositionParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
 }
 
 impl LayoutPositionParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> LayoutPositionParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> LayoutPositionParseError<'_> {
         match self {
-            LayoutPositionParseErrorOwned::InvalidValue(s) => {
+            Self::InvalidValue(s) => {
                 LayoutPositionParseError::InvalidValue(s.as_str())
             }
         }
@@ -88,9 +88,12 @@ impl LayoutPositionParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_position<'a>(
-    input: &'a str,
-) -> Result<LayoutPosition, LayoutPositionParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `position` value.
+pub fn parse_layout_position(
+    input: &str,
+) -> Result<LayoutPosition, LayoutPositionParseError<'_>> {
     let input = input.trim();
     match input {
         "static" => Ok(LayoutPosition::Static),
@@ -113,7 +116,7 @@ macro_rules! define_position_property {
         }
 
         impl ::core::fmt::Debug for $struct_name {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}", self.inner)
             }
         }
@@ -147,7 +150,7 @@ define_position_property!(LayoutLeft);
 
 macro_rules! define_offset_parse_error {
     ($struct_name:ident, $error_name:ident, $error_owned_name:ident, $parse_fn:ident) => {
-        #[derive(Clone, PartialEq)]
+        #[derive(Clone, PartialEq, Eq)]
         pub enum $error_name<'a> {
             PixelValue(CssPixelValueParseError<'a>),
         }
@@ -155,13 +158,13 @@ macro_rules! define_offset_parse_error {
         impl_display! { $error_name<'a>, { PixelValue(e) => format!("{}", e), }}
         impl_from!(CssPixelValueParseError<'a>, $error_name::PixelValue);
 
-        #[derive(Debug, Clone, PartialEq)]
+        #[derive(Debug, Clone, PartialEq, Eq)]
         #[repr(C, u8)]
         pub enum $error_owned_name {
             PixelValue(CssPixelValueParseErrorOwned),
         }
-        impl<'a> $error_name<'a> {
-            pub fn to_contained(&self) -> $error_owned_name {
+        impl $error_name<'_> {
+            #[must_use] pub fn to_contained(&self) -> $error_owned_name {
                 match self {
                     $error_name::PixelValue(e) => {
                         $error_owned_name::PixelValue(e.to_contained())
@@ -170,7 +173,7 @@ macro_rules! define_offset_parse_error {
             }
         }
         impl $error_owned_name {
-            pub fn to_shared<'a>(&'a self) -> $error_name<'a> {
+            #[must_use] pub fn to_shared(&self) -> $error_name<'_> {
                 match self {
                     $error_owned_name::PixelValue(e) => {
                         $error_name::PixelValue(e.to_shared())
@@ -180,7 +183,10 @@ macro_rules! define_offset_parse_error {
         }
 
         #[cfg(feature = "parser")]
-        pub fn $parse_fn<'a>(input: &'a str) -> Result<$struct_name, $error_name<'a>> {
+        /// # Errors
+        ///
+        /// Returns an error if `input` is not a valid CSS value for this property.
+        pub fn $parse_fn(input: &str) -> Result<$struct_name, $error_name<'_>> {
             parse_pixel_value(input)
                 .map(|v| $struct_name { inner: v })
                 .map_err(Into::into)
@@ -209,9 +215,9 @@ pub enum LayoutZIndex {
 impl crate::codegen::format::FormatAsRustCode for LayoutZIndex {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            LayoutZIndex::Auto => String::from("LayoutZIndex::Auto"),
-            LayoutZIndex::Integer(val) => {
-                format!("LayoutZIndex::Integer({})", val)
+            Self::Auto => String::from("LayoutZIndex::Auto"),
+            Self::Integer(val) => {
+                format!("LayoutZIndex::Integer({val})")
             }
         }
     }
@@ -221,15 +227,15 @@ impl crate::codegen::format::FormatAsRustCode for LayoutZIndex {
 impl PrintAsCssValue for LayoutZIndex {
     fn print_as_css_value(&self) -> String {
         match self {
-            LayoutZIndex::Auto => String::from("auto"),
-            LayoutZIndex::Integer(val) => val.to_string(),
+            Self::Auto => String::from("auto"),
+            Self::Integer(val) => val.to_string(),
         }
     }
 }
 
 // -- Parser for LayoutZIndex
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum LayoutZIndexParseError<'a> {
     InvalidValue(&'a str),
     ParseInt(::core::num::ParseIntError, &'a str),
@@ -242,7 +248,7 @@ impl_display! { LayoutZIndexParseError<'a>, {
 
 /// Wrapper for `ParseIntError` that stores the error message and original
 /// input as owned strings for FFI compatibility.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct ParseIntErrorWithInput {
     /// The stringified parse error (e.g. "invalid digit found in string").
@@ -251,21 +257,21 @@ pub struct ParseIntErrorWithInput {
     pub input: AzString,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum LayoutZIndexParseErrorOwned {
     InvalidValue(AzString),
     ParseInt(ParseIntErrorWithInput),
 }
 
-impl<'a> LayoutZIndexParseError<'a> {
-    pub fn to_contained(&self) -> LayoutZIndexParseErrorOwned {
+impl LayoutZIndexParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> LayoutZIndexParseErrorOwned {
         match self {
             LayoutZIndexParseError::InvalidValue(s) => {
-                LayoutZIndexParseErrorOwned::InvalidValue(s.to_string().into())
+                LayoutZIndexParseErrorOwned::InvalidValue((*s).to_string().into())
             }
             LayoutZIndexParseError::ParseInt(e, s) => {
-                LayoutZIndexParseErrorOwned::ParseInt(ParseIntErrorWithInput { error: e.to_string().into(), input: s.to_string().into() })
+                LayoutZIndexParseErrorOwned::ParseInt(ParseIntErrorWithInput { error: e.to_string().into(), input: (*s).to_string().into() })
             }
         }
     }
@@ -277,12 +283,12 @@ impl LayoutZIndexParseErrorOwned {
     /// **Note:** This conversion is lossy for `ParseInt` — the original
     /// `core::num::ParseIntError` cannot be reconstructed from its string
     /// representation, so `ParseInt` is mapped to `InvalidValue` instead.
-    pub fn to_shared<'a>(&'a self) -> LayoutZIndexParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> LayoutZIndexParseError<'_> {
         match self {
-            LayoutZIndexParseErrorOwned::InvalidValue(s) => {
+            Self::InvalidValue(s) => {
                 LayoutZIndexParseError::InvalidValue(s.as_str())
             }
-            LayoutZIndexParseErrorOwned::ParseInt(e) => {
+            Self::ParseInt(e) => {
                 // We can't reconstruct ParseIntError, so use InvalidValue
                 LayoutZIndexParseError::InvalidValue(e.input.as_str())
             }
@@ -291,9 +297,12 @@ impl LayoutZIndexParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_z_index<'a>(
-    input: &'a str,
-) -> Result<LayoutZIndex, LayoutZIndexParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `z-index` value.
+pub fn parse_layout_z_index(
+    input: &str,
+) -> Result<LayoutZIndex, LayoutZIndexParseError<'_>> {
     let input = input.trim();
     if input == "auto" {
         return Ok(LayoutZIndex::Auto);

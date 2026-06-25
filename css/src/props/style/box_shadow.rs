@@ -25,10 +25,10 @@ pub enum BoxShadowClipMode {
 }
 
 impl fmt::Display for BoxShadowClipMode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            BoxShadowClipMode::Outset => Ok(()), // Outset is the default, not written
-            BoxShadowClipMode::Inset => write!(f, "inset"),
+            Self::Outset => Ok(()), // Outset is the default, not written
+            Self::Inset => write!(f, "inset"),
         }
     }
 }
@@ -153,12 +153,12 @@ pub enum CssShadowParseErrorOwned {
     ColorParseError(CssColorParseErrorOwned),
 }
 
-impl<'a> CssShadowParseError<'a> {
+impl CssShadowParseError<'_> {
     /// Converts the borrowed error into an owned version for storage.
-    pub fn to_contained(&self) -> CssShadowParseErrorOwned {
+    #[must_use] pub fn to_contained(&self) -> CssShadowParseErrorOwned {
         match self {
             CssShadowParseError::TooManyOrTooFewComponents(s) => {
-                CssShadowParseErrorOwned::TooManyOrTooFewComponents(s.to_string().into())
+                CssShadowParseErrorOwned::TooManyOrTooFewComponents((*s).to_string().into())
             }
             CssShadowParseError::ValueParseErr(e) => {
                 CssShadowParseErrorOwned::ValueParseErr(e.to_contained())
@@ -172,15 +172,15 @@ impl<'a> CssShadowParseError<'a> {
 
 impl CssShadowParseErrorOwned {
     /// Converts the owned error back into a borrowed version.
-    pub fn to_shared<'a>(&'a self) -> CssShadowParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssShadowParseError<'_> {
         match self {
-            CssShadowParseErrorOwned::TooManyOrTooFewComponents(s) => {
+            Self::TooManyOrTooFewComponents(s) => {
                 CssShadowParseError::TooManyOrTooFewComponents(s.as_str())
             }
-            CssShadowParseErrorOwned::ValueParseErr(e) => {
+            Self::ValueParseErr(e) => {
                 CssShadowParseError::ValueParseErr(e.to_shared())
             }
-            CssShadowParseErrorOwned::ColorParseError(e) => {
+            Self::ColorParseError(e) => {
                 CssShadowParseError::ColorParseError(e.to_shared())
             }
         }
@@ -193,9 +193,12 @@ impl CssShadowParseErrorOwned {
 /// `CssPropertyValue` enum wrapper. It also does not handle comma-separated lists
 /// of multiple shadows; it only parses a single shadow value.
 #[cfg(feature = "parser")]
-pub fn parse_style_box_shadow<'a>(
-    input: &'a str,
-) -> Result<StyleBoxShadow, CssShadowParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `box-shadow` value.
+pub fn parse_style_box_shadow(
+    input: &str,
+) -> Result<StyleBoxShadow, CssShadowParseError<'_>> {
     let mut parts: Vec<&str> = input.split_whitespace().collect();
     let mut shadow = StyleBoxShadow::default();
 

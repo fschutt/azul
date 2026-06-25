@@ -40,14 +40,14 @@ fn screenshot_dir() -> PathBuf {
 /// Save a pixmap as PNG for visual inspection
 fn save_screenshot(pixmap: &AzulPixmap, name: &str) {
     let dir = screenshot_dir();
-    let path = dir.join(format!("{}.png", name));
+    let path = dir.join(format!("{name}.png"));
     match pixmap.encode_png() {
         Ok(png_data) => {
             std::fs::write(&path, &png_data).unwrap();
             eprintln!("  [screenshot] {}", path.display());
         }
         Err(e) => {
-            eprintln!("  [screenshot FAILED] {}: {}", name, e);
+            eprintln!("  [screenshot FAILED] {name}: {e}");
         }
     }
 }
@@ -75,7 +75,6 @@ fn cls(name: &str) -> Vec<IdOrClass> {
 }
 
 struct ContentEditableHarness {
-    font_cache: FcFontCache,
     glyph_cache: GlyphCache,
     layout_window: Option<LayoutWindow>,
     renderer_resources: RendererResources,
@@ -90,7 +89,6 @@ impl ContentEditableHarness {
         ws.size.dimensions = LogicalSize::new(width, height);
 
         Self {
-            font_cache: font_cache.clone(),
             glyph_cache: GlyphCache::new(),
             layout_window: Some(LayoutWindow::new(font_cache).unwrap()),
             renderer_resources: RendererResources::default(),
@@ -374,7 +372,7 @@ fn contenteditable_initial_render() {
         }
     }
     assert!(non_white > 0, "Expected non-white pixels (border, background, text)");
-    eprintln!("  [verify] {} non-white pixels out of {}", non_white, total);
+    eprintln!("  [verify] {non_white} non-white pixels out of {total}");
 
     // Verify 2: contenteditable node found
     let ce_nodes = h.find_contenteditable_nodes();
@@ -390,8 +388,7 @@ fn contenteditable_initial_render() {
     for (idx, glyph_count) in &text_items {
         assert!(
             *glyph_count > 0,
-            "Text item at index {} has 0 glyphs — font resolution or shaping failed",
-            idx
+            "Text item at index {idx} has 0 glyphs — font resolution or shaping failed"
         );
     }
     let total_glyphs: usize = text_items.iter().map(|(_, c)| c).sum();
@@ -402,8 +399,7 @@ fn contenteditable_initial_render() {
     // "Hello World" = 11 characters, expect at least 11 glyphs
     assert!(
         total_glyphs >= 11,
-        "Expected at least 11 glyphs for 'Hello World', got {}",
-        total_glyphs
+        "Expected at least 11 glyphs for 'Hello World', got {total_glyphs}"
     );
 
     // Verify 4: no focus yet, cursor should be None
@@ -442,12 +438,12 @@ fn contenteditable_text_input_changes_output() {
     let ce_node_id = ce_nodes[0];
     let dom_id = DomId { inner: 0 };
     h.focus_node(dom_id, ce_node_id);
-    eprintln!("  [step] Focused node {:?}", ce_node_id);
+    eprintln!("  [step] Focused node {ce_node_id:?}");
 
     // Verify 1: focus is set
     let focused = h.get_focused_node();
     assert!(focused.is_some(), "Focus should be set after focus_node()");
-    eprintln!("  [verify] Focused: {:?}", focused);
+    eprintln!("  [verify] Focused: {focused:?}");
 
     // Count glyphs before text input
     let glyphs_before = h.count_text_glyphs();
@@ -463,7 +459,7 @@ fn contenteditable_text_input_changes_output() {
 
     // Verify 3: cursor moved after text input
     let cursor_after = h.get_cursor_byte_offset();
-    eprintln!("  [verify] Cursor byte offset after input: {:?}", cursor_after);
+    eprintln!("  [verify] Cursor byte offset after input: {cursor_after:?}");
     // Cursor should exist after text input (the apply phase sets it)
     assert!(cursor_after.is_some(), "Cursor should exist after text input");
 
@@ -471,13 +467,11 @@ fn contenteditable_text_input_changes_output() {
     let glyphs_after = h.count_text_glyphs();
     let total_glyphs_after: usize = glyphs_after.iter().map(|(_, c)| c).sum();
     eprintln!(
-        "  [verify] Glyphs before: {}, after: {} (expected +1)",
-        total_glyphs_before, total_glyphs_after
+        "  [verify] Glyphs before: {total_glyphs_before}, after: {total_glyphs_after} (expected +1)"
     );
     assert!(
         total_glyphs_after > total_glyphs_before,
-        "After inserting 'X', glyph count should increase (was {}, now {})",
-        total_glyphs_before, total_glyphs_after
+        "After inserting 'X', glyph count should increase (was {total_glyphs_before}, now {total_glyphs_after})"
     );
 
     // Verify 5: display list should contain a CursorRect after text input
@@ -559,9 +553,9 @@ fn contenteditable_multiple_keystrokes() {
     let diff_1_2 = pixel_diff_count(&frame1, &frame2, 0);
     let diff_2_3 = pixel_diff_count(&frame2, &frame3, 0);
 
-    eprintln!("  [verify] Diff frame0→1: {} pixels", diff_0_1);
-    eprintln!("  [verify] Diff frame1→2: {} pixels", diff_1_2);
-    eprintln!("  [verify] Diff frame2→3: {} pixels", diff_2_3);
+    eprintln!("  [verify] Diff frame0→1: {diff_0_1} pixels");
+    eprintln!("  [verify] Diff frame1→2: {diff_1_2} pixels");
+    eprintln!("  [verify] Diff frame2→3: {diff_2_3} pixels");
 
     assert!(n1 > 0, "First keystroke should affect a node");
     assert!(diff_0_1 > 0, "Frame should change after first keystroke");
@@ -606,15 +600,14 @@ fn contenteditable_damage_detection() {
 
     // Compute damage
     let damage = cpurender::compute_display_list_damage(&dl_before, &dl_after);
-    eprintln!("  [verify] Damage rects: {:?}", damage);
+    eprintln!("  [verify] Damage rects: {damage:?}");
 
     // Check that ONLY the text region changed, not the entire window
     let total = (frame1.width() * frame1.height()) as usize;
     let diff = pixel_diff_count(&frame1, &frame2, 0);
     let diff_pct = diff as f64 / total as f64 * 100.0;
     eprintln!(
-        "  [verify] {} pixels differ ({:.1}% of total)",
-        diff, diff_pct
+        "  [verify] {diff} pixels differ ({diff_pct:.1}% of total)"
     );
 
     // The text region is small relative to the full window (400x300).
@@ -623,10 +616,9 @@ fn contenteditable_damage_detection() {
     if diff > 0 {
         assert!(
             diff_pct < 20.0,
-            "Text edit should only affect a small region, but {:.1}% of pixels changed",
-            diff_pct
+            "Text edit should only affect a small region, but {diff_pct:.1}% of pixels changed"
         );
-        eprintln!("  [verify] PASS: Only {:.1}% of pixels changed (< 20%)", diff_pct);
+        eprintln!("  [verify] PASS: Only {diff_pct:.1}% of pixels changed (< 20%)");
     }
 }
 
@@ -678,8 +670,8 @@ fn contenteditable_two_editors_isolated() {
     let diff_0_1 = pixel_diff_count(&frame0, &frame1, 0);
     let diff_1_2 = pixel_diff_count(&frame1, &frame2, 0);
 
-    eprintln!("  [verify] Diff after editor1 edit: {} pixels", diff_0_1);
-    eprintln!("  [verify] Diff after editor2 edit: {} pixels", diff_1_2);
+    eprintln!("  [verify] Diff after editor1 edit: {diff_0_1} pixels");
+    eprintln!("  [verify] Diff after editor2 edit: {diff_1_2} pixels");
 }
 
 // =========================================================================
@@ -723,8 +715,7 @@ fn contenteditable_incremental_render_matches_full() {
     let diff = pixel_diff_count(&full_render, &render2, 0);
     assert_eq!(
         diff, 0,
-        "Two renders of the same display list should be identical, but {} pixels differ",
-        diff
+        "Two renders of the same display list should be identical, but {diff} pixels differ"
     );
     eprintln!("  [verify] PASS: Consecutive renders are identical");
 }
@@ -835,9 +826,8 @@ fn contenteditable_overflow_wraps_at_end_not_start() {
     let line_0_chars = items_per_line.get(&0).map(|v| v.len()).unwrap_or(0);
     assert!(
         line_0_chars > 3,
-        "BUG: Line 0 has only {} char(s) — the word start is being pushed down \
+        "BUG: Line 0 has only {line_0_chars} char(s) — the word start is being pushed down \
          instead of wrapping at the end.  Expected the first line to be mostly filled.",
-        line_0_chars,
     );
 
     // The overflow characters ("xy") should be on a subsequent line

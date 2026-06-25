@@ -47,7 +47,7 @@ fn hex_dump(data: &[u8]) -> String {
     for (i, chunk) in data.chunks(16).enumerate() {
         write!(s, "  {:04x}: ", i * 16).unwrap();
         for b in chunk {
-            write!(s, "{:02x} ", b).unwrap();
+            write!(s, "{b:02x} ").unwrap();
         }
         s.push('\n');
     }
@@ -55,7 +55,7 @@ fn hex_dump(data: &[u8]) -> String {
 }
 
 fn hex_dump_short(data: &[u8]) -> String {
-    data.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
+    data.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")
 }
 
 #[test]
@@ -75,9 +75,9 @@ fn test_phase1_decoding() {
     // ---- Font-level data ----
     let mut font_out = String::new();
     writeln!(font_out, "=== Font-level hinting data for HelveticaNeue.ttc (index 0) ===").unwrap();
-    writeln!(font_out, "units_per_em: {}", upem).unwrap();
-    writeln!(font_out, "ppem: {}", ppem).unwrap();
-    writeln!(font_out, "scale (16.16 fixed): {}", scale).unwrap();
+    writeln!(font_out, "units_per_em: {upem}").unwrap();
+    writeln!(font_out, "ppem: {ppem}").unwrap();
+    writeln!(font_out, "scale (16.16 fixed): {scale}").unwrap();
     writeln!(font_out).unwrap();
 
     // maxp values
@@ -119,13 +119,13 @@ fn test_phase1_decoding() {
         let mut hint = hint_mutex.lock().unwrap();
 
         if let Err(e) = hint.set_ppem(ppem, ppem as f64) {
-            writeln!(font_out, "set_ppem error: {:?}", e).unwrap();
+            writeln!(font_out, "set_ppem error: {e:?}").unwrap();
         }
 
         let cvt_funits = hint.cvt_funits();
         writeln!(font_out, "=== CVT funits ({} entries) ===", cvt_funits.len()).unwrap();
         for (i, &v) in cvt_funits.iter().enumerate() {
-            writeln!(font_out, "  cvt[{}] = {} funits", i, v).unwrap();
+            writeln!(font_out, "  cvt[{i}] = {v} funits").unwrap();
         }
         writeln!(font_out).unwrap();
 
@@ -133,7 +133,7 @@ fn test_phase1_decoding() {
         writeln!(font_out, "=== CVT scaled F26Dot6 ({} entries) ===", cvt_scaled.len()).unwrap();
         for (i, &v) in cvt_scaled.iter().enumerate() {
             let pixels = v as f64 / 64.0;
-            writeln!(font_out, "  cvt[{}] = {} (F26Dot6) = {:.4} px", i, v, pixels).unwrap();
+            writeln!(font_out, "  cvt[{i}] = {v} (F26Dot6) = {pixels:.4} px").unwrap();
         }
         writeln!(font_out).unwrap();
 
@@ -165,7 +165,7 @@ fn test_phase1_decoding() {
         writeln!(decode_out, "========================================").unwrap();
 
         let glyph_id = font.lookup_glyph_index(*ch as u32);
-        writeln!(decode_out, "glyph_id: {:?}", glyph_id).unwrap();
+        writeln!(decode_out, "glyph_id: {glyph_id:?}").unwrap();
 
         let glyph_id = match glyph_id {
             Some(gid) => gid,
@@ -189,7 +189,7 @@ fn test_phase1_decoding() {
                     Some(pts) => {
                         writeln!(decode_out, "count: {}", pts.len()).unwrap();
                         for (i, (x, y)) in pts.iter().enumerate() {
-                            writeln!(decode_out, "  pt[{}] = ({}, {})", i, x, y).unwrap();
+                            writeln!(decode_out, "  pt[{i}] = ({x}, {y})").unwrap();
                         }
                     }
                     None => { writeln!(decode_out, "  None").unwrap(); }
@@ -244,7 +244,7 @@ fn test_phase1_decoding() {
                 writeln!(decode_out).unwrap();
 
                 // Scaled F26Dot6 points (what we'd feed to hint_glyph)
-                writeln!(decode_out, "--- Scaled F26Dot6 points (ppem={}) ---", ppem).unwrap();
+                writeln!(decode_out, "--- Scaled F26Dot6 points (ppem={ppem}) ---").unwrap();
                 if let Some(ref pts) = owned.raw_points {
                     for (i, (x, y)) in pts.iter().enumerate() {
                         let sx = F26Dot6::from_funits(*x as i32, scale);
@@ -257,7 +257,7 @@ fn test_phase1_decoding() {
                 writeln!(decode_out).unwrap();
             }
             None => {
-                writeln!(decode_out, "ERROR: glyph_id {} not found in glyph_records_decoded\n", glyph_id).unwrap();
+                writeln!(decode_out, "ERROR: glyph_id {glyph_id} not found in glyph_records_decoded\n").unwrap();
             }
         }
     }
@@ -293,7 +293,7 @@ fn test_phase2_hinting() {
     ];
 
     let mut hint_out = String::new();
-    writeln!(hint_out, "=== Phase 2: Hinting execution (ppem={}, upem={}, scale={}) ===", ppem, upem, scale).unwrap();
+    writeln!(hint_out, "=== Phase 2: Hinting execution (ppem={ppem}, upem={upem}, scale={scale}) ===").unwrap();
     writeln!(hint_out).unwrap();
 
     for (ch, name) in &glyphs_to_test {
@@ -312,7 +312,7 @@ fn test_phase2_hinting() {
         let owned = match font.get_or_decode_glyph(glyph_id) {
             Some(g) => g,
             None => {
-                writeln!(hint_out, "ERROR: glyph_id {} not found\n", glyph_id).unwrap();
+                writeln!(hint_out, "ERROR: glyph_id {glyph_id} not found\n").unwrap();
                 continue;
             }
         };
@@ -340,7 +340,7 @@ fn test_phase2_hinting() {
         };
         let instructions = owned.instructions.as_deref().unwrap_or(&[]);
 
-        writeln!(hint_out, "glyph_id: {}", glyph_id).unwrap();
+        writeln!(hint_out, "glyph_id: {glyph_id}").unwrap();
         writeln!(hint_out, "num_points: {}", raw_points.len()).unwrap();
         writeln!(hint_out, "num_contours: {}", raw_contour_ends.len()).unwrap();
         writeln!(hint_out, "instruction_bytes: {}", instructions.len()).unwrap();
@@ -366,7 +366,7 @@ fn test_phase2_hinting() {
         // Run hinting
         let mut hint = hint_mutex.lock().unwrap();
         if let Err(e) = hint.set_ppem(ppem, ppem as f64) {
-            writeln!(hint_out, "set_ppem error: {:?}", e).unwrap();
+            writeln!(hint_out, "set_ppem error: {e:?}").unwrap();
         }
 
         writeln!(hint_out, "--- hint_glyph result ---").unwrap();
@@ -397,7 +397,7 @@ fn test_phase2_hinting() {
                 }
             }
             Err(e) => {
-                writeln!(hint_out, "ERROR: {:?}", e).unwrap();
+                writeln!(hint_out, "ERROR: {e:?}").unwrap();
             }
         }
         writeln!(hint_out).unwrap();
@@ -447,7 +447,7 @@ fn test_phase2b_trace_t() {
 
     let mut hint = hint_mutex.lock().unwrap();
     if let Err(e) = hint.set_ppem(ppem, ppem as f64) {
-        panic!("set_ppem error: {:?}", e);
+        panic!("set_ppem error: {e:?}");
     }
 
     // Enable trace mode
@@ -466,6 +466,6 @@ fn test_phase2b_trace_t() {
 
     match result {
         Ok(pts) => eprintln!("T hinting OK: {} points", pts.len()),
-        Err(e) => eprintln!("T hinting ERROR: {:?}", e),
+        Err(e) => eprintln!("T hinting ERROR: {e:?}"),
     }
 }

@@ -60,13 +60,13 @@ const MAX_SCROLL_EVENTS_PER_TICK: usize = 100;
 /// Used both in wheel impulse conversion and friction decay so the two stay coupled.
 const ASSUMED_FPS: f32 = 60.0;
 
-/// State stored in the timer's RefAny data.
+/// State stored in the timer's `RefAny` data.
 ///
 /// Contains the shared input queue, per-node velocity state, and the global
 /// scroll physics configuration from `SystemStyle`.
 #[derive(Debug)]
 pub struct ScrollPhysicsState {
-    /// Shared input queue — same Arc as ScrollManager.scroll_input_queue
+    /// Shared input queue — same Arc as `ScrollManager.scroll_input_queue`
     pub input_queue: ScrollInputQueue,
     /// Per-node velocity tracking
     pub node_velocities: BTreeMap<(DomId, NodeId), NodeScrollPhysics>,
@@ -74,15 +74,15 @@ pub struct ScrollPhysicsState {
     pub pending_positions: BTreeMap<(DomId, NodeId), LogicalPosition>,
     /// Per-node "forced position" from trackpad scroll (rubber-band clamped)
     pub pending_trackpad_positions: BTreeMap<(DomId, NodeId), LogicalPosition>,
-    /// Global scroll physics configuration (from SystemStyle)
+    /// Global scroll physics configuration (from `SystemStyle`)
     pub scroll_physics: ScrollPhysics,
 }
 
-/// For convenience, re-export NodeId
+/// For convenience, re-export `NodeId`
 use azul_core::id::NodeId;
 
 /// Per-node scroll physics state
-#[derive(Debug, Clone, Default)]
+#[derive(Copy, Debug, Clone, Default)]
 pub struct NodeScrollPhysics {
     /// Current velocity in pixels/second
     pub velocity: LogicalPosition,
@@ -92,7 +92,7 @@ pub struct NodeScrollPhysics {
 
 impl ScrollPhysicsState {
     /// Create a new physics state with the shared input queue and global config
-    pub fn new(input_queue: ScrollInputQueue, scroll_physics: ScrollPhysics) -> Self {
+    #[must_use] pub const fn new(input_queue: ScrollInputQueue, scroll_physics: ScrollPhysics) -> Self {
         Self {
             input_queue,
             node_velocities: BTreeMap::new(),
@@ -119,7 +119,7 @@ impl ScrollPhysicsState {
 /// The scroll physics timer callback.
 ///
 /// This is a normal timer callback registered with `SCROLL_MOMENTUM_TIMER_ID`.
-/// It consumes pending scroll inputs, applies physics, and pushes ScrollTo changes.
+/// It consumes pending scroll inputs, applies physics, and pushes `ScrollTo` changes.
 ///
 /// Uses the `ScrollPhysics` configuration from `SystemStyle` for friction,
 /// velocity thresholds, wheel multiplier, and rubber-banding parameters.
@@ -129,14 +129,16 @@ impl ScrollPhysicsState {
 /// # C API
 ///
 /// This function has `extern "C"` ABI so it can be used as a `TimerCallbackType`.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub extern "C" fn scroll_physics_timer_callback(
     mut data: RefAny,
     mut timer_info: TimerCallbackInfo,
 ) -> TimerCallbackReturn {
     // Downcast the RefAny to our physics state
-    let mut physics = match data.downcast_mut::<ScrollPhysicsState>() {
-        Some(p) => p,
-        None => return TimerCallbackReturn::terminate_unchanged(),
+    let Some(mut physics) = data.downcast_mut::<ScrollPhysicsState>() else {
+        return TimerCallbackReturn::terminate_unchanged();
     };
 
     // Extract physics config values
@@ -237,11 +239,10 @@ pub extern "C" fn scroll_physics_timer_callback(
     // 2. Integrate velocity physics for wheel-based momentum
     let mut velocity_updates: Vec<((DomId, NodeId), LogicalPosition)> = Vec::new();
 
-    for ((dom_id, node_id), node_physics) in physics.node_velocities.iter_mut() {
+    for ((dom_id, node_id), node_physics) in &mut physics.node_velocities {
         // Get current scroll info for clamping and per-node CSS config
-        let info = match timer_info.get_scroll_node_info(*dom_id, *node_id) {
-            Some(i) => i,
-            None => continue,
+        let Some(info) = timer_info.get_scroll_node_info(*dom_id, *node_id) else {
+            continue;
         };
 
         // Determine if this node allows rubber-banding
@@ -312,16 +313,14 @@ pub extern "C" fn scroll_physics_timer_callback(
         node_physics.velocity.y *= decay;
 
         // At edges without rubber-banding: kill velocity
-        if !rubber_band_x {
-            if new_pos.x <= 0.0 || new_pos.x >= info.max_scroll_x {
+        if !rubber_band_x
+            && (new_pos.x <= 0.0 || new_pos.x >= info.max_scroll_x) {
                 node_physics.velocity.x = 0.0;
             }
-        }
-        if !rubber_band_y {
-            if new_pos.y <= 0.0 || new_pos.y >= info.max_scroll_y {
+        if !rubber_band_y
+            && (new_pos.y <= 0.0 || new_pos.y >= info.max_scroll_y) {
                 node_physics.velocity.y = 0.0;
             }
-        }
 
         // Check if rubber-banding spring-back is almost complete
         let new_overshoot_x = calculate_overshoot(new_pos.x, 0.0, info.max_scroll_x);
@@ -353,13 +352,10 @@ pub extern "C" fn scroll_physics_timer_callback(
     let direct_positions: Vec<_> = physics.pending_positions.iter().map(|(k, v)| (*k, *v)).collect();
     physics.pending_positions.clear();
     for ((dom_id, node_id), position) in direct_positions {
-        let clamped = match timer_info.get_scroll_node_info(dom_id, node_id) {
-            Some(info) => LogicalPosition {
+        let clamped = timer_info.get_scroll_node_info(dom_id, node_id).map_or(position, |info| LogicalPosition {
                 x: position.x.clamp(0.0, info.max_scroll_x),
                 y: position.y.clamp(0.0, info.max_scroll_y),
-            },
-            None => position,
-        };
+            });
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
         timer_info.scroll_to(dom_id, hierarchy_id, clamped);
         any_changes = true;
@@ -370,8 +366,7 @@ pub extern "C" fn scroll_physics_timer_callback(
     let trackpad_positions: Vec<_> = physics.pending_trackpad_positions.iter().map(|(k, v)| (*k, *v)).collect();
     physics.pending_trackpad_positions.clear();
     for ((dom_id, node_id), position) in trackpad_positions {
-        let clamped = match timer_info.get_scroll_node_info(dom_id, node_id) {
-            Some(info) => {
+        let clamped = timer_info.get_scroll_node_info(dom_id, node_id).map_or(position, |info| {
                 let rubber_x = node_allows_rubber_band(info.max_scroll_x, info.overscroll_behavior_x, info.overflow_scrolling, physics.scroll_physics.overscroll_elasticity);
                 let rubber_y = node_allows_rubber_band(info.max_scroll_y, info.overscroll_behavior_y, info.overflow_scrolling, physics.scroll_physics.overscroll_elasticity);
                 let max_over = physics.scroll_physics.max_overscroll_distance;
@@ -388,9 +383,7 @@ pub extern "C" fn scroll_physics_timer_callback(
                         position.y.clamp(0.0, info.max_scroll_y)
                     },
                 }
-            },
-            None => position,
-        };
+            });
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
         timer_info.scroll_to_unclamped(dom_id, hierarchy_id, clamped);
         any_changes = true;
@@ -420,10 +413,10 @@ pub extern "C" fn scroll_physics_timer_callback(
 // ============================================================================
 
 /// Determines if a node allows rubber-banding on a given axis based on:
-/// 1. Whether the axis actually has overflow (max_scroll > 0)
+/// 1. Whether the axis actually has overflow (`max_scroll` > 0)
 /// 2. Per-node `overflow_scrolling` CSS property (-azul-overflow-scrolling)
 /// 3. Per-node `overscroll_behavior` CSS property (overscroll-behavior-x/y)
-/// 4. Global `overscroll_elasticity` from ScrollPhysics
+/// 4. Global `overscroll_elasticity` from `ScrollPhysics`
 fn node_allows_rubber_band(
     max_scroll: f32,
     overscroll_behavior: OverscrollBehavior,
@@ -490,8 +483,8 @@ fn rubber_band_clamp(
     }
 }
 
-/// Convert deceleration_rate (0.0 - 1.0) to a friction constant for exponential decay.
-/// Higher deceleration_rate = less friction (slower deceleration).
+/// Convert `deceleration_rate` (0.0 - 1.0) to a friction constant for exponential decay.
+/// Higher `deceleration_rate` = less friction (slower deceleration).
 fn friction_from_deceleration(deceleration_rate: f32) -> f32 {
     // deceleration_rate ~0.95 (fast) → friction ~0.05
     // deceleration_rate ~0.998 (iOS-like) → friction ~0.002
@@ -500,6 +493,8 @@ fn friction_from_deceleration(deceleration_rate: f32) -> f32 {
 
 /// Calculate spring constant from bounce-back duration.
 /// Higher k = faster spring back. Approximate: k ≈ (2π / duration)²
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn spring_constant_from_bounce_duration(duration_ms: u32) -> f32 {
     let duration_s = duration_ms.max(50) as f32 / 1000.0;
     let omega = core::f32::consts::TAU / duration_s;

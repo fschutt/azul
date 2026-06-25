@@ -34,7 +34,9 @@ use crate::thread::{
 // --- User hook: on_frame (backreference DI, FFI-exposed) ---
 
 /// User hook fired once per captured audio chunk - the backreference DI pattern
-/// (see `architecture.md`). The widget's private writeback invokes it with each
+/// (see `architecture.md`).
+///
+/// The widget's private writeback invokes it with each
 /// [`AudioFrame`] so application code can save it, apply effects, or send it
 /// over the network (azul-meet). Returns `Update` like any callback. Wired via
 /// [`MicrophoneWidget::with_on_frame`].
@@ -64,11 +66,11 @@ azul_core::impl_managed_callback! {
 /// `Update` (`DoNothing` when no hook is set).
 fn invoke_on_audio_frame(
     hook: &OptionOnAudioFrame,
-    info: &mut CallbackInfo,
+    info: &CallbackInfo,
     frame: AudioFrame,
 ) -> Update {
     match hook {
-        OptionOnAudioFrame::Some(h) => (h.callback.cb)(h.refany.clone(), info.clone(), frame),
+        OptionOnAudioFrame::Some(h) => (h.callback.cb)(h.refany.clone(), *info, frame),
         OptionOnAudioFrame::None => Update::DoNothing,
     }
 }
@@ -81,6 +83,7 @@ struct MicThreadInit {
 
 /// Live state for one microphone widget, carried across relayout by
 /// [`merge_microphone_state`].
+#[derive(Debug)]
 pub struct MicrophoneWidgetState {
     /// The requested capture configuration (rate + channels).
     pub config: AudioConfig,
@@ -94,6 +97,7 @@ pub struct MicrophoneWidgetState {
 /// A microphone-capture widget. `create(config).with_on_frame(..).dom()` yields
 /// an invisible node a background capture thread feeds.
 #[repr(C)]
+#[derive(Debug)]
 pub struct MicrophoneWidget {
     /// Requested capture config (sample rate, channels).
     pub config: AudioConfig,
@@ -103,7 +107,7 @@ pub struct MicrophoneWidget {
 
 impl MicrophoneWidget {
     /// Create a microphone widget for the given capture config.
-    pub fn create(config: AudioConfig) -> Self {
+    #[must_use] pub const fn create(config: AudioConfig) -> Self {
         Self {
             config,
             on_frame: OptionOnAudioFrame::None,
@@ -122,6 +126,7 @@ impl MicrophoneWidget {
     }
 
     /// Builder form of [`set_on_frame`](Self::set_on_frame).
+    #[must_use]
     pub fn with_on_frame<C: Into<OnAudioFrameCallback>>(
         mut self,
         data: RefAny,
@@ -134,7 +139,7 @@ impl MicrophoneWidget {
     /// Build the widget's DOM: a single invisible node, fed by a background
     /// capture thread started on mount. Place it anywhere in your tree - the
     /// capture lives as long as the node is mounted (unmount stops it).
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         let state = MicrophoneWidgetState {
             config: self.config,
             started: false,
@@ -144,21 +149,20 @@ impl MicrophoneWidget {
 
         Dom::create_div()
             .with_dataset(OptionRefAny::Some(dataset.clone()))
-            .with_merge_callback(merge_microphone_state as DatasetMergeCallbackType)
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_microphone_state))
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset,
-                Callback::from(mic_on_after_mount as CallbackType),
+                Callback::from_ptr(mic_on_after_mount),
             )
     }
 }
 
-/// AfterMount: start the background capture thread exactly once.
+/// `AfterMount`: start the background capture thread exactly once.
 extern "C" fn mic_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let (rate, channels) = {
-        let mut s = match data.downcast_mut::<MicrophoneWidgetState>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut s) = data.downcast_mut::<MicrophoneWidgetState>() else {
+            return Update::DoNothing;
         };
         if s.started {
             return Update::DoNothing;
@@ -188,13 +192,13 @@ extern "C" fn mic_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
 }
 
 /// Background worker (test tone): a 440 Hz sine in ~20 ms chunks until the
-/// widget unmounts. The real AVAudioEngine / AAudio / cpal capture loop
+/// widget unmounts. The real `AVAudioEngine` / `AAudio` / cpal capture loop
 /// replaces it (dll-side).
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 extern "C" fn mic_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     let (rate, channels) = init
         .downcast_ref::<MicThreadInit>()
-        .map(|i| (i.sample_rate, i.channels))
-        .unwrap_or((48_000, 1));
+        .map_or((48_000, 1), |i| (i.sample_rate, i.channels));
 
     // Real platform capture if the dll registered a mic backend (ALSA on
     // Linux); otherwise the 440 Hz test tone below.
@@ -260,19 +264,16 @@ extern "C" fn mic_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Thre
 extern "C" fn mic_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,
-    mut info: CallbackInfo,
+    info: CallbackInfo,
 ) -> Update {
     let hook = match writeback_data.downcast_ref::<MicrophoneWidgetState>() {
         Some(s) => s.on_frame.clone(),
         None => return Update::DoNothing,
     };
-    match frame_data.downcast_ref::<AudioFrame>() {
-        Some(frame) => invoke_on_audio_frame(&hook, &mut info, frame.clone()),
-        None => Update::DoNothing,
-    }
+    frame_data.downcast_ref::<AudioFrame>().map_or(Update::DoNothing, |frame| invoke_on_audio_frame(&hook, &info, frame.clone()))
 }
 
-/// Carry live state forward across relayout (config + started; the on_frame
+/// Carry live state forward across relayout (config + started; the `on_frame`
 /// hook is taken from the fresh build).
 extern "C" fn merge_microphone_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     {

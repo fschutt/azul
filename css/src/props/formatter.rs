@@ -9,6 +9,9 @@ use core::fmt;
 
 // Re-export the PrintAsCssValue trait from the css module
 pub use crate::css::PrintAsCssValue;
+// wildcard imports: this formatter pulls in every layout/style value type it
+// renders; enumerating them all explicitly is unmaintainable.
+#[allow(clippy::wildcard_imports)]
 use crate::props::{
     layout::{dimensions::*, spacing::*},
     style::{
@@ -22,7 +25,10 @@ use crate::props::{
 /// Unlike `PrintAsCssValue` (which returns a `String`), this trait writes
 /// directly into a formatter and is suitable for `Display` impl delegation.
 pub trait FormatAsCssValue {
-    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result;
+    /// # Errors
+    ///
+    /// Returns an error if writing to the formatter `f` fails.
+    fn format_as_css_value(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
 macro_rules! impl_print_as_css_display {

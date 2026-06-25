@@ -1446,6 +1446,7 @@ impl X11Window {
                 fc_cache: resources.fc_cache.clone(),
                 system_style: resources.system_style.clone(),
                 app_data: resources.app_data.clone(),
+                undo_manager: resources.undo_manager.clone(),
                 scrollbar_drag_state: None,
                 last_hovered_node: None,
                 frame_needs_regeneration: true,

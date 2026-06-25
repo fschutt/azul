@@ -8,18 +8,18 @@
 //! The clipboard manager acts as a bridge between system clipboard
 //! operations and user callbacks:
 //!
-//! 1. **Paste Flow**: System clipboard → ClipboardManager → User Callback → TextInputManager
+//! 1. **Paste Flow**: System clipboard → `ClipboardManager` → User Callback → `TextInputManager`
 //!
-//!    - When Ctrl+V is pressed, event_v2 reads system clipboard and calls `set_paste_content()`
-//!    - User's On::Paste callback can inspect content via `get_clipboard_content()`
+//!    - When Ctrl+V is pressed, `event_v2` reads system clipboard and calls `set_paste_content()`
+//!    - User's `On::Paste` callback can inspect content via `get_clipboard_content()`
 //!    - User can modify/block paste by not calling the default paste action
 //!    - After callback, content is cleared for next operation
 //!
-//! 2. **Copy Flow**: Selection → User Callback → ClipboardManager → System clipboard
+//! 2. **Copy Flow**: Selection → User Callback → `ClipboardManager` → System clipboard
 //!
-//!    - When Ctrl+C is pressed, user's On::Copy callback fires
+//!    - When Ctrl+C is pressed, user's `On::Copy` callback fires
 //!    - Callback can inspect selected content and override via `set_copy_content()`
-//!    - event_v2 calls `get_copy_content()` to get final content (override or default)
+//!    - `event_v2` calls `get_copy_content()` to get final content (override or default)
 //!    - Content is written to system clipboard via platform sync
 //!    - After callback, content is cleared for next operation
 //!
@@ -45,7 +45,7 @@ pub struct ClipboardManager {
 
 impl ClipboardManager {
     /// Create a new empty clipboard manager
-    pub fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         Self {
             pending_paste_content: None,
             pending_copy_content: None,
@@ -60,7 +60,7 @@ impl ClipboardManager {
     }
 
     /// Returns the pending paste content, if any.
-    pub fn get_paste_content(&self) -> Option<&ClipboardContent> {
+    #[must_use] pub const fn get_paste_content(&self) -> Option<&ClipboardContent> {
         self.pending_paste_content.as_ref()
     }
 
@@ -72,12 +72,12 @@ impl ClipboardManager {
     }
 
     /// Returns the pending copy content, if any.
-    pub fn get_copy_content(&self) -> Option<&ClipboardContent> {
+    #[must_use] pub const fn get_copy_content(&self) -> Option<&ClipboardContent> {
         self.pending_copy_content.as_ref()
     }
 
     /// Takes the copy content, consuming it.
-    pub fn take_copy_content(&mut self) -> Option<ClipboardContent> {
+    pub const fn take_copy_content(&mut self) -> Option<ClipboardContent> {
         self.pending_copy_content.take()
     }
 
@@ -100,12 +100,12 @@ impl ClipboardManager {
     }
 
     /// Returns `true` if there's pending paste content.
-    pub fn has_paste_content(&self) -> bool {
+    #[must_use] pub const fn has_paste_content(&self) -> bool {
         self.pending_paste_content.is_some()
     }
 
     /// Returns `true` if there's pending copy content.
-    pub fn has_copy_content(&self) -> bool {
+    #[must_use] pub const fn has_copy_content(&self) -> bool {
         self.pending_copy_content.is_some()
     }
 }

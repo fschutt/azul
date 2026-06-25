@@ -7,6 +7,7 @@ use azul_core::{
     refany::RefAny,
     resources::OptionImageRef,
 };
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::CssPropertyWithConditionsVec,
     props::{
@@ -23,7 +24,7 @@ use crate::{
     widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback},
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileInput {
     /// State of the file input
@@ -56,7 +57,7 @@ impl Default for FileInput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileInputStateWrapper {
     pub inner: FileInputState,
@@ -79,7 +80,7 @@ impl Default for FileInputStateWrapper {
 }
 
 /// Current state of the file input (selected path)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileInputState {
     pub path: OptionString,
@@ -116,7 +117,7 @@ azul_core::impl_managed_callback! {
 }
 
 impl FileInput {
-    pub fn create(path: OptionString) -> Self {
+    #[must_use] pub fn create(path: OptionString) -> Self {
         Self {
             file_input_state: FileInputStateWrapper {
                 inner: FileInputState { path },
@@ -127,6 +128,7 @@ impl FileInput {
     }
 
     #[inline]
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(None.into());
         core::mem::swap(&mut s, self);
@@ -139,7 +141,7 @@ impl FileInput {
     }
 
     #[inline]
-    pub fn with_default_text(mut self, default_text: AzString) -> Self {
+    #[must_use] pub fn with_default_text(mut self, default_text: AzString) -> Self {
         self.set_default_text(default_text);
         self
     }
@@ -158,6 +160,7 @@ impl FileInput {
     }
 
     #[inline]
+    #[must_use]
     pub fn with_on_path_change<I: Into<FileInputOnPathChangeCallback>>(
         mut self,
         refany: RefAny,
@@ -168,14 +171,16 @@ impl FileInput {
     }
 
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         // either show the default text or the file name
         // including the extension as the button label
         let button_label = match self.file_input_state.inner.path.as_ref() {
             Some(path) => std::path::Path::new(path.as_str())
                 .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or(self.default_text.as_str().to_string())
+                .map_or_else(
+                    || self.default_text.as_str().to_string(),
+                    |s| s.to_string_lossy().to_string(),
+                )
                 .into(),
             None => self.default_text.clone(),
         };
@@ -201,21 +206,22 @@ impl FileInput {
 }
 
 extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
-    let mut fileinputstatewrapper = match refany.downcast_mut::<FileInputStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut fileinputstatewrapper) = refany.downcast_mut::<FileInputStateWrapper>() else {
+        return Update::DoNothing;
     };
     let fileinputstatewrapper = &mut *fileinputstatewrapper;
 
-    #[cfg(feature = "extra")]
+    // `tfd` is desktop-only (target-gated in Cargo.toml to not(android|ios)); the
+    // `extra` feature does nothing on mobile, so gate the dialog block by the same
+    // target cfg to avoid referencing the unlinked `tfd` crate on iOS/Android.
+    #[cfg(all(feature = "extra", not(any(target_os = "android", target_os = "ios"))))]
     {
         let mut dialog = tfd::FileDialog::new(fileinputstatewrapper.file_dialog_title.as_str());
         if let Some(dir) = fileinputstatewrapper.default_dir.as_ref() {
             dialog = dialog.with_path(dir.as_str());
         }
-        let selected_path = match dialog.open_file() {
-            Some(p) => p,
-            None => return Update::DoNothing,
+        let Some(selected_path) = dialog.open_file() else {
+            return Update::DoNothing;
         };
         fileinputstatewrapper.inner.path = Some(selected_path.into()).into();
     }
@@ -223,7 +229,7 @@ extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> 
     let inner = fileinputstatewrapper.inner.clone();
     let mut result = match fileinputstatewrapper.on_path_change.as_mut() {
         Some(FileInputOnPathChange { refany, callback }) => {
-            (callback.cb)(refany.clone(), info.clone(), inner)
+            (callback.cb)(refany.clone(), info, inner)
         }
         None => Update::RefreshDom,
     };

@@ -9,7 +9,7 @@
 //! text-in-PDF (walk `TextLayout` -> printpdf text Ops) and a markdown
 //! editor / live preview are follow-ups.
 
-use azul::misc::Pdf;
+use azul::pdf::Pdf;
 use azul::prelude::*;
 
 struct DocState {

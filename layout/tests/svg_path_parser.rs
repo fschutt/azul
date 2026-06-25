@@ -3,8 +3,8 @@
 use azul_core::path_parser::{
     parse_svg_path_d, svg_circle_to_paths, svg_rect_to_path, SvgPathParseError,
 };
-use azul_core::svg::{SvgLine, SvgMultiPolygon, SvgPath, SvgPathElement};
-use azul_css::props::basic::{SvgCubicCurve, SvgPoint, SvgQuadraticCurve};
+use azul_core::svg::{SvgMultiPolygon, SvgPath, SvgPathElement};
+use azul_css::props::basic::SvgPoint;
 
 fn approx_eq(a: f32, b: f32) -> bool {
     (a - b).abs() < 0.01

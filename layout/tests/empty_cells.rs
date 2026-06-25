@@ -60,7 +60,7 @@ fn test_empty_cell_unicode_whitespace() {
 
     // Note: trim() may not catch all unicode whitespace
     // This is a limitation of the simple heuristic
-    assert!(is_whitespace_only || !text_content.is_empty());
+    assert!(is_whitespace_only, "U+00A0/U+2003/U+2009 are Unicode whitespace and should trim to empty");
 }
 
 #[test]
@@ -113,36 +113,18 @@ fn test_empty_cell_detection_logic() {
 
     struct CellInfo {
         has_children: bool,
-        has_inline_content: bool,
     }
 
-    let cells = vec![
-        CellInfo {
-            has_children: false,
-            has_inline_content: false,
-        }, // Empty
-        CellInfo {
-            has_children: true,
-            has_inline_content: false,
-        }, // Has block content
-        CellInfo {
-            has_children: true,
-            has_inline_content: true,
-        }, // Has inline content
-        CellInfo {
-            has_children: false,
-            has_inline_content: true,
-        }, // Empty with inline result
+    let cells = [
+        CellInfo { has_children: false }, // Empty
+        CellInfo { has_children: true },  // Has block content
+        CellInfo { has_children: true },  // Has inline content
+        CellInfo { has_children: false }, // Inline content only (no children)
     ];
 
     for (idx, cell) in cells.iter().enumerate() {
-        let is_empty = if !cell.has_children {
-            true
-        } else if cell.has_inline_content {
-            false // Assume inline content means not empty (simplified)
-        } else {
-            false // Has children = not empty
-        };
+        // empty iff there are no children (inline content / children both => not empty)
+        let is_empty = !cell.has_children;
 
         match idx {
             0 => assert!(is_empty, "Cell 0 should be empty"),
@@ -165,21 +147,13 @@ fn test_empty_cells_rendering_behavior() {
     let empty_cells = StyleEmptyCells::Hide;
     let is_cell_empty = true;
 
-    let should_paint_borders = if is_cell_empty && matches!(empty_cells, StyleEmptyCells::Hide) {
-        false
-    } else {
-        true
-    };
+    let should_paint_borders = !(is_cell_empty && matches!(empty_cells, StyleEmptyCells::Hide));
 
     assert!(!should_paint_borders);
 
     // With show, borders are painted even for empty cells
     let empty_cells = StyleEmptyCells::Show;
-    let should_paint_borders = if is_cell_empty && matches!(empty_cells, StyleEmptyCells::Hide) {
-        false
-    } else {
-        true
-    };
+    let should_paint_borders = !(is_cell_empty && matches!(empty_cells, StyleEmptyCells::Hide));
 
     assert!(should_paint_borders);
 }
@@ -203,7 +177,7 @@ fn test_empty_cells_with_padding() {
 fn test_multiple_empty_cells() {
     // Test multiple cells in a row
 
-    let cells_empty = vec![true, false, true, false];
+    let cells_empty = [true, false, true, false];
 
     let empty_count = cells_empty.iter().filter(|&&e| e).count();
     let non_empty_count = cells_empty.iter().filter(|&&e| !e).count();
@@ -246,7 +220,7 @@ fn test_css_spec_quote_empty_cells() {
     // 2. Controls rendering, not layout
     // 3. "No visible content" = no children or only whitespace
 
-    assert!(true); // Documentation test
+    // Documentation test (no runtime assertion needed)
 }
 
 #[test]

@@ -62,18 +62,19 @@ macro_rules! impl_display {
 
 /// Helper macro implementing the shared trait impls (`Display`, `Debug`, `Hash`,
 /// `PartialEq`, `Eq`, `PartialOrd`, `Ord`) for callback types.
+///
 /// Used internally by [`impl_callback!`] and [`impl_callback_simple!`].
 #[macro_export]
 macro_rules! impl_callback_traits {
     ($callback_value:ident) => {
         impl ::core::fmt::Display for $callback_value {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{:?}", self)
             }
         }
 
         impl ::core::fmt::Debug for $callback_value {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 let callback = stringify!($callback_value);
                 write!(f, "{} @ 0x{:x}", callback, self.cb as *const () as usize)
             }
@@ -112,11 +113,12 @@ macro_rules! impl_callback_traits {
 
 /// Implements `Display, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord`
 /// for a callback struct with `.cb` (function pointer) and `.ctx` (`OptionRefAny`) fields.
+///
 /// Also implements `From<$callback_ty>` to create a callback from a raw function pointer.
 ///
 /// For callbacks with only a `.cb` field (no `.ctx`), use [`impl_callback_simple!`] instead.
 ///
-/// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
+/// This is necessary to work around for <https://github.com/rust-lang/rust/issues/54508>
 #[macro_export]
 macro_rules! impl_callback {
     // Version with callable field (for UI callbacks that need FFI support)
@@ -154,12 +156,11 @@ macro_rules! impl_callback_simple {
     ($callback_value:ident) => {
         $crate::impl_callback_traits!($callback_value);
 
+        // the macro impls Clone for an externally-defined type, so #[derive(Clone)]
+        // isn't available here; the explicit `*self` impl is required.
+        #[allow(clippy::expl_impl_clone_on_copy)]
         impl Clone for $callback_value {
-            fn clone(&self) -> Self {
-                $callback_value {
-                    cb: self.cb.clone(),
-                }
-            }
+            fn clone(&self) -> Self { *self }
         }
 
         impl Copy for $callback_value {}

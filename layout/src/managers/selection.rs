@@ -65,23 +65,25 @@ impl ClipboardContent {
     /// Retained consumer of the FFI-exported `styled_runs`: returns an empty
     /// `<div></div>` until `styled_runs` is populated and the platform clipboard
     /// backends gain an HTML format (see module docs). Kept as public API.
-    pub fn to_html(&self) -> String {
+    #[must_use] pub fn to_html(&self) -> String {
+        use core::fmt::Write as _;
         let mut html = String::from("<div>");
 
         for run in self.styled_runs.as_slice() {
             html.push_str("<span style=\"");
 
             if let Some(font_family) = run.font_family.as_ref() {
-                html.push_str(&format!("font-family: {}; ", font_family.as_str()));
+                let _ = write!(html, "font-family: {}; ", font_family.as_str());
             }
-            html.push_str(&format!("font-size: {}px; ", run.font_size_px));
-            html.push_str(&format!(
+            let _ = write!(html, "font-size: {}px; ", run.font_size_px);
+            let _ = write!(
+                html,
                 "color: rgba({}, {}, {}, {}); ",
                 run.color.r,
                 run.color.g,
                 run.color.b,
-                run.color.a as f32 / 255.0
-            ));
+                f32::from(run.color.a) / 255.0
+            );
             if run.is_bold {
                 html.push_str("font-weight: bold; ");
             }

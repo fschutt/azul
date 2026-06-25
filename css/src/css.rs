@@ -25,7 +25,7 @@ use crate::{
 /// per-rule via `CssRuleBlock::priority`; see [`rule_priority`] for the
 /// slot allocation. There is no separate `Stylesheet` wrapper — to merge
 /// two CSS sources, concatenate their `rules` and re-sort.
-#[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
+#[derive(Debug, Default, PartialEq, Clone)]
 #[repr(C)]
 pub struct Css {
     /// All rule blocks, in source order. Sort by `(priority, specificity)`
@@ -37,7 +37,7 @@ impl_option!(
     Css,
     OptionCss,
     copy = false,
-    [Debug, Clone, PartialEq, PartialOrd]
+    [Debug, Clone, PartialEq, Eq, PartialOrd]
 );
 
 impl_vec!(Css, CssVec, CssVecDestructor, CssVecDestructorType, CssVecSlice, OptionCss);
@@ -55,18 +55,21 @@ impl_vec_clone!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor);
 impl_vec_partialeq!(CssRuleBlock, CssRuleBlockVec);
 
 impl Css {
-    pub fn is_empty(&self) -> bool {
+    #[must_use] pub fn is_empty(&self) -> bool {
         self.rules.as_ref().is_empty()
     }
 
-    pub fn new(rules: Vec<CssRuleBlock>) -> Self {
+    #[must_use] pub fn new(rules: Vec<CssRuleBlock>) -> Self {
         Self {
             rules: rules.into(),
         }
     }
 
     #[cfg(feature = "parser")]
-    pub fn from_string(s: crate::AzString) -> Self {
+    // takes the owned C-ABI `AzString` by value by FFI ownership-transfer convention,
+    // even though only a string slice is read here.
+    #[allow(clippy::needless_pass_by_value)]
+    #[must_use] pub fn from_string(s: AzString) -> Self {
         crate::parser2::new_from_str(s.as_str()).0
     }
 
@@ -78,7 +81,7 @@ impl Css {
     /// `:hover { color: red; }` or `@os(linux) { font-size: 14px; }` work
     /// directly via CSS nesting.
     #[cfg(feature = "parser")]
-    pub fn parse_inline(style: &str) -> Self {
+    #[must_use] pub fn parse_inline(style: &str) -> Self {
         use alloc::string::ToString;
         let mut wrapped = String::with_capacity(style.len() + 6);
         wrapped.push_str("* {\n");
@@ -92,8 +95,11 @@ impl Css {
     }
 
     #[cfg(feature = "parser")]
-    pub fn from_string_with_warnings(
-        s: crate::AzString,
+    // takes the owned C-ABI `AzString` by value by FFI ownership-transfer convention,
+    // even though only a string slice is read here.
+    #[allow(clippy::needless_pass_by_value)]
+    #[must_use] pub fn from_string_with_warnings(
+        s: AzString,
     ) -> (Self, Vec<crate::parser2::CssParseWarnMsgOwned>) {
         let (css, warnings) = crate::parser2::new_from_str(s.as_str());
         (
@@ -121,6 +127,13 @@ impl From<Vec<CssRuleBlock>> for Css {
 // length-based ordering so the derives keep working — the same pattern the
 // previous `CssPropertyWithConditionsVec` used.
 impl Eq for Css {}
+// PartialOrd delegates to the length-based Ord so the two agree (the derived
+// field-wise PartialOrd diverged from this manual Ord).
+impl PartialOrd for Css {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
 impl Ord for Css {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.rules.as_ref().len().cmp(&other.rules.as_ref().len())
@@ -163,7 +176,7 @@ impl From<crate::dynamic_selector::CssPropertyWithConditionsVec> for Css {
                 priority: rule_priority::INLINE,
             });
         }
-        Css { rules: rules.into() }
+        Self { rules: rules.into() }
     }
 }
 
@@ -185,17 +198,17 @@ impl_option!(
 );
 
 impl CssDeclaration {
-    pub const fn new_static(prop: CssProperty) -> Self {
-        CssDeclaration::Static(prop)
+    #[must_use] pub const fn new_static(prop: CssProperty) -> Self {
+        Self::Static(prop)
     }
 
-    pub const fn new_dynamic(prop: DynamicCssProperty) -> Self {
-        CssDeclaration::Dynamic(prop)
+    #[must_use] pub const fn new_dynamic(prop: DynamicCssProperty) -> Self {
+        Self::Dynamic(prop)
     }
 
     /// Returns the type of the property (i.e. the CSS key as a typed enum)
-    pub fn get_type(&self) -> CssPropertyType {
-        use self::CssDeclaration::*;
+    #[must_use] pub const fn get_type(&self) -> CssPropertyType {
+        use self::CssDeclaration::{Static, Dynamic};
         match self {
             Static(s) => s.get_type(),
             Dynamic(d) => d.default_value.get_type(),
@@ -204,8 +217,8 @@ impl CssDeclaration {
 
     /// Determines if the property will be inherited (applied to the children)
     /// during the recursive application of the style on the DOM tree
-    pub fn is_inheritable(&self) -> bool {
-        use self::CssDeclaration::*;
+    #[must_use] pub const fn is_inheritable(&self) -> bool {
+        use self::CssDeclaration::{Static, Dynamic};
         match self {
             Static(s) => s.get_type().is_inheritable(),
             Dynamic(d) => d.is_inheritable(),
@@ -214,18 +227,18 @@ impl CssDeclaration {
 
     /// Returns whether this rule affects only styling properties or layout
     /// properties (that could trigger a re-layout)
-    pub fn can_trigger_relayout(&self) -> bool {
-        use self::CssDeclaration::*;
+    #[must_use] pub const fn can_trigger_relayout(&self) -> bool {
+        use self::CssDeclaration::{Static, Dynamic};
         match self {
             Static(s) => s.get_type().can_trigger_relayout(),
             Dynamic(d) => d.can_trigger_relayout(),
         }
     }
 
-    pub fn to_str(&self) -> String {
-        use self::CssDeclaration::*;
+    #[must_use] pub fn to_str(&self) -> String {
+        use self::CssDeclaration::{Static, Dynamic};
         match self {
-            Static(s) => format!("{:?}", s),
+            Static(s) => format!("{s:?}"),
             Dynamic(d) => format!("var(--{}, {:?})", d.dynamic_id, d.default_value),
         }
     }
@@ -242,7 +255,7 @@ impl CssDeclaration {
 /// }
 /// ```
 ///
-/// Azul will register a dynamic property with the key "my_dynamic_property_id"
+/// Azul will register a dynamic property with the key "`my_dynamic_property_id`"
 /// and the default value of 400px. If the property gets overridden during one frame,
 /// the overridden property takes precedence.
 ///
@@ -261,7 +274,9 @@ pub struct DynamicCssProperty {
 }
 
 /// A value that is either heap-allocated (parsed at runtime) or a compile-time
-/// static reference. Used to reduce enum size for large CSS property payloads
+/// static reference.
+///
+/// Used to reduce enum size for large CSS property payloads
 /// by storing them behind a pointer instead of inline.
 ///
 /// - Size: 1 (tag) + 7 (padding) + 8 (pointer) = **16 bytes** on 64-bit
@@ -279,7 +294,7 @@ impl<T> BoxOrStatic<T> {
     /// Allocate `value` on the heap and return a `Boxed` variant.
     #[inline]
     pub fn heap(value: T) -> Self {
-        BoxOrStatic::Boxed(Box::into_raw(Box::new(value)))
+        Self::Boxed(Box::into_raw(Box::new(value)))
     }
 
     /// Return a reference to the inner value.
@@ -288,13 +303,13 @@ impl<T> BoxOrStatic<T> {
     /// The inner pointer must be non-null. This is guaranteed by [`heap`](Self::heap)
     /// and the `Static` constructor (which should always point to valid data).
     #[inline]
-    pub fn as_ref(&self) -> &T {
+    #[must_use] pub fn as_ref(&self) -> &T {
         match self {
-            BoxOrStatic::Boxed(ptr) => unsafe {
+            Self::Boxed(ptr) => unsafe {
                 debug_assert!(!ptr.is_null(), "BoxOrStatic::Boxed contained a null pointer");
                 &**ptr
             },
-            BoxOrStatic::Static(ptr) => unsafe {
+            Self::Static(ptr) => unsafe {
                 debug_assert!(!ptr.is_null(), "BoxOrStatic::Static contained a null pointer");
                 &**ptr
             },
@@ -302,18 +317,22 @@ impl<T> BoxOrStatic<T> {
     }
 
     /// Return a mutable reference to the inner value (only for Boxed).
-    /// Panics if called on Static.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on a `Static` variant: static values are immutable
+    /// and cannot hand out a `&mut`.
     #[inline]
     pub fn as_mut(&mut self) -> &mut T {
         match self {
-            BoxOrStatic::Boxed(ptr) => unsafe { &mut **ptr },
-            BoxOrStatic::Static(_) => panic!("Cannot mutate a static BoxOrStatic value"),
+            Self::Boxed(ptr) => unsafe { &mut **ptr },
+            Self::Static(_) => panic!("Cannot mutate a static BoxOrStatic value"),
         }
     }
 
     /// Consume self and return the inner value.
     #[inline]
-    pub fn into_inner(self) -> T where T: Clone {
+    #[must_use] pub fn into_inner(self) -> T where T: Clone {
         let val = self.as_ref().clone();
         // Don't double-free: std::mem::forget prevents Drop from running
         core::mem::forget(self);
@@ -323,7 +342,7 @@ impl<T> BoxOrStatic<T> {
 
 impl<T> Drop for BoxOrStatic<T> {
     fn drop(&mut self) {
-        if let BoxOrStatic::Boxed(ptr) = self {
+        if let Self::Boxed(ptr) = self {
             if !ptr.is_null() {
                 unsafe { drop(Box::from_raw(*ptr)); }
                 *ptr = core::ptr::null_mut();
@@ -335,23 +354,23 @@ impl<T> Drop for BoxOrStatic<T> {
 impl<T: Clone> Clone for BoxOrStatic<T> {
     fn clone(&self) -> Self {
         match self {
-            BoxOrStatic::Boxed(ptr) => {
+            Self::Boxed(ptr) => {
                 let val = unsafe { &**ptr }.clone();
-                BoxOrStatic::Boxed(Box::into_raw(Box::new(val)))
+                Self::Boxed(Box::into_raw(Box::new(val)))
             }
-            BoxOrStatic::Static(ptr) => BoxOrStatic::Static(*ptr),
+            Self::Static(ptr) => Self::Static(*ptr),
         }
     }
 }
 
-impl<T: core::fmt::Debug> core::fmt::Debug for BoxOrStatic<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl<T: fmt::Debug> fmt::Debug for BoxOrStatic<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_ref().fmt(f)
     }
 }
 
-impl<T: core::fmt::Display> core::fmt::Display for BoxOrStatic<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl<T: fmt::Display> fmt::Display for BoxOrStatic<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_ref().fmt(f)
     }
 }
@@ -366,7 +385,7 @@ impl<T: Eq> Eq for BoxOrStatic<T> {}
 
 impl<T: core::hash::Hash> core::hash::Hash for BoxOrStatic<T> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.as_ref().hash(state)
+        self.as_ref().hash(state);
     }
 }
 
@@ -392,7 +411,7 @@ impl<T> core::ops::Deref for BoxOrStatic<T> {
 
 impl<T: Default> Default for BoxOrStatic<T> {
     fn default() -> Self {
-        BoxOrStatic::heap(T::default())
+        Self::heap(T::default())
     }
 }
 
@@ -410,8 +429,8 @@ unsafe impl<T: Sync + 'static> Sync for BoxOrStatic<T> {}
 /// Type alias: `BoxOrStatic<StyleBoxShadow>` — used by codegen for FFI monomorphization.
 pub type BoxOrStaticStyleBoxShadow = BoxOrStatic<crate::props::style::box_shadow::StyleBoxShadow>;
 
-/// Type alias: `BoxOrStatic<AzString>` — used by NodeType::Text and NodeType::Icon.
-pub type BoxOrStaticString = BoxOrStatic<crate::AzString>;
+/// Type alias: `BoxOrStatic<AzString>` — used by `NodeType::Text` and `NodeType::Icon`.
+pub type BoxOrStaticString = BoxOrStatic<AzString>;
 
 /// A CSS property value that may be an explicit value or a CSS-wide keyword
 /// (`auto`, `none`, `initial`, `inherit`, `revert`, `unset`).
@@ -435,20 +454,20 @@ pub trait PrintAsCssValue {
 impl<T: PrintAsCssValue> CssPropertyValue<T> {
     pub fn get_css_value_fmt(&self) -> String {
         match self {
-            CssPropertyValue::Auto => "auto".to_string(),
-            CssPropertyValue::None => "none".to_string(),
-            CssPropertyValue::Initial => "initial".to_string(),
-            CssPropertyValue::Inherit => "inherit".to_string(),
-            CssPropertyValue::Revert => "revert".to_string(),
-            CssPropertyValue::Unset => "unset".to_string(),
-            CssPropertyValue::Exact(e) => e.print_as_css_value(),
+            Self::Auto => "auto".to_string(),
+            Self::None => "none".to_string(),
+            Self::Initial => "initial".to_string(),
+            Self::Inherit => "inherit".to_string(),
+            Self::Revert => "revert".to_string(),
+            Self::Unset => "unset".to_string(),
+            Self::Exact(e) => e.print_as_css_value(),
         }
     }
 }
 
 impl<T: fmt::Display> fmt::Display for CssPropertyValue<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::CssPropertyValue::*;
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use self::CssPropertyValue::{Auto, None, Initial, Inherit, Revert, Unset, Exact};
         match self {
             Auto => write!(f, "auto"),
             None => write!(f, "none"),
@@ -456,14 +475,14 @@ impl<T: fmt::Display> fmt::Display for CssPropertyValue<T> {
             Inherit => write!(f, "inherit"),
             Revert => write!(f, "revert"),
             Unset => write!(f, "unset"),
-            Exact(e) => write!(f, "{}", e),
+            Exact(e) => write!(f, "{e}"),
         }
     }
 }
 
 impl<T> From<T> for CssPropertyValue<T> {
     fn from(c: T) -> Self {
-        CssPropertyValue::Exact(c)
+        Self::Exact(c)
     }
 }
 
@@ -473,20 +492,20 @@ impl<T> CssPropertyValue<T> {
     #[inline]
     pub fn map_property<F: Fn(T) -> U, U>(self, map_fn: F) -> CssPropertyValue<U> {
         match self {
-            CssPropertyValue::Exact(c) => CssPropertyValue::Exact(map_fn(c)),
-            CssPropertyValue::Auto => CssPropertyValue::Auto,
-            CssPropertyValue::None => CssPropertyValue::None,
-            CssPropertyValue::Initial => CssPropertyValue::Initial,
-            CssPropertyValue::Inherit => CssPropertyValue::Inherit,
-            CssPropertyValue::Revert => CssPropertyValue::Revert,
-            CssPropertyValue::Unset => CssPropertyValue::Unset,
+            Self::Exact(c) => CssPropertyValue::Exact(map_fn(c)),
+            Self::Auto => CssPropertyValue::Auto,
+            Self::None => CssPropertyValue::None,
+            Self::Initial => CssPropertyValue::Initial,
+            Self::Inherit => CssPropertyValue::Inherit,
+            Self::Revert => CssPropertyValue::Revert,
+            Self::Unset => CssPropertyValue::Unset,
         }
     }
 
     #[inline]
-    pub fn get_property(&self) -> Option<&T> {
+    pub const fn get_property(&self) -> Option<&T> {
         match self {
-            CssPropertyValue::Exact(c) => Some(c),
+            Self::Exact(c) => Some(c),
             _ => None,
         }
     }
@@ -494,39 +513,39 @@ impl<T> CssPropertyValue<T> {
     #[inline]
     pub fn get_property_owned(self) -> Option<T> {
         match self {
-            CssPropertyValue::Exact(c) => Some(c),
+            Self::Exact(c) => Some(c),
             _ => None,
         }
     }
 
     #[inline]
-    pub fn is_auto(&self) -> bool {
-        matches!(self, CssPropertyValue::Auto)
+    pub const fn is_auto(&self) -> bool {
+        matches!(self, Self::Auto)
     }
 
     #[inline]
-    pub fn is_none(&self) -> bool {
-        matches!(self, CssPropertyValue::None)
+    pub const fn is_none(&self) -> bool {
+        matches!(self, Self::None)
     }
 
     #[inline]
-    pub fn is_initial(&self) -> bool {
-        matches!(self, CssPropertyValue::Initial)
+    pub const fn is_initial(&self) -> bool {
+        matches!(self, Self::Initial)
     }
 
     #[inline]
-    pub fn is_inherit(&self) -> bool {
-        matches!(self, CssPropertyValue::Inherit)
+    pub const fn is_inherit(&self) -> bool {
+        matches!(self, Self::Inherit)
     }
 
     #[inline]
-    pub fn is_revert(&self) -> bool {
-        matches!(self, CssPropertyValue::Revert)
+    pub const fn is_revert(&self) -> bool {
+        matches!(self, Self::Revert)
     }
 
     #[inline]
-    pub fn is_unset(&self) -> bool {
-        matches!(self, CssPropertyValue::Unset)
+    pub const fn is_unset(&self) -> bool {
+        matches!(self, Self::Unset)
     }
 }
 
@@ -534,12 +553,12 @@ impl<T: Default> CssPropertyValue<T> {
     #[inline]
     pub fn get_property_or_default(self) -> Option<T> {
         match self {
-            CssPropertyValue::Auto | CssPropertyValue::Initial => Some(T::default()),
-            CssPropertyValue::Exact(c) => Some(c),
-            CssPropertyValue::None
-            | CssPropertyValue::Inherit
-            | CssPropertyValue::Revert
-            | CssPropertyValue::Unset => None,
+            Self::Auto | Self::Initial => Some(T::default()),
+            Self::Exact(c) => Some(c),
+            Self::None
+            | Self::Inherit
+            | Self::Revert
+            | Self::Unset => None,
         }
     }
 }
@@ -547,19 +566,19 @@ impl<T: Default> CssPropertyValue<T> {
 impl<T: Default> Default for CssPropertyValue<T> {
     #[inline]
     fn default() -> Self {
-        CssPropertyValue::Exact(T::default())
+        Self::Exact(T::default())
     }
 }
 
 impl DynamicCssProperty {
-    pub fn is_inheritable(&self) -> bool {
+    #[must_use] pub const fn is_inheritable(&self) -> bool {
         // Dynamic style properties should not be inheritable,
         // since that could lead to bugs - you set a property in Rust, suddenly
         // the wrong UI component starts to react because it was inherited.
         false
     }
 
-    pub fn can_trigger_relayout(&self) -> bool {
+    #[must_use] pub const fn can_trigger_relayout(&self) -> bool {
         self.default_value.get_type().can_trigger_relayout()
     }
 }
@@ -592,10 +611,12 @@ pub mod rule_priority {
     /// inline storage into the same Vec.
     pub const INLINE: u8 = 30;
 
-    /// Reserved for direct-rule runtime overrides. Today the
-    /// prop_cache handles runtime overrides via
+    /// Reserved for direct-rule runtime overrides.
+    ///
+    /// Today the
+    /// `prop_cache` handles runtime overrides via
     /// `user_overridden_properties`; this slot is reserved so a
-    /// future "push a CssRuleBlock at runtime" path stays above
+    /// future "push a `CssRuleBlock` at runtime" path stays above
     /// inline. Used only when a callback writes a full rule, not a
     /// single property.
     pub const RUNTIME: u8 = 50;
@@ -627,7 +648,7 @@ impl_option!(
     CssRuleBlock,
     OptionCssRuleBlock,
     copy = false,
-    [Debug, Clone, PartialEq, PartialOrd]
+    [Debug, Clone, PartialEq, Eq, PartialOrd]
 );
 
 impl PartialOrd for CssRuleBlock {
@@ -655,7 +676,7 @@ impl_vec_eq!(CssDeclaration, CssDeclarationVec);
 impl_vec_hash!(CssDeclaration, CssDeclarationVec);
 
 impl CssRuleBlock {
-    pub fn new(path: CssPath, declarations: Vec<CssDeclaration>) -> Self {
+    #[must_use] pub fn new(path: CssPath, declarations: Vec<CssDeclaration>) -> Self {
         Self {
             path,
             declarations: declarations.into(),
@@ -664,7 +685,7 @@ impl CssRuleBlock {
         }
     }
 
-    pub fn with_conditions(
+    #[must_use] pub fn with_conditions(
         path: CssPath,
         declarations: Vec<CssDeclaration>,
         conditions: Vec<crate::dynamic_selector::DynamicSelector>,
@@ -960,7 +981,7 @@ pub enum NodeTypeTag {
     Text,
     Img,
     VirtualView,
-    /// Icon element - resolved to actual content by IconProvider
+    /// Icon element - resolved to actual content by `IconProvider`
     Icon,
     /// Invisible probe — `NodeType::GeolocationProbe`. Zero-size in
     /// layout, skipped in the display list. CSS tag: `geolocation-probe`.
@@ -979,10 +1000,10 @@ pub enum NodeTypeTagParseError<'a> {
     Invalid(&'a str),
 }
 
-impl<'a> fmt::Display for NodeTypeTagParseError<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl fmt::Display for NodeTypeTagParseError<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            NodeTypeTagParseError::Invalid(e) => write!(f, "Invalid node type: {}", e),
+            NodeTypeTagParseError::Invalid(e) => write!(f, "Invalid node type: {e}"),
         }
     }
 }
@@ -994,248 +1015,252 @@ pub enum NodeTypeTagParseErrorOwned {
     Invalid(AzString),
 }
 
-impl<'a> NodeTypeTagParseError<'a> {
-    pub fn to_contained(&self) -> NodeTypeTagParseErrorOwned {
+impl NodeTypeTagParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> NodeTypeTagParseErrorOwned {
         match self {
-            NodeTypeTagParseError::Invalid(s) => NodeTypeTagParseErrorOwned::Invalid(s.to_string().into()),
+            NodeTypeTagParseError::Invalid(s) => NodeTypeTagParseErrorOwned::Invalid((*s).to_string().into()),
         }
     }
 }
 
 impl NodeTypeTagParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> NodeTypeTagParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> NodeTypeTagParseError<'_> {
         match self {
-            NodeTypeTagParseErrorOwned::Invalid(s) => NodeTypeTagParseError::Invalid(s),
+            Self::Invalid(s) => NodeTypeTagParseError::Invalid(s),
         }
     }
 }
 
 /// Parses the node type from a CSS string such as `"div"` => `NodeTypeTag::Div`
 impl NodeTypeTag {
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    /// # Errors
+    ///
+    /// Returns an error if `css_key` is not a recognized HTML node-type tag.
     pub fn from_str(css_key: &str) -> Result<Self, NodeTypeTagParseError<'_>> {
         match css_key {
             // Document structure
-            "html" => Ok(NodeTypeTag::Html),
-            "head" => Ok(NodeTypeTag::Head),
-            "body" => Ok(NodeTypeTag::Body),
+            "html" => Ok(Self::Html),
+            "head" => Ok(Self::Head),
+            "body" => Ok(Self::Body),
 
             // Block-level elements
-            "div" => Ok(NodeTypeTag::Div),
-            "p" => Ok(NodeTypeTag::P),
-            "article" => Ok(NodeTypeTag::Article),
-            "section" => Ok(NodeTypeTag::Section),
-            "nav" => Ok(NodeTypeTag::Nav),
-            "aside" => Ok(NodeTypeTag::Aside),
-            "header" => Ok(NodeTypeTag::Header),
-            "footer" => Ok(NodeTypeTag::Footer),
-            "main" => Ok(NodeTypeTag::Main),
-            "figure" => Ok(NodeTypeTag::Figure),
-            "figcaption" => Ok(NodeTypeTag::FigCaption),
+            "div" => Ok(Self::Div),
+            "p" => Ok(Self::P),
+            "article" => Ok(Self::Article),
+            "section" => Ok(Self::Section),
+            "nav" => Ok(Self::Nav),
+            "aside" => Ok(Self::Aside),
+            "header" => Ok(Self::Header),
+            "footer" => Ok(Self::Footer),
+            "main" => Ok(Self::Main),
+            "figure" => Ok(Self::Figure),
+            "figcaption" => Ok(Self::FigCaption),
 
             // Headings
-            "h1" => Ok(NodeTypeTag::H1),
-            "h2" => Ok(NodeTypeTag::H2),
-            "h3" => Ok(NodeTypeTag::H3),
-            "h4" => Ok(NodeTypeTag::H4),
-            "h5" => Ok(NodeTypeTag::H5),
-            "h6" => Ok(NodeTypeTag::H6),
+            "h1" => Ok(Self::H1),
+            "h2" => Ok(Self::H2),
+            "h3" => Ok(Self::H3),
+            "h4" => Ok(Self::H4),
+            "h5" => Ok(Self::H5),
+            "h6" => Ok(Self::H6),
 
             // Inline text
-            "br" => Ok(NodeTypeTag::Br),
-            "hr" => Ok(NodeTypeTag::Hr),
-            "pre" => Ok(NodeTypeTag::Pre),
-            "blockquote" => Ok(NodeTypeTag::BlockQuote),
-            "address" => Ok(NodeTypeTag::Address),
-            "details" => Ok(NodeTypeTag::Details),
-            "summary" => Ok(NodeTypeTag::Summary),
-            "dialog" => Ok(NodeTypeTag::Dialog),
+            "br" => Ok(Self::Br),
+            "hr" => Ok(Self::Hr),
+            "pre" => Ok(Self::Pre),
+            "blockquote" => Ok(Self::BlockQuote),
+            "address" => Ok(Self::Address),
+            "details" => Ok(Self::Details),
+            "summary" => Ok(Self::Summary),
+            "dialog" => Ok(Self::Dialog),
 
             // Lists
-            "ul" => Ok(NodeTypeTag::Ul),
-            "ol" => Ok(NodeTypeTag::Ol),
-            "li" => Ok(NodeTypeTag::Li),
-            "dl" => Ok(NodeTypeTag::Dl),
-            "dt" => Ok(NodeTypeTag::Dt),
-            "dd" => Ok(NodeTypeTag::Dd),
-            "menu" => Ok(NodeTypeTag::Menu),
-            "menuitem" => Ok(NodeTypeTag::MenuItem),
-            "dir" => Ok(NodeTypeTag::Dir),
+            "ul" => Ok(Self::Ul),
+            "ol" => Ok(Self::Ol),
+            "li" => Ok(Self::Li),
+            "dl" => Ok(Self::Dl),
+            "dt" => Ok(Self::Dt),
+            "dd" => Ok(Self::Dd),
+            "menu" => Ok(Self::Menu),
+            "menuitem" => Ok(Self::MenuItem),
+            "dir" => Ok(Self::Dir),
 
             // Tables
-            "table" => Ok(NodeTypeTag::Table),
-            "caption" => Ok(NodeTypeTag::Caption),
-            "thead" => Ok(NodeTypeTag::THead),
-            "tbody" => Ok(NodeTypeTag::TBody),
-            "tfoot" => Ok(NodeTypeTag::TFoot),
-            "tr" => Ok(NodeTypeTag::Tr),
-            "th" => Ok(NodeTypeTag::Th),
-            "td" => Ok(NodeTypeTag::Td),
-            "colgroup" => Ok(NodeTypeTag::ColGroup),
-            "col" => Ok(NodeTypeTag::Col),
+            "table" => Ok(Self::Table),
+            "caption" => Ok(Self::Caption),
+            "thead" => Ok(Self::THead),
+            "tbody" => Ok(Self::TBody),
+            "tfoot" => Ok(Self::TFoot),
+            "tr" => Ok(Self::Tr),
+            "th" => Ok(Self::Th),
+            "td" => Ok(Self::Td),
+            "colgroup" => Ok(Self::ColGroup),
+            "col" => Ok(Self::Col),
 
             // Forms
-            "form" => Ok(NodeTypeTag::Form),
-            "fieldset" => Ok(NodeTypeTag::FieldSet),
-            "legend" => Ok(NodeTypeTag::Legend),
-            "label" => Ok(NodeTypeTag::Label),
-            "input" => Ok(NodeTypeTag::Input),
-            "button" => Ok(NodeTypeTag::Button),
-            "select" => Ok(NodeTypeTag::Select),
-            "optgroup" => Ok(NodeTypeTag::OptGroup),
-            "option" => Ok(NodeTypeTag::SelectOption),
-            "textarea" => Ok(NodeTypeTag::TextArea),
-            "output" => Ok(NodeTypeTag::Output),
-            "progress" => Ok(NodeTypeTag::Progress),
-            "meter" => Ok(NodeTypeTag::Meter),
-            "datalist" => Ok(NodeTypeTag::DataList),
+            "form" => Ok(Self::Form),
+            "fieldset" => Ok(Self::FieldSet),
+            "legend" => Ok(Self::Legend),
+            "label" => Ok(Self::Label),
+            "input" => Ok(Self::Input),
+            "button" => Ok(Self::Button),
+            "select" => Ok(Self::Select),
+            "optgroup" => Ok(Self::OptGroup),
+            "option" => Ok(Self::SelectOption),
+            "textarea" => Ok(Self::TextArea),
+            "output" => Ok(Self::Output),
+            "progress" => Ok(Self::Progress),
+            "meter" => Ok(Self::Meter),
+            "datalist" => Ok(Self::DataList),
 
             // Inline elements
-            "span" => Ok(NodeTypeTag::Span),
-            "a" => Ok(NodeTypeTag::A),
-            "em" => Ok(NodeTypeTag::Em),
-            "strong" => Ok(NodeTypeTag::Strong),
-            "b" => Ok(NodeTypeTag::B),
-            "i" => Ok(NodeTypeTag::I),
-            "u" => Ok(NodeTypeTag::U),
-            "s" => Ok(NodeTypeTag::S),
-            "mark" => Ok(NodeTypeTag::Mark),
-            "del" => Ok(NodeTypeTag::Del),
-            "ins" => Ok(NodeTypeTag::Ins),
-            "code" => Ok(NodeTypeTag::Code),
-            "samp" => Ok(NodeTypeTag::Samp),
-            "kbd" => Ok(NodeTypeTag::Kbd),
-            "var" => Ok(NodeTypeTag::Var),
-            "cite" => Ok(NodeTypeTag::Cite),
-            "dfn" => Ok(NodeTypeTag::Dfn),
-            "abbr" => Ok(NodeTypeTag::Abbr),
-            "acronym" => Ok(NodeTypeTag::Acronym),
-            "q" => Ok(NodeTypeTag::Q),
-            "time" => Ok(NodeTypeTag::Time),
-            "sub" => Ok(NodeTypeTag::Sub),
-            "sup" => Ok(NodeTypeTag::Sup),
-            "small" => Ok(NodeTypeTag::Small),
-            "big" => Ok(NodeTypeTag::Big),
-            "bdo" => Ok(NodeTypeTag::Bdo),
-            "bdi" => Ok(NodeTypeTag::Bdi),
-            "wbr" => Ok(NodeTypeTag::Wbr),
-            "ruby" => Ok(NodeTypeTag::Ruby),
-            "rt" => Ok(NodeTypeTag::Rt),
-            "rtc" => Ok(NodeTypeTag::Rtc),
-            "rp" => Ok(NodeTypeTag::Rp),
-            "data" => Ok(NodeTypeTag::Data),
+            "span" => Ok(Self::Span),
+            "a" => Ok(Self::A),
+            "em" => Ok(Self::Em),
+            "strong" => Ok(Self::Strong),
+            "b" => Ok(Self::B),
+            "i" => Ok(Self::I),
+            "u" => Ok(Self::U),
+            "s" => Ok(Self::S),
+            "mark" => Ok(Self::Mark),
+            "del" => Ok(Self::Del),
+            "ins" => Ok(Self::Ins),
+            "code" => Ok(Self::Code),
+            "samp" => Ok(Self::Samp),
+            "kbd" => Ok(Self::Kbd),
+            "var" => Ok(Self::Var),
+            "cite" => Ok(Self::Cite),
+            "dfn" => Ok(Self::Dfn),
+            "abbr" => Ok(Self::Abbr),
+            "acronym" => Ok(Self::Acronym),
+            "q" => Ok(Self::Q),
+            "time" => Ok(Self::Time),
+            "sub" => Ok(Self::Sub),
+            "sup" => Ok(Self::Sup),
+            "small" => Ok(Self::Small),
+            "big" => Ok(Self::Big),
+            "bdo" => Ok(Self::Bdo),
+            "bdi" => Ok(Self::Bdi),
+            "wbr" => Ok(Self::Wbr),
+            "ruby" => Ok(Self::Ruby),
+            "rt" => Ok(Self::Rt),
+            "rtc" => Ok(Self::Rtc),
+            "rp" => Ok(Self::Rp),
+            "data" => Ok(Self::Data),
 
             // Embedded content
-            "canvas" => Ok(NodeTypeTag::Canvas),
-            "object" => Ok(NodeTypeTag::Object),
-            "param" => Ok(NodeTypeTag::Param),
-            "embed" => Ok(NodeTypeTag::Embed),
-            "audio" => Ok(NodeTypeTag::Audio),
-            "video" => Ok(NodeTypeTag::Video),
-            "source" => Ok(NodeTypeTag::Source),
-            "track" => Ok(NodeTypeTag::Track),
-            "map" => Ok(NodeTypeTag::Map),
-            "area" => Ok(NodeTypeTag::Area),
-            "svg" => Ok(NodeTypeTag::Svg),
+            "canvas" => Ok(Self::Canvas),
+            "object" => Ok(Self::Object),
+            "param" => Ok(Self::Param),
+            "embed" => Ok(Self::Embed),
+            "audio" => Ok(Self::Audio),
+            "video" => Ok(Self::Video),
+            "source" => Ok(Self::Source),
+            "track" => Ok(Self::Track),
+            "map" => Ok(Self::Map),
+            "area" => Ok(Self::Area),
+            "svg" => Ok(Self::Svg),
 
             // SVG shape elements
-            "path" => Ok(NodeTypeTag::SvgPath),
-            "circle" => Ok(NodeTypeTag::SvgCircle),
-            "rect" => Ok(NodeTypeTag::SvgRect),
-            "ellipse" => Ok(NodeTypeTag::SvgEllipse),
-            "line" => Ok(NodeTypeTag::SvgLine),
-            "polygon" => Ok(NodeTypeTag::SvgPolygon),
-            "polyline" => Ok(NodeTypeTag::SvgPolyline),
-            "g" => Ok(NodeTypeTag::SvgG),
+            "path" => Ok(Self::SvgPath),
+            "circle" => Ok(Self::SvgCircle),
+            "rect" => Ok(Self::SvgRect),
+            "ellipse" => Ok(Self::SvgEllipse),
+            "line" => Ok(Self::SvgLine),
+            "polygon" => Ok(Self::SvgPolygon),
+            "polyline" => Ok(Self::SvgPolyline),
+            "g" => Ok(Self::SvgG),
 
             // SVG container elements
-            "defs" => Ok(NodeTypeTag::SvgDefs),
-            "symbol" => Ok(NodeTypeTag::SvgSymbol),
-            "use" => Ok(NodeTypeTag::SvgUse),
-            "switch" => Ok(NodeTypeTag::SvgSwitch),
+            "defs" => Ok(Self::SvgDefs),
+            "symbol" => Ok(Self::SvgSymbol),
+            "use" => Ok(Self::SvgUse),
+            "switch" => Ok(Self::SvgSwitch),
 
             // SVG text elements
-            "svg:text" => Ok(NodeTypeTag::SvgText),
-            "tspan" => Ok(NodeTypeTag::SvgTspan),
-            "textpath" => Ok(NodeTypeTag::SvgTextPath),
+            "svg:text" => Ok(Self::SvgText),
+            "tspan" => Ok(Self::SvgTspan),
+            "textpath" => Ok(Self::SvgTextPath),
 
             // SVG paint server elements
-            "lineargradient" => Ok(NodeTypeTag::SvgLinearGradient),
-            "radialgradient" => Ok(NodeTypeTag::SvgRadialGradient),
-            "stop" => Ok(NodeTypeTag::SvgStop),
-            "pattern" => Ok(NodeTypeTag::SvgPattern),
+            "lineargradient" => Ok(Self::SvgLinearGradient),
+            "radialgradient" => Ok(Self::SvgRadialGradient),
+            "stop" => Ok(Self::SvgStop),
+            "pattern" => Ok(Self::SvgPattern),
 
             // SVG clipping/masking elements
-            "clippath" => Ok(NodeTypeTag::SvgClipPathElement),
-            "mask" => Ok(NodeTypeTag::SvgMask),
+            "clippath" => Ok(Self::SvgClipPathElement),
+            "mask" => Ok(Self::SvgMask),
 
             // SVG filter elements
-            "filter" => Ok(NodeTypeTag::SvgFilter),
-            "feblend" => Ok(NodeTypeTag::SvgFeBlend),
-            "fecolormatrix" => Ok(NodeTypeTag::SvgFeColorMatrix),
-            "fecomponenttransfer" => Ok(NodeTypeTag::SvgFeComponentTransfer),
-            "fecomposite" => Ok(NodeTypeTag::SvgFeComposite),
-            "feconvolvematrix" => Ok(NodeTypeTag::SvgFeConvolveMatrix),
-            "fediffuselighting" => Ok(NodeTypeTag::SvgFeDiffuseLighting),
-            "fedisplacementmap" => Ok(NodeTypeTag::SvgFeDisplacementMap),
-            "fedistantlight" => Ok(NodeTypeTag::SvgFeDistantLight),
-            "fedropshadow" => Ok(NodeTypeTag::SvgFeDropShadow),
-            "feflood" => Ok(NodeTypeTag::SvgFeFlood),
-            "fefuncr" => Ok(NodeTypeTag::SvgFeFuncR),
-            "fefuncg" => Ok(NodeTypeTag::SvgFeFuncG),
-            "fefuncb" => Ok(NodeTypeTag::SvgFeFuncB),
-            "fefunca" => Ok(NodeTypeTag::SvgFeFuncA),
-            "fegaussianblur" => Ok(NodeTypeTag::SvgFeGaussianBlur),
-            "feimage" => Ok(NodeTypeTag::SvgFeImage),
-            "femerge" => Ok(NodeTypeTag::SvgFeMerge),
-            "femergenode" => Ok(NodeTypeTag::SvgFeMergeNode),
-            "femorphology" => Ok(NodeTypeTag::SvgFeMorphology),
-            "feoffset" => Ok(NodeTypeTag::SvgFeOffset),
-            "fepointlight" => Ok(NodeTypeTag::SvgFePointLight),
-            "fespecularlighting" => Ok(NodeTypeTag::SvgFeSpecularLighting),
-            "fespotlight" => Ok(NodeTypeTag::SvgFeSpotLight),
-            "fetile" => Ok(NodeTypeTag::SvgFeTile),
-            "feturbulence" => Ok(NodeTypeTag::SvgFeTurbulence),
+            "filter" => Ok(Self::SvgFilter),
+            "feblend" => Ok(Self::SvgFeBlend),
+            "fecolormatrix" => Ok(Self::SvgFeColorMatrix),
+            "fecomponenttransfer" => Ok(Self::SvgFeComponentTransfer),
+            "fecomposite" => Ok(Self::SvgFeComposite),
+            "feconvolvematrix" => Ok(Self::SvgFeConvolveMatrix),
+            "fediffuselighting" => Ok(Self::SvgFeDiffuseLighting),
+            "fedisplacementmap" => Ok(Self::SvgFeDisplacementMap),
+            "fedistantlight" => Ok(Self::SvgFeDistantLight),
+            "fedropshadow" => Ok(Self::SvgFeDropShadow),
+            "feflood" => Ok(Self::SvgFeFlood),
+            "fefuncr" => Ok(Self::SvgFeFuncR),
+            "fefuncg" => Ok(Self::SvgFeFuncG),
+            "fefuncb" => Ok(Self::SvgFeFuncB),
+            "fefunca" => Ok(Self::SvgFeFuncA),
+            "fegaussianblur" => Ok(Self::SvgFeGaussianBlur),
+            "feimage" => Ok(Self::SvgFeImage),
+            "femerge" => Ok(Self::SvgFeMerge),
+            "femergenode" => Ok(Self::SvgFeMergeNode),
+            "femorphology" => Ok(Self::SvgFeMorphology),
+            "feoffset" => Ok(Self::SvgFeOffset),
+            "fepointlight" => Ok(Self::SvgFePointLight),
+            "fespecularlighting" => Ok(Self::SvgFeSpecularLighting),
+            "fespotlight" => Ok(Self::SvgFeSpotLight),
+            "fetile" => Ok(Self::SvgFeTile),
+            "feturbulence" => Ok(Self::SvgFeTurbulence),
 
             // SVG marker/image elements
-            "image" | "svg:image" => Ok(NodeTypeTag::SvgImage),
-            "svg:marker" => Ok(NodeTypeTag::SvgMarker),
-            "foreignobject" => Ok(NodeTypeTag::SvgForeignObject),
+            "image" | "svg:image" => Ok(Self::SvgImage),
+            "svg:marker" => Ok(Self::SvgMarker),
+            "foreignobject" => Ok(Self::SvgForeignObject),
 
             // SVG descriptive elements
-            "svg:title" => Ok(NodeTypeTag::SvgTitle),
-            "svg:a" => Ok(NodeTypeTag::SvgA),
-            "svg:style" => Ok(NodeTypeTag::SvgStyle),
-            "svg:script" => Ok(NodeTypeTag::SvgScript),
-            "desc" => Ok(NodeTypeTag::SvgDesc),
-            "metadata" => Ok(NodeTypeTag::SvgMetadata),
-            "view" => Ok(NodeTypeTag::SvgView),
+            "svg:title" => Ok(Self::SvgTitle),
+            "svg:a" => Ok(Self::SvgA),
+            "svg:style" => Ok(Self::SvgStyle),
+            "svg:script" => Ok(Self::SvgScript),
+            "desc" => Ok(Self::SvgDesc),
+            "metadata" => Ok(Self::SvgMetadata),
+            "view" => Ok(Self::SvgView),
 
             // SVG animation elements
-            "animate" => Ok(NodeTypeTag::SvgAnimate),
-            "animatemotion" => Ok(NodeTypeTag::SvgAnimateMotion),
-            "animatetransform" => Ok(NodeTypeTag::SvgAnimateTransform),
-            "set" => Ok(NodeTypeTag::SvgSet),
-            "mpath" => Ok(NodeTypeTag::SvgMpath),
+            "animate" => Ok(Self::SvgAnimate),
+            "animatemotion" => Ok(Self::SvgAnimateMotion),
+            "animatetransform" => Ok(Self::SvgAnimateTransform),
+            "set" => Ok(Self::SvgSet),
+            "mpath" => Ok(Self::SvgMpath),
 
             // Metadata
-            "title" => Ok(NodeTypeTag::Title),
-            "meta" => Ok(NodeTypeTag::Meta),
-            "link" => Ok(NodeTypeTag::Link),
-            "script" => Ok(NodeTypeTag::Script),
-            "style" => Ok(NodeTypeTag::Style),
-            "base" => Ok(NodeTypeTag::Base),
+            "title" => Ok(Self::Title),
+            "meta" => Ok(Self::Meta),
+            "link" => Ok(Self::Link),
+            "script" => Ok(Self::Script),
+            "style" => Ok(Self::Style),
+            "base" => Ok(Self::Base),
 
             // Special
-            "img" => Ok(NodeTypeTag::Img),
-            "virtual-view" | "iframe" => Ok(NodeTypeTag::VirtualView),
-            "icon" => Ok(NodeTypeTag::Icon),
-            "geolocation-probe" => Ok(NodeTypeTag::GeolocationProbe),
+            "img" => Ok(Self::Img),
+            "virtual-view" | "iframe" => Ok(Self::VirtualView),
+            "icon" => Ok(Self::Icon),
+            "geolocation-probe" => Ok(Self::GeolocationProbe),
 
             // Pseudo-elements (usually prefixed with ::)
-            "before" | "::before" => Ok(NodeTypeTag::Before),
-            "after" | "::after" => Ok(NodeTypeTag::After),
-            "marker" | "::marker" => Ok(NodeTypeTag::Marker),
-            "placeholder" | "::placeholder" => Ok(NodeTypeTag::Placeholder),
+            "before" | "::before" => Ok(Self::Before),
+            "after" | "::after" => Ok(Self::After),
+            "marker" | "::marker" => Ok(Self::Marker),
+            "placeholder" | "::placeholder" => Ok(Self::Placeholder),
 
             other => Err(NodeTypeTagParseError::Invalid(other)),
         }
@@ -1243,229 +1268,230 @@ impl NodeTypeTag {
 }
 
 impl fmt::Display for NodeTypeTag {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             // Document structure
-            NodeTypeTag::Html => write!(f, "html"),
-            NodeTypeTag::Head => write!(f, "head"),
-            NodeTypeTag::Body => write!(f, "body"),
+            Self::Html => write!(f, "html"),
+            Self::Head => write!(f, "head"),
+            Self::Body => write!(f, "body"),
 
             // Block elements
-            NodeTypeTag::Div => write!(f, "div"),
-            NodeTypeTag::P => write!(f, "p"),
-            NodeTypeTag::Article => write!(f, "article"),
-            NodeTypeTag::Section => write!(f, "section"),
-            NodeTypeTag::Nav => write!(f, "nav"),
-            NodeTypeTag::Aside => write!(f, "aside"),
-            NodeTypeTag::Header => write!(f, "header"),
-            NodeTypeTag::Footer => write!(f, "footer"),
-            NodeTypeTag::Main => write!(f, "main"),
-            NodeTypeTag::Figure => write!(f, "figure"),
-            NodeTypeTag::FigCaption => write!(f, "figcaption"),
+            Self::Div => write!(f, "div"),
+            Self::P => write!(f, "p"),
+            Self::Article => write!(f, "article"),
+            Self::Section => write!(f, "section"),
+            Self::Nav => write!(f, "nav"),
+            Self::Aside => write!(f, "aside"),
+            Self::Header => write!(f, "header"),
+            Self::Footer => write!(f, "footer"),
+            Self::Main => write!(f, "main"),
+            Self::Figure => write!(f, "figure"),
+            Self::FigCaption => write!(f, "figcaption"),
 
             // Headings
-            NodeTypeTag::H1 => write!(f, "h1"),
-            NodeTypeTag::H2 => write!(f, "h2"),
-            NodeTypeTag::H3 => write!(f, "h3"),
-            NodeTypeTag::H4 => write!(f, "h4"),
-            NodeTypeTag::H5 => write!(f, "h5"),
-            NodeTypeTag::H6 => write!(f, "h6"),
+            Self::H1 => write!(f, "h1"),
+            Self::H2 => write!(f, "h2"),
+            Self::H3 => write!(f, "h3"),
+            Self::H4 => write!(f, "h4"),
+            Self::H5 => write!(f, "h5"),
+            Self::H6 => write!(f, "h6"),
 
             // Text formatting
-            NodeTypeTag::Br => write!(f, "br"),
-            NodeTypeTag::Hr => write!(f, "hr"),
-            NodeTypeTag::Pre => write!(f, "pre"),
-            NodeTypeTag::BlockQuote => write!(f, "blockquote"),
-            NodeTypeTag::Address => write!(f, "address"),
-            NodeTypeTag::Details => write!(f, "details"),
-            NodeTypeTag::Summary => write!(f, "summary"),
-            NodeTypeTag::Dialog => write!(f, "dialog"),
+            Self::Br => write!(f, "br"),
+            Self::Hr => write!(f, "hr"),
+            Self::Pre => write!(f, "pre"),
+            Self::BlockQuote => write!(f, "blockquote"),
+            Self::Address => write!(f, "address"),
+            Self::Details => write!(f, "details"),
+            Self::Summary => write!(f, "summary"),
+            Self::Dialog => write!(f, "dialog"),
 
             // List elements
-            NodeTypeTag::Ul => write!(f, "ul"),
-            NodeTypeTag::Ol => write!(f, "ol"),
-            NodeTypeTag::Li => write!(f, "li"),
-            NodeTypeTag::Dl => write!(f, "dl"),
-            NodeTypeTag::Dt => write!(f, "dt"),
-            NodeTypeTag::Dd => write!(f, "dd"),
-            NodeTypeTag::Menu => write!(f, "menu"),
-            NodeTypeTag::MenuItem => write!(f, "menuitem"),
-            NodeTypeTag::Dir => write!(f, "dir"),
+            Self::Ul => write!(f, "ul"),
+            Self::Ol => write!(f, "ol"),
+            Self::Li => write!(f, "li"),
+            Self::Dl => write!(f, "dl"),
+            Self::Dt => write!(f, "dt"),
+            Self::Dd => write!(f, "dd"),
+            Self::Menu => write!(f, "menu"),
+            Self::MenuItem => write!(f, "menuitem"),
+            Self::Dir => write!(f, "dir"),
 
             // Table elements
-            NodeTypeTag::Table => write!(f, "table"),
-            NodeTypeTag::Caption => write!(f, "caption"),
-            NodeTypeTag::THead => write!(f, "thead"),
-            NodeTypeTag::TBody => write!(f, "tbody"),
-            NodeTypeTag::TFoot => write!(f, "tfoot"),
-            NodeTypeTag::Tr => write!(f, "tr"),
-            NodeTypeTag::Th => write!(f, "th"),
-            NodeTypeTag::Td => write!(f, "td"),
-            NodeTypeTag::ColGroup => write!(f, "colgroup"),
-            NodeTypeTag::Col => write!(f, "col"),
+            Self::Table => write!(f, "table"),
+            Self::Caption => write!(f, "caption"),
+            Self::THead => write!(f, "thead"),
+            Self::TBody => write!(f, "tbody"),
+            Self::TFoot => write!(f, "tfoot"),
+            Self::Tr => write!(f, "tr"),
+            Self::Th => write!(f, "th"),
+            Self::Td => write!(f, "td"),
+            Self::ColGroup => write!(f, "colgroup"),
+            Self::Col => write!(f, "col"),
 
             // Form elements
-            NodeTypeTag::Form => write!(f, "form"),
-            NodeTypeTag::FieldSet => write!(f, "fieldset"),
-            NodeTypeTag::Legend => write!(f, "legend"),
-            NodeTypeTag::Label => write!(f, "label"),
-            NodeTypeTag::Input => write!(f, "input"),
-            NodeTypeTag::Button => write!(f, "button"),
-            NodeTypeTag::Select => write!(f, "select"),
-            NodeTypeTag::OptGroup => write!(f, "optgroup"),
-            NodeTypeTag::SelectOption => write!(f, "option"),
-            NodeTypeTag::TextArea => write!(f, "textarea"),
-            NodeTypeTag::Output => write!(f, "output"),
-            NodeTypeTag::Progress => write!(f, "progress"),
-            NodeTypeTag::Meter => write!(f, "meter"),
-            NodeTypeTag::DataList => write!(f, "datalist"),
+            Self::Form => write!(f, "form"),
+            Self::FieldSet => write!(f, "fieldset"),
+            Self::Legend => write!(f, "legend"),
+            Self::Label => write!(f, "label"),
+            Self::Input => write!(f, "input"),
+            Self::Button => write!(f, "button"),
+            Self::Select => write!(f, "select"),
+            Self::OptGroup => write!(f, "optgroup"),
+            Self::SelectOption => write!(f, "option"),
+            Self::TextArea => write!(f, "textarea"),
+            Self::Output => write!(f, "output"),
+            Self::Progress => write!(f, "progress"),
+            Self::Meter => write!(f, "meter"),
+            Self::DataList => write!(f, "datalist"),
 
             // Inline elements
-            NodeTypeTag::Span => write!(f, "span"),
-            NodeTypeTag::A => write!(f, "a"),
-            NodeTypeTag::Em => write!(f, "em"),
-            NodeTypeTag::Strong => write!(f, "strong"),
-            NodeTypeTag::B => write!(f, "b"),
-            NodeTypeTag::I => write!(f, "i"),
-            NodeTypeTag::U => write!(f, "u"),
-            NodeTypeTag::S => write!(f, "s"),
-            NodeTypeTag::Mark => write!(f, "mark"),
-            NodeTypeTag::Del => write!(f, "del"),
-            NodeTypeTag::Ins => write!(f, "ins"),
-            NodeTypeTag::Code => write!(f, "code"),
-            NodeTypeTag::Samp => write!(f, "samp"),
-            NodeTypeTag::Kbd => write!(f, "kbd"),
-            NodeTypeTag::Var => write!(f, "var"),
-            NodeTypeTag::Cite => write!(f, "cite"),
-            NodeTypeTag::Dfn => write!(f, "dfn"),
-            NodeTypeTag::Abbr => write!(f, "abbr"),
-            NodeTypeTag::Acronym => write!(f, "acronym"),
-            NodeTypeTag::Q => write!(f, "q"),
-            NodeTypeTag::Time => write!(f, "time"),
-            NodeTypeTag::Sub => write!(f, "sub"),
-            NodeTypeTag::Sup => write!(f, "sup"),
-            NodeTypeTag::Small => write!(f, "small"),
-            NodeTypeTag::Big => write!(f, "big"),
-            NodeTypeTag::Bdo => write!(f, "bdo"),
-            NodeTypeTag::Bdi => write!(f, "bdi"),
-            NodeTypeTag::Wbr => write!(f, "wbr"),
-            NodeTypeTag::Ruby => write!(f, "ruby"),
-            NodeTypeTag::Rt => write!(f, "rt"),
-            NodeTypeTag::Rtc => write!(f, "rtc"),
-            NodeTypeTag::Rp => write!(f, "rp"),
-            NodeTypeTag::Data => write!(f, "data"),
+            Self::Span => write!(f, "span"),
+            Self::A => write!(f, "a"),
+            Self::Em => write!(f, "em"),
+            Self::Strong => write!(f, "strong"),
+            Self::B => write!(f, "b"),
+            Self::I => write!(f, "i"),
+            Self::U => write!(f, "u"),
+            Self::S => write!(f, "s"),
+            Self::Mark => write!(f, "mark"),
+            Self::Del => write!(f, "del"),
+            Self::Ins => write!(f, "ins"),
+            Self::Code => write!(f, "code"),
+            Self::Samp => write!(f, "samp"),
+            Self::Kbd => write!(f, "kbd"),
+            Self::Var => write!(f, "var"),
+            Self::Cite => write!(f, "cite"),
+            Self::Dfn => write!(f, "dfn"),
+            Self::Abbr => write!(f, "abbr"),
+            Self::Acronym => write!(f, "acronym"),
+            Self::Q => write!(f, "q"),
+            Self::Time => write!(f, "time"),
+            Self::Sub => write!(f, "sub"),
+            Self::Sup => write!(f, "sup"),
+            Self::Small => write!(f, "small"),
+            Self::Big => write!(f, "big"),
+            Self::Bdo => write!(f, "bdo"),
+            Self::Bdi => write!(f, "bdi"),
+            Self::Wbr => write!(f, "wbr"),
+            Self::Ruby => write!(f, "ruby"),
+            Self::Rt => write!(f, "rt"),
+            Self::Rtc => write!(f, "rtc"),
+            Self::Rp => write!(f, "rp"),
+            Self::Data => write!(f, "data"),
 
             // Embedded content
-            NodeTypeTag::Canvas => write!(f, "canvas"),
-            NodeTypeTag::Object => write!(f, "object"),
-            NodeTypeTag::Param => write!(f, "param"),
-            NodeTypeTag::Embed => write!(f, "embed"),
-            NodeTypeTag::Audio => write!(f, "audio"),
-            NodeTypeTag::Video => write!(f, "video"),
-            NodeTypeTag::Source => write!(f, "source"),
-            NodeTypeTag::Track => write!(f, "track"),
-            NodeTypeTag::Map => write!(f, "map"),
-            NodeTypeTag::Area => write!(f, "area"),
-            NodeTypeTag::Svg => write!(f, "svg"),
-            NodeTypeTag::SvgPath => write!(f, "path"),
-            NodeTypeTag::SvgCircle => write!(f, "circle"),
-            NodeTypeTag::SvgRect => write!(f, "rect"),
-            NodeTypeTag::SvgEllipse => write!(f, "ellipse"),
-            NodeTypeTag::SvgLine => write!(f, "line"),
-            NodeTypeTag::SvgPolygon => write!(f, "polygon"),
-            NodeTypeTag::SvgPolyline => write!(f, "polyline"),
-            NodeTypeTag::SvgG => write!(f, "g"),
+            Self::Canvas => write!(f, "canvas"),
+            Self::Object => write!(f, "object"),
+            Self::Param => write!(f, "param"),
+            Self::Embed => write!(f, "embed"),
+            Self::Audio => write!(f, "audio"),
+            Self::Video => write!(f, "video"),
+            Self::Source => write!(f, "source"),
+            Self::Track => write!(f, "track"),
+            Self::Map => write!(f, "map"),
+            Self::Area => write!(f, "area"),
+            Self::Svg => write!(f, "svg"),
+            Self::SvgPath => write!(f, "path"),
+            Self::SvgCircle => write!(f, "circle"),
+            Self::SvgRect => write!(f, "rect"),
+            Self::SvgEllipse => write!(f, "ellipse"),
+            Self::SvgLine => write!(f, "line"),
+            Self::SvgPolygon => write!(f, "polygon"),
+            Self::SvgPolyline => write!(f, "polyline"),
+            Self::SvgG => write!(f, "g"),
 
             // SVG container elements
-            NodeTypeTag::SvgDefs => write!(f, "defs"),
-            NodeTypeTag::SvgSymbol => write!(f, "symbol"),
-            NodeTypeTag::SvgUse => write!(f, "use"),
-            NodeTypeTag::SvgSwitch => write!(f, "switch"),
+            Self::SvgDefs => write!(f, "defs"),
+            Self::SvgSymbol => write!(f, "symbol"),
+            Self::SvgUse => write!(f, "use"),
+            Self::SvgSwitch => write!(f, "switch"),
 
             // SVG text elements
-            NodeTypeTag::SvgText => write!(f, "svg:text"),
-            NodeTypeTag::SvgTspan => write!(f, "tspan"),
-            NodeTypeTag::SvgTextPath => write!(f, "textpath"),
+            Self::SvgText => write!(f, "svg:text"),
+            Self::SvgTspan => write!(f, "tspan"),
+            Self::SvgTextPath => write!(f, "textpath"),
 
             // SVG paint server elements
-            NodeTypeTag::SvgLinearGradient => write!(f, "lineargradient"),
-            NodeTypeTag::SvgRadialGradient => write!(f, "radialgradient"),
-            NodeTypeTag::SvgStop => write!(f, "stop"),
-            NodeTypeTag::SvgPattern => write!(f, "pattern"),
+            Self::SvgLinearGradient => write!(f, "lineargradient"),
+            Self::SvgRadialGradient => write!(f, "radialgradient"),
+            Self::SvgStop => write!(f, "stop"),
+            Self::SvgPattern => write!(f, "pattern"),
 
             // SVG clipping/masking elements
-            NodeTypeTag::SvgClipPathElement => write!(f, "clippath"),
-            NodeTypeTag::SvgMask => write!(f, "mask"),
+            Self::SvgClipPathElement => write!(f, "clippath"),
+            Self::SvgMask => write!(f, "mask"),
 
             // SVG filter elements
-            NodeTypeTag::SvgFilter => write!(f, "filter"),
-            NodeTypeTag::SvgFeBlend => write!(f, "feblend"),
-            NodeTypeTag::SvgFeColorMatrix => write!(f, "fecolormatrix"),
-            NodeTypeTag::SvgFeComponentTransfer => write!(f, "fecomponenttransfer"),
-            NodeTypeTag::SvgFeComposite => write!(f, "fecomposite"),
-            NodeTypeTag::SvgFeConvolveMatrix => write!(f, "feconvolvematrix"),
-            NodeTypeTag::SvgFeDiffuseLighting => write!(f, "fediffuselighting"),
-            NodeTypeTag::SvgFeDisplacementMap => write!(f, "fedisplacementmap"),
-            NodeTypeTag::SvgFeDistantLight => write!(f, "fedistantlight"),
-            NodeTypeTag::SvgFeDropShadow => write!(f, "fedropshadow"),
-            NodeTypeTag::SvgFeFlood => write!(f, "feflood"),
-            NodeTypeTag::SvgFeFuncR => write!(f, "fefuncr"),
-            NodeTypeTag::SvgFeFuncG => write!(f, "fefuncg"),
-            NodeTypeTag::SvgFeFuncB => write!(f, "fefuncb"),
-            NodeTypeTag::SvgFeFuncA => write!(f, "fefunca"),
-            NodeTypeTag::SvgFeGaussianBlur => write!(f, "fegaussianblur"),
-            NodeTypeTag::SvgFeImage => write!(f, "feimage"),
-            NodeTypeTag::SvgFeMerge => write!(f, "femerge"),
-            NodeTypeTag::SvgFeMergeNode => write!(f, "femergenode"),
-            NodeTypeTag::SvgFeMorphology => write!(f, "femorphology"),
-            NodeTypeTag::SvgFeOffset => write!(f, "feoffset"),
-            NodeTypeTag::SvgFePointLight => write!(f, "fepointlight"),
-            NodeTypeTag::SvgFeSpecularLighting => write!(f, "fespecularlighting"),
-            NodeTypeTag::SvgFeSpotLight => write!(f, "fespotlight"),
-            NodeTypeTag::SvgFeTile => write!(f, "fetile"),
-            NodeTypeTag::SvgFeTurbulence => write!(f, "feturbulence"),
+            Self::SvgFilter => write!(f, "filter"),
+            Self::SvgFeBlend => write!(f, "feblend"),
+            Self::SvgFeColorMatrix => write!(f, "fecolormatrix"),
+            Self::SvgFeComponentTransfer => write!(f, "fecomponenttransfer"),
+            Self::SvgFeComposite => write!(f, "fecomposite"),
+            Self::SvgFeConvolveMatrix => write!(f, "feconvolvematrix"),
+            Self::SvgFeDiffuseLighting => write!(f, "fediffuselighting"),
+            Self::SvgFeDisplacementMap => write!(f, "fedisplacementmap"),
+            Self::SvgFeDistantLight => write!(f, "fedistantlight"),
+            Self::SvgFeDropShadow => write!(f, "fedropshadow"),
+            Self::SvgFeFlood => write!(f, "feflood"),
+            Self::SvgFeFuncR => write!(f, "fefuncr"),
+            Self::SvgFeFuncG => write!(f, "fefuncg"),
+            Self::SvgFeFuncB => write!(f, "fefuncb"),
+            Self::SvgFeFuncA => write!(f, "fefunca"),
+            Self::SvgFeGaussianBlur => write!(f, "fegaussianblur"),
+            Self::SvgFeImage => write!(f, "feimage"),
+            Self::SvgFeMerge => write!(f, "femerge"),
+            Self::SvgFeMergeNode => write!(f, "femergenode"),
+            Self::SvgFeMorphology => write!(f, "femorphology"),
+            Self::SvgFeOffset => write!(f, "feoffset"),
+            Self::SvgFePointLight => write!(f, "fepointlight"),
+            Self::SvgFeSpecularLighting => write!(f, "fespecularlighting"),
+            Self::SvgFeSpotLight => write!(f, "fespotlight"),
+            Self::SvgFeTile => write!(f, "fetile"),
+            Self::SvgFeTurbulence => write!(f, "feturbulence"),
 
             // SVG marker/image elements
-            NodeTypeTag::SvgMarker => write!(f, "svg:marker"),
-            NodeTypeTag::SvgImage => write!(f, "svg:image"),
-            NodeTypeTag::SvgForeignObject => write!(f, "foreignobject"),
+            Self::SvgMarker => write!(f, "svg:marker"),
+            Self::SvgImage => write!(f, "svg:image"),
+            Self::SvgForeignObject => write!(f, "foreignobject"),
 
             // SVG descriptive elements
-            NodeTypeTag::SvgTitle => write!(f, "svg:title"),
-            NodeTypeTag::SvgDesc => write!(f, "desc"),
-            NodeTypeTag::SvgMetadata => write!(f, "metadata"),
-            NodeTypeTag::SvgA => write!(f, "svg:a"),
-            NodeTypeTag::SvgView => write!(f, "view"),
-            NodeTypeTag::SvgStyle => write!(f, "svg:style"),
-            NodeTypeTag::SvgScript => write!(f, "svg:script"),
+            Self::SvgTitle => write!(f, "svg:title"),
+            Self::SvgDesc => write!(f, "desc"),
+            Self::SvgMetadata => write!(f, "metadata"),
+            Self::SvgA => write!(f, "svg:a"),
+            Self::SvgView => write!(f, "view"),
+            Self::SvgStyle => write!(f, "svg:style"),
+            Self::SvgScript => write!(f, "svg:script"),
 
             // SVG animation elements
-            NodeTypeTag::SvgAnimate => write!(f, "animate"),
-            NodeTypeTag::SvgAnimateMotion => write!(f, "animatemotion"),
-            NodeTypeTag::SvgAnimateTransform => write!(f, "animatetransform"),
-            NodeTypeTag::SvgSet => write!(f, "set"),
-            NodeTypeTag::SvgMpath => write!(f, "mpath"),
+            Self::SvgAnimate => write!(f, "animate"),
+            Self::SvgAnimateMotion => write!(f, "animatemotion"),
+            Self::SvgAnimateTransform => write!(f, "animatetransform"),
+            Self::SvgSet => write!(f, "set"),
+            Self::SvgMpath => write!(f, "mpath"),
 
             // Metadata
-            NodeTypeTag::Title => write!(f, "title"),
-            NodeTypeTag::Meta => write!(f, "meta"),
-            NodeTypeTag::Link => write!(f, "link"),
-            NodeTypeTag::Script => write!(f, "script"),
-            NodeTypeTag::Style => write!(f, "style"),
-            NodeTypeTag::Base => write!(f, "base"),
+            Self::Title => write!(f, "title"),
+            Self::Meta => write!(f, "meta"),
+            Self::Link => write!(f, "link"),
+            Self::Script => write!(f, "script"),
+            Self::Style => write!(f, "style"),
+            Self::Base => write!(f, "base"),
 
             // Content elements
-            NodeTypeTag::Text => write!(f, "text"),
-            NodeTypeTag::Img => write!(f, "img"),
-            NodeTypeTag::VirtualView => write!(f, "virtual-view"),
-            NodeTypeTag::Icon => write!(f, "icon"),
-            NodeTypeTag::GeolocationProbe => write!(f, "geolocation-probe"),
+            Self::Text => write!(f, "text"),
+            Self::Img => write!(f, "img"),
+            Self::VirtualView => write!(f, "virtual-view"),
+            Self::Icon => write!(f, "icon"),
+            Self::GeolocationProbe => write!(f, "geolocation-probe"),
 
             // Pseudo-elements
-            NodeTypeTag::Before => write!(f, "::before"),
-            NodeTypeTag::After => write!(f, "::after"),
-            NodeTypeTag::Marker => write!(f, "::marker"),
-            NodeTypeTag::Placeholder => write!(f, "::placeholder"),
+            Self::Before => write!(f, "::before"),
+            Self::After => write!(f, "::after"),
+            Self::Marker => write!(f, "::marker"),
+            Self::Placeholder => write!(f, "::placeholder"),
         }
     }
 }
@@ -1501,13 +1527,13 @@ impl_vec_eq!(CssPathSelector, CssPathSelectorVec);
 impl_vec_hash!(CssPathSelector, CssPathSelectorVec);
 
 impl CssPath {
-    pub fn new(selectors: Vec<CssPathSelector>) -> Self {
+    #[must_use] pub fn new(selectors: Vec<CssPathSelector>) -> Self {
         Self {
             selectors: selectors.into(),
         }
     }
 
-    /// Prepend a `Root` scope selector (push_front) confining this rule to the owner
+    /// Prepend a `Root` scope selector (`push_front`) confining this rule to the owner
     /// node `start` (whose subtree spans the inclusive flat ids `[start, end]`).
     /// Two cases (#47 leak fix + descendant-selector support):
     ///
@@ -1536,38 +1562,40 @@ impl CssPath {
 }
 
 impl fmt::Display for CssPath {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for selector in self.selectors.as_ref() {
-            write!(f, "{}", selector)?;
+            write!(f, "{selector}")?;
         }
         Ok(())
     }
 }
 
 impl fmt::Debug for CssPath {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self}")
     }
 }
 
 /// Inclusive range of flat `NodeId`s describing a node's subtree `[start, end]`
 /// (`end = start + estimated_total_children`, since the flat arena lays subtrees
-/// out contiguously). Carried by [`CssPathSelector::Root`] to scope inline css to
+/// out contiguously).
+///
+/// Carried by [`CssPathSelector::Root`] to scope inline css to
 /// a subtree, and is the unit of future parallel per-subtree cascading.
 /// `repr(C)` for FFI / api.json codegen.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct CssScopeRange {
-    /// First flat NodeId of the subtree (the owning node itself).
+    /// First flat `NodeId` of the subtree (the owning node itself).
     pub start: usize,
-    /// Last flat NodeId of the subtree, inclusive (`start` for a leaf).
+    /// Last flat `NodeId` of the subtree, inclusive (`start` for a leaf).
     pub end: usize,
 }
 
 impl CssScopeRange {
-    /// True if `node` (a flat NodeId index) is inside this subtree range.
+    /// True if `node` (a flat `NodeId` index) is inside this subtree range.
     #[inline]
-    pub fn contains(&self, node: usize) -> bool {
+    #[must_use] pub const fn contains(&self, node: usize) -> bool {
         self.start <= node && node <= self.end
     }
 }
@@ -1630,8 +1658,10 @@ impl Default for CssAttributeSelector {
 /// Operator that compares an attribute value against a target string.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
+#[derive(Default)]
 pub enum AttributeMatchOp {
     /// `[attr]` — attribute is present (any value).
+    #[default]
     Exists,
     /// `[attr="value"]` — attribute equals value exactly.
     Eq,
@@ -1647,11 +1677,6 @@ pub enum AttributeMatchOp {
     Substring,
 }
 
-impl Default for AttributeMatchOp {
-    fn default() -> Self {
-        AttributeMatchOp::Exists
-    }
-}
 
 impl_option!(
     CssPathSelector,
@@ -1662,16 +1687,16 @@ impl_option!(
 
 
 impl fmt::Display for CssPathSelector {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::CssPathSelector::*;
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use self::CssPathSelector::{Global, Root, Type, Class, Id, PseudoSelector, Attribute, DirectChildren, Children, AdjacentSibling, GeneralSibling};
         match &self {
             Global => write!(f, "*"),
             Root(r) => write!(f, ":root({}..={})", r.start, r.end),
-            Type(n) => write!(f, "{}", n),
-            Class(c) => write!(f, ".{}", c),
-            Id(i) => write!(f, "#{}", i),
-            PseudoSelector(p) => write!(f, ":{}", p),
-            Attribute(a) => write!(f, "{}", a),
+            Type(n) => write!(f, "{n}"),
+            Class(c) => write!(f, ".{c}"),
+            Id(i) => write!(f, "#{i}"),
+            PseudoSelector(p) => write!(f, ":{p}"),
+            Attribute(a) => write!(f, "{a}"),
             DirectChildren => write!(f, ">"),
             Children => write!(f, " "),
             AdjacentSibling => write!(f, "+"),
@@ -1681,7 +1706,7 @@ impl fmt::Display for CssPathSelector {
 }
 
 impl fmt::Display for CssAttributeSelector {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match (&self.op, self.value.as_ref()) {
             (AttributeMatchOp::Exists, _) => write!(f, "[{}]", self.name),
             (op, Some(v)) => write!(f, "[{}{}=\"{}\"]", self.name, op.symbol_prefix(), v),
@@ -1693,15 +1718,14 @@ impl fmt::Display for CssAttributeSelector {
 impl AttributeMatchOp {
     /// Returns the prefix character for the `=` operator (e.g. `~` for `~=`).
     /// `Eq` returns `""`, `Exists` is unused (no `=` printed at all).
-    pub fn symbol_prefix(&self) -> &'static str {
+    #[must_use] pub const fn symbol_prefix(&self) -> &'static str {
         match self {
-            AttributeMatchOp::Exists => "",
-            AttributeMatchOp::Eq => "",
-            AttributeMatchOp::Includes => "~",
-            AttributeMatchOp::DashMatch => "|",
-            AttributeMatchOp::Prefix => "^",
-            AttributeMatchOp::Suffix => "$",
-            AttributeMatchOp::Substring => "*",
+            Self::Exists | Self::Eq => "",
+            Self::Includes => "~",
+            Self::DashMatch => "|",
+            Self::Prefix => "^",
+            Self::Suffix => "$",
+            Self::Substring => "*",
         }
     }
 }
@@ -1750,10 +1774,10 @@ pub struct CssNthChildPattern {
 }
 
 impl fmt::Display for CssNthChildSelector {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::CssNthChildSelector::*;
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use self::CssNthChildSelector::{Number, Even, Odd, Pattern};
         match &self {
-            Number(u) => write!(f, "{}", u),
+            Number(u) => write!(f, "{u}"),
             Even => write!(f, "even"),
             Odd => write!(f, "odd"),
             Pattern(p) => write!(f, "{}n + {}", p.pattern_repeat, p.offset),
@@ -1762,12 +1786,12 @@ impl fmt::Display for CssNthChildSelector {
 }
 
 impl fmt::Display for CssPathPseudoSelector {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::CssPathPseudoSelector::*;
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use self::CssPathPseudoSelector::{First, Last, NthChild, Hover, Active, Focus, Lang, Backdrop, Dragging, DragOver};
         match &self {
             First => write!(f, "first"),
             Last => write!(f, "last"),
-            NthChild(u) => write!(f, "nth-child({})", u),
+            NthChild(u) => write!(f, "nth-child({u})"),
             Hover => write!(f, "hover"),
             Active => write!(f, "active"),
             Focus => write!(f, "focus"),
@@ -1781,8 +1805,8 @@ impl fmt::Display for CssPathPseudoSelector {
 
 impl Css {
     /// Creates a new, empty CSS.
-    pub fn empty() -> Self {
-        Default::default()
+    #[must_use] pub fn empty() -> Self {
+        Self::default()
     }
 
     /// Sort the rules by `(priority, specificity)` so they apply in cascade order.
@@ -1796,7 +1820,7 @@ impl Css {
         });
     }
 
-    pub fn rules<'a>(&'a self) -> core::slice::Iter<'a, CssRuleBlock> {
+    pub fn rules(&self) -> core::slice::Iter<'_, CssRuleBlock> {
         self.rules.as_ref().iter()
     }
 
@@ -1807,14 +1831,14 @@ impl Css {
     ///
     /// Used by cascade and diff code that walks per-property to keep the
     /// flat-iteration shape after the inline-vs-component unification.
-    pub fn iter_inline_properties<'a>(
-        &'a self,
+    pub fn iter_inline_properties(
+        &self,
     ) -> impl Iterator<
         Item = (
-            &'a crate::props::property::CssProperty,
-            &'a DynamicSelectorVec,
+            &CssProperty,
+            &DynamicSelectorVec,
         ),
-    > + 'a {
+    > + '_ {
         self.rules.as_ref().iter().flat_map(|r| {
             r.declarations.as_ref().iter().filter_map(move |d| match d {
                 CssDeclaration::Static(p) => Some((p, &r.conditions)),
@@ -1867,7 +1891,7 @@ mod root_scope_tests {
     #[test]
     fn root_display_roundtrips() {
         let s = CssPathSelector::Root(CssScopeRange { start: 2, end: 6 });
-        assert_eq!(format!("{}", s), ":root(2..=6)");
+        assert_eq!(format!("{s}"), ":root(2..=6)");
     }
 
     #[test]
@@ -1878,21 +1902,19 @@ mod root_scope_tests {
         let mut types = Vec::new();
         for r in css.rules.as_ref() {
             for d in r.declarations.as_ref() {
-                if let crate::css::CssDeclaration::Static(p) = d {
+                if let CssDeclaration::Static(p) = d {
                     types.push(alloc::format!("{:?}", p.get_type()));
                 }
             }
         }
-        println!("INLINE PROP TYPES: {:?}", types);
+        println!("INLINE PROP TYPES: {types:?}");
         assert!(
             types.iter().any(|t| t.contains("width")),
-            "width must survive parse_inline as a Static decl; got {:?}",
-            types
+            "width must survive parse_inline as a Static decl; got {types:?}"
         );
         assert!(
             types.iter().any(|t| t.contains("height")),
-            "height must survive parse_inline; got {:?}",
-            types
+            "height must survive parse_inline; got {types:?}"
         );
     }
 }
@@ -1948,7 +1970,7 @@ mod priority_sort_tests {
 
 /// Returns specificity of the given css path. Further information can be found on
 /// [the w3 website](http://www.w3.org/TR/selectors/#specificity).
-pub fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
+#[must_use] pub fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
     let id_count = path
         .selectors
         .iter()

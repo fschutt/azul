@@ -2,8 +2,25 @@
 
 use crate::impl_option;
 
+/// Precision-reducing `usize` → `f64` for Bézier sample indices. The step count
+/// is tiny so no precision is actually lost; `as` is the only `usize`→`f64` form,
+/// isolated here behind a documented attribute.
+#[inline]
+#[allow(clippy::cast_precision_loss)]
+const fn idx_to_f64(v: usize) -> f64 {
+    v as f64
+}
+
+/// Truncating `f64` → `f32` for SVG curve sample coordinates. Behaviour-preserving
+/// (`as f32` rounds to the nearest representable value); isolates the narrowing.
+#[inline]
+#[allow(clippy::cast_possible_truncation)]
+const fn f64_to_f32(v: f64) -> f32 {
+    v as f32
+}
+
 /// Holds context needed to resolve animation interpolation relative to parent and current rects.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct InterpolateResolver {
     pub interpolate_func: AnimationInterpolationFunction,
@@ -30,7 +47,7 @@ pub struct SvgCubicCurve {
     pub ctrl_2: SvgPoint,
     pub end: SvgPoint,
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Represents an animation timing function.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -81,18 +98,18 @@ impl_option!(
 );
 
 impl SvgPoint {
-    /// Creates a new SvgPoint from x and y coordinates
+    /// Creates a new `SvgPoint` from x and y coordinates
     #[inline]
-    pub const fn new(x: f32, y: f32) -> Self {
+    #[must_use] pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
 
     /// Returns the Euclidean distance between this point and `other`.
     #[inline]
-    pub fn distance(&self, other: Self) -> f64 {
+    #[must_use] pub fn distance(&self, other: Self) -> f64 {
         let dx = other.x - self.x;
         let dy = other.y - self.y;
-        libm::hypotf(dx, dy) as f64
+        f64::from(libm::hypotf(dx, dy))
     }
 }
 
@@ -122,7 +139,7 @@ impl SvgRect {
 
     /// Note: does not incorporate rounded edges!
     /// Origin of x and y is assumed to be the top left corner
-    pub fn contains_point(&self, point: SvgPoint) -> bool {
+    #[must_use] pub fn contains_point(&self, point: SvgPoint) -> bool {
         point.x > self.x
             && point.x < self.x + self.width
             && point.y > self.y
@@ -130,14 +147,14 @@ impl SvgRect {
     }
 
     /// Expands the rect with a certain amount of padding
-    pub fn expand(
+    #[must_use] pub fn expand(
         &self,
         padding_top: f32,
         padding_bottom: f32,
         padding_left: f32,
         padding_right: f32,
-    ) -> SvgRect {
-        SvgRect {
+    ) -> Self {
+        Self {
             width: self.width + padding_left + padding_right,
             height: self.height + padding_top + padding_bottom,
             x: self.x - padding_left,
@@ -147,7 +164,7 @@ impl SvgRect {
     }
 
     /// Returns the center point of the rect.
-    pub fn get_center(&self) -> SvgPoint {
+    #[must_use] pub fn get_center(&self) -> SvgPoint {
         SvgPoint {
             x: self.x + (self.width / 2.0),
             y: self.y + (self.height / 2.0),
@@ -158,57 +175,61 @@ impl SvgRect {
 const STEP_SIZE: usize = 20;
 const STEP_SIZE_F64: f64 = 0.05;
 
+// Bézier sampling keeps the explicit `a*b + c` forms rather than `mul_add`:
+// `f32::mul_add` lowers to a software `fmaf` call (slower) on targets without
+// `+fma`, and changes results bit-for-bit. (clippy::suboptimal_flops)
+#[allow(clippy::suboptimal_flops)]
 impl SvgCubicCurve {
-    /// Creates a new SvgCubicCurve from start, two control points, and end point
+    /// Creates a new `SvgCubicCurve` from start, two control points, and end point
     #[inline]
-    pub const fn new(start: SvgPoint, ctrl_1: SvgPoint, ctrl_2: SvgPoint, end: SvgPoint) -> Self {
+    #[must_use] pub const fn new(start: SvgPoint, ctrl_1: SvgPoint, ctrl_2: SvgPoint, end: SvgPoint) -> Self {
         Self { start, ctrl_1, ctrl_2, end }
     }
 
-    /// Reverses the curve direction in place, swapping start/end and ctrl_1/ctrl_2.
-    pub fn reverse(&mut self) {
+    /// Reverses the curve direction in place, swapping start/end and `ctrl_1/ctrl_2`.
+    pub const fn reverse(&mut self) {
         core::mem::swap(&mut self.start, &mut self.end);
         core::mem::swap(&mut self.ctrl_1, &mut self.ctrl_2);
     }
 
     /// Returns the start point of the curve.
-    pub fn get_start(&self) -> SvgPoint {
+    #[must_use] pub const fn get_start(&self) -> SvgPoint {
         self.start
     }
     /// Returns the end point of the curve.
-    pub fn get_end(&self) -> SvgPoint {
+    #[must_use] pub const fn get_end(&self) -> SvgPoint {
         self.end
     }
 
     /// Evaluates the x coordinate of the curve at parameter `t` in [0, 1].
-    pub fn get_x_at_t(&self, t: f64) -> f64 {
-        let c_x = 3.0 * (self.ctrl_1.x as f64 - self.start.x as f64);
-        let b_x = 3.0 * (self.ctrl_2.x as f64 - self.ctrl_1.x as f64) - c_x;
-        let a_x = self.end.x as f64 - self.start.x as f64 - c_x - b_x;
+    #[must_use] pub fn get_x_at_t(&self, t: f64) -> f64 {
+        let c_x = 3.0 * (f64::from(self.ctrl_1.x) - f64::from(self.start.x));
+        let b_x = 3.0 * (f64::from(self.ctrl_2.x) - f64::from(self.ctrl_1.x)) - c_x;
+        let a_x = f64::from(self.end.x) - f64::from(self.start.x) - c_x - b_x;
 
-        (a_x * t * t * t) + (b_x * t * t) + (c_x * t) + self.start.x as f64
+        (a_x * t * t * t) + (b_x * t * t) + (c_x * t) + f64::from(self.start.x)
     }
 
     /// Evaluates the y coordinate of the curve at parameter `t` in [0, 1].
-    pub fn get_y_at_t(&self, t: f64) -> f64 {
-        let c_y = 3.0 * (self.ctrl_1.y as f64 - self.start.y as f64);
-        let b_y = 3.0 * (self.ctrl_2.y as f64 - self.ctrl_1.y as f64) - c_y;
-        let a_y = self.end.y as f64 - self.start.y as f64 - c_y - b_y;
+    #[must_use] pub fn get_y_at_t(&self, t: f64) -> f64 {
+        let c_y = 3.0 * (f64::from(self.ctrl_1.y) - f64::from(self.start.y));
+        let b_y = 3.0 * (f64::from(self.ctrl_2.y) - f64::from(self.ctrl_1.y)) - c_y;
+        let a_y = f64::from(self.end.y) - f64::from(self.start.y) - c_y - b_y;
 
-        (a_y * t * t * t) + (b_y * t * t) + (c_y * t) + self.start.y as f64
+        (a_y * t * t * t) + (b_y * t * t) + (c_y * t) + f64::from(self.start.y)
     }
 
     /// Returns the approximate arc length of the curve using linear sampling.
-    pub fn get_length(&self) -> f64 {
+    #[must_use] pub fn get_length(&self) -> f64 {
         // NOTE: this arc length parametrization is not very precise, but fast
         let mut arc_length = 0.0;
         let mut prev_point = self.get_start();
 
         for i in 0..STEP_SIZE {
-            let t_next = (i + 1) as f64 * STEP_SIZE_F64;
+            let t_next = idx_to_f64(i + 1) * STEP_SIZE_F64;
             let next_point = SvgPoint {
-                x: self.get_x_at_t(t_next) as f32,
-                y: self.get_y_at_t(t_next) as f32,
+                x: f64_to_f32(self.get_x_at_t(t_next)),
+                y: f64_to_f32(self.get_y_at_t(t_next)),
             };
             arc_length += prev_point.distance(next_point);
             prev_point = next_point;
@@ -218,7 +239,7 @@ impl SvgCubicCurve {
     }
 
     /// Returns the parameter `t` corresponding to a given arc-length `offset`.
-    pub fn get_t_at_offset(&self, offset: f64) -> f64 {
+    #[must_use] pub fn get_t_at_offset(&self, offset: f64) -> f64 {
         // step through the line until the offset is reached,
         // then interpolate linearly between the
         // current at the last sampled point
@@ -227,10 +248,10 @@ impl SvgCubicCurve {
         let mut prev_point = self.get_start();
 
         for i in 0..STEP_SIZE {
-            let t_next = (i + 1) as f64 * STEP_SIZE_F64;
+            let t_next = idx_to_f64(i + 1) * STEP_SIZE_F64;
             let next_point = SvgPoint {
-                x: self.get_x_at_t(t_next) as f32,
-                y: self.get_y_at_t(t_next) as f32,
+                x: f64_to_f32(self.get_x_at_t(t_next)),
+                y: f64_to_f32(self.get_y_at_t(t_next)),
             };
 
             let distance = prev_point.distance(next_point);
@@ -251,7 +272,7 @@ impl SvgCubicCurve {
     }
 
     /// Returns the normalized tangent vector at parameter `t`.
-    pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
+    #[must_use] pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
         // 1. Calculate the derivative of the bezier curve.
         //
         // This means that we go from 4 points to 3 points and redistribute
@@ -295,7 +316,7 @@ impl SvgCubicCurve {
     }
 
     /// Returns the axis-aligned bounding box of the curve's control points.
-    pub fn get_bounds(&self) -> SvgRect {
+    #[must_use] pub fn get_bounds(&self) -> SvgRect {
         let min_x = self
             .start
             .x
@@ -338,7 +359,7 @@ impl SvgCubicCurve {
 impl SvgVector {
     /// Returns the angle of the vector in degrees
     #[inline]
-    pub fn angle_degrees(&self) -> f64 {
+    #[must_use] pub fn angle_degrees(&self) -> f64 {
         (-self.y).atan2(self.x).to_degrees()
     }
 
@@ -367,27 +388,29 @@ impl SvgVector {
     }
 }
 
+// Explicit FP math (mul_add is slower without `+fma`); see SvgCubicCurve.
+#[allow(clippy::suboptimal_flops)]
 impl SvgQuadraticCurve {
-    /// Creates a new SvgQuadraticCurve from start, control, and end points
+    /// Creates a new `SvgQuadraticCurve` from start, control, and end points
     #[inline]
-    pub const fn new(start: SvgPoint, ctrl: SvgPoint, end: SvgPoint) -> Self {
+    #[must_use] pub const fn new(start: SvgPoint, ctrl: SvgPoint, end: SvgPoint) -> Self {
         Self { start, ctrl, end }
     }
 
     /// Reverses the curve direction in place.
-    pub fn reverse(&mut self) {
+    pub const fn reverse(&mut self) {
         core::mem::swap(&mut self.start, &mut self.end);
     }
     /// Returns the start point of the curve.
-    pub fn get_start(&self) -> SvgPoint {
+    #[must_use] pub const fn get_start(&self) -> SvgPoint {
         self.start
     }
     /// Returns the end point of the curve.
-    pub fn get_end(&self) -> SvgPoint {
+    #[must_use] pub const fn get_end(&self) -> SvgPoint {
         self.end
     }
     /// Returns the axis-aligned bounding box of the curve's control points.
-    pub fn get_bounds(&self) -> SvgRect {
+    #[must_use] pub fn get_bounds(&self) -> SvgRect {
         let min_x = self.start.x.min(self.end.x).min(self.ctrl.x);
         let max_x = self.start.x.max(self.end.x).max(self.ctrl.x);
 
@@ -407,38 +430,38 @@ impl SvgQuadraticCurve {
     }
 
     /// Evaluates the x coordinate of the curve at parameter `t` in [0, 1].
-    pub fn get_x_at_t(&self, t: f64) -> f64 {
+    #[must_use] pub fn get_x_at_t(&self, t: f64) -> f64 {
         let one_minus = 1.0 - t;
-        one_minus * one_minus * self.start.x as f64
-            + 2.0 * one_minus * t * self.ctrl.x as f64
-            + t * t * self.end.x as f64
+        one_minus * one_minus * f64::from(self.start.x)
+            + 2.0 * one_minus * t * f64::from(self.ctrl.x)
+            + t * t * f64::from(self.end.x)
     }
 
     /// Evaluates the y coordinate of the curve at parameter `t` in [0, 1].
-    pub fn get_y_at_t(&self, t: f64) -> f64 {
+    #[must_use] pub fn get_y_at_t(&self, t: f64) -> f64 {
         let one_minus = 1.0 - t;
-        one_minus * one_minus * self.start.y as f64
-            + 2.0 * one_minus * t * self.ctrl.y as f64
-            + t * t * self.end.y as f64
+        one_minus * one_minus * f64::from(self.start.y)
+            + 2.0 * one_minus * t * f64::from(self.ctrl.y)
+            + t * t * f64::from(self.end.y)
     }
 
     /// Returns the approximate arc length by converting to a cubic curve.
-    pub fn get_length(&self) -> f64 {
+    #[must_use] pub fn get_length(&self) -> f64 {
         self.to_cubic().get_length()
     }
 
     /// Returns the parameter `t` corresponding to a given arc-length `offset`.
-    pub fn get_t_at_offset(&self, offset: f64) -> f64 {
+    #[must_use] pub fn get_t_at_offset(&self, offset: f64) -> f64 {
         self.to_cubic().get_t_at_offset(offset)
     }
 
     /// Returns the normalized tangent vector at parameter `t`.
-    pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
+    #[must_use] pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
         self.to_cubic().get_tangent_vector_at_t(t)
     }
 
     /// Converts this quadratic curve to an equivalent cubic bezier curve.
-    fn to_cubic(&self) -> SvgCubicCurve {
+    fn to_cubic(self) -> SvgCubicCurve {
         SvgCubicCurve {
             start: self.start,
             ctrl_1: SvgPoint {
@@ -456,44 +479,44 @@ impl SvgQuadraticCurve {
 
 impl AnimationInterpolationFunction {
     /// Returns the cubic bezier curve corresponding to this timing function.
-    pub const fn get_curve(self) -> SvgCubicCurve {
+    #[must_use] pub const fn get_curve(self) -> SvgCubicCurve {
         match self {
-            AnimationInterpolationFunction::Ease => SvgCubicCurve {
+            Self::Ease => SvgCubicCurve {
                 start: SvgPoint { x: 0.0, y: 0.0 },
                 ctrl_1: SvgPoint { x: 0.25, y: 0.1 },
                 ctrl_2: SvgPoint { x: 0.25, y: 1.0 },
                 end: SvgPoint { x: 1.0, y: 1.0 },
             },
-            AnimationInterpolationFunction::Linear => SvgCubicCurve {
+            Self::Linear => SvgCubicCurve {
                 start: SvgPoint { x: 0.0, y: 0.0 },
                 ctrl_1: SvgPoint { x: 0.0, y: 0.0 },
                 ctrl_2: SvgPoint { x: 1.0, y: 1.0 },
                 end: SvgPoint { x: 1.0, y: 1.0 },
             },
-            AnimationInterpolationFunction::EaseIn => SvgCubicCurve {
+            Self::EaseIn => SvgCubicCurve {
                 start: SvgPoint { x: 0.0, y: 0.0 },
                 ctrl_1: SvgPoint { x: 0.42, y: 0.0 },
                 ctrl_2: SvgPoint { x: 1.0, y: 1.0 },
                 end: SvgPoint { x: 1.0, y: 1.0 },
             },
-            AnimationInterpolationFunction::EaseOut => SvgCubicCurve {
+            Self::EaseOut => SvgCubicCurve {
                 start: SvgPoint { x: 0.0, y: 0.0 },
                 ctrl_1: SvgPoint { x: 0.0, y: 0.0 },
                 ctrl_2: SvgPoint { x: 0.58, y: 1.0 },
                 end: SvgPoint { x: 1.0, y: 1.0 },
             },
-            AnimationInterpolationFunction::EaseInOut => SvgCubicCurve {
+            Self::EaseInOut => SvgCubicCurve {
                 start: SvgPoint { x: 0.0, y: 0.0 },
                 ctrl_1: SvgPoint { x: 0.42, y: 0.0 },
                 ctrl_2: SvgPoint { x: 0.58, y: 1.0 },
                 end: SvgPoint { x: 1.0, y: 1.0 },
             },
-            AnimationInterpolationFunction::CubicBezier(c) => c,
+            Self::CubicBezier(c) => c,
         }
     }
 
     /// Evaluates the interpolation function at time `t`, returning the eased value.
-    pub fn evaluate(self, t: f64) -> f32 {
-        self.get_curve().get_y_at_t(t) as f32
+    #[must_use] pub fn evaluate(self, t: f64) -> f32 {
+        f64_to_f32(self.get_curve().get_y_at_t(t))
     }
 }

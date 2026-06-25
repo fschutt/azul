@@ -36,6 +36,7 @@ const DEFAULT_H: u32 = 720;
 
 /// Live state for one screencap widget, carried across relayout by
 /// [`merge_screencap_state`].
+#[derive(Debug)]
 pub struct ScreenCaptureWidgetState {
     /// The requested capture configuration (the control POD).
     pub config: ScreenCaptureConfig,
@@ -51,6 +52,7 @@ pub struct ScreenCaptureWidgetState {
 /// A screen-capture widget. `create(config).dom()` yields an `<img>` the
 /// capture thread keeps fed.
 #[repr(C)]
+#[derive(Debug)]
 pub struct ScreenCaptureWidget {
     /// What to capture + fps + format.
     pub config: ScreenCaptureConfig,
@@ -60,7 +62,7 @@ pub struct ScreenCaptureWidget {
 
 impl ScreenCaptureWidget {
     /// Create a screencap widget for the given config.
-    pub fn create(config: ScreenCaptureConfig) -> Self {
+    #[must_use] pub const fn create(config: ScreenCaptureConfig) -> Self {
         Self {
             config,
             on_frame: OptionOnVideoFrame::None,
@@ -79,6 +81,7 @@ impl ScreenCaptureWidget {
     }
 
     /// Builder form of [`set_on_frame`](Self::set_on_frame).
+    #[must_use]
     pub fn with_on_frame<C: Into<OnVideoFrameCallback>>(
         mut self,
         data: RefAny,
@@ -90,7 +93,7 @@ impl ScreenCaptureWidget {
 
     /// Build the widget's DOM: a single `<img>` node, fed by a background
     /// capture thread started on mount.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         let state = ScreenCaptureWidgetState {
             config: self.config,
             started: false,
@@ -108,21 +111,20 @@ impl ScreenCaptureWidget {
 
         Dom::create_image(placeholder)
             .with_dataset(OptionRefAny::Some(dataset.clone()))
-            .with_merge_callback(merge_screencap_state as DatasetMergeCallbackType)
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_screencap_state))
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset,
-                Callback::from(screencap_on_after_mount as CallbackType),
+                Callback::from_ptr(screencap_on_after_mount),
             )
     }
 }
 
-/// AfterMount: start the background capture thread exactly once.
+/// `AfterMount`: start the background capture thread exactly once.
 extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     {
-        let mut s = match data.downcast_mut::<ScreenCaptureWidgetState>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut s) = data.downcast_mut::<ScreenCaptureWidgetState>() else {
+            return Update::DoNothing;
         };
         if s.started {
             return Update::DoNothing;
@@ -141,12 +143,12 @@ extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo)
 }
 
 /// Background worker (test pattern): a downward-moving white band on dark grey,
-/// ~30×/s. Replaced by the real ScreenCaptureKit / MediaProjection worker.
+/// ~30×/s. Replaced by the real `ScreenCaptureKit` / `MediaProjection` worker.
 extern "C" fn screencap_worker(_init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     // Real platform capture if the dll registered a screen backend
     // (ScreenCaptureKit / X11 / DXGI; Wayland stays a dummy); else the test pattern.
     if let Some(backend) = screen_backend() {
-        let handle = (backend.open)(0, DEFAULT_W as u32, DEFAULT_H as u32);
+        let handle = (backend.open)(0, DEFAULT_W, DEFAULT_H);
         if handle != 0 {
             let mut buf: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
             loop {
@@ -183,8 +185,8 @@ extern "C" fn screencap_worker(_init: RefAny, mut sender: ThreadSender, _recv: T
             }
         }
         let frame = VideoFrame {
-            width: w as u32,
-            height: h as u32,
+            width: u32::try_from(w).unwrap_or(0),
+            height: u32::try_from(h).unwrap_or(0),
             bytes: bytes.into(),
         };
         let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
@@ -206,10 +208,7 @@ extern "C" fn screencap_writeback(
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let (current, hook) = match writeback_data.downcast_ref::<ScreenCaptureWidgetState>() {
-        Some(s) => (s.gl_texture_id, s.on_frame.clone()),
-        None => (None, OptionOnVideoFrame::None),
-    };
+    let (current, hook) = writeback_data.downcast_ref::<ScreenCaptureWidgetState>().map_or_else(|| (None, OptionOnVideoFrame::None), |s| (s.gl_texture_id, s.on_frame.clone()));
     let mut user_update = Update::DoNothing;
     let new_id = match frame_data.downcast_ref::<VideoFrame>() {
         Some(frame) => {

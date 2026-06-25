@@ -33,13 +33,13 @@ pub type RestyleNodes = BTreeMap<NodeId, Vec<ChangedCssProperty>>;
 pub type RelayoutNodes = BTreeMap<NodeId, Vec<ChangedCssProperty>>;
 pub type RelayoutWords = BTreeMap<NodeId, AzString>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FocusChange {
     pub old: Option<DomNodeId>,
     pub new: Option<DomNodeId>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CallbackToCall {
     pub node_id: NodeId,
     pub hit_test_item: Option<HitTestItem>,
@@ -47,7 +47,7 @@ pub struct CallbackToCall {
 }
 
 impl CallbackToCall {
-    pub fn new(
+    #[must_use] pub const fn new(
         node_id: NodeId,
         hit_test_item: Option<HitTestItem>,
         event_filter: EventFilter,
@@ -58,20 +58,20 @@ impl CallbackToCall {
     /// Build a list of `CallbackToCall` entries for every node hit by the
     /// given hit test under the given DOM, tagged with `event_filter`.
     /// Returns an empty `Vec` when there is no hit test data for the DOM.
-    pub fn from_hit_test(
+    #[must_use] pub fn from_hit_test(
         hit_test: &FullHitTest,
         dom_id: DomId,
         event_filter: EventFilter,
-    ) -> Vec<CallbackToCall> {
+    ) -> Vec<Self> {
         let Some(hit) = hit_test.hovered_nodes.get(&dom_id) else {
             return Vec::new();
         };
         hit.regular_hit_test_nodes
             .iter()
-            .map(|(node_id, item)| CallbackToCall {
+            .map(|(node_id, item)| Self {
                 node_id: *node_id,
-                hit_test_item: Some(item.clone()),
-                event_filter: event_filter.clone(),
+                hit_test_item: Some(*item),
+                event_filter,
             })
             .collect()
     }
@@ -95,8 +95,8 @@ pub enum ProcessEventResult {
 }
 
 impl ProcessEventResult {
-    pub fn order(&self) -> usize {
-        use self::ProcessEventResult::*;
+    #[must_use] pub const fn order(&self) -> usize {
+        use self::ProcessEventResult::{DoNothing, ShouldReRenderCurrentWindow, ShouldUpdateDisplayListCurrentWindow, UpdateHitTesterAndProcessAgain, ShouldIncrementalRelayout, ShouldRegenerateDomCurrentWindow, ShouldRegenerateDomAllWindows};
         match self {
             DoNothing => 0,
             ShouldReRenderCurrentWindow => 1,
@@ -152,20 +152,17 @@ pub enum EventSource {
 /// - **Bubble**: Event travels from target back up to root (most common)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
+#[derive(Default)]
 pub enum EventPhase {
     /// Event travels from root down to target
     Capture,
     /// Event is at the target element
     Target,
     /// Event bubbles from target back up to root
+    #[default]
     Bubble,
 }
 
-impl Default for EventPhase {
-    fn default() -> Self {
-        EventPhase::Bubble
-    }
-}
 
 /// Mouse button identifier for mouse events.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -221,7 +218,7 @@ pub struct ScrollIntoViewOptions {
 
 impl ScrollIntoViewOptions {
     /// Create options with "nearest" alignment for both axes
-    pub fn nearest() -> Self {
+    #[must_use] pub const fn nearest() -> Self {
         Self {
             block: ScrollLogicalPosition::Nearest,
             inline_axis: ScrollLogicalPosition::Nearest,
@@ -230,7 +227,7 @@ impl ScrollIntoViewOptions {
     }
     
     /// Create options with "center" alignment for both axes
-    pub fn center() -> Self {
+    #[must_use] pub const fn center() -> Self {
         Self {
             block: ScrollLogicalPosition::Center,
             inline_axis: ScrollLogicalPosition::Center,
@@ -239,7 +236,7 @@ impl ScrollIntoViewOptions {
     }
     
     /// Create options with "start" alignment for both axes
-    pub fn start() -> Self {
+    #[must_use] pub const fn start() -> Self {
         Self {
             block: ScrollLogicalPosition::Start,
             inline_axis: ScrollLogicalPosition::Start,
@@ -248,7 +245,7 @@ impl ScrollIntoViewOptions {
     }
     
     /// Create options to align the end of the target with the end of the viewport
-    pub fn end() -> Self {
+    #[must_use] pub const fn end() -> Self {
         Self {
             block: ScrollLogicalPosition::End,
             inline_axis: ScrollLogicalPosition::End,
@@ -257,13 +254,13 @@ impl ScrollIntoViewOptions {
     }
     
     /// Set instant scroll behavior
-    pub fn with_instant(mut self) -> Self {
+    #[must_use] pub const fn with_instant(mut self) -> Self {
         self.behavior = ScrollIntoViewBehavior::Instant;
         self
     }
     
     /// Set smooth scroll behavior
-    pub fn with_smooth(mut self) -> Self {
+    #[must_use] pub const fn with_smooth(mut self) -> Self {
         self.behavior = ScrollIntoViewBehavior::Smooth;
         self
     }
@@ -330,37 +327,37 @@ pub struct KeyModifiers {
 }
 
 impl KeyModifiers {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn with_shift(mut self) -> Self {
+    #[must_use] pub const fn with_shift(mut self) -> Self {
         self.shift = true;
         self
     }
 
-    pub fn with_ctrl(mut self) -> Self {
+    #[must_use] pub const fn with_ctrl(mut self) -> Self {
         self.ctrl = true;
         self
     }
 
-    pub fn with_alt(mut self) -> Self {
+    #[must_use] pub const fn with_alt(mut self) -> Self {
         self.alt = true;
         self
     }
 
-    pub fn with_meta(mut self) -> Self {
+    #[must_use] pub const fn with_meta(mut self) -> Self {
         self.meta = true;
         self
     }
 
-    pub fn is_empty(&self) -> bool {
+    #[must_use] pub const fn is_empty(&self) -> bool {
         !self.shift && !self.ctrl && !self.alt && !self.meta
     }
 }
 
 /// Type-specific event data for mouse events.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MouseEventData {
     /// Position of the mouse cursor
     pub position: LogicalPosition,
@@ -373,7 +370,7 @@ pub struct MouseEventData {
 }
 
 /// Type-specific event data for keyboard events.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyboardEventData {
     /// The virtual key code
     pub key_code: u32,
@@ -386,7 +383,7 @@ pub struct KeyboardEventData {
 }
 
 /// Type-specific event data for scroll events.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScrollEventData {
     /// Scroll delta (dx, dy)
     pub delta: LogicalPosition,
@@ -395,7 +392,7 @@ pub struct ScrollEventData {
 }
 
 /// Type-specific event data for touch events.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TouchEventData {
     /// Touch identifier
     pub id: u64,
@@ -406,14 +403,14 @@ pub struct TouchEventData {
 }
 
 /// Type-specific event data for clipboard events.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClipboardEventData {
     /// The clipboard content (for paste events)
     pub content: Option<String>,
 }
 
 /// Type-specific event data for lifecycle events.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LifecycleEventData {
     /// Why this lifecycle event was triggered
     pub reason: LifecycleReason,
@@ -424,7 +421,7 @@ pub struct LifecycleEventData {
 }
 
 /// Type-specific event data for window events.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowEventData {
     /// Window size (for resize events)
     pub size: Option<LogicalRect>,
@@ -439,7 +436,7 @@ pub struct WindowEventData {
 /// callbacks read their data — instead of having to reach into the
 /// `TextInputManager`'s pending changeset. The edited node is already available
 /// via `SyntheticEvent.target`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextInputEventData {
     /// The text inserted by this edit (empty for pure deletions).
     pub inserted_text: String,
@@ -675,7 +672,7 @@ pub enum EventType {
     GamepadInput,
 }
 
-/// Unified event wrapper (similar to React's SyntheticEvent).
+/// Unified event wrapper (similar to React's `SyntheticEvent`).
 ///
 /// All events in the system are wrapped in this structure, providing
 /// a consistent interface and enabling event propagation control.
@@ -717,7 +714,7 @@ impl SyntheticEvent {
     ///
     /// # Parameters
     /// - `timestamp`: Current time from `(system_callbacks.get_system_time_fn.cb)()`
-    pub fn new(
+    #[must_use] pub const fn new(
         event_type: EventType,
         source: EventSource,
         target: DomNodeId,
@@ -742,7 +739,7 @@ impl SyntheticEvent {
     ///
     /// This prevents the event from reaching handlers in subsequent phases
     /// (e.g., stopping during capture prevents bubble phase).
-    pub fn stop_propagation(&mut self) {
+    pub const fn stop_propagation(&mut self) {
         self.stopped = true;
     }
 
@@ -750,7 +747,7 @@ impl SyntheticEvent {
     ///
     /// This prevents any further handlers from being called, even on the
     /// current target element.
-    pub fn stop_immediate_propagation(&mut self) {
+    pub const fn stop_immediate_propagation(&mut self) {
         self.stopped_immediate = true;
         self.stopped = true;
     }
@@ -759,28 +756,29 @@ impl SyntheticEvent {
     ///
     /// For example, prevents form submission on Enter key, or prevents
     /// text selection on drag.
-    pub fn prevent_default(&mut self) {
+    pub const fn prevent_default(&mut self) {
         self.prevented_default = true;
     }
 
     /// Check if propagation was stopped.
-    pub fn is_propagation_stopped(&self) -> bool {
+    #[must_use] pub const fn is_propagation_stopped(&self) -> bool {
         self.stopped
     }
 
     /// Check if immediate propagation was stopped.
-    pub fn is_immediate_propagation_stopped(&self) -> bool {
+    #[must_use] pub const fn is_immediate_propagation_stopped(&self) -> bool {
         self.stopped_immediate
     }
 
     /// Check if default action was prevented.
-    pub fn is_default_prevented(&self) -> bool {
+    #[must_use] pub const fn is_default_prevented(&self) -> bool {
         self.prevented_default
     }
 }
 
 /// Result of event propagation through DOM tree.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct PropagationResult {
     /// Callbacks that should be invoked, in order
     pub callbacks_to_invoke: Vec<(NodeId, EventFilter)>,
@@ -794,14 +792,13 @@ pub struct PropagationResult {
 /// are ancestors of the target to implement capture/bubble phases.
 ///
 /// Returns nodes in order from root to target (inclusive).
-pub fn get_dom_path(
+#[must_use] pub fn get_dom_path(
     node_hierarchy: &crate::id::NodeHierarchy,
     target_node: NodeHierarchyItemId,
 ) -> Vec<NodeId> {
     let mut path = Vec::new();
-    let target_node_id = match target_node.into_crate_internal() {
-        Some(id) => id,
-        None => return path,
+    let Some(target_node_id) = target_node.into_crate_internal() else {
+        return path;
     };
 
     let hier_ref = node_hierarchy.as_ref();
@@ -827,6 +824,10 @@ pub fn get_dom_path(
 ///
 /// The event can be stopped at any point via `stopPropagation()` or
 /// `stopImmediatePropagation()`.
+///
+/// # Panics
+///
+/// Panics if `path` is empty; it must contain at least the target node.
 pub fn propagate_event(
     event: &mut SyntheticEvent,
     node_hierarchy: &crate::id::NodeHierarchy,
@@ -923,20 +924,12 @@ fn collect_matching_callbacks(
     let matching = node_callbacks
         .iter()
         .take_while(|_| !event.stopped_immediate)
-        .filter(|filter| matches_filter_phase(filter, event, phase))
+        .filter(|filter| matches_filter_phase(**filter, event, phase))
         .map(|filter| (node_id, *filter));
 
     result.callbacks_to_invoke.extend(matching);
 }
 
-impl Default for PropagationResult {
-    fn default() -> Self {
-        Self {
-            callbacks_to_invoke: Vec::new(),
-            default_prevented: false,
-        }
-    }
-}
 
 // =============================================================================
 // DEFAULT ACTIONS (W3C UI Events / HTML5 Activation Behavior)
@@ -956,7 +949,7 @@ impl Default for PropagationResult {
 ///
 /// Default actions are processed AFTER all event callbacks have been invoked,
 /// and only if `event.prevent_default()` was NOT called.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(C, u8)]
 pub enum DefaultAction {
     /// Move focus to the next focusable element (Tab key)
@@ -1011,7 +1004,7 @@ pub enum ScrollAmount {
 /// 1. The event type
 /// 2. The target element's type/role
 /// 3. Whether `prevent_default()` was called
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct DefaultActionResult {
     /// The default action to perform (if any)
@@ -1031,15 +1024,15 @@ impl Default for DefaultActionResult {
 
 impl DefaultActionResult {
     /// Create a new result with a specific action
-    pub fn new(action: DefaultAction) -> Self {
+    #[must_use] pub const fn new(action: DefaultAction) -> Self {
         Self {
             action,
             prevented: false,
         }
     }
 
-    /// Create a prevented result (callback called prevent_default)
-    pub fn prevented() -> Self {
+    /// Create a prevented result (callback called `prevent_default`)
+    #[must_use] pub const fn prevented() -> Self {
         Self {
             action: DefaultAction::None,
             prevented: true,
@@ -1047,7 +1040,7 @@ impl DefaultActionResult {
     }
 
     /// Check if there's an action to perform
-    pub fn has_action(&self) -> bool {
+    #[must_use] pub const fn has_action(&self) -> bool {
         !self.prevented && !matches!(self.action, DefaultAction::None)
     }
 }
@@ -1082,10 +1075,7 @@ pub trait Focusable {
 
     /// Returns true if this element should be in the tab order
     fn is_in_tab_order(&self) -> bool {
-        match self.get_tabindex() {
-            None => self.is_naturally_focusable(),
-            Some(i) => i >= 0,
-        }
+        self.get_tabindex().map_or_else(|| self.is_naturally_focusable(), |i| i >= 0)
     }
 
     /// Returns true if this element type is naturally focusable
@@ -1098,7 +1088,7 @@ pub trait Focusable {
 /// This is used during event propagation to determine which callbacks
 /// should be invoked at each phase.
 fn matches_filter_phase(
-    filter: &EventFilter,
+    filter: EventFilter,
     event: &SyntheticEvent,
     current_phase: EventPhase,
 ) -> bool {
@@ -1140,8 +1130,8 @@ fn matches_filter_phase(
 /// invoke the target directly also need a way to compare. This predicate is
 /// the single source of truth for that comparison; changing it without
 /// updating `event_type_to_filters` will de-sync dispatch.
-fn matches_component_filter(
-    filter: &ComponentEventFilter,
+const fn matches_component_filter(
+    filter: ComponentEventFilter,
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
@@ -1164,12 +1154,16 @@ fn check_mouse_button(data: &EventData, expected: MouseButton) -> bool {
 }
 
 /// Check if a hover filter matches the event.
+// Exhaustive (filter, event-type) truth table: many distinct pairs share the
+// `=> true` body. One arm per pair is intentional; merging into giant or-patterns
+// would destroy the table's readability/maintainability.
+#[allow(clippy::match_same_arms)]
 fn matches_hover_filter(
-    filter: &HoverEventFilter,
+    filter: HoverEventFilter,
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use HoverEventFilter::*;
+    use HoverEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop, DoubleClick, SensorChanged, GamepadInput};
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1220,12 +1214,14 @@ fn matches_hover_filter(
 }
 
 /// Check if a focus filter matches the event.
+// Exhaustive (filter, event-type) truth table — see matches_hover_filter.
+#[allow(clippy::match_same_arms)]
 fn matches_focus_filter(
-    filter: &FocusEventFilter,
+    filter: FocusEventFilter,
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use FocusEventFilter::*;
+    use FocusEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, FocusReceived, FocusLost, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1263,12 +1259,14 @@ fn matches_focus_filter(
 }
 
 /// Check if a window filter matches the event.
+// Exhaustive (filter, event-type) truth table — see matches_hover_filter.
+#[allow(clippy::match_same_arms)]
 fn matches_window_filter(
-    filter: &WindowEventFilter,
+    filter: WindowEventFilter,
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use WindowEventFilter::*;
+    use WindowEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, Resized, Moved, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, FocusReceived, FocusLost, CloseRequested, ThemeChanged, WindowFocusReceived, WindowFocusLost, SensorChanged, GamepadInput, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1332,7 +1330,8 @@ fn matches_window_filter(
 /// use `detect_lifecycle_events_with_reconciliation`.
 ///
 /// Generates Mount, Unmount, and Resize events by comparing DOM hierarchies.
-pub fn detect_lifecycle_events(
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+#[must_use] pub fn detect_lifecycle_events(
     old_dom_id: DomId,
     new_dom_id: DomId,
     old_hierarchy: Option<&crate::id::NodeHierarchy>,
@@ -1480,9 +1479,9 @@ fn create_resize_event(
 pub struct LifecycleEventResult {
     /// Lifecycle events (Mount, Unmount, Resize, Update)
     pub events: Vec<SyntheticEvent>,
-    /// Maps old NodeId -> new NodeId for matched nodes.
+    /// Maps old `NodeId` -> new `NodeId` for matched nodes.
     /// Use this to migrate focus, scroll state, and other node-specific state.
-    pub node_id_mapping: crate::OrderedMap<NodeId, NodeId>,
+    pub node_id_mapping: OrderedMap<NodeId, NodeId>,
 }
 
 /// Detect lifecycle events using reconciliation with stable keys and content hashing.
@@ -1510,7 +1509,7 @@ pub struct LifecycleEventResult {
 /// # Returns
 /// A `LifecycleEventResult` containing:
 /// - `events`: Lifecycle events to dispatch
-/// - `node_id_mapping`: Mapping from old to new NodeIds for state migration
+/// - `node_id_mapping`: Mapping from old to new `NodeIds` for state migration
 ///
 /// # Example
 /// ```rust,ignore
@@ -1538,14 +1537,14 @@ pub struct LifecycleEventResult {
 ///     }
 /// }
 /// ```
-pub fn detect_lifecycle_events_with_reconciliation(
+#[must_use] pub fn detect_lifecycle_events_with_reconciliation(
     dom_id: DomId,
     old_node_data: &[crate::dom::NodeData],
     new_node_data: &[crate::dom::NodeData],
     old_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
     new_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
-    old_layout: &crate::OrderedMap<NodeId, LogicalRect>,
-    new_layout: &crate::OrderedMap<NodeId, LogicalRect>,
+    old_layout: &OrderedMap<NodeId, LogicalRect>,
+    new_layout: &OrderedMap<NodeId, LogicalRect>,
     timestamp: Instant,
 ) -> LifecycleEventResult {
     let diff_result = crate::diff::reconcile_dom(
@@ -1721,82 +1720,85 @@ pub enum HoverEventFilter {
 
 impl HoverEventFilter {
     /// Check if this is an internal system event that should not be exposed to user callbacks
-    pub const fn is_system_internal(&self) -> bool {
+    #[must_use] pub const fn is_system_internal(&self) -> bool {
         matches!(
             self,
-            HoverEventFilter::SystemTextSingleClick
-                | HoverEventFilter::SystemTextDoubleClick
-                | HoverEventFilter::SystemTextTripleClick
+            Self::SystemTextSingleClick
+                | Self::SystemTextDoubleClick
+                | Self::SystemTextTripleClick
         )
     }
 
-    pub fn to_focus_event_filter(&self) -> Option<FocusEventFilter> {
+    // Exhaustive On -> Option<FocusEventFilter> mapping table; the several `=> None`
+    // rows (window-only events) are intentional 1:1 rows — merging would collapse the table.
+    #[allow(clippy::match_same_arms)]
+    #[must_use] pub const fn to_focus_event_filter(&self) -> Option<FocusEventFilter> {
         match self {
-            HoverEventFilter::MouseOver => Some(FocusEventFilter::MouseOver),
-            HoverEventFilter::MouseDown => Some(FocusEventFilter::MouseDown),
-            HoverEventFilter::LeftMouseDown => Some(FocusEventFilter::LeftMouseDown),
-            HoverEventFilter::RightMouseDown => Some(FocusEventFilter::RightMouseDown),
-            HoverEventFilter::MiddleMouseDown => Some(FocusEventFilter::MiddleMouseDown),
-            HoverEventFilter::MouseUp => Some(FocusEventFilter::MouseUp),
-            HoverEventFilter::LeftMouseUp => Some(FocusEventFilter::LeftMouseUp),
-            HoverEventFilter::RightMouseUp => Some(FocusEventFilter::RightMouseUp),
-            HoverEventFilter::MiddleMouseUp => Some(FocusEventFilter::MiddleMouseUp),
-            HoverEventFilter::MouseEnter => Some(FocusEventFilter::MouseEnter),
-            HoverEventFilter::MouseLeave => Some(FocusEventFilter::MouseLeave),
-            HoverEventFilter::Scroll => Some(FocusEventFilter::Scroll),
-            HoverEventFilter::ScrollStart => Some(FocusEventFilter::ScrollStart),
-            HoverEventFilter::ScrollEnd => Some(FocusEventFilter::ScrollEnd),
-            HoverEventFilter::TextInput => Some(FocusEventFilter::TextInput),
-            HoverEventFilter::VirtualKeyDown => Some(FocusEventFilter::VirtualKeyDown),
-            HoverEventFilter::VirtualKeyUp => Some(FocusEventFilter::VirtualKeyUp),
-            HoverEventFilter::HoveredFile => None,
-            HoverEventFilter::DroppedFile => None,
-            HoverEventFilter::HoveredFileCancelled => None,
-            HoverEventFilter::TouchStart => None,
-            HoverEventFilter::TouchMove => None,
-            HoverEventFilter::TouchEnd => None,
-            HoverEventFilter::TouchCancel => None,
-            HoverEventFilter::PenDown => Some(FocusEventFilter::PenDown),
-            HoverEventFilter::PenMove => Some(FocusEventFilter::PenMove),
-            HoverEventFilter::PenUp => Some(FocusEventFilter::PenUp),
-            HoverEventFilter::PenEnter => None,
-            HoverEventFilter::PenLeave => None,
-            HoverEventFilter::PenSqueeze => None,
-            HoverEventFilter::PenDoubleTap => None,
-            HoverEventFilter::PenHover => None,
-            HoverEventFilter::GeolocationFix => None,
-            HoverEventFilter::GeolocationError => None,
-            HoverEventFilter::SensorChanged => None,
-            HoverEventFilter::GamepadInput => None,
-            HoverEventFilter::DragStart => Some(FocusEventFilter::DragStart),
-            HoverEventFilter::Drag => Some(FocusEventFilter::Drag),
-            HoverEventFilter::DragEnd => Some(FocusEventFilter::DragEnd),
-            HoverEventFilter::DragEnter => Some(FocusEventFilter::DragEnter),
-            HoverEventFilter::DragOver => Some(FocusEventFilter::DragOver),
-            HoverEventFilter::DragLeave => Some(FocusEventFilter::DragLeave),
-            HoverEventFilter::Drop => Some(FocusEventFilter::Drop),
-            HoverEventFilter::DoubleClick => Some(FocusEventFilter::DoubleClick),
-            HoverEventFilter::LongPress => Some(FocusEventFilter::LongPress),
-            HoverEventFilter::SwipeLeft => Some(FocusEventFilter::SwipeLeft),
-            HoverEventFilter::SwipeRight => Some(FocusEventFilter::SwipeRight),
-            HoverEventFilter::SwipeUp => Some(FocusEventFilter::SwipeUp),
-            HoverEventFilter::SwipeDown => Some(FocusEventFilter::SwipeDown),
-            HoverEventFilter::PinchIn => Some(FocusEventFilter::PinchIn),
-            HoverEventFilter::PinchOut => Some(FocusEventFilter::PinchOut),
-            HoverEventFilter::RotateClockwise => Some(FocusEventFilter::RotateClockwise),
-            HoverEventFilter::RotateCounterClockwise => {
+            Self::MouseOver => Some(FocusEventFilter::MouseOver),
+            Self::MouseDown => Some(FocusEventFilter::MouseDown),
+            Self::LeftMouseDown => Some(FocusEventFilter::LeftMouseDown),
+            Self::RightMouseDown => Some(FocusEventFilter::RightMouseDown),
+            Self::MiddleMouseDown => Some(FocusEventFilter::MiddleMouseDown),
+            Self::MouseUp => Some(FocusEventFilter::MouseUp),
+            Self::LeftMouseUp => Some(FocusEventFilter::LeftMouseUp),
+            Self::RightMouseUp => Some(FocusEventFilter::RightMouseUp),
+            Self::MiddleMouseUp => Some(FocusEventFilter::MiddleMouseUp),
+            Self::MouseEnter => Some(FocusEventFilter::MouseEnter),
+            Self::MouseLeave => Some(FocusEventFilter::MouseLeave),
+            Self::Scroll => Some(FocusEventFilter::Scroll),
+            Self::ScrollStart => Some(FocusEventFilter::ScrollStart),
+            Self::ScrollEnd => Some(FocusEventFilter::ScrollEnd),
+            Self::TextInput => Some(FocusEventFilter::TextInput),
+            Self::VirtualKeyDown => Some(FocusEventFilter::VirtualKeyDown),
+            Self::VirtualKeyUp => Some(FocusEventFilter::VirtualKeyUp),
+            Self::HoveredFile => None,
+            Self::DroppedFile => None,
+            Self::HoveredFileCancelled => None,
+            Self::TouchStart => None,
+            Self::TouchMove => None,
+            Self::TouchEnd => None,
+            Self::TouchCancel => None,
+            Self::PenDown => Some(FocusEventFilter::PenDown),
+            Self::PenMove => Some(FocusEventFilter::PenMove),
+            Self::PenUp => Some(FocusEventFilter::PenUp),
+            Self::PenEnter => None,
+            Self::PenLeave => None,
+            Self::PenSqueeze => None,
+            Self::PenDoubleTap => None,
+            Self::PenHover => None,
+            Self::GeolocationFix => None,
+            Self::GeolocationError => None,
+            Self::SensorChanged => None,
+            Self::GamepadInput => None,
+            Self::DragStart => Some(FocusEventFilter::DragStart),
+            Self::Drag => Some(FocusEventFilter::Drag),
+            Self::DragEnd => Some(FocusEventFilter::DragEnd),
+            Self::DragEnter => Some(FocusEventFilter::DragEnter),
+            Self::DragOver => Some(FocusEventFilter::DragOver),
+            Self::DragLeave => Some(FocusEventFilter::DragLeave),
+            Self::Drop => Some(FocusEventFilter::Drop),
+            Self::DoubleClick => Some(FocusEventFilter::DoubleClick),
+            Self::LongPress => Some(FocusEventFilter::LongPress),
+            Self::SwipeLeft => Some(FocusEventFilter::SwipeLeft),
+            Self::SwipeRight => Some(FocusEventFilter::SwipeRight),
+            Self::SwipeUp => Some(FocusEventFilter::SwipeUp),
+            Self::SwipeDown => Some(FocusEventFilter::SwipeDown),
+            Self::PinchIn => Some(FocusEventFilter::PinchIn),
+            Self::PinchOut => Some(FocusEventFilter::PinchOut),
+            Self::RotateClockwise => Some(FocusEventFilter::RotateClockwise),
+            Self::RotateCounterClockwise => {
                 Some(FocusEventFilter::RotateCounterClockwise)
             }
-            HoverEventFilter::MouseOut => Some(FocusEventFilter::MouseLeave), // mouseout → closest focus equivalent
-            HoverEventFilter::FocusIn => Some(FocusEventFilter::FocusIn),
-            HoverEventFilter::FocusOut => Some(FocusEventFilter::FocusOut),
-            HoverEventFilter::CompositionStart => Some(FocusEventFilter::CompositionStart),
-            HoverEventFilter::CompositionUpdate => Some(FocusEventFilter::CompositionUpdate),
-            HoverEventFilter::CompositionEnd => Some(FocusEventFilter::CompositionEnd),
+            Self::MouseOut => Some(FocusEventFilter::MouseLeave), // mouseout → closest focus equivalent
+            Self::FocusIn => Some(FocusEventFilter::FocusIn),
+            Self::FocusOut => Some(FocusEventFilter::FocusOut),
+            Self::CompositionStart => Some(FocusEventFilter::CompositionStart),
+            Self::CompositionUpdate => Some(FocusEventFilter::CompositionUpdate),
+            Self::CompositionEnd => Some(FocusEventFilter::CompositionEnd),
             // System internal events - don't convert to focus events
-            HoverEventFilter::SystemTextSingleClick => None,
-            HoverEventFilter::SystemTextDoubleClick => None,
-            HoverEventFilter::SystemTextTripleClick => None,
+            Self::SystemTextSingleClick => None,
+            Self::SystemTextDoubleClick => None,
+            Self::SystemTextTripleClick => None,
         }
     }
 }
@@ -2050,76 +2052,78 @@ pub enum WindowEventFilter {
 }
 
 impl WindowEventFilter {
-    pub fn to_hover_event_filter(&self) -> Option<HoverEventFilter> {
+    // Exhaustive On -> Option<HoverEventFilter> mapping table (see to_focus_event_filter).
+    #[allow(clippy::match_same_arms)]
+    #[must_use] pub const fn to_hover_event_filter(&self) -> Option<HoverEventFilter> {
         match self {
-            WindowEventFilter::MouseOver => Some(HoverEventFilter::MouseOver),
-            WindowEventFilter::MouseDown => Some(HoverEventFilter::MouseDown),
-            WindowEventFilter::LeftMouseDown => Some(HoverEventFilter::LeftMouseDown),
-            WindowEventFilter::RightMouseDown => Some(HoverEventFilter::RightMouseDown),
-            WindowEventFilter::MiddleMouseDown => Some(HoverEventFilter::MiddleMouseDown),
-            WindowEventFilter::MouseUp => Some(HoverEventFilter::MouseUp),
-            WindowEventFilter::LeftMouseUp => Some(HoverEventFilter::LeftMouseUp),
-            WindowEventFilter::RightMouseUp => Some(HoverEventFilter::RightMouseUp),
-            WindowEventFilter::MiddleMouseUp => Some(HoverEventFilter::MiddleMouseUp),
-            WindowEventFilter::Scroll => Some(HoverEventFilter::Scroll),
-            WindowEventFilter::ScrollStart => Some(HoverEventFilter::ScrollStart),
-            WindowEventFilter::ScrollEnd => Some(HoverEventFilter::ScrollEnd),
-            WindowEventFilter::TextInput => Some(HoverEventFilter::TextInput),
-            WindowEventFilter::VirtualKeyDown => Some(HoverEventFilter::VirtualKeyDown),
-            WindowEventFilter::VirtualKeyUp => Some(HoverEventFilter::VirtualKeyUp),
-            WindowEventFilter::HoveredFile => Some(HoverEventFilter::HoveredFile),
-            WindowEventFilter::DroppedFile => Some(HoverEventFilter::DroppedFile),
-            WindowEventFilter::HoveredFileCancelled => Some(HoverEventFilter::HoveredFileCancelled),
+            Self::MouseOver => Some(HoverEventFilter::MouseOver),
+            Self::MouseDown => Some(HoverEventFilter::MouseDown),
+            Self::LeftMouseDown => Some(HoverEventFilter::LeftMouseDown),
+            Self::RightMouseDown => Some(HoverEventFilter::RightMouseDown),
+            Self::MiddleMouseDown => Some(HoverEventFilter::MiddleMouseDown),
+            Self::MouseUp => Some(HoverEventFilter::MouseUp),
+            Self::LeftMouseUp => Some(HoverEventFilter::LeftMouseUp),
+            Self::RightMouseUp => Some(HoverEventFilter::RightMouseUp),
+            Self::MiddleMouseUp => Some(HoverEventFilter::MiddleMouseUp),
+            Self::Scroll => Some(HoverEventFilter::Scroll),
+            Self::ScrollStart => Some(HoverEventFilter::ScrollStart),
+            Self::ScrollEnd => Some(HoverEventFilter::ScrollEnd),
+            Self::TextInput => Some(HoverEventFilter::TextInput),
+            Self::VirtualKeyDown => Some(HoverEventFilter::VirtualKeyDown),
+            Self::VirtualKeyUp => Some(HoverEventFilter::VirtualKeyUp),
+            Self::HoveredFile => Some(HoverEventFilter::HoveredFile),
+            Self::DroppedFile => Some(HoverEventFilter::DroppedFile),
+            Self::HoveredFileCancelled => Some(HoverEventFilter::HoveredFileCancelled),
             // MouseEnter and MouseLeave on the **window** - does not mean a mouseenter
             // and a mouseleave on the hovered element
-            WindowEventFilter::MouseEnter => None,
-            WindowEventFilter::MouseLeave => None,
-            WindowEventFilter::Resized => None,
-            WindowEventFilter::Moved => None,
-            WindowEventFilter::TouchStart => Some(HoverEventFilter::TouchStart),
-            WindowEventFilter::TouchMove => Some(HoverEventFilter::TouchMove),
-            WindowEventFilter::TouchEnd => Some(HoverEventFilter::TouchEnd),
-            WindowEventFilter::TouchCancel => Some(HoverEventFilter::TouchCancel),
-            WindowEventFilter::FocusReceived => None,
-            WindowEventFilter::FocusLost => None,
-            WindowEventFilter::CloseRequested => None,
-            WindowEventFilter::ThemeChanged => None,
-            WindowEventFilter::WindowFocusReceived => None, // specific to window!
-            WindowEventFilter::WindowFocusLost => None,     // specific to window!
-            WindowEventFilter::PenDown => Some(HoverEventFilter::PenDown),
-            WindowEventFilter::PenMove => Some(HoverEventFilter::PenMove),
-            WindowEventFilter::PenUp => Some(HoverEventFilter::PenUp),
-            WindowEventFilter::PenEnter => Some(HoverEventFilter::PenEnter),
-            WindowEventFilter::PenLeave => Some(HoverEventFilter::PenLeave),
-            WindowEventFilter::PenSqueeze => Some(HoverEventFilter::PenSqueeze),
-            WindowEventFilter::PenDoubleTap => Some(HoverEventFilter::PenDoubleTap),
-            WindowEventFilter::PenHover => Some(HoverEventFilter::PenHover),
-            WindowEventFilter::GeolocationFix => Some(HoverEventFilter::GeolocationFix),
-            WindowEventFilter::GeolocationError => Some(HoverEventFilter::GeolocationError),
-            WindowEventFilter::SensorChanged => Some(HoverEventFilter::SensorChanged),
-            WindowEventFilter::GamepadInput => Some(HoverEventFilter::GamepadInput),
-            WindowEventFilter::DragStart => Some(HoverEventFilter::DragStart),
-            WindowEventFilter::Drag => Some(HoverEventFilter::Drag),
-            WindowEventFilter::DragEnd => Some(HoverEventFilter::DragEnd),
-            WindowEventFilter::DragEnter => Some(HoverEventFilter::DragEnter),
-            WindowEventFilter::DragOver => Some(HoverEventFilter::DragOver),
-            WindowEventFilter::DragLeave => Some(HoverEventFilter::DragLeave),
-            WindowEventFilter::Drop => Some(HoverEventFilter::Drop),
-            WindowEventFilter::DoubleClick => Some(HoverEventFilter::DoubleClick),
-            WindowEventFilter::LongPress => Some(HoverEventFilter::LongPress),
-            WindowEventFilter::SwipeLeft => Some(HoverEventFilter::SwipeLeft),
-            WindowEventFilter::SwipeRight => Some(HoverEventFilter::SwipeRight),
-            WindowEventFilter::SwipeUp => Some(HoverEventFilter::SwipeUp),
-            WindowEventFilter::SwipeDown => Some(HoverEventFilter::SwipeDown),
-            WindowEventFilter::PinchIn => Some(HoverEventFilter::PinchIn),
-            WindowEventFilter::PinchOut => Some(HoverEventFilter::PinchOut),
-            WindowEventFilter::RotateClockwise => Some(HoverEventFilter::RotateClockwise),
-            WindowEventFilter::RotateCounterClockwise => {
+            Self::MouseEnter => None,
+            Self::MouseLeave => None,
+            Self::Resized => None,
+            Self::Moved => None,
+            Self::TouchStart => Some(HoverEventFilter::TouchStart),
+            Self::TouchMove => Some(HoverEventFilter::TouchMove),
+            Self::TouchEnd => Some(HoverEventFilter::TouchEnd),
+            Self::TouchCancel => Some(HoverEventFilter::TouchCancel),
+            Self::FocusReceived => None,
+            Self::FocusLost => None,
+            Self::CloseRequested => None,
+            Self::ThemeChanged => None,
+            Self::WindowFocusReceived => None, // specific to window!
+            Self::WindowFocusLost => None,     // specific to window!
+            Self::PenDown => Some(HoverEventFilter::PenDown),
+            Self::PenMove => Some(HoverEventFilter::PenMove),
+            Self::PenUp => Some(HoverEventFilter::PenUp),
+            Self::PenEnter => Some(HoverEventFilter::PenEnter),
+            Self::PenLeave => Some(HoverEventFilter::PenLeave),
+            Self::PenSqueeze => Some(HoverEventFilter::PenSqueeze),
+            Self::PenDoubleTap => Some(HoverEventFilter::PenDoubleTap),
+            Self::PenHover => Some(HoverEventFilter::PenHover),
+            Self::GeolocationFix => Some(HoverEventFilter::GeolocationFix),
+            Self::GeolocationError => Some(HoverEventFilter::GeolocationError),
+            Self::SensorChanged => Some(HoverEventFilter::SensorChanged),
+            Self::GamepadInput => Some(HoverEventFilter::GamepadInput),
+            Self::DragStart => Some(HoverEventFilter::DragStart),
+            Self::Drag => Some(HoverEventFilter::Drag),
+            Self::DragEnd => Some(HoverEventFilter::DragEnd),
+            Self::DragEnter => Some(HoverEventFilter::DragEnter),
+            Self::DragOver => Some(HoverEventFilter::DragOver),
+            Self::DragLeave => Some(HoverEventFilter::DragLeave),
+            Self::Drop => Some(HoverEventFilter::Drop),
+            Self::DoubleClick => Some(HoverEventFilter::DoubleClick),
+            Self::LongPress => Some(HoverEventFilter::LongPress),
+            Self::SwipeLeft => Some(HoverEventFilter::SwipeLeft),
+            Self::SwipeRight => Some(HoverEventFilter::SwipeRight),
+            Self::SwipeUp => Some(HoverEventFilter::SwipeUp),
+            Self::SwipeDown => Some(HoverEventFilter::SwipeDown),
+            Self::PinchIn => Some(HoverEventFilter::PinchIn),
+            Self::PinchOut => Some(HoverEventFilter::PinchOut),
+            Self::RotateClockwise => Some(HoverEventFilter::RotateClockwise),
+            Self::RotateCounterClockwise => {
                 Some(HoverEventFilter::RotateCounterClockwise)
             }
             // Window-specific events with no hover equivalent
-            WindowEventFilter::DpiChanged => None,
-            WindowEventFilter::MonitorChanged => None,
+            Self::DpiChanged => None,
+            Self::MonitorChanged => None,
         }
     }
 }
@@ -2186,17 +2190,11 @@ pub enum EventFilter {
 }
 
 impl EventFilter {
-    pub const fn is_focus_callback(&self) -> bool {
-        match self {
-            EventFilter::Focus(_) => true,
-            _ => false,
-        }
+    #[must_use] pub const fn is_focus_callback(&self) -> bool {
+        matches!(self, Self::Focus(_))
     }
-    pub const fn is_window_callback(&self) -> bool {
-        match self {
-            EventFilter::Window(_) => true,
-            _ => false,
-        }
+    #[must_use] pub const fn is_window_callback(&self) -> bool {
+        matches!(self, Self::Window(_))
     }
 }
 
@@ -2204,7 +2202,7 @@ impl EventFilter {
 /// variant if the enum is that variant.
 macro_rules! get_single_enum_type {
     ($fn_name:ident, $enum_name:ident:: $variant:ident($return_type:ty)) => {
-        pub fn $fn_name(&self) -> Option<$return_type> {
+        #[must_use] pub const fn $fn_name(&self) -> Option<$return_type> {
             use self::$enum_name::*;
             match self {
                 $variant(e) => Some(*e),
@@ -2229,37 +2227,41 @@ impl EventFilter {
 /// For example, `On::TextInput` becomes a Focus event filter, while `On::VirtualKeyDown`
 /// becomes a Window event filter (since it's global to the window).
 impl From<On> for EventFilter {
-    fn from(input: On) -> EventFilter {
-        use crate::dom::On::*;
+    // Exhaustive On -> EventFilter mapping table; the a11y events (Default/Collapse/
+    // Expand/Increment/Decrement) all map to MouseUp ("click") as intentional 1:1
+    // documented rows — merging would drop the per-row rationale comments.
+    #[allow(clippy::match_same_arms)]
+    fn from(input: On) -> Self {
+        use crate::dom::On::{MouseOver, MouseDown, LeftMouseDown, MiddleMouseDown, RightMouseDown, MouseUp, LeftMouseUp, MiddleMouseUp, RightMouseUp, MouseEnter, MouseLeave, Scroll, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, FocusReceived, FocusLost, Default, Collapse, Expand, Increment, Decrement};
         match input {
-            MouseOver => EventFilter::Hover(HoverEventFilter::MouseOver),
-            MouseDown => EventFilter::Hover(HoverEventFilter::MouseDown),
-            LeftMouseDown => EventFilter::Hover(HoverEventFilter::LeftMouseDown),
-            MiddleMouseDown => EventFilter::Hover(HoverEventFilter::MiddleMouseDown),
-            RightMouseDown => EventFilter::Hover(HoverEventFilter::RightMouseDown),
-            MouseUp => EventFilter::Hover(HoverEventFilter::MouseUp),
-            LeftMouseUp => EventFilter::Hover(HoverEventFilter::LeftMouseUp),
-            MiddleMouseUp => EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
-            RightMouseUp => EventFilter::Hover(HoverEventFilter::RightMouseUp),
+            MouseOver => Self::Hover(HoverEventFilter::MouseOver),
+            MouseDown => Self::Hover(HoverEventFilter::MouseDown),
+            LeftMouseDown => Self::Hover(HoverEventFilter::LeftMouseDown),
+            MiddleMouseDown => Self::Hover(HoverEventFilter::MiddleMouseDown),
+            RightMouseDown => Self::Hover(HoverEventFilter::RightMouseDown),
+            MouseUp => Self::Hover(HoverEventFilter::MouseUp),
+            LeftMouseUp => Self::Hover(HoverEventFilter::LeftMouseUp),
+            MiddleMouseUp => Self::Hover(HoverEventFilter::MiddleMouseUp),
+            RightMouseUp => Self::Hover(HoverEventFilter::RightMouseUp),
 
-            MouseEnter => EventFilter::Hover(HoverEventFilter::MouseEnter),
-            MouseLeave => EventFilter::Hover(HoverEventFilter::MouseLeave),
-            Scroll => EventFilter::Hover(HoverEventFilter::Scroll),
-            TextInput => EventFilter::Focus(FocusEventFilter::TextInput), // focus!
-            VirtualKeyDown => EventFilter::Window(WindowEventFilter::VirtualKeyDown), // window!
-            VirtualKeyUp => EventFilter::Window(WindowEventFilter::VirtualKeyUp), // window!
-            HoveredFile => EventFilter::Hover(HoverEventFilter::HoveredFile),
-            DroppedFile => EventFilter::Hover(HoverEventFilter::DroppedFile),
-            HoveredFileCancelled => EventFilter::Hover(HoverEventFilter::HoveredFileCancelled),
-            FocusReceived => EventFilter::Focus(FocusEventFilter::FocusReceived), // focus!
-            FocusLost => EventFilter::Focus(FocusEventFilter::FocusLost),         // focus!
+            MouseEnter => Self::Hover(HoverEventFilter::MouseEnter),
+            MouseLeave => Self::Hover(HoverEventFilter::MouseLeave),
+            Scroll => Self::Hover(HoverEventFilter::Scroll),
+            TextInput => Self::Focus(FocusEventFilter::TextInput), // focus!
+            VirtualKeyDown => Self::Window(WindowEventFilter::VirtualKeyDown), // window!
+            VirtualKeyUp => Self::Window(WindowEventFilter::VirtualKeyUp), // window!
+            HoveredFile => Self::Hover(HoverEventFilter::HoveredFile),
+            DroppedFile => Self::Hover(HoverEventFilter::DroppedFile),
+            HoveredFileCancelled => Self::Hover(HoverEventFilter::HoveredFileCancelled),
+            FocusReceived => Self::Focus(FocusEventFilter::FocusReceived), // focus!
+            FocusLost => Self::Focus(FocusEventFilter::FocusLost),         // focus!
 
             // Accessibility events - treat as hover events (element-specific)
-            Default => EventFilter::Hover(HoverEventFilter::MouseUp), // Default action = click
-            Collapse => EventFilter::Hover(HoverEventFilter::MouseUp), // Collapse = click
-            Expand => EventFilter::Hover(HoverEventFilter::MouseUp),  // Expand = click
-            Increment => EventFilter::Hover(HoverEventFilter::MouseUp), // Increment = click
-            Decrement => EventFilter::Hover(HoverEventFilter::MouseUp), // Decrement = click
+            Default => Self::Hover(HoverEventFilter::MouseUp), // Default action = click
+            Collapse => Self::Hover(HoverEventFilter::MouseUp), // Collapse = click
+            Expand => Self::Hover(HoverEventFilter::MouseUp),  // Expand = click
+            Increment => Self::Hover(HoverEventFilter::MouseUp), // Increment = click
+            Decrement => Self::Hover(HoverEventFilter::MouseUp), // Decrement = click
         }
     }
 }
@@ -2271,7 +2273,7 @@ impl From<On> for EventFilter {
 
 /// Trait for managers to provide their pending events.
 ///
-/// Each manager (TextInputManager, ScrollManager, etc.) implements this to
+/// Each manager (`TextInputManager`, `ScrollManager`, etc.) implements this to
 /// report what events occurred since the last frame. This enables a unified,
 /// lazy event determination system.
 pub trait EventProvider {
@@ -2279,9 +2281,9 @@ pub trait EventProvider {
     ///
     /// Events should include:
     ///
-    /// - `target`: The DomNodeId that was affected
+    /// - `target`: The `DomNodeId` that was affected
     /// - `event_type`: What happened (Input, Scroll, Focus, etc.)
-    /// - `source`: EventSource::User for input, EventSource::Programmatic for API calls
+    /// - `source`: `EventSource::User` for input, `EventSource::Programmatic` for API calls
     /// - `data`: Type-specific event data
     ///
     /// After calling this, the manager should mark events as "read" so they
@@ -2291,8 +2293,8 @@ pub trait EventProvider {
 
 /// Deduplicate synthetic events by (target node, event type).
 ///
-/// Groups by (target.dom, target.node, event_type), keeping the latest timestamp.
-pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<SyntheticEvent> {
+/// Groups by (target.dom, target.node, `event_type`), keeping the latest timestamp.
+#[must_use] pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<SyntheticEvent> {
     if events.len() <= 1 {
         return events;
     }
@@ -2325,11 +2327,14 @@ pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<Synt
 
 
 
-/// Convert EventType to EventFilters (returns multiple filters for generic + specific events)
+/// Convert `EventType` to `EventFilters` (returns multiple filters for generic + specific events)
 ///
-/// For mouse button events, returns both generic (MouseUp) AND button-specific (LeftMouseUp/RightMouseUp).
-/// The button-specific filter is derived from the EventData::Mouse payload.
-pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter> {
+/// For mouse button events, returns both generic (`MouseUp`) AND button-specific (LeftMouseUp/RightMouseUp).
+/// The button-specific filter is derived from the `EventData::Mouse` payload.
+// Exhaustive EventType -> Vec<EventFilter> mapping table; some event types map to
+// the same filter set as intentional 1:1 rows — merging would collapse the table.
+#[allow(clippy::match_same_arms)]
+#[must_use] pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter> {
     use EventFilter as EF;
     use EventType as E;
     use FocusEventFilter as F;
@@ -2474,7 +2479,7 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
 /// Both `CallbackChange` (user) and `SystemChange` (framework) are processed
 /// through exhaustive match on `PlatformWindowV2` — adding a new variant
 /// causes a compile error in `apply_system_change()`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use = "SystemChange must be processed through apply_system_change()"]
 pub enum SystemChange {
     // === Text Selection ===
@@ -2491,8 +2496,8 @@ pub enum SystemChange {
     },
     /// Unified selection operation: cursor movement, selection extension, or deletion.
     ///
-    /// Replaces the old ArrowKeyNavigation and DeleteTextSelection variants.
-    /// Every keyboard shortcut maps to a single SelectionOp — see its docs.
+    /// Replaces the old `ArrowKeyNavigation` and `DeleteTextSelection` variants.
+    /// Every keyboard shortcut maps to a single `SelectionOp` — see its docs.
     ApplySelectionOp {
         target: DomNodeId,
         op: SelectionOp,
@@ -2537,12 +2542,12 @@ pub enum SystemChange {
 
     /// Activate node drag on a draggable element.
     ActivateNodeDrag {
-        dom_id: crate::dom::DomId,
-        node_id: crate::id::NodeId,
+        dom_id: DomId,
+        node_id: NodeId,
     },
     /// Activate window drag (CSD titlebar).
     ActivateWindowDrag,
-    /// Set up drag visual state (:dragging pseudo-state, GPU transform key, DragDropManager sync).
+    /// Set up drag visual state (:dragging pseudo-state, GPU transform key, `DragDropManager` sync).
     InitDragVisualState,
     /// Set :drag-over pseudo-state on a target node.
     SetDragOverState { target: DomNodeId, active: bool },
@@ -2556,8 +2561,8 @@ pub enum SystemChange {
     // === Focus ===
 
     /// Change focus to a new target (or clear focus if None).
-    /// Handles: set_focused_node, apply_focus_restyle, scroll_node_into_view,
-    /// cursor_blink_timer start/stop.
+    /// Handles: `set_focused_node`, `apply_focus_restyle`, `scroll_node_into_view`,
+    /// `cursor_blink_timer` start/stop.
     SetFocus {
         new_focus: Option<DomNodeId>,
         old_focus: Option<DomNodeId>,
@@ -2589,7 +2594,7 @@ impl_option!(
     OptionSystemChange,
     copy = false,
     clone = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 impl_vec!(SystemChange, SystemChangeVec, SystemChangeVecDestructor, SystemChangeVecDestructorType, SystemChangeVecSlice, OptionSystemChange);
@@ -2607,7 +2612,7 @@ pub struct PreCallbackFilterResult {
 }
 
 /// Flattened focus/selection state for the input interpreter (replaces trait objects).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct InputInterpreterState {
     pub focused_node: Option<DomNodeId>,
     pub click_count: u8,
@@ -2619,6 +2624,7 @@ pub struct InputInterpreterState {
 ///
 /// Passed to the interpreter callback. Contains references to the current
 /// events and window state. The interpreter reads this and returns system changes.
+#[derive(Debug)]
 pub struct InputInterpreterInfo<'a> {
     pub events: &'a [SyntheticEvent],
     pub hit_test: Option<&'a FullHitTest>,
@@ -2696,7 +2702,7 @@ impl Default for PostFilterCallback {
 
 // Keep simpler Rust fn pointer aliases for internal use
 pub type InputInterpreterFn = fn(
-    info: &InputInterpreterInfo,
+    info: &InputInterpreterInfo<'_>,
 ) -> PreCallbackFilterResult;
 
 pub type PostFilterFn = fn(
@@ -2734,35 +2740,35 @@ pub enum ArrowDirection {
 impl ArrowDirection {
     /// Map a `VirtualKeyCode` plus the `ctrl` modifier into an `ArrowDirection`.
     /// Returns `None` if the key is not a navigation key.
-    pub fn from_key(vk: crate::window::VirtualKeyCode, ctrl: bool) -> Option<Self> {
-        use crate::window::VirtualKeyCode::*;
+    #[must_use] pub const fn from_key(vk: crate::window::VirtualKeyCode, ctrl: bool) -> Option<Self> {
+        use crate::window::VirtualKeyCode::{Left, Right, Up, Down, Home, End};
         Some(match vk {
-            Left => ArrowDirection::Left,
-            Right => ArrowDirection::Right,
-            Up => ArrowDirection::Up,
-            Down => ArrowDirection::Down,
-            Home if ctrl => ArrowDirection::DocumentStart,
-            Home => ArrowDirection::LineStart,
-            End if ctrl => ArrowDirection::DocumentEnd,
-            End => ArrowDirection::LineEnd,
+            Left => Self::Left,
+            Right => Self::Right,
+            Up => Self::Up,
+            Down => Self::Down,
+            Home if ctrl => Self::DocumentStart,
+            Home => Self::LineStart,
+            End if ctrl => Self::DocumentEnd,
+            End => Self::LineEnd,
             _ => return None,
         })
     }
 
     /// Convert to a `(SelectionDirection, SelectionStep)` pair for the
     /// selection-op interpreter. `ctrl` upgrades arrow keys to word jumps.
-    pub fn to_selection(self, ctrl: bool) -> (SelectionDirection, SelectionStep) {
+    #[must_use] pub const fn to_selection(self, ctrl: bool) -> (SelectionDirection, SelectionStep) {
         match self {
-            ArrowDirection::Left if ctrl => (SelectionDirection::Backward, SelectionStep::Word),
-            ArrowDirection::Right if ctrl => (SelectionDirection::Forward, SelectionStep::Word),
-            ArrowDirection::Left => (SelectionDirection::Backward, SelectionStep::Character),
-            ArrowDirection::Right => (SelectionDirection::Forward, SelectionStep::Character),
-            ArrowDirection::Up => (SelectionDirection::Backward, SelectionStep::VisualLine),
-            ArrowDirection::Down => (SelectionDirection::Forward, SelectionStep::VisualLine),
-            ArrowDirection::LineStart => (SelectionDirection::Backward, SelectionStep::Line),
-            ArrowDirection::LineEnd => (SelectionDirection::Forward, SelectionStep::Line),
-            ArrowDirection::DocumentStart => (SelectionDirection::Backward, SelectionStep::Document),
-            ArrowDirection::DocumentEnd => (SelectionDirection::Forward, SelectionStep::Document),
+            Self::Left if ctrl => (SelectionDirection::Backward, SelectionStep::Word),
+            Self::Right if ctrl => (SelectionDirection::Forward, SelectionStep::Word),
+            Self::Left => (SelectionDirection::Backward, SelectionStep::Character),
+            Self::Right => (SelectionDirection::Forward, SelectionStep::Character),
+            Self::Up => (SelectionDirection::Backward, SelectionStep::VisualLine),
+            Self::Down => (SelectionDirection::Forward, SelectionStep::VisualLine),
+            Self::LineStart => (SelectionDirection::Backward, SelectionStep::Line),
+            Self::LineEnd => (SelectionDirection::Forward, SelectionStep::Line),
+            Self::DocumentStart => (SelectionDirection::Backward, SelectionStep::Document),
+            Self::DocumentEnd => (SelectionDirection::Forward, SelectionStep::Document),
         }
     }
 }
@@ -2829,7 +2835,7 @@ pub struct SelectionOp {
 }
 
 impl SelectionOp {
-    pub fn new(direction: SelectionDirection, step: SelectionStep, mode: SelectionMode) -> Self {
+    #[must_use] pub const fn new(direction: SelectionDirection, step: SelectionStep, mode: SelectionMode) -> Self {
         Self { direction, step, mode, repeat: 1 }
     }
 }
@@ -2849,19 +2855,19 @@ impl KeyboardShortcut {
     /// Map a `(VirtualKeyCode, ctrl, shift)` triple to a text-editing shortcut.
     /// Returns `None` if the key combination is not a recognized shortcut or
     /// if `ctrl` is not held.
-    pub fn from_key(vk: crate::window::VirtualKeyCode, ctrl: bool, shift: bool) -> Option<Self> {
-        use crate::window::VirtualKeyCode::*;
+    #[must_use] pub const fn from_key(vk: crate::window::VirtualKeyCode, ctrl: bool, shift: bool) -> Option<Self> {
+        use crate::window::VirtualKeyCode::{C, X, V, A, Z, Y};
         if !ctrl {
             return None;
         }
         Some(match vk {
-            C => KeyboardShortcut::Copy,
-            X => KeyboardShortcut::Cut,
-            V => KeyboardShortcut::Paste,
-            A => KeyboardShortcut::SelectAll,
-            Z if shift => KeyboardShortcut::Redo,
-            Z => KeyboardShortcut::Undo,
-            Y => KeyboardShortcut::Redo,
+            C => Self::Copy,
+            X => Self::Cut,
+            V => Self::Paste,
+            A => Self::SelectAll,
+            Z if shift => Self::Redo,
+            Z => Self::Undo,
+            Y => Self::Redo,
             _ => return None,
         })
     }
@@ -2873,7 +2879,8 @@ impl KeyboardShortcut {
 /// Backspace/Delete, Ctrl+C/V/A/Z, mouse clicks, and drag selection.
 /// Replace it on `LayoutWindow` to implement vim, game controls, etc.
 /// `extern "C"` trampoline for `default_input_interpreter`.
-pub extern "C" fn default_input_interpreter_extern(
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
+#[must_use] pub extern "C" fn default_input_interpreter_extern(
     _user_data: crate::refany::RefAny,
     info_ptr: *const InputInterpreterInfo<'static>,
 ) -> PreCallbackFilterResult {
@@ -2888,7 +2895,7 @@ pub extern "C" fn default_input_interpreter_extern(
 }
 
 /// `extern "C"` trampoline for `default_post_filter`.
-pub extern "C" fn default_post_filter_extern(
+#[must_use] pub extern "C" fn default_post_filter_extern(
     _user_data: crate::refany::RefAny,
     prevent_default: bool,
     pre_changes: SystemChangeVecSlice,
@@ -2901,8 +2908,8 @@ pub extern "C" fn default_post_filter_extern(
     default_post_filter(prevent_default, pre_changes_slice, old, new).into()
 }
 
-pub fn default_input_interpreter(
-    info: &InputInterpreterInfo,
+#[must_use] pub fn default_input_interpreter(
+    info: &InputInterpreterInfo<'_>,
 ) -> PreCallbackFilterResult {
     let ctx = FilterContext {
         hit_test: info.hit_test,
@@ -2966,7 +2973,7 @@ where
     default_input_interpreter(&info)
 }
 
-/// Context for filtering internal events (used by default_input_interpreter)
+/// Context for filtering internal events (used by `default_input_interpreter`)
 struct FilterContext<'a> {
     hit_test: Option<&'a FullHitTest>,
     keyboard_state: &'a crate::window::KeyboardState,
@@ -3017,7 +3024,7 @@ fn get_first_hovered_node(hit_test: Option<&FullHitTest>) -> Option<DomNodeId> {
     })
 }
 
-/// Extract mouse position from event data, falling back to mouse_state if not available
+/// Extract mouse position from event data, falling back to `mouse_state` if not available
 fn get_mouse_position_with_fallback(
     event: &SyntheticEvent,
     mouse_state: &crate::window::MouseState,
@@ -3033,7 +3040,7 @@ fn get_mouse_position_with_fallback(
     }
 }
 
-/// Handle MouseDown event - detect text selection clicks and Ctrl+Click for multi-cursor
+/// Handle `MouseDown` event - detect text selection clicks and Ctrl+Click for multi-cursor
 fn handle_mouse_down(
     event: &SyntheticEvent,
     hit_test: Option<&FullHitTest>,
@@ -3065,7 +3072,7 @@ fn handle_mouse_down(
     ))
 }
 
-/// Handle MouseOver event - detect drag selection
+/// Handle `MouseOver` event - detect drag selection
 fn handle_mouse_over(
     event: &SyntheticEvent,
     hit_test: Option<&FullHitTest>,
@@ -3089,7 +3096,7 @@ fn handle_mouse_over(
     ))
 }
 
-/// Handle KeyDown event - detect shortcuts, arrow keys, and delete keys
+/// Handle `KeyDown` event - detect shortcuts, arrow keys, and delete keys
 fn handle_key_down(
     event: &SyntheticEvent,
     keyboard_state: &crate::window::KeyboardState,
@@ -3184,7 +3191,7 @@ pub trait FocusManagerQuery {
 /// Takes the pre-callback system changes and focus state to determine what
 /// post-callback system changes are needed (text input, scrolling, timers).
 /// Default post-callback filter: scroll-into-view after cursor ops, auto-scroll during drag.
-pub fn default_post_filter(
+#[must_use] pub fn default_post_filter(
     prevent_default: bool,
     pre_changes: &[SystemChange],
     old_focus: Option<DomNodeId>,
@@ -3193,7 +3200,10 @@ pub fn default_post_filter(
     post_callback_filter_system_changes(prevent_default, pre_changes, old_focus, new_focus)
 }
 
-pub fn post_callback_filter_system_changes(
+// SystemChange dispatch table; a few arms incidentally push the same follow-up
+// change but are kept as distinct documented cases.
+#[allow(clippy::match_same_arms)]
+#[must_use] pub fn post_callback_filter_system_changes(
     prevent_default: bool,
     pre_changes: &[SystemChange],
     old_focus: Option<DomNodeId>,
@@ -3279,10 +3289,11 @@ mod tests {
     }
 
     fn make_keyboard_state(vk: VirtualKeyCode) -> KeyboardState {
-        let mut ks = KeyboardState::default();
-        ks.current_virtual_keycode = OptionVirtualKeyCode::Some(vk);
-        ks.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(vec![vk]);
-        ks
+        KeyboardState {
+            current_virtual_keycode: OptionVirtualKeyCode::Some(vk),
+            pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(vec![vk]),
+            ..KeyboardState::default()
+        }
     }
 
     fn make_keydown_event(target: DomNodeId) -> SyntheticEvent {
@@ -3456,14 +3467,14 @@ mod tests {
             &[event], None, &kb, &mouse, &sel, &focus,
         );
 
-        let copy_changes: Vec<_> = result.system_changes.iter()
+        let copy_changes = result.system_changes.iter()
             .filter(|c| matches!(c, SystemChange::CopyToClipboard))
-            .collect();
+            .count();
 
-        assert_eq!(copy_changes.len(), 1, "Ctrl+C should generate CopyToClipboard");
+        assert_eq!(copy_changes, 1, "Ctrl+C should generate CopyToClipboard");
     }
 
-    fn make_hit_test_with_node(node_idx: usize) -> crate::hit_test::FullHitTest {
+    fn make_hit_test_with_node(node_idx: usize) -> FullHitTest {
         use crate::hit_test::{FullHitTest, HitTest, HitTestItem};
         use crate::dom::OptionDomNodeId;
         use std::collections::BTreeMap;
@@ -3504,7 +3515,7 @@ mod tests {
             Instant::Tick(SystemTick::new(0)),
             EventData::Mouse(MouseEventData {
                 position: LogicalPosition::new(100.0, 200.0),
-                button: crate::events::MouseButton::Left,
+                button: MouseButton::Left,
                 buttons: 1,
                 modifiers: KeyModifiers::default(),
             }),
@@ -3519,11 +3530,11 @@ mod tests {
             &[event], Some(&hit_test), &kb, &mouse, &sel, &focus,
         );
 
-        let click_changes: Vec<_> = result.system_changes.iter()
+        let click_changes = result.system_changes.iter()
             .filter(|c| matches!(c, SystemChange::TextSelectionClick { .. }))
-            .collect();
+            .count();
 
-        assert_eq!(click_changes.len(), 1, "MouseDown with hit_test should generate TextSelectionClick");
+        assert_eq!(click_changes, 1, "MouseDown with hit_test should generate TextSelectionClick");
     }
 
     #[test]
@@ -3579,9 +3590,11 @@ mod tests {
 
     #[test]
     fn mouse_button_state_round_trips_from_mouse_state() {
-        let mut ms = MouseState::default();
-        ms.left_down = true;
-        ms.middle_down = true;
+        let ms = MouseState {
+            left_down: true,
+            middle_down: true,
+            ..MouseState::default()
+        };
         let bs: MouseButtonState = (&ms).into();
         assert!(bs.left_down);
         assert!(!bs.right_down);
@@ -3597,7 +3610,7 @@ mod tests {
         let dom_id = DomId { inner: 0 };
         let hit_test = make_hit_test_with_node(2);
         let filter = EventFilter::Hover(HoverEventFilter::MouseDown);
-        let calls = CallbackToCall::from_hit_test(&hit_test, dom_id, filter.clone());
+        let calls = CallbackToCall::from_hit_test(&hit_test, dom_id, filter);
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].node_id, NodeId::new(2));
         assert_eq!(calls[0].event_filter, filter);
@@ -3633,7 +3646,7 @@ mod tests {
         // RelayoutWords is BTreeMap<NodeId, AzString>.
         let mut words: RelayoutWords = BTreeMap::new();
         words.insert(NodeId::new(1), AzString::from_const_str("hello"));
-        assert_eq!(words.get(&NodeId::new(1)).map(|s| s.as_str()), Some("hello"));
+        assert_eq!(words.get(&NodeId::new(1)).map(azul_css::AzString::as_str), Some("hello"));
     }
 
     #[test]

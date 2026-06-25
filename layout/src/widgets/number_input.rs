@@ -12,6 +12,7 @@ use azul_core::{
     dom::Dom,
     refany::RefAny,
 };
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::CssPropertyWithConditionsVec,
     props::{
@@ -98,7 +99,7 @@ pub struct NumberInputStateWrapper {
 }
 
 /// State of a `NumberInput`: the current and previous value, plus allowed range.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct NumberInputState {
     /// The value before the most recent change.
@@ -124,7 +125,7 @@ impl Default for NumberInputState {
 
 impl NumberInput {
     /// Creates a new `NumberInput` with the given initial value.
-    pub fn create(input: f32) -> Self {
+    #[must_use] pub fn create(input: f32) -> Self {
         Self {
             number_input_state: NumberInputStateWrapper {
                 inner: NumberInputState {
@@ -145,6 +146,7 @@ impl NumberInput {
         self.text_input.set_on_text_input(refany, callback);
     }
 
+    #[must_use]
     pub fn with_on_text_input<C: Into<TextInputOnTextInputCallback>>(
         mut self,
         refany: RefAny,
@@ -162,6 +164,7 @@ impl NumberInput {
         self.text_input.set_on_virtual_key_down(refany, callback);
     }
 
+    #[must_use]
     pub fn with_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
         mut self,
         refany: RefAny,
@@ -175,7 +178,7 @@ impl NumberInput {
         self.text_input.placeholder_style = style;
     }
 
-    pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_placeholder_style(style);
         self
     }
@@ -184,7 +187,7 @@ impl NumberInput {
         self.text_input.container_style = style;
     }
 
-    pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_container_style(style);
         self
     }
@@ -193,7 +196,7 @@ impl NumberInput {
         self.text_input.label_style = style;
     }
 
-    pub fn with_label_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_label_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_label_style(style);
         self
     }
@@ -211,6 +214,7 @@ impl NumberInput {
         .into();
     }
 
+    #[must_use]
     pub fn with_on_value_change<C: Into<NumberInputOnValueChangeCallback>>(
         mut self,
         refany: RefAny,
@@ -232,6 +236,7 @@ impl NumberInput {
         .into();
     }
 
+    #[must_use]
     pub fn with_on_focus_lost<C: Into<NumberInputOnFocusLostCallback>>(
         mut self,
         refany: RefAny,
@@ -241,13 +246,14 @@ impl NumberInput {
         self
     }
 
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(0.0);
         core::mem::swap(&mut s, self);
         s
     }
 
-    pub fn dom(mut self) -> Dom {
+    #[must_use] pub fn dom(mut self) -> Dom {
         let number_string = format!("{}", self.number_input_state.inner.number);
         self.text_input.text_input_state.inner.text = number_string
             .chars()
@@ -257,12 +263,10 @@ impl NumberInput {
 
         let state = RefAny::new(self.number_input_state);
 
-        self.text_input.set_on_text_input(
-            state.clone(),
-            validate_text_input as TextInputOnTextInputCallbackType,
-        );
-        self.text_input
-            .set_on_focus_lost(state, on_focus_lost as TextInputOnFocusLostCallbackType);
+        let validate: TextInputOnTextInputCallbackType = validate_text_input;
+        self.text_input.set_on_text_input(state.clone(), validate);
+        let focus_lost: TextInputOnFocusLostCallbackType = on_focus_lost;
+        self.text_input.set_on_focus_lost(state, focus_lost);
         self.text_input.dom()
     }
 }
@@ -272,18 +276,17 @@ extern "C" fn on_focus_lost(
     info: CallbackInfo,
     _state: TextInputState,
 ) -> Update {
-    let mut refany = match refany.downcast_mut::<NumberInputStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NumberInputStateWrapper>() else {
+        return Update::DoNothing;
     };
 
     let number_input = &mut *refany;
     let onfocuslost = &mut number_input.on_focus_lost;
-    let inner = number_input.inner.clone();
+    let inner = number_input.inner;
 
     match onfocuslost.as_mut() {
         Some(NumberInputOnFocusLost { callback, refany }) => {
-            (callback.cb)(refany.clone(), info.clone(), inner)
+            (callback.cb)(refany.clone(), info, inner)
         }
         None => Update::DoNothing,
     }
@@ -294,14 +297,11 @@ extern "C" fn validate_text_input(
     info: CallbackInfo,
     state: TextInputState,
 ) -> OnTextInputReturn {
-    let mut refany = match refany.downcast_mut::<NumberInputStateWrapper>() {
-        Some(s) => s,
-        None => {
-            return OnTextInputReturn {
-                update: Update::DoNothing,
-                valid: TextInputValid::Yes,
-            };
-        }
+    let Some(mut refany) = refany.downcast_mut::<NumberInputStateWrapper>() else {
+        return OnTextInputReturn {
+            update: Update::DoNothing,
+            valid: TextInputValid::Yes,
+        };
     };
 
     let validated_input: String = state
@@ -311,16 +311,13 @@ extern "C" fn validate_text_input(
         .map(|c| if c == ',' { '.' } else { c })
         .collect();
 
-    let validated_f32 = match validated_input.parse::<f32>() {
-        Ok(s) => s,
-        Err(_) => {
-            // do not re-layout the entire screen,
-            // but don't handle the character
-            return OnTextInputReturn {
-                update: Update::DoNothing,
-                valid: TextInputValid::No,
-            };
-        }
+    let Ok(validated_f32) = validated_input.parse::<f32>() else {
+        // do not re-layout the entire screen,
+        // but don't handle the character
+        return OnTextInputReturn {
+            update: Update::DoNothing,
+            valid: TextInputValid::No,
+        };
     };
 
     let number_input = &mut *refany;
@@ -330,11 +327,11 @@ extern "C" fn validate_text_input(
     inner.previous = inner.number;
     let clamped = validated_f32.clamp(inner.min, inner.max);
     inner.number = clamped;
-    let inner_clone = inner.clone();
+    let inner_clone = *inner;
 
     let update = match onvaluechange.as_mut() {
         Some(NumberInputOnValueChange { callback, refany }) => {
-            (callback.cb)(refany.clone(), info.clone(), inner_clone)
+            (callback.cb)(refany.clone(), info, inner_clone)
         }
         None => Update::DoNothing,
     };

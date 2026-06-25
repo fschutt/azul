@@ -45,21 +45,21 @@ pub struct CounterReset {
 }
 
 impl CounterReset {
-    pub const fn new(counter_name: AzString, value: i32) -> Self {
+    #[must_use] pub const fn new(counter_name: AzString, value: i32) -> Self {
         Self {
             counter_name,
             value,
         }
     }
 
-    pub const fn none() -> Self {
+    #[must_use] pub const fn none() -> Self {
         Self {
             counter_name: AzString::from_const_str("none"),
             value: 0,
         }
     }
 
-    pub const fn list_item() -> Self {
+    #[must_use] pub const fn list_item() -> Self {
         Self {
             counter_name: AzString::from_const_str("list-item"),
             value: 0,
@@ -92,21 +92,21 @@ pub struct CounterIncrement {
 }
 
 impl CounterIncrement {
-    pub const fn new(counter_name: AzString, value: i32) -> Self {
+    #[must_use] pub const fn new(counter_name: AzString, value: i32) -> Self {
         Self {
             counter_name,
             value,
         }
     }
 
-    pub const fn none() -> Self {
+    #[must_use] pub const fn none() -> Self {
         Self {
             counter_name: AzString::from_const_str("none"),
             value: 0,
         }
     }
 
-    pub const fn list_item() -> Self {
+    #[must_use] pub const fn list_item() -> Self {
         Self {
             counter_name: AzString::from_const_str("list-item"),
             value: 1,
@@ -190,9 +190,13 @@ impl crate::codegen::format::FormatAsRustCode for StringSet {
 
 #[cfg(feature = "parser")]
 pub mod parser {
+    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
     use super::*;
 
     // Simplified parsers that just take the raw string value.
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `content` value.
     pub fn parse_content(input: &str) -> Result<Content, ()> {
         Ok(Content {
             inner: input.trim().into(),
@@ -222,16 +226,25 @@ pub mod parser {
         Ok((counter_name, value))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `counter-reset` value.
     pub fn parse_counter_reset(input: &str) -> Result<CounterReset, ()> {
         let (counter_name, value) = parse_counter_name_value(input, 0)?;
         Ok(CounterReset::new(counter_name, value))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `counter-increment` value.
     pub fn parse_counter_increment(input: &str) -> Result<CounterIncrement, ()> {
         let (counter_name, value) = parse_counter_name_value(input, 1)?;
         Ok(CounterIncrement::new(counter_name, value))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `string-set` value.
     pub fn parse_string_set(input: &str) -> Result<StringSet, ()> {
         Ok(StringSet {
             inner: input.trim().into(),

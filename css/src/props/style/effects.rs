@@ -25,7 +25,7 @@ pub struct StyleOpacity {
 
 impl Default for StyleOpacity {
     fn default() -> Self {
-        StyleOpacity {
+        Self {
             inner: PercentageValue::const_new(100),
         }
     }
@@ -93,7 +93,7 @@ pub enum StyleMixBlendMode {
 
 
 impl fmt::Display for StyleMixBlendMode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -208,13 +208,14 @@ impl PrintAsCssValue for StyleCursor {
 
 #[cfg(feature = "parser")]
 pub mod parsers {
+    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
     use super::*;
     use crate::corety::AzString;
     use crate::props::basic::error::{InvalidValueErr, InvalidValueErrOwned};
 
     // -- Opacity Parser --
 
-    #[derive(Clone, PartialEq)]
+    #[derive(Clone, PartialEq, Eq)]
     pub enum OpacityParseError<'a> {
         ParsePercentage(PercentageParseError, &'a str),
         OutOfRange(&'a str),
@@ -225,34 +226,34 @@ pub mod parsers {
         OutOfRange(s) => format!("Invalid opacity value \"{}\": must be between 0 and 1", s),
     }}
 
-    /// Wrapper for PercentageParseError with input string.
-    #[derive(Debug, Clone, PartialEq)]
+    /// Wrapper for `PercentageParseError` with input string.
+    #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C)]
     pub struct PercentageParseErrorWithInput {
         pub error: PercentageParseError,
         pub input: AzString,
     }
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum OpacityParseErrorOwned {
         ParsePercentage(PercentageParseErrorWithInput),
         OutOfRange(AzString),
     }
 
-    impl<'a> OpacityParseError<'a> {
-        pub fn to_contained(&self) -> OpacityParseErrorOwned {
+    impl OpacityParseError<'_> {
+        #[must_use] pub fn to_contained(&self) -> OpacityParseErrorOwned {
             match self {
                 Self::ParsePercentage(err, s) => {
-                    OpacityParseErrorOwned::ParsePercentage(PercentageParseErrorWithInput { error: err.clone(), input: s.to_string().into() })
+                    OpacityParseErrorOwned::ParsePercentage(PercentageParseErrorWithInput { error: err.clone(), input: (*s).to_string().into() })
                 }
-                Self::OutOfRange(s) => OpacityParseErrorOwned::OutOfRange(s.to_string().into()),
+                Self::OutOfRange(s) => OpacityParseErrorOwned::OutOfRange((*s).to_string().into()),
             }
         }
     }
 
     impl OpacityParseErrorOwned {
-        pub fn to_shared<'a>(&'a self) -> OpacityParseError<'a> {
+        #[must_use] pub fn to_shared(&self) -> OpacityParseError<'_> {
             match self {
                 Self::ParsePercentage(e) => {
                     OpacityParseError::ParsePercentage(e.error.clone(), e.input.as_str())
@@ -262,7 +263,10 @@ pub mod parsers {
         }
     }
 
-    pub fn parse_style_opacity<'a>(input: &'a str) -> Result<StyleOpacity, OpacityParseError<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `opacity` value.
+    pub fn parse_style_opacity(input: &str) -> Result<StyleOpacity, OpacityParseError<'_>> {
         let val = parse_percentage_value(input)
             .map_err(|e| OpacityParseError::ParsePercentage(e, input))?;
 
@@ -276,7 +280,7 @@ pub mod parsers {
 
     // -- Visibility Parser --
 
-    #[derive(Clone, PartialEq)]
+    #[derive(Clone, PartialEq, Eq)]
     pub enum StyleVisibilityParseError<'a> {
         InvalidValue(InvalidValueErr<'a>),
     }
@@ -286,14 +290,14 @@ pub mod parsers {
     }}
     impl_from!(InvalidValueErr<'a>, StyleVisibilityParseError::InvalidValue);
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum StyleVisibilityParseErrorOwned {
         InvalidValue(InvalidValueErrOwned),
     }
 
-    impl<'a> StyleVisibilityParseError<'a> {
-        pub fn to_contained(&self) -> StyleVisibilityParseErrorOwned {
+    impl StyleVisibilityParseError<'_> {
+        #[must_use] pub fn to_contained(&self) -> StyleVisibilityParseErrorOwned {
             match self {
                 Self::InvalidValue(e) => {
                     StyleVisibilityParseErrorOwned::InvalidValue(e.to_contained())
@@ -303,16 +307,19 @@ pub mod parsers {
     }
 
     impl StyleVisibilityParseErrorOwned {
-        pub fn to_shared<'a>(&'a self) -> StyleVisibilityParseError<'a> {
+        #[must_use] pub fn to_shared(&self) -> StyleVisibilityParseError<'_> {
             match self {
                 Self::InvalidValue(e) => StyleVisibilityParseError::InvalidValue(e.to_shared()),
             }
         }
     }
 
-    pub fn parse_style_visibility<'a>(
-        input: &'a str,
-    ) -> Result<StyleVisibility, StyleVisibilityParseError<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `visibility` value.
+    pub fn parse_style_visibility(
+        input: &str,
+    ) -> Result<StyleVisibility, StyleVisibilityParseError<'_>> {
         let input = input.trim();
         match input {
             "visible" => Ok(StyleVisibility::Visible),
@@ -324,7 +331,7 @@ pub mod parsers {
 
     // -- Mix Blend Mode Parser --
 
-    #[derive(Clone, PartialEq)]
+    #[derive(Clone, PartialEq, Eq)]
     pub enum MixBlendModeParseError<'a> {
         InvalidValue(InvalidValueErr<'a>),
     }
@@ -334,14 +341,14 @@ pub mod parsers {
     }}
     impl_from!(InvalidValueErr<'a>, MixBlendModeParseError::InvalidValue);
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum MixBlendModeParseErrorOwned {
         InvalidValue(InvalidValueErrOwned),
     }
 
-    impl<'a> MixBlendModeParseError<'a> {
-        pub fn to_contained(&self) -> MixBlendModeParseErrorOwned {
+    impl MixBlendModeParseError<'_> {
+        #[must_use] pub fn to_contained(&self) -> MixBlendModeParseErrorOwned {
             match self {
                 Self::InvalidValue(e) => {
                     MixBlendModeParseErrorOwned::InvalidValue(e.to_contained())
@@ -351,16 +358,19 @@ pub mod parsers {
     }
 
     impl MixBlendModeParseErrorOwned {
-        pub fn to_shared<'a>(&'a self) -> MixBlendModeParseError<'a> {
+        #[must_use] pub fn to_shared(&self) -> MixBlendModeParseError<'_> {
             match self {
                 Self::InvalidValue(e) => MixBlendModeParseError::InvalidValue(e.to_shared()),
             }
         }
     }
 
-    pub fn parse_style_mix_blend_mode<'a>(
-        input: &'a str,
-    ) -> Result<StyleMixBlendMode, MixBlendModeParseError<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `mix-blend-mode` value.
+    pub fn parse_style_mix_blend_mode(
+        input: &str,
+    ) -> Result<StyleMixBlendMode, MixBlendModeParseError<'_>> {
         let input = input.trim();
         match input {
             "normal" => Ok(StyleMixBlendMode::Normal),
@@ -385,7 +395,7 @@ pub mod parsers {
 
     // -- Cursor Parser --
 
-    #[derive(Clone, PartialEq)]
+    #[derive(Clone, PartialEq, Eq)]
     pub enum CursorParseError<'a> {
         InvalidValue(InvalidValueErr<'a>),
     }
@@ -395,14 +405,14 @@ pub mod parsers {
     }}
     impl_from!(InvalidValueErr<'a>, CursorParseError::InvalidValue);
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum CursorParseErrorOwned {
         InvalidValue(InvalidValueErrOwned),
     }
 
-    impl<'a> CursorParseError<'a> {
-        pub fn to_contained(&self) -> CursorParseErrorOwned {
+    impl CursorParseError<'_> {
+        #[must_use] pub fn to_contained(&self) -> CursorParseErrorOwned {
             match self {
                 Self::InvalidValue(e) => CursorParseErrorOwned::InvalidValue(e.to_contained()),
             }
@@ -410,14 +420,17 @@ pub mod parsers {
     }
 
     impl CursorParseErrorOwned {
-        pub fn to_shared<'a>(&'a self) -> CursorParseError<'a> {
+        #[must_use] pub fn to_shared(&self) -> CursorParseError<'_> {
             match self {
                 Self::InvalidValue(e) => CursorParseError::InvalidValue(e.to_shared()),
             }
         }
     }
 
-    pub fn parse_style_cursor<'a>(input: &'a str) -> Result<StyleCursor, CursorParseError<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `cursor` value.
+    pub fn parse_style_cursor(input: &str) -> Result<StyleCursor, CursorParseError<'_>> {
         let input = input.trim();
         match input {
             "alias" => Ok(StyleCursor::Alias),
@@ -460,6 +473,8 @@ pub use self::parsers::*;
 
 #[cfg(all(test, feature = "parser"))]
 mod tests {
+    // Tests assert that parsed values equal the exact source literals.
+    #![allow(clippy::float_cmp)]
     use super::*;
 
     #[test]
@@ -551,11 +566,11 @@ mod tests {
 
     #[test]
     fn test_parse_object_position() {
+        use crate::props::style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical};
         let centered = parse_style_object_position("center").unwrap();
         assert_eq!(centered, parse_style_object_position("center center").unwrap());
 
         let lt = parse_style_object_position("left top").unwrap();
-        use crate::props::style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical};
         assert_eq!(lt.horizontal, BackgroundPositionHorizontal::Left);
         assert_eq!(lt.vertical, BackgroundPositionVertical::Top);
 
@@ -615,17 +630,17 @@ crate::impl_option!(StyleObjectFit, OptionStyleObjectFit, [Debug, Copy, Clone, P
 impl PrintAsCssValue for StyleObjectFit {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleObjectFit::Fill => "fill",
-            StyleObjectFit::Contain => "contain",
-            StyleObjectFit::Cover => "cover",
-            StyleObjectFit::None => "none",
-            StyleObjectFit::ScaleDown => "scale-down",
+            Self::Fill => "fill",
+            Self::Contain => "contain",
+            Self::Cover => "cover",
+            Self::None => "none",
+            Self::ScaleDown => "scale-down",
         })
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleObjectFitParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -639,24 +654,24 @@ crate::impl_display! { StyleObjectFitParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleObjectFitParseErrorOwned {
     InvalidValue(crate::AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleObjectFitParseError<'a> {
-    pub fn to_contained(&self) -> StyleObjectFitParseErrorOwned {
+impl StyleObjectFitParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleObjectFitParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleObjectFitParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => StyleObjectFitParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleObjectFitParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleObjectFitParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleObjectFitParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleObjectFitParseError::InvalidValue(s.as_str()),
         }
@@ -664,9 +679,12 @@ impl StyleObjectFitParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_object_fit<'a>(
-    input: &'a str,
-) -> Result<StyleObjectFit, StyleObjectFitParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `object-fit` value.
+pub fn parse_style_object_fit(
+    input: &str,
+) -> Result<StyleObjectFit, StyleObjectFitParseError<'_>> {
     let input = input.trim();
     match input {
         "fill" => Ok(StyleObjectFit::Fill),
@@ -698,15 +716,15 @@ crate::impl_option!(StyleTextOrientation, OptionStyleTextOrientation, [Debug, Co
 impl PrintAsCssValue for StyleTextOrientation {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleTextOrientation::Mixed => "mixed",
-            StyleTextOrientation::Upright => "upright",
-            StyleTextOrientation::Sideways => "sideways",
+            Self::Mixed => "mixed",
+            Self::Upright => "upright",
+            Self::Sideways => "sideways",
         })
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleTextOrientationParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -720,24 +738,24 @@ crate::impl_display! { StyleTextOrientationParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleTextOrientationParseErrorOwned {
     InvalidValue(crate::AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleTextOrientationParseError<'a> {
-    pub fn to_contained(&self) -> StyleTextOrientationParseErrorOwned {
+impl StyleTextOrientationParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleTextOrientationParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleTextOrientationParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => StyleTextOrientationParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleTextOrientationParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleTextOrientationParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleTextOrientationParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleTextOrientationParseError::InvalidValue(s.as_str()),
         }
@@ -745,9 +763,12 @@ impl StyleTextOrientationParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_text_orientation<'a>(
-    input: &'a str,
-) -> Result<StyleTextOrientation, StyleTextOrientationParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-orientation` value.
+pub fn parse_style_text_orientation(
+    input: &str,
+) -> Result<StyleTextOrientation, StyleTextOrientationParseError<'_>> {
     let input = input.trim();
     match input {
         "mixed" => Ok(StyleTextOrientation::Mixed),
@@ -795,7 +816,7 @@ impl PrintAsCssValue for StyleObjectPosition {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleObjectPositionParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -809,24 +830,24 @@ crate::impl_display! { StyleObjectPositionParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleObjectPositionParseErrorOwned {
     InvalidValue(crate::AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleObjectPositionParseError<'a> {
-    pub fn to_contained(&self) -> StyleObjectPositionParseErrorOwned {
+impl StyleObjectPositionParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleObjectPositionParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleObjectPositionParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => StyleObjectPositionParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleObjectPositionParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleObjectPositionParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleObjectPositionParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleObjectPositionParseError::InvalidValue(s.as_str()),
         }
@@ -836,9 +857,12 @@ impl StyleObjectPositionParseErrorOwned {
 /// Parse object-position: accepts keyword pairs or percentage/length values.
 /// Examples: "center", "left top", "50% 50%", "10px 20px"
 #[cfg(feature = "parser")]
-pub fn parse_style_object_position<'a>(
-    input: &'a str,
-) -> Result<StyleObjectPosition, StyleObjectPositionParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `object-position` value.
+pub fn parse_style_object_position(
+    input: &str,
+) -> Result<StyleObjectPosition, StyleObjectPositionParseError<'_>> {
     use crate::props::style::background::{
         BackgroundPositionHorizontal, BackgroundPositionVertical,
     };
@@ -901,7 +925,7 @@ pub struct AspectRatioValue {
     pub width: u32,
     pub height: u32,
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// CSS aspect-ratio property: preferred aspect ratio for the box.
 /// CSS Box Sizing Level 4 §6 — values: `auto | <ratio>` (initial: `auto`)
 ///
@@ -923,14 +947,14 @@ crate::impl_option!(StyleAspectRatio, OptionStyleAspectRatio, [Debug, Copy, Clon
 impl PrintAsCssValue for StyleAspectRatio {
     fn print_as_css_value(&self) -> String {
         match self {
-            StyleAspectRatio::Auto => String::from("auto"),
-            StyleAspectRatio::Ratio(r) => format!("{} / {}", r.width, r.height),
+            Self::Auto => String::from("auto"),
+            Self::Ratio(r) => format!("{} / {}", r.width, r.height),
         }
     }
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleAspectRatioParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -944,35 +968,48 @@ crate::impl_display! { StyleAspectRatioParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleAspectRatioParseErrorOwned {
     InvalidValue(crate::AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleAspectRatioParseError<'a> {
-    pub fn to_contained(&self) -> StyleAspectRatioParseErrorOwned {
+impl StyleAspectRatioParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleAspectRatioParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleAspectRatioParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => StyleAspectRatioParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleAspectRatioParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleAspectRatioParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleAspectRatioParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleAspectRatioParseError::InvalidValue(s.as_str()),
         }
     }
 }
 
+/// Truncating `f32` → `u32` for aspect-ratio values (callers validate the input
+/// is positive and bounded, so the value always fits). Rust's `as u32` saturates
+/// out-of-range floats; this isolates the one unavoidable float→int cast.
+#[cfg(feature = "parser")]
+#[inline]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+const fn aspect_f32_to_u32(v: f32) -> u32 {
+    v as u32
+}
+
 /// Parse aspect-ratio: "auto", "16 / 9", "1.5", "4/3"
 #[cfg(feature = "parser")]
-pub fn parse_style_aspect_ratio<'a>(
-    input: &'a str,
-) -> Result<StyleAspectRatio, StyleAspectRatioParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `aspect-ratio` value.
+pub fn parse_style_aspect_ratio(
+    input: &str,
+) -> Result<StyleAspectRatio, StyleAspectRatioParseError<'_>> {
     let input = input.trim();
     if input == "auto" {
         return Ok(StyleAspectRatio::Auto);
@@ -987,8 +1024,8 @@ pub fn parse_style_aspect_ratio<'a>(
             return Err(StyleAspectRatioParseError::InvalidValue(input));
         }
         return Ok(StyleAspectRatio::Ratio(AspectRatioValue {
-            width: (w * 1000.0).round() as u32,
-            height: (h * 1000.0).round() as u32,
+            width: aspect_f32_to_u32((w * 1000.0).round()),
+            height: aspect_f32_to_u32((h * 1000.0).round()),
         }));
     }
     // Try single number (width/1)
@@ -997,7 +1034,7 @@ pub fn parse_style_aspect_ratio<'a>(
         return Err(StyleAspectRatioParseError::InvalidValue(input));
     }
     Ok(StyleAspectRatio::Ratio(AspectRatioValue {
-        width: (w * 1000.0).round() as u32,
+        width: aspect_f32_to_u32((w * 1000.0).round()),
         height: 1000,
     }))
 }

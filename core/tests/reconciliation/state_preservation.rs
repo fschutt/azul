@@ -9,7 +9,7 @@
 
 use azul_core::diff::{
     reconcile_dom, create_migration_map, transfer_states,
-    ChangeAccumulator, NodeChangeSet,
+    ChangeAccumulator,
 };
 use azul_core::dom::{NodeData, DomId};
 use azul_core::id::NodeId;
@@ -250,8 +250,8 @@ fn accumulator_tracks_mount_unmount_from_diff() {
     let mut b = NodeData::create_div();
     b.add_id(AzString::from("new-node"));
     
-    let _old = vec![a];
-    let _new = vec![b];
+    let _old = [a];
+    let _new = [b];
     
     // Just verify ChangeAccumulator can track mounts/unmounts
     let mut acc = ChangeAccumulator::new();
@@ -319,7 +319,7 @@ fn large_dom_reconciliation_completes() {
     let old: Vec<NodeData> = (0..size)
         .map(|i| {
             let mut n = NodeData::create_div();
-            n.add_id(AzString::from(format!("node-{}", i)));
+            n.add_id(AzString::from(format!("node-{i}")));
             n
         })
         .collect();

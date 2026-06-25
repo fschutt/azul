@@ -9,56 +9,120 @@
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico"
 )]
-// Lint policy: deny correctness/safety issues, warn on style
+// Lint policy: deny correctness/safety issues, warn on style (`clippy::all`).
+//
+// Crate-wide allows are intentionally limited to lints that are either
+//   (a) pervasive AND feature-sensitive — an import/binding/field that is unused
+//       under one feature set is live under another, so a per-site fix would
+//       break a different feature build — or
+//   (b) churny / newer-toolchain lints with little value in scoping.
+// Lints that fire in only a few, well-localized places are scoped with
+// `#[allow(...)]` on the specific `pub mod` declarations further down, so the
+// rest of the (hand-written) crate is actually checked.
 #![deny(unused_must_use)]
 #![warn(clippy::all)]
+// === "extreme lints" lockdown (2026-06-20) — maximal opt-in lint set ===
+// All clippy groups + opt-in rustc lints, warn-level so normal builds still
+// pass; the CI clippy job runs `-D warnings`, turning every one of these into
+// the outstanding-lint-failure report for Monday triage. NOT yet fixed.
+#![warn(
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::cargo,
+    // missing_docs,  // TODO(docs): re-enable as a dedicated final docs pass; disabled
+    //                // for now so the cleanup focuses on code-quality lints, not doc debt.
+    missing_debug_implementations,
+    missing_copy_implementations,
+    unreachable_pub,
+    unused_qualifications,
+    unused_lifetimes,
+    unused_import_braces,
+    unused_macro_rules,
+    unused_crate_dependencies,
+    meta_variable_misuse,
+    trivial_casts,
+    trivial_numeric_casts,
+    elided_lifetimes_in_paths,
+    single_use_lifetimes,
+    variant_size_differences,
+    non_ascii_idents,
+    unsafe_op_in_unsafe_fn,
+    let_underscore_drop,
+)]
 #![allow(
-    clippy::non_canonical_partial_ord_impl,
-    clippy::legacy_numeric_constants,
-    clippy::should_implement_trait,
-    clippy::result_unit_err,
-    clippy::ptr_as_ptr,
-    clippy::too_many_arguments,
-    clippy::type_complexity,
+    // `unknown_lints` lets the two forward-compat lints below be listed even on
+    // the CI toolchain (1.88), where they are not yet known, without emitting an
+    // "unknown lint" warning of their own. They still apply on newer rustc.
+    unknown_lints,
+    mismatched_lifetime_syntaxes,          // newer rustc; fires in macro-generated code
+    function_casts_as_integer,             // newer rustc; widget callback pointer identity
+    // pervasive + feature-sensitive (unused under one feature, live under another):
     unused_imports,
     unused_variables,
     unused_mut,
     dead_code,
-    unused_parens,
-    unused_doc_comments,                   // doc comments before macro invocations
-    unused_assignments,                    // layout solver incremental updates
-    unused_labels,
-    dropping_references,                   // intentional scope markers in layout solver
-    private_interfaces,                    // internal solver types exposed for testing
-    function_casts_as_integer,             // widget callback pointer identity
-    improper_ctypes_definitions,           // node_graph extern fn returns ()
-    mismatched_lifetime_syntaxes,
-    unreachable_patterns,                  // exhaustive match in generated property code
-    unexpected_cfgs,
-    deprecated,                            // image crate tiff encoder
+    // design lint, pervasive across the layout solver / renderer:
+    clippy::too_many_arguments,
+    // churny / 3rd-party, low value to scope:
+    clippy::legacy_numeric_constants,
+    unexpected_cfgs,                        // web-lift diagnostic cfgs
+    deprecated,                             // image crate tiff encoder (only under `tiff`)
+    // transitive dependency-version dups not resolvable in azul's source —
+    // syn 1↔2 (proc-macro migration), heck/jni-sys/rustc-hash/rustls-webpki;
+    // re-audit when the dep tree aligns.
+    clippy::multiple_crate_versions,
 )]
 
 #[macro_use]
 extern crate alloc;
 extern crate core;
 
+// Dependencies kept for downstream/feature-plumbing use but not referenced
+// directly in this crate's source — marked intentionally linked so
+// unused_crate_dependencies stays quiet (the lint's own suggested fix).
+// `brotli-decompressor`: decompresses the codegen material_icons.ttf.br in azul-dll.
+#[cfg(feature = "icons")]
+use brotli_decompressor as _;
+// `lru`: reserved for the slippy-map tile cache (azul-dll widgets).
+use lru as _;
+// `unicode-normalization` / `xmlwriter`: pulled by text_layout / xml for the
+// shaping + SVG-writer paths consumed downstream.
+#[cfg(feature = "text_layout")]
+use unicode_normalization as _;
+#[cfg(feature = "xml")]
+use xmlwriter as _;
+
 /// Web-lift diagnostic marker: a volatile store of `val` to the absolute wasm
 /// linear-memory address `addr` (the 0x40000–0xF0000 free band the e2e harness
-/// peeks via `AzStartup_peekU32`). Compiles to NOTHING without the `web_lift`
+/// peeks via `AzStartup_peekU32`).
+///
+/// Compiles to NOTHING without the `web_lift`
 /// feature — absolute-address stores would segfault native builds (macOS
 /// `__PAGEZERO` covers the low 4 GiB). All in-tree diagnostic markers MUST go
 /// through this helper rather than calling `core::ptr::write_volatile` on a
 /// literal address directly.
-#[inline(always)]
-pub unsafe fn az_mark(_addr: u32, _val: u32) {
+///
+/// # Safety
+///
+/// With the `web_lift` feature enabled, `addr` must be a valid, writable wasm
+/// linear-memory address (within the 0x40000–0xF0000 diagnostic band). Without
+/// the feature this is a no-op and always safe.
+#[inline]
+pub const unsafe fn az_mark(_addr: u32, _val: u32) {
     #[cfg(feature = "web_lift")]
     core::ptr::write_volatile(_addr as usize as *mut u32, _val);
 }
 
 /// Read counterpart of [`az_mark`] (marker counters like `0x60758`).
 /// Returns 0 without the `web_lift` feature.
-#[inline(always)]
-pub unsafe fn az_mark_read(_addr: u32) -> u32 {
+///
+/// # Safety
+///
+/// With the `web_lift` feature enabled, `addr` must be a valid, readable wasm
+/// linear-memory address (within the 0x40000–0xF0000 diagnostic band). Without
+/// the feature this is a no-op that returns 0 and is always safe.
+#[inline]
+#[must_use] pub const unsafe fn az_mark_read(_addr: u32) -> u32 {
     #[cfg(feature = "web_lift")]
     return core::ptr::read_volatile(_addr as usize as *const u32);
     #[cfg(not(feature = "web_lift"))]
@@ -75,9 +139,22 @@ pub mod probe;
 pub mod image;
 /// Scroll, hover, clipboard, cursor, and focus managers.
 #[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): internal manager types exposed for tests.
+#[allow(private_interfaces)]
 pub mod managers;
 /// CSS layout solver: block, inline, flex, grid, and table formatting.
 #[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): solver internals — intentional `drop(&_)` scope
+// markers, internal types exposed for tests, incremental-relayout assignments,
+// generated/parenthesized property code, and exhaustive generated matches.
+#[allow(
+    dropping_references,
+    private_interfaces,
+    unreachable_patterns,
+    unused_parens,
+    unused_doc_comments,
+    unused_assignments
+)]
 pub mod solver3;
 
 /// C-compatible string formatting via `strfmt`.
@@ -88,6 +165,9 @@ pub use fmt::{FmtArg, FmtArgVec, FmtArgVecDestructor, FmtValue, fmt_string};
 
 /// Built-in widgets: button, text input, tabs, tree view, node graph, etc.
 #[cfg(feature = "widgets")]
+// Scoped (was crate-wide): incremental widget-state assignments and the
+// node_graph extern "C" fn that returns `()`.
+#[allow(unused_assignments, improper_ctypes_definitions)]
 pub mod widgets;
 
 /// Desktop platform helpers (file dialogs, notifications).
@@ -132,6 +212,10 @@ pub use azul_core::url;
 pub use azul_core::url::{Url, UrlParseError, ResultUrlUrlParseError};
 
 /// File system operations (C-compatible wrappers for `std::fs`).
+// Scoped (was crate-wide): `///` doc comments before `impl_vec!`/`impl_option!`
+// macro invocations, and an infallible inherent `FilePath::from_str` (returns
+// `Self`, so it cannot implement the fallible `FromStr` trait).
+#[allow(unused_doc_comments, clippy::should_implement_trait)]
 pub mod file;
 pub use file::{
     dir_create, dir_create_all, dir_list, dir_delete, dir_delete_all,
@@ -144,6 +228,7 @@ pub use file::{
 };
 
 /// HTTP client: GET/POST requests with pure-Rust TLS.
+///
 /// API surface always present (stub when off); ureq/rustls only pulled in with `http`.
 pub mod http;
 pub use http::{
@@ -165,9 +250,9 @@ pub use json::{
 };
 
 /// ZIP file creation, extraction, and listing.
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
 pub mod zip;
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
 pub use zip::{
     zip_create, zip_create_from_files, zip_extract_all, zip_list_contents,
     ZipFile, ZipFileEntry, ZipFileEntryVec, ZipPathEntry, ZipPathEntryVec,
@@ -200,6 +285,8 @@ pub use azul_core::icon::{
 pub mod callbacks;
 /// CPU-based software rendering (no GPU required).
 #[cfg(feature = "cpurender")]
+// Scoped (was crate-wide): complex rasterizer signatures.
+#[allow(clippy::type_complexity)]
 pub mod cpurender;
 /// Glyph path and cell cache for CPU text rendering.
 #[cfg(feature = "cpurender")]
@@ -212,9 +299,12 @@ pub mod default_actions;
 pub mod event_determination;
 /// Font parsing, metrics extraction, and subsetting.
 #[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): complex font-table signatures.
+#[allow(clippy::type_complexity)]
 pub mod font;
 
 /// Headless backend for CPU-only rendering without a display server.
+///
 /// Used with `AZUL_HEADLESS=1` for E2E testing, CI, and screenshot capture.
 #[cfg(feature = "text_layout")]
 pub mod headless;
@@ -238,24 +328,33 @@ pub mod hit_test;
 pub use azul_core::paged;
 /// Text shaping, line breaking (Knuth-Plass), and inline formatting.
 #[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): internal types exposed for tests, a labelled
+// shaping loop, and complex shaping/cache signatures.
+#[allow(private_interfaces, unused_labels, clippy::type_complexity)]
 pub mod text3;
 /// Thread callback wrappers for the C API.
 #[cfg(feature = "text_layout")]
 pub mod thread;
 /// Timer callback wrappers for the C API.
 #[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): hand-written `Ord`/`PartialOrd` on a timer type.
+#[allow(clippy::non_canonical_partial_ord_impl)]
 pub mod timer;
 /// Scroll physics timer for momentum-based smooth scrolling.
 #[cfg(feature = "text_layout")]
 pub mod scroll_timer;
 /// Window layout management: relayout, event processing, state sync.
 #[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): parenthesized layout expressions.
+#[allow(unused_parens)]
 pub mod window;
 /// Window state types (keyboard, mouse, DPI, focus).
 #[cfg(feature = "text_layout")]
 pub mod window_state;
 /// XML and XHTML parsing for declarative UI definitions.
 #[cfg(feature = "xml")]
+// Scoped (was crate-wide): incremental parser-state assignments.
+#[allow(unused_assignments)]
 pub mod xml;
 
 // Export the main layout function and window management
@@ -290,6 +389,9 @@ pub use managers::text_input::{PendingTextEdit, OptionPendingTextEdit};
 #[cfg(feature = "text_layout")]
 /// Parses raw font bytes into a [`FontRef`](azul_css::props::basic::FontRef)
 /// suitable for use in the layout system.
+// signature must match the `ParseFontFn = fn(LoadedFontSource) -> ...` callback type
+// (core/src/resources.rs) and the api.json export, so the owned param cannot become &.
+#[allow(clippy::needless_pass_by_value)]
 pub fn parse_font_fn(
     source: azul_core::resources::LoadedFontSource,
 ) -> Option<azul_css::props::basic::FontRef> {
@@ -307,13 +409,13 @@ pub fn parse_font_fn(
 /// Wraps a [`ParsedFont`] in a [`FontRef`](azul_css::props::basic::FontRef),
 /// transferring ownership to the returned handle.
 pub fn parsed_font_to_font_ref(
-    parsed_font: crate::font::parsed::ParsedFont,
+    parsed_font: ParsedFont,
 ) -> azul_css::props::basic::FontRef {
     use core::ffi::c_void;
 
     extern "C" fn parsed_font_destructor(ptr: *mut c_void) {
         unsafe {
-            let _ = Box::from_raw(ptr as *mut crate::font::parsed::ParsedFont);
+            drop(Box::from_raw(ptr.cast::<ParsedFont>()));
         }
     }
 
@@ -328,10 +430,10 @@ pub fn parsed_font_to_font_ref(
 /// # Safety contract
 /// The `font_ref` must have been created by [`parsed_font_to_font_ref`],
 /// so that `font_ref.parsed` points to a valid `ParsedFont`.
-pub fn font_ref_to_parsed_font(
+#[must_use] pub const fn font_ref_to_parsed_font(
     font_ref: &azul_css::props::basic::FontRef,
-) -> &crate::font::parsed::ParsedFont {
+) -> &ParsedFont {
     // SAFETY: `font_ref.parsed` was created by `parsed_font_to_font_ref`
     // via `Box::into_raw`, so it points to a valid, aligned `ParsedFont`.
-    unsafe { &*(font_ref.parsed as *const crate::font::parsed::ParsedFont) }
+    unsafe { &*font_ref.parsed.cast::<ParsedFont>() }
 }

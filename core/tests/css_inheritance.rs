@@ -69,17 +69,17 @@ fn test_font_size_inheritance_single_level() {
 
     let (styled_dom, mut cache) = setup_test!(dom);
 
-    let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
-    let node_data = &styled_dom.node_data.as_container().internal[..];
+    let node_hierarchy = styled_dom.node_hierarchy.as_container().internal;
+    let node_data = styled_dom.node_data.as_container().internal;
 
     // Compute inherited values
     let changed_nodes = cache.compute_inherited_values(node_hierarchy, node_data);
 
-    println!("Changed nodes: {:?}", changed_nodes);
+    println!("Changed nodes: {changed_nodes:?}");
     println!("Computed values: {:#?}", cache.computed_values);
 
     // Verify that <p> (child) inherited the font-size from <div> (parent)
-    let parent_id = azul_core::dom::NodeId::new(0); // div
+    let _parent_id = azul_core::dom::NodeId::new(0); // div
     let child_id = azul_core::dom::NodeId::new(1); // p
 
     // Check computed values for child
@@ -131,11 +131,11 @@ fn test_font_size_override_not_inherited() {
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
-    let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
-    let node_data = &styled_dom.node_data.as_container().internal[..];
+    let node_hierarchy = styled_dom.node_hierarchy.as_container().internal;
+    let node_data = styled_dom.node_data.as_container().internal;
     let changed_nodes = cache.compute_inherited_values(node_hierarchy, node_data);
 
-    println!("Changed nodes: {:?}", changed_nodes);
+    println!("Changed nodes: {changed_nodes:?}");
     println!("Computed values: {:#?}", cache.computed_values);
 
     let child_id = azul_core::dom::NodeId::new(1); // p
@@ -185,14 +185,14 @@ fn test_font_weight_inheritance_multi_level() {
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
-    let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
-    let node_data = &styled_dom.node_data.as_container().internal[..];
+    let node_hierarchy = styled_dom.node_hierarchy.as_container().internal;
+    let node_data = styled_dom.node_data.as_container().internal;
     let changed_nodes = cache.compute_inherited_values(node_hierarchy, node_data);
 
-    println!("Changed nodes: {:?}", changed_nodes);
+    println!("Changed nodes: {changed_nodes:?}");
     println!("Computed values: {:#?}", cache.computed_values);
 
-    let div_id = azul_core::dom::NodeId::new(0); // div
+    let _div_id = azul_core::dom::NodeId::new(0); // div
     let p_id = azul_core::dom::NodeId::new(1); // p
     let span_id = azul_core::dom::NodeId::new(2); // span
 
@@ -200,27 +200,25 @@ fn test_font_weight_inheritance_multi_level() {
     for (node_id, node_name) in &[(p_id, "p"), (span_id, "span")] {
         if let Some(computed) = cache.computed_values.get(node_id.index()) {
             let Some(prop_with_origin) = find_prop(computed, &CssPropertyType::FontWeight) else {
-                panic!("{} should have FontWeight", node_name);
+                panic!("{node_name} should have FontWeight");
             };
             if let CssProperty::FontWeight(font_weight_value) = &prop_with_origin.property {
                 if let Some(font_weight) = font_weight_value.get_property() {
                     assert_eq!(
                         *font_weight,
                         StyleFontWeight::Bold,
-                        "{} should inherit font-weight: bold from ancestor div",
-                        node_name
+                        "{node_name} should inherit font-weight: bold from ancestor div"
                     );
                 } else {
                     panic!(
-                        "{} FontWeight value should not be None/Auto/Initial/Inherit",
-                        node_name
+                        "{node_name} FontWeight value should not be None/Auto/Initial/Inherit"
                     );
                 }
             } else {
-                panic!("{} should have computed FontWeight property", node_name);
+                panic!("{node_name} should have computed FontWeight property");
             }
         } else {
-            panic!("{} should have computed values", node_name);
+            panic!("{node_name} should have computed values");
         }
     }
 }
@@ -254,8 +252,8 @@ fn test_mixed_inherited_and_explicit_properties() {
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
-    let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
-    let node_data = &styled_dom.node_data.as_container().internal[..];
+    let node_hierarchy = styled_dom.node_hierarchy.as_container().internal;
+    let node_data = styled_dom.node_data.as_container().internal;
     cache.compute_inherited_values(node_hierarchy, node_data);
 
     let p_id = azul_core::dom::NodeId::new(1); // p
@@ -316,8 +314,8 @@ fn test_non_inheritable_property_not_inherited() {
         .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Text")));
 
     let (styled_dom, mut cache) = setup_test!(dom);
-    let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
-    let node_data = &styled_dom.node_data.as_container().internal[..];
+    let node_hierarchy = styled_dom.node_hierarchy.as_container().internal;
+    let node_data = styled_dom.node_data.as_container().internal;
     cache.compute_inherited_values(node_hierarchy, node_data);
 
     let p_id = azul_core::dom::NodeId::new(1); // p
@@ -362,8 +360,8 @@ fn test_update_invalidation() {
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
-    let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
-    let node_data = &styled_dom.node_data.as_container().internal[..];
+    let node_hierarchy = styled_dom.node_hierarchy.as_container().internal;
+    let node_data = styled_dom.node_data.as_container().internal;
 
     // Clear the cache to test first computation (StyledDom::new already computed once)
     cache.computed_values.iter_mut().for_each(|m| m.clear());
@@ -371,7 +369,7 @@ fn test_update_invalidation() {
     // First computation
     let changed_nodes_1 = cache.compute_inherited_values(node_hierarchy, node_data);
 
-    println!("First computation changed nodes: {:?}", changed_nodes_1);
+    println!("First computation changed nodes: {changed_nodes_1:?}");
 
     // All nodes should be marked as changed on first computation
     assert!(
@@ -382,7 +380,7 @@ fn test_update_invalidation() {
     // Second computation without changes should return empty list
     let changed_nodes_2 = cache.compute_inherited_values(node_hierarchy, node_data);
 
-    println!("Second computation changed nodes: {:?}", changed_nodes_2);
+    println!("Second computation changed nodes: {changed_nodes_2:?}");
 
     assert!(
         changed_nodes_2.is_empty(),
@@ -419,11 +417,11 @@ fn test_deeply_nested_inheritance() {
         ));
 
     let (styled_dom, mut cache) = setup_test!(dom);
-    let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
-    let node_data = &styled_dom.node_data.as_container().internal[..];
+    let node_hierarchy = styled_dom.node_hierarchy.as_container().internal;
+    let node_data = styled_dom.node_data.as_container().internal;
     cache.compute_inherited_values(node_hierarchy, node_data);
 
-    println!("Node hierarchy: {:#?}", node_hierarchy);
+    println!("Node hierarchy: {node_hierarchy:#?}");
     println!("Computed values: {:#?}", cache.computed_values);
 
     // Verify all descendants inherited font-weight: bold
@@ -479,8 +477,8 @@ fn test_em_unit_inheritance_basic() {
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
-    let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
-    let node_data = &styled_dom.node_data.as_container().internal[..];
+    let node_hierarchy = styled_dom.node_hierarchy.as_container().internal;
+    let node_data = styled_dom.node_data.as_container().internal;
 
     cache.compute_inherited_values(node_hierarchy, node_data);
 
@@ -549,8 +547,8 @@ fn test_em_unit_cascading_multiplication() {
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
-    let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
-    let node_data = &styled_dom.node_data.as_container().internal[..];
+    let node_hierarchy = styled_dom.node_hierarchy.as_container().internal;
+    let node_data = styled_dom.node_data.as_container().internal;
 
     cache.compute_inherited_values(node_hierarchy, node_data);
 
@@ -649,7 +647,7 @@ fn test_em_on_font_size_refers_to_parent() {
 
     // NOTE: setup_test! already calls StyledDom::new which calls compute_inherited_values
     // So we should NOT call it again, as that would re-process with already-resolved values
-    let (styled_dom, cache) = setup_test!(dom);
+    let (_styled_dom, cache) = setup_test!(dom);
 
     let div_id = azul_core::dom::NodeId::new(0); // div
     let p_id = azul_core::dom::NodeId::new(1); // p
@@ -765,7 +763,7 @@ fn test_em_without_ancestor_absolute_unit() {
         .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Text")));
 
     // NOTE: setup_test! already calls StyledDom::new which calls compute_inherited_values
-    let (styled_dom, cache) = setup_test!(dom);
+    let (_styled_dom, cache) = setup_test!(dom);
 
     let div_id = azul_core::dom::NodeId::new(0); // div
     let p_id = azul_core::dom::NodeId::new(1); // p
@@ -863,8 +861,8 @@ fn test_percentage_font_size_inheritance() {
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
-    let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
-    let node_data = &styled_dom.node_data.as_container().internal[..];
+    let node_hierarchy = styled_dom.node_hierarchy.as_container().internal;
+    let node_data = styled_dom.node_data.as_container().internal;
 
     cache.compute_inherited_values(node_hierarchy, node_data);
 

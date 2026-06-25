@@ -17,7 +17,7 @@ pub mod scrollbar;
 pub mod sizing;
 pub mod taffy_bridge;
 
-/// Lazy debug_info macro - only evaluates format args when debug_messages is Some
+/// Lazy `debug_info` macro - only evaluates format args when `debug_messages` is Some
 #[macro_export]
 macro_rules! debug_info {
     ($ctx:expr, $($arg:tt)*) => {
@@ -27,7 +27,7 @@ macro_rules! debug_info {
     };
 }
 
-/// Lazy debug_warning macro - only evaluates format args when debug_messages is Some
+/// Lazy `debug_warning` macro - only evaluates format args when `debug_messages` is Some
 #[macro_export]
 macro_rules! debug_warning {
     ($ctx:expr, $($arg:tt)*) => {
@@ -37,7 +37,7 @@ macro_rules! debug_warning {
     };
 }
 
-/// Lazy debug_error macro - only evaluates format args when debug_messages is Some
+/// Lazy `debug_error` macro - only evaluates format args when `debug_messages` is Some
 #[macro_export]
 macro_rules! debug_error {
     ($ctx:expr, $($arg:tt)*) => {
@@ -47,7 +47,7 @@ macro_rules! debug_error {
     };
 }
 
-/// Lazy debug_log macro - only evaluates format args when debug_messages is Some
+/// Lazy `debug_log` macro - only evaluates format args when `debug_messages` is Some
 #[macro_export]
 macro_rules! debug_log {
     ($ctx:expr, $($arg:tt)*) => {
@@ -57,7 +57,7 @@ macro_rules! debug_log {
     };
 }
 
-/// Lazy debug_box_props macro - only evaluates format args when debug_messages is Some
+/// Lazy `debug_box_props` macro - only evaluates format args when `debug_messages` is Some
 #[macro_export]
 macro_rules! debug_box_props {
     ($ctx:expr, $($arg:tt)*) => {
@@ -67,7 +67,7 @@ macro_rules! debug_box_props {
     };
 }
 
-/// Lazy debug_css_getter macro - only evaluates format args when debug_messages is Some
+/// Lazy `debug_css_getter` macro - only evaluates format args when `debug_messages` is Some
 #[macro_export]
 macro_rules! debug_css_getter {
     ($ctx:expr, $($arg:tt)*) => {
@@ -77,7 +77,7 @@ macro_rules! debug_css_getter {
     };
 }
 
-/// Lazy debug_bfc_layout macro - only evaluates format args when debug_messages is Some
+/// Lazy `debug_bfc_layout` macro - only evaluates format args when `debug_messages` is Some
 #[macro_export]
 macro_rules! debug_bfc_layout {
     ($ctx:expr, $($arg:tt)*) => {
@@ -87,7 +87,7 @@ macro_rules! debug_bfc_layout {
     };
 }
 
-/// Lazy debug_ifc_layout macro - only evaluates format args when debug_messages is Some
+/// Lazy `debug_ifc_layout` macro - only evaluates format args when `debug_messages` is Some
 #[macro_export]
 macro_rules! debug_ifc_layout {
     ($ctx:expr, $($arg:tt)*) => {
@@ -97,7 +97,7 @@ macro_rules! debug_ifc_layout {
     };
 }
 
-/// Lazy debug_table_layout macro - only evaluates format args when debug_messages is Some
+/// Lazy `debug_table_layout` macro - only evaluates format args when `debug_messages` is Some
 #[macro_export]
 macro_rules! debug_table_layout {
     ($ctx:expr, $($arg:tt)*) => {
@@ -107,7 +107,7 @@ macro_rules! debug_table_layout {
     };
 }
 
-/// Lazy debug_display_type macro - only evaluates format args when debug_messages is Some
+/// Lazy `debug_display_type` macro - only evaluates format args when `debug_messages` is Some
 #[macro_export]
 macro_rules! debug_display_type {
     ($ctx:expr, $($arg:tt)*) => {
@@ -128,7 +128,7 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 
-/// Sentinel value for "position not yet computed". No real position is ever f32::MIN.
+/// Sentinel value for "position not yet computed". No real position is ever `f32::MIN`.
 pub(crate) const POSITION_UNSET: LogicalPosition = LogicalPosition { x: f32::MIN, y: f32::MIN };
 
 /// Maximum number of scrollbar-induced reflow iterations before layout gives up.
@@ -145,13 +145,13 @@ pub type PositionVec = Vec<LogicalPosition>;
 /// Note: only the `x` component is checked against the sentinel. This is sufficient
 /// because `POSITION_UNSET` always sets both `x` and `y` to `f32::MIN`, and `pos_set`
 /// always writes both components together.
-#[inline(always)]
-pub fn pos_get(positions: &PositionVec, idx: usize) -> Option<LogicalPosition> {
+#[inline]
+#[must_use] pub fn pos_get(positions: &PositionVec, idx: usize) -> Option<LogicalPosition> {
     positions.get(idx).copied().filter(|p| p.x != f32::MIN)
 }
 
 /// Set position for node index. Grows the vec if needed.
-#[inline(always)]
+#[inline]
 pub fn pos_set(positions: &mut PositionVec, idx: usize, pos: LogicalPosition) {
     if idx >= positions.len() {
         positions.resize(idx + 1, POSITION_UNSET);
@@ -160,9 +160,9 @@ pub fn pos_set(positions: &mut PositionVec, idx: usize, pos: LogicalPosition) {
 }
 
 /// Check if position has been set for node index.
-#[inline(always)]
-pub fn pos_contains(positions: &PositionVec, idx: usize) -> bool {
-    positions.get(idx).map_or(false, |p| p.x != f32::MIN)
+#[inline]
+#[must_use] pub fn pos_contains(positions: &PositionVec, idx: usize) -> bool {
+    positions.get(idx).is_some_and(|p| p.x != f32::MIN)
 }
 use azul_css::{
     props::property::{CssProperty, CssPropertyCategory},
@@ -189,38 +189,39 @@ use crate::{
 };
 
 /// Central context for a single layout pass.
+#[derive(Debug)]
 pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub styled_dom: &'a StyledDom,
     #[cfg(feature = "text_layout")]
     pub font_manager: &'a crate::font_traits::FontManager<T>,
     #[cfg(not(feature = "text_layout"))]
     pub font_manager: core::marker::PhantomData<&'a T>,
-    /// Text selections for rendering highlights. Populated from MultiCursorState.
+    /// Text selections for rendering highlights. Populated from `MultiCursorState`.
     pub text_selections: &'a BTreeMap<DomId, TextSelection>,
     pub debug_messages: &'a mut Option<Vec<LayoutDebugMessage>>,
     pub counters: &'a mut HashMap<(usize, String), i32>,
     pub viewport_size: LogicalSize,
     /// Fragmentation context for CSS Paged Media (PDF generation)
-    /// When Some, layout respects page boundaries and generates one DisplayList per page
+    /// When Some, layout respects page boundaries and generates one `DisplayList` per page
     pub fragmentation_context: Option<&'a mut crate::paged::FragmentationContext>,
-    /// Whether the text cursor should be drawn (managed by CursorManager blink timer)
+    /// Whether the text cursor should be drawn (managed by `CursorManager` blink timer)
     /// When false, the cursor is in the "off" phase of blinking and should not be rendered.
     /// When true (default), the cursor is visible.
     pub cursor_is_visible: bool,
-    /// All active cursor locations from MultiCursorState / CursorManager.
-    /// Each entry is (dom_id, node_id, cursor). Multiple entries = multi-cursor mode.
+    /// All active cursor locations from `MultiCursorState` / `CursorManager`.
+    /// Each entry is (`dom_id`, `node_id`, cursor). Multiple entries = multi-cursor mode.
     /// Empty = no active cursor. The last entry is the primary cursor.
     pub cursor_locations: Vec<(DomId, NodeId, TextCursor)>,
     /// IME preedit (composition) text to render inline at the cursor position.
     /// When Some, the text should be rendered with an underline decoration.
     pub preedit_text: Option<String>,
-    /// Text content overrides from in-progress edits (dirty_text_nodes).
+    /// Text content overrides from in-progress edits (`dirty_text_nodes`).
     /// When a text node has been edited but not yet committed to the DOM,
-    /// the layout pipeline should read from here instead of StyledDom.
-    /// Key: (DomId, NodeId of the text node), Value: the edited text string.
+    /// the layout pipeline should read from here instead of `StyledDom`.
+    /// Key: (`DomId`, `NodeId` of the text node), Value: the edited text string.
     pub dirty_text_overrides: BTreeMap<(DomId, NodeId), String>,
     /// Per-node multi-slot cache (Taffy-inspired 9+1 architecture).
-    /// Moved out of LayoutCache via std::mem::take for the duration of layout,
+    /// Moved out of `LayoutCache` via `std::mem::take` for the duration of layout,
     /// then moved back after the layout pass completes.
     pub cache_map: cache::LayoutCacheMap,
     /// Image cache for resolving `background-image: url(...)` references.
@@ -236,7 +237,7 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// `compute_scrollbar_info_core` is called many times per node
     /// per layout pass (BFC path + Taffy flex/grid path + display
     /// list), and each call previously did 9 cascade walks. Once
-    /// populated, subsequent callers in the same LayoutContext
+    /// populated, subsequent callers in the same `LayoutContext`
     /// (a single render) return a clone.
     ///
     /// Uses `RefCell` so shared `&self` borrows (e.g. in the Taffy
@@ -245,23 +246,23 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// entries span DOMs in iframe-style nested documents if that
     /// ever becomes a thing.
     pub scrollbar_style_cache:
-        core::cell::RefCell<std::collections::HashMap<NodeId, crate::solver3::getters::ComputedScrollbarStyle>>,
+        core::cell::RefCell<HashMap<NodeId, getters::ComputedScrollbarStyle>>,
 }
 
-impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
-    /// Internal method - called by debug_log! macro after checking debug_messages.is_some()
+impl<T: ParsedFontTrait> LayoutContext<'_, T> {
+    /// Internal method - called by `debug_log`! macro after checking `debug_messages.is_some()`
     #[inline]
     pub fn debug_log_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
             messages.push(LayoutDebugMessage {
                 message: message.into(),
                 location: "solver3".into(),
-                message_type: Default::default(),
+                message_type: LayoutDebugMessageType::default(),
             });
         }
     }
 
-    /// Internal method - called by debug_info! macro after checking debug_messages.is_some()
+    /// Internal method - called by `debug_info`! macro after checking `debug_messages.is_some()`
     #[inline]
     pub fn debug_info_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -269,7 +270,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_warning! macro after checking debug_messages.is_some()
+    /// Internal method - called by `debug_warning`! macro after checking `debug_messages.is_some()`
     #[inline]
     pub fn debug_warning_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -277,7 +278,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_error! macro after checking debug_messages.is_some()
+    /// Internal method - called by `debug_error`! macro after checking `debug_messages.is_some()`
     #[inline]
     pub fn debug_error_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -285,7 +286,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_box_props! macro after checking debug_messages.is_some()
+    /// Internal method - called by `debug_box_props`! macro after checking `debug_messages.is_some()`
     #[inline]
     pub fn debug_box_props_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -293,7 +294,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_css_getter! macro after checking debug_messages.is_some()
+    /// Internal method - called by `debug_css_getter`! macro after checking `debug_messages.is_some()`
     #[inline]
     pub fn debug_css_getter_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -301,7 +302,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_bfc_layout! macro after checking debug_messages.is_some()
+    /// Internal method - called by `debug_bfc_layout`! macro after checking `debug_messages.is_some()`
     #[inline]
     pub fn debug_bfc_layout_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -309,7 +310,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_ifc_layout! macro after checking debug_messages.is_some()
+    /// Internal method - called by `debug_ifc_layout`! macro after checking `debug_messages.is_some()`
     #[inline]
     pub fn debug_ifc_layout_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -317,7 +318,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_table_layout! macro after checking debug_messages.is_some()
+    /// Internal method - called by `debug_table_layout`! macro after checking `debug_messages.is_some()`
     #[inline]
     pub fn debug_table_layout_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -325,7 +326,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    /// Internal method - called by debug_display_type! macro after checking debug_messages.is_some()
+    /// Internal method - called by `debug_display_type`! macro after checking `debug_messages.is_some()`
     #[inline]
     pub fn debug_display_type_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -357,7 +358,9 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
 pub static SKIP_DISPLAY_LIST: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
-/// Set [`SKIP_DISPLAY_LIST`]. Provided as a function (rather than the
+/// Set [`SKIP_DISPLAY_LIST`].
+///
+/// Provided as a function (rather than the
 /// caller touching the static directly) so the web backend's
 /// `dll`-crate caller reaches it through a normal `bl` into this
 /// `azul_layout` function — keeping the static's address computation
@@ -374,6 +377,12 @@ pub fn set_skip_display_list(skip: bool) {
 // source fn — and may itself prevent the inlining-induced fold. No perf cost on
 // desktop (called once per layout).
 #[inline(never)]
+// node counts / indices / tree-len values fed to az_mark debug markers as u32; bounded.
+#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if document layout fails.
 pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
@@ -386,7 +395,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
     renderer_resources: &azul_core::resources::RendererResources,
     id_namespace: azul_core::resources::IdNamespace,
-    dom_id: azul_core::dom::DomId,
+    dom_id: DomId,
     cursor_is_visible: bool,
     cursor_locations: Vec<(DomId, NodeId, TextCursor)>,
     preedit_text: Option<String>,
@@ -394,9 +403,34 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
 ) -> Result<DisplayList> {
+    use crate::window::LayoutWindow;
+
+    // Secondary mapping: anonymous wrappers (dom_node_id == None)
+    // by (parent_new_idx, ordinal-among-anon-siblings). An
+    // unchanged DOM produces the same anon wrappers in the same
+    // order under the same parent — matching by position here
+    // preserves their cache slots too. Without this, anon
+    // wrappers re-allocate empty every reconcile and invalidate
+    // their ancestors via `mark_dirty`.
+    fn collect_anon_children_by_parent(
+        tree: &LayoutTree,
+    ) -> HashMap<usize, Vec<usize>> {
+        let mut map: HashMap<usize, Vec<usize>> =
+            HashMap::new();
+        for (idx, node) in tree.nodes.iter().enumerate() {
+            if node.dom_node_id.is_some() {
+                continue;
+            }
+            if let Some(parent) = node.parent {
+                map.entry(parent).or_default().push(idx);
+            }
+        }
+        map
+    }
+
     // Reset IFC ID counter at the start of each layout pass
     // This ensures IFCs get consistent IDs across frames when the DOM structure is stable
-    crate::solver3::layout_tree::IfcId::reset_counter();
+    layout_tree::IfcId::reset_counter();
     // in layout_document returns the rc=5 Err (the error enum can't be captured
     // reliably in the lift). The last value seen = the step that errored next.
     { let _ = (0xDD00_0001u32); }
@@ -416,7 +450,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Create temporary context without counters for tree generation
     let mut counter_values = HashMap::new();
     let mut ctx_temp = LayoutContext {
-        scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
+        scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
         styled_dom: new_dom,
         font_manager,
         text_selections,
@@ -452,7 +486,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // (root `subtree_hash` + viewport) is the correct, content-based skip;
     // it costs one ~600 µs reconcile pass but cannot be fooled by address
     // reuse.
-    let dom_ptr = new_dom as *const StyledDom as usize;
+    let dom_ptr = std::ptr::from_ref::<StyledDom>(new_dom) as usize;
     cache.prev_dom_ptr = dom_ptr;
     cache.prev_viewport = viewport;
 
@@ -469,11 +503,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     let mut new_tree = Box::new(new_tree_val);
     { let _ = (0xDD00_0002u32); }
     // [az-diag g51 REVERT] 0x71 = reconcile_and_invalidate returned OK (no InvalidTree in reconcile).
-    unsafe { crate::az_mark((0x60704) as u32, (0x71u32) as u32); }
+    unsafe { crate::az_mark(0x60704_u32, (0x71u32)); }
     // [az-diag g54 REVERT] 0x40740 = new_tree.nodes.len() RIGHT AFTER reconcile. If 0 → reconcile
     // built an empty LayoutTree (the bug is in reconcile_recursive/create_node_from_dom). If 2 →
     // reconcile is fine and the tree gets emptied/mis-lifted downstream (check 0x40744 at the loop).
-    unsafe { crate::az_mark((0x60740) as u32, (new_tree.nodes.len() as u32) as u32); }
+    unsafe { crate::az_mark(0x60740_u32, (new_tree.nodes.len() as u32)); }
     crate::probe::sample_peak_rss("rss:after_reconcile");
     crate::probe::sample_phase_peak("rss:peak_during_reconcile");
 
@@ -509,10 +543,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // as list markers need counter values during formatting context layout
     {
         let _p = crate::probe::Probe::span("compute_counters");
-        cache::compute_counters(&new_dom, &new_tree, &mut counter_values);
+        cache::compute_counters(new_dom, &new_tree, &mut counter_values);
     }
     // [az-diag g51 REVERT] 0x72 = compute_counters done (InvalidTree, if any, is after here).
-    unsafe { crate::az_mark((0x60704) as u32, (0x72u32) as u32); }
+    unsafe { crate::az_mark(0x60704_u32, (0x72u32)); }
 
     // Step 1.4: Resize and invalidate per-node cache (Taffy-inspired 9+1 slot cache)
     // Move cache_map out of LayoutCache for the duration of layout (avoids borrow conflicts).
@@ -530,14 +564,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // without a matching DOM id (pure anonymous wrappers) fall
     // through to the default (empty, i.e. dirty) entry.
     let mut cache_map = std::mem::take(&mut cache.cache_map);
-    let _probe_cache_remap = Some(crate::probe::Probe::span("cache_map_remap"));
+    let probe_cache_remap = Some(crate::probe::Probe::span("cache_map_remap"));
     if let Some(old_tree) = cache.tree.as_ref() {
         let mut remapped = cache::LayoutCacheMap::default();
         remapped.entries.resize_with(new_tree.nodes.len(), Default::default);
 
         // Primary mapping: DOM id → layout idx on both sides. This
         // covers every node that has a corresponding DOM node.
-        for (dom_id, new_indices) in new_tree.dom_to_layout.iter() {
+        for (dom_id, new_indices) in &new_tree.dom_to_layout {
             let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
                 continue;
             };
@@ -555,29 +589,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
         }
 
-        // Secondary mapping: anonymous wrappers (dom_node_id == None)
-        // by (parent_new_idx, ordinal-among-anon-siblings). An
-        // unchanged DOM produces the same anon wrappers in the same
-        // order under the same parent — matching by position here
-        // preserves their cache slots too. Without this, anon
-        // wrappers re-allocate empty every reconcile and invalidate
-        // their ancestors via `mark_dirty`.
-        fn collect_anon_children_by_parent(
-            tree: &LayoutTree,
-        ) -> std::collections::HashMap<usize, Vec<usize>> {
-            let mut map: std::collections::HashMap<usize, Vec<usize>> =
-                std::collections::HashMap::new();
-            for (idx, node) in tree.nodes.iter().enumerate() {
-                if node.dom_node_id.is_some() {
-                    continue;
-                }
-                if let Some(parent) = node.parent {
-                    map.entry(parent).or_default().push(idx);
-                }
-            }
-            map
-        }
-
         // Build old-parent → [old_anon_indices] and
         // new-parent → [new_anon_indices]; match by pair position.
         let old_anon_by_parent = collect_anon_children_by_parent(old_tree);
@@ -587,9 +598,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // dom-id mapping we just populated, then match anon children
         // positionally within that parent.
         // Build a new→old layout-idx lookup from the primary pass.
-        let mut new_to_old_layout_idx: std::collections::HashMap<usize, usize> =
-            std::collections::HashMap::new();
-        for (dom_id, new_indices) in new_tree.dom_to_layout.iter() {
+        let mut new_to_old_layout_idx: HashMap<usize, usize> =
+            HashMap::new();
+        for (dom_id, new_indices) in &new_tree.dom_to_layout {
             let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
                 continue;
             };
@@ -625,7 +636,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     } else {
         cache_map.resize_to_tree(new_tree.nodes.len());
     }
-    drop(_probe_cache_remap);
+    drop(probe_cache_remap);
     crate::probe::sample_peak_rss("rss:after_cache_remap");
     for &node_idx in &recon_result.intrinsic_dirty {
         cache_map.mark_dirty(node_idx, &new_tree.nodes);
@@ -636,8 +647,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     // Now create the real context with computed counters
     let mut ctx = LayoutContext {
-        scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
-        styled_dom: &new_dom,
+        scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+        styled_dom: new_dom,
         font_manager,
         text_selections,
         debug_messages,
@@ -670,8 +681,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         let scroll_ids = if cache.scroll_ids.is_empty() {
             use crate::window::LayoutWindow;
             let (scroll_ids, scroll_id_to_node_id) =
-                LayoutWindow::compute_scroll_ids(tree, &new_dom);
-            cache.scroll_ids = scroll_ids.clone();
+                LayoutWindow::compute_scroll_ids(tree, new_dom);
+            cache.scroll_ids.clone_from(&scroll_ids);
             cache.scroll_id_to_node_id = scroll_id_to_node_id;
             scroll_ids
         } else {
@@ -696,7 +707,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     { let _ = (0xDD00_0003u32); }
     // [az-diag g51 REVERT] 0x80 = reached the incremental layout loop (past early-exit + remap + dirty loops).
-    unsafe { crate::az_mark((0x60704) as u32, (0x80u32) as u32); }
+    unsafe { crate::az_mark(0x60704_u32, (0x80u32)); }
     // [az-diag g65 PATH-B VALIDATION] new_tree is still valid here (=2). Clone it into the HEAP-backed
     // cache.tree (set AFTER the remap+early-exit which read the OLD cache.tree). cache is the stable
     // &mut arg (read correctly throughout), so cache.tree is NOT a deep-SP-relative stack local. At the
@@ -708,8 +719,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Vec::clone MIS-LIFTS (drops a node) → the full MOVE-based cache.tree refactor avoids it (do it).
     // If src=1=clone → corruption already reached line 758 (heisenbug) → move won't help.
     unsafe {
-        crate::az_mark((0x607C0) as u32, (new_tree.nodes.len() as u32) as u32);
-        crate::az_mark((0x607C4) as u32, (cache.tree.as_ref().map(|t| t.nodes.len()).unwrap_or(999) as u32) as u32);
+        crate::az_mark(0x607C0_u32, (new_tree.nodes.len() as u32));
+        crate::az_mark(0x607C4_u32, (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32));
     }
 
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
@@ -727,16 +738,16 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.calculated_positions.clone()
         };
         // [az-diag g70 RELIABLE free-band] 0x60780 = nodes.len AFTER the in-loop calculated_positions.clone().
-        unsafe { crate::az_mark((0x60780) as u32, (new_tree.nodes.len() as u32) as u32); }
+        unsafe { crate::az_mark(0x60780_u32, (new_tree.nodes.len() as u32)); }
         let mut reflow_needed_for_scrollbars = false;
 
         {
             crate::probe::reset_peak();
             // [az-diag g70 RELIABLE free-band] 0x60784 = nodes.len AFTER reset_peak (before the calc Span).
-            unsafe { crate::az_mark((0x60784) as u32, (new_tree.nodes.len() as u32) as u32); }
+            unsafe { crate::az_mark(0x60784_u32, (new_tree.nodes.len() as u32)); }
             let _p = crate::probe::Probe::span("calc_intrinsic_sizes");
             // [az-diag g70 RELIABLE free-band] 0x60788 = nodes.len AFTER the calc_intrinsic_sizes Span.
-            unsafe { crate::az_mark((0x60788) as u32, (new_tree.nodes.len() as u32) as u32); }
+            unsafe { crate::az_mark(0x60788_u32, (new_tree.nodes.len() as u32)); }
             // [az-diag g72 FIX] REMOVED the g48 `#[cfg(feature="web_lift")] panic!(...)` that lived
             // here. web-transpiler => azul-layout?/web_lift IS enabled (dll/Cargo.toml:651), so this
             // panic WAS compiled in, and with `-Z build-std-features=panic_immediate_abort` it lowered
@@ -749,8 +760,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // [az-diag g65 PATH-B VALIDATION] 0x40748 = stack new_tree.nodes.len() (expect 0),
             // 0x4074C = HEAP cache.tree.nodes.len() (expect 2 if path B sidesteps the corruption).
             unsafe {
-                crate::az_mark((0x60748) as u32, (new_tree.nodes.len() as u32) as u32);
-                crate::az_mark((0x6074C) as u32, (cache.tree.as_ref().map(|t| t.nodes.len()).unwrap_or(999) as u32) as u32);
+                crate::az_mark(0x60748_u32, (new_tree.nodes.len() as u32));
+                crate::az_mark(0x6074C_u32, (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32));
             }
             calculate_intrinsic_sizes(
                 &mut ctx,
@@ -767,7 +778,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         for &root_idx in &recon_result.layout_roots {
             let (cb_pos, cb_size) = get_containing_block_for_node(
                 &new_tree,
-                &new_dom,
+                new_dom,
                 root_idx,
                 &calculated_positions,
                 viewport,
@@ -803,9 +814,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
                 let dom_name = root_node
                     .dom_node_id
-                    .and_then(|id| new_dom.node_data.as_container().internal.get(id.index()))
-                    .map(|n| format!("{:?}", n.node_type))
-                    .unwrap_or_else(|| "Unknown".to_string());
+                    .and_then(|id| new_dom.node_data.as_container().internal.get(id.index())).map_or_else(|| "Unknown".to_string(), |n| format!("{:?}", n.node_type));
 
                 debug_msgs.push(LayoutDebugMessage::new(
                     LayoutDebugMessageType::PositionCalculation,
@@ -840,7 +849,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // 0x5E = Err. Do NOT propagate (continue to the cache store) so layout-real can
             // see whether the geometry was computed regardless of a (possibly spurious,
             // niche-Result-mis-discriminated) Err.
-            let _clr = {
+            let clr = {
                 let _p = crate::probe::Probe::span("root_layout_pass");
                 cache::calculate_layout_for_subtree(
                     &mut ctx,
@@ -855,7 +864,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     cache::ComputeMode::PerformLayout,
                 )
             };
-            { let _ = (if _clr.is_ok() { 0xDD00_0057u32 } else { 0xDD00_005Eu32 }); }
+            { let _ = (if clr.is_ok() { 0xDD00_0057u32 } else { 0xDD00_005Eu32 }); }
             crate::probe::sample_peak_rss("rss:after_root_layout");
             crate::probe::sample_phase_peak("rss:peak_during_root_layout");
 
@@ -882,9 +891,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
                     let dom_name = root_node
                         .dom_node_id
-                        .and_then(|id| new_dom.node_data.as_container().internal.get(id.index()))
-                        .map(|n| format!("{:?}", n.node_type))
-                        .unwrap_or_else(|| "Unknown".to_string());
+                        .and_then(|id| new_dom.node_data.as_container().internal.get(id.index())).map_or_else(|| "Unknown".to_string(), |n| format!("{:?}", n.node_type));
 
                     debug_msgs.push(LayoutDebugMessage::new(
                         LayoutDebugMessageType::PositionCalculation,
@@ -912,7 +919,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         {
             let _p = crate::probe::Probe::span("reposition_clean_subtrees");
             cache::reposition_clean_subtrees(
-                &new_dom,
+                new_dom,
                 &new_tree,
                 &recon_result.layout_roots,
                 &mut calculated_positions,
@@ -990,10 +997,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     // --- Step 3.75: Compute Stable Scroll IDs ---
     // This must be done AFTER layout but BEFORE display list generation
-    use crate::window::LayoutWindow;
     let (scroll_ids, scroll_id_to_node_id) = {
         let _p = crate::probe::Probe::span("compute_scroll_ids");
-        LayoutWindow::compute_scroll_ids(&new_tree, &new_dom)
+        LayoutWindow::compute_scroll_ids(&new_tree, new_dom)
     };
 
     crate::probe::sample_peak_rss("rss:before_display_list");
@@ -1028,8 +1034,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // directly and skips all downstream work.
     let root_subtree_hash = new_tree
         .cold(new_tree.root)
-        .map(|c| c.subtree_hash)
-        .unwrap_or(crate::solver3::layout_tree::SubtreeHash(0));
+        .map_or(layout_tree::SubtreeHash(0), |c| c.subtree_hash);
     cache.cached_display_list = Some((root_subtree_hash, viewport, display_list.clone()));
 
     cache.tree = Some(*new_tree); // [g56] unbox the heap LayoutTree back into the cache
@@ -1084,7 +1089,7 @@ pub(super) fn get_containing_block_for_node(
                     .as_container()
                     .get(dom_id)
                     .map(|n| &n.styled_node_state)
-                    .cloned()
+                    .copied()
                     .unwrap_or_default();
                 // +spec:containing-block:c205e5 - writing mode of containing block used for inner_size (orthogonal flow awareness)
                 let writing_mode =
@@ -1122,6 +1127,7 @@ pub(super) fn get_containing_block_for_node(
 // Result<(),LayoutError> arrived as Err → rc=5 InvalidTree though the out-param content was correct).
 // An explicit u8 tag (0..=4) moves the Result niche to unused tag values (5..) = a simple u8 compare
 // the lift handles. Same disc-mis-lift class as InlineContent/LogicalItem/ShapedItem (g117/g118).
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[derive(Debug)]
 #[repr(C, u8)]
 pub enum LayoutError {
@@ -1135,18 +1141,18 @@ pub enum LayoutError {
 impl std::fmt::Display for LayoutError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LayoutError::InvalidTree => write!(f, "Invalid layout tree"),
-            LayoutError::SizingFailed => write!(f, "Sizing calculation failed"),
-            LayoutError::PositioningFailed => write!(f, "Position calculation failed"),
-            LayoutError::DisplayListFailed => write!(f, "Display list generation failed"),
-            LayoutError::Text(e) => write!(f, "Text layout error: {:?}", e),
+            Self::InvalidTree => write!(f, "Invalid layout tree"),
+            Self::SizingFailed => write!(f, "Sizing calculation failed"),
+            Self::PositioningFailed => write!(f, "Position calculation failed"),
+            Self::DisplayListFailed => write!(f, "Display list generation failed"),
+            Self::Text(e) => write!(f, "Text layout error: {e:?}"),
         }
     }
 }
 
 impl From<crate::font_traits::LayoutError> for LayoutError {
     fn from(err: crate::font_traits::LayoutError) -> Self {
-        LayoutError::Text(err)
+        Self::Text(err)
     }
 }
 

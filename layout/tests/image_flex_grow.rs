@@ -83,7 +83,7 @@ fn image_flex_grow_fills_column() {
     let canvas = lw
         .get_node_layout_rect(node_id(2))
         .expect("canvas layout rect");
-    println!("canvas rect = {:?}", canvas);
+    println!("canvas rect = {canvas:?}");
 
     // Main axis (height): flex-grow:1 should fill 480 - 50 = 430.
     assert!(

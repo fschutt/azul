@@ -642,6 +642,7 @@ impl HeadlessWindow {
     pub fn new(
         options: WindowCreateOptions,
         app_data: Arc<RefCell<RefAny>>,
+        undo_manager: event::SharedUndoManager,
         config: AppConfig,
         icon_provider: SharedIconProvider,
         fc_cache: Arc<FcFontCache>,
@@ -669,6 +670,7 @@ impl HeadlessWindow {
                 gl_context_ptr: OptionGlContextPtr::None,
                 system_style: Arc::new(crate::desktop::app::discover_system_style()),
                 app_data,
+                undo_manager,
                 scrollbar_drag_state: None,
                 hit_tester: None,
                 cpu_hit_tester: Some(azul_layout::headless::CpuHitTester::new()),
@@ -1214,6 +1216,7 @@ impl HeadlessWindow {
                 match HeadlessWindow::new(
                     pending_create,
                     self.common.app_data.clone(),
+                    self.common.undo_manager.clone(),
                     self.config.clone(),
                     self.icon_provider.clone(),
                     self.common.fc_cache.clone(),
@@ -1427,6 +1430,7 @@ mod tests {
         HeadlessWindow::new(
             WindowCreateOptions::default(),
             app_data,
+            event::SharedUndoManager::new(),
             AppConfig::default(),
             icon_provider,
             fc_cache,
@@ -1538,6 +1542,7 @@ mod tests {
         let window = HeadlessWindow::new(
             opts,
             state.clone(),
+            event::SharedUndoManager::new(),
             AppConfig::default(),
             icon_provider,
             fc_cache,

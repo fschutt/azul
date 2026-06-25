@@ -564,6 +564,68 @@ pub enum WindowStateSource {
     Os,
 }
 
+/// App-global undo/redo manager handle, shared (Arc) between the App and every
+/// window. The actual mini-git manager only exists under the `json` feature;
+/// without it every method is a no-op so the type can be threaded unconditionally.
+#[derive(Clone, Debug)]
+pub struct SharedUndoManager {
+    #[cfg(feature = "json")]
+    inner: std::sync::Arc<std::sync::Mutex<azul_layout::json::RefAnyUndoManager>>,
+}
+
+impl SharedUndoManager {
+    pub fn new() -> Self {
+        Self {
+            #[cfg(feature = "json")]
+            inner: std::sync::Arc::new(std::sync::Mutex::new(
+                azul_layout::json::RefAnyUndoManager::new(0),
+            )),
+        }
+    }
+
+    /// Snapshot current app state into history. No-op (returns false) without json.
+    pub fn commit(&self, _state: &azul_core::refany::RefAny) -> bool {
+        #[cfg(feature = "json")]
+        {
+            self.inner.lock().map(|mut m| m.commit(_state)).unwrap_or(false)
+        }
+        #[cfg(not(feature = "json"))]
+        {
+            false
+        }
+    }
+
+    /// Undo the last committed app-state change. No-op (returns false) without json.
+    pub fn undo(&self, _state: &mut azul_core::refany::RefAny) -> bool {
+        #[cfg(feature = "json")]
+        {
+            self.inner.lock().map(|mut m| m.undo(_state)).unwrap_or(false)
+        }
+        #[cfg(not(feature = "json"))]
+        {
+            false
+        }
+    }
+
+    /// Redo a previously undone app-state change. No-op (returns false) without json.
+    pub fn redo(&self, _state: &mut azul_core::refany::RefAny) -> bool {
+        #[cfg(feature = "json")]
+        {
+            self.inner.lock().map(|mut m| m.redo(_state)).unwrap_or(false)
+        }
+        #[cfg(not(feature = "json"))]
+        {
+            false
+        }
+    }
+}
+
+impl Default for SharedUndoManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct CommonWindowState {
     /// LayoutWindow integration (for UI callbacks and display list)
     pub layout_window: Option<LayoutWindow>,
@@ -583,6 +645,10 @@ pub struct CommonWindowState {
     pub system_style: Arc<azul_css::system::SystemStyle>,
     /// Shared application data (used by callbacks, shared across windows)
     pub app_data: Arc<RefCell<RefAny>>,
+    /// App-global undo/redo manager, shared across all windows (owned by the App).
+    /// A callback's `commit_undo_snapshot` / `undo_app_state` / `redo_app_state`
+    /// drives this; undo/redo relayouts all windows.
+    pub undo_manager: SharedUndoManager,
     /// Current scrollbar drag state (if dragging a scrollbar thumb)
     pub scrollbar_drag_state: Option<ScrollbarDragState>,
     /// Hit-tester for fast asynchronous hit-testing (updated on layout changes).
@@ -758,6 +824,9 @@ macro_rules! impl_platform_window_getters {
         fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
             &self.$field.app_data
         }
+        fn get_undo_manager(&self) -> &$crate::desktop::shell2::common::event::SharedUndoManager {
+            &self.$field.undo_manager
+        }
         fn get_common_mut(&mut self) -> &mut $crate::desktop::shell2::common::event::CommonWindowState {
             &mut self.$field
         }
@@ -906,6 +975,9 @@ pub trait PlatformWindow {
 
     /// Get the shared application data
     fn get_app_data(&self) -> &Arc<RefCell<RefAny>>;
+
+    /// Get the app-global undo/redo manager (shared across all windows)
+    fn get_undo_manager(&self) -> &SharedUndoManager;
 
     // Scrollbar State
 
@@ -1639,7 +1711,7 @@ pub trait PlatformWindow {
                         let content = lw.get_text_before_textinput(*dom_id, *node_id);
                         use azul_layout::text3::edit::delete_backward;
                         let mut new_content = content.clone();
-                        let (updated_content, new_cursor) = delete_backward(&mut new_content, &cursor);
+                        let (updated_content, new_cursor) = delete_backward(&new_content, &cursor);
                         if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_cursor(new_cursor); }
                         lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
                     } 
@@ -1653,7 +1725,7 @@ pub trait PlatformWindow {
                         let content = lw.get_text_before_textinput(*dom_id, *node_id);
                         use azul_layout::text3::edit::delete_forward;
                         let mut new_content = content.clone();
-                        let (updated_content, new_cursor) = delete_forward(&mut new_content, &cursor);
+                        let (updated_content, new_cursor) = delete_forward(&new_content, &cursor);
                         if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_cursor(new_cursor); }
                         lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
                     }
@@ -2205,6 +2277,37 @@ pub trait PlatformWindow {
                     lw.gesture_drag_manager.inject_native_gesture(*gesture);
                 }
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            }
+
+            // === App-global Undo / Redo (mini-git over the app state) ===
+
+            CallbackChange::CommitUndoSnapshot => {
+                // Clone the Arc first so the `&self` borrow ends before we
+                // borrow `&self` again via get_undo_manager().
+                let app_data = self.get_app_data().clone();
+                let snap = app_data.borrow();
+                self.get_undo_manager().commit(&snap);
+                ProcessEventResult::DoNothing // committing a snapshot doesn't change the UI
+            }
+
+            CallbackChange::UndoAppState => {
+                let app_data = self.get_app_data().clone();
+                let ok = self.get_undo_manager().undo(&mut app_data.borrow_mut());
+                if ok {
+                    ProcessEventResult::ShouldRegenerateDomAllWindows
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+
+            CallbackChange::RedoAppState => {
+                let app_data = self.get_app_data().clone();
+                let ok = self.get_undo_manager().redo(&mut app_data.borrow_mut());
+                if ok {
+                    ProcessEventResult::ShouldRegenerateDomAllWindows
+                } else {
+                    ProcessEventResult::DoNothing
+                }
             }
         }
     }

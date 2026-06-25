@@ -143,7 +143,7 @@ fn test_html5_auto_close_list_items() {
     assert_eq!(li_items[2].node_type.as_str(), "li");
 
     // Each <li> should contain its text
-    assert!(li_items[0].children.as_ref().len() > 0, "First li should have text");
+    assert!(!li_items[0].children.as_ref().is_empty(), "First li should have text");
 }
 
 /// Verifies that `<p>` auto-closes when encountering block-level elements
@@ -289,7 +289,7 @@ fn test_header_without_closing_tag_lenient() {
     // With lenient parsing, <header> stays open (no auto-close rule for
     // header->footer), so footer becomes a child of header.
     let body_elems = element_children(body.children.as_ref());
-    assert!(body_elems.len() >= 1, "Should have at least one element child");
+    assert!(!body_elems.is_empty(), "Should have at least one element child");
 
     let header = body_elems[0];
     assert_eq!(header.node_type.as_str(), "header");

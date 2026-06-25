@@ -13,6 +13,41 @@
 // Lint policy: deny correctness/safety issues, warn on style
 #![deny(unused_must_use)]
 #![warn(clippy::all)]
+// === "extreme lints" lockdown (2026-06-20) — maximal opt-in lint set ===
+// All clippy groups + opt-in rustc lints, warn-level so normal builds still
+// pass; the CI clippy job runs `-D warnings`, turning every one of these into
+// the outstanding-lint-failure report for Monday triage. NOT yet fixed.
+// (clippy::restriction wholesale + unused_results + box_pointers deliberately
+// omitted — contradictory / overwhelmingly noisy by design.)
+#![warn(
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::cargo,
+    // missing_docs,  // TODO(docs): re-enable as a dedicated final docs pass; disabled
+    //                // for now so the cleanup focuses on code-quality lints, not doc debt.
+    missing_debug_implementations,
+    missing_copy_implementations,
+    unreachable_pub,
+    unused_qualifications,
+    unused_lifetimes,
+    unused_import_braces,
+    unused_macro_rules,
+    unused_crate_dependencies,
+    meta_variable_misuse,
+    trivial_casts,
+    trivial_numeric_casts,
+    elided_lifetimes_in_paths,
+    single_use_lifetimes,
+    variant_size_differences,
+    non_ascii_idents,
+    unsafe_op_in_unsafe_fn,
+    let_underscore_drop,
+)]
+// `multiple_crate_versions` (implied by clippy::cargo) flags transitive
+// dependency-version dups that cannot be resolved in azul's own source:
+// `syn` 1.0.x ↔ 2.0.x (the proc-macro ecosystem is mid-migration; both are
+// pulled in transitively). Documented allow — re-audit when the dep tree aligns.
+#![allow(clippy::multiple_crate_versions)]
 #![allow(
     clippy::non_canonical_partial_ord_impl,
     clippy::legacy_numeric_constants,
@@ -28,7 +63,6 @@
     dead_code,
     unused_doc_comments,
     unused_assignments,                    // compact_cache_builder incremental updates
-    mismatched_lifetime_syntaxes,
     unexpected_cfgs,
     unpredictable_function_pointer_comparisons, // intentional in dom callback comparison
     improper_ctypes_definitions,           // xml component fns use Rust fn pointers internally
@@ -45,6 +79,7 @@ extern crate alloc;
 extern crate azul_css;
 
 /// Internal macros for `Vec`, `Option`, and callback boilerplate.
+///
 #[macro_use]
 pub mod macros;
 /// Debug logging system with category filtering.
@@ -161,7 +196,7 @@ pub mod sync {
 /// is unchanged. In `no_std` builds it provides a small deterministic
 /// `FxHasher`-style hasher implementing `core::hash::Hasher`. The values are
 /// only required to be stable within a single process run (they back diffing /
-/// change detection), not to match `std`'s SipHash output.
+/// change detection), not to match `std`'s `SipHash` output.
 pub mod hash {
     #[cfg(feature = "std")]
     pub use std::hash::DefaultHasher;
@@ -227,24 +262,30 @@ pub mod hash {
 /// Callback types: layout, event, timer, thread, and focus handling.
 #[macro_use]
 pub mod callbacks;
-/// Host-language callback invoker registry — the C-ABI surface managed-FFI
-/// bindings (Lua, Ruby, …) use to register one per-kind invoker + a single
-/// shared releaser, so callbacks can be created via `_createFromHostHandle`
-/// without the host having to generate trampolines for struct-by-value
-/// signatures their FFI library can't handle.
+/// Host-language callback invoker registry.
+///
+/// The C-ABI surface managed-FFI bindings (Lua, Ruby, …) use to register one
+/// per-kind invoker + a single shared releaser, so callbacks can be created via
+/// `_createFromHostHandle` without the host having to generate trampolines for
+/// struct-by-value signatures their FFI library can't handle.
 #[macro_use]
 pub mod host_invoker;
 /// Accessibility types for screen-reader integration (AccessKit).
 pub mod a11y;
 /// Audio POD types — `AudioConfig` (stream format) + `AudioFrame` (interleaved
-/// f32 samples). The unit captured from the mic, played back, and (P8) shared
+/// f32 samples).
+///
+/// The unit captured from the mic, played back, and (P8) shared
 /// over UDP. Backend (rodio / cpal / AVAudioEngine / AAudio) lives dll-side.
 pub mod audio;
 /// Biometric-auth POD types — `BiometricKind` + `BiometricResult` + `BiometricPrompt`.
+///
 /// Stateful manager lives in `azul_layout::managers::biometric`.
 pub mod biometric;
 /// Camera-capture POD types — `CaptureStreamId` + `CameraConfig` +
-/// `CameraFacing` + `StreamState` + … . The stateful `CameraStream` /
+/// `CameraFacing` + `StreamState` + … .
+///
+/// The stateful `CameraStream` /
 /// `CameraManager` (which own the shared `ImageRef` texture) live in
 /// `azul_layout::managers::camera`.
 pub mod camera;
@@ -259,14 +300,18 @@ pub mod drag;
 /// Event filtering: mouse, keyboard, window, and synthetic events.
 pub mod events;
 /// Gamepad POD types — `GamepadId` + `GamepadButton` + `GamepadAxis` +
-/// `GamepadState`. Stateful manager lives in `azul_layout::managers::gamepad`.
+/// `GamepadState`.
+///
+/// Stateful manager lives in `azul_layout::managers::gamepad`.
 pub mod gamepad;
 /// Geolocation POD types — `LocationFix` + `GeolocationProbeConfig`.
+///
 /// Stateful manager lives in `azul_layout::managers::geolocation`.
 pub mod geolocation;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
 /// OpenGL context wrappers, shader compilation, and texture cache.
+///
 pub mod gl;
 /// FXAA (Fast Approximate Anti-Aliasing) shader.
 pub mod gl_fxaa;
@@ -276,6 +321,7 @@ pub mod glconst;
 pub mod gpu;
 /// Hit-test results (which DOM nodes are under the cursor) + the type-safe
 /// hit-test tag system for compositor integration (merged from `hit_test_tag`).
+///
 pub mod hit_test;
 /// Icon provider system for loading icons from fonts, images, or zip packs.
 pub mod icon;
@@ -284,6 +330,7 @@ pub mod id;
 /// JSON value types for the C API (no serde dependency).
 pub mod json;
 /// System-keyring POD types — `KeyringRequest` + `KeyringResult`.
+///
 /// Stateful manager lives in `azul_layout::managers::keyring`.
 pub mod keyring;
 /// Menu system: context menus, dropdown menus, and menu bars.
@@ -300,12 +347,14 @@ pub mod refany;
 /// Resource management: font/image loading, caching, and garbage collection.
 pub mod resources;
 /// Screen-capture POD types — `ScreenCaptureSource` + `ScreenCaptureConfig`.
+///
 /// Symmetric to the camera surface (a "dumb widget" in
 /// `azul_layout::widgets::screencap`); reuses `camera`'s capture status types.
 pub mod screencap;
 /// Text selection and cursor positioning for inline content.
 pub mod selection;
 /// Motion-sensor POD types — `SensorKind` + `SensorReading`.
+///
 /// Stateful manager lives in `azul_layout::managers::sensors`.
 pub mod sensors;
 /// CSS cascade: selector matching, specificity, and property inheritance.
@@ -321,7 +370,9 @@ pub mod transform;
 /// Built-in user-agent default stylesheet.
 pub mod ua_css;
 /// UDP chunked-message framing (P8): split a >MTU payload into sequenced
-/// datagrams + reassemble them, tolerating reorder + loss. Pure logic the
+/// datagrams + reassemble them, tolerating reorder + loss.
+///
+/// Pure logic the
 /// dll's `Udp` handle builds on; unit-tested here. See `udp_framing.rs`.
 pub mod udp_framing;
 /// Default font/text constants and small geometry helpers for layout.
@@ -329,6 +380,7 @@ pub mod ui_solver;
 /// URL POD type (`Url`/`UrlParseError`); parsing gated behind the `url` feature.
 pub mod url;
 /// Video-playback POD types — `VideoConfig` (source URL + autoplay/loop).
+///
 /// Same "dumb widget" architecture (`azul_layout::widgets::video`); decoded
 /// via vk-video into the shared GL texture.
 pub mod video;

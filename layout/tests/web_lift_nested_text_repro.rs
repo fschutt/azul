@@ -55,7 +55,7 @@ fn body_with_direct_text_lays_out() {
     let dom = Dom::create_body().with_child(Dom::create_text("Hello"));
     let lw = layout_dom(dom, "", 800.0, 600.0);
     let body = lw.get_node_layout_rect(node_id(0)).expect("body rect");
-    eprintln!("[direct] body rect = {:?}", body);
+    eprintln!("[direct] body rect = {body:?}");
     assert!(
         body.size.height > 0.0,
         "body with direct text should have height>0 (got {})",
@@ -74,7 +74,7 @@ fn nested_div_with_text_has_nonzero_height() {
     let lw = layout_dom(dom, ".counter { font-size: 32px; }", 800.0, 600.0);
     // node 0 = body, node 1 = div.counter, node 2 = text "5"
     let div = lw.get_node_layout_rect(node_id(1)).expect("div rect");
-    eprintln!("[nested] div.counter rect = {:?}", div);
+    eprintln!("[nested] div.counter rect = {div:?}");
     assert!(
         div.size.height > 0.0,
         "div containing inline text should have height>0 (got {}) — this is the hello-world blocker",

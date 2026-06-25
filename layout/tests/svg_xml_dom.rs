@@ -36,7 +36,7 @@ fn svg_data_from_xml(xml: &str) -> Vec<(usize, SvgNodeData)> {
 #[test]
 fn test_svg_container_node_type() {
     let types = node_types_from_xml(r#"<html><body><svg></svg></body></html>"#);
-    assert!(types.contains(&NodeType::Svg), "Should contain Svg node type, got: {:?}", types);
+    assert!(types.contains(&NodeType::Svg), "Should contain Svg node type, got: {types:?}");
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn test_svg_path_node_type() {
     let types = node_types_from_xml(
         r#"<html><body><svg><path d="M 0,0 L 10,10"></path></svg></body></html>"#
     );
-    assert!(types.contains(&NodeType::SvgPath), "Should contain SvgPath, got: {:?}", types);
+    assert!(types.contains(&NodeType::SvgPath), "Should contain SvgPath, got: {types:?}");
 }
 
 #[test]
@@ -52,7 +52,7 @@ fn test_svg_circle_node_type() {
     let types = node_types_from_xml(
         r#"<html><body><svg><circle cx="50" cy="50" r="25"></circle></svg></body></html>"#
     );
-    assert!(types.contains(&NodeType::SvgCircle), "Should contain SvgCircle, got: {:?}", types);
+    assert!(types.contains(&NodeType::SvgCircle), "Should contain SvgCircle, got: {types:?}");
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn test_svg_rect_node_type() {
     let types = node_types_from_xml(
         r#"<html><body><svg><rect x="0" y="0" width="100" height="50"></rect></svg></body></html>"#
     );
-    assert!(types.contains(&NodeType::SvgRect), "Should contain SvgRect, got: {:?}", types);
+    assert!(types.contains(&NodeType::SvgRect), "Should contain SvgRect, got: {types:?}");
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn test_svg_ellipse_node_type() {
     let types = node_types_from_xml(
         r#"<html><body><svg><ellipse cx="50" cy="50" rx="30" ry="20"></ellipse></svg></body></html>"#
     );
-    assert!(types.contains(&NodeType::SvgEllipse), "Should contain SvgEllipse, got: {:?}", types);
+    assert!(types.contains(&NodeType::SvgEllipse), "Should contain SvgEllipse, got: {types:?}");
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn test_svg_line_node_type() {
     let types = node_types_from_xml(
         r#"<html><body><svg><line x1="0" y1="0" x2="100" y2="100"></line></svg></body></html>"#
     );
-    assert!(types.contains(&NodeType::SvgLine), "Should contain SvgLine, got: {:?}", types);
+    assert!(types.contains(&NodeType::SvgLine), "Should contain SvgLine, got: {types:?}");
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn test_svg_polygon_node_type() {
     let types = node_types_from_xml(
         r#"<html><body><svg><polygon points="0,0 50,100 100,0"></polygon></svg></body></html>"#
     );
-    assert!(types.contains(&NodeType::SvgPolygon), "Should contain SvgPolygon, got: {:?}", types);
+    assert!(types.contains(&NodeType::SvgPolygon), "Should contain SvgPolygon, got: {types:?}");
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn test_svg_polyline_node_type() {
     let types = node_types_from_xml(
         r#"<html><body><svg><polyline points="0,0 50,50 100,0"></polyline></svg></body></html>"#
     );
-    assert!(types.contains(&NodeType::SvgPolyline), "Should contain SvgPolyline, got: {:?}", types);
+    assert!(types.contains(&NodeType::SvgPolyline), "Should contain SvgPolyline, got: {types:?}");
 }
 
 #[test]
@@ -100,8 +100,8 @@ fn test_svg_g_node_type() {
     let types = node_types_from_xml(
         r#"<html><body><svg><g><path d="M 0,0 L 10,10"></path></g></svg></body></html>"#
     );
-    assert!(types.contains(&NodeType::SvgG), "Should contain SvgG, got: {:?}", types);
-    assert!(types.contains(&NodeType::SvgPath), "Group child should be SvgPath, got: {:?}", types);
+    assert!(types.contains(&NodeType::SvgG), "Should contain SvgG, got: {types:?}");
+    assert!(types.contains(&NodeType::SvgPath), "Group child should be SvgPath, got: {types:?}");
 }
 
 // ============================================================================

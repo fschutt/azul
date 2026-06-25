@@ -50,6 +50,9 @@ impl crate::codegen::format::FormatAsRustCode for SelectionBackgroundColor {
 
 /// Parses a `-azul-selection-background-color` CSS value.
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `selection-background-color` value.
 pub fn parse_selection_background_color(
     input: &str,
 ) -> Result<SelectionBackgroundColor, CssColorParseError<'_>> {
@@ -90,6 +93,9 @@ impl crate::codegen::format::FormatAsRustCode for SelectionColor {
 
 /// Parses a `-azul-selection-color` CSS value.
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `selection-color` value.
 pub fn parse_selection_color(input: &str) -> Result<SelectionColor, CssColorParseError<'_>> {
     parse_css_color(input).map(|inner| SelectionColor { inner })
 }
@@ -135,6 +141,9 @@ impl crate::codegen::format::FormatAsRustCode for SelectionRadius {
 
 /// Parses a `-azul-selection-radius` CSS value.
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `selection-radius` value.
 pub fn parse_selection_radius(input: &str) -> Result<SelectionRadius, CssPixelValueParseError<'_>> {
     parse_pixel_value(input).map(|inner| SelectionRadius { inner })
 }

@@ -71,7 +71,7 @@ const MENUBAR_ITEM_CSS: &str = "display: flex; \
 /// The bar is a flex row of one item per top-level `MenuItem::String`
 /// (separators / break-lines are not rendered in the bar). Inject the returned
 /// `Dom` at the Dom level so its `with_css` rules are scoped in the main flatten.
-pub fn build_menubar_dom(menu: &Menu) -> Dom {
+#[must_use] pub fn build_menubar_dom(menu: &Menu) -> Dom {
     let mut bar = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![
             Class(MENUBAR_CLASS.into()),
@@ -124,7 +124,7 @@ pub(crate) mod callbacks {
     /// Top-level bar item clicked → open its submenu under the item. The submenu
     /// `Menu` is the callback's `data` (a backreference set at build time); its
     /// items carry the user's own callbacks, fired by the menu system on click.
-    pub extern "C" fn menubar_item_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    pub(super) extern "C" fn menubar_item_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
         if let Some(menu) = data.downcast_ref::<Menu>() {
             info.open_menu_for_hit_node(menu.clone());
         }

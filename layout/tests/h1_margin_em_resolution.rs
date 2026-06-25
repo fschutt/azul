@@ -31,13 +31,12 @@ fn test_h1_margin_em_resolution_direct() {
 
     println!("H1 margin: 0.67em with font-size 32px");
     println!("  Expected: 21.44px (0.67 * 32)");
-    println!("  Actual:   {:.2}px", resolved_margin);
+    println!("  Actual:   {resolved_margin:.2}px");
 
     // Allow small floating point error
     assert!(
         (resolved_margin - 21.44).abs() < 0.01,
-        "H1 margin should be 21.44px, got {:.2}px",
-        resolved_margin
+        "H1 margin should be 21.44px, got {resolved_margin:.2}px"
     );
 
     // Test font-size resolution (em refers to parent's font-size)
@@ -46,12 +45,11 @@ fn test_h1_margin_em_resolution_direct() {
 
     println!("\nH1 font-size: 2em with parent font-size 16px");
     println!("  Expected: 32px (2.0 * 16)");
-    println!("  Actual:   {:.2}px", resolved_font_size);
+    println!("  Actual:   {resolved_font_size:.2}px");
 
     assert_eq!(
         resolved_font_size, 32.0,
-        "H1 font-size should be 32px, got {:.2}px",
-        resolved_font_size
+        "H1 font-size should be 32px, got {resolved_font_size:.2}px"
     );
 }
 
@@ -74,12 +72,11 @@ fn test_rem_unit_resolution() {
 
     println!("Margin: 2rem with root font-size 18px");
     println!("  Expected: 36px (2.0 * 18)");
-    println!("  Actual:   {:.2}px", resolved_margin);
+    println!("  Actual:   {resolved_margin:.2}px");
 
     assert_eq!(
         resolved_margin, 36.0,
-        "2rem margin should be 36px with root font-size 18px, got {:.2}px",
-        resolved_margin
+        "2rem margin should be 36px with root font-size 18px, got {resolved_margin:.2}px"
     );
 
     // Rem in font-size also uses root
@@ -88,12 +85,11 @@ fn test_rem_unit_resolution() {
 
     println!("\nFont-size: 1.5rem with root font-size 18px");
     println!("  Expected: 27px (1.5 * 18)");
-    println!("  Actual:   {:.2}px", resolved_font_size);
+    println!("  Actual:   {resolved_font_size:.2}px");
 
     assert_eq!(
         resolved_font_size, 27.0,
-        "1.5rem font-size should be 27px, got {:.2}px",
-        resolved_font_size
+        "1.5rem font-size should be 27px, got {resolved_font_size:.2}px"
     );
 }
 
@@ -115,13 +111,12 @@ fn test_percent_margin_resolution() {
 
     println!("Margin-top: 10% with containing block 800x600");
     println!("  Expected: 80px (10% of width 800, NOT height 600)");
-    println!("  Actual:   {:.2}px", resolved);
+    println!("  Actual:   {resolved:.2}px");
 
     // CSS spec: margin % ALWAYS uses containing block WIDTH
     assert_eq!(
         resolved, 80.0,
-        "Margin-top 10% should be 80px (10% of 800), got {:.2}px",
-        resolved
+        "Margin-top 10% should be 80px (10% of 800), got {resolved:.2}px"
     );
 }
 
@@ -149,12 +144,11 @@ fn test_nested_em_calculation() {
 
     println!("Nested em: html(16) -> body(24) -> div(28.8) -> p margin: 0.5em");
     println!("  Expected: 14.4px (0.5 * 28.8)");
-    println!("  Actual:   {:.2}px", resolved);
+    println!("  Actual:   {resolved:.2}px");
 
     assert!(
         (resolved - 14.4).abs() < 0.01,
-        "Nested em margin should be 14.4px, got {:.2}px",
-        resolved
+        "Nested em margin should be 14.4px, got {resolved:.2}px"
     );
 }
 
@@ -186,8 +180,8 @@ fn test_comparison_old_vs_new() {
     let new_margin = margin.resolve_with_context(&context, PropertyContext::Margin);
 
     println!("\nComparison: H1 with font-size 32px, margin: 0.67em");
-    println!("  Old (broken):  {:.2}px (0.67 * 16 hardcoded)", old_margin);
-    println!("  New (correct): {:.2}px (0.67 * 32 actual)", new_margin);
+    println!("  Old (broken):  {old_margin:.2}px (0.67 * 16 hardcoded)");
+    println!("  New (correct): {new_margin:.2}px (0.67 * 32 actual)");
     println!("  Difference:    {:.2}px", new_margin - old_margin);
 
     assert_eq!(old_margin, 10.72, "Old behavior should give 10.72px");
@@ -199,8 +193,6 @@ fn test_comparison_old_vs_new() {
     // This is the bug we fixed!
     assert!(
         new_margin > old_margin,
-        "New margin ({:.2}px) should be larger than old margin ({:.2}px)",
-        new_margin,
-        old_margin
+        "New margin ({new_margin:.2}px) should be larger than old margin ({old_margin:.2}px)"
     );
 }

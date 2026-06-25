@@ -5030,7 +5030,10 @@ fn build_live_page_code(
         .get(&ROOT_DOM_ID)
         .map(|lr| &lr.styled_dom)
         .ok_or_else(|| "no layout result for DOM 0".to_string())?;
-    let html = styled_dom.get_html_string("", "", true);
+    // test_mode=false wraps the DOM tree in a full <html><head>..</head>..</html>
+    // document; the per-language code generators below require an <html> root
+    // (get_html_node) — the bare tree (test_mode=true) fails with NoHtmlNode.
+    let html = styled_dom.get_html_string("", "", false);
     let nodes = azul_layout::xml::parse_xml_string(&html)
         .map_err(|e| format!("parse live HTML: {:?}", e))?;
     let cmap = azul_core::xml::ComponentMap::with_builtin();
@@ -9953,7 +9956,7 @@ fn process_debug_event(
 
             // --- 8. Render to PNG ---
             match azul_layout::cpurender::render_component_preview(
-                styled_dom,
+                &styled_dom,
                 font_manager,
                 opts,
                 Some(system_style),

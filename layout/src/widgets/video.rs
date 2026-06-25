@@ -34,6 +34,7 @@ const DEFAULT_H: u32 = 720;
 
 /// Live state for one video widget, carried across relayout by
 /// [`merge_video_state`].
+#[derive(Debug)]
 pub struct VideoWidgetState {
     /// The requested playback configuration (source + autoplay/loop).
     pub config: VideoConfig,
@@ -50,22 +51,22 @@ pub struct VideoWidgetState {
     pub frames: OptionRefAny,
     /// The off-main-thread streaming decode worker (mirrors the map widget's
     /// `fetch_callback`). Set via [`VideoWidget::dom_with_decoder`]. When present,
-    /// AfterMount spawns it on a background `Thread` instead of the replay /
+    /// `AfterMount` spawns it on a background `Thread` instead of the replay /
     /// test-pattern workers, so the VK decode runs off the main thread.
     pub decode_callback: Option<ThreadCallback>,
     /// The latest decoded frame to display, as a CPU `ImageRef` (RGBA8). The
-    /// VirtualView render callback ([`video_widget_render`]) reads this on each
+    /// `VirtualView` render callback ([`video_widget_render`]) reads this on each
     /// re-render; [`video_writeback`] stores it and triggers an in-place
-    /// VirtualView re-render — so the frame renders on cpurender AND webrender,
+    /// `VirtualView` re-render — so the frame renders on cpurender AND webrender,
     /// exactly like the map widget's tile cache. (Replaces the GL `present_frame`
-    /// path for video; camera/screencap still use present_frame.)
+    /// path for video; camera/screencap still use `present_frame`.)
     pub current_frame: Option<ImageRef>,
-    /// The decode worker's `ThreadId` (set by AfterMount). Lets the resize callback
+    /// The decode worker's `ThreadId` (set by `AfterMount`). Lets the resize callback
     /// message the running worker (`info.get_thread(id).sender.send(..)`) so it can
     /// re-target the decoder to the new physical-pixel size — a cheap image swap, no
     /// relayout. Carried across relayout by [`merge_video_state`].
     pub thread_id: Option<ThreadId>,
-    /// Clone of the worker's main→worker `Sender` (set by AfterMount, carried by
+    /// Clone of the worker's main→worker `Sender` (set by `AfterMount`, carried by
     /// merge). Lets [`merge_video_state`] — which has no `CallbackInfo` — push a
     /// seek to the running worker when `config.timestamp` changes (scrubbing).
     pub seek_sender: Option<std::sync::mpsc::Sender<ThreadSendMsg>>,
@@ -74,6 +75,7 @@ pub struct VideoWidgetState {
 /// A video-playback widget. `create(config).dom()` yields an `<img>` the
 /// decode thread keeps fed.
 #[repr(C)]
+#[derive(Debug)]
 pub struct VideoWidget {
     /// Source URL + autoplay/loop + format.
     pub config: VideoConfig,
@@ -87,7 +89,7 @@ pub struct VideoWidget {
 
 impl VideoWidget {
     /// Create a video widget for the given config.
-    pub fn create(config: VideoConfig) -> Self {
+    #[must_use] pub const fn create(config: VideoConfig) -> Self {
         Self {
             config,
             on_frame: OptionOnVideoFrame::None,
@@ -107,6 +109,7 @@ impl VideoWidget {
     }
 
     /// Builder form of [`set_on_frame`](Self::set_on_frame).
+    #[must_use]
     pub fn with_on_frame<C: Into<OnVideoFrameCallback>>(
         mut self,
         data: RefAny,
@@ -123,7 +126,7 @@ impl VideoWidget {
     /// decode a clip up front (e.g. `decode_mp4_h264_bytes`) get real pixels on
     /// screen. The `RefAny` must carry a `Vec<VideoFrame>`, else playback is
     /// skipped and the test pattern shows instead.
-    pub fn with_frames(mut self, frames: RefAny) -> Self {
+    #[must_use] pub fn with_frames(mut self, frames: RefAny) -> Self {
         self.frames = Some(frames).into();
         self
     }
@@ -152,23 +155,23 @@ impl VideoWidget {
         // sizes the outer node via `.with_css(...)` on the returned Dom.
         Dom::create_div()
             .with_dataset(OptionRefAny::Some(dataset.clone()))
-            .with_merge_callback(merge_video_state as DatasetMergeCallbackType)
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_video_state))
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset.clone(),
-                Callback::from(video_on_after_mount as CallbackType),
+                Callback::from_ptr(video_on_after_mount),
             )
             // Window/layout resize → re-target the decoder to the new physical size
             // (a cheap image swap, no relayout). See `video_on_resize`.
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::NodeResized),
                 dataset,
-                Callback::from(video_on_resize as CallbackType),
+                Callback::from_ptr(video_on_resize),
             )
             .with_child(
                 Dom::create_virtual_view(
                     vv_data,
-                    video_widget_render as azul_core::callbacks::VirtualViewCallbackType,
+                    azul_core::callbacks::VirtualViewCallback::create(video_widget_render),
                 )
                 .with_css("width: 100%; height: 100%; overflow: hidden;"),
             )
@@ -177,7 +180,7 @@ impl VideoWidget {
     /// Build the widget's DOM: a single `<img>` node a background thread keeps
     /// fed. Replays pre-decoded [`with_frames`](Self::with_frames) if given, else
     /// shows the built-in test pattern.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         self.build_dom(None)
     }
 
@@ -189,12 +192,12 @@ impl VideoWidget {
     /// frames). The standard worker is
     /// `azul_dll::desktop::extra::video_codec::stream::video_decode_worker`; wrap
     /// it in a `ThreadCallback` to pass it here.
-    pub fn dom_with_decoder(self, cb: ThreadCallback) -> Dom {
+    #[must_use] pub fn dom_with_decoder(self, cb: ThreadCallback) -> Dom {
         self.build_dom(Some(cb))
     }
 }
 
-/// VirtualView render callback (mirrors `map_widget_render`): build the `<img>`
+/// `VirtualView` render callback (mirrors `map_widget_render`): build the `<img>`
 /// for the latest decoded frame, re-read from the widget's dataset on every
 /// re-render. The decode worker stores frames into `current_frame` and triggers
 /// the re-render in place (see [`video_writeback`]), so this renders on both the
@@ -217,15 +220,13 @@ extern "C" fn video_widget_render(
     {
         OptionDom::None
     } else {
-        match data.downcast_ref::<VideoWidgetState>() {
-            Some(s) => match &s.current_frame {
-                Some(img) => OptionDom::Some(
+        data.downcast_ref::<VideoWidgetState>().map_or(OptionDom::None, |s| {
+            s.current_frame.as_ref().map_or(OptionDom::None, |img| {
+                OptionDom::Some(
                     Dom::create_image(img.clone()).with_css("width: 100%; height: 100%;"),
-                ),
-                None => OptionDom::None,
-            },
-            None => OptionDom::None,
-        }
+                )
+            })
+        })
     };
     VirtualViewReturn {
         dom,
@@ -236,14 +237,13 @@ extern "C" fn video_widget_render(
     }
 }
 
-/// AfterMount: start the background decode thread exactly once.
+/// `AfterMount`: start the background decode thread exactly once.
 extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     // Mark started exactly once; pull out the streaming decode worker (if any),
     // its source, and any pre-decoded replay frames.
     let (decode_cb, config, frames) = {
-        let mut s = match data.downcast_mut::<VideoWidgetState>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut s) = data.downcast_mut::<VideoWidgetState>() else {
+            return Update::DoNothing;
         };
         if s.started {
             return Update::DoNothing;
@@ -290,33 +290,35 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
     Update::DoNothing
 }
 
-/// NodeResized: the video box changed physical size (window resize / relayout). Tell
+/// `NodeResized`: the video box changed physical size (window resize / relayout). Tell
 /// the running decode worker the new target size via its `ThreadSender` so it scales
 /// frames to fit OFF the main thread — the UI then does a cheap image swap with no
 /// interpolation. This is a message, NOT a relayout: returns `DoNothing`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 extern "C" fn video_on_resize(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let tid = match data.downcast_ref::<VideoWidgetState>() {
         Some(s) => s.thread_id,
         None => return Update::DoNothing,
     };
-    let tid = match tid {
-        Some(t) => t,
-        None => return Update::DoNothing,
+    let Some(tid) = tid else {
+        return Update::DoNothing;
     };
     let node = info.get_hit_node();
-    let size = match info.get_node_size(node) {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(size) = info.get_node_size(node) else {
+        return Update::DoNothing;
     };
     let target = (size.width.max(1.0) as u32, size.height.max(1.0) as u32);
     if let Some(thread) = info.get_thread(&tid) {
-        thread.send_message(ThreadSendMsg::Custom(RefAny::new(target)));
+        // Best-effort resize notification: if the decode worker has already
+        // exited, the send fails and there is nothing to do here.
+        let _ = thread.send_message(ThreadSendMsg::Custom(RefAny::new(target)));
     }
     Update::DoNothing
 }
 
 /// Background worker (test pattern): SMPTE-style colour bars scrolling
 /// horizontally ~30×/s. Replaced by the real vk-video decode worker later.
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     const BARS: [[u8; 3]; 7] = [
         [235, 235, 235],
@@ -357,7 +359,7 @@ extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: 
 
 /// Background worker (replay): cycle a caller-supplied `Vec<VideoFrame>` (e.g. a
 /// clip decoded up front via `decode_mp4_h264_bytes`) ~30x/s through the same
-/// WriteBack -> [`video_writeback`] -> [`super::capture_common::present_frame`]
+/// `WriteBack` -> [`video_writeback`] -> [`super::capture_common::present_frame`]
 /// path as the test pattern, so real decoded pixels land in the shared GL
 /// texture. `init` is the `RefAny` handed to
 /// [`VideoWidget::with_frames`](VideoWidget::with_frames); if it doesn't hold a
@@ -386,18 +388,17 @@ extern "C" fn video_replay_worker(mut init: RefAny, mut sender: ThreadSender, _r
 }
 
 /// Writeback (main thread): store the decoded frame as the widget's
-/// `current_frame` (a CPU `ImageRef`) and re-render the VirtualView in place so it
-/// re-reads it — exactly like `map_tile_writeback`. Renders on cpurender AND
+/// `current_frame` (a CPU `ImageRef`) and re-render the `VirtualView` in place so it
+/// re-reads it — exactly like `map_tile_writeback`.
+///
+/// Renders on cpurender AND
 /// webrender (no GL `present_frame`, no DOM rebuild).
-pub extern "C" fn video_writeback(
+#[must_use] pub extern "C" fn video_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let hook = match writeback_data.downcast_ref::<VideoWidgetState>() {
-        Some(s) => s.on_frame.clone(),
-        None => OptionOnVideoFrame::None,
-    };
+    let hook = writeback_data.downcast_ref::<VideoWidgetState>().map_or_else(|| OptionOnVideoFrame::None, |s| s.on_frame.clone());
     let mut user_update = Update::DoNothing;
     match frame_data.downcast_ref::<VideoFrame>() {
         Some(frame) => {
@@ -425,6 +426,7 @@ pub extern "C" fn video_writeback(
 }
 
 /// Carry live state forward across relayout.
+#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     {
         let new_guard = new_data.downcast_mut::<VideoWidgetState>();
@@ -433,24 +435,23 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
             new_g.started = old_g.started;
             new_g.gl_texture_id = old_g.gl_texture_id;
             new_g.frames = old_g.frames.clone();
-            new_g.decode_callback = old_g.decode_callback.clone();
-            new_g.current_frame = old_g.current_frame.clone();
+            new_g.decode_callback.clone_from(&old_g.decode_callback);
+            new_g.current_frame.clone_from(&old_g.current_frame);
             new_g.thread_id = old_g.thread_id;
-            new_g.seek_sender = old_g.seek_sender.clone();
+            new_g.seek_sender.clone_from(&old_g.seek_sender);
             // Scrubbing: a changed `config.timestamp` across this relayout → tell the
             // worker to seek. Cheap wall-clock reposition (the worker already has the
             // decoded frames), result comes back as an image swap — no re-decode here.
             if old_g.config.timestamp != new_g.config.timestamp {
                 if let Some(snd) = new_g.seek_sender.as_ref() {
-                    let _ = snd.send(ThreadSendMsg::Custom(RefAny::new(new_g.config.timestamp)));
+                    drop(snd.send(ThreadSendMsg::Custom(RefAny::new(new_g.config.timestamp))));
                 }
             }
             // Input-source change → tell the worker to re-init the decode (it
             // re-resolves/demuxes/decodes the new source); the frame swaps in when ready.
             if old_g.config.source != new_g.config.source {
                 if let Some(snd) = new_g.seek_sender.as_ref() {
-                    let _ =
-                        snd.send(ThreadSendMsg::Custom(RefAny::new(new_g.config.source.clone())));
+                    drop(snd.send(ThreadSendMsg::Custom(RefAny::new(new_g.config.source.clone()))));
                 }
             }
         }

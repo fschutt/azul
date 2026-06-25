@@ -43,10 +43,11 @@ pub fn allocate_event_id() -> u64 {
     0
 }
 
-/// Helper function to convert CoreDuration to milliseconds
+/// Helper function to convert `CoreDuration` to milliseconds
 ///
-/// CoreDuration is an enum with System (std::time::Duration) and Tick variants.
+/// `CoreDuration` is an enum with System (`std::time::Duration`) and Tick variants.
 /// We need to handle both cases for proper time calculations.
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 fn duration_to_millis(duration: CoreDuration) -> u64 {
     match duration {
         #[cfg(feature = "std")]
@@ -141,7 +142,7 @@ pub struct InputSample {
     /// All coordinates are in logical pixels (HiDPI-independent).
     /// On Wayland, this is an estimate (compositor does not expose global position).
     pub screen_position: LogicalPosition,
-    /// Timestamp when this sample was recorded (from ExternalSystemCallbacks)
+    /// Timestamp when this sample was recorded (from `ExternalSystemCallbacks`)
     pub timestamp: CoreInstant,
     /// Mouse button state (bitfield: 0x01 = left, 0x02 = right, 0x04 = middle)
     pub button_state: u8,
@@ -149,7 +150,7 @@ pub struct InputSample {
     pub event_id: u64,
     /// Pen/stylus pressure (0.0 to 1.0, 0.5 = default for mouse)
     pub pressure: f32,
-    /// Pen/stylus tilt angles in degrees (x_tilt, y_tilt)
+    /// Pen/stylus tilt angles in degrees (`x_tilt`, `y_tilt`)
     /// Range: typically -90.0 to 90.0, (0.0, 0.0) = perpendicular
     pub tilt: (f32, f32),
     /// Touch contact radius in logical pixels (width, height)
@@ -175,12 +176,12 @@ pub struct InputSession {
     pub session_id: u64,
     /// Window position at the time this session started (mouse-down).
     /// Used by titlebar drag callbacks to compute new window position.
-    pub window_position_at_start: azul_core::window::WindowPosition,
+    pub window_position_at_start: WindowPosition,
 }
 
 impl InputSession {
     /// Create a new input session
-    fn new(session_id: u64, first_sample: InputSample, window_position: azul_core::window::WindowPosition) -> Self {
+    fn new(session_id: u64, first_sample: InputSample, window_position: WindowPosition) -> Self {
         Self {
             samples: vec![first_sample],
             ended: false,
@@ -190,17 +191,17 @@ impl InputSession {
     }
 
     /// Get the first sample in this session
-    pub fn first_sample(&self) -> Option<&InputSample> {
+    #[must_use] pub fn first_sample(&self) -> Option<&InputSample> {
         self.samples.first()
     }
 
     /// Get the last sample in this session
-    pub fn last_sample(&self) -> Option<&InputSample> {
+    #[must_use] pub fn last_sample(&self) -> Option<&InputSample> {
         self.samples.last()
     }
 
     /// Get the duration of this session (first to last sample)
-    pub fn duration_ms(&self) -> Option<u64> {
+    #[must_use] pub fn duration_ms(&self) -> Option<u64> {
         let first = self.first_sample()?;
         let last = self.last_sample()?;
         let duration = last.timestamp.duration_since(&first.timestamp);
@@ -208,7 +209,7 @@ impl InputSession {
     }
 
     /// Get the total distance traveled in this session
-    pub fn total_distance(&self) -> f32 {
+    #[must_use] pub fn total_distance(&self) -> f32 {
         if self.samples.len() < 2 {
             return 0.0;
         }
@@ -219,18 +220,18 @@ impl InputSession {
             let curr = &self.samples[i];
             let dx = curr.position.x - prev.position.x;
             let dy = curr.position.y - prev.position.y;
-            total += (dx * dx + dy * dy).sqrt();
+            total += dx.hypot(dy);
         }
         total
     }
 
     /// Get the straight-line distance from first to last sample
-    pub fn direct_distance(&self) -> Option<f32> {
+    #[must_use] pub fn direct_distance(&self) -> Option<f32> {
         let first = self.first_sample()?;
         let last = self.last_sample()?;
         let dx = last.position.x - first.position.x;
         let dy = last.position.y - first.position.y;
-        Some((dx * dx + dy * dy).sqrt())
+        Some(dx.hypot(dy))
     }
 }
 
@@ -254,7 +255,7 @@ pub struct DetectedDrag {
 }
 
 /// Result of long-press detection
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct DetectedLongPress {
     /// Position where long press is happening
@@ -295,7 +296,7 @@ impl_option!(
 impl_option!(
     DetectedLongPress,
     OptionDetectedLongPress,
-    [Debug, Clone, Copy, PartialEq]
+    [Debug, Clone, Copy, PartialEq, Eq]
 );
 
 /// Result of pinch gesture detection
@@ -335,7 +336,7 @@ pub struct PenState {
     pub position: LogicalPosition,
     /// Current pressure (0.0 to 1.0)
     pub pressure: f32,
-    /// Current tilt angles (x_tilt, y_tilt) in degrees
+    /// Current tilt angles (`x_tilt`, `y_tilt`) in degrees
     pub tilt: crate::callbacks::PenTilt,
     /// Whether pen is in contact with surface
     pub in_contact: bool,
@@ -359,8 +360,8 @@ pub struct PenState {
     /// Per-tool identity for hand-held pens that report it (Wintab GUID,
     /// Apple Pencil session id, S-Pen serial). `0` means "not reported".
     /// Distinct from `device_id` so callers can both identify the
-    /// hardware (device_id) *and* which tip / lead / button cluster is
-    /// in use (tool_id).
+    /// hardware (`device_id`) *and* which tip / lead / button cluster is
+    /// in use (`tool_id`).
     pub tool_id: u32,
 }
 
@@ -388,13 +389,15 @@ impl Default for PenState {
 
 /// State of a Wacom-style tablet **pad** — the tablet body's own hardware
 /// controls, distinct from the pen ([`PenState`] already covers eraser /
-/// barrel button / barrel roll / tilt / pressure). Populated by the platform
+/// barrel button / barrel roll / tilt / pressure).
+///
+/// Populated by the platform
 /// backend (`dll/src/desktop/extra/wacom_pad/`: Wintab on Windows,
 /// libwacom+libinput on Linux, the driver's `NSEvent` tablet events on macOS).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct WacomPadState {
-    /// ExpressKey bitset — bit `n` set ⇔ hardware button `n` is held (up to
+    /// `ExpressKey` bitset — bit `n` set ⇔ hardware button `n` is held (up to
     /// 32). Read via [`WacomPadState::express_key`].
     pub express_keys: u32,
     /// Touch-ring / touch-strip absolute position, `0.0`–`1.0`. Only
@@ -424,8 +427,8 @@ impl Default for WacomPadState {
 }
 
 impl WacomPadState {
-    /// Whether ExpressKey `index` (0-based, < 32) is currently held.
-    pub fn express_key(&self, index: u32) -> bool {
+    /// Whether `ExpressKey` `index` (0-based, < 32) is currently held.
+    #[must_use] pub const fn express_key(&self, index: u32) -> bool {
         index < 32 && (self.express_keys & (1u32 << index)) != 0
     }
 }
@@ -457,7 +460,7 @@ pub struct GestureAndDragManager {
     pub previous_pen_state: Option<PenState>,
     /// Set when pen state changed; gates one pen-event diff (cleared by the event loop).
     pub pen_event_pending: bool,
-    /// Latest Wacom tablet-pad state (ExpressKeys + touch-ring), or `None`
+    /// Latest Wacom tablet-pad state (`ExpressKeys` + touch-ring), or `None`
     /// until a pad backend delivers one.
     pub pad_state: Option<WacomPadState>,
     /// Session IDs where long press callback has been invoked
@@ -466,7 +469,7 @@ pub struct GestureAndDragManager {
     next_session_id: u64,
     /// Native-platform gesture override slot.
     ///
-    /// Platforms with first-class gesture recognizers (iOS UIKit,
+    /// Platforms with first-class gesture recognizers (iOS `UIKit`,
     /// Android `GestureDetector` + `ScaleGestureDetector`, macOS
     /// `NSGestureRecognizer`) inject pre-detected gestures here via
     /// [`GestureAndDragManager::inject_native_gesture`]. The
@@ -482,7 +485,7 @@ pub struct GestureAndDragManager {
 /// Gesture detected by a platform-native recognizer.
 ///
 /// Platform backends construct one of these in their gesture-recognizer
-/// callbacks (iOS UIKit, Android `GestureDetector`, macOS
+/// callbacks (iOS `UIKit`, Android `GestureDetector`, macOS
 /// `NSGestureRecognizer`) and hand it to
 /// [`GestureAndDragManager::inject_native_gesture`]. The in-process
 /// `detect_*` methods then return the native result, sidestepping their
@@ -516,14 +519,14 @@ impl Default for GestureAndDragManager {
 }
 
 impl GestureAndDragManager {
-    /// (input_sessions, long_press_callbacks_invoked). Used by
+    /// (`input_sessions`, `long_press_callbacks_invoked`). Used by
     /// `AZ_E2E_TEST` to watch for unbounded growth.
-    pub fn debug_counts(&self) -> (usize, usize) {
+    #[must_use] pub const fn debug_counts(&self) -> (usize, usize) {
         (self.input_sessions.len(), self.long_press_callbacks_invoked.len())
     }
 
     /// Create a new gesture and drag manager
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self {
             config: GestureDetectionConfig::default(),
             input_sessions: Vec::new(),
@@ -543,19 +546,19 @@ impl GestureAndDragManager {
     /// iOS / Android / macOS platform backend from their gesture
     /// recognizer callbacks. The override is read once by the next
     /// `detect_*` call.
-    pub fn inject_native_gesture(&mut self, gesture: NativeGestureEvent) {
+    pub const fn inject_native_gesture(&mut self, gesture: NativeGestureEvent) {
         self.native_gesture = Some(gesture);
     }
 
     /// Clear any pending native-gesture override. Called by the event
     /// loop after each frame's detections have been consumed so a
     /// stale OS gesture doesn't keep firing.
-    pub fn clear_native_gesture(&mut self) {
+    pub const fn clear_native_gesture(&mut self) {
         self.native_gesture = None;
     }
 
     /// Create with custom configuration
-    pub fn with_config(config: GestureDetectionConfig) -> Self {
+    #[must_use] pub fn with_config(config: GestureDetectionConfig) -> Self {
         Self {
             config,
             ..Self::new()
@@ -578,7 +581,7 @@ impl GestureAndDragManager {
         position: LogicalPosition,
         timestamp: CoreInstant,
         button_state: u8,
-        window_position: azul_core::window::WindowPosition,
+        window_position: WindowPosition,
         screen_position: LogicalPosition,
     ) -> u64 {
         self.start_input_session_with_pen(
@@ -604,7 +607,7 @@ impl GestureAndDragManager {
         pressure: f32,
         tilt: (f32, f32),
         touch_radius: (f32, f32),
-        window_position: azul_core::window::WindowPosition,
+        window_position: WindowPosition,
         screen_position: LogicalPosition,
     ) -> u64 {
         // Clear old ended sessions, but keep the most recent ended session
@@ -675,9 +678,8 @@ impl GestureAndDragManager {
         touch_radius: (f32, f32),
         screen_position: LogicalPosition,
     ) -> bool {
-        let session = match self.input_sessions.last_mut() {
-            Some(s) => s,
-            None => return false,
+        let Some(session) = self.input_sessions.last_mut() else {
+            return false;
         };
 
         if session.ended {
@@ -719,6 +721,9 @@ impl GestureAndDragManager {
     ///
     /// Call this periodically (e.g., every frame) to prevent memory leaks.
     /// Sessions older than `config.sample_cleanup_interval_ms` are removed.
+    // CoreInstant is a ref-counted FFI clock handle threaded through the event loop by value;
+    // &-converting would cascade through the loop call chain and across all dll backends.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn clear_old_sessions(&mut self, current_time: CoreInstant) {
         self.input_sessions.retain(|session| {
             if let Some(last_sample) = session.last_sample() {
@@ -752,7 +757,7 @@ impl GestureAndDragManager {
     /// extended fields (`tangential_pressure`, `barrel_roll_rad`,
     /// `tool_id`) default to `0` — pass [`update_pen_state_full`] when
     /// the platform reports them.
-    pub fn update_pen_state(
+    pub const fn update_pen_state(
         &mut self,
         position: LogicalPosition,
         pressure: f32,
@@ -778,7 +783,7 @@ impl GestureAndDragManager {
 
     /// Update pen/stylus state including the extended axes (W3C
     /// `PointerEvent.tangentialPressure` + `twist`) and per-tool id.
-    pub fn update_pen_state_full(
+    pub const fn update_pen_state_full(
         &mut self,
         position: LogicalPosition,
         pressure: f32,
@@ -791,7 +796,7 @@ impl GestureAndDragManager {
         barrel_roll_rad: f32,
         tool_id: u32,
     ) {
-        self.previous_pen_state = self.pen_state.clone();
+        self.previous_pen_state = self.pen_state;
         self.pen_state = Some(PenState {
             position,
             pressure,
@@ -811,39 +816,39 @@ impl GestureAndDragManager {
     }
 
     /// Clear pen state (when pen leaves proximity)
-    pub fn clear_pen_state(&mut self) {
-        self.previous_pen_state = self.pen_state.clone();
+    pub const fn clear_pen_state(&mut self) {
+        self.previous_pen_state = self.pen_state;
         self.pen_state = None;
         self.pen_event_pending = true;
     }
 
     /// Get current pen state (read-only)
-    pub fn get_pen_state(&self) -> Option<&PenState> {
+    #[must_use] pub const fn get_pen_state(&self) -> Option<&PenState> {
         self.pen_state.as_ref()
     }
 
     /// Get the previous pen state (for event diffing).
-    pub fn get_previous_pen_state(&self) -> Option<&PenState> {
+    #[must_use] pub const fn get_previous_pen_state(&self) -> Option<&PenState> {
         self.previous_pen_state.as_ref()
     }
 
     /// Clear the pen-event-pending flag (called by the event loop after a pass).
-    pub fn clear_pen_event_pending(&mut self) {
+    pub const fn clear_pen_event_pending(&mut self) {
         self.pen_event_pending = false;
     }
 
     /// Set the latest Wacom tablet-pad state (called by the pad backend).
-    pub fn update_pad_state(&mut self, pad: WacomPadState) {
+    pub const fn update_pad_state(&mut self, pad: WacomPadState) {
         self.pad_state = Some(pad);
     }
 
     /// The latest tablet-pad state, or `None` if no pad backend delivered one.
-    pub fn get_pad_state(&self) -> Option<&WacomPadState> {
+    #[must_use] pub const fn get_pad_state(&self) -> Option<&WacomPadState> {
         self.pad_state.as_ref()
     }
 
     /// Clear the tablet-pad state (pad disconnected / proximity left).
-    pub fn clear_pad_state(&mut self) {
+    pub const fn clear_pad_state(&mut self) {
         self.pad_state = None;
     }
 
@@ -852,7 +857,7 @@ impl GestureAndDragManager {
     /// Detect if current input represents a drag gesture
     ///
     /// Returns Some(DetectedDrag) if a drag is detected based on distance threshold.
-    pub fn detect_drag(&self) -> Option<DetectedDrag> {
+    #[must_use] pub fn detect_drag(&self) -> Option<DetectedDrag> {
         let session = self.get_current_session()?;
 
         if session.samples.len() < self.config.min_samples_for_gesture {
@@ -883,7 +888,7 @@ impl GestureAndDragManager {
     ///
     /// Returns Some(DetectedLongPress) if button has been held long enough
     /// without moving much.
-    pub fn detect_long_press(&self) -> Option<DetectedLongPress> {
+    #[must_use] pub fn detect_long_press(&self) -> Option<DetectedLongPress> {
         if let Some(NativeGestureEvent::LongPress(lp)) = self.native_gesture {
             return Some(lp);
         }
@@ -931,7 +936,7 @@ impl GestureAndDragManager {
     /// Detect if last two sessions form a double-click.
     ///
     /// Returns true if timing and distance match double-click criteria.
-    pub fn detect_double_click(&self) -> bool {
+    #[must_use] pub fn detect_double_click(&self) -> bool {
         if matches!(self.native_gesture, Some(NativeGestureEvent::DoubleClick)) {
             return true;
         }
@@ -950,9 +955,8 @@ impl GestureAndDragManager {
 
         let prev_first = prev_session.first_sample();
         let last_first = last_session.first_sample();
-        let (prev_first, last_first) = match (prev_first, last_first) {
-            (Some(p), Some(l)) => (p, l),
-            _ => return false,
+        let (Some(prev_first), Some(last_first)) = (prev_first, last_first) else {
+            return false;
         };
 
         let duration = last_first.timestamp.duration_since(&prev_first.timestamp);
@@ -963,7 +967,7 @@ impl GestureAndDragManager {
 
         let dx = last_first.position.x - prev_first.position.x;
         let dy = last_first.position.y - prev_first.position.y;
-        let distance = (dx * dx + dy * dy).sqrt();
+        let distance = dx.hypot(dy);
 
         distance < self.config.double_click_distance_threshold
     }
@@ -973,7 +977,7 @@ impl GestureAndDragManager {
     /// from the session history, so the result is fully deterministic
     /// for any given sequence of `InputSession`s (easy to unit-test
     /// with synthetic `CoreInstant`/`CoreDuration` values).
-    pub fn detect_click_count(&self) -> u32 {
+    #[must_use] pub fn detect_click_count(&self) -> u32 {
         let sessions = &self.input_sessions;
         let n = sessions.len();
         if n == 0 {
@@ -1011,13 +1015,11 @@ impl GestureAndDragManager {
             let later = recent[i];
             let earlier = recent[i + 1];
 
-            let later_start = match later.first_sample() {
-                Some(s) => s,
-                None => break,
+            let Some(later_start) = later.first_sample() else {
+                break;
             };
-            let earlier_start = match earlier.first_sample() {
-                Some(s) => s,
-                None => break,
+            let Some(earlier_start) = earlier.first_sample() else {
+                break;
             };
 
             let duration = later_start.timestamp.duration_since(&earlier_start.timestamp);
@@ -1028,7 +1030,7 @@ impl GestureAndDragManager {
 
             let dx = later_start.position.x - earlier_start.position.x;
             let dy = later_start.position.y - earlier_start.position.y;
-            let distance = (dx * dx + dy * dy).sqrt();
+            let distance = dx.hypot(dy);
             if distance >= self.config.double_click_distance_threshold {
                 break;
             }
@@ -1041,7 +1043,7 @@ impl GestureAndDragManager {
     }
 
     /// Get the primary direction of current drag.
-    pub fn get_drag_direction(&self) -> Option<GestureDirection> {
+    #[must_use] pub fn get_drag_direction(&self) -> Option<GestureDirection> {
         let session = self.get_current_session()?;
         let first = session.first_sample()?;
         let last = session.last_sample()?;
@@ -1059,7 +1061,8 @@ impl GestureAndDragManager {
     }
 
     /// Get average velocity of current gesture (pixels per second)
-    pub fn get_gesture_velocity(&self) -> Option<f32> {
+    #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
+    #[must_use] pub fn get_gesture_velocity(&self) -> Option<f32> {
         let session = self.get_current_session()?;
 
         if session.samples.len() < 2 {
@@ -1078,16 +1081,15 @@ impl GestureAndDragManager {
     }
 
     /// Check if current gesture is a swipe (fast directional movement).
-    pub fn is_swipe(&self) -> bool {
+    #[must_use] pub fn is_swipe(&self) -> bool {
         self.get_gesture_velocity()
-            .map(|v| v >= self.config.swipe_velocity_threshold)
-            .unwrap_or(false)
+            .is_some_and(|v| v >= self.config.swipe_velocity_threshold)
     }
 
     /// Detect swipe with specific direction
     ///
     /// Returns Some(dir) if gesture is a fast swipe in a clear direction
-    pub fn detect_swipe_direction(&self) -> Option<GestureDirection> {
+    #[must_use] pub fn detect_swipe_direction(&self) -> Option<GestureDirection> {
         if let Some(NativeGestureEvent::Swipe(d)) = self.native_gesture {
             return Some(d);
         }
@@ -1104,7 +1106,8 @@ impl GestureAndDragManager {
     ///
     /// Returns Some if two touch points are active and distance is changing
     /// significantly. Scale < 1.0 = pinch in, scale > 1.0 = pinch out.
-    pub fn detect_pinch(&self) -> Option<DetectedPinch> {
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    #[must_use] pub fn detect_pinch(&self) -> Option<DetectedPinch> {
         if let Some(NativeGestureEvent::Pinch(p)) = self.native_gesture {
             return Some(p);
         }
@@ -1135,12 +1138,12 @@ impl GestureAndDragManager {
         // Calculate initial distance between touches
         let dx_initial = first2.position.x - first1.position.x;
         let dy_initial = first2.position.y - first1.position.y;
-        let initial_distance = (dx_initial * dx_initial + dy_initial * dy_initial).sqrt();
+        let initial_distance = dx_initial.hypot(dy_initial);
 
         // Calculate current distance
         let dx_current = last2.position.x - last1.position.x;
         let dy_current = last2.position.y - last1.position.y;
-        let current_distance = (dx_current * dx_current + dy_current * dy_current).sqrt();
+        let current_distance = dx_current.hypot(dy_current);
 
         // Avoid division by zero
         if initial_distance < 1.0 {
@@ -1158,8 +1161,8 @@ impl GestureAndDragManager {
 
         // Calculate center point
         let center = LogicalPosition {
-            x: (last1.position.x + last2.position.x) / 2.0,
-            y: (last1.position.y + last2.position.y) / 2.0,
+            x: f32::midpoint(last1.position.x, last2.position.x),
+            y: f32::midpoint(last1.position.y, last2.position.y),
         };
 
         // Calculate duration
@@ -1179,7 +1182,9 @@ impl GestureAndDragManager {
     ///
     /// Returns Some if two touch points are rotating around center.
     /// Positive angle = clockwise, negative = counterclockwise.
-    pub fn detect_rotation(&self) -> Option<DetectedRotation> {
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    #[must_use] pub fn detect_rotation(&self) -> Option<DetectedRotation> {
+        const PI: f32 = core::f32::consts::PI;
         if let Some(NativeGestureEvent::Rotation(r)) = self.native_gesture {
             return Some(r);
         }
@@ -1207,8 +1212,8 @@ impl GestureAndDragManager {
 
         // Calculate center (average of both touches)
         let center = LogicalPosition {
-            x: (last1.position.x + last2.position.x) / 2.0,
-            y: (last1.position.y + last2.position.y) / 2.0,
+            x: f32::midpoint(last1.position.x, last2.position.x),
+            y: f32::midpoint(last1.position.y, last2.position.y),
         };
 
         // Calculate initial angle between touches
@@ -1225,10 +1230,11 @@ impl GestureAndDragManager {
         let mut angle_diff = current_angle - initial_angle;
 
         // Normalize angle to -π to π range
-        const PI: f32 = core::f32::consts::PI;
+        #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
         while angle_diff > PI {
             angle_diff -= 2.0 * PI;
         }
+        #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
         while angle_diff < -PI {
             angle_diff += 2.0 * PI;
         }
@@ -1250,12 +1256,12 @@ impl GestureAndDragManager {
     }
 
     /// Get the current active input session (if any)
-    pub fn get_current_session(&self) -> Option<&InputSession> {
+    #[must_use] pub fn get_current_session(&self) -> Option<&InputSession> {
         self.input_sessions.last()
     }
 
     /// Get current mouse position from latest sample
-    pub fn get_current_mouse_position(&self) -> Option<LogicalPosition> {
+    #[must_use] pub fn get_current_mouse_position(&self) -> Option<LogicalPosition> {
         self.get_current_session()
             .and_then(|s| s.last_sample())
             .map(|sample| sample.position)
@@ -1265,7 +1271,7 @@ impl GestureAndDragManager {
     /// from the current input session.
     ///
     /// Returns `None` if there is no active session or not enough samples.
-    pub fn get_drag_delta(&self) -> Option<(f32, f32)> {
+    #[must_use] pub fn get_drag_delta(&self) -> Option<(f32, f32)> {
         let session = self.get_current_session()?;
         let first = session.first_sample()?;
         let last = session.last_sample()?;
@@ -1286,7 +1292,7 @@ impl GestureAndDragManager {
     /// Use `get_drag_delta()` for in-window operations (node drag-and-drop, etc.).
     ///
     /// Returns `None` if there is no active session or not enough samples.
-    pub fn get_drag_delta_screen(&self) -> Option<(f32, f32)> {
+    #[must_use] pub fn get_drag_delta_screen(&self) -> Option<(f32, f32)> {
         let session = self.get_current_session()?;
         let first = session.first_sample()?;
         let last = session.last_sample()?;
@@ -1314,7 +1320,7 @@ impl GestureAndDragManager {
     /// clamping, compositor resize) that would make `initial_pos` stale.
     ///
     /// Returns `None` if there is no active session or fewer than 2 samples.
-    pub fn get_drag_delta_screen_incremental(&self) -> Option<(f32, f32)> {
+    #[must_use] pub fn get_drag_delta_screen_incremental(&self) -> Option<(f32, f32)> {
         let session = self.get_current_session()?;
         let len = session.samples.len();
         if len < 2 {
@@ -1331,7 +1337,7 @@ impl GestureAndDragManager {
     /// Get the window position that was stored when the current input session
     /// started (i.e. on mouse-down).  Titlebar drag callbacks use this
     /// together with `get_drag_delta_screen()` to compute the new window position.
-    pub fn get_window_position_at_session_start(&self) -> Option<azul_core::window::WindowPosition> {
+    #[must_use] pub fn get_window_position_at_session_start(&self) -> Option<WindowPosition> {
         let session = self.get_current_session()?;
         Some(session.window_position_at_start)
     }
@@ -1341,12 +1347,12 @@ impl GestureAndDragManager {
     // ========================================================================
 
     /// Get the active drag context (if any)
-    pub fn get_drag_context(&self) -> Option<&DragContext> {
+    #[must_use] pub const fn get_drag_context(&self) -> Option<&DragContext> {
         self.active_drag.as_ref()
     }
 
     /// Get the active drag context mutably (if any)
-    pub fn get_drag_context_mut(&mut self) -> Option<&mut DragContext> {
+    pub const fn get_drag_context_mut(&mut self) -> Option<&mut DragContext> {
         self.active_drag.as_mut()
     }
 
@@ -1396,7 +1402,7 @@ impl GestureAndDragManager {
     // here was a dead duplicate (zero callers) and was removed.
 
     /// Update positions for active drag (call on mouse move)
-    pub fn update_active_drag_positions(&mut self, position: LogicalPosition) {
+    pub const fn update_active_drag_positions(&mut self, position: LogicalPosition) {
         if let Some(ref mut drag) = self.active_drag {
             drag.update_position(position);
         }
@@ -1418,7 +1424,7 @@ impl GestureAndDragManager {
     }
 
     /// Update auto-scroll direction for text selection drag
-    pub fn update_auto_scroll_direction(&mut self, direction: AutoScrollDirection) {
+    pub const fn update_auto_scroll_direction(&mut self, direction: AutoScrollDirection) {
         if let Some(ref mut drag) = self.active_drag {
             if let Some(text_drag) = drag.as_text_selection_mut() {
                 text_drag.auto_scroll_direction = direction;
@@ -1427,7 +1433,7 @@ impl GestureAndDragManager {
     }
 
     /// End the current drag and return the context
-    pub fn end_drag(&mut self) -> Option<DragContext> {
+    pub const fn end_drag(&mut self) -> Option<DragContext> {
         self.active_drag.take()
     }
 
@@ -1444,53 +1450,49 @@ impl GestureAndDragManager {
     // ========================================================================
 
     /// Check if any drag operation is in progress
-    pub fn is_dragging(&self) -> bool {
+    #[must_use] pub const fn is_dragging(&self) -> bool {
         self.active_drag.is_some()
     }
 
     /// Check if a text selection drag is active
-    pub fn is_text_selection_dragging(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(|d| d.is_text_selection())
+    #[must_use] pub fn is_text_selection_dragging(&self) -> bool {
+        self.active_drag.as_ref().is_some_and(DragContext::is_text_selection)
     }
 
     /// Check if a scrollbar thumb drag is active
-    pub fn is_scrollbar_dragging(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(|d| d.is_scrollbar_thumb())
+    #[must_use] pub fn is_scrollbar_dragging(&self) -> bool {
+        self.active_drag.as_ref().is_some_and(DragContext::is_scrollbar_thumb)
     }
 
     /// Check if a node drag is active
-    pub fn is_node_drag_active(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(|d| d.is_node_drag())
+    #[must_use] pub fn is_node_drag_active(&self) -> bool {
+        self.active_drag.as_ref().is_some_and(DragContext::is_node_drag)
     }
 
     /// Check if a specific node is being dragged
-    pub fn is_node_dragging(&self, dom_id: DomId, node_id: NodeId) -> bool {
+    #[must_use] pub fn is_node_dragging(&self, dom_id: DomId, node_id: NodeId) -> bool {
         self.active_drag.as_ref().is_some_and(|d| {
-            if let Some(node_drag) = d.as_node_drag() {
-                node_drag.dom_id == dom_id && node_drag.node_id == node_id
-            } else {
-                false
-            }
+            d.as_node_drag().is_some_and(|node_drag| node_drag.dom_id == dom_id && node_drag.node_id == node_id)
         })
     }
 
     /// Check if window drag is active
-    pub fn is_window_dragging(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(|d| d.is_window_move())
+    #[must_use] pub fn is_window_dragging(&self) -> bool {
+        self.active_drag.as_ref().is_some_and(DragContext::is_window_move)
     }
 
     /// Check if file drop is active
-    pub fn is_file_dropping(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(|d| d.is_file_drop())
+    #[must_use] pub fn is_file_dropping(&self) -> bool {
+        self.active_drag.as_ref().is_some_and(DragContext::is_file_drop)
     }
 
     /// Get number of active input sessions
-    pub fn session_count(&self) -> usize {
+    #[must_use] pub const fn session_count(&self) -> usize {
         self.input_sessions.len()
     }
 
     /// Get current session ID (if any)
-    pub fn current_session_id(&self) -> Option<u64> {
+    #[must_use] pub fn current_session_id(&self) -> Option<u64> {
         self.get_current_session().map(|s| s.session_id)
     }
 
@@ -1500,9 +1502,10 @@ impl GestureAndDragManager {
 
     /// Calculate window position delta from current drag state
     ///
-    /// Returns (delta_x, delta_y) to apply to window position.
+    /// Returns (`delta_x`, `delta_y`) to apply to window position.
     /// Returns None if no window drag is active or drag hasn't moved.
-    pub fn get_window_drag_delta(&self) -> Option<(i32, i32)> {
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    #[must_use] pub fn get_window_drag_delta(&self) -> Option<(i32, i32)> {
         let drag = self.active_drag.as_ref()?.as_window_move()?;
 
         let delta_x = drag.current_position.x - drag.start_position.x;
@@ -1517,7 +1520,8 @@ impl GestureAndDragManager {
     /// Get the new window position based on current drag
     ///
     /// Returns the absolute window position to set.
-    pub fn get_window_position_from_drag(&self) -> Option<WindowPosition> {
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    #[must_use] pub fn get_window_position_from_drag(&self) -> Option<WindowPosition> {
         let drag = self.active_drag.as_ref()?.as_window_move()?;
 
         let delta_x = drag.current_position.x - drag.start_position.x;
@@ -1535,18 +1539,18 @@ impl GestureAndDragManager {
     }
 
     /// Calculate the new scroll offset for scrollbar thumb drag
-    pub fn get_scrollbar_scroll_offset(&self) -> Option<f32> {
+    #[must_use] pub fn get_scrollbar_scroll_offset(&self) -> Option<f32> {
         self.active_drag.as_ref()?.calculate_scrollbar_scroll_offset()
     }
 
-    /// Remap NodeIds in active drag context after DOM reconciliation.
+    /// Remap `NodeIds` in active drag context after DOM reconciliation.
     ///
-    /// When the DOM is regenerated during an active drag, NodeIds can change.
-    /// If a critical NodeId was removed, the drag is cancelled.
+    /// When the DOM is regenerated during an active drag, `NodeIds` can change.
+    /// If a critical `NodeId` was removed, the drag is cancelled.
     pub fn remap_node_ids(
         &mut self,
-        dom_id: azul_core::dom::DomId,
-        node_id_map: &std::collections::BTreeMap<azul_core::id::NodeId, azul_core::id::NodeId>,
+        dom_id: DomId,
+        node_id_map: &std::collections::BTreeMap<NodeId, NodeId>,
     ) {
         if let Some(ref mut drag) = self.active_drag {
             if !drag.remap_node_ids(dom_id, node_id_map) {

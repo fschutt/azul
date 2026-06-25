@@ -74,7 +74,7 @@ pub const DRAG_AUTOSCROLL_TIMER_ID: TimerId = TimerId { id: 0x0003 };
 ///
 /// Started by the platform event loop when the hover target changes to a node
 /// that advertises a tooltip source (`aria-label` / `alt` / `title`); fires
-/// once after `SystemStyle::input_metrics.hover_time_ms` (SPI_GETMOUSEHOVERTIME
+/// once after `SystemStyle::input_metrics.hover_time_ms` (`SPI_GETMOUSEHOVERTIME`
 /// on Windows, default 400ms) and emits a `ShowTooltip` `CallbackChange`. The
 /// timer is torn down on hover loss, which also emits `HideTooltip`.
 ///
@@ -100,7 +100,7 @@ impl TimerId {
     /// Generates a new, unique `TimerId`.
     #[must_use]
     pub fn unique() -> Self {
-        TimerId {
+        Self {
             id: MAX_TIMER_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
@@ -146,7 +146,7 @@ impl ThreadId {
     /// Generates a new, unique `ThreadId`.
     #[must_use]
     pub fn unique() -> Self {
-        ThreadId {
+        Self {
             id: MAX_THREAD_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
@@ -154,11 +154,11 @@ impl ThreadId {
 
 /// A point in time, either from the system clock or a tick counter.
 ///
-/// Use `Instant::System` on platforms with std, `Instant::Tick` on embedded/no_std.
+/// Use `Instant::System` on platforms with std, `Instant::Tick` on `embedded/no_std`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum Instant {
-    /// System time from std::time::Instant (requires "std" feature)
+    /// System time from `std::time::Instant` (requires "std" feature)
     System(InstantPtr),
     /// Tick-based time for embedded systems without a real-time clock
     Tick(SystemTick),
@@ -166,8 +166,8 @@ pub enum Instant {
 
 #[cfg(feature = "std")]
 impl From<StdInstant> for Instant {
-    fn from(s: StdInstant) -> Instant {
-        Instant::System(s.into())
+    fn from(s: StdInstant) -> Self {
+        Self::System(s.into())
     }
 }
 
@@ -175,9 +175,9 @@ impl Instant {
     /// Returns the current system time.
     /// 
     /// On systems with std, this uses `std::time::Instant::now()`.
-    /// On no_std systems, this returns a zero tick.
+    /// On `no_std` systems, this returns a zero tick.
     #[cfg(feature = "std")]
-    pub fn now() -> Self {
+    #[must_use] pub fn now() -> Self {
         StdInstant::now().into()
     }
 
@@ -189,7 +189,7 @@ impl Instant {
 
     /// Returns a number from 0.0 to 1.0 indicating the current
     /// linear interpolation value between (start, end)
-    pub fn linear_interpolate(&self, mut start: Self, mut end: Self) -> f32 {
+    #[must_use] pub fn linear_interpolate(&self, mut start: Self, mut end: Self) -> f32 {
         use core::mem;
 
         if end < start {
@@ -206,28 +206,32 @@ impl Instant {
         let duration_total = end.duration_since(&start);
         let duration_current = self.duration_since(&start);
 
-        duration_current.div(&duration_total).max(0.0).min(1.0)
+        duration_current.div(&duration_total).clamp(0.0, 1.0)
     }
 
     /// Adds a duration to the instant, does nothing in undefined cases
-    /// (i.e. trying to add a Duration::Tick to an Instant::System)
-    pub fn add_optional_duration(&self, duration: Option<&Duration>) -> Self {
-        match duration {
-            Some(d) => match (self, d) {
-                (Instant::System(i), Duration::System(d)) => {
+    /// (i.e. trying to add a `Duration::Tick` to an `Instant::System`)
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` and `duration` are of mismatched kinds (e.g. adding a
+    /// `Duration::Tick` to an `Instant::System` or vice versa).
+    #[must_use] pub fn add_optional_duration(&self, duration: Option<&Duration>) -> Self {
+        duration.map_or_else(|| self.clone(), |d| match (self, d) {
+                (Self::System(i), Duration::System(d)) => {
                     #[cfg(feature = "std")]
                     {
                         let s: StdInstant = i.clone().into();
-                        let d: StdDuration = d.clone().into();
+                        let d: StdDuration = (*d).into();
                         let new: InstantPtr = (s + d).into();
-                        Instant::System(new)
+                        Self::System(new)
                     }
                     #[cfg(not(feature = "std"))]
                     {
                         unreachable!()
                     }
                 }
-                (Instant::Tick(s), Duration::Tick(d)) => Instant::Tick(SystemTick {
+                (Self::Tick(s), Duration::Tick(d)) => Self::Tick(SystemTick {
                     tick_counter: s.tick_counter + d.tick_diff,
                 }),
                 _ => {
@@ -236,27 +240,27 @@ impl Instant {
                         d, self
                     );
                 }
-            },
-            None => self.clone(),
-        }
+            })
     }
 
-    /// Converts to std::time::Instant (panics if Tick variant).
+    /// Converts to `std::time::Instant` (panics if Tick variant).
     #[cfg(feature = "std")]
-    pub fn into_std_instant(self) -> StdInstant {
+    #[must_use] pub fn into_std_instant(self) -> StdInstant {
         match self {
-            Instant::System(s) => s.into(),
-            Instant::Tick(_) => unreachable!(),
+            Self::System(s) => s.into(),
+            Self::Tick(_) => unreachable!(),
         }
     }
 
     /// Calculates the duration since an earlier point in time
     ///
+    /// # Panics
+    ///
     /// - Panics if the earlier Instant was created after the current Instant
     /// - Panics if the two enums do not have the same variant (tick / std)
-    pub fn duration_since(&self, earlier: &Instant) -> Duration {
+    #[must_use] pub fn duration_since(&self, earlier: &Self) -> Duration {
         match (earlier, self) {
-            (Instant::System(prev), Instant::System(now)) => {
+            (Self::System(prev), Self::System(now)) => {
                 #[cfg(feature = "std")]
                 {
                     let prev_instant: StdInstant = prev.clone().into();
@@ -269,8 +273,8 @@ impl Instant {
                 }
             }
             (
-                Instant::Tick(SystemTick { tick_counter: prev }),
-                Instant::Tick(SystemTick { tick_counter: now }),
+                Self::Tick(SystemTick { tick_counter: prev }),
+                Self::Tick(SystemTick { tick_counter: now }),
             ) => {
                 if prev > now {
                     panic!(
@@ -301,12 +305,12 @@ pub struct SystemTick {
 
 impl SystemTick {
     /// Creates a new tick timestamp from a counter value.
-    pub const fn new(tick_counter: u64) -> Self {
+    #[must_use] pub const fn new(tick_counter: u64) -> Self {
         Self { tick_counter }
     }
 }
 
-/// FFI-safe wrapper around std::time::Instant with custom clone/drop callbacks.
+/// FFI-safe wrapper around `std::time::Instant` with custom clone/drop callbacks.
 ///
 /// Allows crossing FFI boundaries while maintaining proper memory management.
 #[repr(C)]
@@ -343,8 +347,8 @@ impl_callback_simple!(InstantPtrDestructorCallback);
 
 // ----  LIBSTD implementation for InstantPtr BEGIN
 #[cfg(feature = "std")]
-impl core::fmt::Debug for InstantPtr {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+impl fmt::Debug for InstantPtr {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "{:?}", self.get())
     }
 }
@@ -372,7 +376,7 @@ impl core::hash::Hash for InstantPtr {
 
 #[cfg(feature = "std")]
 impl PartialEq for InstantPtr {
-    fn eq(&self, other: &InstantPtr) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         self.get() == other.get()
     }
 }
@@ -417,7 +421,7 @@ impl Ord for InstantPtr {
 #[cfg(feature = "std")]
 impl InstantPtr {
     fn get(&self) -> StdInstant {
-        (**self.ptr).clone()
+        (**self.ptr)
     }
 }
 
@@ -432,15 +436,15 @@ extern "C" fn std_instant_clone(ptr: *const InstantPtr) -> InstantPtr {
     let az_instant_ptr = unsafe { &*ptr };
     InstantPtr {
         ptr: ManuallyDrop::new((*az_instant_ptr.ptr).clone()),
-        clone_fn: az_instant_ptr.clone_fn.clone(),
-        destructor: az_instant_ptr.destructor.clone(),
+        clone_fn: az_instant_ptr.clone_fn,
+        destructor: az_instant_ptr.destructor,
         run_destructor: true,
     }
 }
 
 #[cfg(feature = "std")]
 impl From<StdInstant> for InstantPtr {
-    fn from(s: StdInstant) -> InstantPtr {
+    fn from(s: StdInstant) -> Self {
         Self {
             ptr: ManuallyDrop::new(Box::new(s)),
             clone_fn: InstantPtrCloneCallback {
@@ -456,7 +460,7 @@ impl From<StdInstant> for InstantPtr {
 
 #[cfg(feature = "std")]
 impl From<InstantPtr> for StdInstant {
-    fn from(s: InstantPtr) -> StdInstant {
+    fn from(s: InstantPtr) -> Self {
         s.get()
     }
 }
@@ -480,7 +484,7 @@ impl Drop for InstantPtr {
 }
 
 #[cfg(feature = "std")]
-extern "C" fn std_instant_drop(_: *mut InstantPtr) {}
+const extern "C" fn std_instant_drop(_: *mut InstantPtr) {}
 
 // ----  LIBSTD implementation for InstantPtr END
 
@@ -491,23 +495,23 @@ extern "C" fn std_instant_drop(_: *mut InstantPtr) {}
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum Duration {
-    /// System duration from std::time::Duration (requires "std" feature)
+    /// System duration from `std::time::Duration` (requires "std" feature)
     System(SystemTimeDiff),
     /// Tick-based duration for embedded systems
     Tick(SystemTickDiff),
 }
 
-impl core::fmt::Display for Duration {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl fmt::Display for Duration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             #[cfg(feature = "std")]
-            Duration::System(s) => {
-                let s: StdDuration = s.clone().into();
-                write!(f, "{:?}", s)
+            Self::System(s) => {
+                let s: StdDuration = (*s).into();
+                write!(f, "{s:?}")
             }
             #[cfg(not(feature = "std"))]
             Duration::System(s) => write!(f, "({}s, {}ns)", s.secs, s.nanos),
-            Duration::Tick(tick) => write!(f, "{} ticks", tick.tick_diff),
+            Self::Tick(tick) => write!(f, "{} ticks", tick.tick_diff),
         }
     }
 }
@@ -515,16 +519,16 @@ impl core::fmt::Display for Duration {
 #[cfg(feature = "std")]
 impl From<StdDuration> for Duration {
     fn from(s: StdDuration) -> Self {
-        Duration::System(s.into())
+        Self::System(s.into())
     }
 }
 
 impl Duration {
     /// Returns the maximum possible duration.
-    pub fn max() -> Self {
+    #[must_use] pub fn max() -> Self {
         #[cfg(feature = "std")]
         {
-            Duration::System(StdDuration::new(core::u64::MAX, NANOS_PER_SEC - 1).into())
+            Self::System(StdDuration::new(core::u64::MAX, NANOS_PER_SEC - 1).into())
         }
         #[cfg(not(feature = "std"))]
         {
@@ -535,8 +539,11 @@ impl Duration {
     }
 
     /// Divides this duration by another, returning the ratio as f32.
-    pub fn div(&self, other: &Self) -> f32 {
-        use self::Duration::*;
+    // the f64 ratio is intentionally narrowed to the f32 return type; the value
+    // is a duration ratio, far inside f32's range.
+    #[allow(clippy::cast_possible_truncation)]
+    #[must_use] pub fn div(&self, other: &Self) -> f32 {
+        use self::Duration::{System, Tick};
         match (self, other) {
             (System(s), System(s2)) => s.div(s2) as f32,
             (Tick(t), Tick(t2)) => t.div(t2) as f32,
@@ -545,7 +552,7 @@ impl Duration {
     }
 
     /// Returns the smaller of two durations.
-    pub fn min(self, other: Self) -> Self {
+    #[must_use] pub fn min(self, other: Self) -> Self {
         if self.smaller_than(&other) {
             self
         } else {
@@ -553,16 +560,21 @@ impl Duration {
         }
     }
 
-    /// Returns true if self > other (panics if variants differ).
+    /// Returns true if self > other.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` and `other` are of different kinds (comparing a System
+    /// duration with a Tick duration).
     #[allow(unused_variables)]
-    pub fn greater_than(&self, other: &Self) -> bool {
+    #[must_use] pub fn greater_than(&self, other: &Self) -> bool {
         match (self, other) {
             // self > other
-            (Duration::System(s), Duration::System(o)) => {
+            (Self::System(s), Self::System(o)) => {
                 #[cfg(feature = "std")]
                 {
-                    let s: StdDuration = s.clone().into();
-                    let o: StdDuration = o.clone().into();
+                    let s: StdDuration = (*s).into();
+                    let o: StdDuration = (*o).into();
                     s > o
                 }
                 #[cfg(not(feature = "std"))]
@@ -570,24 +582,29 @@ impl Duration {
                     unreachable!()
                 }
             }
-            (Duration::Tick(s), Duration::Tick(o)) => s.tick_diff > o.tick_diff,
+            (Self::Tick(s), Self::Tick(o)) => s.tick_diff > o.tick_diff,
             _ => {
                 panic!("illegal: trying to compare a SystemDuration with a TickDuration");
             }
         }
     }
 
-    /// Returns true if self < other (panics if variants differ).
+    /// Returns true if self < other.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` and `other` are of different kinds (comparing a System
+    /// duration with a Tick duration).
     #[allow(unused_variables)]
-    pub fn smaller_than(&self, other: &Self) -> bool {
+    #[must_use] pub fn smaller_than(&self, other: &Self) -> bool {
         // self < other
         match (self, other) {
             // self > other
-            (Duration::System(s), Duration::System(o)) => {
+            (Self::System(s), Self::System(o)) => {
                 #[cfg(feature = "std")]
                 {
-                    let s: StdDuration = s.clone().into();
-                    let o: StdDuration = o.clone().into();
+                    let s: StdDuration = (*s).into();
+                    let o: StdDuration = (*o).into();
                     s < o
                 }
                 #[cfg(not(feature = "std"))]
@@ -595,7 +612,7 @@ impl Duration {
                     unreachable!()
                 }
             }
-            (Duration::Tick(s), Duration::Tick(o)) => s.tick_diff < o.tick_diff,
+            (Self::Tick(s), Self::Tick(o)) => s.tick_diff < o.tick_diff,
             _ => {
                 panic!("illegal: trying to compare a SystemDuration with a TickDuration");
             }
@@ -614,12 +631,14 @@ pub struct SystemTickDiff {
 impl SystemTickDiff {
     /// Divide duration A by duration B.
     /// Returns `Inf` or `NaN` if `other` is zero.
-    pub fn div(&self, other: &Self) -> f64 {
+    // tick counts -> f64 for the ratio; precision only degrades past 2^53 ticks.
+    #[allow(clippy::cast_precision_loss)]
+    #[must_use] pub fn div(&self, other: &Self) -> f64 {
         self.tick_diff as f64 / other.tick_diff as f64
     }
 }
 
-/// Duration represented as seconds + nanoseconds (mirrors std::time::Duration).
+/// Duration represented as seconds + nanoseconds (mirrors `std::time::Duration`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct SystemTimeDiff {
@@ -630,18 +649,20 @@ pub struct SystemTimeDiff {
 impl SystemTimeDiff {
     /// Divide duration A by duration B.
     /// Returns `Inf` or `NaN` if `other` is zero.
-    pub fn div(&self, other: &Self) -> f64 {
+    #[must_use] pub fn div(&self, other: &Self) -> f64 {
         self.as_secs_f64() / other.as_secs_f64()
     }
+    // secs (u64) -> f64 loses precision only past 2^53 seconds (~285M years).
+    #[allow(clippy::cast_precision_loss)]
     fn as_secs_f64(&self) -> f64 {
-        (self.secs as f64) + ((self.nanos as f64) / (NANOS_PER_SEC as f64))
+        (self.secs as f64) + (f64::from(self.nanos) / f64::from(NANOS_PER_SEC))
     }
 }
 
 #[cfg(feature = "std")]
 impl From<StdDuration> for SystemTimeDiff {
-    fn from(d: StdDuration) -> SystemTimeDiff {
-        SystemTimeDiff {
+    fn from(d: StdDuration) -> Self {
+        Self {
             secs: d.as_secs(),
             nanos: d.subsec_nanos(),
         }
@@ -650,8 +671,8 @@ impl From<StdDuration> for SystemTimeDiff {
 
 #[cfg(feature = "std")]
 impl From<SystemTimeDiff> for StdDuration {
-    fn from(d: SystemTimeDiff) -> StdDuration {
-        StdDuration::new(d.secs, d.nanos)
+    fn from(d: SystemTimeDiff) -> Self {
+        Self::new(d.secs, d.nanos)
     }
 }
 
@@ -661,25 +682,28 @@ const NANOS_PER_SEC: u32 = 1_000_000_000;
 
 impl SystemTimeDiff {
     /// Creates a duration from whole seconds.
-    pub const fn from_secs(secs: u64) -> Self {
-        SystemTimeDiff { secs, nanos: 0 }
+    #[must_use] pub const fn from_secs(secs: u64) -> Self {
+        Self { secs, nanos: 0 }
     }
     /// Creates a duration from milliseconds.
-    pub const fn from_millis(millis: u64) -> Self {
-        SystemTimeDiff {
+    #[must_use] pub const fn from_millis(millis: u64) -> Self {
+        Self {
             secs: millis / MILLIS_PER_SEC,
             nanos: ((millis % MILLIS_PER_SEC) as u32) * NANOS_PER_MILLI,
         }
     }
     /// Creates a duration from nanoseconds.
-    pub const fn from_nanos(nanos: u64) -> Self {
-        SystemTimeDiff {
+    // const fn (no const TryFrom); `nanos % NANOS_PER_SEC` is always < 10^9, which
+    // fits u32, so the narrowing cast cannot truncate.
+    #[allow(clippy::cast_possible_truncation)]
+    #[must_use] pub const fn from_nanos(nanos: u64) -> Self {
+        Self {
             secs: nanos / (NANOS_PER_SEC as u64),
             nanos: (nanos % (NANOS_PER_SEC as u64)) as u32,
         }
     }
     /// Adds two durations, returning None on overflow.
-    pub const fn checked_add(self, rhs: Self) -> Option<Self> {
+    #[must_use] pub const fn checked_add(self, rhs: Self) -> Option<Self> {
         if let Some(mut secs) = self.secs.checked_add(rhs.secs) {
             let mut nanos = self.nanos + rhs.nanos;
             if nanos >= NANOS_PER_SEC {
@@ -690,20 +714,20 @@ impl SystemTimeDiff {
                     return None;
                 }
             }
-            Some(SystemTimeDiff { secs, nanos })
+            Some(Self { secs, nanos })
         } else {
             None
         }
     }
 
     /// Returns the total duration in milliseconds.
-    pub fn millis(&self) -> u64 {
+    #[must_use] pub const fn millis(&self) -> u64 {
         (self.secs * MILLIS_PER_SEC) + (self.nanos / NANOS_PER_MILLI) as u64
     }
 
-    /// Converts to std::time::Duration.
+    /// Converts to `std::time::Duration`.
     #[cfg(feature = "std")]
-    pub fn get(&self) -> StdDuration {
+    #[must_use] pub fn get(&self) -> StdDuration {
         (*self).into()
     }
 }
@@ -719,8 +743,8 @@ impl_option!(
     OptionDuration,
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
-
-/// Message that can be sent from the main thread to the Thread using the ThreadId.
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+/// Message that can be sent from the main thread to the Thread using the `ThreadId`.
 ///
 /// The thread can ignore the event.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -752,7 +776,7 @@ pub struct ThreadReceiver {
     #[cfg(not(feature = "std"))]
     pub ptr: *const c_void,
     pub run_destructor: bool,
-    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
     pub ctx: OptionRefAny,
 }
 
@@ -785,7 +809,7 @@ impl ThreadReceiver {
 
     /// Creates a new receiver wrapping the inner channel.
     #[cfg(feature = "std")]
-    pub fn new(t: ThreadReceiverInner) -> Self {
+    #[must_use] pub fn new(t: ThreadReceiverInner) -> Self {
         Self {
             ptr: Box::new(Arc::new(Mutex::new(t))),
             run_destructor: true,
@@ -794,7 +818,7 @@ impl ThreadReceiver {
     }
 
     /// Get the FFI context (e.g., Python callable)
-    pub fn get_ctx(&self) -> OptionRefAny {
+    #[must_use] pub fn get_ctx(&self) -> OptionRefAny {
         self.ctx.clone()
     }
 
@@ -807,11 +831,10 @@ impl ThreadReceiver {
     /// Receives a message from the main thread, if available.
     #[cfg(feature = "std")]
     pub fn recv(&mut self) -> OptionThreadSendMsg {
-        let ts = match self.ptr.lock().ok() {
-            Some(s) => s,
-            None => return None.into(),
+        let Some(ts) = self.ptr.lock().ok() else {
+            return None.into();
         };
-        (ts.recv_fn.cb)(ts.ptr.as_ref() as *const _ as *const c_void)
+        (ts.recv_fn.cb)(std::ptr::from_ref(ts.ptr.as_ref()) as *const c_void)
     }
 }
 
@@ -834,14 +857,14 @@ unsafe impl Send for ThreadReceiverInner {}
 #[cfg(feature = "std")]
 impl core::hash::Hash for ThreadReceiverInner {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        (self.ptr.as_ref() as *const _ as usize).hash(state);
+        (std::ptr::from_ref(self.ptr.as_ref()) as usize).hash(state);
     }
 }
 
 #[cfg(feature = "std")]
 impl PartialEq for ThreadReceiverInner {
     fn eq(&self, other: &Self) -> bool {
-        (self.ptr.as_ref() as *const _ as usize) == (other.ptr.as_ref() as *const _ as usize)
+        std::ptr::eq(self.ptr.as_ref(), other.ptr.as_ref())
     }
 }
 
@@ -852,8 +875,8 @@ impl Eq for ThreadReceiverInner {}
 impl PartialOrd for ThreadReceiverInner {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(
-            (self.ptr.as_ref() as *const _ as usize)
-                .cmp(&(other.ptr.as_ref() as *const _ as usize)),
+            (std::ptr::from_ref(self.ptr.as_ref()) as usize)
+                .cmp(&(std::ptr::from_ref(other.ptr.as_ref()) as usize)),
         )
     }
 }
@@ -861,7 +884,7 @@ impl PartialOrd for ThreadReceiverInner {
 #[cfg(feature = "std")]
 impl Ord for ThreadReceiverInner {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        (self.ptr.as_ref() as *const _ as usize).cmp(&(other.ptr.as_ref() as *const _ as usize))
+        (std::ptr::from_ref(self.ptr.as_ref()) as usize).cmp(&(std::ptr::from_ref(other.ptr.as_ref()) as usize))
     }
 }
 
@@ -885,7 +908,7 @@ impl_callback_simple!(GetSystemTimeCallback);
 /// On WASM targets `std::time::Instant::now()` panics, so we fall back to
 /// a zero-tick instant instead.
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
-pub extern "C" fn get_system_time_libstd() -> Instant {
+#[must_use] pub extern "C" fn get_system_time_libstd() -> Instant {
     StdInstant::now().into()
 }
 
@@ -925,7 +948,7 @@ pub struct ThreadRecvCallback {
 }
 impl_callback_simple!(ThreadRecvCallback);
 
-/// Callback to destroy a ThreadReceiver.
+/// Callback to destroy a `ThreadReceiver`.
 pub type ThreadReceiverDestructorCallbackType = extern "C" fn(*mut ThreadReceiverInner);
 /// Wrapper for thread receiver destructor callback.
 #[repr(C)]

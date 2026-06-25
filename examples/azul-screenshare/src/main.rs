@@ -9,10 +9,10 @@
 //! follow-ups.
 //!
 //! Pure public `azul::` surface: `azul::widgets::ScreenCaptureWidget` +
-//! `azul::misc::{ScreenCaptureConfig, ScreenCaptureSource}`.
+//! `azul::screen::{ScreenCaptureConfig, ScreenCaptureSource}`.
 
 use azul::prelude::*;
-use azul::misc::{ScreenCaptureConfig, ScreenCaptureSource};
+use azul::screen::{ScreenCaptureConfig, ScreenCaptureSource};
 use azul::widgets::ScreenCaptureWidget;
 
 /// What the preview captures. (A display/window picker lands with the

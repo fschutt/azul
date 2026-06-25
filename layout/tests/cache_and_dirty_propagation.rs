@@ -196,7 +196,7 @@ fn test_node_cache_slot_index_deterministic() {
             for wt in [AvailableWidthType::Definite, AvailableWidthType::MinContent, AvailableWidthType::MaxContent] {
                 for ht in [AvailableWidthType::Definite, AvailableWidthType::MinContent, AvailableWidthType::MaxContent] {
                     let idx = NodeCache::slot_index(wk, hk, wt, ht);
-                    assert!(idx < 9, "slot index {} out of bounds for ({}, {}, {:?}, {:?})", idx, wk, hk, wt, ht);
+                    assert!(idx < 9, "slot index {idx} out of bounds for ({wk}, {hk}, {wt:?}, {ht:?})");
                     // Not all combos are unique (MaxContent == Definite for slot mapping)
                     // but all are < 9
                     seen.insert(idx);
@@ -249,7 +249,7 @@ fn test_node_cache_sizing_store_and_retrieve() {
 fn test_node_cache_layout_store_and_retrieve() {
     use azul_layout::solver3::cache::{NodeCache, LayoutCacheEntry};
     use azul_layout::solver3::scrollbar::ScrollbarRequirements;
-    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+    use azul_core::geom::{LogicalPosition, LogicalSize};
 
     let mut cache = NodeCache::default();
 
@@ -357,8 +357,7 @@ fn test_dirty_propagation_via_layout() {
         .count();
     assert!(
         filled_after >= filled_before,
-        "relayout of identical DOM should not reduce cache fill: before={}, after={}",
-        filled_before, filled_after
+        "relayout of identical DOM should not reduce cache fill: before={filled_before}, after={filled_after}"
     );
 }
 
@@ -491,8 +490,7 @@ fn test_whitespace_between_blocks_no_spurious_ifc() {
     }
     assert_eq!(
         anonymous_ifc_count, 0,
-        "whitespace between blocks should NOT create anonymous IFC wrappers, got {}",
-        anonymous_ifc_count
+        "whitespace between blocks should NOT create anonymous IFC wrappers, got {anonymous_ifc_count}"
     );
 }
 
@@ -540,8 +538,7 @@ fn test_relayout_same_dom_is_fast() {
     // Even in debug builds, 3 nodes should take < 500ms.
     assert!(
         relayout_time.as_millis() < 500,
-        "relayout of identical DOM took {:?}, should be fast (cache hits)",
-        relayout_time
+        "relayout of identical DOM took {relayout_time:?}, should be fast (cache hits)"
     );
 }
 
@@ -575,8 +572,7 @@ fn test_relayout_with_viewport_resize() {
     }
     assert!(
         (div_width_before - 400.0).abs() < 1.0,
-        "50% of 800 should be ~400, got {}",
-        div_width_before
+        "50% of 800 should be ~400, got {div_width_before}"
     );
 
     // Resize viewport to 600px wide
@@ -593,8 +589,7 @@ fn test_relayout_with_viewport_resize() {
     }
     assert!(
         (div_width_after - 300.0).abs() < 1.0,
-        "50% of 600 should be ~300, got {}",
-        div_width_after
+        "50% of 600 should be ~300, got {div_width_after}"
     );
 }
 
@@ -648,8 +643,7 @@ fn test_margin_collapsing_siblings() {
     // Gap should be height(A) + collapsed_margin = 50 + 30 = 80
     assert!(
         (gap - 80.0).abs() < 1.0,
-        "gap between A and B should be 80px (50+30 collapsed), got {:.1}",
-        gap
+        "gap between A and B should be 80px (50+30 collapsed), got {gap:.1}"
     );
 }
 
@@ -697,7 +691,7 @@ fn test_performance_100_blocks() {
         div { height: 20px; }
     </style></head><body>"#);
     for i in 0..100 {
-        html.push_str(&format!("<div>Block {}</div>", i));
+        html.push_str(&format!("<div>Block {i}</div>"));
     }
     html.push_str("</body></html>");
 
@@ -708,8 +702,7 @@ fn test_performance_100_blocks() {
 
     assert!(
         elapsed.as_secs() < 30,
-        "100 blocks took {:?}, should be < 30s",
-        elapsed
+        "100 blocks took {elapsed:?}, should be < 30s"
     );
 
     let tree = cache.tree.as_ref().unwrap();
@@ -723,8 +716,7 @@ fn test_performance_100_blocks() {
     let positioned_count = cache.calculated_positions.len();
     assert!(
         positioned_count >= 102,
-        "expected >=102 positioned nodes, got {}",
-        positioned_count
+        "expected >=102 positioned nodes, got {positioned_count}"
     );
 }
 
@@ -736,7 +728,7 @@ fn test_relayout_100_blocks_cache_speedup() {
         div { height: 20px; }
     </style></head><body>"#);
     for i in 0..100 {
-        html.push_str(&format!("<div>Block {}</div>", i));
+        html.push_str(&format!("<div>Block {i}</div>"));
     }
     html.push_str("</body></html>");
 
@@ -748,8 +740,7 @@ fn test_relayout_100_blocks_cache_speedup() {
     // finds identical subtree hashes and skips layout entirely.
     assert!(
         relayout_time.as_millis() < 2000,
-        "relayout of 100 identical blocks took {:?}, expected fast path",
-        relayout_time
+        "relayout of 100 identical blocks took {relayout_time:?}, expected fast path"
     );
 }
 
@@ -782,8 +773,7 @@ fn test_deeply_nested_blocks_cache() {
 
     assert!(
         elapsed.as_secs() < 30,
-        "50-deep nested tree took {:?}, should not blow up",
-        elapsed
+        "50-deep nested tree took {elapsed:?}, should not blow up"
     );
 
     let tree = cache.tree.as_ref().unwrap();
@@ -800,8 +790,7 @@ fn test_deeply_nested_blocks_cache() {
         .count();
     assert!(
         filled_count > 0,
-        "after layout, at least some cache entries should be filled, got {}",
-        filled_count
+        "after layout, at least some cache entries should be filled, got {filled_count}"
     );
 }
 
@@ -867,8 +856,7 @@ fn test_relayout_scope_classification() {
     for prop in &paint_props {
         assert!(
             !prop.can_trigger_relayout(),
-            "{:?} should NOT trigger relayout (paint only)",
-            prop
+            "{prop:?} should NOT trigger relayout (paint only)"
         );
     }
 
@@ -884,8 +872,7 @@ fn test_relayout_scope_classification() {
     for prop in &layout_props {
         assert!(
             prop.can_trigger_relayout(),
-            "{:?} MUST trigger relayout (affects geometry)",
-            prop
+            "{prop:?} MUST trigger relayout (affects geometry)"
         );
     }
 }

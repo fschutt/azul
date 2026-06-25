@@ -47,7 +47,7 @@ fn overflow_y_is_full_relayout() {
 #[test]
 fn width_is_sizing_relayout() {
     let scope = CssPropertyType::Width.relayout_scope(false);
-    assert!(scope >= RelayoutScope::SizingOnly, "width should be at least SizingOnly, got {:?}", scope);
+    assert!(scope >= RelayoutScope::SizingOnly, "width should be at least SizingOnly, got {scope:?}");
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn max_width_is_sizing_relayout() {
 fn padding_top_is_sizing_relayout() {
     let scope = CssPropertyType::PaddingTop.relayout_scope(false);
     assert!(scope >= RelayoutScope::SizingOnly,
-        "padding should be at least SizingOnly, got {:?}", scope);
+        "padding should be at least SizingOnly, got {scope:?}");
 }
 
 #[test]
@@ -107,42 +107,42 @@ fn flex_shrink_is_sizing_relayout() {
 fn font_size_is_ifc_only_for_ifc_member() {
     let scope = CssPropertyType::FontSize.relayout_scope(true);
     assert!(scope >= RelayoutScope::IfcOnly,
-        "font-size should be at least IfcOnly for IFC member, got {:?}", scope);
+        "font-size should be at least IfcOnly for IFC member, got {scope:?}");
 }
 
 #[test]
 fn letter_spacing_is_ifc_only_for_ifc_member() {
     let scope = CssPropertyType::LetterSpacing.relayout_scope(true);
     assert!(scope >= RelayoutScope::IfcOnly,
-        "letter-spacing should be at least IfcOnly, got {:?}", scope);
+        "letter-spacing should be at least IfcOnly, got {scope:?}");
 }
 
 #[test]
 fn word_spacing_is_ifc_only_for_ifc_member() {
     let scope = CssPropertyType::WordSpacing.relayout_scope(true);
     assert!(scope >= RelayoutScope::IfcOnly,
-        "word-spacing should be at least IfcOnly, got {:?}", scope);
+        "word-spacing should be at least IfcOnly, got {scope:?}");
 }
 
 #[test]
 fn line_height_is_ifc_only_for_ifc_member() {
     let scope = CssPropertyType::LineHeight.relayout_scope(true);
     assert!(scope >= RelayoutScope::IfcOnly,
-        "line-height should be at least IfcOnly, got {:?}", scope);
+        "line-height should be at least IfcOnly, got {scope:?}");
 }
 
 #[test]
 fn font_family_is_ifc_only_for_ifc_member() {
     let scope = CssPropertyType::FontFamily.relayout_scope(true);
     assert!(scope >= RelayoutScope::IfcOnly,
-        "font-family should be at least IfcOnly, got {:?}", scope);
+        "font-family should be at least IfcOnly, got {scope:?}");
 }
 
 #[test]
 fn text_align_is_ifc_only_for_ifc_member() {
     let scope = CssPropertyType::TextAlign.relayout_scope(true);
     assert!(scope >= RelayoutScope::IfcOnly,
-        "text-align should be at least IfcOnly, got {:?}", scope);
+        "text-align should be at least IfcOnly, got {scope:?}");
 }
 
 // =========================================================================

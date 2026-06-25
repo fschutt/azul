@@ -9,7 +9,6 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
-use azul_css::css::Css;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };

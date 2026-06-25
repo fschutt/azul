@@ -212,8 +212,7 @@ fn empty_target_value_never_matches_substring_ops() {
         };
         assert!(
             !matches(&dom, NodeId::new(0), path),
-            "empty target should not match for op {:?}",
-            op
+            "empty target should not match for op {op:?}"
         );
     }
 }

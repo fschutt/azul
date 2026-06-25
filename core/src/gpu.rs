@@ -36,7 +36,7 @@ use crate::{
 
 /// Caches GPU transform and opacity keys and their current values for all nodes.
 ///
-/// This cache stores the WebRender keys and computed values for nodes with
+/// This cache stores the `WebRender` keys and computed values for nodes with
 /// CSS transforms or opacity. It's synchronized with the `StyledDom` to detect
 /// changes and generate minimal update events.
 #[derive(Default, Debug, Clone)]
@@ -50,7 +50,7 @@ pub struct GpuValueCache {
     /// Current horizontal scrollbar thumb transform values
     pub h_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
     /// CSS transform keys (keyed by node ID) — for CSS `transform` property animation.
-    /// Separate from scrollbar transform keys to avoid SpatialTreeItemKey collisions.
+    /// Separate from scrollbar transform keys to avoid `SpatialTreeItemKey` collisions.
     pub css_transform_keys: HashMap<NodeId, TransformKey>,
     /// Current CSS transform values (keyed by node ID)
     pub css_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
@@ -71,8 +71,8 @@ pub struct GpuValueCache {
 /// Represents a change to a GPU transform key.
 ///
 /// These events are generated when synchronizing the cache with the `StyledDom`
-/// and are used to update WebRender's transform state efficiently.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+/// and are used to update `WebRender`'s transform state efficiently.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum GpuTransformKeyEvent {
     /// A new transform was added to a node
     Added(NodeId, TransformKey, ComputedTransform3D),
@@ -89,7 +89,7 @@ pub enum GpuTransformKeyEvent {
 
 impl GpuValueCache {
     /// Creates an empty GPU value cache.
-    pub fn empty() -> Self {
+    #[must_use] pub fn empty() -> Self {
         Self::default()
     }
 
@@ -165,7 +165,7 @@ impl GpuValueCache {
                         // (no probe), so the result is identical on desktop.
                         if !cc.has_transform(node_id.index())
                             && (self.css_current_transform_values.is_empty()
-                                || self.css_current_transform_values.get(&node_id).is_none())
+                                || !self.css_current_transform_values.contains_key(&node_id))
                         {
                             return None;
                         }
@@ -230,7 +230,7 @@ impl GpuValueCache {
     /// Applies transform key changes (additions/removals) to the cache.
     fn apply_transform_events(&mut self, events: &[GpuTransformKeyEvent]) {
         // remove / add the CSS transform keys accordingly
-        for event in events.iter() {
+        for event in events {
             match &event {
                 GpuTransformKeyEvent::Added(node_id, key, matrix) => {
                     self.css_transform_keys.insert(*node_id, *key);
@@ -271,12 +271,10 @@ impl GpuValueCache {
                         let raw = cc.get_opacity_raw(node_id.index());
                         compact_opacity = if raw == azul_css::compact_cache::OPACITY_SENTINEL {
                             // unset → default (1.0) — bail out unless we had a prior opacity key
-                            if self.current_opacity_values.get(&node_id).is_none() {
-                                return None;
-                            }
+                            self.current_opacity_values.get(&node_id)?;
                             None
                         } else {
-                            Some((raw as f32) / 254.0)
+                            Some(f32::from(raw) / 254.0)
                         };
                     }
                 }
@@ -321,7 +319,7 @@ impl GpuValueCache {
     /// Applies opacity key changes (additions/removals) to the cache.
     fn apply_opacity_events(&mut self, events: &[GpuOpacityKeyEvent]) {
         // remove / add the opacity keys accordingly
-        for event in events.iter() {
+        for event in events {
             match &event {
                 GpuOpacityKeyEvent::Added(node_id, key, opacity) => {
                     self.opacity_keys.insert(*node_id, *key);
@@ -343,7 +341,7 @@ impl GpuValueCache {
 ///
 /// Scrollbar opacity is managed separately from CSS opacity to enable
 /// independent fading animations without affecting element opacity.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum GpuScrollbarOpacityEvent {
     /// A vertical scrollbar was added to a node
     VerticalAdded(DomId, NodeId, OpacityKey, f32),
@@ -362,7 +360,7 @@ pub enum GpuScrollbarOpacityEvent {
 /// Contains all GPU-related change events from a cache synchronization.
 ///
 /// This structure groups transform, opacity, and scrollbar opacity changes together
-/// for efficient batch processing when updating WebRender.
+/// for efficient batch processing when updating `WebRender`.
 #[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
 pub struct GpuEventChanges {
     /// All transform key changes (additions, modifications, removals)
@@ -375,12 +373,12 @@ pub struct GpuEventChanges {
 
 impl GpuEventChanges {
     /// Creates an empty set of GPU event changes.
-    pub fn empty() -> Self {
+    #[must_use] pub fn empty() -> Self {
         Self::default()
     }
 
     /// Returns `true` if there are no transform, opacity, or scrollbar opacity changes.
-    pub fn is_empty(&self) -> bool {
+    #[must_use] pub const fn is_empty(&self) -> bool {
         self.transform_key_changes.is_empty()
             && self.opacity_key_changes.is_empty()
             && self.scrollbar_opacity_changes.is_empty()
@@ -390,20 +388,17 @@ impl GpuEventChanges {
     ///
     /// This is useful for combining changes from multiple sources.
     pub fn merge(&mut self, other: &mut Self) {
-        self.transform_key_changes
-            .extend(other.transform_key_changes.drain(..));
-        self.opacity_key_changes
-            .extend(other.opacity_key_changes.drain(..));
-        self.scrollbar_opacity_changes
-            .extend(other.scrollbar_opacity_changes.drain(..));
+        self.transform_key_changes.append(&mut other.transform_key_changes);
+        self.opacity_key_changes.append(&mut other.opacity_key_changes);
+        self.scrollbar_opacity_changes.append(&mut other.scrollbar_opacity_changes);
     }
 }
 
 /// Represents a change to a GPU opacity key.
 ///
 /// These events are generated when synchronizing the cache with the `StyledDom`
-/// and are used to update WebRender's opacity state efficiently.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+/// and are used to update `WebRender`'s opacity state efficiently.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum GpuOpacityKeyEvent {
     /// A new opacity was added to a node
     Added(NodeId, OpacityKey, f32),

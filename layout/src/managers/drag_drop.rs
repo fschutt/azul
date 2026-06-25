@@ -18,9 +18,9 @@
 //!     `lw.gesture_drag_manager` instead of `lw.drag_drop_manager`.
 //!   - `layout/src/window.rs`: drop the `drag_drop_manager` field (~:371/:578).
 //!   - `event.rs`: remove the sync at ~:2545/:2668 (see the TODO there).
-//! Once those readers no longer touch `active_drag`, this whole struct can be
-//! reduced to the stateless `DragState`/`DragType` conversion helpers (which
-//! are public API and must stay).
+//!     Once those readers no longer touch `active_drag`, this whole struct can be
+//!     reduced to the stateless `DragState`/`DragType` conversion helpers (which
+//!     are public API and must stay).
 
 use azul_core::dom::{DomNodeId, OptionDomNodeId};
 use azul_core::drag::{ActiveDragType, DragContext};
@@ -37,7 +37,7 @@ pub enum DragType {
 }
 
 /// State of an active drag operation
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct DragState {
     /// Type of drag
@@ -51,10 +51,10 @@ pub struct DragState {
 }
 
 impl DragState {
-    /// Create DragState from a DragContext (for backwards compatibility)
-    pub fn from_context(ctx: &DragContext) -> Option<Self> {
+    /// Create `DragState` from a `DragContext` (for backwards compatibility)
+    #[must_use] pub fn from_context(ctx: &DragContext) -> Option<Self> {
         match &ctx.drag_type {
-            ActiveDragType::Node(node_drag) => Some(DragState {
+            ActiveDragType::Node(node_drag) => Some(Self {
                 drag_type: DragType::Node,
                 source_node: OptionDomNodeId::Some(DomNodeId {
                     dom: node_drag.dom_id,
@@ -63,7 +63,7 @@ impl DragState {
                 current_drop_target: node_drag.current_drop_target,
                 file_path: OptionString::None,
             }),
-            ActiveDragType::FileDrop(file_drop) => Some(DragState {
+            ActiveDragType::FileDrop(file_drop) => Some(Self {
                 drag_type: DragType::File,
                 source_node: OptionDomNodeId::None,
                 current_drop_target: file_drop.drop_target,
@@ -78,7 +78,7 @@ impl_option!(
     DragState,
     OptionDragState,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 /// Manager for drag-and-drop operations
@@ -93,27 +93,27 @@ pub struct DragDropManager {
 
 impl DragDropManager {
     /// Create a new drag-drop manager
-    pub fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         Self { active_drag: None }
     }
 
     /// Check if a drag operation is active
-    pub fn is_dragging(&self) -> bool {
+    #[must_use] pub const fn is_dragging(&self) -> bool {
         self.active_drag.is_some()
     }
 
     /// Check if currently dragging a node
-    pub fn is_dragging_node(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(|d| d.is_node_drag())
+    #[must_use] pub fn is_dragging_node(&self) -> bool {
+        self.active_drag.as_ref().is_some_and(DragContext::is_node_drag)
     }
 
     /// Check if currently dragging a file
-    pub fn is_dragging_file(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(|d| d.is_file_drop())
+    #[must_use] pub fn is_dragging_file(&self) -> bool {
+        self.active_drag.as_ref().is_some_and(DragContext::is_file_drop)
     }
 
     /// Get the active drag context
-    pub fn get_drag_context(&self) -> Option<&DragContext> {
+    #[must_use] pub const fn get_drag_context(&self) -> Option<&DragContext> {
         self.active_drag.as_ref()
     }
 

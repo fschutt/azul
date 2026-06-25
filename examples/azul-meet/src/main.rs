@@ -13,10 +13,13 @@
 //! peers + per-device routing are the `WebTransport` / device-selection follow-ups
 //! — see doc/SUPER_PLAN_0.2.0.md.)
 
-use azul::misc::{AudioConfig, CameraConfig, ScreenCaptureConfig};
+use azul::audio::AudioConfig;
+use azul::camera::CameraConfig;
+use azul::screen::ScreenCaptureConfig;
 use azul::prelude::*;
 use azul::widgets::{CameraWidget, MicrophoneWidget, ScreenCaptureWidget};
-use azul::css::{AudioDeviceList, LogicalSize};
+use azul::audio::AudioDeviceList;
+use azul::css::LogicalSize;
 use azul::str::String as AzString;
 
 struct MeetState {

@@ -61,7 +61,7 @@ fn test_nested_text_nodes() {
         let node_id = azul_core::dom::NodeId::new(i);
         let container = styled_dom.node_data.as_container();
         let node_type = container[node_id].get_node_type();
-        eprintln!("  Node {}: {:?}", i, node_type);
+        eprintln!("  Node {i}: {node_type:?}");
     }
 }
 
@@ -92,10 +92,10 @@ fn test_div_with_explicit_font_size() {
         let container = styled_dom.node_data.as_container();
         let node_data = &container[node_id];
         let node_type = node_data.get_node_type();
-        eprintln!("  Node {}: {:?}", i, node_type);
+        eprintln!("  Node {i}: {node_type:?}");
 
         if let NodeType::Text(text) = node_type {
-            eprintln!("    Text content: '{}'", text);
+            eprintln!("    Text content: '{text}'");
         }
     }
 

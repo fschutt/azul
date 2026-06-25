@@ -20,7 +20,7 @@
 use azul::prelude::*;
 use azul::dom::{GeolocationProbeConfig, MapPinTapCallback};
 use azul::widgets::MapViewportChangedCallback;
-use azul::misc::SensorKind;
+use azul::sensor::SensorKind;
 use azul::option::OptionRefAny;
 use azul::task::TerminateTimer;
 use azul::widgets::{MapLatLon, MapTileLayer, MapViewport, MapWidget};

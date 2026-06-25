@@ -168,6 +168,7 @@ fn make_window_with(
     HeadlessWindow::new(
         options,
         app_data,
+        azul::desktop::shell2::common::event::SharedUndoManager::new(),
         AppConfig::default(),
         icon_provider,
         fc_cache,

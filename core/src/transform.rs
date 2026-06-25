@@ -26,12 +26,12 @@ pub static USE_SSE: AtomicBool = AtomicBool::new(false);
 
 /// Specifies the coordinate system convention for rotations.
 ///
-/// WebRender uses a different rotation direction than hit-testing, so transforms
+/// `WebRender` uses a different rotation direction than hit-testing, so transforms
 /// must be adjusted based on their use case. This enum controls whether the
 /// rotation matrix is inverted to match the expected behavior.
 #[derive(Debug, Copy, Clone)]
 pub enum RotationMode {
-    /// Use rotation convention for WebRender (counter-clockwise, requires inversion)
+    /// Use rotation convention for `WebRender` (counter-clockwise, requires inversion)
     ForWebRender,
     /// Use rotation convention for hit-testing (clockwise, no inversion)
     ForHitTesting,
@@ -73,7 +73,7 @@ impl ComputedTransform3D {
     /// Creates a new 4x4 transformation matrix with the given elements.
     ///
     /// Elements are specified in row-major order (m11, m12, ..., m44).
-    pub const fn new(
+    #[must_use] pub const fn new(
         m11: f32,
         m12: f32,
         m13: f32,
@@ -120,6 +120,7 @@ impl ComputedTransform3D {
     ///
     /// NOTE: This is a relatively expensive operation.
     #[must_use]
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     pub fn inverse(&self) -> Self {
         let det = self.determinant();
 
@@ -127,7 +128,7 @@ impl ComputedTransform3D {
             return Self::IDENTITY;
         }
 
-        let m = ComputedTransform3D::new(
+        let m = Self::new(
             self.m[1][2] * self.m[2][3] * self.m[3][1] - self.m[1][3] * self.m[2][2] * self.m[3][1]
                 + self.m[1][3] * self.m[2][1] * self.m[3][2]
                 - self.m[1][1] * self.m[2][3] * self.m[3][2]
@@ -221,6 +222,7 @@ impl ComputedTransform3D {
         m.multiply_scalar(1.0 / det)
     }
 
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     fn determinant(&self) -> f32 {
         self.m[0][3] * self.m[1][2] * self.m[2][1] * self.m[3][0]
             - self.m[0][2] * self.m[1][3] * self.m[2][1] * self.m[3][0]
@@ -249,7 +251,7 @@ impl ComputedTransform3D {
     }
 
     fn multiply_scalar(&self, x: f32) -> Self {
-        ComputedTransform3D::new(
+        Self::new(
             self.m[0][0] * x,
             self.m[0][1] * x,
             self.m[0][2] * x,
@@ -286,7 +288,7 @@ impl ComputedTransform3D {
             && USE_SSE.load(AtomicOrdering::Relaxed);
 
         if use_avx {
-            for t in t_vec.iter() {
+            for t in t_vec {
                 #[cfg(target_arch = "x86_64")]
                 unsafe {
                     matrix = matrix.then_avx8(&Self::from_style_transform(
@@ -299,7 +301,7 @@ impl ComputedTransform3D {
                 }
             }
         } else if use_sse {
-            for t in t_vec.iter() {
+            for t in t_vec {
                 #[cfg(target_arch = "x86_64")]
                 unsafe {
                     matrix = matrix.then_sse(&Self::from_style_transform(
@@ -313,7 +315,7 @@ impl ComputedTransform3D {
             }
         } else {
             // fallback for everything else
-            for t in t_vec.iter() {
+            for t in t_vec {
                 matrix = matrix.then(&Self::from_style_transform(
                     t,
                     transform_origin,
@@ -329,6 +331,8 @@ impl ComputedTransform3D {
 
     /// Creates a new transform from a style transform using the
     /// parent width as a way to resolve for percentages
+    #[allow(clippy::many_single_char_names)] // domain-standard colour/coordinate component names
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     fn from_style_transform(
         t: &StyleTransform,
         transform_origin: &StyleTransformOrigin,
@@ -337,7 +341,7 @@ impl ComputedTransform3D {
         rotation_mode: RotationMode,
     ) -> Self {
         use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-        use azul_css::props::style::StyleTransform::*;
+        use azul_css::props::style::StyleTransform::{Matrix, Matrix3D, Translate, Translate3D, TranslateX, TranslateY, TranslateZ, Rotate3D, RotateX, RotateY, Rotate, RotateZ, Scale, Scale3D, ScaleX, ScaleY, ScaleZ, Skew, SkewX, SkewY, Perspective};
         match t {
             Matrix(mat2d) => {
                 let a = mat2d.a.get();
@@ -559,6 +563,7 @@ impl ComputedTransform3D {
     /// The supplied axis must be normalized.
     #[must_use]
     #[inline]
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     fn new_rotation(x: f32, y: f32, z: f32, theta_radians: f32) -> Self {
         let xx = x * x;
         let yy = y * y;
@@ -600,8 +605,8 @@ impl ComputedTransform3D {
 
     /// Returns this matrix transposed to column-major layout.
     #[must_use]
-    pub(crate) fn get_column_major(&self) -> Self {
-        ComputedTransform3D::new(
+    pub(crate) const fn get_column_major(&self) -> Self {
+        Self::new(
             self.m[0][0],
             self.m[1][0],
             self.m[2][0],
@@ -650,6 +655,7 @@ impl ComputedTransform3D {
     /// Multiplies this matrix by `other`, applying `other` AFTER the current matrix.
     #[must_use]
     #[inline]
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn then(&self, other: &Self) -> Self {
         Self::new(
             self.m[0][0].mul_add(
@@ -773,34 +779,34 @@ impl ComputedTransform3D {
     // a[0] * B.row[0] + a[1] * B.row[1] + a[2] * B.row[2] + a[3] * B.row[3]
     #[cfg(target_arch = "x86_64")]
     #[inline]
-    unsafe fn linear_combine_sse(a: [f32; 4], b: &ComputedTransform3D) -> [f32; 4] {
+    unsafe fn linear_combine_sse(a: [f32; 4], b: &Self) -> [f32; 4] { unsafe {
         use core::{
             arch::x86_64::{__m128, _mm_add_ps, _mm_mul_ps, _mm_shuffle_ps},
             mem,
         };
 
         let a: __m128 = mem::transmute(a);
-        let mut result = _mm_mul_ps(_mm_shuffle_ps(a, a, 0x00), mem::transmute(b.m[0]));
+        let mut result = _mm_mul_ps(_mm_shuffle_ps(a, a, 0x00), mem::transmute::<[f32; 4], __m128>(b.m[0]));
         result = _mm_add_ps(
             result,
-            _mm_mul_ps(_mm_shuffle_ps(a, a, 0x55), mem::transmute(b.m[1])),
+            _mm_mul_ps(_mm_shuffle_ps(a, a, 0x55), mem::transmute::<[f32; 4], __m128>(b.m[1])),
         );
         result = _mm_add_ps(
             result,
-            _mm_mul_ps(_mm_shuffle_ps(a, a, 0xaa), mem::transmute(b.m[2])),
+            _mm_mul_ps(_mm_shuffle_ps(a, a, 0xaa), mem::transmute::<[f32; 4], __m128>(b.m[2])),
         );
         result = _mm_add_ps(
             result,
-            _mm_mul_ps(_mm_shuffle_ps(a, a, 0xff), mem::transmute(b.m[3])),
+            _mm_mul_ps(_mm_shuffle_ps(a, a, 0xff), mem::transmute::<[f32; 4], __m128>(b.m[3])),
         );
 
         mem::transmute(result)
-    }
+    }}
 
     /// Multiplies this matrix by `other` using SSE instructions.
     #[cfg(target_arch = "x86_64")]
     #[inline]
-    unsafe fn then_sse(&self, other: &Self) -> Self {
+    unsafe fn then_sse(&self, other: &Self) -> Self { unsafe {
         Self {
             m: [
                 Self::linear_combine_sse(self.m[0], other),
@@ -809,14 +815,17 @@ impl ComputedTransform3D {
                 Self::linear_combine_sse(self.m[3], other),
             ],
         }
-    }
+    }}
 
     /// Dual linear combination using AVX instructions on YMM registers.
+    // _mm256_broadcast_ps reads the row as a 128-bit lane via an unaligned-tolerant
+    // x86 load; the `*const [f32;4]` -> `*const __m128` cast is intentional here.
+    #[allow(clippy::cast_ptr_alignment)]
     #[cfg(target_arch = "x86_64")]
     unsafe fn linear_combine_avx8(
         a01: core::arch::x86_64::__m256,
-        b: &ComputedTransform3D,
-    ) -> core::arch::x86_64::__m256 {
+        b: &Self,
+    ) -> core::arch::x86_64::__m256 { unsafe {
         use core::{
             arch::x86_64::{_mm256_add_ps, _mm256_broadcast_ps, _mm256_mul_ps, _mm256_shuffle_ps},
             mem,
@@ -824,36 +833,36 @@ impl ComputedTransform3D {
 
         let mut result = _mm256_mul_ps(
             _mm256_shuffle_ps(a01, a01, 0x00),
-            _mm256_broadcast_ps(mem::transmute(&b.m[0])),
+            _mm256_broadcast_ps(&*(&raw const b.m[0] as *const core::arch::x86_64::__m128)),
         );
         result = _mm256_add_ps(
             result,
             _mm256_mul_ps(
                 _mm256_shuffle_ps(a01, a01, 0x55),
-                _mm256_broadcast_ps(mem::transmute(&b.m[1])),
+                _mm256_broadcast_ps(&*(&raw const b.m[1] as *const core::arch::x86_64::__m128)),
             ),
         );
         result = _mm256_add_ps(
             result,
             _mm256_mul_ps(
                 _mm256_shuffle_ps(a01, a01, 0xaa),
-                _mm256_broadcast_ps(mem::transmute(&b.m[2])),
+                _mm256_broadcast_ps(&*(&raw const b.m[2] as *const core::arch::x86_64::__m128)),
             ),
         );
         result = _mm256_add_ps(
             result,
             _mm256_mul_ps(
                 _mm256_shuffle_ps(a01, a01, 0xff),
-                _mm256_broadcast_ps(mem::transmute(&b.m[3])),
+                _mm256_broadcast_ps(&*(&raw const b.m[3] as *const core::arch::x86_64::__m128)),
             ),
         );
         result
-    }
+    }}
 
     /// Multiplies this matrix by `other` using AVX instructions.
     #[cfg(target_arch = "x86_64")]
     #[inline]
-    unsafe fn then_avx8(&self, other: &Self) -> Self {
+    unsafe fn then_avx8(&self, other: &Self) -> Self { unsafe {
         use core::{
             arch::x86_64::{__m256, _mm256_loadu_ps, _mm256_storeu_ps, _mm256_zeroupper},
             mem,
@@ -861,8 +870,8 @@ impl ComputedTransform3D {
 
         _mm256_zeroupper();
 
-        let a01: __m256 = _mm256_loadu_ps(mem::transmute(&self.m[0][0]));
-        let a23: __m256 = _mm256_loadu_ps(mem::transmute(&self.m[2][0]));
+        let a01: __m256 = _mm256_loadu_ps(&raw const self.m[0][0]);
+        let a23: __m256 = _mm256_loadu_ps(&raw const self.m[2][0]);
 
         let out01x = Self::linear_combine_avx8(a01, other);
         let out23x = Self::linear_combine_avx8(a23, other);
@@ -871,15 +880,16 @@ impl ComputedTransform3D {
             m: [self.m[0], self.m[1], self.m[2], self.m[3]],
         };
 
-        _mm256_storeu_ps(mem::transmute(&mut out.m[0][0]), out01x);
-        _mm256_storeu_ps(mem::transmute(&mut out.m[2][0]), out23x);
+        _mm256_storeu_ps(&raw mut out.m[0][0], out01x);
+        _mm256_storeu_ps(&raw mut out.m[2][0], out23x);
 
         out
-    }
+    }}
 
     /// Creates a rotation matrix around the given axis, adjusted for the coordinate system.
     #[must_use]
     #[inline]
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     fn make_rotation(
         rotation_origin: (f32, f32),
         mut degrees: f32,

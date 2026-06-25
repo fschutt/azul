@@ -7,7 +7,7 @@
 // 4. Resize preserves old content in the top-left corner
 
 use azul_core::{
-    dom::{Dom, DomId, IdOrClass, NodeType},
+    dom::{Dom, DomId, IdOrClass},
     geom::LogicalSize,
     resources::RendererResources,
     styled_dom::StyledDom,
@@ -123,8 +123,7 @@ fn identical_frames_produce_identical_pixmaps() {
     let diff = pixel_diff_count(&frame1, &frame2, 0);
     assert_eq!(
         diff, 0,
-        "Identical DOMs should produce identical pixmaps, but {} pixels differ",
-        diff
+        "Identical DOMs should produce identical pixmaps, but {diff} pixels differ"
     );
 }
 
@@ -230,7 +229,6 @@ fn resize_preserves_top_left_content() {
     let overlap_diff = cpurender::compare_region(&frame_small, &frame_large, 0, 0, 200, 200, 2);
     assert!(
         overlap_diff < 100,
-        "Top-left 200x200 should be nearly identical (both solid red), but {} pixels differ",
-        overlap_diff
+        "Top-left 200x200 should be nearly identical (both solid red), but {overlap_diff} pixels differ"
     );
 }

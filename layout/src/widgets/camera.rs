@@ -43,6 +43,7 @@ struct CameraThreadInit {
 
 /// Live state for one camera widget, carried across relayout by
 /// [`merge_camera_state`].
+#[derive(Debug)]
 pub struct CameraWidgetState {
     /// The requested capture configuration (the control POD).
     pub config: CameraConfig,
@@ -58,6 +59,7 @@ pub struct CameraWidgetState {
 /// A camera-preview widget. `create(config).dom()` yields an `<img>` the
 /// capture thread keeps fed.
 #[repr(C)]
+#[derive(Debug)]
 pub struct CameraWidget {
     /// Requested capture config (camera facing, resolution, fps, format).
     pub config: CameraConfig,
@@ -67,7 +69,7 @@ pub struct CameraWidget {
 
 impl CameraWidget {
     /// Create a camera widget for the given capture config.
-    pub fn create(config: CameraConfig) -> Self {
+    #[must_use] pub const fn create(config: CameraConfig) -> Self {
         Self {
             config,
             on_frame: OptionOnVideoFrame::None,
@@ -86,6 +88,7 @@ impl CameraWidget {
     }
 
     /// Builder form of [`set_on_frame`](Self::set_on_frame).
+    #[must_use]
     pub fn with_on_frame<C: Into<OnVideoFrameCallback>>(
         mut self,
         data: RefAny,
@@ -97,7 +100,7 @@ impl CameraWidget {
 
     /// Build the widget's DOM: a single `<img>` node, fed by a background
     /// capture thread started on mount.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         let state = CameraWidgetState {
             config: self.config,
             started: false,
@@ -116,28 +119,27 @@ impl CameraWidget {
 
         Dom::create_image(placeholder)
             .with_dataset(OptionRefAny::Some(dataset.clone()))
-            .with_merge_callback(merge_camera_state as DatasetMergeCallbackType)
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_camera_state))
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset,
-                Callback::from(camera_on_after_mount as CallbackType),
+                Callback::from_ptr(camera_on_after_mount),
             )
     }
 }
 
 /// Frame dimensions for a config (0 -> a sane default).
-fn frame_dims(config: &CameraConfig) -> (u32, u32) {
+const fn frame_dims(config: &CameraConfig) -> (u32, u32) {
     let w = if config.width > 0 { config.width } else { 640 };
     let h = if config.height > 0 { config.height } else { 480 };
     (w, h)
 }
 
-/// AfterMount: start the background capture thread exactly once.
+/// `AfterMount`: start the background capture thread exactly once.
 extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let dims = {
-        let mut s = match data.downcast_mut::<CameraWidgetState>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut s) = data.downcast_mut::<CameraWidgetState>() else {
+            return Update::DoNothing;
         };
         if s.started {
             return Update::DoNothing;
@@ -162,11 +164,11 @@ extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) ->
 
 /// Background worker (test pattern): a colour-cycling solid frame ~30x/s until
 /// the widget unmounts. The real AVFoundation/Camera2 capture loop replaces it.
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/counter/fixed-point cast
 extern "C" fn camera_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     let (w, h) = init
         .downcast_ref::<CameraThreadInit>()
-        .map(|i| (i.width, i.height))
-        .unwrap_or((640, 480));
+        .map_or((640, 480), |i| (i.width, i.height));
 
     // Real platform capture if the dll registered a camera backend (v4l2 /
     // AVFoundation / Media Foundation); otherwise the colour-cycle test pattern.
@@ -233,10 +235,7 @@ extern "C" fn camera_writeback(
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let (current, hook) = match writeback_data.downcast_ref::<CameraWidgetState>() {
-        Some(s) => (s.gl_texture_id, s.on_frame.clone()),
-        None => (None, OptionOnVideoFrame::None),
-    };
+    let (current, hook) = writeback_data.downcast_ref::<CameraWidgetState>().map_or_else(|| (None, OptionOnVideoFrame::None), |s| (s.gl_texture_id, s.on_frame.clone()));
     let mut user_update = Update::DoNothing;
     let new_id = match frame_data.downcast_ref::<VideoFrame>() {
         Some(frame) => {

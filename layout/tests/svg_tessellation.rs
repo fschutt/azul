@@ -83,13 +83,11 @@ fn verify_tessellation(
     // Check non-empty
     assert!(
         !vertices.is_empty(),
-        "{}: Expected non-empty vertices",
-        test_name
+        "{test_name}: Expected non-empty vertices"
     );
     assert!(
         !indices.is_empty(),
-        "{}: Expected non-empty indices",
-        test_name
+        "{test_name}: Expected non-empty indices"
     );
 
     // Check minimum counts
@@ -148,7 +146,7 @@ fn debug_print_tessellation(node: &TessellatedSvgNode, name: &str) {
     let vertices = node.vertices.as_ref();
     let indices = node.indices.as_ref();
 
-    println!("\n=== {} ===", name);
+    println!("\n=== {name} ===");
     println!("Vertices ({}):", vertices.len());
     for (i, v) in vertices.iter().enumerate().take(20) {
         println!("  [{}] ({:.2}, {:.2})", i, v.x, v.y);
@@ -464,7 +462,7 @@ fn test_index_buffer_no_restart_markers_in_fill() {
     let result = tessellate_rect_fill(&rect, fill_style);
 
     let restart_index = azul_core::gl::GL_RESTART_INDEX;
-    let has_restart = result.indices.as_ref().iter().any(|&i| i == restart_index);
+    let has_restart = result.indices.as_ref().contains(&restart_index);
 
     // Fill should NOT have restart indices
     assert!(

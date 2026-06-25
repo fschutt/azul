@@ -12,6 +12,7 @@ use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
 use super::super::common::debug_server::LogCategory;
+use super::super::common::event::SharedUndoManager;
 use crate::log_debug;
 
 /// Shared resources for all windows in a Linux application
@@ -34,6 +35,11 @@ pub struct AppResources {
 
     /// Application data (user's global state)
     pub app_data: Arc<RefCell<RefAny>>,
+
+    /// App-global undo/redo manager (shared across all windows). Set by
+    /// `LinuxWindow::new_with_resources` from the App's owned manager; the
+    /// placeholder created in `new()` is overwritten there.
+    pub undo_manager: SharedUndoManager,
 
     /// System styling detected at startup (theme, colors, fonts, etc.)
     pub system_style: Arc<SystemStyle>,
@@ -70,6 +76,9 @@ impl AppResources {
             fc_cache,
             font_registry,
             app_data,
+            // Placeholder; overwritten by LinuxWindow::new_with_resources with the
+            // App's owned manager so all Linux windows share one history.
+            undo_manager: SharedUndoManager::new(),
             system_style,
             icon_provider,
         }

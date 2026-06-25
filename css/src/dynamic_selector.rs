@@ -3,8 +3,8 @@
 use crate::corety::{AzString, OptionString};
 use crate::props::property::CssProperty;
 
-/// State flags for pseudo-classes (used in DynamicSelectorContext)
-/// Note: This is a CSS-only version. See azul_core::styled_dom::StyledNodeState for the main type.
+/// State flags for pseudo-classes (used in `DynamicSelectorContext`)
+/// Note: This is a CSS-only version. See `azul_core::styled_dom::StyledNodeState` for the main type.
 //
 // TODO(superplan g8 item 3): unify with `azul_core::styled_dom::StyledNodeState`
 // (core/src/styled_dom.rs:190). The two structs now carry the *identical* 10 fields
@@ -33,7 +33,7 @@ pub struct PseudoStateFlags {
 
 impl PseudoStateFlags {
     /// Check if a specific pseudo-state is active
-    pub fn has_state(&self, state: PseudoStateType) -> bool {
+    #[must_use] pub const fn has_state(&self, state: PseudoStateType) -> bool {
         match state {
             PseudoStateType::Normal => true,
             PseudoStateType::Hover => self.hover,
@@ -93,7 +93,7 @@ impl_option!(
     DynamicSelector,
     OptionDynamicSelector,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 impl_vec!(DynamicSelector, DynamicSelectorVec, DynamicSelectorVecDestructor, DynamicSelectorVecDestructorType, DynamicSelectorVecSlice, OptionDynamicSelector);
@@ -108,23 +108,23 @@ impl_vec_partialeq!(DynamicSelector, DynamicSelectorVec);
 impl DynamicSelector {
     /// Stable per-variant tag (mirrors the `#[repr(C, u8)]` discriminants), used as
     /// the primary key for both `Ord` and `Hash` so the two stay consistent.
-    fn variant_tag(&self) -> u8 {
+    const fn variant_tag(&self) -> u8 {
         match self {
-            DynamicSelector::Os(_) => 0,
-            DynamicSelector::OsVersion(_) => 1,
-            DynamicSelector::Media(_) => 2,
-            DynamicSelector::ViewportWidth(_) => 3,
-            DynamicSelector::ViewportHeight(_) => 4,
-            DynamicSelector::ContainerWidth(_) => 5,
-            DynamicSelector::ContainerHeight(_) => 6,
-            DynamicSelector::ContainerName(_) => 7,
-            DynamicSelector::Theme(_) => 8,
-            DynamicSelector::AspectRatio(_) => 9,
-            DynamicSelector::Orientation(_) => 10,
-            DynamicSelector::PrefersReducedMotion(_) => 11,
-            DynamicSelector::PrefersHighContrast(_) => 12,
-            DynamicSelector::PseudoState(_) => 13,
-            DynamicSelector::Language(_) => 14,
+            Self::Os(_) => 0,
+            Self::OsVersion(_) => 1,
+            Self::Media(_) => 2,
+            Self::ViewportWidth(_) => 3,
+            Self::ViewportHeight(_) => 4,
+            Self::ContainerWidth(_) => 5,
+            Self::ContainerHeight(_) => 6,
+            Self::ContainerName(_) => 7,
+            Self::Theme(_) => 8,
+            Self::AspectRatio(_) => 9,
+            Self::Orientation(_) => 10,
+            Self::PrefersReducedMotion(_) => 11,
+            Self::PrefersHighContrast(_) => 12,
+            Self::PseudoState(_) => 13,
+            Self::Language(_) => 14,
         }
     }
 }
@@ -144,6 +144,9 @@ impl PartialOrd for DynamicSelector {
 }
 
 impl Ord for DynamicSelector {
+    // Order-dependent tie-break arms with identical bodies can't merge without
+    // changing the ordering (clippy::match_same_arms false positive).
+    #[allow(clippy::match_same_arms)]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         use core::cmp::Ordering;
         match self.variant_tag().cmp(&other.variant_tag()) {
@@ -152,25 +155,25 @@ impl Ord for DynamicSelector {
         }
         // Same variant on both sides (tags are equal): compare the payloads.
         match (self, other) {
-            (DynamicSelector::Os(a), DynamicSelector::Os(b)) => a.cmp(b),
-            (DynamicSelector::OsVersion(a), DynamicSelector::OsVersion(b)) => a.cmp(b),
-            (DynamicSelector::Media(a), DynamicSelector::Media(b)) => a.cmp(b),
-            (DynamicSelector::ContainerName(a), DynamicSelector::ContainerName(b)) => a.cmp(b),
-            (DynamicSelector::Theme(a), DynamicSelector::Theme(b)) => a.cmp(b),
-            (DynamicSelector::Orientation(a), DynamicSelector::Orientation(b)) => a.cmp(b),
-            (DynamicSelector::PrefersReducedMotion(a), DynamicSelector::PrefersReducedMotion(b)) => {
+            (Self::Os(a), Self::Os(b)) => a.cmp(b),
+            (Self::OsVersion(a), Self::OsVersion(b)) => a.cmp(b),
+            (Self::Media(a), Self::Media(b)) => a.cmp(b),
+            (Self::ContainerName(a), Self::ContainerName(b)) => a.cmp(b),
+            (Self::Theme(a), Self::Theme(b)) => a.cmp(b),
+            (Self::Orientation(a), Self::Orientation(b)) => a.cmp(b),
+            (Self::PrefersReducedMotion(a), Self::PrefersReducedMotion(b)) => {
                 a.cmp(b)
             }
-            (DynamicSelector::PrefersHighContrast(a), DynamicSelector::PrefersHighContrast(b)) => {
+            (Self::PrefersHighContrast(a), Self::PrefersHighContrast(b)) => {
                 a.cmp(b)
             }
-            (DynamicSelector::PseudoState(a), DynamicSelector::PseudoState(b)) => a.cmp(b),
-            (DynamicSelector::Language(a), DynamicSelector::Language(b)) => a.cmp(b),
-            (DynamicSelector::ViewportWidth(a), DynamicSelector::ViewportWidth(b))
-            | (DynamicSelector::ViewportHeight(a), DynamicSelector::ViewportHeight(b))
-            | (DynamicSelector::ContainerWidth(a), DynamicSelector::ContainerWidth(b))
-            | (DynamicSelector::ContainerHeight(a), DynamicSelector::ContainerHeight(b))
-            | (DynamicSelector::AspectRatio(a), DynamicSelector::AspectRatio(b)) => {
+            (Self::PseudoState(a), Self::PseudoState(b)) => a.cmp(b),
+            (Self::Language(a), Self::Language(b)) => a.cmp(b),
+            (Self::ViewportWidth(a), Self::ViewportWidth(b))
+            | (Self::ViewportHeight(a), Self::ViewportHeight(b))
+            | (Self::ContainerWidth(a), Self::ContainerWidth(b))
+            | (Self::ContainerHeight(a), Self::ContainerHeight(b))
+            | (Self::AspectRatio(a), Self::AspectRatio(b)) => {
                 (a.min.to_bits(), a.max.to_bits()).cmp(&(b.min.to_bits(), b.max.to_bits()))
             }
             // Unreachable: tags are equal, so both sides are the same variant.
@@ -180,24 +183,27 @@ impl Ord for DynamicSelector {
 }
 
 impl core::hash::Hash for DynamicSelector {
+    // Per-variant dispatch: each `x` is a different type, so the identical
+    // `x.hash(state)` bodies can't merge (clippy::match_same_arms false positive).
+    #[allow(clippy::match_same_arms)]
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.variant_tag().hash(state);
         match self {
-            DynamicSelector::Os(x) => x.hash(state),
-            DynamicSelector::OsVersion(x) => x.hash(state),
-            DynamicSelector::Media(x) => x.hash(state),
-            DynamicSelector::ContainerName(x) => x.hash(state),
-            DynamicSelector::Theme(x) => x.hash(state),
-            DynamicSelector::Orientation(x) => x.hash(state),
-            DynamicSelector::PrefersReducedMotion(x) => x.hash(state),
-            DynamicSelector::PrefersHighContrast(x) => x.hash(state),
-            DynamicSelector::PseudoState(x) => x.hash(state),
-            DynamicSelector::Language(x) => x.hash(state),
-            DynamicSelector::ViewportWidth(r)
-            | DynamicSelector::ViewportHeight(r)
-            | DynamicSelector::ContainerWidth(r)
-            | DynamicSelector::ContainerHeight(r)
-            | DynamicSelector::AspectRatio(r) => {
+            Self::Os(x) => x.hash(state),
+            Self::OsVersion(x) => x.hash(state),
+            Self::Media(x) => x.hash(state),
+            Self::ContainerName(x) => x.hash(state),
+            Self::Theme(x) => x.hash(state),
+            Self::Orientation(x) => x.hash(state),
+            Self::PrefersReducedMotion(x) => x.hash(state),
+            Self::PrefersHighContrast(x) => x.hash(state),
+            Self::PseudoState(x) => x.hash(state),
+            Self::Language(x) => x.hash(state),
+            Self::ViewportWidth(r)
+            | Self::ViewportHeight(r)
+            | Self::ContainerWidth(r)
+            | Self::ContainerHeight(r)
+            | Self::AspectRatio(r) => {
                 r.min.to_bits().hash(state);
                 r.max.to_bits().hash(state);
             }
@@ -216,7 +222,7 @@ pub struct MinMaxRange {
 }
 
 impl MinMaxRange {
-    pub const fn new(min: Option<f32>, max: Option<f32>) -> Self {
+    #[must_use] pub const fn new(min: Option<f32>, max: Option<f32>) -> Self {
         Self {
             min: if let Some(m) = min { m } else { f32::NAN },
             max: if let Some(m) = max { m } else { f32::NAN },
@@ -224,7 +230,7 @@ impl MinMaxRange {
     }
     
     /// Create a range with only a minimum value (>= min)
-    pub const fn with_min(min_val: f32) -> Self {
+    #[must_use] pub const fn with_min(min_val: f32) -> Self {
         Self {
             min: min_val,
             max: f32::NAN,
@@ -232,14 +238,14 @@ impl MinMaxRange {
     }
     
     /// Create a range with only a maximum value (<= max)
-    pub const fn with_max(max_val: f32) -> Self {
+    #[must_use] pub const fn with_max(max_val: f32) -> Self {
         Self {
             min: f32::NAN,
             max: max_val,
         }
     }
 
-    pub fn min(&self) -> Option<f32> {
+    #[must_use] pub const fn min(&self) -> Option<f32> {
         if self.min.is_nan() {
             None
         } else {
@@ -247,7 +253,7 @@ impl MinMaxRange {
         }
     }
 
-    pub fn max(&self) -> Option<f32> {
+    #[must_use] pub const fn max(&self) -> Option<f32> {
         if self.max.is_nan() {
             None
         } else {
@@ -255,7 +261,7 @@ impl MinMaxRange {
         }
     }
 
-    pub fn matches(&self, value: f32) -> bool {
+    #[must_use] pub fn matches(&self, value: f32) -> bool {
         let min_ok = self.min.is_nan() || value >= self.min;
         let max_ok = self.max.is_nan() || value <= self.max;
         min_ok && max_ok
@@ -308,25 +314,25 @@ impl_option!(
 );
 
 impl OsCondition {
-    /// Convert from css::system::Platform
-    pub fn from_system_platform(platform: &crate::system::Platform) -> Self {
+    /// Convert from `css::system::Platform`
+    #[must_use] pub const fn from_system_platform(platform: &crate::system::Platform) -> Self {
         use crate::system::Platform;
         match platform {
-            Platform::Windows => OsCondition::Windows,
-            Platform::MacOs => OsCondition::MacOS,
-            Platform::Linux(_) => OsCondition::Linux,
-            Platform::Android => OsCondition::Android,
-            Platform::Ios => OsCondition::IOS,
-            Platform::Unknown => OsCondition::Any,
+            Platform::Windows => Self::Windows,
+            Platform::MacOs => Self::MacOS,
+            Platform::Linux(_) => Self::Linux,
+            Platform::Android => Self::Android,
+            Platform::Ios => Self::IOS,
+            Platform::Unknown => Self::Any,
         }
     }
 }
 
 #[repr(C, u8)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum OsVersionCondition {
     /// Minimum version: >= specified version
-    /// Format: OsVersion { os, version_id }
+    /// Format: `OsVersion` { os, `version_id` }
     Min(OsVersion),
     /// Maximum version: <= specified version
     Max(OsVersion),
@@ -372,27 +378,27 @@ impl Default for OsVersion {
 }
 
 impl OsVersion {
-    pub const fn new(os: OsFamily, version_id: u32) -> Self {
+    #[must_use] pub const fn new(os: OsFamily, version_id: u32) -> Self {
         Self { os, version_id }
     }
     
     /// Compare two versions - only meaningful within the same OS family
     /// Returns None if OS families don't match (comparison not meaningful)
-    pub fn compare(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        if self.os != other.os {
-            None // Cross-OS comparison not meaningful
-        } else {
+    #[must_use] pub fn compare(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        if self.os == other.os {
             Some(self.version_id.cmp(&other.version_id))
+        } else {
+            None // Cross-OS comparison not meaningful
         }
     }
     
     /// Check if self >= other (for Min conditions)
-    pub fn is_at_least(&self, other: &Self) -> bool {
+    #[must_use] pub fn is_at_least(&self, other: &Self) -> bool {
         self.compare(other).is_some_and(|o| o != core::cmp::Ordering::Less)
     }
     
     /// Check if self <= other (for Max conditions)
-    pub fn is_at_most(&self, other: &Self) -> bool {
+    #[must_use] pub fn is_at_most(&self, other: &Self) -> bool {
         self.compare(other).is_some_and(|o| o != core::cmp::Ordering::Greater)
     }
 }
@@ -406,7 +412,7 @@ impl_option!(
 impl OsVersion {
     
     /// Check if self == other
-    pub fn is_exactly(&self, other: &Self) -> bool {
+    #[must_use] pub fn is_exactly(&self, other: &Self) -> bool {
         self.compare(other) == Some(core::cmp::Ordering::Equal)
     }
 }
@@ -532,7 +538,7 @@ impl OsVersion {
     pub const LINUX_6_0: Self = Self::new(OsFamily::Linux, 6000);
     
     /// Unknown OS version (for when detection fails or OS is unknown)
-    pub const fn unknown() -> Self {
+    #[must_use] pub const fn unknown() -> Self {
         Self {
             os: OsFamily::Linux, // Fallback, but version_id 0 means "unknown"
             version_id: 0,
@@ -542,7 +548,7 @@ impl OsVersion {
 
 /// Parse a named or numeric OS version string
 /// Returns None if the version string is not recognized
-pub fn parse_os_version(os: OsFamily, version_str: &str) -> Option<OsVersion> {
+#[must_use] pub fn parse_os_version(os: OsFamily, version_str: &str) -> Option<OsVersion> {
     let version_str = version_str.trim().to_lowercase();
     let version_str = version_str.as_str();
     
@@ -560,22 +566,15 @@ fn parse_windows_version(s: &str) -> Option<OsVersion> {
     // This collapses "11", "win11", "win-11", "windows11", "windows-11", "windows_11" to "11".
     let core = strip_os_prefix(s, &["windows", "win"]);
     match core {
-        "2000" => Some(OsVersion::WIN_2000),
-        "xp" => Some(OsVersion::WIN_XP),
-        "vista" => Some(OsVersion::WIN_VISTA),
-        "7" => Some(OsVersion::WIN_7),
-        "8" => Some(OsVersion::WIN_8),
-        "8.1" | "8-1" => Some(OsVersion::WIN_8_1),
-        "10" => Some(OsVersion::WIN_10),
+        // Each version groups its named alias with the numeric NT version.
+        "2000" | "5.0" | "nt5.0" => Some(OsVersion::WIN_2000),
+        "xp" | "5.1" | "nt5.1" => Some(OsVersion::WIN_XP),
+        "vista" | "6.0" | "nt6.0" => Some(OsVersion::WIN_VISTA),
+        "7" | "6.1" | "nt6.1" => Some(OsVersion::WIN_7),
+        "8" | "6.2" | "nt6.2" => Some(OsVersion::WIN_8),
+        "8.1" | "8-1" | "6.3" | "nt6.3" => Some(OsVersion::WIN_8_1),
+        "10" | "10.0" | "nt10.0" => Some(OsVersion::WIN_10),
         "11" => Some(OsVersion::WIN_11),
-        // Numeric NT versions
-        "5.0" | "nt5.0" => Some(OsVersion::WIN_2000),
-        "5.1" | "nt5.1" => Some(OsVersion::WIN_XP),
-        "6.0" | "nt6.0" => Some(OsVersion::WIN_VISTA),
-        "6.1" | "nt6.1" => Some(OsVersion::WIN_7),
-        "6.2" | "nt6.2" => Some(OsVersion::WIN_8),
-        "6.3" | "nt6.3" => Some(OsVersion::WIN_8_1),
-        "10.0" | "nt10.0" => Some(OsVersion::WIN_10),
         _ => None,
     }
 }
@@ -712,13 +711,13 @@ pub enum LinuxDesktopEnv {
 }
 
 impl LinuxDesktopEnv {
-    /// Convert from css::system::DesktopEnvironment
-    pub fn from_system_desktop_env(de: &crate::system::DesktopEnvironment) -> Self {
+    /// Convert from `css::system::DesktopEnvironment`
+    #[must_use] pub const fn from_system_desktop_env(de: &crate::system::DesktopEnvironment) -> Self {
         use crate::system::DesktopEnvironment;
         match de {
-            DesktopEnvironment::Gnome => LinuxDesktopEnv::Gnome,
-            DesktopEnvironment::Kde => LinuxDesktopEnv::KDE,
-            DesktopEnvironment::Other(_) => LinuxDesktopEnv::Other,
+            DesktopEnvironment::Gnome => Self::Gnome,
+            DesktopEnvironment::Kde => Self::KDE,
+            DesktopEnvironment::Other(_) => Self::Other,
         }
     }
 }
@@ -731,7 +730,7 @@ pub enum MediaType {
     Print,
     All,
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ThemeCondition {
@@ -750,12 +749,12 @@ impl_option!(
 );
 
 impl ThemeCondition {
-    /// Convert from css::system::Theme
-    pub fn from_system_theme(theme: crate::system::Theme) -> Self {
+    /// Convert from `css::system::Theme`
+    #[must_use] pub const fn from_system_theme(theme: crate::system::Theme) -> Self {
         use crate::system::Theme;
         match theme {
-            Theme::Light => ThemeCondition::Light,
-            Theme::Dark => ThemeCondition::Dark,
+            Theme::Light => Self::Light,
+            Theme::Dark => Self::Dark,
         }
     }
 }
@@ -768,7 +767,7 @@ pub enum OrientationType {
     Landscape,
 }
 
-/// Language/Locale condition for @lang() CSS selector
+/// Language/Locale condition for @`lang()` CSS selector
 /// Matches BCP 47 language tags with prefix matching
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -781,10 +780,10 @@ pub enum LanguageCondition {
 
 impl LanguageCondition {
     /// Check if this condition matches the given language tag
-    pub fn matches(&self, language: &str) -> bool {
+    #[must_use] pub fn matches(&self, language: &str) -> bool {
         match self {
-            LanguageCondition::Exact(lang) => language.eq_ignore_ascii_case(lang.as_str()),
-            LanguageCondition::Prefix(prefix) => {
+            Self::Exact(lang) => language.eq_ignore_ascii_case(lang.as_str()),
+            Self::Prefix(prefix) => {
                 let prefix_str = prefix.as_str();
                 if language.len() < prefix_str.len() {
                     return false;
@@ -805,7 +804,7 @@ impl LanguageCondition {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum PseudoStateType {
-    /// No special state (corresponds to "Normal" in NodeDataInlineCssProperty)
+    /// No special state (corresponds to "Normal" in `NodeDataInlineCssProperty`)
     Normal,
     /// Element is being hovered (:hover)
     Hover,
@@ -859,7 +858,7 @@ pub struct DynamicSelectorContext {
     /// Theme info
     pub theme: ThemeCondition,
 
-    /// Media info (from WindowState)
+    /// Media info (from `WindowState`)
     pub media_type: MediaType,
     pub viewport_width: f32,
     pub viewport_height: f32,
@@ -877,7 +876,7 @@ pub struct DynamicSelectorContext {
     /// Orientation
     pub orientation: OrientationType,
 
-    /// Node state (hover, active, focus, disabled, checked, focus_within, visited)
+    /// Node state (hover, active, focus, disabled, checked, `focus_within`, visited)
     pub pseudo_state: PseudoStateFlags,
 
     /// Language/Locale (BCP 47 tag, e.g., "en-US", "de-DE")
@@ -913,8 +912,8 @@ impl Default for DynamicSelectorContext {
 }
 
 impl DynamicSelectorContext {
-    /// Create a context from SystemStyle
-    pub fn from_system_style(system_style: &crate::system::SystemStyle) -> Self {
+    /// Create a context from `SystemStyle`
+    #[must_use] pub fn from_system_style(system_style: &crate::system::SystemStyle) -> Self {
         let os = OsCondition::from_system_platform(&system_style.platform);
         let desktop_env = if let crate::system::Platform::Linux(de) = &system_style.platform {
             OptionLinuxDesktopEnv::Some(LinuxDesktopEnv::from_system_desktop_env(de))
@@ -945,7 +944,7 @@ impl DynamicSelectorContext {
     }
 
     /// Update viewport dimensions (e.g., on window resize)
-    pub fn with_viewport(&self, width: f32, height: f32) -> Self {
+    #[must_use] pub fn with_viewport(&self, width: f32, height: f32) -> Self {
         let mut ctx = self.clone();
         ctx.viewport_width = width;
         ctx.viewport_height = height;
@@ -958,7 +957,7 @@ impl DynamicSelectorContext {
     }
 
     /// Update container dimensions (for @container queries)
-    pub fn with_container(&self, width: f32, height: f32, name: Option<AzString>) -> Self {
+    #[must_use] pub fn with_container(&self, width: f32, height: f32, name: Option<AzString>) -> Self {
         let mut ctx = self.clone();
         ctx.container_width = width;
         ctx.container_height = height;
@@ -967,14 +966,14 @@ impl DynamicSelectorContext {
     }
 
     /// Update pseudo-state (hover, active, focus, etc.)
-    pub fn with_pseudo_state(&self, state: PseudoStateFlags) -> Self {
+    #[must_use] pub fn with_pseudo_state(&self, state: PseudoStateFlags) -> Self {
         let mut ctx = self.clone();
         ctx.pseudo_state = state;
         ctx
     }
 
     /// Check if viewport changed significantly (for breakpoint detection)
-    pub fn viewport_breakpoint_changed(&self, other: &Self, breakpoints: &[f32]) -> bool {
+    #[must_use] pub fn viewport_breakpoint_changed(&self, other: &Self, breakpoints: &[f32]) -> bool {
         for bp in breakpoints {
             let self_above = self.viewport_width >= *bp;
             let other_above = other.viewport_width >= *bp;
@@ -988,10 +987,10 @@ impl DynamicSelectorContext {
 
 impl DynamicSelector {
     /// Check if this selector matches in the given context
-    pub fn matches(&self, ctx: &DynamicSelectorContext) -> bool {
+    #[must_use] pub fn matches(&self, ctx: &DynamicSelectorContext) -> bool {
         match self {
             Self::Os(os) => Self::match_os(*os, ctx.os),
-            Self::OsVersion(ver) => Self::match_os_version(ver, &ctx.os_version, &ctx.desktop_env, ctx.de_version),
+            Self::OsVersion(ver) => Self::match_os_version(ver, ctx.os_version, ctx.desktop_env, ctx.de_version),
             Self::Media(media) => *media == ctx.media_type || *media == MediaType::All,
             Self::ViewportWidth(range) => range.matches(ctx.viewport_width),
             Self::ViewportHeight(range) => range.matches(ctx.viewport_height),
@@ -1029,8 +1028,8 @@ impl DynamicSelector {
 
     fn match_os_version(
         condition: &OsVersionCondition,
-        actual: &OsVersion,
-        desktop_env: &OptionLinuxDesktopEnv,
+        actual: OsVersion,
+        desktop_env: OptionLinuxDesktopEnv,
         de_version: u32,
     ) -> bool {
         // de_version == 0 means the runtime hasn't reported a version,
@@ -1057,7 +1056,7 @@ impl DynamicSelector {
         }
     }
 
-    fn match_pseudo_state(state: PseudoStateType, ctx: &DynamicSelectorContext) -> bool {
+    const fn match_pseudo_state(state: PseudoStateType, ctx: &DynamicSelectorContext) -> bool {
         let node_state = &ctx.pseudo_state;
         match state {
             PseudoStateType::Normal => true, // Normal is always active (base state)
@@ -1090,7 +1089,7 @@ impl DynamicSelector {
 /// Returns `None` only when the content is a parse error.
 /// `Some(vec![])` means "always match" (the rule applies unconditionally).
 #[cfg(feature = "parser")]
-pub fn parse_os_at_rule_content(content: &str) -> Option<Vec<DynamicSelector>> {
+#[must_use] pub fn parse_os_at_rule_content(content: &str) -> Option<Vec<DynamicSelector>> {
     let trimmed = content.trim();
     let inner = trimmed
         .strip_prefix('(').and_then(|s| s.strip_suffix(')'))
@@ -1253,7 +1252,7 @@ impl_option!(
     CssPropertyWithConditions,
     OptionCssPropertyWithConditions,
     copy = false,
-    [Debug, Clone, PartialEq, PartialOrd]
+    [Debug, Clone, PartialEq, Eq, PartialOrd]
 );
 
 impl Eq for CssPropertyWithConditions {}
@@ -1279,7 +1278,7 @@ impl Ord for CssPropertyWithConditions {
 
 impl CssPropertyWithConditions {
     /// Create an unconditional property (always applies) - const version
-    pub const fn simple(property: CssProperty) -> Self {
+    #[must_use] pub const fn simple(property: CssProperty) -> Self {
         Self {
             property,
             apply_if: DynamicSelectorVec::from_const_slice(&[]),
@@ -1287,7 +1286,7 @@ impl CssPropertyWithConditions {
     }
 
     /// Create a property with a single condition (const version using slice reference)
-    pub const fn with_single_condition(
+    #[must_use] pub const fn with_single_condition(
         property: CssProperty,
         conditions: &'static [DynamicSelector],
     ) -> Self {
@@ -1298,7 +1297,7 @@ impl CssPropertyWithConditions {
     }
 
     /// Create a property with a single condition (non-const, allocates)
-    pub fn with_condition(property: CssProperty, condition: DynamicSelector) -> Self {
+    #[must_use] pub fn with_condition(property: CssProperty, condition: DynamicSelector) -> Self {
         Self {
             property,
             apply_if: DynamicSelectorVec::from_vec(vec![condition]),
@@ -1306,7 +1305,7 @@ impl CssPropertyWithConditions {
     }
 
     /// Create a property with multiple conditions (all must match)
-    pub const fn with_conditions(property: CssProperty, conditions: DynamicSelectorVec) -> Self {
+    #[must_use] pub const fn with_conditions(property: CssProperty, conditions: DynamicSelectorVec) -> Self {
         Self {
             property,
             apply_if: conditions,
@@ -1314,7 +1313,7 @@ impl CssPropertyWithConditions {
     }
 
     /// Create a property that applies only on hover (const version)
-    pub const fn on_hover(property: CssProperty) -> Self {
+    #[must_use] pub const fn on_hover(property: CssProperty) -> Self {
         Self::with_single_condition(
             property,
             &[DynamicSelector::PseudoState(PseudoStateType::Hover)],
@@ -1322,7 +1321,7 @@ impl CssPropertyWithConditions {
     }
 
     /// Create a property that applies only when active (const version)
-    pub const fn on_active(property: CssProperty) -> Self {
+    #[must_use] pub const fn on_active(property: CssProperty) -> Self {
         Self::with_single_condition(
             property,
             &[DynamicSelector::PseudoState(PseudoStateType::Active)],
@@ -1330,7 +1329,7 @@ impl CssPropertyWithConditions {
     }
 
     /// Create a property that applies only when focused (const version)
-    pub const fn on_focus(property: CssProperty) -> Self {
+    #[must_use] pub const fn on_focus(property: CssProperty) -> Self {
         Self::with_single_condition(
             property,
             &[DynamicSelector::PseudoState(PseudoStateType::Focus)],
@@ -1338,7 +1337,7 @@ impl CssPropertyWithConditions {
     }
 
     /// Create a property that applies only when disabled (const version)
-    pub const fn when_disabled(property: CssProperty) -> Self {
+    #[must_use] pub const fn when_disabled(property: CssProperty) -> Self {
         Self::with_single_condition(
             property,
             &[DynamicSelector::PseudoState(PseudoStateType::Disabled)],
@@ -1346,37 +1345,37 @@ impl CssPropertyWithConditions {
     }
 
     /// Create a property that applies only on a specific OS (non-const, needs runtime value)
-    pub fn on_os(property: CssProperty, os: OsCondition) -> Self {
+    #[must_use] pub fn on_os(property: CssProperty, os: OsCondition) -> Self {
         Self::with_condition(property, DynamicSelector::Os(os))
     }
 
     /// Create a property that applies only in dark theme (const version)
-    pub const fn dark_theme(property: CssProperty) -> Self {
+    #[must_use] pub const fn dark_theme(property: CssProperty) -> Self {
         Self::with_single_condition(property, &[DynamicSelector::Theme(ThemeCondition::Dark)])
     }
 
     /// Create a property that applies only in light theme (const version)
-    pub const fn light_theme(property: CssProperty) -> Self {
+    #[must_use] pub const fn light_theme(property: CssProperty) -> Self {
         Self::with_single_condition(property, &[DynamicSelector::Theme(ThemeCondition::Light)])
     }
 
     /// Create a property for Windows only (const version)
-    pub const fn on_windows(property: CssProperty) -> Self {
+    #[must_use] pub const fn on_windows(property: CssProperty) -> Self {
         Self::with_single_condition(property, &[DynamicSelector::Os(OsCondition::Windows)])
     }
 
     /// Create a property for macOS only (const version)
-    pub const fn on_macos(property: CssProperty) -> Self {
+    #[must_use] pub const fn on_macos(property: CssProperty) -> Self {
         Self::with_single_condition(property, &[DynamicSelector::Os(OsCondition::MacOS)])
     }
 
     /// Create a property for Linux only (const version)
-    pub const fn on_linux(property: CssProperty) -> Self {
+    #[must_use] pub const fn on_linux(property: CssProperty) -> Self {
         Self::with_single_condition(property, &[DynamicSelector::Os(OsCondition::Linux)])
     }
 
     /// Check if this property matches in the given context
-    pub fn matches(&self, ctx: &DynamicSelectorContext) -> bool {
+    #[must_use] pub fn matches(&self, ctx: &DynamicSelectorContext) -> bool {
         // Empty conditions = always matches
         if self.apply_if.as_slice().is_empty() {
             return true;
@@ -1390,13 +1389,13 @@ impl CssPropertyWithConditions {
     }
 
     /// Check if this property has any conditions
-    pub fn is_conditional(&self) -> bool {
+    #[must_use] pub fn is_conditional(&self) -> bool {
         !self.apply_if.as_slice().is_empty()
     }
 
     /// Check if this property is a pseudo-state conditional only
     /// (hover, active, focus, etc.)
-    pub fn is_pseudo_state_only(&self) -> bool {
+    #[must_use] pub fn is_pseudo_state_only(&self) -> bool {
         let conditions = self.apply_if.as_slice();
         !conditions.is_empty()
             && conditions
@@ -1409,7 +1408,7 @@ impl CssPropertyWithConditions {
     /// Returns `true` for layout-affecting properties like width, height, margin, padding,
     /// font-size, etc. Returns `false` for paint-only properties like color, background,
     /// box-shadow, opacity, transform, etc.
-    pub fn is_layout_affecting(&self) -> bool {
+    #[must_use] pub const fn is_layout_affecting(&self) -> bool {
         self.property.get_type().can_trigger_relayout()
     }
 }
@@ -1473,13 +1472,13 @@ impl CssPropertyWithConditionsVec {
     /// CssPropertyWithConditionsVec::parse("@os linux { font-size: 14px; :hover { color: red; }}")
     /// ```
     #[cfg(feature = "parser")]
-    pub fn parse(style: &str) -> Self {
-        Self::parse_with_conditions(style, Vec::new())
+    #[must_use] pub fn parse(style: &str) -> Self {
+        Self::parse_with_conditions(style, &[])
     }
     
     /// Internal recursive parser with inherited conditions
     #[cfg(feature = "parser")]
-    fn parse_with_conditions(style: &str, inherited_conditions: Vec<DynamicSelector>) -> Self {
+    fn parse_with_conditions(style: &str, inherited_conditions: &[DynamicSelector]) -> Self {
         use crate::props::property::{
             parse_combined_css_property, parse_css_property, CombinedCssPropertyType, CssKeyMap,
             CssPropertyType,
@@ -1490,11 +1489,11 @@ impl CssPropertyWithConditionsVec {
         let style = style.trim();
         
         if style.is_empty() {
-            return CssPropertyWithConditionsVec::from_vec(props);
+            return Self::from_vec(props);
         }
 
         // Tokenize into segments: properties, pseudo-selectors, and @-rules
-        let mut chars = style.chars().peekable();
+        let chars = style.chars();
         let mut current_segment = String::new();
         let mut brace_depth = 0;
         
@@ -1513,7 +1512,7 @@ impl CssPropertyWithConditionsVec {
                         let segment = current_segment.trim().to_string();
                         current_segment.clear();
                         
-                        if let Some(parsed) = Self::parse_block_segment(&segment, &inherited_conditions, &key_map) {
+                        if let Some(parsed) = Self::parse_block_segment(&segment, inherited_conditions, &key_map) {
                             props.extend(parsed);
                         }
                     }
@@ -1524,7 +1523,7 @@ impl CssPropertyWithConditionsVec {
                     current_segment.clear();
                     
                     if !segment.is_empty() {
-                        if let Some(parsed) = Self::parse_property_segment(&segment, &inherited_conditions, &key_map) {
+                        if let Some(parsed) = Self::parse_property_segment(&segment, inherited_conditions, &key_map) {
                             props.extend(parsed);
                         }
                     }
@@ -1538,12 +1537,12 @@ impl CssPropertyWithConditionsVec {
         // Handle any remaining segment (property without trailing semicolon)
         let remaining = current_segment.trim();
         if !remaining.is_empty() && !remaining.contains('{') {
-            if let Some(parsed) = Self::parse_property_segment(remaining, &inherited_conditions, &key_map) {
+            if let Some(parsed) = Self::parse_property_segment(remaining, inherited_conditions, &key_map) {
                 props.extend(parsed);
             }
         }
 
-        CssPropertyWithConditionsVec::from_vec(props)
+        Self::from_vec(props)
     }
     
     /// Parse a block segment like `:hover { ... }` or `@os linux { ... }`
@@ -1576,11 +1575,11 @@ impl CssPropertyWithConditionsVec {
         }
         
         // Recursively parse the content with the new conditions
-        let parsed = Self::parse_with_conditions(content, conditions);
+        let parsed = Self::parse_with_conditions(content, &conditions);
         Some(parsed.into_library_owned_vec())
     }
     
-    /// Parse a selector string into DynamicSelector conditions
+    /// Parse a selector string into `DynamicSelector` conditions
     #[cfg(feature = "parser")]
     fn parse_selector_to_conditions(selector: &str) -> Option<Vec<DynamicSelector>> {
         let selector = selector.trim();
@@ -1620,7 +1619,7 @@ impl CssPropertyWithConditionsVec {
         None
     }
 
-    /// Parse an @-rule (the content after '@') into DynamicSelector conditions.
+    /// Parse an @-rule (the content after '@') into `DynamicSelector` conditions.
     /// Handles @os, @media, @theme, @lang, @container,
     /// @prefers-reduced-motion, and @prefers-high-contrast.
     #[cfg(feature = "parser")]
@@ -1640,16 +1639,16 @@ impl CssPropertyWithConditionsVec {
         }
 
         // @media (min-width: 800px), etc.
-        if rule_content.starts_with("media ") {
-            let media_query = rule_content[6..].trim();
+        if let Some(rest) = rule_content.strip_prefix("media ") {
+            let media_query = rest.trim();
             if let Some(media_conds) = Self::parse_media_query(media_query) {
                 return Some(media_conds);
             }
         }
 
         // @theme dark, @theme light
-        if rule_content.starts_with("theme ") {
-            let theme = rule_content[6..].trim();
+        if let Some(rest) = rule_content.strip_prefix("theme ") {
+            let theme = rest.trim();
             match theme {
                 "dark" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Dark)]),
                 "light" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Light)]),
@@ -1658,12 +1657,11 @@ impl CssPropertyWithConditionsVec {
         }
 
         // @lang("de-DE") or @lang de-DE
-        if rule_content.starts_with("lang ") || rule_content.starts_with("lang(") {
-            let lang_str = if rule_content.starts_with("lang(") {
-                rule_content[5..].trim_end_matches(')').trim()
-            } else {
-                rule_content[5..].trim()
-            };
+        let lang_body = rule_content
+            .strip_prefix("lang(")
+            .map(|r| r.trim_end_matches(')').trim())
+            .or_else(|| rule_content.strip_prefix("lang ").map(str::trim));
+        if let Some(lang_str) = lang_body {
             let lang_str = lang_str
                 .strip_prefix('"').and_then(|s| s.strip_suffix('"'))
                 .or_else(|| lang_str.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
@@ -1688,10 +1686,10 @@ impl CssPropertyWithConditionsVec {
                 (None, container_str)
             } else if let Some(paren_idx) = container_str.find('(') {
                 let name = container_str[..paren_idx].trim();
-                if !name.is_empty() {
-                    (Some(name), &container_str[paren_idx..])
-                } else {
+                if name.is_empty() {
                     (None, container_str)
+                } else {
+                    (Some(name), &container_str[paren_idx..])
                 }
             } else {
                 if !container_str.is_empty() {
@@ -1804,7 +1802,7 @@ impl CssPropertyWithConditionsVec {
         }
     }
 
-    /// Parse a media query feature value into a DynamicSelector
+    /// Parse a media query feature value into a `DynamicSelector`
     /// Handles features like orientation, prefers-color-scheme, prefers-reduced-motion, etc.
     #[cfg(feature = "parser")]
     fn parse_media_feature_inline(key: &str, value: &str) -> Option<DynamicSelector> {
@@ -1882,7 +1880,7 @@ impl CssPropertyWithConditionsVec {
             if let Ok(prop) = parse_css_property(prop_type, value) {
                 props.push(CssPropertyWithConditions {
                     property: prop,
-                    apply_if: conditions.clone(),
+                    apply_if: conditions,
                 });
                 return Some(props);
             }
@@ -1915,7 +1913,7 @@ mod tests {
         let style = "overflow: scroll;";
         let parsed = CssPropertyWithConditionsVec::parse(style);
         let props = parsed.into_library_owned_vec();
-        assert!(props.len() > 0, "Expected overflow to parse into at least 1 property");
+        assert!(!props.is_empty(), "Expected overflow to parse into at least 1 property");
     }
 
     #[test]
@@ -1923,7 +1921,7 @@ mod tests {
         let style = "overflow-y: scroll;";
         let parsed = CssPropertyWithConditionsVec::parse(style);
         let props = parsed.into_library_owned_vec();
-        assert!(props.len() > 0, "Expected overflow-y to parse into at least 1 property");
+        assert!(!props.is_empty(), "Expected overflow-y to parse into at least 1 property");
     }
 
     #[test]
@@ -1952,7 +1950,7 @@ mod tests {
             assert_eq!(tracks.len(), 4, "Expected 4 tracks");
             for (i, track) in tracks.iter().enumerate() {
                 assert!(matches!(track, GridTrackSizing::Fixed(_)),
-                    "Track {} should be Fixed(160px), got {:?}", i, track);
+                    "Track {i} should be Fixed(160px), got {track:?}");
             }
         } else {
             panic!("Expected CssProperty::GridTemplateColumns");

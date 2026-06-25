@@ -325,7 +325,7 @@ fn test_complex_scenario_mixed_children() {
     // 1. Wrap consecutive cells in anonymous rows (Stage 2)
     // 2. Leave proper rows as-is
 
-    let parent = LayoutDisplay::Table;
+    let _parent = LayoutDisplay::Table;
     let child1 = LayoutDisplay::TableRow;
     let child2 = LayoutDisplay::TableCell;
     let child3 = LayoutDisplay::TableCell;

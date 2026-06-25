@@ -49,13 +49,11 @@ fn test_h1_p_margin_collapse_calculation() {
     // Verify resolutions
     assert!(
         (h1_margin_px - 21.44).abs() < 0.01,
-        "H1 margin should be 21.44px, got {}",
-        h1_margin_px
+        "H1 margin should be 21.44px, got {h1_margin_px}"
     );
     assert_eq!(
         p_margin_px, 16.0,
-        "P margin should be 16.0px, got {}",
-        p_margin_px
+        "P margin should be 16.0px, got {p_margin_px}"
     );
 
     // Test collapsing
@@ -63,15 +61,13 @@ fn test_h1_p_margin_collapse_calculation() {
     let body_h1_collapsed = collapse_margins(body_margin, h1_margin_px);
     assert!(
         (body_h1_collapsed - 21.44).abs() < 0.01,
-        "Body (20px) and H1 (21.44px) should collapse to 21.44px, got {}",
-        body_h1_collapsed
+        "Body (20px) and H1 (21.44px) should collapse to 21.44px, got {body_h1_collapsed}"
     );
 
     let h1_p_collapsed = collapse_margins(h1_margin_px, p_margin_px);
     assert!(
         (h1_p_collapsed - 21.44).abs() < 0.01,
-        "H1 (21.44px) and P (16px) should collapse to 21.44px, got {}",
-        h1_p_collapsed
+        "H1 (21.44px) and P (16px) should collapse to 21.44px, got {h1_p_collapsed}"
     );
 }
 
@@ -95,9 +91,7 @@ fn test_margin_em_uses_element_font_size() {
     let expected = 0.67 * 32.0; // 21.44
     assert!(
         (resolved - expected).abs() < 0.01,
-        "Margin em should use element font-size (32px), not parent (16px). Expected {}, got {}",
-        expected,
-        resolved
+        "Margin em should use element font-size (32px), not parent (16px). Expected {expected}, got {resolved}"
     );
 }
 
@@ -143,9 +137,7 @@ fn test_comparison_old_vs_new_behavior() {
     // Verify they differ (bug is fixed)
     assert!(
         new_margin > old_margin,
-        "New margin ({:.2}px) should be larger than old margin ({:.2}px)",
-        new_margin,
-        old_margin
+        "New margin ({new_margin:.2}px) should be larger than old margin ({old_margin:.2}px)"
     );
 
     // Verify margin collapsing difference

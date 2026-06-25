@@ -25,7 +25,7 @@ pub struct PositionedGlyph {
 }
 
 /// A simple glyph run without font reference - used when fonts aren't available.
-/// The font can be looked up later via font_hash if needed.
+/// The font can be looked up later via `font_hash` if needed.
 #[derive(Debug, Clone)]
 pub struct SimpleGlyphRun {
     /// The glyphs in this run, with their positions relative to the start of the run.
@@ -52,7 +52,9 @@ pub struct SimpleGlyphRun {
 
 /// Groups glyphs into runs without requiring font references.
 /// Use this when you only need glyph positions and don't need font references.
-pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
+#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[must_use] pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
     let mut runs: Vec<SimpleGlyphRun> = Vec::new();
     let mut current_run: Option<SimpleGlyphRun> = None;
 
@@ -71,10 +73,10 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                     let glyph_color = glyph.style.color;
                     let glyph_background = glyph.style.background_color;
                     let glyph_background_content = glyph.style.background_content.clone();
-                    let glyph_border = glyph.style.border.clone();
+                    let glyph_border = glyph.style.border;
                     let font_hash = glyph.font_hash;
                     let font_size_px = glyph.style.font_size_px;
-                    let text_decoration = glyph.style.text_decoration.clone();
+                    let text_decoration = glyph.style.text_decoration;
 
                     let absolute_position = LogicalPosition {
                         x: pen_x + glyph.offset.x,
@@ -106,10 +108,10 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                                 color: glyph_color,
                                 background_color: glyph_background,
                                 background_content: glyph_background_content.clone(),
-                                border: glyph_border.clone(),
+                                border: glyph_border,
                                 font_hash,
                                 font_size_px,
-                                text_decoration: text_decoration.clone(),
+                                text_decoration,
                                 is_ime_preview: false,
                                 source_node_id,
                             });
@@ -120,10 +122,10 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             color: glyph_color,
                             background_color: glyph_background,
                             background_content: glyph_background_content.clone(),
-                            border: glyph_border.clone(),
+                            border: glyph_border,
                             font_hash,
                             font_size_px,
-                            text_decoration: text_decoration.clone(),
+                            text_decoration,
                             is_ime_preview: false,
                             source_node_id,
                         });
@@ -175,8 +177,8 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                         if let Some(ref mut b) = runs[start].border {
                             b.is_last_fragment = false;
                         }
-                        for j in (start + 1)..(end - 1) {
-                            if let Some(ref mut b) = runs[j].border {
+                        for run in &mut runs[start + 1..end - 1] {
+                            if let Some(ref mut b) = run.border {
                                 b.is_first_fragment = false;
                                 b.is_last_fragment = false;
                             }
@@ -236,7 +238,7 @@ pub struct PdfGlyphRun<T: ParsedFontTrait> {
     pub direction: crate::text3::cache::BidiDirection,
     /// Writing mode for this run
     pub writing_mode: crate::text3::cache::WritingMode,
-    /// The starting position (baseline) of this run - used for SetTextMatrix
+    /// The starting position (baseline) of this run - used for `SetTextMatrix`
     pub baseline_start: Point,
     /// Original cluster text for debugging/CID mapping
     pub cluster_texts: Vec<String>,
@@ -251,18 +253,19 @@ pub struct PdfPositionedGlyph {
     pub position: Point,
     /// The advance width of this glyph
     pub advance: f32,
-    /// The Unicode character(s) this glyph represents (for PDF ToUnicode CMap)
-    /// This is extracted from the cluster text using the glyph's cluster_offset
+    /// The Unicode character(s) this glyph represents (for PDF `ToUnicode` `CMap`)
+    /// This is extracted from the cluster text using the glyph's `cluster_offset`
     pub unicode_codepoint: String,
 }
 
 /// Extract glyph runs optimized for PDF rendering.
 /// This function:
 /// - Groups consecutive glyphs by font, color, size, style, and line
-/// - Breaks runs at line boundaries (different line_index)
+/// - Breaks runs at line boundaries (different `line_index`)
 /// - Preserves absolute positioning for each glyph (critical for RTL and complex scripts)
 /// - Includes cluster text for proper CID/Unicode mapping
-pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
+#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
+#[must_use] pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
     layout: &UnifiedLayout,
     fonts: &LoadedFonts<T>,
 ) -> Vec<PdfGlyphRun<T>> {
@@ -271,9 +274,8 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
 
     for positioned_item in &layout.items {
         // Only process text clusters
-        let cluster = match &positioned_item.item {
-            ShapedItem::Cluster(c) => c,
-            _ => continue, // Skip non-text items
+        let ShapedItem::Cluster(cluster) = &positioned_item.item else {
+            continue; // Skip non-text items
         };
 
         if cluster.glyphs.is_empty() {
@@ -298,7 +300,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
             let glyph_background = glyph.style.background_color;
             let font_hash = glyph.font_hash;
             let font_size_px = glyph.style.font_size_px;
-            let text_decoration = glyph.style.text_decoration.clone();
+            let text_decoration = glyph.style.text_decoration;
             let line_index = positioned_item.line_index;
             let direction = cluster.direction;
             let writing_mode = cluster.style.writing_mode;
@@ -330,9 +332,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                     // Get the character at this byte offset
                     cluster_text[byte_offset..]
                         .chars()
-                        .next()
-                        .map(|c| c.to_string())
-                        .unwrap_or_else(|| cluster_text.clone())
+                        .next().map_or_else(|| cluster_text.clone(), |c| c.to_string())
                 } else {
                     // Fallback: if offset is out of range, use the whole cluster for first glyph
                     // or empty for subsequent glyphs (they share the same codepoint)
@@ -354,18 +354,13 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
             // Font hash change = font change (shaping must break per spec).
             // Border/background change = margin/border/padding non-zero (shaping must break).
             // Text-decoration change = rendering-only break (shaping unaffected per spec).
-            let should_break = if let Some(run) = current_run.as_ref() {
-                run.font_hash != font_hash
+            let should_break = current_run.as_ref().is_some_and(|run| run.font_hash != font_hash
                     || run.color != glyph_color
                     || run.background_color != glyph_background
                     || run.font_size_px != font_size_px
                     || run.text_decoration != text_decoration
                     || run.line_index != line_index
-                    || run.direction != direction
-                    || run.writing_mode != writing_mode
-            } else {
-                false
-            };
+                    || run.direction != direction || run.writing_mode != writing_mode);
 
             if should_break {
                 // Finalize the current run and start a new one
@@ -387,7 +382,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                     font: font.clone(),
                     font_hash,
                     font_size_px,
-                    text_decoration: text_decoration.clone(),
+                    text_decoration,
                     line_index,
                     direction,
                     writing_mode,
@@ -429,7 +424,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
 ///
 /// A `Vec<PositionedGlyph>` containing all glyphs from the layout with their
 /// absolute baseline positions.
-pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
+#[must_use] pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
     let mut final_glyphs = Vec::new();
 
     for item in &layout.items {

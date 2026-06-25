@@ -37,7 +37,10 @@ pub struct CalcResolveContext {
     /// Root element's computed `font-size` in px — used for `rem` resolution.
     pub rem_size: f32,
 }
-
+// Tiny enum (Num(f32) = 4B vs Op(CalcOp) = 1B); the "large" variant is a bare
+// f32, so boxing it would add a pointer + heap allocation — strictly worse than
+// the few bytes of size disparity. Accepted.
+#[allow(variant_size_differences)]
 /// Internal intermediate representation: a number or an operator (after value resolution).
 #[derive(Clone, Debug)]
 enum CalcFlatItem {
@@ -57,7 +60,7 @@ enum CalcOp {
 /// Evaluate a `CalcResolveContext` using the given `basis` (the "100 %" reference value,
 /// e.g. containing-block width for `width: calc(…)`).
 #[inline(never)] // M12.7: keep out of calc_used_size — its loop/jump-table inlined into the huge fn forces a remill PC-dispatch loop that mis-delivers auto_w
-pub fn evaluate_calc(ctx: &CalcResolveContext, basis: f32) -> f32 {
+#[must_use] pub fn evaluate_calc(ctx: &CalcResolveContext, basis: f32) -> f32 {
     evaluate_calc_ast(ctx.items.as_slice(), basis, ctx.em_size, ctx.rem_size)
 }
 
@@ -129,10 +132,10 @@ fn evaluate_calc_ast(
                 let result = match op {
                     CalcOp::Mul => lhs * rhs,
                     CalcOp::Div => {
-                        if *rhs != 0.0 {
-                            lhs / rhs
-                        } else {
+                        if *rhs == 0.0 {
                             0.0
+                        } else {
+                            lhs / rhs
                         }
                     }
                     _ => unreachable!(),
@@ -180,7 +183,7 @@ fn evaluate_calc_ast(
 /// `vmin`/`vmax`) fall back to their raw number (i.e. `50vw` → `50px`). Callers
 /// that may see viewport units must use [`resolve_pixel_value_with_viewport`]
 /// (or [`resolve_pixel_value_no_percent_with_viewport`]) instead.
-pub fn resolve_pixel_value(
+#[must_use] pub fn resolve_pixel_value(
     pv: &PixelValue,
     basis: f32,
     em_size: f32,
@@ -204,7 +207,7 @@ pub fn resolve_pixel_value(
 
 /// Like `resolve_pixel_value`, but with proper viewport unit resolution.
 #[inline(never)] // M12.7: keep out of calc_used_size — its loop/jump-table inlined into the huge fn forces a remill PC-dispatch loop that mis-delivers auto_w
-pub fn resolve_pixel_value_with_viewport(
+#[must_use] pub fn resolve_pixel_value_with_viewport(
     pv: &PixelValue,
     basis: f32,
     em_size: f32,
@@ -222,7 +225,7 @@ pub fn resolve_pixel_value_with_viewport(
 }
 
 /// Resolve a `PixelValue` to pixels, returning `None` for percentage and viewport units.
-pub fn resolve_pixel_value_no_percent(
+#[must_use] pub fn resolve_pixel_value_no_percent(
     pv: &PixelValue,
     em_size: f32,
     rem_size: f32,
@@ -245,7 +248,7 @@ pub fn resolve_pixel_value_no_percent(
 
 /// Like `resolve_pixel_value_no_percent`, but resolves viewport units using
 /// the provided viewport dimensions. Returns `None` only for percentages.
-pub fn resolve_pixel_value_no_percent_with_viewport(
+#[must_use] pub fn resolve_pixel_value_no_percent_with_viewport(
     pv: &PixelValue,
     em_size: f32,
     rem_size: f32,

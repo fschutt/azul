@@ -20,7 +20,7 @@ use crate::geom::LogicalSize;
 /// This is the core abstraction for fragmentation support:
 /// - Screen rendering: [`Continuous`](Self::Continuous) — a single infinite container.
 /// - Print rendering: [`Paged`](Self::Paged) — a series of fixed-size page containers.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum FragmentationContext {
     /// Continuous media (screen): a single, infinitely tall container.
     ///
@@ -43,19 +43,19 @@ pub enum FragmentationContext {
 
 impl FragmentationContext {
     /// Create a continuous fragmentation context for screen rendering.
-    pub fn new_continuous(width: f32) -> Self {
+    #[must_use] pub const fn new_continuous(width: f32) -> Self {
         Self::Continuous { width }
     }
 
     /// Create a paged fragmentation context for print rendering.
-    pub fn new_paged(page_size: LogicalSize) -> Self {
+    #[must_use] pub const fn new_paged(page_size: LogicalSize) -> Self {
         Self::Paged { page_size }
     }
 
     /// Get the page content height (page height for paged media).
     ///
     /// For continuous media, returns `f32::MAX`.
-    pub fn page_content_height(&self) -> f32 {
+    #[must_use] pub const fn page_content_height(&self) -> f32 {
         match self {
             Self::Continuous { .. } => f32::MAX,
             Self::Paged { page_size, .. } => page_size.height,
@@ -63,7 +63,7 @@ impl FragmentationContext {
     }
 
     /// Check if this is paged media.
-    pub fn is_paged(&self) -> bool {
+    #[must_use] pub const fn is_paged(&self) -> bool {
         matches!(self, Self::Paged { .. })
     }
 }
@@ -82,7 +82,7 @@ pub struct PageMargins {
 }
 
 impl PageMargins {
-    pub fn new(top: f32, right: f32, bottom: f32, left: f32) -> Self {
+    #[must_use] pub const fn new(top: f32, right: f32, bottom: f32, left: f32) -> Self {
         Self {
             top,
             right,
@@ -91,7 +91,7 @@ impl PageMargins {
         }
     }
 
-    pub fn uniform(margin: f32) -> Self {
+    #[must_use] pub const fn uniform(margin: f32) -> Self {
         Self {
             top: margin,
             right: margin,
@@ -100,11 +100,11 @@ impl PageMargins {
         }
     }
 
-    pub fn horizontal(&self) -> f32 {
+    #[must_use] pub fn horizontal(&self) -> f32 {
         self.left + self.right
     }
 
-    pub fn vertical(&self) -> f32 {
+    #[must_use] pub fn vertical(&self) -> f32 {
         self.top + self.bottom
     }
 }

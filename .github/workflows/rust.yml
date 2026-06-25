@@ -674,6 +674,52 @@ jobs:
             --skip desktop::display \
             --skip desktop::native_screenshot
 
+  # Cross-backend ICU parity: pin every i18n backend to the ICU4X REFERENCE
+  # output (layout/tests/icu_parity.rs). The three backends are mutually-
+  # exclusive features, so the SAME public-API test is run once per backend on
+  # its native OS:
+  #   - ubuntu  : `icu`         (ICU4X, the reference)  -> RUN  (source of truth)
+  #   - macOS   : `icu_macos`   (Apple Foundation)      -> RUN  (verified parity)
+  #   - windows : `icu_windows` (Win32 NLS)             -> COMPILE-ONLY
+  # The 11 documented ICU4X-vs-platform divergences are pinned inside the test.
+  # Windows NLS output (short-date year width, French U+00A0 grouping, list
+  # comma placement) legitimately differs from the reference in ways not
+  # verifiable off-Windows, so that leg only compiles the backend + test; flip
+  # its `run:` to true to execute on a real Windows host once values are pinned.
+  icu_parity:
+    name: ICU Parity (${{ matrix.backend.feature }})
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ${{ matrix.backend.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        backend:
+          - os: ubuntu-22.04
+            feature: icu           # ICU4X reference backend
+            run: true
+          - os: macos-14
+            feature: icu_macos     # Apple Foundation backend
+            run: true
+          - os: windows-2022
+            feature: icu_windows   # Win32 NLS backend (compile-only off real Windows)
+            run: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Run ICU parity tests (${{ matrix.backend.feature }})
+        if: matrix.backend.run
+        run: cargo test -p azul-layout --test icu_parity --no-default-features --features ${{ matrix.backend.feature }}
+
+      - name: Compile-check ICU parity test (${{ matrix.backend.feature }})
+        if: ${{ !matrix.backend.run }}
+        run: cargo test -p azul-layout --test icu_parity --no-default-features --features ${{ matrix.backend.feature }} --no-run
+
   # Cheap "does azul.h compile + link" check across every C compiler that
   # matters, WITHOUT rebuilding the DLL per compiler. The ABI rule is: a C
   # consumer must match the DLL's ABI, so we build the DLL ONCE per OS and fan
@@ -3085,7 +3131,8 @@ jobs:
     name: Clippy
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    # NOT continue-on-error: the extreme-lints gate is meant to go RED so the
+    # outstanding lint debt is a visible failure to triage (2026-06-20).
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -3094,25 +3141,38 @@ jobs:
           components: clippy
       - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc codegen all
-      - name: clippy + summary
+      - name: clippy (extreme lints — enforced as -D warnings)
         shell: bash
         run: |
-          cargo clippy -p azul-core -p azul-css -p azul-layout --no-default-features --features std 2>&1 | tee clippy.txt || true
-          mkdir -p stats && cp clippy.txt stats/clippy.txt
+          set -o pipefail
+          # "Extreme lints" lockdown (2026-06-20): the crates declare a maximal
+          # opt-in lint set (clippy all/pedantic/nursery/cargo + opt-in rustc
+          # lints) at warn-level. Enforce them as ERRORS here so CI surfaces the
+          # full outstanding lint debt as a triage report. EXPECTED TO BE RED
+          # until the lints are fixed/scoped — that red IS the report. Builds and
+          # other jobs stay green (the lints are warn-level outside this gate).
+          cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings 2>&1 | tee clippy.txt
+
+      - name: clippy summary
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p stats && cp clippy.txt stats/clippy.txt 2>/dev/null || true
           {
-            echo '## 📎 Clippy (azul-core / azul-css / azul-layout)'
+            echo '## 📎 Clippy (extreme lints — azul-core / azul-css / azul-layout)'
             echo ''
-            echo "Warnings: **$(grep -c 'warning:' clippy.txt || echo 0)**"
+            echo "Findings: **$(grep -cE '^(warning|error):' clippy.txt 2>/dev/null || echo 0)**"
             echo ''
             echo '<details><summary>output (tail)</summary>'
             echo ''
             echo '```'
-            tail -150 clippy.txt
+            tail -200 clippy.txt 2>/dev/null || true
             echo '```'
             echo '</details>'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload clippy report
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: stats-clippy

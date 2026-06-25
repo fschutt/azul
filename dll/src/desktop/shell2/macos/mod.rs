@@ -2675,30 +2675,33 @@ impl MacOSWindow {
     pub fn new_with_fc_cache(
         options: WindowCreateOptions,
         app_data: RefAny,
+        undo_manager: event::SharedUndoManager,
         config: azul_core::resources::AppConfig,
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache: Arc<rust_fontconfig::FcFontCache>,
         font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, config, shared_icon_provider, Some(fc_cache), font_registry, mtm)
+        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, Some(fc_cache), font_registry, mtm)
     }
 
     /// Create a new macOS window with given options.
     pub fn new_with_options(
         options: WindowCreateOptions,
         app_data: RefAny,
+        undo_manager: event::SharedUndoManager,
         config: azul_core::resources::AppConfig,
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, config, shared_icon_provider, None, None, mtm)
+        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, None, None, mtm)
     }
 
     /// Internal constructor with optional fc_cache parameter
     fn new_with_options_internal(
         mut options: WindowCreateOptions,
         app_data: RefAny,
+        undo_manager: event::SharedUndoManager,
         config: azul_core::resources::AppConfig,
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache_opt: Option<Arc<rust_fontconfig::FcFontCache>>,
@@ -3362,6 +3365,7 @@ impl MacOSWindow {
                 id_namespace: wr_id_namespace,
                 gl_context_ptr,
                 app_data: app_data_arc,
+                undo_manager,
                 fc_cache,
                 system_style,
                 frame_needs_regeneration: false,
