@@ -31,6 +31,7 @@ echo "=== Step 1: Build the serializable counter app ==="
 cc -o "$HELLO_BIN" \
     "$ROOT/examples/c/hello-world.c" \
     -I "$ROOT/dll/" \
+    -I "$ROOT/target/codegen" \
     -L "$ROOT/target/release" \
     -lazul \
     -Wl,-rpath,"$ROOT/target/release"

@@ -4947,7 +4947,7 @@ impl MacOSWindow {
                 None => return,
             };
             match root.get_menu_bar() {
-                Some(m) => (**m).clone(),
+                Some(m) => m.clone(),
                 None => return,
             }
         };
