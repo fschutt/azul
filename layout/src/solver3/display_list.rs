@@ -3027,25 +3027,18 @@ where
 
         // +spec:overflow:484889 - clip content in unreachable scrollable overflow region
         // +spec:overflow:917dae - scrollable overflow rect is a rectangle in box's own coordinate system
-        if overflow_x.is_scroll() || overflow_y.is_scroll() {
-            if is_virtual_view {
-                // VirtualView nodes: only push a clip, NO scroll frame.
-                // Scroll state is managed by ScrollManager and passed to the
-                // VirtualView callback as scroll_offset. The VirtualViewPlaceholder is
-                // emitted after pop_node_clips in generate_for_stacking_context.
-                builder.push_clip(clip_rect, border_radius);
-            } else {
-                // Regular scrollable nodes: push clip AND scroll frame.
-                // WebRender's APZ manages the scroll offset via define_scroll_frame.
-                // CPU renderers use scroll_offset to translate children.
-                builder.push_clip(clip_rect, border_radius);
-                let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
-                let content_size = get_scroll_content_size(node, self.positioned_tree.tree.warm(node_index));
-                builder.push_scroll_frame(clip_rect, content_size, scroll_id);
-            }
-        } else {
-            // Simple clip for hidden/clip
-            builder.push_clip(clip_rect, border_radius);
+        // Every clipped node pushes a clip (scrollable, hidden, or clip alike).
+        builder.push_clip(clip_rect, border_radius);
+        // Regular scrollable nodes ALSO push a scroll frame: WebRender's APZ
+        // manages the offset via define_scroll_frame, CPU renderers translate
+        // children by scroll_offset. VirtualView scroll state is instead managed
+        // by ScrollManager and passed to the callback as scroll_offset, with the
+        // VirtualViewPlaceholder emitted after pop_node_clips in
+        // generate_for_stacking_context — so VirtualView nodes get only the clip.
+        if (overflow_x.is_scroll() || overflow_y.is_scroll()) && !is_virtual_view {
+            let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
+            let content_size = get_scroll_content_size(node, self.positioned_tree.tree.warm(node_index));
+            builder.push_scroll_frame(clip_rect, content_size, scroll_id);
         }
 
         true
@@ -3104,14 +3097,13 @@ where
         let is_virtual_view = self.is_virtual_view_node(dom_id);
 
         if needs_clip {
+            // Regular (non-VirtualView) scroll/auto also pushed a scroll frame;
+            // pop it first (LIFO) before the shared clip. Hidden/clip and
+            // VirtualView scroll only pushed a clip.
             if (overflow_x.is_scroll() || overflow_y.is_scroll()) && !is_virtual_view {
-                // For regular (non-VirtualView) scroll/auto, pop both scroll frame AND clip
                 builder.pop_scroll_frame();
-                builder.pop_clip();
-            } else {
-                // For hidden/clip, or VirtualView scroll (which only pushed a clip)
-                builder.pop_clip();
             }
+            builder.pop_clip();
         }
 
         // Pop the clip-path clip if one was pushed.

@@ -519,11 +519,10 @@ impl FakePageConfig {
         }
 
         if page_number {
+            parts.push(MarginBoxContent::Text("Page ".to_string()));
             if number_format == CounterFormat::Decimal {
-                parts.push(MarginBoxContent::Text("Page ".to_string()));
                 parts.push(MarginBoxContent::PageCounter);
             } else {
-                parts.push(MarginBoxContent::Text("Page ".to_string()));
                 parts.push(MarginBoxContent::PageCounterFormatted {
                     format: number_format,
                 });

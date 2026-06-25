@@ -1201,7 +1201,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         // +spec:floats:2cec1b - float property determines positioning algorithm (float path)
         // +spec:floats:f6c0b2 - floats only processed in BFC; other formatting contexts (flex/grid) inhibit floating
         // Check if this child is a float - if so, position it at current main_pen
-        let is_float = if let Some(node_id) = child_dom_id {
+        if let Some(node_id) = child_dom_id {
             let float_type = get_float_property(ctx.styled_dom, Some(node_id));
 
             if float_type != LayoutFloat::None {
@@ -1282,15 +1282,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                 // Continue to next child
                 continue;
             }
-            false
-        } else {
-            false
-        };
-
-        // Early exit for floats (already handled above)
-        if is_float {
-            continue;
         }
+
+        // Floats `continue` above; everything reaching here is normal-flow
+        // (non-float) content.
 
         // From here: normal flow (non-float) children only
 

@@ -2805,8 +2805,8 @@ impl LayoutWindow {
             // the first display list won't have the binding, and GPU-only scroll
             // updates (build_image_only_transaction) can never make the scrollbar
             // visible because WebRender doesn't know about the binding.
+            let key = (dom_id, node_id);
             if scrollbar_info.needs_vertical {
-                let key = (dom_id, node_id);
                 let existing = gpu_cache.scrollbar_v_opacity_values.get(&key);
 
                 match existing {
@@ -2840,7 +2840,6 @@ impl LayoutWindow {
                 }
             } else {
                 // Remove if scrollbar no longer needed
-                let key = (dom_id, node_id);
                 if let Some(opacity_key) = gpu_cache.scrollbar_v_opacity_keys.remove(&key) {
                     gpu_cache.scrollbar_v_opacity_values.remove(&key);
                     events.push(GpuScrollbarOpacityEvent::VerticalRemoved(
@@ -2853,7 +2852,6 @@ impl LayoutWindow {
 
             // Handle horizontal scrollbar (same logic as vertical above)
             if scrollbar_info.needs_horizontal {
-                let key = (dom_id, node_id);
                 let existing = gpu_cache.scrollbar_h_opacity_values.get(&key);
 
                 match existing {
@@ -2887,7 +2885,6 @@ impl LayoutWindow {
                 }
             } else {
                 // Remove if scrollbar no longer needed
-                let key = (dom_id, node_id);
                 if let Some(opacity_key) = gpu_cache.scrollbar_h_opacity_keys.remove(&key) {
                     gpu_cache.scrollbar_h_opacity_values.remove(&key);
                     events.push(GpuScrollbarOpacityEvent::HorizontalRemoved(
@@ -5109,16 +5106,11 @@ impl LayoutWindow {
                             node: hierarchy_id,
                         };
 
-                        if start == end {
-                            // Same position - just set cursor
-                            if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-                                mc.set_single_cursor(start);
-                            }
-                        } else {
-                            // Different positions - set cursor to start of selection
-                            if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-                                mc.set_single_cursor(start);
-                            }
+                        // A collapsed selection (start == end) and a ranged one
+                        // both place the cursor at the selection start.
+                        let _ = end;
+                        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+                            mc.set_single_cursor(start);
                         }
                     }
                 } else {
