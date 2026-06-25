@@ -1124,8 +1124,10 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
     let x1 = x0 + target.size.width;
     let y1 = y0 + target.size.height;
     let mut y = y0 + step * 0.5;
+    #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
     while y < y1 {
         let mut x = x0 + step * 0.5;
+        #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
         while x < x1 {
             let inside = covers.iter().any(|r| {
                 x >= r.origin.x

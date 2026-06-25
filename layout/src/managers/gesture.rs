@@ -1230,9 +1230,11 @@ impl GestureAndDragManager {
         let mut angle_diff = current_angle - initial_angle;
 
         // Normalize angle to -π to π range
+        #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
         while angle_diff > PI {
             angle_diff -= 2.0 * PI;
         }
+        #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
         while angle_diff < -PI {
             angle_diff += 2.0 * PI;
         }

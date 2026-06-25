@@ -5756,6 +5756,7 @@ fn calculate_page_break_positions(
 
     // Generate regular interval break points
     let mut y = first_page_height;
+    #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
     while y < total_height {
         break_points.push(y);
         y += normal_page_height;

@@ -2765,6 +2765,7 @@ impl ShapeDefinition {
                             //    0-radian line.
                             // This ensures we can iterate forward from a start to an end angle.
                             let mut normalized_end = *end_angle;
+                            #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
                             while normalized_end < *start_angle {
                                 normalized_end += 2.0 * std::f32::consts::PI;
                             }
@@ -2778,6 +2779,7 @@ impl ShapeDefinition {
                             // 4. Iterate through all cardinal points that fall within the arc's
                             //    sweep and add them.
                             // These points define the maximum extent of the arc's bounding box.
+                            #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
                             while check_angle < normalized_end {
                                 points.push(Point {
                                     x: center.x + radius * check_angle.cos(),
