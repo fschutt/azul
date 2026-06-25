@@ -389,7 +389,7 @@ pub struct LayoutCache {
 }
 
 /// Approximate heap-byte breakdown of the solver3 `LayoutCache`.
-#[derive(Debug, Clone, Default)]
+#[derive(Copy, Debug, Clone, Default)]
 pub struct Solver3CacheMemoryReport {
     pub tree_bytes: usize,
     pub tree_report: Option<super::layout_tree::LayoutTreeMemoryReport>,

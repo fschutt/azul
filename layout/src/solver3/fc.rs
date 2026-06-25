@@ -183,7 +183,7 @@ impl BfcState {
 }
 
 /// Manages vertical margin collapsing within a BFC.
-#[derive(Debug, Default, Clone)]
+#[derive(Copy, Debug, Default, Clone)]
 pub struct MarginCollapseContext {
     /// The bottom margin of the last in-flow, block-level element.
     /// Can be positive or negative.
@@ -4035,7 +4035,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
 // +spec:inline-formatting-context:9c272d - CSS table model: row-primary structure, display-to-table-element mapping, visual formatting as rectangular grid
 /// Lays out a Table Formatting Context.
 /// Table column information for layout calculations
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct TableColumnInfo {
     /// Minimum width required for this column
     pub min_width: f32,
@@ -4046,7 +4046,7 @@ pub struct TableColumnInfo {
 }
 
 /// Information about a table cell for layout
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct TableCellInfo {
     /// Node index in the layout tree
     pub node_index: usize,
@@ -4129,7 +4129,7 @@ pub enum BorderSource {
 }
 
 /// Information about a border for conflict resolution
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct BorderInfo {
     pub width: f32,
     pub style: BorderStyle,
@@ -4189,18 +4189,18 @@ impl BorderInfo {
             return None;
         }
         if a_is_none {
-            return Some(b.clone());
+            return Some(*b);
         }
         if b_is_none {
-            return Some(a.clone());
+            return Some(*a);
         }
 
         // 3. Wider border wins
         if a.width > b.width {
-            return Some(a.clone());
+            return Some(*a);
         }
         if b.width > a.width {
-            return Some(b.clone());
+            return Some(*b);
         }
 
         // 4. If same width, compare style priority
@@ -4208,23 +4208,23 @@ impl BorderInfo {
         let b_priority = Self::style_priority(&b.style);
 
         if a_priority > b_priority {
-            return Some(a.clone());
+            return Some(*a);
         }
         if b_priority > a_priority {
-            return Some(b.clone());
+            return Some(*b);
         }
 
         // 5. If same style, source priority:
         // Cell > Row > RowGroup > Column > ColumnGroup > Table
         if a.source > b.source {
-            return Some(a.clone());
+            return Some(*a);
         }
         if b.source > a.source {
-            return Some(b.clone());
+            return Some(*b);
         }
 
         // 6. Same priority - prefer first one (left/top in LTR)
-        Some(a.clone())
+        Some(*a)
     }
 }
 
@@ -4261,9 +4261,9 @@ fn get_border_info<T: ParsedFontTrait>(
 
     let Some(dom_id) = node.dom_node_id else {
         return (
-            default_border.clone(),
-            default_border.clone(),
-            default_border.clone(),
+            default_border,
+            default_border,
+            default_border,
             default_border,
         );
     };
@@ -4315,11 +4315,11 @@ fn get_border_info<T: ParsedFontTrait>(
         let bbw = decode_width(cc.get_border_bottom_width_raw(idx));
         let blw = decode_width(cc.get_border_left_width_raw(idx));
 
-        let top = if bts == BorderStyle::None { default_border.clone() }
+        let top = if bts == BorderStyle::None { default_border }
             else { BorderInfo::new(btw, bts, btc, source) };
-        let right = if brs == BorderStyle::None { default_border.clone() }
+        let right = if brs == BorderStyle::None { default_border }
             else { BorderInfo::new(brw, brs, brc, source) };
-        let bottom = if bbs == BorderStyle::None { default_border.clone() }
+        let bottom = if bbs == BorderStyle::None { default_border }
             else { BorderInfo::new(bbw, bbs, bbc, source) };
         let left = if bls == BorderStyle::None { default_border }
             else { BorderInfo::new(blw, bls, blc, source) };
@@ -4350,7 +4350,7 @@ fn get_border_info<T: ParsedFontTrait>(
     let top = cache
         .get_border_top_style(node_data, &dom_id, &node_state)
         .and_then(|s| s.get_property())
-        .map_or_else(|| default_border.clone(), |style_val| {
+        .map_or_else(|| default_border, |style_val| {
             let width = cache
                 .get_border_top_width(node_data, &dom_id, &node_state)
                 .and_then(|w| w.get_property())
@@ -4374,7 +4374,7 @@ fn get_border_info<T: ParsedFontTrait>(
     let right = cache
         .get_border_right_style(node_data, &dom_id, &node_state)
         .and_then(|s| s.get_property())
-        .map_or_else(|| default_border.clone(), |style_val| {
+        .map_or_else(|| default_border, |style_val| {
             let width = cache
                 .get_border_right_width(node_data, &dom_id, &node_state)
                 .and_then(|w| w.get_property())
@@ -4398,7 +4398,7 @@ fn get_border_info<T: ParsedFontTrait>(
     let bottom = cache
         .get_border_bottom_style(node_data, &dom_id, &node_state)
         .and_then(|s| s.get_property())
-        .map_or_else(|| default_border.clone(), |style_val| {
+        .map_or_else(|| default_border, |style_val| {
             let width = cache
                 .get_border_bottom_width(node_data, &dom_id, &node_state)
                 .and_then(|w| w.get_property())
@@ -4422,7 +4422,7 @@ fn get_border_info<T: ParsedFontTrait>(
     let left = cache
         .get_border_left_style(node_data, &dom_id, &node_state)
         .and_then(|s| s.get_property())
-        .map_or_else(|| default_border.clone(), |style_val| {
+        .map_or_else(|| default_border, |style_val| {
             let width = cache
                 .get_border_left_width(node_data, &dom_id, &node_state)
                 .and_then(|w| w.get_property())

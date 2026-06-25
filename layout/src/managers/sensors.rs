@@ -26,7 +26,7 @@ pub use azul_core::sensors::{SensorKind, SensorReading};
 
 /// Cross-platform sensor state. One per `App` — the OS exposes a single
 /// per-process sensor subscription, not per-window.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Copy, Debug, Clone, PartialEq, Default)]
 pub struct SensorManager {
     /// Latest accelerometer reading (m/s²), or `None` until a sample arrives.
     pub accelerometer: Option<SensorReading>,

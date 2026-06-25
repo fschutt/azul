@@ -34,7 +34,7 @@ pub use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
 
 /// Cross-platform biometric state. One per `App` — the OS exposes a
 /// single per-process authentication surface, not per-window.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq)]
 pub struct BiometricManager {
     /// Outcome of the most recent `request_biometric_auth`, or `None`
     /// until the first request completes. Read by callbacks via

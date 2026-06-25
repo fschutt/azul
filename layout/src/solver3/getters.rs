@@ -1896,7 +1896,7 @@ get_css_property!(
 }
 
 /// Information about border rendering
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct BorderInfo {
     pub widths: crate::solver3::display_list::StyleBorderWidths,
     pub colors: crate::solver3::display_list::StyleBorderColors,
