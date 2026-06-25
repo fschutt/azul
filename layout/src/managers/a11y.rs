@@ -67,6 +67,7 @@ impl Default for A11yManager {
     }
 }
 
+#[cfg(feature = "a11y")]
 impl A11yManager {
     /// Creates a new `A11yManager` with an empty tree containing only a root window node.
     #[must_use] pub const fn new() -> Self {
@@ -822,6 +823,7 @@ impl A11yManager {
 
 /// Stub implementation when accessibility feature is disabled.
 #[cfg(not(feature = "a11y"))]
+#[derive(Debug)]
 pub struct A11yManager {
     _private: (),
 }
