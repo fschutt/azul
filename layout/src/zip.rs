@@ -15,7 +15,7 @@ use std::path::Path;
 // ============================================================================
 
 /// Configuration for reading ZIP archives
-#[derive(Debug, Clone, Default)]
+#[derive(Copy, Debug, Clone, Default)]
 #[repr(C)]
 pub struct ZipReadConfig {
     /// Maximum file size to extract (0 = unlimited)

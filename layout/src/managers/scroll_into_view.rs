@@ -43,7 +43,7 @@ const SCROLL_DELTA_THRESHOLD: f32 = 0.5;
 const SMOOTH_SCROLL_DURATION_MS: u64 = 300;
 
 /// Calculated scroll adjustment for one scroll container
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct ScrollAdjustment {
     /// The DOM containing the scroll container
     pub scroll_container_dom_id: DomId,

@@ -38,7 +38,7 @@ use azul_css::props::style::StyleCursor;
 use crate::window::LayoutWindow;
 
 /// Result of cursor type hit-testing, determines which mouse cursor to display
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Copy, Debug, Clone, Default, PartialEq, Eq)]
 pub struct CursorTypeHitTest {
     /// The node that has a non-default cursor property (if any)
     pub cursor_node: Option<(DomId, NodeId)>,

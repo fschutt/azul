@@ -189,7 +189,7 @@ pub enum ScrollbarComponent {
 }
 
 /// Scrollbar geometry state (calculated per frame, used for hit-testing and rendering)
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct ScrollbarState {
     /// Is this scrollbar visible? (content larger than container)
     pub visible: bool,
@@ -385,7 +385,7 @@ struct ScrollAnimation {
 ///
 /// Provides all the information a timer callback needs to compute scroll physics
 /// without requiring mutable access to the `ScrollManager`.
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct ScrollNodeInfo {
     /// Current scroll offset
     pub current_offset: LogicalPosition,

@@ -420,7 +420,7 @@ impl AzulPixmap {
 // ============================================================================
 
 /// Result of comparing two pixmaps pixel-by-pixel.
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct PixelDiffResult {
     /// Number of pixels that differ beyond the threshold.
     pub diff_count: u64,

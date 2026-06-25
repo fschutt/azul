@@ -669,7 +669,7 @@ azul_css::impl_option!(
     [Debug, Clone, Hash, PartialEq, Eq]
 );
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextInputSelectionRange {
     pub dir_from: usize,

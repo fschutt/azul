@@ -72,7 +72,7 @@ pub struct CheckBoxStateWrapper {
 }
 
 /// The checked/unchecked state of a [`CheckBox`].
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Copy, Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct CheckBoxState {
     pub checked: bool,
@@ -289,7 +289,7 @@ mod input {
             // rustc doesn't understand the borrowing lifetime here
             let check_box = &mut *check_box;
             let ontoggle = &mut check_box.on_toggle;
-            let inner = check_box.inner.clone();
+            let inner = check_box.inner;
 
             match ontoggle.as_mut() {
                 Some(CheckBoxOnToggle {

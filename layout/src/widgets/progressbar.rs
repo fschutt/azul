@@ -180,7 +180,7 @@ pub struct ProgressBar {
 }
 
 /// Internal state for a [`ProgressBar`], tracking completion percentage.
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct ProgressBarState {
     pub percent_done: f32,

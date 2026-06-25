@@ -70,7 +70,7 @@ impl Default for ColorInputStateWrapper {
 }
 
 /// Holds the current color value of a [`ColorInput`] widget.
-#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
+#[derive(Copy, Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 #[repr(C)]
 pub struct ColorInputState {
     pub color: ColorU,
@@ -191,7 +191,7 @@ extern "C" fn on_color_input_clicked(mut data: RefAny, mut info: CallbackInfo) -
     // receives the current color so the caller can open their own picker.
     let color_input = &mut *color_input;
     let onvaluechange = &mut color_input.on_value_change;
-    let inner = color_input.inner.clone();
+    let inner = color_input.inner;
 
     match onvaluechange.as_mut() {
         Some(ColorInputOnValueChange {

@@ -24,7 +24,7 @@ pub struct HttpStatusError {
 }
 
 /// Response too large error
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct HttpResponseTooLargeError {
     /// Maximum allowed size in bytes

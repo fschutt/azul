@@ -149,7 +149,7 @@ pub enum FileType {
 }
 
 /// Metadata about a file
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileMetadata {
     /// File size in bytes

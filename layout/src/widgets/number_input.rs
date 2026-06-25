@@ -99,7 +99,7 @@ pub struct NumberInputStateWrapper {
 }
 
 /// State of a `NumberInput`: the current and previous value, plus allowed range.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct NumberInputState {
     /// The value before the most recent change.
@@ -284,7 +284,7 @@ extern "C" fn on_focus_lost(
 
     let number_input = &mut *refany;
     let onfocuslost = &mut number_input.on_focus_lost;
-    let inner = number_input.inner.clone();
+    let inner = number_input.inner;
 
     match onfocuslost.as_mut() {
         Some(NumberInputOnFocusLost { callback, refany }) => {
@@ -329,7 +329,7 @@ extern "C" fn validate_text_input(
     inner.previous = inner.number;
     let clamped = validated_f32.clamp(inner.min, inner.max);
     inner.number = clamped;
-    let inner_clone = inner.clone();
+    let inner_clone = *inner;
 
     let update = match onvaluechange.as_mut() {
         Some(NumberInputOnValueChange { callback, refany }) => {
