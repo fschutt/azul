@@ -147,6 +147,7 @@ static SEGMENTED_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
 /// rounding of the outer corners (only the first segment is rounded on the left,
 /// only the last on the right) are the position-dependent properties, so the
 /// style is built at runtime.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn build_segment_style(selected: bool, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
     let (bg, text) = if selected {
         (SEG_SELECTED_BG, SEG_SELECTED_TEXT)
@@ -294,7 +295,7 @@ impl Segmented {
     }
 
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(StringVec::from_const_slice(&[]));
         core::mem::swap(&mut s, self);
         s
@@ -314,7 +315,7 @@ impl Segmented {
     }
 
     #[inline]
-    pub fn with_on_change<C: Into<SegmentedOnChangeCallback>>(
+    #[must_use] pub fn with_on_change<C: Into<SegmentedOnChangeCallback>>(
         mut self,
         data: RefAny,
         on_change: C,
@@ -382,9 +383,8 @@ extern "C" fn on_segment_click(mut data: RefAny, mut info: CallbackInfo) -> Upda
     use azul_core::dom::DomNodeId;
 
     let clicked = info.get_hit_node();
-    let parent = match info.get_parent(clicked) {
-        Some(p) => p,
-        None => return Update::DoNothing,
+    let Some(parent) = info.get_parent(clicked) else {
+        return Update::DoNothing;
     };
 
     // Collect the segment siblings in document order.
@@ -395,15 +395,13 @@ extern "C" fn on_segment_click(mut data: RefAny, mut info: CallbackInfo) -> Upda
         cur = info.get_next_sibling(node);
     }
 
-    let selected = match segments.iter().position(|n| *n == clicked) {
-        Some(i) => i,
-        None => return Update::DoNothing,
+    let Some(selected) = segments.iter().position(|n| *n == clicked) else {
+        return Update::DoNothing;
     };
 
     let result = {
-        let mut seg = match data.downcast_mut::<SegmentedStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut seg) = data.downcast_mut::<SegmentedStateWrapper>() else {
+            return Update::DoNothing;
         };
         seg.inner.selected_index = selected;
         let inner = seg.inner;

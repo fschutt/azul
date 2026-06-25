@@ -61,6 +61,7 @@ pub enum AvatarSize {
 
 impl AvatarSize {
     /// Diameter of the circle in logical pixels.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn diameter(&self) -> isize {
         match self {
             Self::Small => 24,
@@ -70,11 +71,13 @@ impl AvatarSize {
     }
 
     /// Corner radius for a full circle = diameter / 2.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn radius(&self) -> isize {
         self.diameter() / 2
     }
 
     /// Initials font size in logical pixels.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn font_size(&self) -> isize {
         match self {
             Self::Small => 11,
@@ -225,7 +228,7 @@ impl Avatar {
 
     /// Replaces `self` with a default (empty medium) avatar and returns the original.
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s

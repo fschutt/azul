@@ -316,7 +316,7 @@ impl Accordion {
     }
 
     /// Builder method: sets the toggle callback.
-    pub fn with_on_toggle<C: Into<AccordionOnToggleCallback>>(
+    #[must_use] pub fn with_on_toggle<C: Into<AccordionOnToggleCallback>>(
         mut self,
         data: RefAny,
         callback: C,
@@ -326,7 +326,7 @@ impl Accordion {
     }
 
     /// Replaces `self` with an empty default accordion and returns the original.
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create();
         core::mem::swap(&mut s, self);
         s
@@ -432,15 +432,13 @@ struct HeaderClickData {
 /// the section index, then shows/hides the body via `display`.
 extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let header = info.get_hit_node();
-    let body = match info.get_next_sibling(header) {
-        Some(b) => b,
-        None => return Update::DoNothing,
+    let Some(body) = info.get_next_sibling(header) else {
+        return Update::DoNothing;
     };
 
     let (now_open, result) = {
-        let mut hd = match data.downcast_mut::<HeaderClickData>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut hd) = data.downcast_mut::<HeaderClickData>() else {
+            return Update::DoNothing;
         };
         hd.is_open = !hd.is_open;
         let now_open = hd.is_open;

@@ -316,6 +316,7 @@ static AMPM_STYLE: &[CssPropertyWithConditions] = &[
 impl TimePicker {
     /// Creates a new 24-hour `TimePicker` with the given initial hour (`0..=23`)
     /// and minute (`0..=59`), both clamped into range.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
     #[must_use] pub fn create(hour: u32, minute: u32) -> Self {
         let mut inner = TimePickerState::default();
         let (lo, hi) = inner.hour_bounds();
@@ -332,6 +333,7 @@ impl TimePicker {
 
     /// Switches between 24-hour (no AM/PM) and 12-hour (with AM/PM) display,
     /// re-clamping the hour into the new range.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
     pub fn set_24h(&mut self, is_24h: bool) {
         self.state.inner.is_24h = is_24h;
         let (lo, hi) = self.state.inner.hour_bounds();
@@ -365,7 +367,7 @@ impl TimePicker {
     }
 
     /// Builder variant of [`Self::set_on_change`].
-    pub fn with_on_change<C: Into<TimePickerOnChangeCallback>>(
+    #[must_use] pub fn with_on_change<C: Into<TimePickerOnChangeCallback>>(
         mut self,
         data: RefAny,
         callback: C,
@@ -375,7 +377,7 @@ impl TimePicker {
     }
 
     /// Replaces `self` with the default value and returns the original.
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(0, 0);
         core::mem::swap(&mut s, self);
         s
@@ -490,27 +492,24 @@ fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -
 /// Shared spinner logic: clamps the targeted field, re-texts the display node
 /// (the middle child of the clicked arrow's parent spinner), and fires the
 /// optional `on_change`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn adjust_spinner(mut data: RefAny, mut info: CallbackInfo, is_hour: bool, delta: i64) -> Update {
     // The clicked node is an arrow; its parent is the spinner; the spinner's
     // first child is the up arrow and the next sibling is the value display.
     let hit = info.get_hit_node();
-    let parent = match info.get_parent(hit) {
-        Some(p) => p,
-        None => return Update::DoNothing,
+    let Some(parent) = info.get_parent(hit) else {
+        return Update::DoNothing;
     };
-    let up = match info.get_first_child(parent) {
-        Some(u) => u,
-        None => return Update::DoNothing,
+    let Some(up) = info.get_first_child(parent) else {
+        return Update::DoNothing;
     };
-    let display = match info.get_next_sibling(up) {
-        Some(d) => d,
-        None => return Update::DoNothing,
+    let Some(display) = info.get_next_sibling(up) else {
+        return Update::DoNothing;
     };
 
     let (update, display_text) = {
-        let mut w = match data.downcast_mut::<TimePickerStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut w) = data.downcast_mut::<TimePickerStateWrapper>() else {
+            return Update::DoNothing;
         };
 
         let display_text = if is_hour {
@@ -559,9 +558,8 @@ extern "C" fn on_ampm_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update
     let hit = info.get_hit_node();
 
     let (update, text) = {
-        let mut w = match data.downcast_mut::<TimePickerStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut w) = data.downcast_mut::<TimePickerStateWrapper>() else {
+            return Update::DoNothing;
         };
         w.inner.is_pm = !w.inner.is_pm;
         let inner = w.inner;

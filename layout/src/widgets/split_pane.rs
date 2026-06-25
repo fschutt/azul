@@ -310,7 +310,7 @@ impl SplitPane {
     }
 
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(
             SplitDirection::Horizontal,
             Dom::create_div(),
@@ -330,7 +330,7 @@ impl SplitPane {
     }
 
     #[inline]
-    pub fn with_on_resize<C: Into<SplitPaneOnResizeCallback>>(
+    #[must_use] pub fn with_on_resize<C: Into<SplitPaneOnResizeCallback>>(
         mut self,
         data: RefAny,
         on_resize: C,
@@ -431,17 +431,15 @@ impl Default for SplitPane {
 /// the anchor (cursor position + ratio at this moment). A press elsewhere is left
 /// alone so it can reach the pane content.
 extern "C" fn on_split_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
-    let pos = match info.get_cursor_relative_to_node().into_option() {
-        Some(p) => p,
-        None => return Update::DoNothing,
+    let Some(pos) = info.get_cursor_relative_to_node().into_option() else {
+        return Update::DoNothing;
     };
     let size = match info.get_hit_node_rect() {
         Some(r) => r.size,
         None => return Update::DoNothing,
     };
-    let mut sp = match data.downcast_mut::<SplitPaneStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut sp) = data.downcast_mut::<SplitPaneStateWrapper>() else {
+        return Update::DoNothing;
     };
     let dir = sp.inner.direction;
     let msize = main_size(dir, size);
@@ -461,17 +459,15 @@ extern "C" fn on_split_pointer_down(mut data: RefAny, info: CallbackInfo) -> Upd
 /// Pointer move → while dragging, recompute the ratio from the cursor delta and
 /// live-resize the two panes' `flex-grow`, then fire the user's `on_resize`.
 extern "C" fn on_split_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let mut sp = match data.downcast_mut::<SplitPaneStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut sp) = data.downcast_mut::<SplitPaneStateWrapper>() else {
+        return Update::DoNothing;
     };
     if !sp.is_dragging {
         return Update::DoNothing;
     }
     let dir = sp.inner.direction;
-    let pos = match info.get_cursor_relative_to_node().into_option() {
-        Some(p) => p,
-        None => return Update::DoNothing,
+    let Some(pos) = info.get_cursor_relative_to_node().into_option() else {
+        return Update::DoNothing;
     };
     let size = match info.get_hit_node_rect() {
         Some(r) => r.size,

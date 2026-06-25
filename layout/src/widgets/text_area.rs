@@ -370,6 +370,7 @@ impl TextArea {
     }
 
     /// Sets the (multi-line) text. Newlines in `text` are preserved.
+    #[allow(clippy::needless_pass_by_value)] // public by-value setter; builder with_text moves the arg in
     pub fn set_text(&mut self, text: AzString) {
         self.text_area_state.inner.text = text
             .as_str()
@@ -405,7 +406,7 @@ impl TextArea {
         .into();
     }
 
-    pub fn with_on_text_input<C: Into<TextAreaOnTextInputCallback>>(
+    #[must_use] pub fn with_on_text_input<C: Into<TextAreaOnTextInputCallback>>(
         mut self,
         refany: RefAny,
         callback: C,
@@ -426,7 +427,7 @@ impl TextArea {
         .into();
     }
 
-    pub fn with_on_focus_lost<C: Into<TextAreaOnFocusLostCallback>>(
+    #[must_use] pub fn with_on_focus_lost<C: Into<TextAreaOnFocusLostCallback>>(
         mut self,
         refany: RefAny,
         callback: C,
@@ -444,7 +445,7 @@ impl TextArea {
         self
     }
 
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::default();
         core::mem::swap(&mut s, self);
         s
@@ -544,16 +545,14 @@ impl TextArea {
 }
 
 extern "C" fn default_on_focus_received(mut text_area: RefAny, mut info: CallbackInfo) -> Update {
-    let mut text_area = match text_area.downcast_mut::<TextAreaStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut text_area) = text_area.downcast_mut::<TextAreaStateWrapper>() else {
+        return Update::DoNothing;
     };
 
     let text_area = &mut *text_area;
 
-    let placeholder_text_node_id = match info.get_first_child(info.get_hit_node()) {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
+        return Update::DoNothing;
     };
 
     // hide the placeholder text
@@ -570,16 +569,14 @@ extern "C" fn default_on_focus_received(mut text_area: RefAny, mut info: Callbac
 }
 
 extern "C" fn default_on_focus_lost(mut text_area: RefAny, mut info: CallbackInfo) -> Update {
-    let mut text_area = match text_area.downcast_mut::<TextAreaStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut text_area) = text_area.downcast_mut::<TextAreaStateWrapper>() else {
+        return Update::DoNothing;
     };
 
     let text_area = &mut *text_area;
 
-    let placeholder_text_node_id = match info.get_first_child(info.get_hit_node()) {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
+        return Update::DoNothing;
     };
 
     // show the placeholder text

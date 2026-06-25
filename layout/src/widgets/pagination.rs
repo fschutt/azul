@@ -139,6 +139,8 @@ static PAGINATION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
 /// of the outer corners (only the first button — `Prev` — is rounded on the left,
 /// only the last — `Next` — on the right) are position-dependent, so the style is
 /// built at runtime (mirroring `segmented::build_segment_style`).
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::fn_params_excessive_bools)] // independent boolean render flags, not a state enum
 fn build_button_style(
     active: bool,
     disabled: bool,
@@ -306,7 +308,7 @@ impl Pagination {
     }
 
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(1, 1);
         core::mem::swap(&mut s, self);
         s
@@ -326,7 +328,7 @@ impl Pagination {
     }
 
     #[inline]
-    pub fn with_on_change<C: Into<PaginationOnChangeCallback>>(
+    #[must_use] pub fn with_on_change<C: Into<PaginationOnChangeCallback>>(
         mut self,
         data: RefAny,
         on_change: C,
@@ -414,9 +416,8 @@ extern "C" fn on_page_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
     use azul_core::dom::DomNodeId;
 
     let clicked = info.get_hit_node();
-    let parent = match info.get_parent(clicked) {
-        Some(p) => p,
-        None => return Update::DoNothing,
+    let Some(parent) = info.get_parent(clicked) else {
+        return Update::DoNothing;
     };
 
     // Collect the buttons in document order: [Prev, page1 … pageN, Next].
@@ -433,15 +434,13 @@ extern "C" fn on_page_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
     // Page buttons occupy positions 1..=total; Prev=0, Next=n-1.
     let total = n - 2;
 
-    let pos = match buttons.iter().position(|b| *b == clicked) {
-        Some(p) => p,
-        None => return Update::DoNothing,
+    let Some(pos) = buttons.iter().position(|b| *b == clicked) else {
+        return Update::DoNothing;
     };
 
     let current = {
-        let pg = match data.downcast_ref::<PaginationStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(pg) = data.downcast_ref::<PaginationStateWrapper>() else {
+            return Update::DoNothing;
         };
         pg.inner.current_page
     };
@@ -471,9 +470,8 @@ extern "C" fn on_page_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
     }
 
     let result = {
-        let mut pg = match data.downcast_mut::<PaginationStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut pg) = data.downcast_mut::<PaginationStateWrapper>() else {
+            return Update::DoNothing;
         };
         pg.inner.current_page = new_page;
         let inner = pg.inner;

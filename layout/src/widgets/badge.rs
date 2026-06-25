@@ -39,6 +39,7 @@ pub enum BadgeKind {
 
 impl BadgeKind {
     /// Returns the `(background, text)` colours for this badge kind.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn colors(&self) -> (ColorU, ColorU) {
         const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
         const DARK: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 };
@@ -167,7 +168,7 @@ impl Badge {
 
     /// Replaces `self` with an empty default badge and returns the original.
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s

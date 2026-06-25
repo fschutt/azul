@@ -384,7 +384,7 @@ impl Modal {
 
     /// Builder-style setter for the close callback.
     #[inline]
-    pub fn with_on_close<C: Into<ModalOnCloseCallback>>(
+    #[must_use] pub fn with_on_close<C: Into<ModalOnCloseCallback>>(
         mut self,
         data: RefAny,
         on_close: C,
@@ -395,7 +395,7 @@ impl Modal {
 
     /// Replaces `self` with a default (empty, closed) modal and returns the original.
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(Dom::default());
         core::mem::swap(&mut s, self);
         s
@@ -468,19 +468,16 @@ impl Default for Modal {
 /// `display: none`.
 extern "C" fn on_modal_close(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let close_node = info.get_hit_node();
-    let panel = match info.get_parent(close_node) {
-        Some(p) => p,
-        None => return Update::DoNothing,
+    let Some(panel) = info.get_parent(close_node) else {
+        return Update::DoNothing;
     };
-    let backdrop = match info.get_parent(panel) {
-        Some(b) => b,
-        None => return Update::DoNothing,
+    let Some(backdrop) = info.get_parent(panel) else {
+        return Update::DoNothing;
     };
 
     let result = {
-        let mut modal = match data.downcast_mut::<ModalStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut modal) = data.downcast_mut::<ModalStateWrapper>() else {
+            return Update::DoNothing;
         };
         modal.inner.open = false;
         let inner = modal.inner;

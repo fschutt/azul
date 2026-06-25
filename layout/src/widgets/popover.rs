@@ -275,7 +275,7 @@ impl Popover {
 
     /// Builder-style setter for the toggle callback.
     #[inline]
-    pub fn with_on_toggle<C: Into<PopoverOnToggleCallback>>(
+    #[must_use] pub fn with_on_toggle<C: Into<PopoverOnToggleCallback>>(
         mut self,
         data: RefAny,
         on_toggle: C,
@@ -286,7 +286,7 @@ impl Popover {
 
     /// Replaces `self` with a default (empty) popover and returns the original.
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::new(Dom::default(), Dom::default());
         core::mem::swap(&mut s, self);
         s
@@ -344,15 +344,13 @@ impl Default for Popover {
 /// new state, then shows/hides the panel via `display`.
 extern "C" fn on_popover_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let trigger = info.get_hit_node();
-    let content = match info.get_next_sibling(trigger) {
-        Some(c) => c,
-        None => return Update::DoNothing,
+    let Some(content) = info.get_next_sibling(trigger) else {
+        return Update::DoNothing;
     };
 
     let (now_open, result) = {
-        let mut pop = match data.downcast_mut::<PopoverStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut pop) = data.downcast_mut::<PopoverStateWrapper>() else {
+            return Update::DoNothing;
         };
         pop.inner.open = !pop.inner.open;
         let now_open = pop.inner.open;

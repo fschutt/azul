@@ -167,7 +167,7 @@ impl Breadcrumb {
     }
 
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(StringVec::from_const_slice(&[]));
         core::mem::swap(&mut s, self);
         s
@@ -187,7 +187,7 @@ impl Breadcrumb {
     }
 
     #[inline]
-    pub fn with_on_navigate<C: Into<BreadcrumbOnNavigateCallback>>(
+    #[must_use] pub fn with_on_navigate<C: Into<BreadcrumbOnNavigateCallback>>(
         mut self,
         data: RefAny,
         on_navigate: C,
@@ -280,9 +280,8 @@ extern "C" fn on_crumb_click(mut data: RefAny, mut info: CallbackInfo) -> Update
     use azul_core::dom::DomNodeId;
 
     let clicked = info.get_hit_node();
-    let parent = match info.get_parent(clicked) {
-        Some(p) => p,
-        None => return Update::DoNothing,
+    let Some(parent) = info.get_parent(clicked) else {
+        return Update::DoNothing;
     };
 
     // Collect the children in document order, then find the clicked crumb's slot.
@@ -293,16 +292,14 @@ extern "C" fn on_crumb_click(mut data: RefAny, mut info: CallbackInfo) -> Update
         cur = info.get_next_sibling(node);
     }
 
-    let pos = match siblings.iter().position(|n| *n == clicked) {
-        Some(p) => p,
-        None => return Update::DoNothing,
+    let Some(pos) = siblings.iter().position(|n| *n == clicked) else {
+        return Update::DoNothing;
     };
     // Crumbs sit at even positions (crumb, separator, crumb, separator, …).
     let index = pos / 2;
 
-    let mut bc = match data.downcast_mut::<BreadcrumbStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut bc) = data.downcast_mut::<BreadcrumbStateWrapper>() else {
+        return Update::DoNothing;
     };
     bc.inner.selected_index = index;
     let inner = bc.inner;

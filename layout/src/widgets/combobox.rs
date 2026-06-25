@@ -485,7 +485,7 @@ impl ComboBox {
 
     /// Builder-style setter for the select callback.
     #[inline]
-    pub fn with_on_select<C: Into<ComboBoxOnSelectCallback>>(
+    #[must_use] pub fn with_on_select<C: Into<ComboBoxOnSelectCallback>>(
         mut self,
         data: RefAny,
         on_select: C,
@@ -496,7 +496,7 @@ impl ComboBox {
 
     /// Replaces `self` with a default (empty) combobox and returns the original.
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create();
         core::mem::swap(&mut s, self);
         s
@@ -617,15 +617,13 @@ impl Default for ComboBox {
 /// Flips `open` on the shared state and shows/hides the list via `display`.
 extern "C" fn on_combobox_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let field = info.get_hit_node();
-    let list = match info.get_next_sibling(field) {
-        Some(l) => l,
-        None => return Update::DoNothing,
+    let Some(list) = info.get_next_sibling(field) else {
+        return Update::DoNothing;
     };
 
     let now_open = {
-        let mut combo = match data.downcast_mut::<ComboBoxStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut combo) = data.downcast_mut::<ComboBoxStateWrapper>() else {
+            return Update::DoNothing;
         };
         combo.inner.open = !combo.inner.open;
         combo.inner.open
@@ -715,31 +713,25 @@ extern "C" fn on_combobox_option_click(mut data: RefAny, mut info: CallbackInfo)
         cursor = prev;
     }
 
-    let list = match info.get_parent(option) {
-        Some(l) => l,
-        None => return Update::DoNothing,
+    let Some(list) = info.get_parent(option) else {
+        return Update::DoNothing;
     };
-    let wrapper = match info.get_parent(list) {
-        Some(w) => w,
-        None => return Update::DoNothing,
+    let Some(wrapper) = info.get_parent(list) else {
+        return Update::DoNothing;
     };
-    let field = match info.get_first_child(wrapper) {
-        Some(f) => f,
-        None => return Update::DoNothing,
+    let Some(field) = info.get_first_child(wrapper) else {
+        return Update::DoNothing;
     };
-    let text_node = match info.get_first_child(field) {
-        Some(t) => t,
-        None => return Update::DoNothing,
+    let Some(text_node) = info.get_first_child(field) else {
+        return Update::DoNothing;
     };
 
     let (label, inner, result) = {
-        let mut combo = match data.downcast_mut::<ComboBoxStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut combo) = data.downcast_mut::<ComboBoxStateWrapper>() else {
+            return Update::DoNothing;
         };
-        let label = match combo.items.as_ref().get(index) {
-            Some(l) => l.clone(),
-            None => return Update::DoNothing,
+        let Some(label) = combo.items.as_ref().get(index).cloned() else {
+            return Update::DoNothing;
         };
         combo.inner.selected = index;
         combo.inner.text = label.clone();
@@ -754,7 +746,7 @@ extern "C" fn on_combobox_option_click(mut data: RefAny, mut info: CallbackInfo)
         };
         (label, inner, result)
     };
-    let _ = inner;
+    drop(inner);
 
     // Fill the field with the chosen label and close the list.
     info.change_node_text(text_node, label);

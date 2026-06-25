@@ -157,6 +157,7 @@ const fn is_leap(year: u32) -> bool {
 }
 
 /// Number of days in the given (1-based) month of the given year.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 const fn days_in_month(year: u32, month: u32) -> u32 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
@@ -174,6 +175,7 @@ const fn days_in_month(year: u32, month: u32) -> u32 {
 
 /// Sakamoto's algorithm: weekday of `(year, month, day)`, returned as
 /// `0 = Sunday .. 6 = Saturday`. Verified: 2000-01-01 -> 6 (Saturday).
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn weekday(year: u32, month: u32, day: u32) -> u32 {
     const T: [i32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
     let mut y = year as i32;
@@ -445,7 +447,7 @@ impl DatePicker {
     }
 
     /// Builder variant of [`Self::set_on_change`].
-    pub fn with_on_change<C: Into<DatePickerOnChangeCallback>>(
+    #[must_use] pub fn with_on_change<C: Into<DatePickerOnChangeCallback>>(
         mut self,
         data: RefAny,
         callback: C,
@@ -455,7 +457,7 @@ impl DatePicker {
     }
 
     /// Replaces `self` with the default value and returns the original.
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(2000, 1, 1);
         core::mem::swap(&mut s, self);
         s
@@ -545,6 +547,7 @@ fn build_weekday_row() -> Dom {
         .with_children(cells.into())
 }
 
+#[allow(clippy::needless_pass_by_value)] // shared RefAny handle cloned per day cell
 fn build_grid(year: u32, month: u32, sel_day: u32, shared: RefAny) -> Dom {
     let leading = weekday(year, month, 1);
     let dim = days_in_month(year, month);
@@ -610,17 +613,15 @@ extern "C" fn on_day_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
     // Read the baked day + clone the shared-state handle.
     let (day, mut shared) = {
-        let cell = match data.downcast_ref::<DayCellData>() {
-            Some(c) => c,
-            None => return Update::DoNothing,
+        let Some(cell) = data.downcast_ref::<DayCellData>() else {
+            return Update::DoNothing;
         };
         (cell.day, cell.state.clone())
     };
 
     let update = {
-        let mut w = match shared.downcast_mut::<DatePickerStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut w) = shared.downcast_mut::<DatePickerStateWrapper>() else {
+            return Update::DoNothing;
         };
         w.inner.day = day;
         let inner = w.inner;
@@ -641,13 +642,11 @@ extern "C" fn on_day_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// Accents the clicked cell and neutralises every other grid cell (blanks
 /// included — for them transparent bg + a colour on empty text is a no-op).
 fn restyle_days(info: &mut CallbackInfo, clicked: azul_core::dom::DomNodeId) {
-    let row = match info.get_parent(clicked) {
-        Some(r) => r,
-        None => return,
+    let Some(row) = info.get_parent(clicked) else {
+        return;
     };
-    let grid = match info.get_parent(row) {
-        Some(g) => g,
-        None => return,
+    let Some(grid) = info.get_parent(row) else {
+        return;
     };
 
     let mut week = info.get_first_child(grid);
@@ -691,10 +690,10 @@ extern "C" fn on_next_month(data: RefAny, info: CallbackInfo) -> Update {
 /// clamps the selected day into the new month, and fires `on_change` so host
 /// code can rebuild the widget. TODO2: the in-widget grid is NOT rebuilt (see
 /// module docs) — only the reported state changes.
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn month_nav(mut data: RefAny, info: CallbackInfo, delta: i32) -> Update {
-    let mut w = match data.downcast_mut::<DatePickerStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut w) = data.downcast_mut::<DatePickerStateWrapper>() else {
+        return Update::DoNothing;
     };
 
     let mut month = w.inner.month as i32 + delta;

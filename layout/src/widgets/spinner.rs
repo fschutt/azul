@@ -195,7 +195,7 @@ impl Spinner {
 
     /// Replaces `self` with a default spinner and returns the original.
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create();
         core::mem::swap(&mut s, self);
         s

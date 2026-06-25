@@ -175,7 +175,7 @@ impl Card {
     }
 
     /// Replaces `self` with an empty default card and returns the original.
-    pub const fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(Dom::create_div());
         core::mem::swap(&mut s, self);
         s

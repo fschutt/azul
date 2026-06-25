@@ -84,6 +84,7 @@ pub enum AlertKind {
 
 impl AlertKind {
     /// Returns the `(background, border, text)` colours for this alert kind.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn colors(&self) -> (ColorU, ColorU, ColorU) {
         match self {
             Self::Info => (
@@ -333,7 +334,7 @@ impl Alert {
 
     /// Builder-style setter for the dismiss callback (implies dismissible).
     #[inline]
-    pub fn with_on_dismiss<C: Into<AlertOnDismissCallback>>(
+    #[must_use] pub fn with_on_dismiss<C: Into<AlertOnDismissCallback>>(
         mut self,
         data: RefAny,
         on_dismiss: C,
@@ -344,7 +345,7 @@ impl Alert {
 
     /// Replaces `self` with a default (empty info) alert and returns the original.
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
@@ -403,15 +404,13 @@ impl Default for Alert {
 /// optional user callback, then hides the whole alert via `display: none`.
 extern "C" fn default_on_alert_dismiss(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let close_node = info.get_hit_node();
-    let container = match info.get_parent(close_node) {
-        Some(c) => c,
-        None => return Update::DoNothing,
+    let Some(container) = info.get_parent(close_node) else {
+        return Update::DoNothing;
     };
 
     let result = {
-        let mut alert = match data.downcast_mut::<AlertStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut alert) = data.downcast_mut::<AlertStateWrapper>() else {
+            return Update::DoNothing;
         };
         alert.inner.visible = false;
         let inner = alert.inner;

@@ -72,7 +72,7 @@ pub struct SwitchStateWrapper {
 }
 
 /// The on/off state of a [`Switch`].
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Copy, Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct SwitchState {
     /// `true` = on (knob slid right), `false` = off (knob at left)
@@ -218,7 +218,7 @@ impl Switch {
     }
 
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(false);
         core::mem::swap(&mut s, self);
         s
@@ -234,7 +234,7 @@ impl Switch {
     }
 
     #[inline]
-    pub fn with_on_toggle<C: Into<SwitchOnToggleCallback>>(
+    #[must_use] pub fn with_on_toggle<C: Into<SwitchOnToggleCallback>>(
         mut self,
         data: RefAny,
         on_toggle: C,
@@ -293,15 +293,13 @@ mod input {
         mut switch: RefAny,
         mut info: CallbackInfo,
     ) -> Update {
-        let mut switch = match switch.downcast_mut::<SwitchStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut switch) = switch.downcast_mut::<SwitchStateWrapper>() else {
+            return Update::DoNothing;
         };
 
         let track_id = info.get_hit_node();
-        let knob_id = match info.get_first_child(track_id) {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(knob_id) = info.get_first_child(track_id) else {
+            return Update::DoNothing;
         };
 
         switch.inner.checked = !switch.inner.checked;
@@ -310,7 +308,7 @@ mod input {
             // rustc doesn't understand the borrowing lifetime here
             let switch = &mut *switch;
             let on_toggle = &mut switch.on_toggle;
-            let inner = switch.inner.clone();
+            let inner = switch.inner;
 
             match on_toggle.as_mut() {
                 Some(SwitchOnToggle {

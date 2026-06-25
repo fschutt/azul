@@ -338,7 +338,7 @@ impl Stepper {
     }
 
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(StringVec::from_const_slice(&[]));
         core::mem::swap(&mut s, self);
         s
@@ -358,7 +358,7 @@ impl Stepper {
     }
 
     #[inline]
-    pub fn with_on_step_change<C: Into<StepperOnStepChangeCallback>>(
+    #[must_use] pub fn with_on_step_change<C: Into<StepperOnStepChangeCallback>>(
         mut self,
         data: RefAny,
         on_step_change: C,
@@ -464,9 +464,8 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
     use azul_core::dom::DomNodeId;
 
     let clicked = info.get_hit_node();
-    let parent = match info.get_parent(clicked) {
-        Some(p) => p,
-        None => return Update::DoNothing,
+    let Some(parent) = info.get_parent(clicked) else {
+        return Update::DoNothing;
     };
 
     // Collect the step cells in document order.
@@ -482,15 +481,13 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
     }
     let last = count - 1;
 
-    let clicked_idx = match cells.iter().position(|n| *n == clicked) {
-        Some(i) => i,
-        None => return Update::DoNothing,
+    let Some(clicked_idx) = cells.iter().position(|n| *n == clicked) else {
+        return Update::DoNothing;
     };
 
     let current = {
-        let st = match data.downcast_ref::<StepperStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(st) = data.downcast_ref::<StepperStateWrapper>() else {
+            return Update::DoNothing;
         };
         st.inner.current_step
     };
@@ -500,9 +497,8 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
     }
 
     let result = {
-        let mut st = match data.downcast_mut::<StepperStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut st) = data.downcast_mut::<StepperStateWrapper>() else {
+            return Update::DoNothing;
         };
         st.inner.current_step = clicked_idx;
         let inner = st.inner;
@@ -520,9 +516,8 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
     for (i, cell) in cells.iter().enumerate() {
         let reached = i <= clicked_idx;
 
-        let row = match info.get_first_child(*cell) {
-            Some(r) => r,
-            None => continue,
+        let Some(row) = info.get_first_child(*cell) else {
+            continue;
         };
         let conn_left = info.get_first_child(row);
         let circle = conn_left.and_then(|cl| info.get_next_sibling(cl));

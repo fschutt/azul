@@ -105,6 +105,7 @@ pub enum ToastKind {
 
 impl ToastKind {
     /// Returns the `(background, border, text)` colours for this toast kind.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn colors(&self) -> (ColorU, ColorU, ColorU) {
         match self {
             Self::Info => (
@@ -367,7 +368,7 @@ impl Toast {
 
     /// Builder-style setter for the dismiss callback (implies dismissible).
     #[inline]
-    pub fn with_on_dismiss<C: Into<ToastOnDismissCallback>>(
+    #[must_use] pub fn with_on_dismiss<C: Into<ToastOnDismissCallback>>(
         mut self,
         data: RefAny,
         on_dismiss: C,
@@ -378,7 +379,7 @@ impl Toast {
 
     /// Replaces `self` with a default (empty info) toast and returns the original.
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
@@ -437,15 +438,13 @@ impl Default for Toast {
 /// optional user callback, then hides the whole toast via `display: none`.
 extern "C" fn default_on_toast_dismiss(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let close_node = info.get_hit_node();
-    let container = match info.get_parent(close_node) {
-        Some(c) => c,
-        None => return Update::DoNothing,
+    let Some(container) = info.get_parent(close_node) else {
+        return Update::DoNothing;
     };
 
     let result = {
-        let mut toast = match data.downcast_mut::<ToastStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut toast) = data.downcast_mut::<ToastStateWrapper>() else {
+            return Update::DoNothing;
         };
         toast.inner.visible = false;
         let inner = toast.inner;

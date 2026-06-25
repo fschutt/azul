@@ -87,6 +87,7 @@ pub enum ChipKind {
 
 impl ChipKind {
     /// Returns the `(background, text)` colours for this chip kind.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn colors(&self) -> (ColorU, ColorU) {
         const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
         const DARK: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 };
@@ -285,7 +286,7 @@ impl Chip {
 
     /// Builder-style setter for the remove callback (implies removable).
     #[inline]
-    pub fn with_on_remove<C: Into<ChipOnRemoveCallback>>(
+    #[must_use] pub fn with_on_remove<C: Into<ChipOnRemoveCallback>>(
         mut self,
         data: RefAny,
         on_remove: C,
@@ -296,7 +297,7 @@ impl Chip {
 
     /// Replaces `self` with an empty default chip and returns the original.
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
@@ -355,15 +356,13 @@ impl Default for Chip {
 /// then hides the whole chip via `display: none`.
 extern "C" fn default_on_chip_remove(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let remove_node = info.get_hit_node();
-    let container = match info.get_parent(remove_node) {
-        Some(c) => c,
-        None => return Update::DoNothing,
+    let Some(container) = info.get_parent(remove_node) else {
+        return Update::DoNothing;
     };
 
     let result = {
-        let mut chip = match data.downcast_mut::<ChipStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut chip) = data.downcast_mut::<ChipStateWrapper>() else {
+            return Update::DoNothing;
         };
         chip.inner.visible = false;
         let inner = chip.inner;

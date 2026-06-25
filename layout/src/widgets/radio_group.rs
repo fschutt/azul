@@ -340,7 +340,7 @@ impl RadioGroup {
     }
 
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(StringVec::from_const_slice(&[]));
         core::mem::swap(&mut s, self);
         s
@@ -360,7 +360,7 @@ impl RadioGroup {
     }
 
     #[inline]
-    pub fn with_on_change<C: Into<RadioGroupOnChangeCallback>>(
+    #[must_use] pub fn with_on_change<C: Into<RadioGroupOnChangeCallback>>(
         mut self,
         data: RefAny,
         on_change: C,
@@ -456,9 +456,8 @@ extern "C" fn on_radio_row_click(mut data: RefAny, mut info: CallbackInfo) -> Up
     use azul_core::dom::DomNodeId;
 
     let clicked = info.get_hit_node();
-    let parent = match info.get_parent(clicked) {
-        Some(p) => p,
-        None => return Update::DoNothing,
+    let Some(parent) = info.get_parent(clicked) else {
+        return Update::DoNothing;
     };
 
     // Collect the option rows in document order.
@@ -469,15 +468,13 @@ extern "C" fn on_radio_row_click(mut data: RefAny, mut info: CallbackInfo) -> Up
         cur = info.get_next_sibling(node);
     }
 
-    let selected = match rows.iter().position(|n| *n == clicked) {
-        Some(i) => i,
-        None => return Update::DoNothing,
+    let Some(selected) = rows.iter().position(|n| *n == clicked) else {
+        return Update::DoNothing;
     };
 
     let result = {
-        let mut rg = match data.downcast_mut::<RadioGroupStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut rg) = data.downcast_mut::<RadioGroupStateWrapper>() else {
+            return Update::DoNothing;
         };
         rg.inner.selected_index = selected;
         let inner = rg.inner;
@@ -494,13 +491,11 @@ extern "C" fn on_radio_row_click(mut data: RefAny, mut info: CallbackInfo) -> Up
     // (opacity 100), the rest are hidden (opacity 0). Each row is
     // `row → circle (first child) → dot (first child)`.
     for (i, row) in rows.iter().enumerate() {
-        let circle = match info.get_first_child(*row) {
-            Some(c) => c,
-            None => continue,
+        let Some(circle) = info.get_first_child(*row) else {
+            continue;
         };
-        let dot = match info.get_first_child(circle) {
-            Some(d) => d,
-            None => continue,
+        let Some(dot) = info.get_first_child(circle) else {
+            continue;
         };
         let opacity = if i == selected { 100 } else { 0 };
         info.set_css_property(dot, CssProperty::const_opacity(StyleOpacity::const_new(opacity)));

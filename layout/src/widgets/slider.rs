@@ -170,6 +170,7 @@ fn value_to_fraction(value: f32, min: f32, max: f32) -> f32 {
 
 /// Builds the thumb style; the `margin-left` is the only position-dependent
 /// property and slides the thumb between the left (`min`) and right (`max`) ends.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
 fn build_thumb_style(fraction: f32) -> CssPropertyWithConditionsVec {
     let margin = (fraction * (TRACK_WIDTH - THUMB_SIZE) as f32).round() as isize;
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
@@ -233,7 +234,7 @@ impl Slider {
     }
 
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use] pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(0.0, 0.0, 100.0);
         core::mem::swap(&mut s, self);
         s
@@ -253,7 +254,7 @@ impl Slider {
     }
 
     #[inline]
-    pub fn with_on_value_change<C: Into<SliderOnValueChangeCallback>>(
+    #[must_use] pub fn with_on_value_change<C: Into<SliderOnValueChangeCallback>>(
         mut self,
         data: RefAny,
         on_value_change: C,
@@ -335,10 +336,10 @@ impl Default for Slider {
 
 /// Shared logic for press + drag: compute the value from the cursor's X position
 /// relative to the track, slide the thumb live, and invoke the user callback.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
 fn apply_cursor_value(slider: &mut SliderStateWrapper, info: &mut CallbackInfo) -> Update {
-    let pos = match info.get_cursor_relative_to_node().into_option() {
-        Some(p) => p,
-        None => return Update::DoNothing,
+    let Some(pos) = info.get_cursor_relative_to_node().into_option() else {
+        return Update::DoNothing;
     };
     // Track width in LOGICAL px (falls back to the design width before first layout).
     let width = info
@@ -371,9 +372,8 @@ fn apply_cursor_value(slider: &mut SliderStateWrapper, info: &mut CallbackInfo) 
 
 /// Pointer down → begin a drag and set the value from the press position.
 extern "C" fn on_slider_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let mut slider = match data.downcast_mut::<SliderStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() else {
+        return Update::DoNothing;
     };
     slider.dragging = true;
     apply_cursor_value(&mut slider, &mut info)
@@ -381,9 +381,8 @@ extern "C" fn on_slider_pointer_down(mut data: RefAny, mut info: CallbackInfo) -
 
 /// Pointer move → if a drag is active, track the value to the cursor.
 extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let mut slider = match data.downcast_mut::<SliderStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() else {
+        return Update::DoNothing;
     };
     if !slider.dragging {
         return Update::DoNothing;
